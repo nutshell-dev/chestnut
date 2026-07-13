@@ -89,4 +89,31 @@ describe('DialogStore restorePrefix corrupted', () => {
     );
     expect(corruptedCalls.length).toBe(1);
   });
+
+  it('restorePrefix current.json EIO 传播并 audit RESTORE_IO_ERROR', async () => {
+    const audit = makeMockAudit();
+    const fs = makeMockFs({ currentContent: '' });
+    fs.read = vi.fn(async (p: string) => {
+      if (p === 'dialog/current.json') {
+        const err = new Error('EIO: i/o error, read') as any;
+        err.code = 'EIO';
+        throw err;
+      }
+      const err = new Error(`ENOENT: ${p}`) as any;
+      err.code = 'ENOENT';
+      throw err;
+    });
+    const store = new DialogStore(fs, 'dialog', audit as unknown as AuditLog, 'current.json', 'c1');
+
+    await expect(
+      store.restorePrefix({ clawId: 'c1', toolUseId: 'nonexistent' }),
+    ).rejects.toThrow('EIO');
+
+    const ioErrorCalls = audit.write.mock.calls.filter(
+      (c: unknown[]) =>
+        c[0] === DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR &&
+        c.includes('file=current.json'),
+    );
+    expect(ioErrorCalls.length).toBe(1);
+  });
 });

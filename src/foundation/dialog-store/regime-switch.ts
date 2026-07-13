@@ -17,6 +17,7 @@
 
 import * as path from 'node:path';
 import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Message, ToolDefinition } from '../llm-provider/types.js';
 import { formatErr } from '../node-utils/index.js';
@@ -137,10 +138,16 @@ export async function performRegimeSwitch(
   try {
     await currentStore.archive();
   } catch (e) {
-    const msg = formatErr(e);
-    // phase 595: 加 phase=archive col、与 REGIME_SWITCH_FAILED L174 (phase=save) / L183 (phase=save_and_dump) 对齐
-    audit.write(auditEvents.REGIME_SWITCH_HARD_FAIL, `phase=archive`, `reason=${msg}`);
-    throw e;
+    // Phase 985: current.json already archived by a prior attempt is an idempotent no-op;
+    // do not treat it as a regime-switch failure.
+    if (isFileNotFound(e)) {
+      // continue
+    } else {
+      const msg = formatErr(e);
+      // phase 595: 加 phase=archive col、与 REGIME_SWITCH_FAILED L174 (phase=save) / L183 (phase=save_and_dump) 对齐
+      audit.write(auditEvents.REGIME_SWITCH_HARD_FAIL, `phase=archive`, `reason=${msg}`);
+      throw e;
+    }
   }
 
   // 3. 计算 inherited per strategy

@@ -298,10 +298,14 @@ describe('DialogStore unit tests', () => {
     expect(files.filter(f => f.endsWith('.json'))).toHaveLength(1);
   });
 
-  it('archive: throws with ENOENT code when no current.json exists', async () => {
-    // initialize() catches this with: if (err?.code !== 'ENOENT' && code !== 'FS_NOT_FOUND')
-    // 验证 code 确实是 FS_NOT_FOUND（move 现统一转 FileNotFoundError），确保 initialize() 的静默判断能正确生效
-    await expect(sm.archive()).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+  it('archive: idempotent no-op when no current.json exists (phase 985)', async () => {
+    // archive() now treats an already-moved current.json as a successful no-op,
+    // so a retry after a partial regime switch does not fail.
+    await expect(sm.archive()).resolves.toBeUndefined();
+    expect(auditMock.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.ARCHIVE_ALREADY_ARCHIVED,
+      expect.stringContaining('path='),
+    );
   });
 
   it('archive: resets createdAt so next save() gets a fresh timestamp', async () => {
@@ -444,9 +448,12 @@ describe('DialogStore unit tests', () => {
 
   it('archive: writes session_archive_failed and still throws on move failure', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const smArc = new DialogStore(nodeFs, 'dialog', audit, 'current.json', 'test-claw');
-    // no current.json exists → move will throw FileNotFoundError (FS_NOT_FOUND)
-    await expect(smArc.archive()).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+    const failingFs = Object.setPrototypeOf({
+      exists: vi.fn(() => Promise.resolve(true)),
+      move: vi.fn(() => Promise.reject(new Error('move-fail'))),
+    }, nodeFs) as unknown as NodeFileSystem;
+    const smArc = new DialogStore(failingFs, 'dialog', audit, 'current.json', 'test-claw');
+    await expect(smArc.archive()).rejects.toThrow('move-fail');
     expect(audit.write).toHaveBeenCalledWith(
       DIALOG_AUDIT_EVENTS.ARCHIVE_FAILED,
       expect.stringContaining('path='),

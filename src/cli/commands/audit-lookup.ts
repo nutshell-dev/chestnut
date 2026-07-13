@@ -105,6 +105,9 @@ function emit(result: LookupResult, toolUseId: string, json: boolean): void {
         case 'all_failed':
           process.stderr.write(`  - dialog session 全部失败：dialog dir 不存在 / current/archive 都不含 tool_use_id\n`);
           break;
+        case 'io_error':
+          process.stderr.write(`  - dialog I/O error while reading current/archive (detail=${result.detail ?? 'unknown'})\n`);
+          break;
         default:
           { const _exhaustiveReason: never = result.reason; void _exhaustiveReason; }
       }

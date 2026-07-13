@@ -8,8 +8,10 @@ import {
   lookupContentByToolUseId,
   type LookupResult,
 } from '../../../src/foundation/dialog-store/lookup.js';
+import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
 import { makeToolUseId } from '../../../src/foundation/llm-provider/tool-use-id.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
+import type { AuditLog } from '../../../src/foundation/audit/types.js';
 
 function makeFs(entries: Record<string, string | { size: number; isDirectory?: boolean }>): FileSystem {
   const store: Record<string, string> = {};
@@ -276,5 +278,90 @@ describe('lookupContentByToolUseId', () => {
     const result = lookupContentByToolUseId(fs, '/dialog', 't1');
     expect(result.source).toBe('current');
     expect((result as Extract<LookupResult, { source: 'current' }>).content).toBe('found');
+  });
+
+  it('phase 985: current.json EACCES read returns io_error and audits LOOKUP_IO_ERROR', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([]),
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    vi.spyOn(fs, 'readSync').mockImplementation((p: string) => {
+      if (p === '/dialog/current.json') {
+        const err = new Error('EACCES: permission denied') as any;
+        err.code = 'EACCES';
+        throw err;
+      }
+      return (makeFs({}).readSync as any)(p);
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'file=current.json',
+      'toolUseId=t1',
+      'reason=EACCES',
+    );
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('phase 985: archive list EACCES returns io_error and audits LOOKUP_IO_ERROR', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([]),
+      '/dialog/archive': { size: 0, isDirectory: true },
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    vi.spyOn(fs, 'listSync').mockImplementation(() => {
+      const err = new Error('EACCES: permission denied') as any;
+      err.code = 'EACCES';
+      throw err;
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=archive',
+      'toolUseId=t1',
+      'reason=EACCES',
+    );
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('phase 985: archive file EACCES read returns io_error and audits LOOKUP_IO_ERROR', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([]),
+      '/dialog/archive': { size: 0, isDirectory: true },
+      '/dialog/archive/1704067200000_abc123.json': currentJson([
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'hello archive' }] },
+      ]),
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    vi.spyOn(fs, 'readSync').mockImplementation((p: string) => {
+      if (p === '/dialog/archive/1704067200000_abc123.json') {
+        const err = new Error('EACCES: permission denied') as any;
+        err.code = 'EACCES';
+        throw err;
+      }
+      // Fallback to original behavior for other paths.
+      const base = makeFs({
+        '/dialog/current.json': currentJson([]),
+        '/dialog/archive': { size: 0, isDirectory: true },
+        '/dialog/archive/1704067200000_abc123.json': currentJson([
+          { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'hello archive' }] },
+        ]),
+      });
+      return (base.readSync as any)(p);
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'file=1704067200000_abc123.json',
+      'toolUseId=t1',
+      'reason=EACCES',
+    );
+    expect(stderrSpy).not.toHaveBeenCalled();
   });
 });

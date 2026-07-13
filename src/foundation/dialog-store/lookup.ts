@@ -8,14 +8,17 @@
 
 import { sha256ShortHex } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
+import type { AuditLog } from '../audit/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
+import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
+import { isFatalIOError } from './io-errors.js';
 
-/** Lookup result discriminated union (phase 147 / 4 级降级路径). */
+/** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
 export type LookupResult =
   | { source: 'current'; content: string }
   | { source: 'archive'; content: string; archivedAt: string }
   | { source: 'archive'; content: string; archivedAt: string; hashVerified: true }
-  | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' };
+  | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' | 'io_error'; detail?: string };
 
 export interface LookupOptions {
   /** Optional sha8 hash for integrity verification (level 3 降级). */
@@ -37,6 +40,7 @@ export function lookupContentByToolUseId(
   dialogDir: string,
   toolUseId: ToolUseId | string,
   options?: LookupOptions,
+  audit?: AuditLog,
 ): LookupResult {
   const idStr = String(toolUseId);
 
@@ -50,14 +54,14 @@ export function lookupContentByToolUseId(
   const currentAccessible = fs.existsSync(currentPath);
   let currentResult: CurrentLookupResult | undefined;
   if (currentAccessible) {
-    currentResult = lookupInCurrent(fs, dialogDir, idStr);
+    currentResult = lookupInCurrent(fs, dialogDir, idStr, audit);
     if (currentResult.found) {
       return { source: 'current', content: currentResult.content };
     }
   }
 
   // Level 2: archive 扫
-  const archiveResult = lookupInArchive(fs, dialogDir, idStr);
+  const archiveResult = lookupInArchive(fs, dialogDir, idStr, audit);
   if (archiveResult.found) {
     // Level 3: hash 核（若提供 contentHash）
     if (options?.contentHash) {
@@ -80,6 +84,13 @@ export function lookupContentByToolUseId(
   }
 
   // Level 4: unavailable
+  // phase 985: I/O fault takes precedence over generic not_found classifications.
+  if (
+    (currentResult !== undefined && !currentResult.found && currentResult.reason === 'io_error') ||
+    archiveResult.ioError
+  ) {
+    return { source: 'unavailable', reason: 'io_error' };
+  }
   // phase 918: archive 目录读失败单独报告 not_in_archive
   if (archiveResult.inaccessible) {
     return { source: 'unavailable', reason: 'not_in_archive' };
@@ -96,9 +107,14 @@ export function lookupContentByToolUseId(
 
 type CurrentLookupResult =
   | { found: true; content: string }
-  | { found: false; reason: 'missing' | 'parse_failed' | 'not_found' };
+  | { found: false; reason: 'missing' | 'parse_failed' | 'not_found' | 'io_error' };
 
-function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): CurrentLookupResult {
+function lookupInCurrent(
+  fs: FileSystem,
+  dialogDir: string,
+  toolUseId: string,
+  audit?: AuditLog,
+): CurrentLookupResult {
   const currentPath = `${dialogDir}/current.json`;
   if (!fs.existsSync(currentPath)) return { found: false, reason: 'missing' };
   try {
@@ -111,6 +127,15 @@ function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): 
     const content = findContentInMessages(session.messages ?? [], toolUseId);
     return content !== null ? { found: true, content } : { found: false, reason: 'not_found' };
   } catch (err) {
+    if (isFatalIOError(err)) {
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+        'file=current.json',
+        `toolUseId=${toolUseId}`,
+        `reason=${(err as NodeJS.ErrnoException).code ?? err}`,
+      );
+      return { found: false, reason: 'io_error' };
+    }
     process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`); // silent: fallback log, non-critical
     return { found: false, reason: 'parse_failed' };
   }
@@ -118,12 +143,13 @@ function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): 
 
 type ArchiveLookupResult =
   | { found: true; content: string; archivedAt: string; inaccessible: false }
-  | { found: false; inaccessible: boolean };
+  | { found: false; inaccessible: boolean; ioError?: boolean };
 
 function lookupInArchive(
   fs: FileSystem,
   dialogDir: string,
   toolUseId: string,
+  audit?: AuditLog,
 ): ArchiveLookupResult {
   const archiveDir = `${dialogDir}/archive`;
   if (!fs.existsSync(archiveDir)) return { found: false, inaccessible: false };
@@ -132,6 +158,15 @@ function lookupInArchive(
   try {
     entries = fs.listSync(archiveDir);
   } catch (err) {
+    if (isFatalIOError(err)) {
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+        'dir=archive',
+        `toolUseId=${toolUseId}`,
+        `reason=${(err as NodeJS.ErrnoException).code ?? err}`,
+      );
+      return { found: false, inaccessible: true, ioError: true };
+    }
     process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`); // silent: fallback log, non-critical
     return { found: false, inaccessible: true };
   }
@@ -158,6 +193,15 @@ function lookupInArchive(
         return { found: true, content, archivedAt, inaccessible: false };
       }
     } catch (err) {
+      if (isFatalIOError(err)) {
+        audit?.write?.(
+          DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+          `file=${entry.name}`,
+          `toolUseId=${toolUseId}`,
+          `reason=${(err as NodeJS.ErrnoException).code ?? err}`,
+        );
+        return { found: false, inaccessible: true, ioError: true };
+      }
       process.stderr.write(`[dialog-lookup] archive ${entry.name} parse failed: ${err}\n`);
       continue;
     }

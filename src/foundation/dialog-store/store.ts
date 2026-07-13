@@ -487,6 +487,18 @@ export class DialogStore {
       // Ensure archive directory exists
       await this.fs.ensureDir(this.archiveDir);
 
+      // Phase 985: archive idempotency — current.json may already have been moved
+      // away by a prior attempt. Treat as no-op and reset the in-memory state so
+      // subsequent saves start a fresh session.
+      const currentExists = await this.fs.exists(this.currentPath);
+      if (!currentExists) {
+        this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_ALREADY_ARCHIVED, `path=${this.currentPath}`);
+        this.createdAt = null;
+        this.corruptedPoisoned = false;
+        this.prevMessagesLength = 0;
+        return;
+      }
+
       // Generate archive filename with timestamp and UUID suffix to avoid collisions
       const timestamp = Date.now();
       const archivePath = path.join(this.archiveDir, `${timestamp}_${newShortUuid()}.json`);

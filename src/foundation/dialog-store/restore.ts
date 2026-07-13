@@ -16,6 +16,7 @@ import type { SessionData, DialogMarker, RestoreResult } from './types.js';
 import { MarkerNotFoundError, detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
+import { isFatalIOError } from './io-errors.js';
 import { formatErr } from '../node-utils/index.js';
 import { DialogStoreError } from './errors.js';
 
@@ -80,8 +81,19 @@ export async function restoreMessages(
       );
     }
   } catch (err) {
-    if (!isFileNotFound(err)) throw err;
-    // ENOENT: current.json does not exist; fall through to archive search.
+    if (isFileNotFound(err)) {
+      // ENOENT: current.json does not exist; fall through to archive search.
+    } else if (isFatalIOError(err)) {
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
+        'file=current.json',
+        `context=restore_${inclusive ? 'prefix' : 'before'}`,
+        `reason=${formatErr(err)}`,
+      );
+      throw err;
+    } else {
+      throw err;
+    }
   }
 
   // 2. Scan archive/*.json (按时间倒序 / 找首个含 toolUseId 的)
@@ -125,6 +137,15 @@ export async function restoreMessages(
           };
         }
       } catch (err) {
+        if (isFatalIOError(err)) {
+          audit?.write?.(
+            DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
+            `file=${entry.name}`,
+            `context=restore_${inclusive ? 'prefix' : 'before'}`,
+            `reason=${formatErr(err)}`,
+          );
+          throw err;
+        }
         audit?.write?.(
           DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED,
           `file=${entry.name}`,
@@ -134,6 +155,15 @@ export async function restoreMessages(
       }
     }
   } catch (err) {
+    if (isFatalIOError(err)) {
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
+        `dir=${archiveDir}`,
+        `context=restore_${inclusive ? 'prefix' : 'before'}`,
+        `reason=${formatErr(err)}`,
+      );
+      throw err;
+    }
     // phase 680: 加 dir forensic col、与 store.ts:586 ARCHIVE_READ_FAILED 形态对齐
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.ARCHIVE_DIR_FAILED,
