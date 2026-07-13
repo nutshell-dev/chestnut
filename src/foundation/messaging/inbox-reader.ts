@@ -42,7 +42,14 @@ import {
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { makeClawId } from '../claw-identity/index.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
-import { DialogIOError } from '../dialog-store/errors.js';
+
+// Phase 992: inbox-reader owns its transient-read error to avoid reaching into dialog-store internals.
+class InboxReadError extends Error {
+  constructor(message: string, readonly causeErr: unknown) {
+    super(message);
+    this.name = 'InboxReadError';
+  }
+}
 
 
 
@@ -290,7 +297,7 @@ export class InboxReader {
           content = await this.fs.read(filePath);
         } catch (readErr) {
           if (isFileNotFound(readErr)) throw readErr;
-          throw new DialogIOError(`I/O error reading inbox file: ${formatErr(readErr)}`, readErr);
+          throw new InboxReadError(`I/O error reading inbox file: ${formatErr(readErr)}`, readErr);
         }
         const message = decodeInbox(content);
         if (message.extraMeta?.__original_priority !== undefined) {
@@ -346,9 +353,9 @@ export class InboxReader {
 
         results.push({ message, filePath });
       } catch (err) {
-        // Phase 990: DialogIOError (transient read fault) stays in pending for retry.
+        // Phase 992: InboxReadError (transient read fault) stays in pending for retry.
         // ENOENT or decode/validation errors are permanent and move to failed.
-        if (err instanceof DialogIOError) {
+        if (err instanceof InboxReadError) {
           emitInboxFailed(this.audit, {
             file: entry.name,
             errorCode: classifyErrno(err.causeErr),

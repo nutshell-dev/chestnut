@@ -32,6 +32,10 @@ export type {
   LookupOptions,
 } from './lookup.js';
 
+// Phase 992: barrel export error classes + core types to stop cross-module deep imports.
+export { DialogIOError, DialogStoreError, CorruptionError } from './errors.js';
+export type { LoadResult, DialogMarker, RestoreResult } from './types.js';
+
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { DialogStore } from './store.js';

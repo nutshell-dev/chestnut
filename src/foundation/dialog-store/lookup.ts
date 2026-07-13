@@ -115,7 +115,10 @@ export function lookupContentByToolUseId(
     (currentResult !== undefined && !currentResult.found && currentResult.reason === 'io_error') ||
     archiveResult.ioError
   ) {
-    return { source: 'unavailable', reason: 'io_error' };
+    const detail =
+      (currentResult && !currentResult.found ? currentResult.errorDetail : undefined) ??
+      (archiveResult && !archiveResult.found ? archiveResult.ioErrorDetail : undefined);
+    return { source: 'unavailable', reason: 'io_error', detail };
   }
   // phase 918: archive 目录读失败单独报告 not_in_archive
   if (archiveResult.inaccessible) {
@@ -133,7 +136,7 @@ export function lookupContentByToolUseId(
 
 type CurrentLookupResult =
   | { found: true; content: string }
-  | { found: false; reason: 'missing' | 'parse_failed' | 'not_found' | 'io_error' };
+  | { found: false; reason: 'missing' | 'parse_failed' | 'not_found' | 'io_error'; errorDetail?: string };
 
 function lookupInCurrent(
   fs: FileSystem,
@@ -160,7 +163,7 @@ function lookupInCurrent(
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
-    return { found: false, reason: 'io_error' };
+    return { found: false, reason: 'io_error', errorDetail: formatErr(err) };
   }
 
   try {
@@ -180,7 +183,7 @@ function lookupInCurrent(
 
 type ArchiveLookupResult =
   | { found: true; content: string; archivedAt: string; inaccessible: false }
-  | { found: false; inaccessible: boolean; ioError?: boolean };
+  | { found: false; inaccessible: boolean; ioError?: boolean; ioErrorDetail?: string };
 
 function lookupInArchive(
   fs: FileSystem,
@@ -200,7 +203,7 @@ function lookupInArchive(
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
-    return { found: false, inaccessible: true, ioError: true };
+    return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err) };
   }
   if (!archiveExists) return { found: false, inaccessible: false };
 
@@ -219,7 +222,7 @@ function lookupInArchive(
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
-    return { found: false, inaccessible: true, ioError: true };
+    return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err) };
   }
 
   // archive entries 形态：`<timestamp>_<uuid>.json` 文件（store.ts archive() 生成）
@@ -250,7 +253,7 @@ function lookupInArchive(
         `toolUseId=${toolUseId}`,
         `reason=${formatErr(err)}`,
       );
-      return { found: false, inaccessible: true, ioError: true };
+      return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err) };
     }
 
     try {

@@ -9,8 +9,7 @@ import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../founda
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
-import { DialogIOError } from '../../foundation/dialog-store/errors.js';
+import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
