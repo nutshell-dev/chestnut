@@ -125,23 +125,25 @@ describe('computeProcessUptimeMs', () => {
 // ── computeClawInboxUnread ──────────────────────────────────────────────────
 
 describe('computeClawInboxUnread', () => {
+  const TEST_CLAW_LABEL = 'test-claw';
+
   function makeDummyAudit(): AuditLog {
     return { write: vi.fn() } as unknown as AuditLog;
   }
 
   it('returns 0 when inbox/pending dir does not exist', async () => {
     const fs = makeFs({}, {});
-    expect(await computeClawInboxUnread(fs, makeDummyAudit())).toBe(0);
+    expect(await computeClawInboxUnread(fs, makeDummyAudit(), TEST_CLAW_LABEL)).toBe(0);
   });
 
   it('returns number of files in inbox/pending', async () => {
     const fs = makeFs({}, { 'inbox/pending': ['msg-1.md', 'msg-2.md', 'msg-3.md'] });
-    expect(await computeClawInboxUnread(fs, makeDummyAudit())).toBe(3);
+    expect(await computeClawInboxUnread(fs, makeDummyAudit(), TEST_CLAW_LABEL)).toBe(3);
   });
 
   it('returns 0 when inbox/pending is empty', async () => {
     const fs = makeFs({}, { 'inbox/pending': [] });
-    expect(await computeClawInboxUnread(fs, makeDummyAudit())).toBe(0);
+    expect(await computeClawInboxUnread(fs, makeDummyAudit(), TEST_CLAW_LABEL)).toBe(0);
   });
 
   it('returns undefined inboxUnread and writes audit when peekPendingCount fails', async () => {
@@ -149,10 +151,11 @@ describe('computeClawInboxUnread', () => {
       peekPendingCount: vi.fn().mockRejectedValue(new Error('EACCES')),
     } as unknown as ReturnType<typeof messaging.createInboxReader>);
     const audit = makeDummyAudit();
-    const result = await computeClawInboxUnread(makeFs({}), audit);
+    const result = await computeClawInboxUnread(makeFs({}), audit, TEST_CLAW_LABEL);
     expect(result).toBeUndefined();
     expect(audit.write).toHaveBeenCalledWith(
       STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR,
+      `claw=${TEST_CLAW_LABEL}`,
       'error=EACCES',
     );
     vi.restoreAllMocks();

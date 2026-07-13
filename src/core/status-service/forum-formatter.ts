@@ -48,7 +48,7 @@ export function formatForumStatusView(view: ForumStatusView): string[] {
   lines.push('');
 
   // ── Active claws ──
-  const n = view.activeClaws.length;
+  const n = view.activeClaws.filter(c => c.status === 'ok').length;
   lines.push(`Active claws (${n} / ${view.totalClawCount})`);
   for (const claw of view.activeClaws) {
     lines.push(`  ${formatActiveClawHeader(claw)}`);

@@ -65,11 +65,13 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
     audit,
   });
 
-  audit.write('status_forum', `claws=${view.activeClaws.length}`, `total=${view.totalClawCount}`);
+  const okCount = view.activeClaws.filter(c => c.status === 'ok').length;
+  audit.write('status_forum', `claws=${okCount}`, `total=${view.totalClawCount}`);
 
   const errorClaws = view.activeClaws.filter((c): c is Extract<typeof c, { status: 'error' }> => c.status === 'error');
   if (errorClaws.length > 0) {
-    audit.write('status_forum_claw_errors', `count=${errorClaws.length}`, `claws=${errorClaws.map(c => c.name).join(',')}`);
+    const details = errorClaws.map(c => `${c.name}: ${c.error}`).join(', ');
+    audit.write('status_forum_claw_errors', `count=${errorClaws.length}`, `details=${details}`);
   }
   if (view.orphans.error) {
     audit.write('status_forum_orphan_error', `error=${view.orphans.error}`);

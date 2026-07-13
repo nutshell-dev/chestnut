@@ -84,12 +84,13 @@ export function computeProcessUptimeMs(
 export async function computeClawInboxUnread(
   clawFs: FileSystem,
   audit: AuditLog,
+  clawLabel: string,
 ): Promise<number | undefined> {
   try {
     const inboxReader = createInboxReader(clawFs, audit, 'inbox');
     return await inboxReader.peekPendingCount();
   } catch (err) {
-    audit.write(STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR, `error=${formatErr(err)}`);
+    audit.write(STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR, `claw=${clawLabel}`, `error=${formatErr(err)}`);
     return undefined; // I/O error → unavailable
   }
 }
@@ -194,7 +195,7 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
       motionStatus.alive && motionStatus.pid !== undefined
         ? computeProcessUptimeMs(motionStatus.pid, nowMs, deps.getStartTime)
         : undefined,
-    inboxUnread: motionStatus.alive ? await computeClawInboxUnread(motionFs, deps.audit) : undefined,
+    inboxUnread: motionStatus.alive ? await computeClawInboxUnread(motionFs, deps.audit, MOTION_CLAW_ID) : undefined,
   };
 
   // ── Active claws ──
@@ -220,7 +221,7 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
         pid: s.pid,
         uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
         lastActivityAgoMs: computeClawLastActivityAgoMs(clawFs, nowMs),
-        inboxUnread: await computeClawInboxUnread(clawFs, deps.audit),
+        inboxUnread: await computeClawInboxUnread(clawFs, deps.audit, clawId),
       });
     } catch (err) {
       activeClaws.push({
