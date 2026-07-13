@@ -17,10 +17,14 @@ const TIMEOUT_MS = 2000;
  */
 const MSG_PROCESS_BUDGET_MS = 50;
 
+const createdSockets: string[] = [];
+
 function makeSocketPath(): string {
   // Unix domain socket 路径长度受限；TMPDIR 重定向后路径过长，
   // 因此 socket 路径必须使用真实系统 tmpdir。
-  return join(getHostTmpDir(), `chestnut-test-${randomUUID()}.sock`);
+  const p = join(getHostTmpDir(), `chestnut-test-${randomUUID()}.sock`);
+  createdSockets.push(p);
+  return p;
 }
 
 // phase 1492: 注入 NodeFileSystem (baseDir=tmpdir) 满足 transport ctor required deps。
@@ -88,6 +92,15 @@ describe('UnixDomainSocketTransport', () => {
     clients = [];
     if (transport) await transport.close();
     transport = null;
+    // 清理 socket 文件（transport.close() 不保证 unlink）
+    for (const p of createdSockets) {
+      try {
+        await fs.unlink(p);
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+    }
+    createdSockets.length = 0;
   });
 
   it('listen and close idempotently', async () => {

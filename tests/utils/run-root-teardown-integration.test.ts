@@ -6,7 +6,9 @@ import * as path from 'node:path';
 import { getHostTmpDir } from './run-root.js';
 
 function createSandbox(): string {
-  const sandbox = path.join(getHostTmpDir(), `chestnut-integration-sandbox-${randomUUID()}`);
+  // 优先放在当前 invocation 的 run root 下，使异常中断时能被 teardown/reclaim 回收
+  const runRoot = process.env.CHESTNUT_RUN_ROOT || getHostTmpDir();
+  const sandbox = path.join(runRoot, `chestnut-integration-sandbox-${randomUUID()}`);
   fs.mkdirSync(sandbox, { recursive: true });
   return sandbox;
 }
