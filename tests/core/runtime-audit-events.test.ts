@@ -16,7 +16,7 @@ import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { tmpdir } from 'os';
+
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
@@ -50,39 +50,35 @@ describe('Runtime audit events', () => {
 
   describe('session_loaded audit timing', () => {
     it('session_loaded should not pollute summarizeLastExit tail-read on restart', async () => {
-      const clawDir = await createTempDir();
-      try {
-        const clawSubDir = path.join(clawDir, 'claws', 'audit-claw');
-        await fs.mkdir(clawSubDir, { recursive: true });
+      // 复用 beforeEach 的 tempDir，确保 afterEach 先停 runtime 再删目录
+      const clawSubDir = path.join(tempDir, 'claws', 'audit-claw');
+      await fs.mkdir(clawSubDir, { recursive: true });
 
-        // 构造一个带有 daemon_stop 的 audit.tsv（模拟正常退出的上一次运行）
-        const auditPath = path.join(clawSubDir, 'audit.tsv');
-        await fs.writeFile(auditPath, `2026-04-17T00:00:00.000Z\tdaemon_stop\treason=sigterm\n`);
+      // 构造一个带有 daemon_stop 的 audit.tsv（模拟正常退出的上一次运行）
+      const auditPath = path.join(clawSubDir, 'audit.tsv');
+      await fs.writeFile(auditPath, `2026-04-17T00:00:00.000Z\tdaemon_stop\treason=sigterm\n`);
 
-        // 不创建 dialog/current.json，使 sessionManager.load() 返回 empty session
+      // 不创建 dialog/current.json，使 sessionManager.load() 返回 empty session
 
-        const runtime = trackRuntime(await createTestRuntime({
-          clawId: 'audit-claw',
-          clawDir: clawSubDir,
-          llmConfig: createMockLLMConfig(),
-        }));
-        await runtime.initialize();
+      const runtime = trackRuntime(await createTestRuntime({
+        clawId: 'audit-claw',
+        clawDir: clawSubDir,
+        llmConfig: createMockLLMConfig(),
+      }));
+      await runtime.initialize();
 
-        // 读取 initialize 后 audit.tsv 的内容
-        const auditContent = await fs.readFile(auditPath, 'utf-8');
-        const lines = auditContent.trim().split('\n');
+      // 读取 initialize 后 audit.tsv 的内容
+      const auditContent = await fs.readFile(auditPath, 'utf-8');
+      const lines = auditContent.trim().split('\n');
 
-        // 验证 audit.tsv 中 daemon_stop 在 session_loaded 之前——
-        // 如果 session_loaded 在 summarizeLastExit 之前写入，当初 summarizeLastExit 读到的就会是 session_loaded 而非 daemon_stop
-        const sessionLoadedIndex = lines.findIndex((l: string) => l.includes('session_loaded'));
-        const daemonStopIndex = lines.findIndex((l: string) => l.includes('daemon_stop'));
-        expect(sessionLoadedIndex).toBeGreaterThan(daemonStopIndex);
+      // 验证 audit.tsv 中 daemon_stop 在 session_loaded 之前——
+      // 如果 session_loaded 在 summarizeLastExit 之前写入，当初 summarizeLastExit 读到的就会是 session_loaded 而非 daemon_stop
+      const sessionLoadedIndex = lines.findIndex((l: string) => l.includes('session_loaded'));
+      const daemonStopIndex = lines.findIndex((l: string) => l.includes('daemon_stop'));
+      expect(sessionLoadedIndex).toBeGreaterThan(daemonStopIndex);
 
-        // 验证 session_loaded 确实被写入了
-        expect(sessionLoadedIndex).not.toBe(-1);
-      } finally {
-        await cleanupTempDir(clawDir);
-      }
+      // 验证 session_loaded 确实被写入了
+      expect(sessionLoadedIndex).not.toBe(-1);
     });
   });
 

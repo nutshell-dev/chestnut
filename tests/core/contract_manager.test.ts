@@ -29,8 +29,11 @@ import { makeMockAudit } from '../helpers/audit.js';
 let testDir: string;
 let clawDir: string;
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  if (testDir) {
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  }
 });
 
 describe('ContractSystem', () => {
