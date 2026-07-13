@@ -46,6 +46,7 @@ const VI_MOCK_FILES = [
   'tests/cli/commands/claw-health.test.ts',
   'tests/cli/commands/claw-list.test.ts',
   'tests/cli/commands/claw-stream.test.ts',
+  'tests/cli/commands/status.test.ts',
 
   'tests/cli/commands/subagent-cli-output.test.ts',  // phase 1395 merged from subagent-list + subagent-steps-json
   'tests/cli/config-provider-add-probe.test.ts',  // phase 451 Step A
@@ -177,6 +178,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/messaging/inbox-reader-race.test.ts',
   'tests/foundation/messaging/outbox-reader-reconcile.test.ts',  // phase 908: vi.mock process-exec isAlive
   'tests/foundation/process-exec/process-starttime-catch-filter.test.ts',
+  'tests/foundation/process-exec/find-by-pattern.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
   // 'tests/foundation/process-manager/isready-stale-self-cleanup.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
