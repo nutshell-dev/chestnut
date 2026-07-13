@@ -18,6 +18,7 @@ import {
   type LookupOptions,
 } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { createSystemAudit } from '../../foundation/audit/index.js';
 
 
 interface AuditLookupOpts {
@@ -55,7 +56,8 @@ export async function auditLookupCommand(
     contentHash: opts.contentHash,
   };
 
-  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId, lookupOpts);
+  const audit = createSystemAudit(fs, clawDir);
+  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId, lookupOpts, audit);
   emit(result, toolUseId, opts.json ?? false);
 
   // exit code strict semantics: 3 for unavailable

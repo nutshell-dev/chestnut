@@ -17,8 +17,8 @@ import { formatErr } from '../node-utils/index.js';
 /** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
 export type LookupResult =
   | { source: 'current'; content: string }
-  | { source: 'archive'; content: string; archivedAt: string }
-  | { source: 'archive'; content: string; archivedAt: string; hashVerified: true }
+  | { source: 'archive'; content: string; archivedAt: string; degradationNote?: string }
+  | { source: 'archive'; content: string; archivedAt: string; hashVerified: true; degradationNote?: string }
   | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' | 'io_error'; detail?: string };
 
 export interface LookupOptions {
@@ -100,12 +100,14 @@ export function lookupContentByToolUseId(
         content: archiveResult.content,
         archivedAt: archiveResult.archivedAt,
         hashVerified: true,
+        degradationNote: buildDegradationNote(currentResult),
       };
     }
     return {
       source: 'archive',
       content: archiveResult.content,
       archivedAt: archiveResult.archivedAt,
+      degradationNote: buildDegradationNote(currentResult),
     };
   }
 
@@ -295,6 +297,13 @@ function findContentInMessages(messages: unknown[], toolUseId: string): string |
     }
   }
   return null;
+}
+
+function buildDegradationNote(currentResult: CurrentLookupResult | undefined): string | undefined {
+  if (currentResult && !currentResult.found) {
+    return `current.json: ${currentResult.reason}${currentResult.errorDetail ? ` (${currentResult.errorDetail})` : ''}`;
+  }
+  return undefined;
 }
 
 function computeSha8(content: string): string {

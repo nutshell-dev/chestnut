@@ -43,7 +43,7 @@ describe('migration: legacy uuid8 filenames remain readable (phase 286)', () => 
       nfs,
       audit as any,
     );
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
     expect(entries).toHaveLength(1);
     expect(entries[0].message.content).toBe('Legacy body');
     expect(entries[0].message.priority).toBe('high');

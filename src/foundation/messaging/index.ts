@@ -18,7 +18,7 @@ export { InboxWriter, makeInboxPath } from './inbox-writer.js';
 export type { InboxMessageOptionsBase } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
-export type { InboxEntry, ScannedInboxLocation } from './inbox-reader.js';
+export type { InboxEntry, ScannedInboxLocation, DrainInboxResult } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage, InboxMessage, Priority, HeartbeatEntry } from './types.js';
 export { PRIORITY_VALUES } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';

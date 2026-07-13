@@ -44,6 +44,7 @@ export async function restoreMessages(
 ): Promise<RestoreResult> {
   // 1. Scan current.json
   let currentRaw: string;
+  let currentDegradationNote: string | undefined;
   try {
     currentRaw = await fs.read(currentPath);
   } catch (err) {
@@ -81,6 +82,7 @@ export async function restoreMessages(
           `actual=${data.clawId}`,
           `toolUseId=${marker.toolUseId}`,
         );
+        currentDegradationNote = `current.json clawId mismatch: expected=${marker.clawId}, actual=${data.clawId}`;
         // fall through to archive search
       } else {
         const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
@@ -95,6 +97,7 @@ export async function restoreMessages(
       }
     } catch (err) {
       if (isFileNotFound(err) || err instanceof DialogIOError) throw err;
+      currentDegradationNote = `current.json corrupted: ${formatErr(err)}`;
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.CORRUPTED,
         'file=current.json',
@@ -175,7 +178,7 @@ export async function restoreMessages(
           messages: sliced,
           systemPrompt: data.systemPrompt,
           toolsForLLM: data.toolsForLLM,
-          meta: { foundIn: 'archive', foundFile: entry.name },
+          meta: { foundIn: 'archive', foundFile: entry.name, degradationNote: currentDegradationNote },
         };
       }
     } catch (err) {

@@ -122,7 +122,7 @@ Test message content`;
     await nfs.writeAtomic('inbox/pending/normal.md', buildMdMessage(normalMsg));
     await nfs.writeAtomic('inbox/pending/high.md', buildMdMessage(highMsg));
 
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
 
     expect(entries[0].message.id).toBe('critical');
     expect(entries[1].message.id).toBe('high');
@@ -142,7 +142,7 @@ Test message content`;
       await nfs.writeAtomic(`inbox/pending/${m.id}.md`, buildMdMessage(m));
     }
 
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
     expect(entries[0].message.id).toBe('first');
     expect(entries[1].message.id).toBe('second');
     expect(entries[2].message.id).toBe('third');
@@ -172,7 +172,7 @@ Test message content`;
       await nfs.writeAtomic(`inbox/pending/${m.id}.md`, buildMdMessage(m));
     }
 
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
     const ids = entries.map(e => e.message.id);
 
     expect(ids).toContain('msg-1');
@@ -185,7 +185,7 @@ Test message content`;
       '---\ntype: message\npriority: urgent\nid: p-fallback\nfrom: s\nto: c\ntimestamp: 2026-01-01T00:00:00Z\n---\nBody',
     );
 
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
     expect(entries).toHaveLength(1);
     expect(entries[0].message.priority).toBe('normal');
     expect(entries[0].message.id).toBe('p-fallback');
@@ -197,7 +197,7 @@ Test message content`;
       '---\ntype: unknown_event\npriority: normal\nid: t-fallback\nfrom: s\nto: c\ntimestamp: 2026-01-01T00:00:00Z\n---\nBody',
     );
 
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
     expect(entries).toHaveLength(1);
     expect(entries[0].message.type).toBe('unknown_event');
     expect(entries[0].message.extraMeta?.__original_type).toBeUndefined();
@@ -210,7 +210,7 @@ Test message content`;
       '---\ntype: watchdog_ping\npriority: normal\nid: wd-passthrough\nfrom: s\nto: c\ntimestamp: 2026-01-01T00:00:00Z\n---\nBody',
     );
 
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
     expect(entries).toHaveLength(1);
     expect(entries[0].message.type).toBe('watchdog_ping');
     expect(entries[0].message.extraMeta?.__original_type).toBeUndefined();
@@ -222,7 +222,7 @@ Test message content`;
       '---\ntype: normal\nid: bad-msg\n(no closing fence)',
     );
 
-    const entries = await reader.drainInbox();
+    const { entries } = await reader.drainInbox();
     expect(entries).toHaveLength(0);
 
     const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
@@ -270,7 +270,7 @@ Test message content`;
       nfs,
     );
 
-    const entries = await noentReader.drainInbox();
+    const { entries } = await noentReader.drainInbox();
     expect(entries).toHaveLength(0);
   });
 

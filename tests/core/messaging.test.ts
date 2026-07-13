@@ -68,7 +68,7 @@ describe('Messaging', () => {
       };
       await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      const entries = await reader.drainInbox();
+      const { entries } = await reader.drainInbox();
 
       expect(entries).toHaveLength(1);
       expect(entries[0].message.content).toBe('Test message');
@@ -86,7 +86,7 @@ describe('Messaging', () => {
       };
       await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      const entries = await reader.drainInbox();
+      const { entries } = await reader.drainInbox();
       await reader.markDone(entries[0].filePath);
 
       // Check file moved to done
@@ -107,7 +107,7 @@ describe('Messaging', () => {
       };
       await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      const entries = await reader.drainInbox();
+      const { entries } = await reader.drainInbox();
       await reader.markFailed(entries[0].filePath);
 
       // Failed message should be in failed/
@@ -140,7 +140,7 @@ describe('Messaging', () => {
       await mockFs.writeAtomic('inbox/pending/normal.md', buildMdMessage(normalMsg));
       await mockFs.writeAtomic('inbox/pending/critical.md', buildMdMessage(criticalMsg));
 
-      const entries = await reader.drainInbox();
+      const { entries } = await reader.drainInbox();
 
       // Critical should be first despite being written second
       expect(entries[0].message.content).toBe('Critical');
@@ -159,7 +159,7 @@ describe('Messaging', () => {
       };
       await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      const entries = await reader.drainInbox();
+      const { entries } = await reader.drainInbox();
       await reader.markDone(entries[0].filePath);
 
       // Verify done filename contains UUID (format: {timestamp}_{uuid8}_{filename})
@@ -177,7 +177,7 @@ describe('Messaging', () => {
         '---\ntype: normal\nid: bad-msg\n(no closing fence)',
       );
 
-      const entries = await reader.drainInbox();
+      const { entries } = await reader.drainInbox();
 
       // No valid entries returned
       expect(entries).toHaveLength(0);

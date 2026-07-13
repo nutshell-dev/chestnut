@@ -83,7 +83,7 @@ describe('phase 1132 D.2: inbox-reader legacy claw_id audit', () => {
     await fs.mkdir(path.dirname(pendingFile), { recursive: true });
     await fs.writeFile(pendingFile, raw, 'utf-8');
 
-    const results = await reader.drainInbox();
+    const { entries: results } = await reader.drainInbox();
 
     expect(results).toHaveLength(1);
     expect(results[0].message.metadata?.contract_id).toBeUndefined();

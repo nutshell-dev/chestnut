@@ -78,6 +78,13 @@ export interface InboxEntry {
   filePath: string;
 }
 
+/** Phase 994: drainInbox result includes error summary for observability. */
+export interface DrainInboxResult {
+  entries: InboxEntry[];
+  transientErrors: number;  // files kept in pending for retry (InboxReadError)
+  permanentErrors: number;  // files moved to failed/
+}
+
 export class InboxReader {
   private readonly inflightDir: string;
   // phase 442: misroutedDir 隔离 to=<other_claw> 误投消息、与 done/failed 同级独立子目录
@@ -271,12 +278,12 @@ export class InboxReader {
    *
    * Legacy path; Runtime should prefer drainAndDeliver().
    */
-  async drainInbox(): Promise<InboxEntry[]> {
+  async drainInbox(): Promise<DrainInboxResult> {
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err) {
-      if (isFileNotFound(err)) return [];
+      if (isFileNotFound(err)) return { entries: [], transientErrors: 0, permanentErrors: 0 };
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.pendingDir,
@@ -286,6 +293,8 @@ export class InboxReader {
       throw new InboxListFailed(this.pendingDir, err);
     }
 
+    let transientErrors = 0;
+    let permanentErrors = 0;
     const results: InboxEntry[] = [];
     const seenTaskIds = new Set<string>();
     for (const entry of entries) {
@@ -356,6 +365,7 @@ export class InboxReader {
         // Phase 992: InboxReadError (transient read fault) stays in pending for retry.
         // ENOENT or decode/validation errors are permanent and move to failed.
         if (err instanceof InboxReadError) {
+          transientErrors++;
           emitInboxFailed(this.audit, {
             file: entry.name,
             errorCode: classifyErrno(err.causeErr),
@@ -371,6 +381,7 @@ export class InboxReader {
         });
         try {
           await this.markFailed(filePath);
+          permanentErrors++;
         } catch (moveErr) {
           throw moveErr;
         }
@@ -386,7 +397,7 @@ export class InboxReader {
       return ta - tb;
     });
 
-    return results;
+    return { entries: results, transientErrors, permanentErrors };
   }
 
   /**
@@ -395,7 +406,7 @@ export class InboxReader {
    * Crash before ack → init() reconcile moves inflight/ back to pending/.
    */
   async drainAndDeliver(): Promise<{ entries: InboxEntry[]; handles: InboxHandle[] }> {
-    const entries = await this.drainInbox();
+    const { entries } = await this.drainInbox();
     const handles: InboxHandle[] = [];
     const deliveredEntries: InboxEntry[] = [];
 

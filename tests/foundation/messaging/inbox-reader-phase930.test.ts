@@ -195,7 +195,7 @@ describe('InboxReader phase 930', () => {
     } as unknown as FileSystem;
 
     const r = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
-    const entries = await r.drainInbox();
+    const { entries } = await r.drainInbox();
 
     expect(entries).toHaveLength(0);
     const failedAudit = events.filter(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_FAILED);
@@ -226,7 +226,7 @@ describe('InboxReader phase 930', () => {
     } as unknown as FileSystem;
 
     const r = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
-    const entries = await r.drainInbox();
+    const { entries } = await r.drainInbox();
 
     expect(entries).toHaveLength(0);
     const failedAudit = events.filter(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_FAILED);

@@ -72,7 +72,7 @@ describe('InboxReader taskId dedupe', () => {
       timestamp: new Date().toISOString(),
     });
 
-    const results = await reader.drainInbox();
+    const { entries: results } = await reader.drainInbox();
 
     expect(results).toHaveLength(1);
     expect(JSON.parse(results[0].message.content).taskId).toBe(taskId);
@@ -102,7 +102,7 @@ describe('InboxReader taskId dedupe', () => {
       timestamp: new Date().toISOString(),
     });
 
-    const results = await reader.drainInbox();
+    const { entries: results } = await reader.drainInbox();
 
     expect(results).toHaveLength(1);
     expect(JSON.parse(results[0].message.content).taskId).toBe(taskId);
@@ -137,7 +137,7 @@ describe('InboxReader taskId dedupe', () => {
       timestamp: new Date().toISOString(),
     });
 
-    const results = await reader.drainInbox();
+    const { entries: results } = await reader.drainInbox();
 
     expect(results).toHaveLength(2);
     const taskIds = results.map(r => JSON.parse(r.message.content).taskId);
@@ -171,7 +171,7 @@ describe('InboxReader taskId dedupe', () => {
       timestamp: new Date().toISOString(),
     });
 
-    const results = await reader.drainInbox();
+    const { entries: results } = await reader.drainInbox();
 
     expect(results).toHaveLength(2);
 
