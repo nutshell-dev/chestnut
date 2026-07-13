@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DialogStore } from '../../../src/foundation/dialog-store/store.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
+import { DialogIOError, CorruptionError } from '../../../src/foundation/dialog-store/errors.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { makeSession } from '../../helpers/session-fixtures.js';
@@ -17,6 +18,7 @@ function makeMockFs(opts: {
   currentReadError?: Error;
   currentContent?: string;
   archives?: Array<{ name: string; content: string }>;
+  archiveReadError?: Error;
   listError?: Error;
   existsReturns?: boolean;
 }): FileSystem {
@@ -30,7 +32,10 @@ function makeMockFs(opts: {
         err.code = 'ENOENT';
         throw err;
       }
-      if (archiveMap.has(p)) return archiveMap.get(p)!;
+      if (archiveMap.has(p)) {
+        if (opts.archiveReadError) throw opts.archiveReadError;
+        return archiveMap.get(p)!;
+      }
       const err = new Error(`ENOENT: ${p}`) as any;
       err.code = 'ENOENT';
       throw err;
@@ -150,5 +155,26 @@ describe('DialogStore I/O vs corruption separation (phase 984)', () => {
 
     expect(result.source).toBe('current');
     expect((store as any).corruptedPoisoned).toBe(false);
+  });
+
+  it('Phase 990: readArchive throws DialogIOError on I/O read failure', async () => {
+    const audit = makeMockAudit();
+    const fs = makeMockFs({
+      archives: [{ name: '1000_archive.json', content: '{}' }],
+      archiveReadError: Object.assign(new Error('EIO'), { code: 'EIO' }),
+    });
+    const store = new DialogStore(fs, 'dialog', audit as unknown as AuditLog, 'current.json', 'c1');
+
+    await expect(store.readArchive('1000_archive.json')).rejects.toBeInstanceOf(DialogIOError);
+  });
+
+  it('Phase 990: readArchive throws CorruptionError on JSON parse failure', async () => {
+    const audit = makeMockAudit();
+    const fs = makeMockFs({
+      archives: [{ name: '1000_archive.json', content: 'not valid json {{{' }],
+    });
+    const store = new DialogStore(fs, 'dialog', audit as unknown as AuditLog, 'current.json', 'c1');
+
+    await expect(store.readArchive('1000_archive.json')).rejects.toBeInstanceOf(CorruptionError);
   });
 });

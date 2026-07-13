@@ -284,14 +284,14 @@ export class InboxReader {
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
       const filePath = path.join(this.pendingDir, entry.name);
-      let content: string;
       try {
-        content = await this.fs.read(filePath);
-      } catch (readErr) {
-        if (isFileNotFound(readErr)) throw readErr;
-        throw new DialogIOError(`I/O error reading inbox file: ${formatErr(readErr)}`, readErr);
-      }
-      try {
+        let content: string;
+        try {
+          content = await this.fs.read(filePath);
+        } catch (readErr) {
+          if (isFileNotFound(readErr)) throw readErr;
+          throw new DialogIOError(`I/O error reading inbox file: ${formatErr(readErr)}`, readErr);
+        }
         const message = decodeInbox(content);
         if (message.extraMeta?.__original_priority !== undefined) {
           emitInboxPriorityUnknown(this.audit, {
@@ -351,7 +351,7 @@ export class InboxReader {
         if (err instanceof DialogIOError) {
           emitInboxFailed(this.audit, {
             file: entry.name,
-            errorCode: 'OTHER',
+            errorCode: classifyErrno(err.causeErr),
             reason: `transient IO error — kept in pending: ${formatErr(err)}`,
           });
           continue;

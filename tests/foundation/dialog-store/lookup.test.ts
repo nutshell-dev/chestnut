@@ -9,6 +9,7 @@ import {
   type LookupResult,
 } from '../../../src/foundation/dialog-store/lookup.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
+import { DialogIOError } from '../../../src/foundation/dialog-store/errors.js';
 import { makeToolUseId } from '../../../src/foundation/llm-provider/tool-use-id.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/types.js';
@@ -230,18 +231,25 @@ describe('lookupContentByToolUseId', () => {
     expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('all_failed');
   });
 
-  it('phase 918: returns not_in_archive when archive directory list fails', () => {
+  it('phase 990: returns io_error when archive directory list fails', () => {
     const fs = makeFs({
       '/dialog/current.json': currentJson([]),
       '/dialog/archive': { size: 0, isDirectory: true },
     });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
     vi.spyOn(fs, 'listSync').mockImplementation(() => {
-      throw new Error('permission denied');
+      const err = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      throw err;
     });
-    const result = lookupContentByToolUseId(fs, '/dialog', 't1');
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
     expect(result.source).toBe('unavailable');
-    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('not_in_archive');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('archive list failed'));
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=archive',
+      'toolUseId=t1',
+      expect.stringContaining('EACCES'),
+    );
   });
 
   it('serializes object content via JSON.stringify', () => {
@@ -300,7 +308,7 @@ describe('lookupContentByToolUseId', () => {
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
       'file=current.json',
       'toolUseId=t1',
-      'reason=EACCES',
+      expect.stringContaining('EACCES'),
     );
     expect(stderrSpy).not.toHaveBeenCalled();
   });
@@ -323,7 +331,7 @@ describe('lookupContentByToolUseId', () => {
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
       'dir=archive',
       'toolUseId=t1',
-      'reason=EACCES',
+      expect.stringContaining('EACCES'),
     );
     expect(stderrSpy).not.toHaveBeenCalled();
   });
@@ -360,9 +368,31 @@ describe('lookupContentByToolUseId', () => {
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
       'file=1704067200000_abc123.json',
       'toolUseId=t1',
-      'reason=EACCES',
+      expect.stringContaining('EACCES'),
     );
     expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('Phase 990: DialogIOError from current.json read returns unavailable io_error', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([]),
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    vi.spyOn(fs, 'readSync').mockImplementation((p: string) => {
+      if (p === '/dialog/current.json') {
+        throw new DialogIOError('EIO', new Error('EIO'));
+      }
+      return (makeFs({}).readSync as any)(p);
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'file=current.json',
+      'toolUseId=t1',
+      expect.stringContaining('EIO'),
+    );
   });
 
   it('phase 987: dialogDir existsSync EACCES returns unavailable io_error and audits LOOKUP_IO_ERROR', () => {

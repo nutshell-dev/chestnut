@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { DialogStore } from '../../../src/foundation/dialog-store/store.js';
+import { DialogIOError } from '../../../src/foundation/dialog-store/errors.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { makeSession } from '../../helpers/session-fixtures.js';
@@ -91,5 +92,37 @@ describe('DialogStore restore I/O propagation (phase 984)', () => {
     await expect(
       store.restore({ clawId: 'c1', toolUseId: 'nonexistent' }),
     ).rejects.toThrow('EIO');
+  });
+
+  it('Phase 990: propagates DialogIOError from archive scan', async () => {
+    const audit = makeMockAudit();
+    const baseFs = makeMockFs({
+      archives: [
+        {
+          name: '1000_recover.json',
+          content: JSON.stringify(makeSession({
+            clawId: 'c1',
+            createdAt: '2024-01-01T00:00:00Z',
+            updatedAt: '2024-01-01T00:00:00Z',
+            systemPrompt: 'sp',
+            messages: [{ role: 'user', content: 'hi' }],
+          })),
+        },
+      ],
+    });
+    const fs = {
+      ...baseFs,
+      read: vi.fn(async (p: string) => {
+        if (p === 'dialog/archive/1000_recover.json') {
+          throw new DialogIOError('EIO', new Error('EIO'));
+        }
+        return baseFs.read(p);
+      }),
+    } as unknown as FileSystem;
+    const store = new DialogStore(fs, 'dialog', audit as unknown as AuditLog, 'current.json', 'c1');
+
+    await expect(
+      store.restore({ clawId: 'c1', toolUseId: 'nonexistent' }),
+    ).rejects.toBeInstanceOf(DialogIOError);
   });
 });

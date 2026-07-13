@@ -10,6 +10,7 @@ import {
 } from '../../../src/core/memory/deep-dream.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
+import { DialogIOError } from '../../../src/foundation/dialog-store/errors.js';
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 
 describe('processSession waterline behavior (phase 921)', () => {
@@ -50,13 +51,12 @@ describe('processSession waterline behavior (phase 921)', () => {
     return { filename, tsMs };
   }
 
-  it('does not advance waterline on transient EACCES error', async () => {
+  it('does not advance waterline on transient DialogIOError (EACCES)', async () => {
     const ctx = makeCtx();
     const plan = makePlan(1000);
     const sf = makeSessionFile('2000_archive.json', 2000);
 
-    const err = new Error('EACCES: permission denied') as NodeJS.ErrnoException;
-    err.code = 'EACCES';
+    const err = new DialogIOError('EACCES: permission denied', Object.assign(new Error('EACCES'), { code: 'EACCES' }));
     (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(err);
 
     const result = await __test_processSession(ctx, sf, plan, [], []);
@@ -67,13 +67,12 @@ describe('processSession waterline behavior (phase 921)', () => {
     expect(auditCalls[0][0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
   });
 
-  it('does not advance waterline on transient EIO error', async () => {
+  it('does not advance waterline on transient DialogIOError (EIO)', async () => {
     const ctx = makeCtx();
     const plan = makePlan(1000);
     const sf = makeSessionFile('2000_archive.json', 2000);
 
-    const err = new Error('EIO: i/o error') as NodeJS.ErrnoException;
-    err.code = 'EIO';
+    const err = new DialogIOError('EIO: i/o error', Object.assign(new Error('EIO'), { code: 'EIO' }));
     (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(err);
 
     const result = await __test_processSession(ctx, sf, plan, [], []);
@@ -94,17 +93,33 @@ describe('processSession waterline behavior (phase 921)', () => {
     expect(plan.state.lastProcessedDeepDreamAt).toBe(2000);
   });
 
-  it('treats ENOSPC as transient and does not advance waterline', async () => {
+  it('does not advance waterline on transient DialogIOError (ENOSPC)', async () => {
     const ctx = makeCtx();
     const plan = makePlan(1000);
     const sf = makeSessionFile('2000_archive.json', 2000);
 
-    const err = Object.assign(new Error('ENOSPC: no space left'), { code: 'ENOSPC' });
+    const err = new DialogIOError('ENOSPC: no space left', Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }));
     (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(err);
 
     const result = await __test_processSession(ctx, sf, plan, [], []);
     expect(result).toEqual({ status: 'skip', reason: 'transient_io' });
     expect(plan.state.lastProcessedDeepDreamAt).toBe(1000);
+  });
+
+  it('Phase 990: treats DialogIOError from readArchive as transient and preserves waterline', async () => {
+    const ctx = makeCtx();
+    const plan = makePlan(1000);
+    const sf = makeSessionFile('2000_archive.json', 2000);
+    const before = plan.state.lastProcessedDeepDreamAt;
+
+    (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new DialogIOError('EIO', new Error('EIO')),
+    );
+
+    const result = await __test_processSession(ctx, sf, plan, [], []);
+    expect(result.status).toBe('skip');
+    expect(result.reason).toBe('transient_io');
+    expect(plan.state.lastProcessedDeepDreamAt).toBe(before);
   });
 
   it('skips on io_error from current dialog load', async () => {
