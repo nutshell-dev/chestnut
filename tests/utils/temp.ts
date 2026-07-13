@@ -16,33 +16,27 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 export async function createTempDir(prefix = 'chestnut-test-'): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  return createTrackedTempDir(prefix);
 }
 
 /** 登记表：记录本 worker 创建的所有临时目录 */
 const trackedDirs = new Set<string>();
 
 /**
- * 文件/pattern 级 allowlist：这些调用方因合理原因（subprocess spawn、
- * 第三方库要求真实系统 tmpdir 等）需要直接使用 tmpdir/mkdtemp。
- *
- * 格式：glob pattern → 原因说明
- */
-export const TMPDIR_ALLOWLIST = new Map<string, string>([
-  // 阶段 0 baseline：当前无不允许直接调用的刚需场景；后续 phase 按实际调用方填充。
-]);
-
-/**
  * 创建临时目录并自动登记。
  * 与 createTempDir 等效，但目录会在 teardown 时被统一清理。
  */
 export async function createTrackedTempDir(prefix = 'chestnut-test-'): Promise<string> {
+  // temp.ts 是统一封装层，允许直接调用 os.tmpdir()
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   trackedDirs.add(dir);
   return dir;
 }
 
 export function createTrackedTempDirSync(prefix = 'chestnut-test-'): string {
+  // temp.ts 是统一封装层，允许直接调用 os.tmpdir()
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = mkdtempSync(path.join(os.tmpdir(), prefix));
   trackedDirs.add(dir);
   return dir;

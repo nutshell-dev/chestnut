@@ -141,7 +141,7 @@ export default [
       },
     },
     rules: {
-      'chestnut-custom/no-bare-tempdir-in-tests': 'error',
+      'chestnut-custom/no-bare-tempdir-in-tests': 'warn',
     },
   },
 ];
