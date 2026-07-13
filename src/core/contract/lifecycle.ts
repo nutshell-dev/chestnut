@@ -111,6 +111,13 @@ export async function resumeContract(
     if (!progress) {
       throw new ToolError(`Cannot resume contract "${contractId}": progress unavailable (schema corruption)`);
     }
+    // Phase 966: reset leftover in_progress subtasks so resume can re-submit.
+    for (const subtask of Object.values(progress.subtasks)) {
+      if (subtask.status === 'in_progress') {
+        subtask.status = 'todo';
+        delete subtask.verification_attempt_id;
+      }
+    }
     progress.status = 'running';
     progress.checkpoint = null;
     await ctx.saveProgress(contractId, progress);

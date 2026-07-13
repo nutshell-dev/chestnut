@@ -26,6 +26,8 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     fs: { realpathSync: vi.fn((p: string) => p) } as unknown as FileSystem,
     contractDir: vi.fn().mockResolvedValue('contract/active'),
     withProgressLock: vi.fn((_id, fn) => fn()),
+    getProgress: vi.fn().mockResolvedValue(null),
+    saveProgress: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as VerificationContext;
 }
@@ -206,5 +208,70 @@ describe('runVerificationInBackground (Phase 965)', () => {
 
     expect(registerController).toHaveBeenCalledTimes(1);
     expect(unregisterController).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets subtask to todo on abort (Phase 966)', async () => {
+    const saveProgress = vi.fn().mockResolvedValue(undefined);
+    const getProgress = vi.fn().mockResolvedValue({
+      status: 'running',
+      subtasks: {
+        st1: { status: 'in_progress', verification_attempt_id: 'a1' },
+      },
+    });
+    const ctx = makeCtx({
+      getProgress,
+      saveProgress,
+      runScriptVerification: vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')),
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await expect(
+      runVerificationInBackground(
+        ctx,
+        { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+        contractYaml,
+        verificationConfig,
+      ),
+    ).rejects.toThrow('aborted');
+
+    expect(saveProgress).toHaveBeenCalledTimes(1);
+    const savedProgress = saveProgress.mock.calls[0][1];
+    expect(savedProgress.subtasks.st1.status).toBe('todo');
+    expect(savedProgress.subtasks.st1.verification_attempt_id).toBeUndefined();
+  });
+
+  it('rejects late result when verification_attempt_id is missing (Phase 966 ABA guard)', async () => {
+    const saveProgress = vi.fn().mockResolvedValue(undefined);
+    const progress = {
+      status: 'running',
+      subtasks: {
+        st1: { status: 'in_progress' }, // no verification_attempt_id
+      },
+    };
+    const getProgress = vi.fn().mockResolvedValue(progress);
+    const ctx = makeCtx({
+      getProgress,
+      saveProgress,
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: '' }),
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    // Skipped outcome must not mutate subtask to completed or call saveProgress.
+    expect(saveProgress).not.toHaveBeenCalled();
+    expect(progress.subtasks.st1.status).toBe('in_progress');
+    expect(progress.subtasks.st1.verification_attempt_id).toBeUndefined();
   });
 });

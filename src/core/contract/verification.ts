@@ -180,8 +180,8 @@ async function applyVerificationOutcome(
       return { kind: 'skipped' };
     }
 
-    // Phase 961: ABA guard — reject result from a previous verification attempt.
-    if (subtask.verification_attempt_id && subtask.verification_attempt_id !== attemptId) {
+    // Phase 961 / 966: ABA guard — reject result from a previous/missing verification attempt.
+    if (subtask.verification_attempt_id !== attemptId) {
       emitContractVerificationResetFailed(
         ctx.audit,
         {
@@ -476,6 +476,24 @@ export async function runVerificationInBackground(
   } catch (err) {
     // Phase 965: abort is not a verification failure — don't consume retry or write inbox.
     if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      // Phase 966: reset subtask from in_progress → todo so next submit can retry.
+      try {
+        await ctx.withProgressLock(contractId, async () => {
+          const progress = await ctx.getProgress(contractId);
+          if (progress) {
+            const subtask = progress.subtasks[subtaskId];
+            if (subtask && subtask.status === 'in_progress' &&
+                subtask.verification_attempt_id === attemptId) {
+              subtask.status = 'todo';
+              delete subtask.verification_attempt_id;
+              await ctx.saveProgress(contractId, progress);
+            }
+          }
+        });
+      } catch (cleanupErr) {
+        // best-effort: audit but don't block
+        process.stderr.write(`[verification] abort cleanup failed for ${contractId}/${subtaskId}: ${formatErr(cleanupErr)}\n`);
+      }
       throw err;
     }
     // Phase 961: audit failure must not block recovery. The subtask must always be reset from in_progress.

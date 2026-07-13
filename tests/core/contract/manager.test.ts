@@ -116,4 +116,37 @@ describe('ContractSystem manager (phase 956)', () => {
       manager.create(makeContractYaml({ id: contractId })),
     ).rejects.toThrow(ContractValidationError);
   });
+
+  it('resets in_progress subtasks during boot reconcile (Phase 966)', async () => {
+    const { manager, events } = setupManager();
+    const contractId = 'boot-reconcile-in-progress';
+    const contractDir = path.join(clawDir, 'contract', 'active', contractId);
+    await fs.mkdir(contractDir, { recursive: true });
+
+    const yaml = await import('js-yaml');
+    await fs.writeFile(
+      path.join(contractDir, 'contract.yaml'),
+      yaml.dump(makeContractYaml({ id: contractId })),
+    );
+    await fs.writeFile(
+      path.join(contractDir, 'progress.json'),
+      JSON.stringify({
+        schema_version: 1,
+        contract_id: contractId,
+        status: 'running',
+        subtasks: {
+          'task-1': { status: 'in_progress', verification_attempt_id: 'old-attempt' },
+        },
+        started_at: new Date().toISOString(),
+        checkpoint: null,
+      }, null, 2),
+    );
+
+    await manager.init();
+
+    const progress = await manager.getProgress(contractId);
+    expect(progress.subtasks['task-1'].status).toBe('todo');
+    expect(progress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET)).toBe(true);
+  });
 });

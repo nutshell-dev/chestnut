@@ -274,6 +274,7 @@
       "contract_boot_migrate_archive_skipped",
       "contract_boot_migrate_escalated",
       "contract_boot_reconcile",
+      "contract_boot_reconcile_in_progress_reset",
       "contract_boot_reconcile_paused_move_failed",
       "contract_boot_reconcile_paused_moved",
       "contract_boot_reconcile_running_move_failed",
@@ -998,6 +999,7 @@
     "viewport_render_batch": "viewport",
     "viewport_event_ingest": "viewport",
     "viewport_spinner_lifecycle": "viewport",
+    "contract_boot_reconcile_in_progress_reset": "audit",
     "contract_legacy_status_field_ignored": "audit",
     "contract_progress_invariant_violated": "audit",
     "messaging_message_invariant_violated": "audit"

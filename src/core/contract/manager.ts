@@ -586,6 +586,39 @@ export class ContractSystem {
       );
     }
 
+    // NEW phase 966: boot reconcile — reset leftover in_progress subtasks so submit can retry.
+    try {
+      if (await this.fs.exists(this.activeDir)) {
+        const activeEntries = await this.fs.list(this.activeDir, { includeDirs: true });
+        for (const entry of activeEntries) {
+          if (!entry.isDirectory) continue;
+          const contractId = makeContractId(entry.name);
+          const progress = await this.getProgress(contractId);
+          if (!progress || progress.status !== 'running') continue;
+          let mutated = false;
+          for (const [stId, subtask] of Object.entries(progress.subtasks)) {
+            if (subtask.status === 'in_progress') {
+              subtask.status = 'todo';
+              delete subtask.verification_attempt_id;
+              mutated = true;
+              this.audit.write(
+                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
+                `contract=${entry.name}`,
+                `subtask=${stId}`,
+              );
+            }
+          }
+          if (mutated) await this.saveProgress(contractId, progress);
+        }
+      }
+    } catch (err) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
+        `context=in_progress_reset`,
+        `reason=${formatErr(err)}`,
+      );
+    }
+
     // NEW phase 954: boot reconcile — recover lifecycle moves interrupted mid-flight
     // (cancel/crash move failed leaves terminal status in active/; pause/resume move
     // failed leaves status/dir mismatch). Best-effort; failures emit audit only.

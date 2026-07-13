@@ -119,6 +119,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   BOOT_RECONCILE_PAUSED_MOVE_FAILED: 'contract_boot_reconcile_paused_move_failed',
   BOOT_RECONCILE_RUNNING_MOVED: 'contract_boot_reconcile_running_moved',
   BOOT_RECONCILE_RUNNING_MOVE_FAILED: 'contract_boot_reconcile_running_move_failed',
+  // NEW phase 966: boot reconcile reset leftover in_progress subtasks
+  BOOT_RECONCILE_IN_PROGRESS_RESET: 'contract_boot_reconcile_in_progress_reset',
   // phase 66 NEW: schema corruption isolation
   CONTRACT_FILE_ISOLATED: 'contract_file_isolated',
   CONTRACT_FILE_ISOLATION_FAILED: 'contract_file_isolation_failed',
@@ -266,4 +268,5 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_boot_reconcile_paused_move_failed: 'audit',
   contract_boot_reconcile_running_moved: 'audit',
   contract_boot_reconcile_running_move_failed: 'audit',
+  contract_boot_reconcile_in_progress_reset: 'audit',
 } as const;
