@@ -21,7 +21,7 @@ import {
   emitContractVerificationTimeout,
 } from './audit-emit.js';
 
-function checkPathContainment(fs: FileSystem, container: string, relativePath: string): string | null {
+export function checkPathContainment(fs: FileSystem, container: string, relativePath: string): string | null {
   const resolved = path.resolve(container, relativePath);
   let realPath: string;
   try {
@@ -33,7 +33,7 @@ function checkPathContainment(fs: FileSystem, container: string, relativePath: s
   if (!realPath.startsWith(realContainer + path.sep)) {
     return null; // outside container
   }
-  return resolved;
+  return realPath;
 }
 
 export async function runScriptVerification(
@@ -57,6 +57,10 @@ export async function runScriptVerification(
     });
     return { passed: true, feedback: 'Script verification passed' };
   } catch (err) {
+    // Phase 965: abort is not a verification failure — don't convert to passed:false.
+    if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      throw err;
+    }
     if (!(err instanceof ProcessExecError)) {
       return { passed: false, feedback: `验收失败: ${formatErr(err)}` };
     }
@@ -85,7 +89,9 @@ export async function runLLMVerification(
     return { passed: false, feedback: '路径安全拒绝: prompt_file 必须在契约目录内' };
   }
   try {
-    const relativePath = path.relative(ctx.clawDir, resolved);
+    // Phase 965: resolved is realPath; compare against realpath'd clawDir to avoid symlink mismatch on macOS (/var vs /private).
+    const realClawDir = ctx.fs.realpathSync(ctx.clawDir);
+    const relativePath = path.relative(realClawDir, resolved);
     if (relativePath.startsWith('..')) {
       return { passed: false, feedback: '路径安全拒绝: prompt_file 解析后逃出 claw 目录' };
     }

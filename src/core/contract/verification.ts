@@ -371,46 +371,13 @@ export async function runVerificationPipeline(
   // archiveAndEmit / rollback windows. Release in .finally() of the bg promise.
   runVerificationInBackground(ctx, { ...params, attemptId }, contractYaml, verificationConfig)
     .catch(async (err) => {
-      // Phase 961: audit failure must not block recovery. The subtask must always be reset from in_progress.
-      try {
-        if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => err instanceof T)) {
-          emitContractUnexpectedAsyncThrow(
-            ctx.audit,
-            {
-              context: 'ContractSystem.backgroundVerification',
-              contractId,
-              subtaskId,
-              errorType: err instanceof Error ? err.constructor.name : typeof err,
-              error: formatErr(err),
-              stack: err instanceof Error ? err.stack ?? '' : '',
-            },
-          );
-        } else {
-          emitContractVerificationBackgroundFailed(
-            ctx.audit,
-            { contractId, subtaskId, error: formatErr(err) },
-          );
-        }
-      } catch (auditErr) {
-        process.stderr.write(`[verification] background failed audit error: ${formatErr(auditErr)}\n`);
+      // Phase 965: abort is handled inside runVerificationInBackground and re-thrown so it does not
+      // consume a retry. Swallow it here to avoid unhandled rejection; non-abort errors are handled inside.
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
       }
-      return writeVerificationError(ctx, contractId, subtaskId, err).then(async (result) => {
-        // phase 1399: writeVerificationError 内防嵌套锁未调 archiveAndEmit，此处补调
-        if (result.archived === false) {
-          const progressAfterLock = await ctx.getProgress(contractId);
-          if (progressAfterLock && progressAfterLock.status === 'completed') {
-            await archiveAndEmit(ctx, contractId, contractYaml, 'ContractSystem.backgroundVerification.errorForceAccept');
-          }
-        }
-      }).catch(inboxErr => {
-        emitContractVerificationResetFailed(
-          ctx.audit,
-          {
-            context: 'ContractSystem.backgroundVerification.writeError',
-            error: formatErr(inboxErr),
-          },
-        );
-      });
+      // Fallback for unexpected errors that escaped runVerificationInBackground.
+      process.stderr.write(`[verification] unexpected background error: ${formatErr(err)}\n`);
     })
     .finally(() => {
       // phase 337 M1: 释放 mutex 必须在 background work 全 settle 后、
@@ -440,16 +407,19 @@ export async function runVerificationInBackground(
   verificationConfig: VerificationConfig,
 ): Promise<void> {
   const { contractId, subtaskId, evidence, artifacts = [], attemptId } = params;
-  const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
-  const subtaskDesc = subtaskDef?.description || subtaskId;
-  const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
 
+  const controller = new AbortController();
   let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' | 'skipped' = 'error';
   let cancelReason: string | undefined;
   let missingSubtaskId: string | undefined;
   try {
-    const result = await runVerificationByType(
-      ctx,
+    const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
+    const subtaskDesc = subtaskDef?.description || subtaskId;
+    const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
+
+    const ctxWithSignal = { ...ctx, signal: controller.signal };
+    const promise = runVerificationByType(
+      ctxWithSignal,
       verificationConfig,
       contractAbsDir,
       contractId,
@@ -458,6 +428,9 @@ export async function runVerificationInBackground(
       evidence,
       artifacts,
     );
+    ctx.registerController?.(contractId, controller, promise);
+
+    const result = await promise;
 
     const outcome = await applyVerificationOutcome(
       ctx,
@@ -500,7 +473,53 @@ export async function runVerificationInBackground(
         await archiveAndEmit(ctx, contractId, contractYaml, 'ContractSystem._runVerificationInBackground');
       }
     }
+  } catch (err) {
+    // Phase 965: abort is not a verification failure — don't consume retry or write inbox.
+    if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      throw err;
+    }
+    // Phase 961: audit failure must not block recovery. The subtask must always be reset from in_progress.
+    try {
+      if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => err instanceof T)) {
+        emitContractUnexpectedAsyncThrow(
+          ctx.audit,
+          {
+            context: 'ContractSystem.backgroundVerification',
+            contractId,
+            subtaskId,
+            errorType: err instanceof Error ? err.constructor.name : typeof err,
+            error: formatErr(err),
+            stack: err instanceof Error ? err.stack ?? '' : '',
+          },
+        );
+      } else {
+        emitContractVerificationBackgroundFailed(
+          ctx.audit,
+          { contractId, subtaskId, error: formatErr(err) },
+        );
+      }
+    } catch (auditErr) {
+      process.stderr.write(`[verification] background failed audit error: ${formatErr(auditErr)}\n`);
+    }
+    await writeVerificationError(ctx, contractId, subtaskId, err).then(async (result) => {
+      // phase 1399: writeVerificationError 内防嵌套锁未调 archiveAndEmit，此处补调
+      if (result.archived === false) {
+        const progressAfterLock = await ctx.getProgress(contractId);
+        if (progressAfterLock && progressAfterLock.status === 'completed') {
+          await archiveAndEmit(ctx, contractId, contractYaml, 'ContractSystem.backgroundVerification.errorForceAccept');
+        }
+      }
+    }).catch(inboxErr => {
+      emitContractVerificationResetFailed(
+        ctx.audit,
+        {
+          context: 'ContractSystem.backgroundVerification.writeError',
+          error: formatErr(inboxErr),
+        },
+      );
+    });
   } finally {
+    ctx.unregisterController?.(contractId, controller);
     try {
       emitContractVerificationBackgroundDone(
         ctx.audit,

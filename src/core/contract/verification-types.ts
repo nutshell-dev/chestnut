@@ -66,6 +66,10 @@ export interface VerificationExecutionContext {
     artifacts: string[],
   ) => Promise<VerificationResult>;
   runVerifierWithCancel: (contractId: ContractId, config: Omit<VerifierConfig, 'signal' | 'clawsDir'>) => Promise<VerifierResult>;
+  /** Phase 965: register an AbortController for a running verifier so cancel/close can abort it */
+  registerController?: (contractId: ContractId, controller: AbortController, promise: Promise<unknown>) => void;
+  /** Phase 965: unregister a verifier AbortController */
+  unregisterController?: (contractId: ContractId, controller: AbortController) => void;
   onNotify?: (type: string, data: Record<string, unknown>) => void;
 }
 

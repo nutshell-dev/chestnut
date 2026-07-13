@@ -8,7 +8,7 @@ import * as os from 'os';
 import * as nodeFs from 'fs';
 import * as path from 'path';
 import { makeMockAudit } from '../../helpers/audit.js';
-import { formatRejectionFeedback, runScriptVerification, runLLMVerification } from '../../../src/core/contract/verification.js';
+import { formatRejectionFeedback, runScriptVerification, runLLMVerification, runVerificationInBackground } from '../../../src/core/contract/verification.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
@@ -24,6 +24,8 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     notifyClaw: vi.fn(),
     exec: mockExec,
     fs: { realpathSync: vi.fn((p: string) => p) } as unknown as FileSystem,
+    contractDir: vi.fn().mockResolvedValue('contract/active'),
+    withProgressLock: vi.fn((_id, fn) => fn()),
     ...overrides,
   } as VerificationContext;
 }
@@ -152,5 +154,57 @@ describe('runLLMVerification (phase 963)', () => {
       nodeFs.rmSync(path.join(contractDir, 'prompt.md'));
       nodeFs.rmdirSync(contractDir);
     }
+  });
+});
+
+describe('runVerificationInBackground (Phase 965)', () => {
+  it('re-throws abort instead of writing verification error', async () => {
+    const registerController = vi.fn();
+    const unregisterController = vi.fn();
+    const ctx = makeCtx({
+      runScriptVerification: vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')),
+      registerController,
+      unregisterController,
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await expect(
+      runVerificationInBackground(
+        ctx,
+        { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+        contractYaml,
+        verificationConfig,
+      ),
+    ).rejects.toThrow('aborted');
+
+    expect(registerController).toHaveBeenCalledTimes(1);
+    expect(unregisterController).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes verification error for non-abort background failures', async () => {
+    const registerController = vi.fn();
+    const unregisterController = vi.fn();
+    const ctx = makeCtx({
+      runScriptVerification: vi.fn().mockRejectedValue(new Error('script failed')),
+      registerController,
+      unregisterController,
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    expect(registerController).toHaveBeenCalledTimes(1);
+    expect(unregisterController).toHaveBeenCalledTimes(1);
   });
 });

@@ -396,7 +396,8 @@ export class ContractSystem {
     };
   }
 
-  private _verificationCtx(): VerificationContext {
+  private _verificationCtx(signal?: AbortSignal): VerificationContext {
+    const self = this;
     return {
       ...this._lockCtx(),
       clawDir: this.clawDir,
@@ -413,21 +414,37 @@ export class ContractSystem {
       emitContractCompleted: (id) => this._emitContractCompleted(id),
       // phase 438: lazy thunk、同 _lifecycleCtx
       onNotify: (type, data) => this.onNotify?.(type, data),
-      runScriptVerification: (scriptFile: string, contractAbsDir: string) => this.runScriptVerification(scriptFile, contractAbsDir),
-      runLLMVerification: (promptFile: string, contractAbsDir: string, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[]) =>
-        this.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts),
+      // Phase 965: propagate cancellation signal to verification execution
+      signal,
+      runScriptVerification: function(scriptFile: string, contractAbsDir: string) {
+        return self.runScriptVerification(scriptFile, contractAbsDir, this.signal);
+      },
+      runLLMVerification: function(promptFile: string, contractAbsDir: string, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[]) {
+        return self.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, this.signal);
+      },
       withProgressLock: (contractId, fn) => this.withProgressLock(contractId, fn),
       toolRegistry: this.toolRegistry,
       toolTimeoutMs: this.toolTimeoutMs,
       verificationMutex: this.verificationMutex,
-      runVerifierWithCancel: async (contractId, config) => {
-        const controller = new AbortController();
-        const promise = this.runContractVerifier({ ...config, signal: controller.signal, contractId, fsFactory: this.fsFactory, runSubagent: this.runSubagent });
+      // Phase 965: register/unregister active verifier controllers for cancel/close
+      registerController: (contractId, controller, promise) => {
         this._registerVerifierController(contractId, controller, promise);
+      },
+      unregisterController: (contractId, controller) => {
+        this._unregisterVerifierController(contractId, controller);
+      },
+      runVerifierWithCancel: async function(contractId, config) {
+        const signal = this.signal;
+        if (signal) {
+          return self.runContractVerifier({ ...config, signal, contractId, fsFactory: self.fsFactory, runSubagent: self.runSubagent });
+        }
+        const controller = new AbortController();
+        const promise = self.runContractVerifier({ ...config, signal: controller.signal, contractId, fsFactory: self.fsFactory, runSubagent: self.runSubagent });
+        self._registerVerifierController(contractId, controller, promise);
         try {
           return await promise;
         } finally {
-          this._unregisterVerifierController(contractId, controller);
+          self._unregisterVerifierController(contractId, controller);
         }
       },
     };
@@ -1191,8 +1208,8 @@ export class ContractSystem {
     return moveContractToArchive(this._lifecycleCtx(), contractId);
   }
 
-  private async runScriptVerification(scriptFile: string, contractAbsDir: string): Promise<VerificationResult> {
-    return runScriptVerificationFn(this._verificationCtx(), scriptFile, contractAbsDir);
+  private async runScriptVerification(scriptFile: string, contractAbsDir: string, signal?: AbortSignal): Promise<VerificationResult> {
+    return runScriptVerificationFn(this._verificationCtx(signal), scriptFile, contractAbsDir);
   }
 
   private async runLLMVerification(
@@ -1203,8 +1220,9 @@ export class ContractSystem {
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],
+    signal?: AbortSignal,
   ): Promise<VerificationResult> {
-    return runLLMVerificationFn(this._verificationCtx(), promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts);
+    return runLLMVerificationFn(this._verificationCtx(signal), promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts);
   }
 
   /**
