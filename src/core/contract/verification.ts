@@ -501,6 +501,7 @@ export async function runVerificationInBackground(
   } catch (err) {
     // Phase 965: abort is not a verification failure — don't consume retry or write inbox.
     if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      rejectVerification(err);
       // Phase 966: reset subtask from in_progress → todo so next submit can retry.
       try {
         await ctx.withProgressLock(contractId, async () => {
@@ -562,6 +563,7 @@ export async function runVerificationInBackground(
         },
       );
     });
+    resolveVerification({ passed: false, feedback: '' });
   } finally {
     ctx.unregisterController?.(contractId, controller);
     try {

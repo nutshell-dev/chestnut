@@ -114,6 +114,7 @@ describe('ContractSystem — background verification error handling', () => {
     expect(throwAudit?.cols.some(c => c.startsWith('errorType=TypeError'))).toBe(true);
     expect(throwAudit?.cols.some(c => c.startsWith('error='))).toBe(true);
 
+    await manager.close();
     await cleanupTempDir(rootDir);
   });
 
@@ -177,6 +178,7 @@ describe('ContractSystem — background verification error handling', () => {
     expect(auditEvents.some(e => e.type === 'contract_unexpected_async_throw')).toBe(false);
     expect(auditEvents.some(e => e.type === 'contract_verification_background_failed')).toBe(true);
 
+    await manager.close();
     await cleanupTempDir(rootDir);
   });
 });

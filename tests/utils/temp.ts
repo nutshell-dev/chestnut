@@ -4,8 +4,10 @@
  * 推荐：所有新测试使用 `createTrackedTempDir` / `createTrackedTempDirSync`
  * 创建临时目录，这样目录会被自动登记并在 teardown 时统一清理。
  *
- * 阶段 0 invariant：直接调用 `os.tmpdir()` / `fs.mkdtemp()` 仍被允许，
- * 但需把合理场景加入 TMPDIR_ALLOWLIST 并记录原因。
+ * 阶段 1 invariant（phase 988）：
+ * - 直接调用 `os.tmpdir()` / `fs.mkdtemp()` 在 tests/ 下被 eslint
+ *   no-bare-tempdir-in-tests 规则拦截（allowlist 中的现有文件除外）。
+ * - 清理失败默认 throw；设置 `CHESTNUT_KEEP_TEST_TMP=1` 可保留现场并跳过 throw。
  */
 
 import { promises as fs } from 'node:fs';
@@ -78,8 +80,6 @@ export function getTrackedDirs(): ReadonlySet<string> {
   return trackedDirs;
 }
 
-const STRICT = process.env.CHESTNUT_STRICT_TEMP === '1';
-
 export async function cleanupTempDir(tempDir: string): Promise<void> {
   try {
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -89,15 +89,12 @@ export async function cleanupTempDir(tempDir: string): Promise<void> {
       untrackTempDir(tempDir);
       return;
     }
-    if (STRICT) {
-      throw new Error(`Failed to clean up temp dir ${tempDir}: ${err?.message ?? err}`, { cause: err });
-    }
     if (process.env.CHESTNUT_KEEP_TEST_TMP === '1') {
       console.warn(`[test cleanup] Failed to remove ${tempDir}: ${err?.message ?? err}`);
-      console.warn('[test cleanup] CHESTNUT_KEEP_TEST_TMP=1, preserving for inspection');
+      console.warn(`[test cleanup] Preserved for inspection: ${tempDir}`);
       return;
     }
-    console.warn(`[test cleanup] Failed to remove ${tempDir}: ${err?.message ?? err}`);
+    throw new Error(`Failed to clean up temp dir ${tempDir}: ${err?.message ?? err}`, { cause: err });
   }
 }
 
@@ -110,14 +107,11 @@ export function cleanupTempDirSync(tempDir: string): void {
       untrackTempDir(tempDir);
       return;
     }
-    if (STRICT) {
-      throw new Error(`Failed to clean up temp dir ${tempDir}: ${err?.message ?? err}`, { cause: err });
-    }
     if (process.env.CHESTNUT_KEEP_TEST_TMP === '1') {
       console.warn(`[test cleanup] Failed to remove ${tempDir}: ${err?.message ?? err}`);
-      console.warn('[test cleanup] CHESTNUT_KEEP_TEST_TMP=1, preserving for inspection');
+      console.warn(`[test cleanup] Preserved for inspection: ${tempDir}`);
       return;
     }
-    console.warn(`[test cleanup] Failed to remove ${tempDir}: ${err?.message ?? err}`);
+    throw new Error(`Failed to clean up temp dir ${tempDir}: ${err?.message ?? err}`, { cause: err });
   }
 }

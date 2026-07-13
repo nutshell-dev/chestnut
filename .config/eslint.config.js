@@ -32,6 +32,7 @@ import noEntryLiteralOutsideAllowlist from './eslint-rules/no-entry-literal-outs
 import noCronHandlerWithoutSignal from './eslint-rules/no-cron-handler-without-signal.js';
 import typedEmitCascadeFirstLineGuard from './eslint-rules/typed-emit-cascade-first-line-guard.js';
 import foundationDirectoryModule from './eslint-rules/foundation-directory-module.js';
+import noBareTempdirInTests from './eslint-rules/no-bare-tempdir-in-tests.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -120,6 +121,27 @@ export default [
       'chestnut-custom/no-cron-handler-without-signal': 'error',
       'chestnut-custom/typed-emit-cascade-first-line-guard': 'error',
       'chestnut-custom/foundation-directory-module': 'error',
+    },
+  },
+  {
+    files: ['tests/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+      'chestnut-custom': {
+        rules: {
+          'no-bare-tempdir-in-tests': noBareTempdirInTests,
+        },
+      },
+    },
+    rules: {
+      'chestnut-custom/no-bare-tempdir-in-tests': 'error',
     },
   },
 ];
