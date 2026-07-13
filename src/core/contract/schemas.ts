@@ -73,8 +73,15 @@ const SubtaskProgressSchema = z.object({
   last_failed_feedback: LastFailedFeedbackSchema.optional(),
   force_accepted: z.boolean().optional(),
   // Phase 961: unique per verification attempt, prevents ABA (late result from a previous attempt applied to current one)
+  // Phase 967: required when subtask is in_progress; optional otherwise.
   verification_attempt_id: z.string().optional(),
-}).strict();
+}).strict().refine(
+  (data) => !(data.status === 'in_progress' && data.verification_attempt_id === undefined),
+  {
+    message: 'verification_attempt_id is required when subtask status is in_progress',
+    path: ['verification_attempt_id'],
+  },
+);
 
 export const ContractProgressPersistedSchema = z.object({
   schema_version: z.literal(1),

@@ -172,6 +172,14 @@ export async function cancelContract(
     if (!progress) {
       throw new ToolError(`Cannot cancel contract "${contractId}": progress unavailable (schema corruption)`);
     }
+    // Phase 967: reset leftover in_progress subtasks so archived contract does
+    // not carry stale verification state.
+    for (const subtask of Object.values(progress.subtasks)) {
+      if (subtask.status === 'in_progress') {
+        subtask.status = 'todo';
+        delete subtask.verification_attempt_id;
+      }
+    }
     progress.status = 'cancelled';
     progress.checkpoint = `cancelled: ${reason}`;
     await ctx.saveProgress(contractId, progress);
@@ -282,6 +290,14 @@ export async function markCrashed(
         checkpoint: `crashed: ${cause}`,
         subtasks: {},
       };
+    }
+    // Phase 967: reset leftover in_progress subtasks so archived contract does
+    // not carry stale verification state.
+    for (const subtask of Object.values(progress.subtasks)) {
+      if (subtask.status === 'in_progress') {
+        subtask.status = 'todo';
+        delete subtask.verification_attempt_id;
+      }
     }
     progress.status = 'crashed';
     progress.checkpoint = `crashed: ${cause}`;

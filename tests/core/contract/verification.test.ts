@@ -160,6 +160,30 @@ describe('runLLMVerification (phase 963)', () => {
 });
 
 describe('runVerificationInBackground (Phase 965)', () => {
+  it('does not start verification when controller registration fails (Phase 967)', async () => {
+    const registerController = vi.fn().mockImplementation(() => { throw new Error('audit fail'); });
+    const runScriptVerification = vi.fn().mockResolvedValue({ passed: true, feedback: '' });
+    const ctx = makeCtx({
+      registerController,
+      runScriptVerification,
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await expect(
+      runVerificationInBackground(
+        ctx,
+        { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+        contractYaml,
+        verificationConfig,
+      ),
+    ).rejects.toThrow('audit fail');
+
+    expect(runScriptVerification).not.toHaveBeenCalled();
+  });
+
   it('re-throws abort instead of writing verification error', async () => {
     const registerController = vi.fn();
     const unregisterController = vi.fn();

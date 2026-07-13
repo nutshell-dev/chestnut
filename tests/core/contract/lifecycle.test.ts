@@ -47,6 +47,56 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     await cleanupTempDir(tempDir);
   });
 
+  it('resets in_progress subtasks when cancelling contract (Phase 967)', async () => {
+    const contractId = await manager.create({
+      title: 'Cancel Test',
+      goal: 'test',
+      subtasks: [{ id: 'task-1', description: 'Task 1' }],
+      verification: [],
+    });
+
+    const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
+    const raw = await fs.readFile(progressPath, 'utf-8');
+    const progress = JSON.parse(raw);
+    progress.subtasks['task-1'].status = 'in_progress';
+    progress.subtasks['task-1'].verification_attempt_id = 'attempt-1';
+    await fs.writeFile(progressPath, JSON.stringify(progress, null, 2));
+
+    await manager.cancel(contractId, 'test');
+
+    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', contractId, 'progress.json');
+    const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
+    const archivedProgress = JSON.parse(archivedRaw);
+    expect(archivedProgress.status).toBe('cancelled');
+    expect(archivedProgress.subtasks['task-1'].status).toBe('todo');
+    expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
+  });
+
+  it('resets in_progress subtasks when marking contract crashed (Phase 967)', async () => {
+    const contractId = await manager.create({
+      title: 'Crash Test',
+      goal: 'test',
+      subtasks: [{ id: 'task-1', description: 'Task 1' }],
+      verification: [],
+    });
+
+    const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
+    const raw = await fs.readFile(progressPath, 'utf-8');
+    const progress = JSON.parse(raw);
+    progress.subtasks['task-1'].status = 'in_progress';
+    progress.subtasks['task-1'].verification_attempt_id = 'attempt-1';
+    await fs.writeFile(progressPath, JSON.stringify(progress, null, 2));
+
+    await manager.markCrashed(contractId, 'test-crash');
+
+    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', contractId, 'progress.json');
+    const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
+    const archivedProgress = JSON.parse(archivedRaw);
+    expect(archivedProgress.status).toBe('crashed');
+    expect(archivedProgress.subtasks['task-1'].status).toBe('todo');
+    expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
+  });
+
   it('resets in_progress subtasks when resuming paused contract', async () => {
     const contractId = 'resume-in-progress';
     const pausedDir = path.join(clawDir, 'contract', 'paused', contractId);

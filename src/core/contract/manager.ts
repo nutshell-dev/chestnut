@@ -434,12 +434,14 @@ export class ContractSystem {
         this._unregisterVerifierController(contractId, controller);
       },
       runVerifierWithCancel: async function(contractId, config) {
-        const signal = this.signal;
-        if (signal) {
-          return self.runContractVerifier({ ...config, signal, contractId, fsFactory: self.fsFactory, runSubagent: self.runSubagent });
-        }
+        // Phase 967: always create and register our own AbortController so the
+        // verifier is visible to cancel/close even when an outer signal exists.
         const controller = new AbortController();
-        const promise = self.runContractVerifier({ ...config, signal: controller.signal, contractId, fsFactory: self.fsFactory, runSubagent: self.runSubagent });
+        const signal = this.signal;
+        const effectiveSignal = signal
+          ? AbortSignal.any([controller.signal, signal])
+          : controller.signal;
+        const promise = self.runContractVerifier({ ...config, signal: effectiveSignal, contractId, fsFactory: self.fsFactory, runSubagent: self.runSubagent });
         self._registerVerifierController(contractId, controller, promise);
         try {
           return await promise;

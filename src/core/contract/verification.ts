@@ -412,13 +412,27 @@ export async function runVerificationInBackground(
   let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' | 'skipped' = 'error';
   let cancelReason: string | undefined;
   let missingSubtaskId: string | undefined;
+
+  // Phase 967: register controller BEFORE starting the promise so registration
+  // failures do not leak a running verification. We use a deferred promise so
+  // registerController receives a real Promise immediately. Registration errors
+  // are intentionally thrown outside the main try block so they reject the
+  // background call instead of being swallowed as a verification error.
+  let resolveVerification!: (value: VerificationResult) => void;
+  let rejectVerification!: (reason: unknown) => void;
+  const promise = new Promise<VerificationResult>((resolve, reject) => {
+    resolveVerification = resolve;
+    rejectVerification = reject;
+  });
+  ctx.registerController?.(contractId, controller, promise);
+
   try {
     const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
     const subtaskDesc = subtaskDef?.description || subtaskId;
     const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
 
     const ctxWithSignal = { ...ctx, signal: controller.signal };
-    const promise = runVerificationByType(
+    runVerificationByType(
       ctxWithSignal,
       verificationConfig,
       contractAbsDir,
@@ -427,8 +441,7 @@ export async function runVerificationInBackground(
       subtaskDesc,
       evidence,
       artifacts,
-    );
-    ctx.registerController?.(contractId, controller, promise);
+    ).then(resolveVerification, rejectVerification);
 
     const result = await promise;
 

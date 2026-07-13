@@ -222,6 +222,7 @@ describe('Builtin Tools - status tool', () => {
       const raw = await fs.readFile(progressPath, 'utf-8');
       const progress = JSON.parse(raw);
       progress.subtasks['in-progress-task'].status = 'in_progress';
+      progress.subtasks['in-progress-task'].verification_attempt_id = 'attempt-1';
       await fs.writeFile(progressPath, JSON.stringify(progress));
 
       const statusTool = createStatusTool(manager);
