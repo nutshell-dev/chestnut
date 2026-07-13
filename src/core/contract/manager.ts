@@ -187,8 +187,7 @@ export class ContractSystem {
   }
 
   private _unregisterVerifierController(contractId: ContractId, ctrl: AbortController): void {
-    // Phase 968: audit FIRST so tracking never commits if audit fails
-    emitContractVerifierUnregistered(this.audit, { contractId });
+    // Phase 970: remove from tracking FIRST so audit failures never leave stale controllers.
     const s = this._activeContractControllers.get(contractId);
     if (!s) return;
     for (const entry of s) {
@@ -198,6 +197,12 @@ export class ContractSystem {
       }
     }
     if (s.size === 0) this._activeContractControllers.delete(contractId);
+    // Audit is best-effort — failure must not prevent tracking cleanup.
+    try {
+      emitContractVerifierUnregistered(this.audit, { contractId });
+    } catch {
+      /* silent: tracking is correct, audit gap is acceptable */
+    }
   }
 
   hasActiveVerifiers(contractId: ContractId): boolean {
@@ -602,19 +607,30 @@ export class ContractSystem {
             const progress = await this.getProgress(contractId);
             if (!progress || progress.status !== 'running') continue;
             let mutated = false;
+            const resetIds: string[] = [];
             for (const [stId, subtask] of Object.entries(progress.subtasks)) {
               if (subtask.status === 'in_progress') {
                 subtask.status = 'todo';
                 delete subtask.verification_attempt_id;
+                resetIds.push(stId);
                 mutated = true;
-                this.audit.write(
-                  CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
-                  `contract=${entry.name}`,
-                  `subtask=${stId}`,
-                );
               }
             }
-            if (mutated) await this.saveProgress(contractId, progress);
+            if (mutated) {
+              // Phase 970: save progress FIRST so audit failures cannot block the reset.
+              await this.saveProgress(contractId, progress);
+              for (const stId of resetIds) {
+                try {
+                  this.audit.write(
+                    CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
+                    `contract=${entry.name}`,
+                    `subtask=${stId}`,
+                  );
+                } catch {
+                  /* best-effort audit */
+                }
+              }
+            }
           } catch (err) {
             this.audit.write(
               CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET_FAILED,

@@ -505,7 +505,8 @@ export async function runVerificationInBackground(
       try {
         await ctx.withProgressLock(contractId, async () => {
           const progress = await ctx.getProgress(contractId);
-          if (progress) {
+          // Phase 970: only reset subtasks for active contracts.
+          if (progress && progress.status === 'running') {
             const subtask = progress.subtasks[subtaskId];
             if (subtask && subtask.status === 'in_progress' &&
                 subtask.verification_attempt_id === attemptId) {
