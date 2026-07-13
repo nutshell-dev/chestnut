@@ -75,6 +75,47 @@ export class NodeFileSystem implements FileSystem {
    */
   private resolveAndCheck(relativePath: string): string {
     // Resolve symlinks to prevent traversal via symlinks (OS-level guard)
+
+    // Unconditionally check baseDir ancestry for symlinks using lstat (does NOT
+    // follow symlinks). This runs regardless of whether baseDir exists, closing
+    // the gap where baseDir is a symlink to outside but already exists on disk.
+    const literalBase = this.options.baseDir;
+    {
+      const segments = literalBase.split(path.sep);
+      let currentPath = '';
+      for (const seg of segments) {
+        if (!seg) continue; // skip empty (root-slash)
+        currentPath = currentPath ? path.join(currentPath, seg) : path.sep + seg;
+        try {
+          const stat = fsSync.lstatSync(currentPath);
+          if (stat.isSymbolicLink()) {
+            // This segment is a symlink — resolve it and verify containment.
+            // Direct children of the filesystem root are skipped to avoid false
+            // positives on system symlinks such as /tmp or /var on macOS.
+            if (path.dirname(currentPath) === path.sep) continue;
+            const realTarget = realpathSync(currentPath);
+            const parentPath = path.dirname(currentPath);
+            const realParent = realpathSync(parentPath);
+            const expectedPath = path.join(realParent, seg);
+            if (realTarget !== expectedPath) {
+              throw new PathGuardError(
+                `Symlink traversal detected in base directory path: "${currentPath}" ` +
+                `resolves to "${realTarget}" outside expected location "${expectedPath}"`,
+                relativePath
+              );
+            }
+          }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            // Segment doesn't exist yet — legitimate, continue
+            break;
+          }
+          if (err instanceof PathGuardError) throw err;
+          throw err; // EACCES, EIO — propagate
+        }
+      }
+    }
+
     let realBase: string = this.options.baseDir;
     try {
       realBase = realpathSync(this.options.baseDir);

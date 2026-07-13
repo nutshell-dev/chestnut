@@ -254,7 +254,7 @@ export function createGateway(input: GatewayInput): Gateway {
       for (const id of [...pending.keys()]) {
         try {
           cancel(id, 'abort');
-        } catch (err) {
+        } catch (err) { // silent: best-effort stop cleanup, collected into errors array
           errors.push(err as Error);
         }
       }
@@ -264,7 +264,7 @@ export function createGateway(input: GatewayInput): Gateway {
         const sr = streamReader;
         try {
           await sr.stop();
-        } catch (err) {
+        } catch (err) { // silent: best-effort stop cleanup, collected into errors array
           errors.push(err as Error);
         }
         streamReader = null;
@@ -274,7 +274,7 @@ export function createGateway(input: GatewayInput): Gateway {
       for (const id of [...connections.keys()]) {
         try {
           dropConnection(id, 'gateway stopping');
-        } catch (err) {
+        } catch (err) { // silent: best-effort stop cleanup, collected into errors array
           errors.push(err as Error);
         }
       }
@@ -284,7 +284,7 @@ export function createGateway(input: GatewayInput): Gateway {
         const t = transport;
         try {
           await t.close();
-        } catch (err) {
+        } catch (err) { // silent: best-effort stop cleanup, collected into errors array
           errors.push(err as Error);
         }
         transport = null;

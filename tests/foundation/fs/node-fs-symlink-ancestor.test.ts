@@ -101,4 +101,47 @@ describe('NodeFileSystem symlink ancestor containment', () => {
       await fsp.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* ignore */ });
     }
   });
+
+  it('rejects write when baseDir exists and is a symlink to outside', async () => {
+    const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-existing-outside-'));
+    const outsideDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-outside-existing-'));
+    try {
+      const linkPath = path.join(tmpBase, 'link');
+      fs.symlinkSync(outsideDir, linkPath, 'dir');
+
+      // baseDir exists on disk via the symlink; realpathSync succeeds, so the
+      // unconditional lstat check is required to detect the symlink traversal.
+      const baseDir = path.join(linkPath, 'new-base');
+      await fsp.mkdir(path.join(outsideDir, 'new-base'), { recursive: true });
+      const nodeFs = new NodeFileSystem({ baseDir });
+
+      await expect(nodeFs.writeAtomic('file.txt', 'data'))
+        .rejects.toThrow(PathGuardError);
+    } finally {
+      await fsp.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* ignore */ });
+      await fsp.rm(outsideDir, { recursive: true, force: true }).catch(() => { /* ignore */ });
+    }
+  });
+
+  it('rejects write when baseDir exists via sibling symlink', async () => {
+    const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-existing-sibling-'));
+    try {
+      const outsideDir = path.join(tmpBase, 'outside');
+      await fsp.mkdir(outsideDir, { recursive: true });
+
+      const linkPath = path.join(tmpBase, 'link');
+      fs.symlinkSync(outsideDir, linkPath, 'dir');
+
+      // baseDir exists under the sibling symlink; realpathSync succeeds, so the
+      // unconditional lstat check is required to detect the symlink traversal.
+      const baseDir = path.join(linkPath, 'new-base');
+      await fsp.mkdir(path.join(outsideDir, 'new-base'), { recursive: true });
+      const nodeFs = new NodeFileSystem({ baseDir });
+
+      await expect(nodeFs.writeAtomic('file.txt', 'data'))
+        .rejects.toThrow(PathGuardError);
+    } finally {
+      await fsp.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* ignore */ });
+    }
+  });
 });
