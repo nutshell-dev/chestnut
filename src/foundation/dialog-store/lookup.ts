@@ -17,9 +17,9 @@ import { formatErr } from '../node-utils/index.js';
 /** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
 export type LookupResult =
   | { source: 'current'; content: string }
-  | { source: 'archive'; content: string; archivedAt: string; degradationNote?: string }
-  | { source: 'archive'; content: string; archivedAt: string; hashVerified: true; degradationNote?: string }
-  | { source: 'unavailable'; reason: 'io_error'; detail: string }
+  | { source: 'archive'; content: string; archivedAt: string; degradationNotes?: string[] }
+  | { source: 'archive'; content: string; archivedAt: string; hashVerified: true; degradationNotes?: string[] }
+  | { source: 'unavailable'; reason: 'io_error'; detail: string[] }
   | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' };
 
 export interface LookupOptions {
@@ -57,7 +57,7 @@ export function lookupContentByToolUseId(
       `toolUseId=${idStr}`,
       `reason=${formatErr(err)}`,
     );
-    return { source: 'unavailable', reason: 'io_error', detail: formatErr(err) };
+    return { source: 'unavailable', reason: 'io_error', detail: [formatErr(err)] };
   }
 
   if (!dialogExists) {
@@ -76,7 +76,7 @@ export function lookupContentByToolUseId(
       `toolUseId=${idStr}`,
       `reason=${formatErr(err)}`,
     );
-    return { source: 'unavailable', reason: 'io_error', detail: formatErr(err) };
+    return { source: 'unavailable', reason: 'io_error', detail: [formatErr(err)] };
   }
 
   let currentResult: CurrentLookupResult | undefined;
@@ -101,14 +101,14 @@ export function lookupContentByToolUseId(
         content: archiveResult.content,
         archivedAt: archiveResult.archivedAt,
         hashVerified: true,
-        degradationNote: buildDegradationNote(currentResult),
+        degradationNotes: buildDegradationNotes(currentResult),
       };
     }
     return {
       source: 'archive',
       content: archiveResult.content,
       archivedAt: archiveResult.archivedAt,
-      degradationNote: buildDegradationNote(currentResult),
+      degradationNotes: buildDegradationNotes(currentResult),
     };
   }
 
@@ -118,11 +118,14 @@ export function lookupContentByToolUseId(
     (currentResult !== undefined && !currentResult.found && currentResult.reason === 'io_error') ||
     archiveResult.ioError
   ) {
-    const detail =
-      (currentResult && !currentResult.found ? currentResult.errorDetail : undefined) ??
-      (archiveResult && !archiveResult.found ? archiveResult.ioErrorDetail : undefined) ??
-      'unknown';
-    return { source: 'unavailable', reason: 'io_error', detail };
+    const details: string[] = [];
+    if (currentResult && !currentResult.found && currentResult.errorDetail) {
+      details.push(`current: ${currentResult.errorDetail}`);
+    }
+    if (archiveResult && !archiveResult.found && archiveResult.ioErrorDetail) {
+      details.push(`archive: ${archiveResult.ioErrorDetail}`);
+    }
+    return { source: 'unavailable', reason: 'io_error', detail: details.length > 0 ? details : ['unknown'] };
   }
   // phase 918: archive 目录读失败单独报告 not_in_archive
   if (archiveResult.inaccessible) {
@@ -301,9 +304,9 @@ function findContentInMessages(messages: unknown[], toolUseId: string): string |
   return null;
 }
 
-function buildDegradationNote(currentResult: CurrentLookupResult | undefined): string | undefined {
+function buildDegradationNotes(currentResult: CurrentLookupResult | undefined): string[] | undefined {
   if (currentResult && !currentResult.found) {
-    return `current.json: ${currentResult.reason}${currentResult.errorDetail ? ` (${currentResult.errorDetail})` : ''}`;
+    return [`current.json: ${currentResult.reason}${currentResult.errorDetail ? ` (${currentResult.errorDetail})` : ''}`];
   }
   return undefined;
 }

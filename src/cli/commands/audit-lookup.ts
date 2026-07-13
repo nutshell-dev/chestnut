@@ -86,6 +86,11 @@ function emit(result: LookupResult, toolUseId: string, json: boolean): void {
       if ('hashVerified' in result && result.hashVerified) {
         process.stdout.write(`Hash verified: yes\n`);
       }
+      if (result.degradationNotes && result.degradationNotes.length > 0) {
+        for (const note of result.degradationNotes) {
+          process.stdout.write(`\x1b[33mDegradation: ${note}\x1b[0m\n`);
+        }
+      }
       process.stdout.write(`Content size: ${Buffer.byteLength(result.content, 'utf-8')} bytes\n`);
       process.stdout.write(`---\n${result.content}\n`);
       break;
@@ -107,7 +112,7 @@ function emit(result: LookupResult, toolUseId: string, json: boolean): void {
           process.stderr.write(`  - dialog session 全部失败：dialog dir 不存在 / current/archive 都不含 tool_use_id\n`);
           break;
         case 'io_error':
-          process.stderr.write(`  - dialog I/O error while reading current/archive (detail=${result.detail ?? 'unknown'})\n`);
+          process.stderr.write(`  - dialog I/O error while reading current/archive (detail=${result.detail.join('; ')})\n`);
           break;
         default:
           { const _exhaustiveReason: never = result; void _exhaustiveReason; }
