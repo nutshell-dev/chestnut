@@ -341,14 +341,9 @@ export function createGateway(input: GatewayInput): Gateway {
         }
 
         audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_PENDING, `id=${id}`);
-        try {
-          broadcast({ type: 'ask_user_pending', id, question });
-        } catch (err) {
-          cleanup(id);
-          audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_BROADCAST_FAILED, `id=${id}`, `error=${String(err)}`);
-          resolve(failureResult(`ask_user broadcast 失败：${String(err)}`));
-          return;
-        }
+        // phase 972: broadcast() internally catches all transport errors and returns failed list;
+        // it never throws, so the outer try/catch was dead code.
+        broadcast({ type: 'ask_user_pending', id, question });
         // 0-listener short-circuit: broadcast 后无连接 → 立即 fail-loud
         if (connections.size === 0) {
           cleanup(id);
