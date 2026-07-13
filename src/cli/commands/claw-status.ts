@@ -81,6 +81,9 @@ export async function clawStatusCommand(
   if (taskView.type === 'counts' && taskView.pendingError) {
     audit.write(STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR, `error=${taskView.pendingError}`);
   }
+  if (taskView.type === 'counts' && taskView.runningError) {
+    audit.write(STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR, `error=${taskView.runningError}`);
+  }
 
   if (opts.json) {
     console.log(

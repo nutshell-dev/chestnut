@@ -33,6 +33,8 @@ import * as messaging from '../../../src/foundation/messaging/index.js';
 import { ProcessListUnavailable } from '../../../src/foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
+import { STATUS_AUDIT_EVENTS } from '../../../src/core/status-service/audit-events.js';
+import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 // ── Fake FS helpers ─────────────────────────────────────────────────────────
 
@@ -123,27 +125,36 @@ describe('computeProcessUptimeMs', () => {
 // ── computeClawInboxUnread ──────────────────────────────────────────────────
 
 describe('computeClawInboxUnread', () => {
+  function makeDummyAudit(): AuditLog {
+    return { write: vi.fn() } as unknown as AuditLog;
+  }
+
   it('returns 0 when inbox/pending dir does not exist', async () => {
     const fs = makeFs({}, {});
-    expect(await computeClawInboxUnread(fs)).toBe(0);
+    expect(await computeClawInboxUnread(fs, makeDummyAudit())).toBe(0);
   });
 
   it('returns number of files in inbox/pending', async () => {
     const fs = makeFs({}, { 'inbox/pending': ['msg-1.md', 'msg-2.md', 'msg-3.md'] });
-    expect(await computeClawInboxUnread(fs)).toBe(3);
+    expect(await computeClawInboxUnread(fs, makeDummyAudit())).toBe(3);
   });
 
   it('returns 0 when inbox/pending is empty', async () => {
     const fs = makeFs({}, { 'inbox/pending': [] });
-    expect(await computeClawInboxUnread(fs)).toBe(0);
+    expect(await computeClawInboxUnread(fs, makeDummyAudit())).toBe(0);
   });
 
-  it('returns undefined inboxUnread when peekPendingCount fails', async () => {
+  it('returns undefined inboxUnread and writes audit when peekPendingCount fails', async () => {
     vi.spyOn(messaging, 'createInboxReader').mockReturnValue({
       peekPendingCount: vi.fn().mockRejectedValue(new Error('EACCES')),
     } as unknown as ReturnType<typeof messaging.createInboxReader>);
-    const result = await computeClawInboxUnread(makeFs({}), { write: () => {} } as unknown as import('../../../src/foundation/audit/index.js').AuditLog);
+    const audit = makeDummyAudit();
+    const result = await computeClawInboxUnread(makeFs({}), audit);
     expect(result).toBeUndefined();
+    expect(audit.write).toHaveBeenCalledWith(
+      STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR,
+      'error=EACCES',
+    );
     vi.restoreAllMocks();
   });
 });
@@ -233,6 +244,7 @@ describe('computeForumStatusView', () => {
       clawFs?: Record<string, FileSystem>;
       aliveMap?: Record<string, { alive: boolean; reason: string; pid?: number }>;
       startTimes?: Record<number, string>;
+      audit?: AuditLog;
     } = {},
   ): ForumStatusDeps {
     const baseDir = '/forum';
@@ -241,6 +253,7 @@ describe('computeForumStatusView', () => {
     const clawFs = overrides.clawFs ?? {};
     const aliveMap = overrides.aliveMap ?? {};
     const startTimes = overrides.startTimes ?? {};
+    const audit = overrides.audit ?? ({ write: vi.fn() } as unknown as AuditLog);
 
     const rootFs = makeFs({}, { claws: claws });
     const motionFs = makeFs({}, {});
@@ -272,6 +285,7 @@ describe('computeForumStatusView', () => {
       getStartTime: (pid: number) => startTimes[pid],
       watchdog: { pid: undefined, alive: false, entryPath: '/wd-entry' },
       daemonEntryPath: '/daemon-entry',
+      audit,
       ...overrides,
     };
   }

@@ -8,4 +8,5 @@ export const STATUS_AUDIT_EVENTS = {
   CONTRACT_ERROR: 'status_contract_error',
   TASK_PENDING_ERROR: 'status_task_pending_error',
   TASK_RUNNING_ERROR: 'status_task_running_error',
+  INBOX_UNREAD_ERROR: 'status_inbox_unread_error',
 } as const;

@@ -62,9 +62,18 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
     getStartTime: (pid: number) => getProcessStartTime(pid),
     watchdog,
     daemonEntryPath,
+    audit,
   });
 
   audit.write('status_forum', `claws=${view.activeClaws.length}`, `total=${view.totalClawCount}`);
+
+  const errorClaws = view.activeClaws.filter((c): c is Extract<typeof c, { status: 'error' }> => c.status === 'error');
+  if (errorClaws.length > 0) {
+    audit.write('status_forum_claw_errors', `count=${errorClaws.length}`, `claws=${errorClaws.map(c => c.name).join(',')}`);
+  }
+  if (view.orphans.error) {
+    audit.write('status_forum_orphan_error', `error=${view.orphans.error}`);
+  }
 
   for (const line of formatForumStatusView(view)) {
     console.log(line);

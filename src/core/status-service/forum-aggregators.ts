@@ -21,6 +21,7 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { createInboxReader } from '../../foundation/messaging/index.js';
+import { STATUS_AUDIT_EVENTS } from './audit-events.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../claw-topology/index.js';
 
@@ -82,12 +83,13 @@ export function computeProcessUptimeMs(
  */
 export async function computeClawInboxUnread(
   clawFs: FileSystem,
-  audit: AuditLog = { write: () => {} } as unknown as AuditLog,
+  audit: AuditLog,
 ): Promise<number | undefined> {
   try {
     const inboxReader = createInboxReader(clawFs, audit, 'inbox');
     return await inboxReader.peekPendingCount();
-  } catch {
+  } catch (err) {
+    audit.write(STATUS_AUDIT_EVENTS.INBOX_UNREAD_ERROR, `error=${formatErr(err)}`);
     return undefined; // I/O error → unavailable
   }
 }
@@ -157,6 +159,7 @@ export interface ForumStatusDeps {
   pm: ProcessManager;
   now: () => number;
   getStartTime: (pid: number) => string | undefined;
+  audit: AuditLog;
   watchdog: {
     pid: number | undefined;
     alive: boolean;
@@ -191,7 +194,7 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
       motionStatus.alive && motionStatus.pid !== undefined
         ? computeProcessUptimeMs(motionStatus.pid, nowMs, deps.getStartTime)
         : undefined,
-    inboxUnread: motionStatus.alive ? await computeClawInboxUnread(motionFs) : undefined,
+    inboxUnread: motionStatus.alive ? await computeClawInboxUnread(motionFs, deps.audit) : undefined,
   };
 
   // ── Active claws ──
@@ -217,7 +220,7 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
         pid: s.pid,
         uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
         lastActivityAgoMs: computeClawLastActivityAgoMs(clawFs, nowMs),
-        inboxUnread: await computeClawInboxUnread(clawFs),
+        inboxUnread: await computeClawInboxUnread(clawFs, deps.audit),
       });
     } catch (err) {
       activeClaws.push({
