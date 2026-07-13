@@ -176,16 +176,19 @@ export class ContractSystem {
   private createPolicies = new Map<string, ContractCreatePolicy>();
 
   private _registerVerifierController(contractId: ContractId, ctrl: AbortController, promise: Promise<unknown>): void {
+    // Phase 968: audit FIRST so tracking never commits if audit fails
+    emitContractVerifierRegistered(this.audit, { contractId });
     let s = this._activeContractControllers.get(contractId);
     if (!s) {
       s = new Set();
       this._activeContractControllers.set(contractId, s);
     }
     s.add({ controller: ctrl, promise });
-    emitContractVerifierRegistered(this.audit, { contractId });
   }
 
   private _unregisterVerifierController(contractId: ContractId, ctrl: AbortController): void {
+    // Phase 968: audit FIRST so tracking never commits if audit fails
+    emitContractVerifierUnregistered(this.audit, { contractId });
     const s = this._activeContractControllers.get(contractId);
     if (!s) return;
     for (const entry of s) {
@@ -195,7 +198,6 @@ export class ContractSystem {
       }
     }
     if (s.size === 0) this._activeContractControllers.delete(contractId);
-    emitContractVerifierUnregistered(this.audit, { contractId });
   }
 
   hasActiveVerifiers(contractId: ContractId): boolean {
@@ -589,28 +591,37 @@ export class ContractSystem {
     }
 
     // NEW phase 966: boot reconcile — reset leftover in_progress subtasks so submit can retry.
+    // Phase 968: per-contract try/catch isolation so one corrupt contract doesn't block others.
     try {
       if (await this.fs.exists(this.activeDir)) {
         const activeEntries = await this.fs.list(this.activeDir, { includeDirs: true });
         for (const entry of activeEntries) {
-          if (!entry.isDirectory) continue;
-          const contractId = makeContractId(entry.name);
-          const progress = await this.getProgress(contractId);
-          if (!progress || progress.status !== 'running') continue;
-          let mutated = false;
-          for (const [stId, subtask] of Object.entries(progress.subtasks)) {
-            if (subtask.status === 'in_progress') {
-              subtask.status = 'todo';
-              delete subtask.verification_attempt_id;
-              mutated = true;
-              this.audit.write(
-                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
-                `contract=${entry.name}`,
-                `subtask=${stId}`,
-              );
+          try {
+            if (!entry.isDirectory) continue;
+            const contractId = makeContractId(entry.name);
+            const progress = await this.getProgress(contractId);
+            if (!progress || progress.status !== 'running') continue;
+            let mutated = false;
+            for (const [stId, subtask] of Object.entries(progress.subtasks)) {
+              if (subtask.status === 'in_progress') {
+                subtask.status = 'todo';
+                delete subtask.verification_attempt_id;
+                mutated = true;
+                this.audit.write(
+                  CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
+                  `contract=${entry.name}`,
+                  `subtask=${stId}`,
+                );
+              }
             }
+            if (mutated) await this.saveProgress(contractId, progress);
+          } catch (err) {
+            this.audit.write(
+              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET_FAILED,
+              `contract=${entry.name}`,
+              `reason=${formatErr(err)}`,
+            );
           }
-          if (mutated) await this.saveProgress(contractId, progress);
         }
       }
     } catch (err) {

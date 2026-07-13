@@ -238,6 +238,15 @@ export async function completeSubtaskSync(
     safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
     const subtaskTotal = contractYaml.subtasks.length;
     const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
+
+    allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
+    if (allCompleted) {
+      progress.status = 'completed';
+      progress.completed_at = new Date().toISOString();
+    }
+
+    await ctx.saveProgress(contractId, progress);
+    // Phase 968: emit completion audit AFTER saveProgress commits
     emitContractSubtaskCompleted(
       ctx.audit,
       {
@@ -247,14 +256,6 @@ export async function completeSubtaskSync(
         claw: ctx.clawId,
       },
     );
-
-    allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-    if (allCompleted) {
-      progress.status = 'completed';
-      progress.completed_at = new Date().toISOString();
-    }
-
-    await ctx.saveProgress(contractId, progress);
     emitContractUpdated(
       ctx.audit,
       {

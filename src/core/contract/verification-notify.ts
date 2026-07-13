@@ -155,6 +155,19 @@ export async function handleVerificationErrorRetry(
       if (!progress) {
         throw new ToolError(`Contract "${contractId}" unloadable: progress schema corruption`);
       }
+      // Phase 968: lifecycle guard — don't mutate subtasks of non-running contracts
+      if (progress.status !== 'running') {
+        emitContractVerificationResetFailed(
+          ctx.audit,
+          {
+            contractId,
+            subtaskId,
+            context: 'handleVerificationErrorRetry',
+            message: `contract status is "${progress.status}", expected "running"`,
+          },
+        );
+        return;
+      }
       const subtask = progress.subtasks[subtaskId];
       if (subtask && subtask.status === 'in_progress') {
         subtask.status = 'todo';
@@ -184,7 +197,7 @@ export async function handleVerificationErrorRetry(
           const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
           // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
           writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
-          if (allCompleted && progress.status !== 'completed') {
+          if (allCompleted) {
             progress.status = 'completed';
             progress.completed_at = new Date().toISOString();
             await ctx.saveProgress(contractId, progress);

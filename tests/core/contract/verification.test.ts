@@ -8,7 +8,9 @@ import * as os from 'os';
 import * as nodeFs from 'fs';
 import * as path from 'path';
 import { makeMockAudit } from '../../helpers/audit.js';
-import { formatRejectionFeedback, runScriptVerification, runLLMVerification, runVerificationInBackground } from '../../../src/core/contract/verification.js';
+import { formatRejectionFeedback, runScriptVerification, runLLMVerification, runVerificationInBackground, runVerificationPipeline } from '../../../src/core/contract/verification.js';
+import { VerificationMutex } from '../../../src/core/contract/verification-mutex.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
@@ -28,6 +30,12 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     withProgressLock: vi.fn((_id, fn) => fn()),
     getProgress: vi.fn().mockResolvedValue(null),
     saveProgress: vi.fn().mockResolvedValue(undefined),
+    loadContractYaml: vi.fn().mockResolvedValue(null),
+    verificationMutex: new VerificationMutex(),
+    toolRegistry: {} as VerificationContext['toolRegistry'],
+    runScriptVerification: vi.fn(),
+    runLLMVerification: vi.fn(),
+    runVerifierWithCancel: vi.fn(),
     ...overrides,
   } as VerificationContext;
 }
@@ -297,5 +305,96 @@ describe('runVerificationInBackground (Phase 965)', () => {
     expect(saveProgress).not.toHaveBeenCalled();
     expect(progress.subtasks.st1.status).toBe('in_progress');
     expect(progress.subtasks.st1.verification_attempt_id).toBeUndefined();
+  });
+});
+
+describe('runVerificationPipeline (Phase 968)', () => {
+  it('does not mark subtask in_progress when contract is paused', async () => {
+    const contractId = 'c1';
+    const subtaskId = 'st1';
+    const progress = {
+      status: 'paused',
+      subtasks: {
+        [subtaskId]: { status: 'todo' },
+      },
+    };
+    const audit = makeMockAudit();
+    const saveProgress = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({
+      audit: audit as unknown as VerificationContext['audit'],
+      saveProgress,
+      getProgress: vi.fn().mockResolvedValue(progress),
+      loadContractYaml: vi.fn().mockResolvedValue({
+        subtasks: [{ id: subtaskId, description: 'desc' }],
+        verification: [{ subtask_id: subtaskId, type: 'script', script_file: 'check.sh' }],
+      }),
+    });
+
+    const result = await runVerificationPipeline(ctx, {
+      contractId,
+      subtaskId,
+      evidence: 'ev',
+    });
+
+    expect(result).toEqual({ passed: false, feedback: '', async: true });
+    expect(saveProgress).not.toHaveBeenCalled();
+    expect(progress.subtasks[subtaskId].status).toBe('todo');
+    expect(audit.write).toHaveBeenCalledWith(
+      CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
+      expect.stringContaining(`contractId=${contractId}`),
+      expect.stringContaining(`subtaskId=${subtaskId}`),
+      expect.stringContaining('runVerificationPipeline'),
+      expect.stringContaining('paused'),
+    );
+  });
+});
+
+describe('applyVerificationOutcome audit ordering (Phase 968)', () => {
+  it('saves progress before emitting subtask completion audit', async () => {
+    const calls: string[] = [];
+    const saveProgress = vi.fn().mockImplementation(() => {
+      calls.push('save');
+      return Promise.resolve(undefined);
+    });
+    const mockAudit = makeMockAudit();
+    const audit: VerificationContext['audit'] = {
+      ...mockAudit,
+      write: vi.fn((type: string, ..._cols: (string | number)[]) => {
+        calls.push(`audit:${type}`);
+      }) as unknown as VerificationContext['audit']['write'],
+    };
+    const progress = {
+      status: 'running',
+      subtasks: {
+        st1: { status: 'in_progress', verification_attempt_id: 'a1' },
+      },
+    };
+    const ctx = makeCtx({
+      audit,
+      saveProgress,
+      getProgress: vi.fn().mockResolvedValue(progress),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
+      registerController: vi.fn(),
+      unregisterController: vi.fn(),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: '' }),
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    expect(progress.subtasks.st1.status).toBe('completed');
+    expect(calls).toContain('save');
+    expect(calls).toContain(`audit:${CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED}`);
+    expect(calls).toContain(`audit:${CONTRACT_AUDIT_EVENTS.PASSED}`);
+    expect(calls.indexOf('save')).toBeLessThan(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED}`));
+    expect(calls.indexOf('save')).toBeLessThan(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.PASSED}`));
   });
 });

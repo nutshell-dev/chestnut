@@ -200,6 +200,14 @@ async function applyVerificationOutcome(
       safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
       const subtaskTotal = contractYaml.subtasks.length;
       const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
+
+      const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
+      if (allCompleted) {
+        progress.status = 'completed';
+        progress.completed_at = new Date().toISOString();
+      }
+      await ctx.saveProgress(contractId, progress);
+      // Phase 968: emit completion audit AFTER saveProgress commits
       emitContractSubtaskCompleted(
         ctx.audit,
         {
@@ -210,13 +218,6 @@ async function applyVerificationOutcome(
         },
       );
       emitContractPassed(ctx.audit, { contractId, subtaskId });
-
-      const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-      if (allCompleted) {
-        progress.status = 'completed';
-        progress.completed_at = new Date().toISOString();
-      }
-      await ctx.saveProgress(contractId, progress);
       writeVerificationInbox(ctx, contractId, subtaskId, 'passed', allCompleted);
 
       return { allCompleted, passed: true };
@@ -242,9 +243,6 @@ async function applyVerificationOutcome(
       subtask.completed_at = new Date().toISOString();
       subtask.force_accepted = true;
       const lastFeedback = subtask.last_failed_feedback?.feedback;
-      emitSubtaskForceAccepted(ctx.audit, {
-        contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
-      });
       safeNotify(ctx, 'subtask_completed', {
         contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
       });
@@ -255,6 +253,10 @@ async function applyVerificationOutcome(
         progress.completed_at = new Date().toISOString();
       }
       await ctx.saveProgress(contractId, progress);
+      // Phase 968: emit force-accept audit AFTER saveProgress commits
+      emitSubtaskForceAccepted(ctx.audit, {
+        contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
+      });
 
       // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
       writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
@@ -342,6 +344,16 @@ export async function runVerificationPipeline(
     const progress = await ctx.getProgress(contractId);
     if (!progress) {
       throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
+    }
+    // Phase 968: lifecycle guard — only running contracts may start verification
+    if (progress.status !== 'running') {
+      emitContractVerificationResetFailed(ctx.audit, {
+        contractId,
+        subtaskId,
+        context: 'runVerificationPipeline',
+        message: `contract status is "${progress.status}", expected "running"`,
+      });
+      return;
     }
     if (!progress.subtasks[subtaskId]) {
       throw new ToolError(`Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}`);

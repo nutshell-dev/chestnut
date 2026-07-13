@@ -11,7 +11,7 @@ import * as path from 'path';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
-import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
+import { makeAudit, makeMockAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { ContractValidationError } from '../../../src/core/contract/errors.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
@@ -148,5 +148,72 @@ describe('ContractSystem manager (phase 956)', () => {
     expect(progress.subtasks['task-1'].status).toBe('todo');
     expect(progress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
     expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET)).toBe(true);
+  });
+
+  it('continues to next contract when one fails in boot reconcile (Phase 968)', async () => {
+    const { manager, events } = setupManager();
+    const c1 = 'boot-reconcile-isolate-c1';
+    const c2 = 'boot-reconcile-isolate-c2';
+    const c1Dir = path.join(clawDir, 'contract', 'active', c1);
+    const c2Dir = path.join(clawDir, 'contract', 'active', c2);
+    await fs.mkdir(c1Dir, { recursive: true });
+    await fs.mkdir(c2Dir, { recursive: true });
+
+    const yaml = await import('js-yaml');
+    const baseProgress = {
+      schema_version: 1,
+      status: 'running',
+      subtasks: {
+        'task-1': { status: 'in_progress', verification_attempt_id: 'old-attempt' },
+      },
+      started_at: new Date().toISOString(),
+      checkpoint: null,
+    };
+
+    await fs.writeFile(path.join(c1Dir, 'contract.yaml'), yaml.dump(makeContractYaml({ id: c1 })));
+    await fs.writeFile(path.join(c1Dir, 'progress.json'), JSON.stringify({ ...baseProgress, contract_id: c1 }, null, 2));
+    await fs.writeFile(path.join(c2Dir, 'contract.yaml'), yaml.dump(makeContractYaml({ id: c2 })));
+    await fs.writeFile(path.join(c2Dir, 'progress.json'), JSON.stringify({ ...baseProgress, contract_id: c2 }, null, 2));
+
+    vi.spyOn(manager, 'getProgress')
+      .mockResolvedValueOnce({
+        schema_version: 1,
+        contract_id: c1,
+        status: 'running',
+        subtasks: { 'task-1': { status: 'in_progress', verification_attempt_id: 'old-attempt' } },
+        started_at: new Date().toISOString(),
+      } as any)
+      .mockRejectedValueOnce(new Error('EIO'));
+
+    await manager.init();
+
+    const c1Progress = await manager.getProgress(c1);
+    expect(c1Progress.subtasks['task-1'].status).toBe('todo');
+    expect(c1Progress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET)).toBe(true);
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET_FAILED)).toBe(true);
+  });
+
+  it('does not register controller when audit fails (Phase 968)', () => {
+    const audit = makeMockAudit();
+    audit.write = vi.fn((type: string, ..._cols: (string | number)[]) => {
+      if (type === CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED) {
+        throw new Error('audit fail');
+      }
+    }) as unknown as typeof audit.write;
+    const manager = new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: nodeFs,
+      audit: audit as unknown as Parameters<typeof ContractSystem>[0]['audit'],
+      toolRegistry: createToolRegistry(),
+      fsFactory,
+      clawsDir: '/tmp/test/claws',
+      notifyClaw: vi.fn(),
+    });
+
+    const ctrl = new AbortController();
+    expect(() => (manager as any)._registerVerifierController('c1', ctrl, Promise.resolve())).toThrow('audit fail');
+    expect((manager as any)._activeContractControllers.has('c1')).toBe(false);
   });
 });
