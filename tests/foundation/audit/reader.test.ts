@@ -482,6 +482,7 @@ describe('listPendingFallbackDumps', () => {
 
   it('returns matching fallback dumps', async () => {
     const ts = Date.now();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const dumpPath = path.join(nodeOs.tmpdir(), `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
     nodeFs.writeFileSync(dumpPath, 'line1\n');
     createdFiles.push(dumpPath);
@@ -495,6 +496,7 @@ describe('listPendingFallbackDumps', () => {
   });
 
   it('ignores non-matching files', () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const otherPath = path.join(nodeOs.tmpdir(), 'other-file.tsv');
     nodeFs.writeFileSync(otherPath, 'x');
     createdFiles.push(otherPath);

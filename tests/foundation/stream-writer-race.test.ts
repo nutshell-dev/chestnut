@@ -14,7 +14,6 @@ describe('StreamWriter open() race-safe (phase 1120)', () => {
   let streamPath: string;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = nativeFs.mkdtempSync(nativePath.join(os.tmpdir(), 'stream-race-'));
     fs = new NodeFileSystem({ baseDir: tempDir });
     auditPath = nativePath.join(tempDir, 'audit.tsv');

@@ -32,7 +32,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -63,7 +62,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -90,7 +88,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -110,7 +107,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -130,7 +126,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -150,7 +145,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -171,7 +165,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -197,7 +190,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -224,7 +216,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -253,7 +244,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -283,7 +273,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -317,7 +306,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -347,7 +335,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -374,7 +361,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -415,7 +401,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -453,7 +438,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -509,7 +493,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -549,7 +532,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
       });
 
@@ -602,7 +584,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     let tmpDir: string;
 
     beforeEach(async () => {
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
     });
 

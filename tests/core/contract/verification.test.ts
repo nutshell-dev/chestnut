@@ -116,7 +116,6 @@ describe('runScriptVerification (phase 990)', () => {
   });
 
   it('rejects script path that is a symlink outside contract dir', async () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const contractDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'phase963-contract-'));
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const outsideFile = path.join(os.tmpdir(), `phase963-outside-${Date.now()}.sh`);
@@ -146,7 +145,6 @@ describe('runScriptVerification (phase 990)', () => {
 
 describe('runLLMVerification (phase 963)', () => {
   it('propagates abort from LLM verification instead of returning passed:false', async () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const contractDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'phase963-llm-'));
     nodeFs.writeFileSync(path.join(contractDir, 'prompt.md'), '{{evidence}}');
     const controller = new AbortController();

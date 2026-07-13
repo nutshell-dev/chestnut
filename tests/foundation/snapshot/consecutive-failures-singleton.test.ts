@@ -25,7 +25,6 @@ describe.skipIf(!gitAvailable)('consecutiveFailures singleton', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-singleton-'));
   });
 

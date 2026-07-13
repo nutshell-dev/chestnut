@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
+import * as os from 'node:os';
 import * as path from 'path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -12,7 +13,7 @@ describe('fs/types.ts: sync/async parity', () => {
   });
 
   it('NodeFileSystem implements removeDirSync correctly', () => {
-    const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'fs-parity-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'fs-parity-test-'));
     const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
 
     fs.mkdirSync(path.join(tmpDir, 'subdir'), { recursive: true });
@@ -25,7 +26,7 @@ describe('fs/types.ts: sync/async parity', () => {
   });
 
   it('NodeFileSystem implements realpathSync correctly', () => {
-    const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'fs-parity-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'fs-parity-test-'));
     const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
 
     fs.writeFileSync(path.join(tmpDir, 'file.txt'), 'hello');
@@ -38,7 +39,7 @@ describe('fs/types.ts: sync/async parity', () => {
   });
 
   it('NodeFileSystem implements isDirectorySync correctly', () => {
-    const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'fs-parity-test-'));
+    const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'fs-parity-test-'));
     const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
 
     fs.mkdirSync(path.join(tmpDir, 'dir'), { recursive: true });

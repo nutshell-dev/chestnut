@@ -15,7 +15,6 @@ describe('OutboxWriter', () => {
   let fs: NodeFileSystem;
 
   beforeEach(async () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'ob-test-'));
     fs = new NodeFileSystem({ baseDir: tmpDir });
   });

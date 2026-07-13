@@ -16,7 +16,6 @@ describe.skipIf(!gitAvailable)('snapshot SnapshotState tagged union (phase 285 S
   let tmpDir: string;
 
   beforeEach(async () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-tagged-union-'));
   });
 
