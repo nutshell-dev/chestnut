@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeMockAudit } from '../../helpers/audit.js';
 import { checkPathContainment, runScriptVerification } from '../../../src/core/contract/verification-execution.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
+import { PathGuardError } from '../../../src/foundation/fs/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { VerificationContext } from '../../../src/core/contract/verification-types.js';
 
@@ -54,6 +55,28 @@ describe('checkPathContainment (Phase 965)', () => {
       }),
     } as unknown as FileSystem;
     expect(() => checkPathContainment(fs, '/container', 'script.sh')).toThrow(eaccesErr);
+  });
+
+  it('returns null when realpathSync throws PathGuardError', () => {
+    const guardErr = new PathGuardError('symlink traversal', 'link.sh');
+    const fs = {
+      realpathSync: vi.fn((p: string) => {
+        if (p === '/container') return '/container';
+        throw guardErr;
+      }),
+    } as unknown as FileSystem;
+    expect(checkPathContainment(fs, '/container', 'link.sh')).toBeNull();
+  });
+
+  it('returns null when realpathSync throws ENOENT', () => {
+    const enoentErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    const fs = {
+      realpathSync: vi.fn((p: string) => {
+        if (p === '/container') return '/container';
+        throw enoentErr;
+      }),
+    } as unknown as FileSystem;
+    expect(checkPathContainment(fs, '/container', 'missing.sh')).toBeNull();
   });
 });
 

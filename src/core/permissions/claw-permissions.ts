@@ -167,11 +167,7 @@ function getRelativeToClaw(
     if (err instanceof PathGuardError) {
       return null; // genuine containment violation
     }
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      return null; // target doesn't exist yet — treated as outside claw (will fail on access)
-    }
-    throw err; // EACCES, EIO, EPERM, EROFS, ELOOP, ENOTDIR, etc. — propagate
+    throw err; // ENOENT, EACCES, EIO, EPERM, EROFS, ELOOP, ENOTDIR, etc. — propagate
   }
 }
 

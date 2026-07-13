@@ -82,6 +82,15 @@ describe('createClawPermissionChecker', () => {
       const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, fs: mockFs as any });
       expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(erofsErr);
     });
+
+    it('propagates ENOENT from fs.resolve instead of returning null', () => {
+      const enoentErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      const mockFs = {
+        resolve: vi.fn().mockImplementation(() => { throw enoentErr; }),
+      };
+      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, fs: mockFs as any });
+      expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(enoentErr);
+    });
   });
 
   // =========================================================================

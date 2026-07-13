@@ -81,41 +81,44 @@ export class NodeFileSystem implements FileSystem {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
-        // baseDir doesn't exist — walk up its ancestors to find the first
-        // existing one, and verify that ancestor isn't a symlink escaping the
-        // expected tree (P0 hardening: phase 979).
+        // baseDir doesn't exist — compute a canonical root by finding the
+        // longest existing prefix, resolving its real path, and appending the
+        // unresolved suffix. This catches sibling-symlink escapes where the
+        // symlink target stays under the same parent and would otherwise be
+        // mistaken for the base root (P0 hardening: phase 980).
         const literalBase = this.options.baseDir;
-        let ancestor = path.dirname(literalBase);
-        while (ancestor !== path.dirname(ancestor)) {
+        const segments = literalBase.split(path.sep);
+        for (let i = segments.length; i > 0; i--) {
+          const prefix = segments.slice(0, i).join(path.sep) || path.sep;
           try {
-            const realAncestor = realpathSync(ancestor);
-            const parent = path.dirname(ancestor);
-            let realParent: string;
-            try {
-              realParent = realpathSync(parent);
-            } catch (parentErr) {
-              if ((parentErr as NodeJS.ErrnoException).code === 'ENOENT') {
-                break; // parent doesn't exist — keep literal baseDir and stop
+            const realPrefix = realpathSync(prefix);
+            const unresolved = segments.slice(i).join(path.sep);
+            realBase = unresolved ? path.join(realPrefix, unresolved) : realPrefix;
+            // Detect symlink traversal at the longest existing prefix. A prefix
+            // whose real path differs from its expected literal location is a
+            // symlink that displaces the base root. Direct children of the
+            // filesystem root are skipped to avoid false positives on system
+            // symlinks such as /tmp on macOS.
+            if (path.dirname(prefix) !== path.sep) {
+              const parentPrefix = path.dirname(prefix);
+              const realParentPrefix = realpathSync(parentPrefix);
+              const expectedPrefix = path.join(realParentPrefix, path.basename(prefix));
+              if (realPrefix !== expectedPrefix) {
+                throw new PathGuardError(
+                  `Symlink traversal detected in base directory path: resolves outside base root`,
+                  relativePath
+                );
               }
-              throw parentErr;
             }
-            const parentPrefix = realParent.endsWith(path.sep) ? realParent : realParent + path.sep;
-            if (realAncestor !== realParent && !realAncestor.startsWith(parentPrefix)) {
-              throw new PathGuardError(
-                `Symlink traversal detected at base ancestor "${path.basename(ancestor)}": resolves outside base root`,
-                relativePath
-              );
-            }
-            realBase = realAncestor;
             break;
-          } catch (ancErr) {
-            if ((ancErr as NodeJS.ErrnoException).code !== 'ENOENT') {
-              throw ancErr; // EACCES, EIO, etc. — propagate
+          } catch (prefixErr) {
+            if ((prefixErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw prefixErr; // EACCES, EIO, etc. — propagate
             }
-            ancestor = path.dirname(ancestor);
+            // ENOENT: try shorter prefix
           }
         }
-        // If no existing ancestor was found, realBase keeps the literal baseDir.
+        // If no existing prefix was found, realBase keeps the literal baseDir.
       } else {
         throw err; // EACCES, EIO, etc. — 不可恢复，应 propagate
       }

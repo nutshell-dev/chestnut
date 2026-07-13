@@ -28,9 +28,12 @@ export function checkPathContainment(fs: FileSystem, container: string, relative
   try {
     realPath = fs.realpathSync(resolved);
   } catch (err) {
+    if (err instanceof PathGuardError) {
+      return null; // containment failed — caller decides
+    }
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || err instanceof PathGuardError) {
-      return null; // file doesn't exist or containment failed — caller decides
+    if (code === 'ENOENT') {
+      return null; // file doesn't exist yet (path is within container, just not created)
     }
     throw err; // EACCES, EIO — propagate
   }
