@@ -15,6 +15,7 @@
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 
+import { formatErr } from '../../foundation/node-utils/index.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
@@ -31,6 +32,7 @@ export interface SystemComponentView {
   uptimeMs?: number;
   inboxUnread?: number;
   reason: string;
+  warning?: string;
 }
 
 export interface ActiveClawView {
@@ -38,12 +40,14 @@ export interface ActiveClawView {
   pid: number;
   uptimeMs?: number;
   lastActivityAgoMs?: number;
-  inboxUnread: number;
+  inboxUnread?: number;
+  error?: string;
 }
 
 export interface OrphansView {
   watchdog: number[];
   daemon: number[];
+  error?: string;
 }
 
 export interface ForumStatusView {
@@ -81,9 +85,16 @@ export function computeProcessUptimeMs(
  * Count unread inbox messages for a claw (files in inbox/pending/).
  * Returns 0 when inbox dir does not exist.
  */
-export async function computeClawInboxUnread(clawFs: FileSystem): Promise<number> {
-  const inboxReader = createInboxReader(clawFs, { write: () => {} } as unknown as AuditLog, 'inbox');
-  return await inboxReader.peekPendingCount();
+export async function computeClawInboxUnread(
+  clawFs: FileSystem,
+  audit: AuditLog = { write: () => {} } as unknown as AuditLog,
+): Promise<number | undefined> {
+  try {
+    const inboxReader = createInboxReader(clawFs, audit, 'inbox');
+    return await inboxReader.peekPendingCount();
+  } catch {
+    return undefined; // I/O error → unavailable
+  }
 }
 
 /**
@@ -198,19 +209,30 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
   totalClawCount = allClawIds.length;
 
   for (const clawId of allClawIds) {
-    const s = deps.pm.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId)));
-    if (!s.alive || s.pid === undefined) continue;
-    trackedPids.push(s.pid);
-    const location = deps.clawTopology.resolve(makeClawId(clawId));
-    if (location.kind !== 'local') continue;
-    const clawFs = deps.fsFactory(location.clawDir);
-    activeClaws.push({
-      name: clawId,
-      pid: s.pid,
-      uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
-      lastActivityAgoMs: computeClawLastActivityAgoMs(clawFs, nowMs),
-      inboxUnread: await computeClawInboxUnread(clawFs),
-    });
+    try {
+      const s = deps.pm.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId)));
+      if (!s.alive || s.pid === undefined) continue;
+      trackedPids.push(s.pid);
+      const location = deps.clawTopology.resolve(makeClawId(clawId));
+      if (location.kind !== 'local') continue;
+      const clawFs = deps.fsFactory(location.clawDir);
+      activeClaws.push({
+        name: clawId,
+        pid: s.pid,
+        uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
+        lastActivityAgoMs: computeClawLastActivityAgoMs(clawFs, nowMs),
+        inboxUnread: await computeClawInboxUnread(clawFs),
+      });
+    } catch (err) {
+      activeClaws.push({
+        name: clawId,
+        pid: -1,
+        uptimeMs: undefined,
+        lastActivityAgoMs: undefined,
+        inboxUnread: undefined,
+        error: formatErr(err),
+      });
+    }
   }
 
   // ── Orphans ──
@@ -228,15 +250,31 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
   };
 }
 
-function computeOrphans(
+export function computeOrphans(
   pm: ProcessManager,
   watchdogEntry: string,
   daemonEntry: string,
   exclude: { watchdog: number | undefined; trackedPids: number[] },
 ): OrphansView {
-  const wdOrphans = findOrphans(pm, watchdogEntry, [exclude.watchdog]);
-  const daemonOrphans = findOrphans(pm, daemonEntry, exclude.trackedPids);
-  return { watchdog: wdOrphans, daemon: daemonOrphans };
+  try {
+    const wdOrphans = findOrphansInternal(pm, watchdogEntry, [exclude.watchdog]);
+    const daemonOrphans = findOrphansInternal(pm, daemonEntry, exclude.trackedPids);
+    return { watchdog: wdOrphans, daemon: daemonOrphans };
+  } catch (err) {
+    if (err instanceof ProcessListUnavailable) {
+      return { watchdog: [], daemon: [], error: 'process list unavailable' };
+    }
+    throw err;
+  }
+}
+
+function findOrphansInternal(
+  pm: ProcessManager,
+  entryPath: string,
+  excludePids: (number | undefined)[],
+): number[] {
+  const validExcludes = excludePids.filter((p): p is number => typeof p === 'number');
+  return pm.findProcesses(entryPath).filter(p => !validExcludes.includes(p) && p !== process.pid);
 }
 
 /**
@@ -248,9 +286,8 @@ export function findOrphans(
   entryPath: string,
   excludePids: (number | undefined)[],
 ): number[] {
-  const validExcludes = excludePids.filter((p): p is number => typeof p === 'number');
   try {
-    return pm.findProcesses(entryPath).filter(p => !validExcludes.includes(p) && p !== process.pid);
+    return findOrphansInternal(pm, entryPath, excludePids);
   } catch (err) {
     if (err instanceof ProcessListUnavailable) return [];
     throw err;

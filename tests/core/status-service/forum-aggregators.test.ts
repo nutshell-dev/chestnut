@@ -13,7 +13,7 @@
  * unparseable audit line, watchdog stopped, motion stopped, 0 claws dir.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import {
@@ -21,6 +21,7 @@ import {
   computeClawInboxUnread,
   computeClawLastActivityAgoMs,
   computeForumStatusView,
+  computeOrphans,
   formatForumStatusView,
   humanizeUptime,
   humanizeAgo,
@@ -28,6 +29,7 @@ import {
 import type { ForumStatusDeps } from '../../../src/core/status-service/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { ProcessManager } from '../../../src/foundation/process-manager/index.js';
+import * as messaging from '../../../src/foundation/messaging/index.js';
 import { ProcessListUnavailable } from '../../../src/foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
@@ -134,6 +136,15 @@ describe('computeClawInboxUnread', () => {
   it('returns 0 when inbox/pending is empty', async () => {
     const fs = makeFs({}, { 'inbox/pending': [] });
     expect(await computeClawInboxUnread(fs)).toBe(0);
+  });
+
+  it('returns undefined inboxUnread when peekPendingCount fails', async () => {
+    vi.spyOn(messaging, 'createInboxReader').mockReturnValue({
+      peekPendingCount: vi.fn().mockRejectedValue(new Error('EACCES')),
+    } as unknown as ReturnType<typeof messaging.createInboxReader>);
+    const result = await computeClawInboxUnread(makeFs({}), { write: () => {} } as unknown as import('../../../src/foundation/audit/index.js').AuditLog);
+    expect(result).toBeUndefined();
+    vi.restoreAllMocks();
   });
 });
 
@@ -317,7 +328,7 @@ describe('computeForumStatusView', () => {
     expect(v.totalClawCount).toBe(1);
   });
 
-  it('ProcessListUnavailable in findProcesses degrades to empty orphan list', async () => {
+  it('ProcessListUnavailable in findProcesses degrades to empty orphan list with error field', async () => {
     const deps = makeDeps({
       pm: {
         getAliveStatus: () => ({ alive: false, reason: 'no PID file' }),
@@ -327,7 +338,42 @@ describe('computeForumStatusView', () => {
       } as unknown as ProcessManager,
     });
     const v = await computeForumStatusView(deps);
-    expect(v.orphans).toEqual({ watchdog: [], daemon: [] });
+    expect(v.orphans).toEqual({
+      watchdog: [],
+      daemon: [],
+      error: 'process list unavailable',
+    });
+  });
+
+  it('continues to next claw when one fails', async () => {
+    const pm = {
+      getAliveStatus: vi.fn()
+        .mockReturnValueOnce({ alive: false, reason: 'no PID file' }) // motion
+        .mockReturnValueOnce({ alive: true, pid: 100 }) // claw-a
+        .mockImplementationOnce(() => {
+          throw new Error('EIO');
+        }), // claw-b
+      findProcesses: vi.fn().mockReturnValue([]),
+    } as unknown as ProcessManager;
+    const deps = makeDeps({ claws: ['claw-a', 'claw-b'], pm });
+    const view = await computeForumStatusView(deps);
+    expect(view.activeClaws.length).toBeGreaterThan(0);
+    expect(view.activeClaws[0].name).toBe('claw-a');
+  });
+
+  it('returns error field when process list unavailable', () => {
+    const pm = {
+      findProcesses: vi.fn().mockImplementation(() => {
+        throw new ProcessListUnavailable('test');
+      }),
+    } as unknown as ProcessManager;
+    const orphans = computeOrphans(pm, 'entry', 'daemon', {
+      watchdog: undefined,
+      trackedPids: [],
+    });
+    expect(orphans.error).toBe('process list unavailable');
+    expect(orphans.watchdog).toEqual([]);
+    expect(orphans.daemon).toEqual([]);
   });
 });
 
@@ -421,5 +467,19 @@ describe('formatForumStatusView', () => {
     expect(lines).toContain('  ⚠ orphan watchdog: PID 9999');
     expect(lines).toContain('  ⚠ orphan daemon:   PID 8888');
     expect(lines).toContain('  ⚠ orphan daemon:   PID 7777');
+  });
+
+  it('shows warning on alive system component', () => {
+    const lines = formatForumStatusView({
+      timestamp: '2026-05-30T14:23:07.000Z',
+      system: {
+        watchdog: { alive: true, pid: 1, uptimeMs: 1000, reason: 'alive', warning: 'PID file unreadable' },
+        motion: { alive: false, pid: undefined, reason: 'stopped' },
+      },
+      activeClaws: [],
+      totalClawCount: 0,
+      orphans: { watchdog: [], daemon: [] },
+    });
+    expect(lines).toContain('  watchdog  running (warning: PID file unreadable)   PID 1   uptime 1s');
   });
 });

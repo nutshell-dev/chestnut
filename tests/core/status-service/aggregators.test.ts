@@ -130,6 +130,28 @@ describe('computeTaskView', () => {
     const v = await computeTaskView(fs);
     expect(formatTaskView(v)).toBe('Tasks: 1 pending');
   });
+
+  it('shows pendingError in formatted output', () => {
+    const v: import('../../../src/core/status-service/aggregators.js').TaskView = {
+      type: 'counts',
+      running: 0,
+      pending: 0,
+      pendingError: 'EACCES',
+    };
+    expect(formatTaskView(v)).toContain('pending error: EACCES');
+  });
+
+  it('shows runningError alongside counts', () => {
+    const v: import('../../../src/core/status-service/aggregators.js').TaskView = {
+      type: 'counts',
+      running: 2,
+      pending: 1,
+      runningError: 'EIO',
+    };
+    const out = formatTaskView(v);
+    expect(out).toContain('2 running');
+    expect(out).toContain('running error: EIO');
+  });
 });
 
 // ── Storage ─────────────────────────────────────────────────────────────────
@@ -169,6 +191,18 @@ describe('computeStorageView', () => {
     const lines = formatStorageView(v);
     expect(lines[0]).toContain('MEMORY.md: Error');
     expect(lines[1]).toContain('Clawspace: Error');
+  });
+
+  it('MEMORY.md size uses byte length for multibyte UTF-8', async () => {
+    const content = '中'.repeat(1000);
+    const fs = {
+      exists: vi.fn().mockResolvedValue(true),
+      read: vi.fn().mockResolvedValue(content),
+      list: vi.fn().mockResolvedValue([]),
+    } as unknown as FileSystem;
+    const v = await computeStorageView(fs);
+    expect(v.memoryMd).toEqual({ type: 'size', bytes: 3000 });
+    expect(formatStorageView(v)).toContain('MEMORY.md: 2.9KB');
   });
 });
 

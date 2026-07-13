@@ -64,6 +64,9 @@ function formatSystemRow(name: string, c: SystemComponentView): string {
   const pidStr = c.pid !== undefined ? `   PID ${c.pid}` : '';
   const upStr = `   uptime ${humanizeUptime(c.uptimeMs)}`;
   const inboxStr = c.inboxUnread !== undefined ? `   inbox: ${c.inboxUnread} unread` : '';
+  if (c.warning) {
+    return `${namePad}running (warning: ${c.warning})${pidStr}${upStr}${inboxStr}`;
+  }
   return `${namePad}running${pidStr}${upStr}${inboxStr}`;
 }
 

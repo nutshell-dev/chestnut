@@ -37,6 +37,7 @@ export {
   computeClawInboxUnread,
   computeClawLastActivityAgoMs,
   computeForumStatusView,
+  computeOrphans,
   findOrphans,
 } from './forum-aggregators.js';
 export type {

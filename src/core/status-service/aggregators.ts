@@ -109,7 +109,7 @@ export async function computeStorageView(fs: FileSystem): Promise<StorageView> {
   try {
     if (await fs.exists(CLAW_MEMORY_FILE)) {
       const content = await fs.read(CLAW_MEMORY_FILE);
-      memoryMd = { type: 'size', bytes: content.length };
+      memoryMd = { type: 'size', bytes: Buffer.byteLength(content, 'utf8') };
     } else {
       memoryMd = { type: 'not-found' };
     }
@@ -156,9 +156,13 @@ export function formatContractView(v: ContractView): string {
 export function formatTaskView(v: TaskView): string {
   if (v.type === 'unavailable') return `Tasks: unavailable (${v.message})`;
   if (v.type === 'counts') {
-    if (v.running > 0) return `Tasks: ${v.running} running, ${v.pending} pending`;
-    if (v.pending > 0) return `Tasks: ${v.pending} pending`;
-    return 'Tasks: idle';
+    const parts: string[] = [];
+    if (v.running > 0) parts.push(`${v.running} running`);
+    if (v.pending > 0) parts.push(`${v.pending} pending`);
+    if (v.pendingError) parts.push(`pending error: ${v.pendingError}`);
+    if (v.runningError) parts.push(`running error: ${v.runningError}`);
+    if (parts.length === 0) return 'Tasks: idle';
+    return `Tasks: ${parts.join(', ')}`;
   }
   const _exhaustive: never = v;
   return _exhaustive;
