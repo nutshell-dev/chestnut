@@ -12,7 +12,7 @@
 
 import { promises as fs } from 'node:fs';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-import { rmSync, mkdtempSync } from 'node:fs';
+import { rmSync, mkdirSync, mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -30,7 +30,9 @@ const trackedDirs = new Set<string>();
 export async function createTrackedTempDir(prefix = 'chestnut-test-'): Promise<string> {
   // temp.ts 是统一封装层，允许直接调用 os.tmpdir()
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const parent = os.tmpdir();
+  try { await fs.mkdir(parent, { recursive: true }); } catch { /* parent may already exist */ }
+  const dir = await fs.mkdtemp(path.join(parent, prefix));
   trackedDirs.add(dir);
   return dir;
 }
@@ -38,7 +40,9 @@ export async function createTrackedTempDir(prefix = 'chestnut-test-'): Promise<s
 export function createTrackedTempDirSync(prefix = 'chestnut-test-'): string {
   // temp.ts 是统一封装层，允许直接调用 os.tmpdir()
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const dir = mkdtempSync(path.join(os.tmpdir(), prefix));
+  const parent = os.tmpdir();
+  try { mkdirSync(parent, { recursive: true }); } catch { /* parent may already exist */ }
+  const dir = mkdtempSync(path.join(parent, prefix));
   trackedDirs.add(dir);
   return dir;
 }

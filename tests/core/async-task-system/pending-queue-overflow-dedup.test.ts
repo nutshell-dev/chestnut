@@ -51,7 +51,7 @@ function writePendingFile(baseDir: string, id: string): void {
 function clearPendingDir(baseDir: string): void {
   const dir = path.join(baseDir, TASKS_QUEUES_PENDING_DIR);
   for (const f of fs.readdirSync(dir)) {
-    fs.unlinkSync(path.join(dir, f));
+    try { fs.unlinkSync(path.join(dir, f)); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; }
   }
 }
 
