@@ -340,9 +340,11 @@ export class InboxReader {
         results.push({ message, filePath });
       } catch (err) {
         const errCode = (err as NodeJS.ErrnoException).code;
-        const transientCodes = new Set(['EACCES', 'EIO', 'EBUSY', 'EMFILE', 'ENFILE', 'ENOMEM']);
-        if (errCode && transientCodes.has(errCode)) {
-          // Phase 930: transient I/O error — keep in pending, audit, retry next cycle.
+        // Phase 989: inverse whitelist — only ENOENT is non-transient (file genuinely missing).
+        // Other errno I/O errors (EIO, EACCES, ENOSPC, EPERM, EROFS, etc.) are transient:
+        // keep in pending, audit, retry next cycle. Errors without a code (parse errors,
+        // schema validation failures, etc.) remain permanent and move to failed.
+        if (errCode && errCode !== 'ENOENT') {
           emitInboxFailed(this.audit, {
             file: entry.name,
             errorCode: errCode ?? 'OTHER',

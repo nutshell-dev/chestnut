@@ -270,6 +270,14 @@ async function processSession(
   try {
     if (sf.filename === CURRENT_DIALOG_FILE) {
       const result = await plan.dialogStore.load();
+      if (result.source === 'io_error') {
+        ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
+          `step=load_session`,
+          `clawId=${ctx.clawId}`,
+          `reason=${result.error}`,
+        );
+        return { status: 'skip', reason: 'io_error' };
+      }
       if (result.source !== 'current') return { status: 'skip', reason: 'not_current' };
       sessionData = result.session;
     } else {
@@ -283,19 +291,18 @@ async function processSession(
       `reason=${formatErr(err)}`,
     );
     if (sf.filename !== CURRENT_DIALOG_FILE) {
-      // Phase 921: distinguish transient from permanent errors.
-      // Transient errors (EACCES, EIO, etc.) → don't advance waterline, retry next time.
-      // Permanent errors (corrupt JSON, version unknown) → advance to avoid infinite retry.
+      // Phase 989: inverse whitelist — only ENOENT is non-transient (file genuinely missing).
+      // Other errno I/O errors (EIO, EACCES, ENOSPC, EPERM, EROFS, etc.) are transient:
+      // don't advance waterline, retry next cycle. Errors without a code (parse errors,
+      // version unknown, etc.) remain permanent to avoid infinite retry.
       const errCode = (err as NodeJS.ErrnoException).code;
-      const isTransient = errCode === 'EACCES' || errCode === 'EIO' || errCode === 'EBUSY' ||
-                          errCode === 'EMFILE' || errCode === 'ENFILE' || errCode === 'ENOMEM';
-      if (isTransient) {
-        // Transient error (EACCES, EIO, ...) — stop processing.
+      if (errCode && errCode !== 'ENOENT') {
+        // Transient error — stop processing.
         // Don't advance waterline. Next dream cycle will retry from this file.
         // runDeepDreamForClaw breaks the loop on any 'skip' result.
         return { status: 'skip', reason: 'transient_io' };
       }
-      // Permanent error — advance waterline to skip this file permanently
+      // ENOENT or no-code error — advance waterline to skip permanently
       plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
       return { status: 'skip', reason: 'permanent_io' };
     }

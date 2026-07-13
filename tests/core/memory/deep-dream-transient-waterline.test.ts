@@ -39,6 +39,7 @@ describe('processSession waterline behavior (phase 921)', () => {
       },
       dialogStore: {
         readArchive: vi.fn(),
+        load: vi.fn(),
       } as unknown as DialogStore,
       sessionFiles: [],
       today: '2026-07-12',
@@ -91,5 +92,37 @@ describe('processSession waterline behavior (phase 921)', () => {
     const result = await __test_processSession(ctx, sf, plan, [], []);
     expect(result).toEqual({ status: 'skip', reason: 'permanent_io' });
     expect(plan.state.lastProcessedDeepDreamAt).toBe(2000);
+  });
+
+  it('treats ENOSPC as transient and does not advance waterline', async () => {
+    const ctx = makeCtx();
+    const plan = makePlan(1000);
+    const sf = makeSessionFile('2000_archive.json', 2000);
+
+    const err = Object.assign(new Error('ENOSPC: no space left'), { code: 'ENOSPC' });
+    (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(err);
+
+    const result = await __test_processSession(ctx, sf, plan, [], []);
+    expect(result).toEqual({ status: 'skip', reason: 'transient_io' });
+    expect(plan.state.lastProcessedDeepDreamAt).toBe(1000);
+  });
+
+  it('skips on io_error from current dialog load', async () => {
+    const ctx = makeCtx();
+    const plan = makePlan(1000);
+    const sf = makeSessionFile('current.json', 2000);
+
+    (plan.dialogStore.load as ReturnType<typeof vi.fn>).mockResolvedValue({
+      source: 'io_error',
+      error: 'EIO',
+      session: null,
+    });
+
+    const result = await __test_processSession(ctx, sf, plan, [], []);
+    expect(result).toEqual({ status: 'skip', reason: 'io_error' });
+
+    const auditCalls = (ctx.audit.write as ReturnType<typeof vi.fn>).mock.calls;
+    expect(auditCalls[0][0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
+    expect(auditCalls[0]).toContain('step=load_session');
   });
 });

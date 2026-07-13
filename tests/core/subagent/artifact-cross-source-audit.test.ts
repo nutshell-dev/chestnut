@@ -11,11 +11,15 @@ import {
 } from '../../../src/core/subagent/artifact-cross-source-audit.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 
-function makeMockMessageStore(overrides: { messages?: any[]; loadThrow?: boolean } = {}) {
+function makeMockMessageStore(overrides: { messages?: any[]; loadThrow?: boolean; loadIoError?: string } = {}) {
   return {
     load: vi.fn(async () => {
       if (overrides.loadThrow) throw new Error('load error');
+      if (overrides.loadIoError) {
+        return { source: 'io_error', error: overrides.loadIoError, session: null };
+      }
       return {
+        source: 'current',
         session: {
           messages: overrides.messages ?? [],
         },
@@ -114,6 +118,20 @@ describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 2
       expect(audit.write).toHaveBeenCalledTimes(1);
       expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED);
       expect(audit.write.mock.calls[0]).toContain('kind=ac4_skip');
+    });
+
+    it('messageStore.load returns io_error → emit _skipped ac4_skip without mismatch', async () => {
+      const audit = makeMockAudit();
+      const messageStore = makeMockMessageStore({ loadIoError: 'EACCES' });
+      await auditSubagentArtifactCompleteness(
+        makeSnapshot({ textEndCount: 1 }),
+        { fs: {} as any, messageStore },
+        audit as any,
+      );
+      expect(audit.write).toHaveBeenCalledTimes(1);
+      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED);
+      expect(audit.write.mock.calls[0]).toContain('kind=ac4_skip');
+      expect(audit.write.mock.calls[0]).toContain('reason=message_load_io_error');
     });
   });
 });

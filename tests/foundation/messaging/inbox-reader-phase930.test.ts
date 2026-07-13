@@ -205,4 +205,35 @@ describe('InboxReader phase 930', () => {
     const codeCol = failedAudit[0].find(c => typeof c === 'string' && c.includes('error_code=EACCES'));
     expect(codeCol).toBeTruthy();
   });
+
+  // ─── Case 6: ENOSPC read error → keep pending (inverse whitelist) ──────────
+  it('keeps message in pending on ENOSPC read error', async () => {
+    const events: Array<[string, ...(string | number)[]]> = [];
+    const audit: AuditLog = {
+      write: (type: string, ...cols: (string | number)[]) => {
+        events.push([type, ...cols]);
+      },
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    };
+
+    const readError = Object.assign(new Error('ENOSPC: no space left'), { code: 'ENOSPC' });
+    const mockFs: FileSystem = {
+      list: vi.fn().mockResolvedValue([{ name: 'msg.md', path: '/inbox/pending/msg.md' }]),
+      read: vi.fn().mockRejectedValue(readError),
+      ensureDir: vi.fn().mockResolvedValue(undefined),
+    } as unknown as FileSystem;
+
+    const r = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit);
+    const entries = await r.drainInbox();
+
+    expect(entries).toHaveLength(0);
+    const failedAudit = events.filter(e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_FAILED);
+    expect(failedAudit).toHaveLength(1);
+    const reasonCol = failedAudit[0].find(c => typeof c === 'string' && c.includes('transient IO error'));
+    expect(reasonCol).toBeTruthy();
+    const codeCol = failedAudit[0].find(c => typeof c === 'string' && c.includes('error_code=ENOSPC'));
+    expect(codeCol).toBeTruthy();
+  });
 });

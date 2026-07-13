@@ -35,7 +35,15 @@ export async function auditSubagentArtifactCompleteness(
   // AC-4: messageStore 末轮 assistant ↔ textEndCount > 0
   try {
     const result = await deps.messageStore.load();
-    const messages = result?.session?.messages ?? [];
+    if (result.source === 'io_error') {
+      audit.write(
+        SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED,
+        `kind=ac4_skip`, `agentId=${s.agentId}`,
+        `reason=message_load_io_error`, `error=${result.error}`,
+      );
+      return;
+    }
+    const messages = result.session.messages;
     const last = messages.at(-1);
     const lastIsAssistant = last?.role === 'assistant';
     const lastHasContent = lastIsAssistant && Array.isArray(last.content)
