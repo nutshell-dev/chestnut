@@ -48,7 +48,7 @@ export function findByPattern(pattern: string): ProcessInfo[] {
     }).filter((x): x is ProcessInfo => x !== null);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
-      // silent: ps failure already returns degraded result
+      process.stderr.write(`[process-exec] ps failed: ${String(e)}\n`);
     }
     return pids.map(pid => ({ pid, command: '' }));
   }

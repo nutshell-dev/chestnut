@@ -64,6 +64,24 @@ describe('createClawPermissionChecker', () => {
       const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, fs: mockFs as any });
       expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(eaccesErr);
     });
+
+    it('propagates EPERM from fs.resolve instead of treating it as outside claw', () => {
+      const epermErr = Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+      const mockFs = {
+        resolve: vi.fn().mockImplementation(() => { throw epermErr; }),
+      };
+      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, fs: mockFs as any });
+      expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(epermErr);
+    });
+
+    it('propagates EROFS from fs.resolve instead of treating it as outside claw', () => {
+      const erofsErr = Object.assign(new Error('read-only file system'), { code: 'EROFS' });
+      const mockFs = {
+        resolve: vi.fn().mockImplementation(() => { throw erofsErr; }),
+      };
+      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, fs: mockFs as any });
+      expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(erofsErr);
+    });
   });
 
   // =========================================================================

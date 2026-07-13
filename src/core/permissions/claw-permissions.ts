@@ -23,6 +23,7 @@ import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
 } from './errors.js';
+import { PathGuardError } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { PERMISSION_AUDIT_EVENTS } from './audit-events.js';
@@ -163,12 +164,14 @@ function getRelativeToClaw(
 
     return null;
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'EACCES' || code === 'EIO' || code === 'EBUSY') {
-      // I/O error — propagate, don't misclassify as path outside claw
-      throw err;
+    if (err instanceof PathGuardError) {
+      return null; // genuine containment violation
     }
-    return null; // genuine containment failure or ENOENT
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return null; // target doesn't exist yet — treated as outside claw (will fail on access)
+    }
+    throw err; // EACCES, EIO, EPERM, EROFS, ELOOP, ENOTDIR, etc. — propagate
   }
 }
 

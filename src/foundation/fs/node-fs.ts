@@ -75,13 +75,51 @@ export class NodeFileSystem implements FileSystem {
    */
   private resolveAndCheck(relativePath: string): string {
     // Resolve symlinks to prevent traversal via symlinks (OS-level guard)
-    const realBase = (() => {
-      try { return realpathSync(this.options.baseDir); }
-      catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return this.options.baseDir;
+    let realBase: string = this.options.baseDir;
+    try {
+      realBase = realpathSync(this.options.baseDir);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        // baseDir doesn't exist — walk up its ancestors to find the first
+        // existing one, and verify that ancestor isn't a symlink escaping the
+        // expected tree (P0 hardening: phase 979).
+        const literalBase = this.options.baseDir;
+        let ancestor = path.dirname(literalBase);
+        while (ancestor !== path.dirname(ancestor)) {
+          try {
+            const realAncestor = realpathSync(ancestor);
+            const parent = path.dirname(ancestor);
+            let realParent: string;
+            try {
+              realParent = realpathSync(parent);
+            } catch (parentErr) {
+              if ((parentErr as NodeJS.ErrnoException).code === 'ENOENT') {
+                break; // parent doesn't exist — keep literal baseDir and stop
+              }
+              throw parentErr;
+            }
+            const parentPrefix = realParent.endsWith(path.sep) ? realParent : realParent + path.sep;
+            if (realAncestor !== realParent && !realAncestor.startsWith(parentPrefix)) {
+              throw new PathGuardError(
+                `Symlink traversal detected at base ancestor "${path.basename(ancestor)}": resolves outside base root`,
+                relativePath
+              );
+            }
+            realBase = realAncestor;
+            break;
+          } catch (ancErr) {
+            if ((ancErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw ancErr; // EACCES, EIO, etc. — propagate
+            }
+            ancestor = path.dirname(ancestor);
+          }
+        }
+        // If no existing ancestor was found, realBase keeps the literal baseDir.
+      } else {
         throw err; // EACCES, EIO, etc. — 不可恢复，应 propagate
       }
-    })();
+    }
 
     // P0 hardening (phase 611): absolute path 显式 reject if outside baseDir
     // path.normalize 不 strip 前缀 '/' / 依赖后续 realpath check 在 read+missing 路径有 fall-through gap

@@ -62,4 +62,22 @@ describe('NodeFileSystem symlink ancestor containment', () => {
       await cleanup();
     }
   });
+
+  it('rejects write when baseDir ancestor is a symlink to outside', async () => {
+    const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-base-ancestor-'));
+    const outsideDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-outside-'));
+    try {
+      const linkPath = path.join(tmpBase, 'link');
+      fs.symlinkSync(outsideDir, linkPath, 'dir');
+
+      const baseDir = path.join(linkPath, 'new-base');
+      const nodeFs = new NodeFileSystem({ baseDir });
+
+      await expect(nodeFs.writeAtomic('file.txt', 'data'))
+        .rejects.toThrow(PathGuardError);
+    } finally {
+      await fsp.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* ignore */ });
+      await fsp.rm(outsideDir, { recursive: true, force: true }).catch(() => { /* ignore */ });
+    }
+  });
 });
