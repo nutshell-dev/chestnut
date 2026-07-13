@@ -34,6 +34,7 @@ export const RUNTIME_AUDIT_EVENTS = {
   INBOX_UNADDRESSED: 'inbox_unaddressed',
   INBOX_UNKNOWN_TYPE: 'runtime_inbox_unknown_type',
   INBOX_DRAIN_FAILED: 'runtime_inbox_drain_failed',
+  INBOX_DRAIN_ERRORS: 'runtime_inbox_drain_errors',
   // TOOL / OUTBOX
   TOOL_RESULT: 'tool_result',
   // phase 1411 (reframe of phase 1409): generic tool_call index row.
@@ -142,6 +143,7 @@ export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   // phase 553 (back-fill phase 521 / 446): 业主声明 file 归属
   runtime_inbox_ack_failed: 'audit',
   runtime_inbox_nack_failed: 'audit',
+  runtime_inbox_drain_errors: 'audit',
   runtime_maybe_audit_step_failed: 'audit',
   runtime_turn_contract_id_cache_failed: 'audit',
   partial_assistant_discarded: 'audit',  // phase 688

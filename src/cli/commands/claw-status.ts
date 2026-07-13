@@ -1,8 +1,11 @@
 /**
  * @module L6.CLI.Claw.Status
  *
- * `chestnut claw <name> status` — read-only inspection of another claw's
- * business state (contract / tasks / storage). Phase 1472 Step C.
+ * `chestnut claw <name> status` — inspection of another claw's business state
+ * (contract / tasks / storage). Phase 1472 Step C.
+ *
+ * Emits status error audit events (CONTRACT_ERROR, TASK_PENDING_ERROR,
+ * TASK_RUNNING_ERROR).
  *
  * 设计：
  * - 复用 L5.StatusService 的 aggregator + format helper（共用方 = agent status tool）

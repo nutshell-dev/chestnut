@@ -6,8 +6,7 @@
  * scripts) consume this to render real-time motion / claw activity without
  * binding to TUI.
  *
- * Read-only: no audit emit (per cli/audit-events.ts convention "仅 mutation
- * CLI 加 audit").
+ * Emits stream-reader lifecycle/fault audit events via createStreamReader.
  */
 
 import * as path from 'path';

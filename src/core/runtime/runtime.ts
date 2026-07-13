@@ -432,7 +432,14 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     infos: InboxMessage[];
     addressedHandles: InboxHandle[];
   }> {
-    const { entries, handles } = await this._drainEntriesOrEmpty();
+    const { entries, handles, transientErrors, permanentErrors } = await this._drainEntriesOrEmpty();
+    if (transientErrors > 0 || permanentErrors > 0) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.INBOX_DRAIN_ERRORS,
+        `transient=${transientErrors}`,
+        `permanent=${permanentErrors}`,
+      );
+    }
     if (entries.length === 0) {
       return { injected: [], sources: [], count: 0, infos: [], addressedHandles: [] };
     }
@@ -527,7 +534,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
   }
 
-  private async _drainEntriesOrEmpty(): Promise<{ entries: InboxEntry[]; handles: InboxHandle[] }> {
+  private async _drainEntriesOrEmpty(): Promise<{ entries: InboxEntry[]; handles: InboxHandle[]; transientErrors: number; permanentErrors: number }> {
     try {
       return await this.inboxReader.drainAndDeliver();
     } catch (err) {
@@ -539,7 +546,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           `reason=${formatErr(err)}`,
           `trace_id=${String(this.execContext?.trace_id ?? '')}`,
         );
-        return { entries: [], handles: [] };
+        return { entries: [], handles: [], transientErrors: 0, permanentErrors: 0 };
       }
       throw err;
     }

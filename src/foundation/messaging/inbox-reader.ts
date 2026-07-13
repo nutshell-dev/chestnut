@@ -405,8 +405,8 @@ export class InboxReader {
    * Returns both decoded entries and handles for subsequent ack/nack.
    * Crash before ack → init() reconcile moves inflight/ back to pending/.
    */
-  async drainAndDeliver(): Promise<{ entries: InboxEntry[]; handles: InboxHandle[] }> {
-    const { entries } = await this.drainInbox();
+  async drainAndDeliver(): Promise<{ entries: InboxEntry[]; handles: InboxHandle[]; transientErrors: number; permanentErrors: number }> {
+    const { entries, transientErrors, permanentErrors } = await this.drainInbox();
     const handles: InboxHandle[] = [];
     const deliveredEntries: InboxEntry[] = [];
 
@@ -449,7 +449,7 @@ export class InboxReader {
       deliveredEntries.push({ message: entry.message, filePath: inflightPath });
     }
 
-    return { entries: deliveredEntries, handles };
+    return { entries: deliveredEntries, handles, transientErrors, permanentErrors };
   }
 
   /** Acknowledge handle: move from inflight/ to done/ */

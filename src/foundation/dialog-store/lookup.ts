@@ -19,7 +19,8 @@ export type LookupResult =
   | { source: 'current'; content: string }
   | { source: 'archive'; content: string; archivedAt: string; degradationNote?: string }
   | { source: 'archive'; content: string; archivedAt: string; hashVerified: true; degradationNote?: string }
-  | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' | 'io_error'; detail?: string };
+  | { source: 'unavailable'; reason: 'io_error'; detail: string }
+  | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' };
 
 export interface LookupOptions {
   /** Optional sha8 hash for integrity verification (level 3 降级). */
@@ -119,7 +120,8 @@ export function lookupContentByToolUseId(
   ) {
     const detail =
       (currentResult && !currentResult.found ? currentResult.errorDetail : undefined) ??
-      (archiveResult && !archiveResult.found ? archiveResult.ioErrorDetail : undefined);
+      (archiveResult && !archiveResult.found ? archiveResult.ioErrorDetail : undefined) ??
+      'unknown';
     return { source: 'unavailable', reason: 'io_error', detail };
   }
   // phase 918: archive 目录读失败单独报告 not_in_archive

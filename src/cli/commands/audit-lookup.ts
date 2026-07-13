@@ -2,7 +2,8 @@
  * `chestnut audit lookup` subcommand
  *
  * Look up full tool content by tool_use_id (4-level fallback).
- * Does NOT emit audit events (ML 5).
+ * Does NOT create an AuditLog; lookupContentByToolUseId may emit conditional
+ * audit events on I/O error paths internally, but the CLI itself is read-only.
  */
 
 import * as path from 'path';
@@ -18,7 +19,6 @@ import {
   type LookupOptions,
 } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
 
 
 interface AuditLookupOpts {
@@ -56,8 +56,7 @@ export async function auditLookupCommand(
     contentHash: opts.contentHash,
   };
 
-  const audit = createSystemAudit(fs, clawDir);
-  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId, lookupOpts, audit);
+  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId, lookupOpts);
   emit(result, toolUseId, opts.json ?? false);
 
   // exit code strict semantics: 3 for unavailable
@@ -111,7 +110,7 @@ function emit(result: LookupResult, toolUseId: string, json: boolean): void {
           process.stderr.write(`  - dialog I/O error while reading current/archive (detail=${result.detail ?? 'unknown'})\n`);
           break;
         default:
-          { const _exhaustiveReason: never = result.reason; void _exhaustiveReason; }
+          { const _exhaustiveReason: never = result; void _exhaustiveReason; }
       }
       break;
     }
