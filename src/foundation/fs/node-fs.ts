@@ -64,7 +64,11 @@ function wrapENOENTSync<T>(
 export class NodeFileSystem implements FileSystem {
   constructor(
     private readonly options: FileSystemOptions,
-  ) {}
+  ) {
+    // Normalize baseDir to absolute path so all subsequent resolution
+    // (lstat, realpath, path.join) operates on the same canonical root.
+    this.options.baseDir = path.resolve(options.baseDir);
+  }
   
   // ========================================================================
   // Path utilities
