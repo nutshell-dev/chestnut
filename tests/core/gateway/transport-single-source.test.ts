@@ -137,18 +137,22 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
   });
 
   describe('online mode: stop sequence broadcast', () => {
-    it('dropConnection during stop does NOT broadcast connection_dropped (started guard, phase 956)', async () => {
+    it('dropConnection during stop broadcasts connection_dropped (started committed at end, phase 971)', async () => {
       gateway = createGateway(createOnlineInput());
       await gateway.start();
       const conn: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
       transport._connect(conn);
       expect(transport.getConnections().length).toBe(1);
 
-      // phase 956: clear pre-stop broadcasts then verify 0 broadcast during stop
+      // phase 956 legacy: clear pre-stop broadcasts then verify broadcast during stop
       transport.broadcast.mockClear();
       await gateway.stop();
 
-      expect(transport.broadcast).not.toHaveBeenCalled();
+      // phase 971: stop 期间 started 保持 true，dropConnection 会触发 transport.broadcast
+      expect(transport.broadcast).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(transport.broadcast.mock.calls[0][0] as string)).toEqual(
+        expect.objectContaining({ type: 'connection_dropped', connectionId: 'c1', reason: 'gateway stopping' }),
+      );
       expect(transport.close).toHaveBeenCalledOnce();
 
       // audit CONNECTION_DROPPED 仍 emit per drop（observability 完整）
@@ -158,14 +162,19 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
   });
 
   describe('online mode: transport.close throw', () => {
-    it('transport=null set before close, close throw then second stop is STOP_NOOP', async () => {
+    it('close error is aggregated and second stop is STOP_NOOP', async () => {
       const closeError = new Error('mock close failure');
       transport.close.mockRejectedValueOnce(closeError);
       gateway = createGateway(createOnlineInput());
       await gateway.start();
 
-      await expect(gateway.stop()).rejects.toThrow('mock close failure');
+      // phase 971: close error is aggregated into AggregateError instead of re-thrown raw
+      const err = await gateway.stop().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AggregateError);
+      expect((err as AggregateError).message).toBe('Gateway stop completed with errors');
+      expect((err as AggregateError).errors[0]).toBe(closeError);
 
+      // After a failed stop the gateway remains started; a second stop can recover.
       await gateway.stop();
       expect(audit.write).toHaveBeenCalledWith(GATEWAY_AUDIT_EVENTS.STOP_NOOP);
     });

@@ -290,11 +290,14 @@ describe('Gateway', () => {
 
     const streamStopIdx = order.indexOf('stream.stop');
     const transportCloseIdx = order.indexOf('transport.close');
+    const droppedBroadcastIdx = order.findIndex((s) => s.startsWith('broadcast:connection_dropped'));
 
     expect(streamStopIdx).not.toBe(-1);
     expect(transportCloseIdx).not.toBe(-1);
-    // phase 956: started guard 使 stop 期间 broadcast 静默，无 connection_dropped broadcast
-    expect(order.findIndex((s) => s.startsWith('broadcast:connection_dropped'))).toBe(-1);
+    // phase 971: stop 期间 started 保持 true 直到最后，dropConnection 会广播 connection_dropped
+    expect(droppedBroadcastIdx).not.toBe(-1);
+    expect(streamStopIdx).toBeLessThan(droppedBroadcastIdx);
+    expect(droppedBroadcastIdx).toBeLessThan(transportCloseIdx);
     expect(streamStopIdx).toBeLessThan(transportCloseIdx);
   });
 
@@ -332,6 +335,35 @@ describe('Gateway', () => {
     transport._message(conn, JSON.stringify({ type: 'interrupt', reason: 'user' }));
     expect(interruptFn).toHaveBeenCalledTimes(2);
     expect(gateway.getActiveConnections().some((c) => c.id === 'c1')).toBe(true);
+  });
+
+  it('can be called again after failed stop due to reader error', async () => {
+    gateway = createGateway(createOnlineInput());
+    await gateway.start();
+
+    streamStub.lastReader!.stop = vi.fn().mockRejectedValueOnce(new Error('EIO'));
+
+    await expect(gateway.stop()).rejects.toThrow();
+    await gateway.stop();
+    expect(transport.close).toHaveBeenCalled();
+  });
+
+  it('drops connection on null JSON message', async () => {
+    gateway = createGateway(createOnlineInput());
+    await gateway.start();
+
+    const conn: Connection = { id: 'c1', connectedAt: Date.now() };
+    transport._connect(conn);
+
+    transport._message(conn, 'null');
+
+    expect(transport.broadcast).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: 'connection_dropped',
+        connectionId: 'c1',
+        reason: 'invalid message: expected object, got null',
+      }),
+    );
   });
 
   it('start twice throws', async () => {

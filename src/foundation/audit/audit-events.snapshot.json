@@ -387,6 +387,7 @@
       "gateway_startup_failed",
       "gateway_stop_noop",
       "gateway_stopped",
+      "gateway_stopped_with_errors",
       "gateway_transport_error"
     ],
     "core_memory_audit-events": [

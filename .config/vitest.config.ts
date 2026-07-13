@@ -214,6 +214,7 @@ const VI_MOCK_FILES = [
   // 'tests/core/task.test.ts',
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/stream-reader-race.test.ts',
+  'tests/foundation/unix-socket.test.ts',
   'tests/watchdog/handler-idempotent-install.test.ts',
   'tests/watchdog/watchdog-cron-dedup.test.ts',
   'tests/watchdog/watchdog-ever-spawned-crash.test.ts',

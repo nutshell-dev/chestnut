@@ -50,17 +50,18 @@ export class UnixDomainSocketTransport implements Transport {
     if (!options?.socketPath) throw new Error('socketPath required');
     if (this.closed) throw new Error('transport already closed');
     if (this.server || this.socketPath) throw new Error('transport already listening');
-    this.socketPath = options.socketPath;
-    await this.tryListen(true);
+    const socketPath = options.socketPath;
+    await this.tryListen(socketPath, true);
+    this.socketPath = socketPath;
   }
 
-  private tryListen(allowCleanup: boolean): Promise<void> {
+  private tryListen(socketPath: string, allowCleanup: boolean): Promise<void> {
     return new Promise((resolve, reject) => {
       const server = createServer((sock) => this.handleConnection(sock));
       const onError = (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE' && allowCleanup) {
-          this.probeAndCleanStale().then(
-            () => this.tryListen(false).then(resolve, reject),
+          this.probeAndCleanStale(socketPath).then(
+            () => this.tryListen(socketPath, false).then(resolve, reject),
             reject,
           );
         } else {
@@ -68,7 +69,7 @@ export class UnixDomainSocketTransport implements Transport {
         }
       };
       server.once('error', onError);
-      server.listen(this.socketPath!, () => {
+      server.listen(socketPath, () => {
         server.off('error', onError);
         if (this.closed) {
           server.close(() => reject(new Error('transport closed during listen')));
@@ -83,9 +84,9 @@ export class UnixDomainSocketTransport implements Transport {
     });
   }
 
-  private probeAndCleanStale(): Promise<void> {
+  private probeAndCleanStale(socketPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const probe = connect(this.socketPath!);
+      const probe = connect(socketPath);
       probe.once('connect', () => {
         probe.destroy();
         reject(new Error(`socket ${this.socketPath} is in use by a live process`));
@@ -97,7 +98,7 @@ export class UnixDomainSocketTransport implements Transport {
         if (err.code === 'ECONNREFUSED' || err.code === 'ENOENT' || err.code === 'ENOTSOCK') {
           // phase 398 Step B (review N5): socketPath 是完整路径（listen 时存）;
           // path.basename 剥成纯文件名给 fs.delete → fs scope root 找文件错位。
-          this.deps.fs.delete(this.socketPath!).then(
+          this.deps.fs.delete(socketPath).then(
             () => resolve(),
             (err: unknown) => {
               // ENOENT 例外 silent：文件已不在 = race 良性
@@ -106,7 +107,7 @@ export class UnixDomainSocketTransport implements Transport {
                 return;
               }
               // 其他 IO 错 reject 透传 reason / caller 通过 listen() reject 链路 audit STARTUP_FAILED
-              reject(new Error(`unlink stale socket ${this.socketPath} failed: ${formatErr(err)}`));
+              reject(new Error(`unlink stale socket ${socketPath} failed: ${formatErr(err)}`));
             },
           );
         } else {
@@ -294,11 +295,25 @@ export class UnixDomainSocketTransport implements Transport {
 
   async close(): Promise<void> {
     if (this.closed) return;
-    this.closed = true;
-    if (!this.server) return;
     for (const { sock } of this.connections.values()) sock.destroy();
+    this.connections.clear();
+
     const server = this.server;
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    let closeError: Error | undefined;
+    if (server) {
+      try {
+        await new Promise<void>((resolve, reject) =>
+          server.close((err) => {
+            if (err) reject(err);
+            else resolve();
+          }),
+        );
+      } catch (err) {
+        closeError = err instanceof Error ? err : new Error(String(err));
+      }
+      this.server = null;
+    }
+
     if (this.socketPath) {
       try {
         // phase 398 Step B (review N5): 完整路径、同 probeAndCleanStale。
@@ -306,6 +321,10 @@ export class UnixDomainSocketTransport implements Transport {
       } catch {
         // silent: socket file may already be cleaned up by OS or prior close
       }
+      this.socketPath = null;
     }
+
+    this.closed = true;
+    if (closeError) throw closeError;
   }
 }

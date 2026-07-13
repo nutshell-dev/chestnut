@@ -111,6 +111,13 @@ export function createGateway(input: GatewayInput): Gateway {
       dropConnection(conn.id, 'malformed JSON');
       return;
     }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      dropConnection(
+        conn.id,
+        `invalid message: expected object, got ${parsed === null ? 'null' : typeof parsed}`,
+      );
+      return;
+    }
 
     const msg = parsed as ClientMessage;
     switch (msg.type) {
@@ -236,30 +243,59 @@ export function createGateway(input: GatewayInput): Gateway {
         audit.write(GATEWAY_AUDIT_EVENTS.STOP_NOOP);
         return;
       }
-      started = false;
-      if (!isOnlineMode) return;
-
-      // 1. 先取消所有 pending askUser，让等待者立刻 unblock
-      for (const id of [...pending.keys()]) {
-        cancel(id, 'abort');
+      if (!isOnlineMode) {
+        started = false;
+        return;
       }
 
-      // 2. 停 reader，避免 stop 过程中仍有事件尝试 broadcast
+      const errors: Error[] = [];
+
+      // 1. Cancel pending askUser so waiters unblock immediately
+      for (const id of [...pending.keys()]) {
+        try {
+          cancel(id, 'abort');
+        } catch (err) {
+          errors.push(err as Error);
+        }
+      }
+
+      // 2. Stop reader to prevent further stream events during shutdown
       if (streamReader) {
         const sr = streamReader;
+        try {
+          await sr.stop();
+        } catch (err) {
+          errors.push(err as Error);
+        }
         streamReader = null;
-        await sr.stop();
       }
 
-      // 3. 内部 drop 所有连接
+      // 3. Drop all connections
       for (const id of [...connections.keys()]) {
-        dropConnection(id, 'gateway stopping');
+        try {
+          dropConnection(id, 'gateway stopping');
+        } catch (err) {
+          errors.push(err as Error);
+        }
       }
 
-      // 4. 关闭 transport (phase 877: null-out 先 + close 后、close throw 时 transport 已 null → broadcast 静默)
-      const t = transport!;
-      transport = null;
-      await t.close();
+      // 4. Close transport
+      if (transport) {
+        const t = transport;
+        try {
+          await t.close();
+        } catch (err) {
+          errors.push(err as Error);
+        }
+        transport = null;
+      }
+
+      // COMMIT: only now mark stopped
+      started = false;
+      if (errors.length > 0) {
+        audit.write(GATEWAY_AUDIT_EVENTS.STOPPED_WITH_ERRORS, `count=${errors.length}`);
+        throw new AggregateError(errors, 'Gateway stop completed with errors');
+      }
       audit.write(GATEWAY_AUDIT_EVENTS.STOPPED);
     },
 

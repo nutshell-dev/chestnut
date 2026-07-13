@@ -124,7 +124,7 @@ describe('phase 956: stop broadcast cascade prevention (started guard)', () => {
     };
   }
 
-  it('stop loop 期间 dropConnection 不触发 transport.broadcast (started guard)', async () => {
+  it('stop loop 期间 dropConnection 会 broadcast connection_dropped (started committed at end)', async () => {
     gateway = createGateway(createOnlineInput());
     await gateway.start();
 
@@ -142,8 +142,16 @@ describe('phase 956: stop broadcast cascade prevention (started guard)', () => {
 
     await gateway.stop();
 
-    // 反向：stop 期间 N dropConnection 调用、各内调 broadcast()、但 broadcast guard 触发 → 0 transport.broadcast call
-    expect(transport.broadcast).not.toHaveBeenCalled();
+    // phase 971: stop 期间 started 保持 true 直到最后，每个 dropConnection 都会触发 transport.broadcast
+    expect(transport.broadcast).toHaveBeenCalledTimes(3);
+    const droppedPayloads = transport.broadcast.mock.calls.map((c) => JSON.parse(c[0] as string));
+    expect(droppedPayloads).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'connection_dropped', connectionId: 'c1', reason: 'gateway stopping' }),
+        expect.objectContaining({ type: 'connection_dropped', connectionId: 'c2', reason: 'gateway stopping' }),
+        expect.objectContaining({ type: 'connection_dropped', connectionId: 'c3', reason: 'gateway stopping' }),
+      ]),
+    );
 
     // audit CONNECTION_DROPPED 仍 emit per drop（observability 完整）
     const droppedEvents = audit.events.filter((e) => e[0] === GATEWAY_AUDIT_EVENTS.CONNECTION_DROPPED);
