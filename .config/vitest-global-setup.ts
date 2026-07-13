@@ -32,9 +32,12 @@
  *   falls through to a conservative build to avoid spurious test failures.
  */
 
-import { existsSync, statSync, readdirSync } from 'node:fs';
+import { existsSync, statSync, readdirSync, rmSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import * as os from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 function getMaxMtime(dir: string): number {
   let max = 0;
@@ -72,7 +75,119 @@ function runBuild(cwd: string, reason: string): void {
   }
 }
 
+const RUN_ROOT_PREFIX = 'chestnut-run-';
+const STALE_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+export interface RunManifest {
+  invocationId: string;
+  pid: number;
+  worktree: string;
+  startedAt: string;
+  runRoot: string;
+}
+
+function createRunRoot(): RunManifest {
+  const invocationId = randomUUID();
+  const runRoot = path.join(os.tmpdir(), `${RUN_ROOT_PREFIX}${invocationId}`);
+  fs.mkdirSync(runRoot, { recursive: true });
+
+  const manifest: RunManifest = {
+    invocationId,
+    pid: process.pid,
+    worktree: process.cwd(),
+    startedAt: new Date().toISOString(),
+    runRoot,
+  };
+
+  fs.writeFileSync(
+    path.join(runRoot, 'manifest.json'),
+    JSON.stringify(manifest, null, 2),
+  );
+
+  // 写入环境变量供 worker 读取
+  process.env.CHESTNUT_RUN_ROOT = runRoot;
+  process.env.CHESTNUT_INVOCATION_ID = invocationId;
+
+  // 回收过期运行目录（owner 已失效的）
+  reclaimStaleRunRoots(invocationId);
+
+  return manifest;
+}
+
+function reclaimStaleRunRoots(currentInvocationId: string): void {
+  const tmpDir = os.tmpdir();
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(tmpDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(RUN_ROOT_PREFIX)) continue;
+
+    const runPath = path.join(tmpDir, entry.name);
+    const manifestPath = path.join(runPath, 'manifest.json');
+
+    let manifest: RunManifest | null = null;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    } catch {
+      // 无 manifest 或损坏 → 安全跳过（不删未知目录）
+      continue;
+    }
+
+    // 不回收当前 invocation
+    if (manifest.invocationId === currentInvocationId) continue;
+
+    // 核 owner 是否存活 + 过期
+    if (isOwnerAlive(manifest) || !isRunRootStale(runPath)) continue;
+
+    // 回收
+    try {
+      rmSync(runPath, { recursive: true, force: true });
+      process.stderr.write(`[vitest-globalSetup] reclaimed stale run root: ${runPath}\n`);
+    } catch (err) {
+      process.stderr.write(`[vitest-globalSetup] failed to reclaim ${runPath}: ${err}\n`);
+    }
+  }
+}
+
+function isOwnerAlive(manifest: RunManifest): boolean {
+  // 1. PID 存活检查
+  try {
+    process.kill(manifest.pid, 0); // signal 0 = 只检查不发送
+  } catch {
+    return false; // ESRCH: PID 不存在
+  }
+
+  // 2. worktree 是否仍被当前 git 仓库注册
+  // 如果 worktree 路径仍属于同一 repo，保守认为 owner 可能还活着，不回收。
+  try {
+    if (fs.statSync(manifest.worktree).isDirectory()) {
+      // 保守策略：只要 worktree 目录仍存在，就认为可能还有并行 invocation
+      return true;
+    }
+  } catch {
+    // worktree 目录已不存在 → 继续检查 mtime
+  }
+
+  return false;
+}
+
+function isRunRootStale(runPath: string): boolean {
+  try {
+    const stats = fs.statSync(runPath);
+    return Date.now() - stats.mtimeMs > STALE_AGE_MS;
+  } catch {
+    return false;
+  }
+}
+
 export default function globalSetup(): void {
+  // 先创建运行根目录，让 worker 在测试运行期间可读取 CHESTNUT_RUN_ROOT
+  createRunRoot();
+
   const cwd = process.cwd();
   const distCli = path.join(cwd, 'dist', 'cli.js');
   const srcDir = path.join(cwd, 'src');

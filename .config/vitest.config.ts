@@ -306,6 +306,7 @@ export default defineConfig({
     setupFiles: ['.config/vitest-setup.ts'],
     // phase 245: ensure dist/cli.js exists before CLI smoke tests spawn it as a subprocess.
     globalSetup: ['.config/vitest-global-setup.ts'],
+    globalTeardown: ['.config/vitest-global-teardown.ts'],
     // phase 22: clawspace 副本（.chestnut/claws/*/clawspace/.../tests/**）
     // 被 vitest 当 CLI filter 收集进 runner，因路径深度差 import 失败、
     // 触发 hook 超时。leading `**/` 让 exclude 在任意路径深度匹配 `.chestnut`
