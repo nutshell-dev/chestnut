@@ -4,6 +4,7 @@ import { auditInfoCommand } from '../../src/cli/commands/audit-info.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import * as fsNative from 'fs';  // phase 282: hoist require('fs') calls in beforeEach/afterEach/writeAudit
+import * as os from 'node:os';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -37,8 +38,7 @@ describe('audit info', () => {
 
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = fsNative.mkdtempSync('/tmp/chestnut-test-');
+    tempDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     fsNative.mkdirSync(path.join(tempDir, 'claws', 'test-claw'), { recursive: true });
   });
 

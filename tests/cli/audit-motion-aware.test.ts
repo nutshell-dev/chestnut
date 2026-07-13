@@ -6,6 +6,7 @@ import { auditLookupCommand } from '../../src/cli/commands/audit-lookup.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import * as fsNative from 'fs';  // phase 283: hoist 8 require('fs') calls
+import * as os from 'node:os';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -37,8 +38,7 @@ describe('audit CLI motion-aware adaptation (phase 167)', () => {
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = fsNative.mkdtempSync('/tmp/chestnut-test-');
+    tempDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     originalChestnutRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;
   });

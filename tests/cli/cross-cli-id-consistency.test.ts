@@ -6,6 +6,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import * as fsNative from 'fs';  // phase 283: hoist 6 require('fs') calls
+import * as os from 'node:os';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -41,8 +42,7 @@ let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
 function buildFixture() {
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const tmpDir = fsNative.mkdtempSync('/tmp/phase152-cross-cli-');
+  const tmpDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'phase152-cross-cli-'));
   const clawDir = path.join(tmpDir, 'claws', 'test-claw');
   fsNative.mkdirSync(clawDir, { recursive: true });
 

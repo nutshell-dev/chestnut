@@ -7,6 +7,7 @@ import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { parseIntOption } from '../../src/cli/parse-int-option.js';
 import * as fsNative from 'fs';  // phase 283: hoist 5 require('fs') calls
+import * as os from 'node:os';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -41,8 +42,7 @@ describe('audit query', () => {
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = fsNative.mkdtempSync('/tmp/chestnut-test-');
+    tempDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     fsNative.mkdirSync(path.join(tempDir, 'claws', 'test-claw'), { recursive: true });
   });
 
