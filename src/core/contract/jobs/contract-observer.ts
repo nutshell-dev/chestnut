@@ -57,8 +57,9 @@ const STATE_FILE = 'status/contract-observer-state.json';
  * 2 → 3 在 phase 946 改为基于 archive timestamp 的水位线去重、移除有界 set;
  * 3 → 4 在 phase 948 引入 per-claw 水位 + 复合游标 + 逐类投递幂等标记;
  * 4 → 5 在 phase 950 将 per-claw 水位改为复合游标、将 boolean 投递标记改为 per-status watermark。
+ * 5 → 6 在 phase 981 引入 per-claw corrupt / active-state contract audit dedup sets，抑制重复 audit spam。
  */
-const STATE_SCHEMA_VERSION = 5;
+const STATE_SCHEMA_VERSION = 6;
 
 interface ClawWatermarkCursor {
   archivedAt: number;
@@ -66,7 +67,7 @@ interface ClawWatermarkCursor {
 }
 
 /**
- * phase 950: state schema v5。
+ * phase 950: state schema v5（仅用于迁移校验）。
  * - clawWatermarks: 每个 claw 的复合游标 `{ archivedAt, lastContractId }`，
  *   解决同毫秒多个 contract 的确定性去重。
  * - bootstrapDone: false = 首 tick 仅更新水位、不 emit（防首次启动历史 archive 大量重 emit）。
@@ -88,12 +89,33 @@ interface ObserverStateV5 {
   crashedWatermarks: Record<string, ClawWatermarkCursor>;
 }
 
+/**
+ * phase 981: state schema v6。
+ * 在 v5 基础上新增 reportedCorrupted / reportedActiveState：每个 claw 已审计的 contract id 列表，
+ * 避免同一 corrupt / active-state contract 在每个 cron tick 重复产生 audit。
+ */
+interface ObserverStateV6 {
+  version: 6;
+  lastCheckTs: number;
+  /** v3/v4 迁移残留，用于在 claw 尚无 per-claw 水位时回退 */
+  lastArchivedAt?: number;
+  clawWatermarks: Record<string, ClawWatermarkCursor>;
+  bootstrapDone: boolean;
+  completedWatermarks: Record<string, ClawWatermarkCursor>;
+  cancelledWatermarks: Record<string, ClawWatermarkCursor>;
+  crashedWatermarks: Record<string, ClawWatermarkCursor>;
+  /** v6: 每个 claw 已报告 PROGRESS_CORRUPTED 的 contract id 列表 */
+  reportedCorrupted: Record<string, string[]>;
+  /** v6: 每个 claw 已报告 CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED 的 contract id 列表 */
+  reportedActiveState: Record<string, string[]>;
+}
+
 type LoadObserverStateResult =
-  | { status: 'ok'; state: ObserverStateV5 }
-  | { status: 'first_run'; state: ObserverStateV5 }
+  | { status: 'ok'; state: ObserverStateV6 }
+  | { status: 'first_run'; state: ObserverStateV6 }
   | { status: 'corrupt'; reason: string };
 
-function defaultObserverState(): ObserverStateV5 {
+function defaultObserverState(): ObserverStateV6 {
   return {
     version: STATE_SCHEMA_VERSION,
     lastCheckTs: 0,
@@ -102,6 +124,8 @@ function defaultObserverState(): ObserverStateV5 {
     completedWatermarks: {},
     cancelledWatermarks: {},
     crashedWatermarks: {},
+    reportedCorrupted: {},
+    reportedActiveState: {},
   };
 }
 
@@ -124,7 +148,7 @@ function isValidV5State(obj: Record<string, unknown>): obj is Record<string, unk
     Object.values(v as Record<string, unknown>).every(isCompositeCursor);
 
   return (
-    obj.version === STATE_SCHEMA_VERSION &&
+    obj.version === 5 &&
     typeof obj.lastCheckTs === 'number' &&
     (obj.lastArchivedAt === undefined || typeof obj.lastArchivedAt === 'number') &&
     typeof obj.clawWatermarks === 'object' &&
@@ -143,7 +167,57 @@ function isValidV5State(obj: Record<string, unknown>): obj is Record<string, unk
   );
 }
 
-function migrateV4ToV5(obj: Record<string, unknown>): ObserverStateV5 | null {
+function isValidV6State(obj: Record<string, unknown>): obj is Record<string, unknown> & ObserverStateV6 {
+  const isCursorRecord = (v: unknown) =>
+    typeof v === 'object' &&
+    v !== null &&
+    !Array.isArray(v) &&
+    Object.values(v as Record<string, unknown>).every(isCompositeCursor);
+
+  const isStringArrayRecord = (v: unknown) =>
+    typeof v === 'object' &&
+    v !== null &&
+    !Array.isArray(v) &&
+    Object.values(v as Record<string, unknown>).every(
+      arr => Array.isArray(arr) && arr.every(item => typeof item === 'string'),
+    );
+
+  return (
+    obj.version === STATE_SCHEMA_VERSION &&
+    typeof obj.lastCheckTs === 'number' &&
+    (obj.lastArchivedAt === undefined || typeof obj.lastArchivedAt === 'number') &&
+    typeof obj.clawWatermarks === 'object' &&
+    obj.clawWatermarks !== null &&
+    isCursorRecord(obj.clawWatermarks) &&
+    typeof obj.bootstrapDone === 'boolean' &&
+    typeof obj.completedWatermarks === 'object' &&
+    obj.completedWatermarks !== null &&
+    isCursorRecord(obj.completedWatermarks) &&
+    typeof obj.cancelledWatermarks === 'object' &&
+    obj.cancelledWatermarks !== null &&
+    isCursorRecord(obj.cancelledWatermarks) &&
+    typeof obj.crashedWatermarks === 'object' &&
+    obj.crashedWatermarks !== null &&
+    isCursorRecord(obj.crashedWatermarks) &&
+    typeof obj.reportedCorrupted === 'object' &&
+    obj.reportedCorrupted !== null &&
+    isStringArrayRecord(obj.reportedCorrupted) &&
+    typeof obj.reportedActiveState === 'object' &&
+    obj.reportedActiveState !== null &&
+    isStringArrayRecord(obj.reportedActiveState)
+  );
+}
+
+function migrateV5ToV6(obj: Record<string, unknown> & ObserverStateV5): ObserverStateV6 {
+  return {
+    ...obj,
+    version: 6,
+    reportedCorrupted: {},
+    reportedActiveState: {},
+  };
+}
+
+function migrateV4ToV6(obj: Record<string, unknown>): ObserverStateV6 | null {
   if (
     obj.version !== 4 ||
     typeof obj.lastCheckTs !== 'number' ||
@@ -173,10 +247,12 @@ function migrateV4ToV5(obj: Record<string, unknown>): ObserverStateV5 | null {
     completedWatermarks: {},
     cancelledWatermarks: {},
     crashedWatermarks: {},
+    reportedCorrupted: {},
+    reportedActiveState: {},
   };
 }
 
-function migrateV3ToV5(obj: Record<string, unknown>): ObserverStateV5 | null {
+function migrateV3ToV6(obj: Record<string, unknown>): ObserverStateV6 | null {
   if (
     obj.version !== 3 ||
     typeof obj.lastCheckTs !== 'number' ||
@@ -194,6 +270,8 @@ function migrateV3ToV5(obj: Record<string, unknown>): ObserverStateV5 | null {
     completedWatermarks: {},
     cancelledWatermarks: {},
     crashedWatermarks: {},
+    reportedCorrupted: {},
+    reportedActiveState: {},
   };
 }
 
@@ -224,24 +302,29 @@ function loadObserverState(fs: FileSystem, stateFile: string, _audit: AuditLog):
 
   const obj = parsed as Record<string, unknown>;
 
-  // v5 schema
-  if (isValidV5State(obj)) {
+  // v6 schema
+  if (isValidV6State(obj)) {
     return { status: 'ok', state: obj };
   }
 
-  // v4 → v5 migration: 复合游标 + per-status watermark。
-  const v5FromV4 = migrateV4ToV5(obj);
-  if (v5FromV4) {
-    return { status: 'ok', state: v5FromV4 };
+  // v5 → v6 migration: 新增 dedup sets，默认空。
+  if (isValidV5State(obj)) {
+    return { status: 'ok', state: migrateV5ToV6(obj) };
   }
 
-  // v3 → v5 migration: 全局水位退化为 lastArchivedAt 回退，per-claw 水位在首次 tick 按 claw 建立。
-  const v5FromV3 = migrateV3ToV5(obj);
-  if (v5FromV3) {
-    return { status: 'ok', state: v5FromV3 };
+  // v4 → v6 migration: 复合游标 + per-status watermark + 空 dedup sets。
+  const v6FromV4 = migrateV4ToV6(obj);
+  if (v6FromV4) {
+    return { status: 'ok', state: v6FromV4 };
   }
 
-  // v2 → v5 migration: 旧 set 无法可靠转水位线，conservatively 用 lastCheckTs 作全局回退、
+  // v3 → v6 migration: 全局水位退化为 lastArchivedAt 回退，per-claw 水位在首次 tick 按 claw 建立。
+  const v6FromV3 = migrateV3ToV6(obj);
+  if (v6FromV3) {
+    return { status: 'ok', state: v6FromV3 };
+  }
+
+  // v2 → v6 migration: 旧 set 无法可靠转水位线，conservatively 用 lastCheckTs 作全局回退、
   // bootstrap=false 首 tick 不 emit 只更新水位。
   if (obj.version === 2 && typeof obj.lastCheckTs === 'number') {
     return {
@@ -255,11 +338,13 @@ function loadObserverState(fs: FileSystem, stateFile: string, _audit: AuditLog):
         completedWatermarks: {},
         cancelledWatermarks: {},
         crashedWatermarks: {},
+        reportedCorrupted: {},
+        reportedActiveState: {},
       },
     };
   }
 
-  // v1 → v5 migration: 只有 lastCheckTs
+  // v1 → v6 migration: 只有 lastCheckTs
   if (typeof obj.lastCheckTs === 'number') {
     return {
       status: 'ok',
@@ -272,6 +357,8 @@ function loadObserverState(fs: FileSystem, stateFile: string, _audit: AuditLog):
         completedWatermarks: {},
         cancelledWatermarks: {},
         crashedWatermarks: {},
+        reportedCorrupted: {},
+        reportedActiveState: {},
       },
     };
   }
@@ -361,7 +448,18 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
         }
         throw err;
       }
-      const { entries, incomplete } = await scanArchivedContracts(fs, location.clawDir, makeClawId(clawId), motionAudit);
+      // phase 981: per-claw audit dedup sets，避免同一 corrupt / active-state contract 每个 tick 重复 audit。
+      const corruptedSet = new Set(state.reportedCorrupted[clawId] ?? []);
+      const activeStateSet = new Set(state.reportedActiveState[clawId] ?? []);
+
+      const { entries, incomplete } = await scanArchivedContracts(fs, location.clawDir, makeClawId(clawId), motionAudit, {
+        corrupted: corruptedSet,
+        activeState: activeStateSet,
+      });
+
+      // 保存本 claw 本次 scan 后的 dedup 状态（即使 incomplete，已报告的 contract 也应被记住）。
+      state.reportedCorrupted[clawId] = [...corruptedSet];
+      state.reportedActiveState[clawId] = [...activeStateSet];
 
       // phase 950: 扫描不完整 → 跳过该 claw、不推进水位、写 audit。
       if (incomplete) {
@@ -635,7 +733,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   // 部分成功时保留旧 per-claw 水位，但已成功类别的 per-claw per-status watermark 会推进；
   // 全部失败时沿用 phase 946 语义：抛错、不写 state，由 cron 重试。
   if (anyDeliverySucceeded || allDeliveriesSucceeded) {
-    const newState: ObserverStateV5 = {
+    const newState: ObserverStateV6 = {
       version: STATE_SCHEMA_VERSION,
       lastCheckTs: tickStart,
       clawWatermarks: allDeliveriesSucceeded ? nextClawWatermarks : state.clawWatermarks,
@@ -643,6 +741,8 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       completedWatermarks: nextCompletedWatermarks,
       cancelledWatermarks: nextCancelledWatermarks,
       crashedWatermarks: nextCrashedWatermarks,
+      reportedCorrupted: state.reportedCorrupted,
+      reportedActiveState: state.reportedActiveState,
     };
     fs.ensureDirSync(path.dirname(stateFile));
     fs.writeAtomicSync(stateFile, JSON.stringify(newState));

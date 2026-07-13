@@ -209,7 +209,7 @@ describe('phase 946 contract-observer watermark + async notify', () => {
     // bootstrap = no emit
     expect(notifyClaw).not.toHaveBeenCalled();
 
-    // verify state migrated to v5 + bootstrapDone + per-claw 复合游标水位更新
+    // verify state migrated to v6 + bootstrapDone + per-claw 复合游标水位更新
     const stateContent = writes.get('/test/root/motion/status/contract-observer-state.json');
     expect(stateContent).toBeDefined();
     const newState = JSON.parse(stateContent!) as {
@@ -218,7 +218,7 @@ describe('phase 946 contract-observer watermark + async notify', () => {
       clawWatermarks: Record<string, { archivedAt: number; lastContractId: string }>;
       bootstrapDone: boolean;
     };
-    expect(newState.version).toBe(5);
+    expect(newState.version).toBe(6);
     expect(newState.bootstrapDone).toBe(true);
     expect(newState.clawWatermarks['worker-a']).toEqual({ archivedAt: pastMs, lastContractId: 'contract-1' });
 
@@ -264,7 +264,7 @@ describe('phase 946 contract-observer watermark + async notify', () => {
       clawWatermarks: Record<string, { archivedAt: number; lastContractId: string }>;
       bootstrapDone: boolean;
     };
-    expect(newState.version).toBe(5);
+    expect(newState.version).toBe(6);
     expect(newState.bootstrapDone).toBe(true);
     expect(newState.clawWatermarks['worker-a']).toEqual({ archivedAt: pastMs, lastContractId: 'contract-1' });
   });
@@ -301,7 +301,7 @@ describe('phase 946 contract-observer watermark + async notify', () => {
       bootstrapDone: boolean;
       clawWatermarks: Record<string, { archivedAt: number; lastContractId: string }>;
     };
-    expect(newState.version).toBe(5);
+    expect(newState.version).toBe(6);
     expect(newState.bootstrapDone).toBe(true);
     expect(newState.clawWatermarks['worker-a']).toEqual({ archivedAt: pastMs, lastContractId: 'contract-1' });
   });

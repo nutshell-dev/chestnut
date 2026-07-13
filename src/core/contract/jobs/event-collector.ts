@@ -196,6 +196,7 @@ export async function scanArchivedContracts(
   clawDir: string,
   clawId: ClawId,
   audit: AuditLog,
+  dedup?: { corrupted: Set<string>; activeState: Set<string> },
 ): Promise<ArchivedContractScanResult> {
   const entries: ArchivedContractEntry[] = [];
   let incomplete = false;
@@ -216,13 +217,17 @@ export async function scanArchivedContracts(
         const result = ContractProgressArchiveLooseSchema.safeParse(obj);
         if (!result.success) {
           incomplete = true;
-          audit?.write(
-            CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-            `clawId=${clawId}`,
-            `contract=${d.name}`,
-            `context=schema_validation_failed`,
-            `issues=${result.error.issues.map(i => i.message).join('; ')}`,
-          );
+          const dedupKey = `${clawId}:${d.name}`;
+          if (!dedup?.corrupted.has(dedupKey)) {
+            audit?.write(
+              CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+              `clawId=${clawId}`,
+              `contract=${d.name}`,
+              `context=schema_validation_failed`,
+              `issues=${result.error.issues.map(i => i.message).join('; ')}`,
+            );
+            dedup?.corrupted.add(dedupKey);
+          }
           continue;
         }
         const progress = {
@@ -251,13 +256,17 @@ export async function scanArchivedContracts(
         const formatted = formatContractEvent(clawId, d.name, meta, progress);
         if (formatted === null) continue;
         if (formatted.status === 'pending' || formatted.status === 'running' || formatted.status === 'paused') {
-          audit?.write(
-            CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-            `clawId=${clawId}`,
-            `contract=${d.name}`,
-            `status=${formatted.status}`,
-            `cause=${formatted.cause ?? 'active status in archive'}`,
-          );
+          const dedupKey = `${clawId}:${d.name}`;
+          if (!dedup?.activeState.has(dedupKey)) {
+            audit?.write(
+              CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+              `clawId=${clawId}`,
+              `contract=${d.name}`,
+              `status=${formatted.status}`,
+              `cause=${formatted.cause ?? 'active status in archive'}`,
+            );
+            dedup?.activeState.add(dedupKey);
+          }
         }
         entries.push({
           contractId: d.name,
@@ -275,13 +284,17 @@ export async function scanArchivedContracts(
           continue; // silent skip absent / 不入 audit
         }
         incomplete = true;
-        audit?.write(
-          CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-          `clawId=${clawId}`,
-          `contract=${d.name}`,
-          `context=event_collector_archive`,
-          `error=${formatErr(err)}`,
-        );
+        const dedupKey = `${clawId}:${d.name}`;
+        if (!dedup?.corrupted.has(dedupKey)) {
+          audit?.write(
+            CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+            `clawId=${clawId}`,
+            `contract=${d.name}`,
+            `context=event_collector_archive`,
+            `error=${formatErr(err)}`,
+          );
+          dedup?.corrupted.add(dedupKey);
+        }
         continue;
       }
     }
