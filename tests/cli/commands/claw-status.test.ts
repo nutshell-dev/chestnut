@@ -16,6 +16,8 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
 import { loadGlobalConfig, clawExists } from '../../../src/assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { STATUS_AUDIT_EVENTS } from '../../../src/core/status-service/audit-events.js';
+import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -27,6 +29,40 @@ vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importO
     getClawConfigPath: vi.fn(),
   };
 });
+function makeAudit(): AuditLog & { events: [string, ...(string | number)[]][] } {
+  const events: [string, ...(string | number)[]][] = [];
+  return {
+    __brand: 'AuditLog',
+    write(type: string, ...cols: (string | number)[]) {
+      events.push([type, ...cols]);
+    },
+    preview(s: string) {
+      return s;
+    },
+    message(s: string) {
+      return s;
+    },
+    summary(s: string) {
+      return s;
+    },
+    dispose() {},
+    events,
+  } as unknown as AuditLog & { events: [string, ...(string | number)[]][] };
+}
+
+let currentAudit: ReturnType<typeof makeAudit>;
+
+vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/audit/index.js')>();
+  return {
+    ...actual,
+    createSystemAudit: vi.fn(() => {
+      currentAudit = makeAudit();
+      return currentAudit;
+    }),
+  };
+});
+
 vi.mock('../../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
@@ -107,5 +143,30 @@ describe('claw-status (phase 1472 Step C)', () => {
       /chestnut claw list/,
     );
     await expect(clawStatusCommand({ fsFactory }, 'nonexistent', {})).rejects.toThrow(CliError);
+  });
+
+  it('writes TASK_RUNNING_ERROR audit when running dir fails', async () => {
+    const eioErr = Object.assign(new Error('EIO'), { code: 'EIO' });
+    const mockFs = {
+      list: vi.fn().mockImplementation(async (dir: string) => {
+        if (String(dir).includes('running')) throw eioErr;
+        return [];
+      }),
+      exists: vi.fn().mockResolvedValue(false),
+      read: vi.fn().mockRejectedValue(new Error('ENOENT')),
+      existsSync: vi.fn().mockReturnValue(false),
+      statSync: vi.fn(),
+      readSync: vi.fn(),
+      readBytesSync: vi.fn(),
+      listSync: vi.fn().mockReturnValue([]),
+    } as unknown as ReturnType<typeof fsFactory>;
+
+    await clawStatusCommand({ fsFactory: () => mockFs }, 'foo', {});
+
+    const runningErrors = currentAudit.events.filter(
+      (e) => e[0] === STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR,
+    );
+    expect(runningErrors.length).toBe(1);
+    expect(runningErrors[0][1]).toMatch(/^error=/);
   });
 });

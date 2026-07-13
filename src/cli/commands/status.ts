@@ -28,6 +28,7 @@ import {
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
+import { STATUS_AUDIT_EVENTS } from '../../core/status-service/audit-events.js';
 
 export async function statusCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
   loadGlobalConfig(deps);
@@ -66,15 +67,14 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
   });
 
   const okCount = view.activeClaws.filter(c => c.status === 'ok').length;
-  audit.write('status_forum', `claws=${okCount}`, `total=${view.totalClawCount}`);
+  audit.write(STATUS_AUDIT_EVENTS.FORUM_STATUS, `claws=${okCount}`, `total=${view.totalClawCount}`);
 
   const errorClaws = view.activeClaws.filter((c): c is Extract<typeof c, { status: 'error' }> => c.status === 'error');
-  if (errorClaws.length > 0) {
-    const details = errorClaws.map(c => `${c.name}: ${c.error}`).join(', ');
-    audit.write('status_forum_claw_errors', `count=${errorClaws.length}`, `details=${details}`);
+  for (const c of errorClaws) {
+    audit.write(STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR, `claw=${c.name}`, `error=${c.error}`);
   }
   if (view.orphans.error) {
-    audit.write('status_forum_orphan_error', `error=${view.orphans.error}`);
+    audit.write(STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR, `error=${view.orphans.error}`);
   }
 
   for (const line of formatForumStatusView(view)) {

@@ -9,4 +9,7 @@ export const STATUS_AUDIT_EVENTS = {
   TASK_PENDING_ERROR: 'status_task_pending_error',
   TASK_RUNNING_ERROR: 'status_task_running_error',
   INBOX_UNREAD_ERROR: 'status_inbox_unread_error',
+  FORUM_STATUS: 'status_forum',
+  FORUM_CLAW_ERROR: 'status_forum_claw_error',
+  FORUM_ORPHAN_ERROR: 'status_forum_orphan_error',
 } as const;
