@@ -235,7 +235,12 @@ export async function handleVerificationErrorRetry(
         const fbProgress = await ctx.getProgress(contractId);
         const fbSubtask = fbProgress?.subtasks[subtaskId];
         if (fbSubtask && fbSubtask.status === 'in_progress') {
+          // Phase 969: lifecycle guard — don't mutate subtasks of non-running contracts in fallback path
+          if (fbProgress!.status !== 'running') {
+            return;
+          }
           fbSubtask.status = 'todo';
+          delete fbSubtask.verification_attempt_id;
           await ctx.saveProgress(contractId, fbProgress!);
         }
       });

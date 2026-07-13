@@ -189,14 +189,15 @@ export async function completeSubtaskSync(
       throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
     }
 
-    if (progress.status === 'cancelled') {
+    if (progress.status !== 'running') {
+      // paused / crashed / archive_pending_recovery / cancelled
       emitContractVerificationResetFailed(
         ctx.audit,
         {
           contractId,
           subtaskId,
           context: 'completeSubtaskSync',
-          message: 'contract already cancelled, skip subtask completion write',
+          message: `contract status is "${progress.status}", cannot complete subtask`,
         },
       );
       return;

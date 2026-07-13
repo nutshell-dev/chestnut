@@ -385,115 +385,127 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       let nextCursor: ClawWatermarkCursor | undefined = prevCursor;
 
       for (const entry of sortedEntries) {
-        // phase 324 H11: 验 claw / contract id 字符集，防 `:` `,` `` ` `` `\n` 注入。
-        // 不合规 id 跳过、不入 problem_pairs / dedup set；audit 一条 OBSERVER_EVENT_FAILED。
-        if (!/^[A-Za-z0-9_-]{1,64}$/.test(clawId) || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.contractId)) {
+        try {
+          // phase 324 H11: 验 claw / contract id 字符集，防 `:` `,` `` ` `` `\n` 注入。
+          // 不合规 id 跳过、不入 problem_pairs / dedup set；audit 一条 OBSERVER_EVENT_FAILED。
+          if (!/^[A-Za-z0-9_-]{1,64}$/.test(clawId) || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.contractId)) {
+            motionAudit.write(
+              CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
+              `claw=${clawId}`,
+              `contract=${entry.contractId}`,
+              `reason=id_charset_invalid`,
+            );
+            continue;
+          }
+          // phase 950: 复合游标过滤；同 timestamp 按 contractId 严格大于 lastContractId 才处理
+          if (!shouldProcessEntry(entry, prevCursor)) continue;
+          // 更新该 claw 本次 scan 的游标（entries 已排序，最后一个被处理的 entry 即为最大值）
+          nextCursor = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
+          // bootstrap 期不 emit、仅更新水位（防首次启动历史 archive 大量重 emit）
+          if (state.bootstrapDone) {
+            switch (entry.status) {
+              case 'completed': {
+                const statusCursor = state.completedWatermarks[clawId];
+                if (shouldProcessEntry(entry, statusCursor)) {
+                  completedEvents.push(entry.body);
+                  if (entry.hasFailure) allProblemPairs.push(`${clawId}:${entry.contractId}`);
+                  const current = batchCompletedCursors[clawId];
+                  if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
+                    batchCompletedCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
+                  }
+                  // phase 821: fire-and-forget 触发契约复盘，失败不阻塞 observer
+                  if (options.onCompletedContract) {
+                    options.onCompletedContract(clawId, entry.contractId).catch(err => {
+                      motionAudit.write(
+                        CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
+                        `claw=${clawId}`,
+                        `contract=${entry.contractId}`,
+                        `reason=retro_callback_failed`,
+                        `error=${formatErr(err)}`,
+                      );
+                    });
+                  }
+                }
+                break;
+              }
+              case 'cancelled': {
+                const statusCursor = state.cancelledWatermarks[clawId];
+                if (shouldProcessEntry(entry, statusCursor)) {
+                  cancelledEvents.push(entry.body);
+                  cancellations.push({
+                    source_claw: clawId,
+                    contract_id: entry.contractId,
+                    reason: entry.reason ?? '(no reason given)',
+                  });
+                  const current = batchCancelledCursors[clawId];
+                  if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
+                    batchCancelledCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
+                  }
+                }
+                break;
+              }
+              case 'crashed': {
+                const statusCursor = state.crashedWatermarks[clawId];
+                if (shouldProcessEntry(entry, statusCursor)) {
+                  crashedEvents.push(entry.body);
+                  crashes.push({
+                    source_claw: clawId,
+                    contract_id: entry.contractId,
+                    cause: entry.cause ?? '(no cause given)',
+                  });
+                  const current = batchCrashedCursors[clawId];
+                  if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
+                    batchCrashedCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
+                  }
+                }
+                break;
+              }
+              case 'archive_pending_recovery':
+                // phase 197: 系统内部状态、motion 无 actionable、归 audit 不投 inbox
+                emitContractArchiveRecoveryPendingObserved(motionAudit, {
+                  clawId: makeClawId(clawId),
+                  contractId: entry.contractId,
+                  context: 'observer_scan',
+                });
+                break;
+              case 'archive_corrupted':
+                // phase 951: archive-level corruption marker — terminal, no motion delivery
+                motionAudit.write(
+                  CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+                  `claw=${clawId}`,
+                  `contract=${entry.contractId}`,
+                  `status=archive_corrupted`,
+                  `context=observer_skip_archive_corrupted`,
+                );
+                break;
+              case 'pending':
+              case 'running':
+              case 'paused':
+                // phase 949: active status in archive 已在 collector 层审计；observer 只跳过、不投 inbox
+                motionAudit.write(
+                  CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+                  `claw=${clawId}`,
+                  `contract=${entry.contractId}`,
+                  `status=${entry.status}`,
+                  `context=observer_skip_active_in_archive`,
+                );
+                break;
+              default: {
+                const _exhaustive: never = entry.status;
+                return _exhaustive;
+              }
+            }
+          }
+        } catch (err) {
+          // Phase 969: per-entry isolation — one bad entry must not abort the whole claw scan
           motionAudit.write(
             CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
             `claw=${clawId}`,
             `contract=${entry.contractId}`,
-            `reason=id_charset_invalid`,
+            `reason=entry_processing_failed`,
+            `error=${formatErr(err)}`,
           );
-          continue;
-        }
-        // phase 950: 复合游标过滤；同 timestamp 按 contractId 严格大于 lastContractId 才处理
-        if (!shouldProcessEntry(entry, prevCursor)) continue;
-        // 更新该 claw 本次 scan 的游标（entries 已排序，最后一个被处理的 entry 即为最大值）
-        nextCursor = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
-        // bootstrap 期不 emit、仅更新水位（防首次启动历史 archive 大量重 emit）
-        if (state.bootstrapDone) {
-          switch (entry.status) {
-            case 'completed': {
-              const statusCursor = state.completedWatermarks[clawId];
-              if (shouldProcessEntry(entry, statusCursor)) {
-                completedEvents.push(entry.body);
-                if (entry.hasFailure) allProblemPairs.push(`${clawId}:${entry.contractId}`);
-                const current = batchCompletedCursors[clawId];
-                if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
-                  batchCompletedCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
-                }
-                // phase 821: fire-and-forget 触发契约复盘，失败不阻塞 observer
-                if (options.onCompletedContract) {
-                  options.onCompletedContract(clawId, entry.contractId).catch(err => {
-                    motionAudit.write(
-                      CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
-                      `claw=${clawId}`,
-                      `contract=${entry.contractId}`,
-                      `reason=retro_callback_failed`,
-                      `error=${formatErr(err)}`,
-                    );
-                  });
-                }
-              }
-              break;
-            }
-            case 'cancelled': {
-              const statusCursor = state.cancelledWatermarks[clawId];
-              if (shouldProcessEntry(entry, statusCursor)) {
-                cancelledEvents.push(entry.body);
-                cancellations.push({
-                  source_claw: clawId,
-                  contract_id: entry.contractId,
-                  reason: entry.reason ?? '(no reason given)',
-                });
-                const current = batchCancelledCursors[clawId];
-                if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
-                  batchCancelledCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
-                }
-              }
-              break;
-            }
-            case 'crashed': {
-              const statusCursor = state.crashedWatermarks[clawId];
-              if (shouldProcessEntry(entry, statusCursor)) {
-                crashedEvents.push(entry.body);
-                crashes.push({
-                  source_claw: clawId,
-                  contract_id: entry.contractId,
-                  cause: entry.cause ?? '(no cause given)',
-                });
-                const current = batchCrashedCursors[clawId];
-                if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
-                  batchCrashedCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
-                }
-              }
-              break;
-            }
-            case 'archive_pending_recovery':
-              // phase 197: 系统内部状态、motion 无 actionable、归 audit 不投 inbox
-              emitContractArchiveRecoveryPendingObserved(motionAudit, {
-                clawId: makeClawId(clawId),
-                contractId: entry.contractId,
-                context: 'observer_scan',
-              });
-              break;
-            case 'archive_corrupted':
-              // phase 951: archive-level corruption marker — terminal, no motion delivery
-              motionAudit.write(
-                CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-                `claw=${clawId}`,
-                `contract=${entry.contractId}`,
-                `status=archive_corrupted`,
-                `context=observer_skip_archive_corrupted`,
-              );
-              break;
-            case 'pending':
-            case 'running':
-            case 'paused':
-              // phase 949: active status in archive 已在 collector 层审计；observer 只跳过、不投 inbox
-              motionAudit.write(
-                CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-                `claw=${clawId}`,
-                `contract=${entry.contractId}`,
-                `status=${entry.status}`,
-                `context=observer_skip_active_in_archive`,
-              );
-              break;
-            default: {
-              const _exhaustive: never = entry.status;
-              return _exhaustive;
-            }
-          }
+          // continue to next entry
         }
       }
 
