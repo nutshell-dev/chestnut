@@ -430,9 +430,8 @@ export class Snapshot {
       try {
         resolvedDir = await this.fs.realpath(this.dir);
       } catch (e) {
-        // phase 725: 改 formatErr(e) 保 stack forensic
         emitSnapshotRealpathFailed(this.audit, { dir: this.dir, reason: formatErr(e) });
-        resolvedDir = this.dir;
+        continue; // skip this cleanupDir instead of falling back to literal path
       }
       const relResolved = path.relative(resolvedDir, resolved);
       if (relResolved === '' || relResolved.startsWith('..') || path.isAbsolute(relResolved)) {

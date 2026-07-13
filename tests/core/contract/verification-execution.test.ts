@@ -44,6 +44,17 @@ describe('checkPathContainment (Phase 965)', () => {
     const result = checkPathContainment(fs, '/container', 'link.sh');
     expect(result).toBeNull();
   });
+
+  it('propagates EACCES instead of returning null', () => {
+    const eaccesErr = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    const fs = {
+      realpathSync: vi.fn((p: string) => {
+        if (p === '/container') return '/container';
+        throw eaccesErr;
+      }),
+    } as unknown as FileSystem;
+    expect(() => checkPathContainment(fs, '/container', 'script.sh')).toThrow(eaccesErr);
+  });
 });
 
 describe('runScriptVerification (Phase 965)', () => {

@@ -55,6 +55,15 @@ describe('createClawPermissionChecker', () => {
       // phase 713: raw msg 改 'reason=' prefix
       expect(audit.write).toHaveBeenCalledWith('permission_strict_disabled', 'reason=non_strict_mode_bypass');
     });
+
+    it('propagates EACCES from fs.resolve instead of treating it as outside claw', () => {
+      const eaccesErr = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      const mockFs = {
+        resolve: vi.fn().mockImplementation(() => { throw eaccesErr; }),
+      };
+      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, fs: mockFs as any });
+      expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(eaccesErr);
+    });
   });
 
   // =========================================================================

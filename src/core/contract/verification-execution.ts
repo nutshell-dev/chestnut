@@ -14,6 +14,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from './types.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { PathGuardError } from '../../foundation/fs/types.js';
 // phase 1490: 不再传 maxSteps、VerifierConfig.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 // phase 1376: contractAbsDir is clawDir, branded
 import {
@@ -26,8 +27,12 @@ export function checkPathContainment(fs: FileSystem, container: string, relative
   let realPath: string;
   try {
     realPath = fs.realpathSync(resolved);
-  } catch {
-    return null; // file doesn't exist — caller decides
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || err instanceof PathGuardError) {
+      return null; // file doesn't exist or containment failed — caller decides
+    }
+    throw err; // EACCES, EIO — propagate
   }
   const realContainer = fs.realpathSync(container);
   if (!realPath.startsWith(realContainer + path.sep)) {

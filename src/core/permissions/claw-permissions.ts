@@ -162,8 +162,13 @@ function getRelativeToClaw(
     }
 
     return null;
-  } catch {
-    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EACCES' || code === 'EIO' || code === 'EBUSY') {
+      // I/O error — propagate, don't misclassify as path outside claw
+      throw err;
+    }
+    return null; // genuine containment failure or ENOENT
   }
 }
 

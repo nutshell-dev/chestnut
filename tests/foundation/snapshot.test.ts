@@ -527,6 +527,53 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       );
       });
     });
+
+    describe('commit skips cleanup when realpath(this.dir) fails', () => {
+      let tmpDir: string;
+
+      beforeEach(async () => {
+        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+      });
+
+      afterEach(async () => {
+        vi.restoreAllMocks();
+        await fsp.rm(tmpDir, { recursive: true, force: true });
+      });
+
+      it('commit skips cleanup when realpath(this.dir) fails', async () => {
+      const baseFs = new NodeFileSystem({ baseDir: tmpDir });
+      const fs = Object.create(baseFs);
+      const eioErr = Object.assign(new Error('EIO'), { code: 'EIO' });
+      fs.realpath = vi.fn().mockImplementation(async (dir: string) => {
+        if (dir === tmpDir) {
+          throw eioErr;
+        }
+        return baseFs.realpath(dir);
+      });
+
+      const audit = makeMockAudit();
+      const scratchDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
+      const snapshot = new Snapshot(tmpDir, fs, audit, [], [scratchDir]);
+      await snapshot.init();
+
+      await baseFs.ensureDir('tasks/sync/exec');
+      await fsp.writeFile(path.join(scratchDir, 'scratch.md'), 'scratch');
+      await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
+
+      const result = await snapshot.commit('test-realpath-dir-fail');
+      expect(result.ok).toBe(true);
+
+      // realpath failure on this.dir should be audited
+      expect(audit.write).toHaveBeenCalledWith(
+        SNAPSHOT_AUDIT_EVENTS.REALPATH_FAILED,
+        expect.stringContaining('dir='),
+        expect.stringContaining('EIO'),
+      );
+
+      // cleanup should have been skipped: scratch file remains
+      expect(fsSync.existsSync(path.join(scratchDir, 'scratch.md'))).toBe(true);
+      });
+    });
   });
 
   // ========================================================================

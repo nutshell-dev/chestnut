@@ -131,17 +131,40 @@ export class NodeFileSystem implements FileSystem {
     try {
       realTarget = realpathSync(absolute);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        // File doesn't exist yet; still check parent directory for symlink traversal
-        try {
-          realTarget = realpathSync(path.dirname(absolute));
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-            // Parent doesn't exist (write: will be created by ensureDir; read: will fail naturally) — accept
-          } else {
-            throw err; // EACCES, EIO — propagate
+      const errnoCode = (err as NodeJS.ErrnoException).code;
+      if (errnoCode === 'ENOENT') {
+        // Walk up ancestors until we find one that exists, checking containment
+        // at each step. This catches mid-path symlinks where the tail does not
+        // exist yet (P0: symlink containment bypass via deep ENOENT parents).
+        const baseDir = this.options.baseDir;
+        const baseParent = path.dirname(baseDir);
+        let ancestor = path.dirname(absolute);
+        while (ancestor !== baseDir && ancestor !== baseParent) {
+          try {
+            const realAncestor = realpathSync(ancestor);
+            const basePrefix = realBase.endsWith(path.sep) ? realBase : realBase + path.sep;
+            const withinBase =
+              realAncestor === realBase ||
+              realAncestor.startsWith(basePrefix);
+            if (!withinBase) {
+              throw new PathGuardError(
+                `Symlink traversal detected at "${path.relative(baseDir, ancestor)}": resolves outside base root`,
+                relativePath
+              );
+            }
+            break; // found existing ancestor within base — safe
+          } catch (ancErr) {
+            if ((ancErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+              throw ancErr; // EACCES, EIO — propagate
+            }
+            // ENOENT: go one level up
+            ancestor = path.dirname(ancestor);
           }
         }
+        // If we reached baseDir's parent without finding an existing ancestor,
+        // the target is under a non-existent base path and cannot escape via symlink.
+      } else {
+        throw err; // EACCES, EIO — propagate
       }
     }
 
