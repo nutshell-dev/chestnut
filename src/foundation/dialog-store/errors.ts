@@ -22,3 +22,19 @@ export class DialogStoreError extends Error {
     };
   }
 }
+
+/** Phase 990: transient read/write fault from the underlying FileSystem. */
+export class DialogIOError extends Error {
+  constructor(message: string, readonly causeErr: unknown) {
+    super(message);
+    this.name = 'DialogIOError';
+  }
+}
+
+/** Phase 990: data corruption (JSON/schema/version invalid) in a dialog file. */
+export class CorruptionError extends DialogStoreError {
+  constructor(message: string, readonly causeErr: unknown) {
+    super(message);
+    this.name = 'CorruptionError';
+  }
+}

@@ -17,13 +17,11 @@ import { MarkerNotFoundError, detectAndMigrateVersion, validateSessionData } fro
 import { CURRENT_DIALOG_FILE } from './dirs.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../node-utils/index.js';
-import { DialogStoreError } from './errors.js';
+import { DialogStoreError, DialogIOError } from './errors.js';
 
-/** Phase 987: read faults (except ENOENT) propagate as io_error; parse faults are corruption. */
-function isReadIOError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as NodeJS.ErrnoException).code;
-  return typeof code === 'string' && code !== 'ENOENT';
+/** Phase 990: wrap a non-ENOENT read/list fault as a typed I/O error. */
+function asDialogIOError(err: unknown): DialogIOError {
+  return new DialogIOError(`I/O error: ${formatErr(err)}`, err);
 }
 
 /**
@@ -52,14 +50,15 @@ export async function restoreMessages(
     if (isFileNotFound(err)) {
       // ENOENT: current.json does not exist; fall through to archive search.
     } else {
-      // Phase 987: any non-ENOENT read fault is an I/O error and must propagate.
+      // Phase 990: any non-ENOENT read fault is an I/O error and must propagate.
+      const ioErr = asDialogIOError(err);
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
         'file=current.json',
         `context=restore_${inclusive ? 'prefix' : 'before'}`,
         `reason=${formatErr(err)}`,
       );
-      throw err;
+      throw ioErr;
     }
   }
 
@@ -95,7 +94,7 @@ export async function restoreMessages(
         }
       }
     } catch (err) {
-      if (isFileNotFound(err)) throw err;
+      if (isFileNotFound(err) || err instanceof DialogIOError) throw err;
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.CORRUPTED,
         'file=current.json',
@@ -113,23 +112,16 @@ export async function restoreMessages(
     if (isFileNotFound(err)) {
       // archive dir 不存在 → 走最终抛错
       entries = [];
-    } else if (isReadIOError(err)) {
+    } else {
+      // Phase 990: any non-ENOENT list fault is an I/O error and must propagate.
+      const ioErr = asDialogIOError(err);
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
         `dir=${archiveDir}`,
         `context=restore_${inclusive ? 'prefix' : 'before'}`,
         `reason=${formatErr(err)}`,
       );
-      throw err;
-    } else {
-      // phase 680: 加 dir forensic col、与 store.ts:586 ARCHIVE_READ_FAILED 形态对齐
-      audit?.write?.(
-        DIALOG_AUDIT_EVENTS.ARCHIVE_DIR_FAILED,
-        `dir=${archiveDir}`,
-        `reason=${formatErr(err)}`,
-      );
-      // archive dir 失败 / 走最终抛错
-      entries = [];
+      throw ioErr;
     }
   }
 
@@ -143,21 +135,18 @@ export async function restoreMessages(
     try {
       archiveRaw = await fs.read(entryPath);
     } catch (err) {
-      if (isReadIOError(err)) {
-        audit?.write?.(
-          DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
-          `file=${entry.name}`,
-          `context=restore_${inclusive ? 'prefix' : 'before'}`,
-          `reason=${formatErr(err)}`,
-        );
-        throw err;
+      if (isFileNotFound(err)) {
+        // TOCTOU: archive vanished between list and read.
+        continue;
       }
+      const ioErr = asDialogIOError(err);
       audit?.write?.(
-        DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED,
+        DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
         `file=${entry.name}`,
+        `context=restore_${inclusive ? 'prefix' : 'before'}`,
         `reason=${formatErr(err)}`,
       );
-      continue;
+      throw ioErr;
     }
 
     try {

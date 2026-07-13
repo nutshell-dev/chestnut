@@ -10,6 +10,7 @@ import { notifyInbox } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
+import { DialogIOError } from '../../foundation/dialog-store/errors.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
@@ -291,18 +292,15 @@ async function processSession(
       `reason=${formatErr(err)}`,
     );
     if (sf.filename !== CURRENT_DIALOG_FILE) {
-      // Phase 989: inverse whitelist — only ENOENT is non-transient (file genuinely missing).
-      // Other errno I/O errors (EIO, EACCES, ENOSPC, EPERM, EROFS, etc.) are transient:
-      // don't advance waterline, retry next cycle. Errors without a code (parse errors,
-      // version unknown, etc.) remain permanent to avoid infinite retry.
-      const errCode = (err as NodeJS.ErrnoException).code;
-      if (errCode && errCode !== 'ENOENT') {
+      // Phase 990: DialogIOError is transient (don't advance waterline, retry next cycle).
+      // CorruptionError or any other unknown error is permanent (advance waterline).
+      if (err instanceof DialogIOError) {
         // Transient error — stop processing.
         // Don't advance waterline. Next dream cycle will retry from this file.
         // runDeepDreamForClaw breaks the loop on any 'skip' result.
         return { status: 'skip', reason: 'transient_io' };
       }
-      // ENOENT or no-code error — advance waterline to skip permanently
+      // ENOENT, CorruptionError, or any other error — advance waterline to skip permanently
       plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
       return { status: 'skip', reason: 'permanent_io' };
     }

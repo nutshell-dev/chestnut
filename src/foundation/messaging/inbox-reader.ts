@@ -42,6 +42,7 @@ import {
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { makeClawId } from '../claw-identity/index.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
+import { DialogIOError } from '../dialog-store/errors.js';
 
 
 
@@ -283,8 +284,14 @@ export class InboxReader {
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
       const filePath = path.join(this.pendingDir, entry.name);
+      let content: string;
       try {
-        const content = await this.fs.read(filePath);
+        content = await this.fs.read(filePath);
+      } catch (readErr) {
+        if (isFileNotFound(readErr)) throw readErr;
+        throw new DialogIOError(`I/O error reading inbox file: ${formatErr(readErr)}`, readErr);
+      }
+      try {
         const message = decodeInbox(content);
         if (message.extraMeta?.__original_priority !== undefined) {
           emitInboxPriorityUnknown(this.audit, {
@@ -339,15 +346,12 @@ export class InboxReader {
 
         results.push({ message, filePath });
       } catch (err) {
-        const errCode = (err as NodeJS.ErrnoException).code;
-        // Phase 989: inverse whitelist — only ENOENT is non-transient (file genuinely missing).
-        // Other errno I/O errors (EIO, EACCES, ENOSPC, EPERM, EROFS, etc.) are transient:
-        // keep in pending, audit, retry next cycle. Errors without a code (parse errors,
-        // schema validation failures, etc.) remain permanent and move to failed.
-        if (errCode && errCode !== 'ENOENT') {
+        // Phase 990: DialogIOError (transient read fault) stays in pending for retry.
+        // ENOENT or decode/validation errors are permanent and move to failed.
+        if (err instanceof DialogIOError) {
           emitInboxFailed(this.audit, {
             file: entry.name,
-            errorCode: errCode ?? 'OTHER',
+            errorCode: 'OTHER',
             reason: `transient IO error — kept in pending: ${formatErr(err)}`,
           });
           continue;

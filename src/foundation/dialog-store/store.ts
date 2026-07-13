@@ -23,7 +23,7 @@ import type { TraceId } from '../audit/types.js';
 import type { AuditLog } from '../audit/types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid } from  '../node-utils/index.js';
-import { DialogStoreError } from './errors.js';
+import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';
@@ -586,7 +586,8 @@ export class DialogStore {
    * 读取指定 archive 文件，返完整 SessionData。
    * 内部自动做 detectAndMigrateVersion + validateSession。
    * @throws 文件不存在时底层 fs 抛 ENOENT/FS_NOT_FOUND
-   * @throws 文件格式损坏时抛 error（含 corrupted 隔离 + audit）
+   * @throws 文件格式损坏时抛 CorruptionError（含 corrupted 隔离 + audit）
+   * @throws 读取 I/O 错误时抛 DialogIOError
    */
   async readArchive(filename: string): Promise<SessionData> {
     const safeName = path.basename(filename); // strip any directory components
@@ -598,21 +599,34 @@ export class DialogStore {
     if (!filePath.startsWith(this.archiveDir + path.sep)) {
       throw new DialogStoreError(`Path traversal detected: "${filename}"`);
     }
-    // I/O errors from read() propagate unchanged; they are not data corruption.
-    const content = await this.fs.read(filePath);
+
+    let content: string;
+    try {
+      content = await this.fs.read(filePath);
+    } catch (err) {
+      if (isFileNotFound(err)) throw err;
+      throw new DialogIOError(`I/O error reading archive: ${formatErr(err)}`, err);
+    }
+
     try {
       const parsed = JSON.parse(content) as Partial<SessionData>;
       const detected = detectAndMigrateVersion(parsed, filename, this.audit);
       if (detected === null) {
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `reason=version_unknown`);
-        throw new DialogStoreError(`session version unknown in archive ${filename}`);
+        throw new CorruptionError(`session version unknown in archive ${filename}`, null);
       }
       return this.validateSession(detected);
     } catch (err) {
       if (isFileNotFound(err)) {
         throw err; // should not happen since read() succeeded, but keep defensive
       }
-      // Data corruption (parse / version / validation): isolate and re-throw.
+      if (err instanceof DialogIOError) {
+        throw err; // already typed, do not re-classify as corruption
+      }
+      // Data corruption (parse / version / validation): isolate and re-throw as CorruptionError.
+      const corruptedErr = err instanceof CorruptionError
+        ? err
+        : new CorruptionError(`Corrupted archive: ${formatErr(err)}`, err);
       try {
         await this.fs.ensureDir(path.join(this.archiveDir, CORRUPTED_SUBDIR));
         await this.fs.move(filePath, path.join(this.archiveDir, CORRUPTED_SUBDIR, safeName));
@@ -624,7 +638,7 @@ export class DialogStore {
           `reason=${formatErr(moveErr)}`,
         );
       }
-      throw err;
+      throw corruptedErr;
     }
   }
 

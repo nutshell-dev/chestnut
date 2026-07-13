@@ -8,6 +8,7 @@
 
 import { sha256ShortHex } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
@@ -23,13 +24,6 @@ export type LookupResult =
 export interface LookupOptions {
   /** Optional sha8 hash for integrity verification (level 3 降级). */
   contentHash?: string;
-}
-
-/** Phase 987: distinguish read faults from parse corruption. */
-function isReadIOError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as NodeJS.ErrnoException).code;
-  return typeof code === 'string' && code !== 'ENOENT';
 }
 
 /**
@@ -155,17 +149,18 @@ function lookupInCurrent(
   try {
     raw = fs.readSync(currentPath);
   } catch (err) {
-    if (isReadIOError(err)) {
-      audit?.write?.(
-        DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-        'file=current.json',
-        `toolUseId=${toolUseId}`,
-        `reason=${(err as NodeJS.ErrnoException).code ?? err}`,
-      );
-      return { found: false, reason: 'io_error' };
+    if (isFileNotFound(err)) {
+      // ENOENT → missing
+      return { found: false, reason: 'missing' };
     }
-    // ENOENT or non-errno → missing
-    return { found: false, reason: 'missing' };
+    // Phase 990: any non-ENOENT read fault is an I/O error.
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'file=current.json',
+      `toolUseId=${toolUseId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { found: false, reason: 'io_error' };
   }
 
   try {
@@ -213,17 +208,18 @@ function lookupInArchive(
   try {
     entries = fs.listSync(archiveDir);
   } catch (err) {
-    if (isReadIOError(err)) {
-      audit?.write?.(
-        DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-        'dir=archive',
-        `toolUseId=${toolUseId}`,
-        `reason=${(err as NodeJS.ErrnoException).code ?? err}`,
-      );
-      return { found: false, inaccessible: true, ioError: true };
+    if (isFileNotFound(err)) {
+      process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`); // silent: fallback log, non-critical
+      return { found: false, inaccessible: true };
     }
-    process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`); // silent: fallback log, non-critical
-    return { found: false, inaccessible: true };
+    // Phase 990: any non-ENOENT list fault is an I/O error.
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=archive',
+      `toolUseId=${toolUseId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { found: false, inaccessible: true, ioError: true };
   }
 
   // archive entries 形态：`<timestamp>_<uuid>.json` 文件（store.ts archive() 生成）
@@ -243,17 +239,18 @@ function lookupInArchive(
     try {
       raw = fs.readSync(sessionPath);
     } catch (err) {
-      if (isReadIOError(err)) {
-        audit?.write?.(
-          DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-          `file=${entry.name}`,
-          `toolUseId=${toolUseId}`,
-          `reason=${(err as NodeJS.ErrnoException).code ?? err}`,
-        );
-        return { found: false, inaccessible: true, ioError: true };
+      if (isFileNotFound(err)) {
+        process.stderr.write(`[dialog-lookup] archive ${entry.name} read failed: ${err}\n`);
+        continue;
       }
-      process.stderr.write(`[dialog-lookup] archive ${entry.name} read failed: ${err}\n`);
-      continue;
+      // Phase 990: any non-ENOENT read fault is an I/O error.
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+        `file=${entry.name}`,
+        `toolUseId=${toolUseId}`,
+        `reason=${formatErr(err)}`,
+      );
+      return { found: false, inaccessible: true, ioError: true };
     }
 
     try {
