@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -83,6 +83,14 @@ describe('Phase 868 legacy task file migration', () => {
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_RUNNING_DIR), { recursive: true });
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_DONE_DIR), { recursive: true });
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_FAILED_DIR), { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
   });
 
   it('migrates 8-char filename + missing shortId to UUID filename + dual-key', async () => {

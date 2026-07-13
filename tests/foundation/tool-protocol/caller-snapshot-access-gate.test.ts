@@ -13,9 +13,10 @@
  *   7. Lazy: undeclared tools never invoke the provider (0 cost)
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
+import * as fsSync from 'node:fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
@@ -47,6 +48,7 @@ function makeTool(opts: {
 
 async function setup(opts: { withProvider: boolean; snapshotData?: CallerSnapshot }) {
   const tempDir = path.join(tmpdir(), `chestnut-test-1406-${randomUUID()}`);
+  lastTempDir = tempDir;
   await fs.mkdir(tempDir, { recursive: true });
   const mockFs = new NodeFileSystem({ baseDir: tempDir });
   const auditEntries: Array<{ type: string; fields: string[] }> = [];
@@ -76,7 +78,19 @@ async function setup(opts: { withProvider: boolean; snapshotData?: CallerSnapsho
   return { ctx, registry, executor, audit, auditEntries, tempDir };
 }
 
+let lastTempDir: string;
+
 describe('phase 1406 caller-snapshot access gate', () => {
+  afterEach(async () => {
+    if (lastTempDir) {
+      try {
+        fsSync.rmSync(lastTempDir, { recursive: true, force: true });
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+      lastTempDir = '';
+    }
+  });
   it('undeclared tool calling getCallerSnapshot() throws + emits violation audit', async () => {
     const { ctx, registry, executor, auditEntries } = await setup({ withProvider: true });
     const tool = makeTool({
@@ -157,6 +171,7 @@ describe('phase 1406 caller-snapshot access gate', () => {
   it('lazy: undeclared tool not calling snapshot() incurs 0 audit emit + 0 provider invocations', async () => {
     let providerInvocations = 0;
     const tempDir = path.join(tmpdir(), `chestnut-test-1406-${randomUUID()}`);
+    lastTempDir = tempDir;
     await fs.mkdir(tempDir, { recursive: true });
     const mockFs = new NodeFileSystem({ baseDir: tempDir });
     const auditEntries: Array<{ type: string; fields: string[] }> = [];

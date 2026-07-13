@@ -1,13 +1,14 @@
 /**
  * phase 281 Step B: legacy summon-state/ directory detection tests.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { checkLegacySummonStateFiles } from '../../../src/core/summon-system/legacy-state-detection.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
+import * as fsSync from 'node:fs';
 
 function makeFakeAudit(): AuditLog & { entries: string[][] } {
   const entries: string[][] = [];
@@ -19,13 +20,26 @@ function makeFakeAudit(): AuditLog & { entries: string[][] } {
   };
 }
 
+let lastDir: string;
+
 async function createTempFs() {
   const dir = path.join(os.tmpdir(), `summon-legacy-test-${randomUUID()}`);
+  lastDir = dir;
   const fs = new NodeFileSystem({ baseDir: dir });
   return { fs, dir };
 }
 
 describe('checkLegacySummonStateFiles (phase 281 Step B)', () => {
+  afterEach(() => {
+    if (lastDir) {
+      try {
+        fsSync.rmSync(lastDir, { recursive: true, force: true });
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+      lastDir = '';
+    }
+  });
   it('无 summon-state/ 目录 → 0 emit', async () => {
     const { fs } = await createTempFs();
     const audit = makeFakeAudit();

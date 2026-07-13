@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { PersistentShortIdIndex, InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';
 import { makeFullTaskId, makeShortTaskId } from '../../src/core/async-task-system/types.js';
@@ -105,6 +105,14 @@ describe('PersistentShortIdIndex', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'short-id-index-'));
     fs.mkdirSync(path.join(tmpDir, 'tasks', 'queues'), { recursive: true });
     fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
   });
 
   it('loads empty map when file does not exist', () => {

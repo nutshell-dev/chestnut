@@ -50,41 +50,45 @@ describe('Runtime audit events', () => {
 
   describe('session_loaded audit timing', () => {
     it('session_loaded should not pollute summarizeLastExit tail-read on restart', async () => {
-      const clawDir = await fs.mkdtemp(path.join(tmpdir(), 'chestnut-runtime-audit-'));
-      const clawSubDir = path.join(clawDir, 'claws', 'audit-claw');
-      await fs.mkdir(clawSubDir, { recursive: true });
+      const clawDir = await createTempDir();
+      try {
+        const clawSubDir = path.join(clawDir, 'claws', 'audit-claw');
+        await fs.mkdir(clawSubDir, { recursive: true });
 
-      // 构造一个带有 daemon_stop 的 audit.tsv（模拟正常退出的上一次运行）
-      const auditPath = path.join(clawSubDir, 'audit.tsv');
-      await fs.writeFile(auditPath, `2026-04-17T00:00:00.000Z\tdaemon_stop\treason=sigterm\n`);
+        // 构造一个带有 daemon_stop 的 audit.tsv（模拟正常退出的上一次运行）
+        const auditPath = path.join(clawSubDir, 'audit.tsv');
+        await fs.writeFile(auditPath, `2026-04-17T00:00:00.000Z\tdaemon_stop\treason=sigterm\n`);
 
-      // 不创建 dialog/current.json，使 sessionManager.load() 返回 empty session
+        // 不创建 dialog/current.json，使 sessionManager.load() 返回 empty session
 
-      const runtime = trackRuntime(await createTestRuntime({
-        clawId: 'audit-claw',
-        clawDir: clawSubDir,
-        llmConfig: createMockLLMConfig(),
-      }));
-      await runtime.initialize();
+        const runtime = trackRuntime(await createTestRuntime({
+          clawId: 'audit-claw',
+          clawDir: clawSubDir,
+          llmConfig: createMockLLMConfig(),
+        }));
+        await runtime.initialize();
 
-      // 读取 initialize 后 audit.tsv 的内容
-      const auditContent = await fs.readFile(auditPath, 'utf-8');
-      const lines = auditContent.trim().split('\n');
+        // 读取 initialize 后 audit.tsv 的内容
+        const auditContent = await fs.readFile(auditPath, 'utf-8');
+        const lines = auditContent.trim().split('\n');
 
-      // 验证 audit.tsv 中 daemon_stop 在 session_loaded 之前——
-      // 如果 session_loaded 在 summarizeLastExit 之前写入，当初 summarizeLastExit 读到的就会是 session_loaded 而非 daemon_stop
-      const sessionLoadedIndex = lines.findIndex((l: string) => l.includes('session_loaded'));
-      const daemonStopIndex = lines.findIndex((l: string) => l.includes('daemon_stop'));
-      expect(sessionLoadedIndex).toBeGreaterThan(daemonStopIndex);
+        // 验证 audit.tsv 中 daemon_stop 在 session_loaded 之前——
+        // 如果 session_loaded 在 summarizeLastExit 之前写入，当初 summarizeLastExit 读到的就会是 session_loaded 而非 daemon_stop
+        const sessionLoadedIndex = lines.findIndex((l: string) => l.includes('session_loaded'));
+        const daemonStopIndex = lines.findIndex((l: string) => l.includes('daemon_stop'));
+        expect(sessionLoadedIndex).toBeGreaterThan(daemonStopIndex);
 
-      // 验证 session_loaded 确实被写入了
-      expect(sessionLoadedIndex).not.toBe(-1);
+        // 验证 session_loaded 确实被写入了
+        expect(sessionLoadedIndex).not.toBe(-1);
+      } finally {
+        await cleanupTempDir(clawDir);
+      }
     });
   });
 
   describe('Runtime session-repair failure branches (phase155C)', () => {
     it('snapshot.commit 抛错 → audit snapshot_commit_failed context=session-repair + 不抛', async () => {
-      const tmpDir = path.join(tmpdir(), `chestnut-repair-test-${randomUUID()}`);
+      const tmpDir = await createTempDir();
       const clawSubDir = path.join(tmpDir, 'claws', 'repair-claw');
       await fs.mkdir(clawSubDir, { recursive: true });
       await writeSessionWithIncompleteToolUse(clawSubDir, 'repair-claw');
@@ -112,11 +116,11 @@ describe('Runtime audit events', () => {
         /^snapshot_commit_failed\tcontext=session-repair\treason=injected fs error/.test(e)
       )).toBe(true);
 
-      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+      await cleanupTempDir(tmpDir);
     });
 
     it('snapshot.commit 返 uncategorized error → audit snapshot_commit_uncategorized + 不抛', async () => {
-      const tmpDir = path.join(tmpdir(), `chestnut-repair-test-${randomUUID()}`);
+      const tmpDir = await createTempDir();
       const clawSubDir = path.join(tmpDir, 'claws', 'repair-claw');
       await fs.mkdir(clawSubDir, { recursive: true });
       await writeSessionWithIncompleteToolUse(clawSubDir, 'repair-claw');
@@ -147,7 +151,7 @@ describe('Runtime audit events', () => {
         /^snapshot_commit_uncategorized\tcontext=session-repair\texitCode=127/.test(e)
       )).toBe(true);
 
-      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+      await cleanupTempDir(tmpDir);
     });
   });
 

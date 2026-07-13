@@ -5,7 +5,7 @@
  * PID files are treated as alive, preventing duplicate daemon startup.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
 import { tmpdir } from 'os';
@@ -15,9 +15,12 @@ import { getAliveStatus } from '../../../src/foundation/process-manager/alive.js
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeDaemonDir, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 
+let lastTempDir: string;
+
 function makeTempDir(): string {
   const dir = path.join(tmpdir(), `alive-conservative-${randomUUID()}`);
   fs.mkdirSync(dir, { recursive: true });
+  lastTempDir = dir;
   return dir;
 }
 
@@ -41,6 +44,16 @@ function makeCtx(tempDir: string, overrides?: Partial<ProcessManagerContext>): P
 }
 
 describe('getAliveStatus conservative verdicts (phase 912)', () => {
+  afterEach(() => {
+    if (lastTempDir) {
+      try {
+        fs.rmSync(lastTempDir, { recursive: true, force: true });
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+      lastTempDir = '';
+    }
+  });
   it('returns alive=true on EPERM (process exists, cannot probe)', () => {
     const tempDir = makeTempDir();
     const daemonDir = makeDaemonDirAt(tempDir, 'claws', 'epid-claw');

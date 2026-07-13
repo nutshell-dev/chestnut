@@ -8,7 +8,7 @@
  * - 反向 2: 改字段 type → tsc fail
  * - 反向 3: cloneExecContext partial override 兼容（runtime 行为 0 变）
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import type {
   ExecContext,
   ClawIdentity,
@@ -23,10 +23,25 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
+import * as fsSync from 'node:fs';
 
 describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
+  let lastTempDir: string;
+
+  afterEach(() => {
+    if (lastTempDir) {
+      try {
+        fsSync.rmSync(lastTempDir, { recursive: true, force: true });
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+      lastTempDir = '';
+    }
+  });
+
   async function makeCtx(): Promise<ExecContextImpl> {
     const tempDir = path.join(tmpdir(), `ec-isp-${randomUUID()}`);
+    lastTempDir = tempDir;
     await fs.mkdir(tempDir, { recursive: true });
     const mockFs = new NodeFileSystem({ baseDir: tempDir });
     return new ExecContextImpl({

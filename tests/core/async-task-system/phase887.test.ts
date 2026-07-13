@@ -2,7 +2,7 @@
  * Phase 887: terminalState filtering + overflow notification reliability + corrupt cancel regression.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
@@ -32,8 +32,10 @@ function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | num
   return { audit, events };
 }
 
-function setupBaseDir(): string {
-  const baseDir = path.join(tmpdir(), `phase887-${randomUUID().slice(0, 8)}`);
+let baseDir: string;
+
+function setupBaseDir(): void {
+  baseDir = path.join(tmpdir(), `phase887-${randomUUID().slice(0, 8)}`);
   fs.mkdirSync(baseDir, { recursive: true });
   for (const sub of ['pending', 'done', 'failed', 'running', 'results']) {
     fs.mkdirSync(path.join(baseDir, 'tasks', 'queues', sub), { recursive: true });
@@ -41,7 +43,6 @@ function setupBaseDir(): string {
   fs.mkdirSync(path.join(baseDir, 'sync'), { recursive: true });
   fs.mkdirSync(path.join(baseDir, 'subagents'), { recursive: true });
   fs.mkdirSync(path.join(baseDir, 'inbox', 'pending'), { recursive: true });
-  return baseDir;
 }
 
 function writeToolPendingFile(baseDir: string, id: string, extra: Record<string, unknown> = {}): void {
@@ -83,8 +84,16 @@ describe('phase 887', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    try {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
+  });
+
   it('does not dispatch task with terminalState=failed (notified marker exists)', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
@@ -122,7 +131,7 @@ describe('phase 887', () => {
   });
 
   it('retries overflow notification when terminalState=failed and no notified marker', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
@@ -162,7 +171,7 @@ describe('phase 887', () => {
   });
 
   it('keeps task in pending when overflow notification fails, then retries on next cycle', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
@@ -227,7 +236,7 @@ describe('phase 887', () => {
   });
 
   it('does not report race-lost when cancel quarantines a corrupt file (backup created during cancel)', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {

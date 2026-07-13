@@ -3,7 +3,7 @@
  * queue 降回 cap 以下后清 0、允许下次 overflow 再发.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
@@ -57,6 +57,14 @@ function clearPendingDir(baseDir: string): void {
 describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', () => {
   let baseDir: string;
   beforeEach(() => { baseDir = setupBaseDir(); });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
+  });
 
   it('multiple overflow rejections within same window → 1 motion notification', async () => {
     const { audit } = makeAudit();

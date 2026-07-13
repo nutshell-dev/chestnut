@@ -420,6 +420,8 @@ describe('ContractSystem', () => {
       const result = await testManager.runScriptVerification('task-1.sh', path.join(testClawDir, 'verification'));
 
       expect(result.passed).toBe(true);
+
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
   });
 

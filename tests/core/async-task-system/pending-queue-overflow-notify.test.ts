@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import type { AsyncTaskSystemOptions } from '../../../src/core/async-task-system/system.js';
@@ -34,6 +34,14 @@ describe('pending queue overflow motion notify', () => {
     fs.mkdirSync(path.join(baseDir, 'sync'), { recursive: true });
     fs.mkdirSync(path.join(baseDir, 'subagents'), { recursive: true });
     fs.mkdirSync(path.join(baseDir, 'inbox', 'pending'), { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
   });
 
   function writePendingFile(id: string): void {

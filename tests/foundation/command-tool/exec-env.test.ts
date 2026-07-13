@@ -1,14 +1,29 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { createExecTool } from '../../../src/foundation/command-tool/exec.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'node:fs';
 import { randomUUID } from 'crypto';
 
 describe('exec tool env injection', () => {
+  let lastDir: string;
+
+  afterEach(() => {
+    if (lastDir) {
+      try {
+        fs.rmSync(lastDir, { recursive: true, force: true });
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+      lastDir = '';
+    }
+  });
+
   async function makeCtx(subagentTaskId?: string) {
     const dir = path.join(os.tmpdir(), `exec-env-test-${randomUUID()}`);
+    lastDir = dir;
     const fs = new NodeFileSystem({ baseDir: dir });
     await fs.ensureDir('.');
     const ctx = new ExecContextImpl({

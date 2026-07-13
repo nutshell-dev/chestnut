@@ -53,7 +53,7 @@ async function setupEvolutionSystem(stateFileContent?: string) {
     createSkillSystem: mockSkillFactory as any,
   });
 
-  return { motionDir, evolutionSystem, mockAudit };
+  return { tmpBase, motionDir, evolutionSystem, mockAudit };
 }
 
 async function cleanup(tmpBase: string) {
@@ -75,7 +75,7 @@ describe('EvolutionSystem _loadState corrupt path', () => {
   });
 
   it('corrupt JSON: audits STATE_LOAD_FAILED + resets state + backup file exists', async () => {
-    const { motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem('not-valid-json{{{');
+    const { tmpBase, motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem('not-valid-json{{{');
     auditSpy = vi.spyOn(mockAudit, 'write');
 
     // trigger _loadState via runRetroForContract (needs by-contract index to not ENOENT early)
@@ -106,11 +106,11 @@ describe('EvolutionSystem _loadState corrupt path', () => {
     const backupFile = files.find(f => f.startsWith('.evolution-system-state.json.corrupt-'));
     expect(backupFile).toBeDefined();
 
-    await cleanup(motionDir);
+    await cleanup(tmpBase);
   });
 
   it('legacy processedContractIds schema: migration + backup + audit emit', async () => {
-    const { motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem(
+    const { tmpBase, motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem(
       JSON.stringify({ version: 1, processedContractIds: [123, 'abc'], lastProcessedAt: new Date().toISOString() })
     );
     auditSpy = vi.spyOn(mockAudit, 'write');
@@ -135,11 +135,11 @@ describe('EvolutionSystem _loadState corrupt path', () => {
     expect(migrationCall).toBeDefined();
     expect(migrationCall!.some((arg: unknown) => typeof arg === 'string' && arg.includes('legacy_field=processedContractIds'))).toBe(true);
 
-    await cleanup(motionDir);
+    await cleanup(tmpBase);
   });
 
   it('ENOENT remains silent (no audit)', async () => {
-    const { motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem();
+    const { tmpBase, motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem();
     auditSpy = vi.spyOn(mockAudit, 'write');
 
     const contractId = 'c-' + randomUUID();
@@ -159,6 +159,6 @@ describe('EvolutionSystem _loadState corrupt path', () => {
     const loadFailedCalls = auditSpy.mock.calls.filter(c => c[0] === RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED);
     expect(loadFailedCalls).toHaveLength(0);
 
-    await cleanup(motionDir);
+    await cleanup(tmpBase);
   });
 });

@@ -2,7 +2,7 @@
  * Phase 902: overflow terminalState propagation + marker I/O + load/rebuild fullId conflict.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
@@ -34,8 +34,10 @@ function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | num
   return { audit, events };
 }
 
-function setupBaseDir(): string {
-  const baseDir = path.join(tmpdir(), `phase902-${randomUUID().slice(0, 8)}`);
+let baseDir: string;
+
+function setupBaseDir(): void {
+  baseDir = path.join(tmpdir(), `phase902-${randomUUID().slice(0, 8)}`);
   fs.mkdirSync(baseDir, { recursive: true });
   for (const sub of ['pending', 'done', 'failed', 'running', 'results']) {
     fs.mkdirSync(path.join(baseDir, 'tasks', 'queues', sub), { recursive: true });
@@ -43,7 +45,6 @@ function setupBaseDir(): string {
   fs.mkdirSync(path.join(baseDir, 'sync'), { recursive: true });
   fs.mkdirSync(path.join(baseDir, 'subagents'), { recursive: true });
   fs.mkdirSync(path.join(baseDir, 'inbox', 'pending'), { recursive: true });
-  return baseDir;
 }
 
 function writeToolPendingFile(baseDir: string, id: string, extra: Record<string, unknown> = {}): void {
@@ -85,8 +86,16 @@ describe('phase 902', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    try {
+      if (baseDir) fs.rmSync(baseDir, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
+  });
+
   it('propagates terminalState write failure during overflow and keeps task in pending', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
 
     const taskId = '550e8400-e29b-41d4-a716-446655440000';
@@ -133,7 +142,7 @@ describe('phase 902', () => {
   });
 
   it('does not re-send notification when overflow marker read fails with IO error', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
 
     const taskId = '550e8400-e29b-41d4-a716-446655440001';
@@ -177,6 +186,7 @@ describe('phase 902', () => {
 
   it('sets needsRebuild and emits audit when load detects fullId conflict', async () => {
     const tmpDir = fs.mkdtempSync(path.join(tmpdir(), 'phase902-short-id-index-'));
+    try {
     fs.mkdirSync(path.join(tmpDir, 'tasks', 'queues'), { recursive: true });
 
     const fullId = '550e8400-e29b-41d4-a716-446655440000';
@@ -200,5 +210,12 @@ describe('phase 902', () => {
     const failedEvent = events.find(e => e.event === TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED);
     expect(failedEvent).toBeDefined();
     expect(String(failedEvent?.payload.error)).toContain('already mapped');
+    } finally {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+    }
   });
 });

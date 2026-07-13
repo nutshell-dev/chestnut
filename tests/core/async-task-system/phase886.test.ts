@@ -2,7 +2,7 @@
  * Phase 886: overflow parent notification + move propagation + corrupt cancel + cap boundary.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
@@ -32,8 +32,10 @@ function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | num
   return { audit, events };
 }
 
-function setupBaseDir(): string {
-  const baseDir = path.join(tmpdir(), `phase886-${randomUUID().slice(0, 8)}`);
+let baseDir: string;
+
+function setupBaseDir(): void {
+  baseDir = path.join(tmpdir(), `phase886-${randomUUID().slice(0, 8)}`);
   fs.mkdirSync(baseDir, { recursive: true });
   for (const sub of ['pending', 'done', 'failed', 'running', 'results']) {
     fs.mkdirSync(path.join(baseDir, 'tasks', 'queues', sub), { recursive: true });
@@ -41,7 +43,6 @@ function setupBaseDir(): string {
   fs.mkdirSync(path.join(baseDir, 'sync'), { recursive: true });
   fs.mkdirSync(path.join(baseDir, 'subagents'), { recursive: true });
   fs.mkdirSync(path.join(baseDir, 'inbox', 'pending'), { recursive: true });
-  return baseDir;
 }
 
 function writePendingFile(baseDir: string, id: string, extra: Record<string, unknown> = {}): void {
@@ -67,8 +68,16 @@ describe('phase 886', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    try {
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
+  });
+
   it('sends fallback error to parent on overflow', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
@@ -106,7 +115,7 @@ describe('phase 886', () => {
   });
 
   it('keeps task in pending and retries move on next dispatch cycle when overflow move fails', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
 
@@ -176,7 +185,7 @@ describe('phase 886', () => {
   });
 
   it('does not report race-lost when task was backed up as corrupt', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit, events } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
@@ -213,7 +222,7 @@ describe('phase 886', () => {
   });
 
   it('accepts the MAX-th task and rejects the MAX+1-th (off-by-one fix)', async () => {
-    const baseDir = setupBaseDir();
+    setupBaseDir();
     const { audit } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
