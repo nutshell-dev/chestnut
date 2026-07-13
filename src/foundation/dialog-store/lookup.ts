@@ -116,13 +116,13 @@ export function lookupContentByToolUseId(
   // phase 985: I/O fault takes precedence over generic not_found classifications.
   if (
     (currentResult !== undefined && !currentResult.found && currentResult.reason === 'io_error') ||
-    archiveResult.ioError
+    (!archiveResult.found && archiveResult.ioError === true)
   ) {
     const details: string[] = [];
-    if (currentResult && !currentResult.found && currentResult.errorDetail) {
+    if (currentResult !== undefined && !currentResult.found && currentResult.reason === 'io_error') {
       details.push(`current: ${currentResult.errorDetail}`);
     }
-    if (archiveResult && !archiveResult.found && archiveResult.ioErrorDetail) {
+    if (!archiveResult.found && archiveResult.ioError === true) {
       details.push(`archive: ${archiveResult.ioErrorDetail}`);
     }
     return { source: 'unavailable', reason: 'io_error', detail: assertNonEmpty(details) };
@@ -143,7 +143,8 @@ export function lookupContentByToolUseId(
 
 type CurrentLookupResult =
   | { found: true; content: string }
-  | { found: false; reason: 'missing' | 'parse_failed' | 'not_found' | 'io_error'; errorDetail?: string };
+  | { found: false; reason: 'missing' | 'parse_failed' | 'not_found' }
+  | { found: false; reason: 'io_error'; errorDetail: string };
 
 function lookupInCurrent(
   fs: FileSystem,
@@ -190,7 +191,9 @@ function lookupInCurrent(
 
 type ArchiveLookupResult =
   | { found: true; content: string; archivedAt: string; inaccessible: false }
-  | { found: false; inaccessible: boolean; ioError?: boolean; ioErrorDetail?: string };
+  | { found: false; inaccessible: false; ioError: false }
+  | { found: false; inaccessible: true; ioError: false }
+  | { found: false; inaccessible: true; ioError: true; ioErrorDetail: string };
 
 function lookupInArchive(
   fs: FileSystem,
@@ -212,7 +215,7 @@ function lookupInArchive(
     );
     return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err) };
   }
-  if (!archiveExists) return { found: false, inaccessible: false };
+  if (!archiveExists) return { found: false, inaccessible: false, ioError: false };
 
   let entries;
   try {
@@ -220,7 +223,7 @@ function lookupInArchive(
   } catch (err) {
     if (isFileNotFound(err)) {
       process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`); // silent: fallback log, non-critical
-      return { found: false, inaccessible: true };
+      return { found: false, inaccessible: true, ioError: false };
     }
     // Phase 990: any non-ENOENT list fault is an I/O error.
     audit?.write?.(
@@ -278,7 +281,7 @@ function lookupInArchive(
     }
   }
 
-  return { found: false, inaccessible: false };
+  return { found: false, inaccessible: false, ioError: false };
 }
 
 function parseArchiveTs(name: string): number {
@@ -306,14 +309,16 @@ function findContentInMessages(messages: unknown[], toolUseId: string): string |
 
 function buildDegradationNotes(currentResult: CurrentLookupResult | undefined): [string, ...string[]] | undefined {
   if (currentResult && !currentResult.found) {
-    return [`current.json: ${currentResult.reason}${currentResult.errorDetail ? ` (${currentResult.errorDetail})` : ''}`];
+    const detail = currentResult.reason === 'io_error' ? ` (${currentResult.errorDetail})` : '';
+    return [`current.json: ${currentResult.reason}${detail}`];
   }
   return undefined;
 }
 
 function assertNonEmpty(arr: string[]): [string, ...string[]] {
-  if (arr.length === 0) throw new Error('Diagnostic array must not be empty');
-  return arr as [string, ...string[]];
+  const [first, ...rest] = arr;
+  if (first === undefined) throw new Error('Diagnostic array must not be empty');
+  return [first, ...rest];
 }
 
 function computeSha8(content: string): string {

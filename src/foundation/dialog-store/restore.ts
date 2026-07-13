@@ -196,8 +196,9 @@ export async function restoreMessages(
 }
 
 function assertNonEmpty(arr: string[]): [string, ...string[]] {
-  if (arr.length === 0) throw new Error('Diagnostic array must not be empty');
-  return arr as [string, ...string[]];
+  const [first, ...rest] = arr;
+  if (first === undefined) throw new Error('Diagnostic array must not be empty');
+  return [first, ...rest];
 }
 
 /** Slice messages at marker（helper for restoreMessages）*/
