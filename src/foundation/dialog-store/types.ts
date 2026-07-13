@@ -22,11 +22,10 @@ export interface SessionData {
   trace_id?: TraceId;
 }
 
-export interface LoadResult {
-  session: SessionData;
-  source: 'current' | 'archive' | 'empty' | 'io_error';
-  error?: string;  // non-empty when source === 'io_error'
-}
+/** Phase 987: discriminated union — io_error carries no session so callers must narrow. */
+export type LoadResult =
+  | { source: 'current' | 'archive' | 'empty'; session: SessionData }
+  | { source: 'io_error'; error: string; session: null };
 
 /** phase 466: marker 模式 for subagent context restoration */
 export interface DialogMarker {

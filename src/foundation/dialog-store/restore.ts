@@ -16,9 +16,15 @@ import type { SessionData, DialogMarker, RestoreResult } from './types.js';
 import { MarkerNotFoundError, detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import { isFatalIOError } from './io-errors.js';
 import { formatErr } from '../node-utils/index.js';
 import { DialogStoreError } from './errors.js';
+
+/** Phase 987: read faults (except ENOENT) propagate as io_error; parse faults are corruption. */
+function isReadIOError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return typeof code === 'string' && code !== 'ENOENT';
+}
 
 /**
  * Restore messages up to (or excluding) the given marker.
@@ -39,10 +45,27 @@ export async function restoreMessages(
   audit?: AuditLog,
 ): Promise<RestoreResult> {
   // 1. Scan current.json
+  let currentRaw: string;
   try {
-    const content = await fs.read(currentPath);
+    currentRaw = await fs.read(currentPath);
+  } catch (err) {
+    if (isFileNotFound(err)) {
+      // ENOENT: current.json does not exist; fall through to archive search.
+    } else {
+      // Phase 987: any non-ENOENT read fault is an I/O error and must propagate.
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
+        'file=current.json',
+        `context=restore_${inclusive ? 'prefix' : 'before'}`,
+        `reason=${formatErr(err)}`,
+      );
+      throw err;
+    }
+  }
+
+  if (currentRaw! !== undefined) {
     try {
-      const parsed = JSON.parse(content) as Partial<SessionData>;
+      const parsed = JSON.parse(currentRaw) as Partial<SessionData>;
       const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, audit);
       if (detected === null) {
         // version unknown — treat as corrupted and fall through to archive
@@ -80,82 +103,17 @@ export async function restoreMessages(
         `reason=${formatErr(err)}`,
       );
     }
-  } catch (err) {
-    if (isFileNotFound(err)) {
-      // ENOENT: current.json does not exist; fall through to archive search.
-    } else if (isFatalIOError(err)) {
-      audit?.write?.(
-        DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
-        'file=current.json',
-        `context=restore_${inclusive ? 'prefix' : 'before'}`,
-        `reason=${formatErr(err)}`,
-      );
-      throw err;
-    } else {
-      throw err;
-    }
   }
 
   // 2. Scan archive/*.json (按时间倒序 / 找首个含 toolUseId 的)
+  let entries: Awaited<ReturnType<FileSystem['list']>> = [];
   try {
-    // ensureDir 不在此调用——restoreMessages 是只读操作，不应有 fs 副作用
-    // 若 archive dir 不存在，后续 fs.list() 抛 ENOENT → catch → 抛 MarkerNotFoundError（正确语义）
-    const entries = await fs.list(archiveDir);
-    const sorted = entries
-      .filter(e => e.isFile && e.name.endsWith('.json') && !isNaN(parseInt(e.name.split('_')[0], 10)))
-      .sort((a, b) => parseInt(b.name.split('_')[0], 10) - parseInt(a.name.split('_')[0], 10)); // Newest first / 与 loadLatestArchive 一致
-
-    for (const entry of sorted) {
-      try {
-        const content = await fs.read(path.join(archiveDir, entry.name));
-        const parsed = JSON.parse(content) as Partial<SessionData>;
-        const detected = detectAndMigrateVersion(parsed, entry.name, audit);
-        if (detected === null) {
-          continue; // version unknown (version > SESSION_CURRENT_VERSION)
-        }
-        const data = validateSessionData(detected, audit);
-        // Phase 921: skip archive files that belong to a different claw.
-        // Legacy sessions without clawId remain backward compatible.
-        if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
-          audit?.write?.(
-            DIALOG_AUDIT_EVENTS.CLAWID_MISMATCH,
-            `source=archive`,
-            `file=${entry.name}`,
-            `expected=${marker.clawId}`,
-            `actual=${data.clawId}`,
-            `toolUseId=${marker.toolUseId}`,
-          );
-          continue;
-        }
-        const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
-        if (sliced !== null) {
-          return {
-            messages: sliced,
-            systemPrompt: data.systemPrompt,
-            toolsForLLM: data.toolsForLLM,
-            meta: { foundIn: 'archive', foundFile: entry.name },
-          };
-        }
-      } catch (err) {
-        if (isFatalIOError(err)) {
-          audit?.write?.(
-            DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
-            `file=${entry.name}`,
-            `context=restore_${inclusive ? 'prefix' : 'before'}`,
-            `reason=${formatErr(err)}`,
-          );
-          throw err;
-        }
-        audit?.write?.(
-          DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED,
-          `file=${entry.name}`,
-          `reason=${formatErr(err)}`,
-        );
-        // 单个 archive 损坏跳过 / 继续找
-      }
-    }
+    entries = await fs.list(archiveDir);
   } catch (err) {
-    if (isFatalIOError(err)) {
+    if (isFileNotFound(err)) {
+      // archive dir 不存在 → 走最终抛错
+      entries = [];
+    } else if (isReadIOError(err)) {
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
         `dir=${archiveDir}`,
@@ -163,14 +121,82 @@ export async function restoreMessages(
         `reason=${formatErr(err)}`,
       );
       throw err;
+    } else {
+      // phase 680: 加 dir forensic col、与 store.ts:586 ARCHIVE_READ_FAILED 形态对齐
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.ARCHIVE_DIR_FAILED,
+        `dir=${archiveDir}`,
+        `reason=${formatErr(err)}`,
+      );
+      // archive dir 失败 / 走最终抛错
+      entries = [];
     }
-    // phase 680: 加 dir forensic col、与 store.ts:586 ARCHIVE_READ_FAILED 形态对齐
-    audit?.write?.(
-      DIALOG_AUDIT_EVENTS.ARCHIVE_DIR_FAILED,
-      `dir=${archiveDir}`,
-      `reason=${formatErr(err)}`,
-    );
-    // archive dir 失败 / 走最终抛错
+  }
+
+  const sorted = entries
+    .filter(e => e.isFile && e.name.endsWith('.json') && !isNaN(parseInt(e.name.split('_')[0], 10)))
+    .sort((a, b) => parseInt(b.name.split('_')[0], 10) - parseInt(a.name.split('_')[0], 10)); // Newest first / 与 loadLatestArchive 一致
+
+  for (const entry of sorted) {
+    const entryPath = path.join(archiveDir, entry.name);
+    let archiveRaw: string;
+    try {
+      archiveRaw = await fs.read(entryPath);
+    } catch (err) {
+      if (isReadIOError(err)) {
+        audit?.write?.(
+          DIALOG_AUDIT_EVENTS.RESTORE_IO_ERROR,
+          `file=${entry.name}`,
+          `context=restore_${inclusive ? 'prefix' : 'before'}`,
+          `reason=${formatErr(err)}`,
+        );
+        throw err;
+      }
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED,
+        `file=${entry.name}`,
+        `reason=${formatErr(err)}`,
+      );
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(archiveRaw) as Partial<SessionData>;
+      const detected = detectAndMigrateVersion(parsed, entry.name, audit);
+      if (detected === null) {
+        continue; // version unknown (version > SESSION_CURRENT_VERSION)
+      }
+      const data = validateSessionData(detected, audit);
+      // Phase 921: skip archive files that belong to a different claw.
+      // Legacy sessions without clawId remain backward compatible.
+      if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
+        audit?.write?.(
+          DIALOG_AUDIT_EVENTS.CLAWID_MISMATCH,
+          `source=archive`,
+          `file=${entry.name}`,
+          `expected=${marker.clawId}`,
+          `actual=${data.clawId}`,
+          `toolUseId=${marker.toolUseId}`,
+        );
+        continue;
+      }
+      const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
+      if (sliced !== null) {
+        return {
+          messages: sliced,
+          systemPrompt: data.systemPrompt,
+          toolsForLLM: data.toolsForLLM,
+          meta: { foundIn: 'archive', foundFile: entry.name },
+        };
+      }
+    } catch (err) {
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED,
+        `file=${entry.name}`,
+        `reason=${formatErr(err)}`,
+      );
+      // 单个 archive 损坏跳过 / 继续找
+    }
   }
 
   // 3. 找不到

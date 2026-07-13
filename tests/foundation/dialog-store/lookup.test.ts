@@ -364,4 +364,26 @@ describe('lookupContentByToolUseId', () => {
     );
     expect(stderrSpy).not.toHaveBeenCalled();
   });
+
+  it('phase 987: dialogDir existsSync EACCES returns unavailable io_error and audits LOOKUP_IO_ERROR', () => {
+    const fs = makeFs({});
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    vi.spyOn(fs, 'existsSync').mockImplementation((p: string) => {
+      if (p === '/dialog') {
+        const err = new Error('EACCES: permission denied') as any;
+        err.code = 'EACCES';
+        throw err;
+      }
+      return false;
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=dialog',
+      'toolUseId=t1',
+      expect.stringContaining('EACCES'),
+    );
+  });
 });

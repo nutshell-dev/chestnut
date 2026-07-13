@@ -11,7 +11,7 @@ import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import { isFatalIOError } from './io-errors.js';
+import { formatErr } from '../node-utils/index.js';
 
 /** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
 export type LookupResult =
@@ -23,6 +23,13 @@ export type LookupResult =
 export interface LookupOptions {
   /** Optional sha8 hash for integrity verification (level 3 降级). */
   contentHash?: string;
+}
+
+/** Phase 987: distinguish read faults from parse corruption. */
+function isReadIOError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return typeof code === 'string' && code !== 'ENOENT';
 }
 
 /**
@@ -44,14 +51,39 @@ export function lookupContentByToolUseId(
 ): LookupResult {
   const idStr = String(toolUseId);
 
-  // phase 918: dialogDir 不存在 → 整体不可用
-  if (!fs.existsSync(dialogDir)) {
+  // phase 987: existsSync itself can throw (EACCES on parent), treat as io_error
+  let dialogExists: boolean;
+  try {
+    dialogExists = fs.existsSync(dialogDir);
+  } catch (err) {
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=dialog',
+      `toolUseId=${idStr}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { source: 'unavailable', reason: 'io_error', detail: formatErr(err) };
+  }
+
+  if (!dialogExists) {
     return { source: 'unavailable', reason: 'all_failed' };
   }
 
   // Level 1: current
   const currentPath = `${dialogDir}/current.json`;
-  const currentAccessible = fs.existsSync(currentPath);
+  let currentAccessible: boolean;
+  try {
+    currentAccessible = fs.existsSync(currentPath);
+  } catch (err) {
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'file=current.json',
+      `toolUseId=${idStr}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { source: 'unavailable', reason: 'io_error', detail: formatErr(err) };
+  }
+
   let currentResult: CurrentLookupResult | undefined;
   if (currentAccessible) {
     currentResult = lookupInCurrent(fs, dialogDir, idStr, audit);
@@ -116,18 +148,14 @@ function lookupInCurrent(
   audit?: AuditLog,
 ): CurrentLookupResult {
   const currentPath = `${dialogDir}/current.json`;
-  if (!fs.existsSync(currentPath)) return { found: false, reason: 'missing' };
+
+  // Phase 987: read→parse separation. Read faults (except ENOENT) are io_error;
+  // parse failures are parse_failed.
+  let raw: string;
   try {
-    const session = JSON.parse(fs.readSync(currentPath));
-    // phase 521 (review-round4 Foundation M): shape guard、防 session=null/null-prototype/array
-    // 致 session.messages 访问抛错被外 catch silent 吞、有效线索可观察
-    if (typeof session !== 'object' || session === null || Array.isArray(session)) {
-      return { found: false, reason: 'parse_failed' };
-    }
-    const content = findContentInMessages(session.messages ?? [], toolUseId);
-    return content !== null ? { found: true, content } : { found: false, reason: 'not_found' };
+    raw = fs.readSync(currentPath);
   } catch (err) {
-    if (isFatalIOError(err)) {
+    if (isReadIOError(err)) {
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
         'file=current.json',
@@ -136,6 +164,20 @@ function lookupInCurrent(
       );
       return { found: false, reason: 'io_error' };
     }
+    // ENOENT or non-errno → missing
+    return { found: false, reason: 'missing' };
+  }
+
+  try {
+    const session = JSON.parse(raw);
+    // phase 521 (review-round4 Foundation M): shape guard、防 session=null/null-prototype/array
+    // 致 session.messages 访问抛错被外 catch silent 吞、有效线索可观察
+    if (typeof session !== 'object' || session === null || Array.isArray(session)) {
+      return { found: false, reason: 'parse_failed' };
+    }
+    const content = findContentInMessages(session.messages ?? [], toolUseId);
+    return content !== null ? { found: true, content } : { found: false, reason: 'not_found' };
+  } catch (err) {
     process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`); // silent: fallback log, non-critical
     return { found: false, reason: 'parse_failed' };
   }
@@ -152,13 +194,26 @@ function lookupInArchive(
   audit?: AuditLog,
 ): ArchiveLookupResult {
   const archiveDir = `${dialogDir}/archive`;
-  if (!fs.existsSync(archiveDir)) return { found: false, inaccessible: false };
+
+  let archiveExists: boolean;
+  try {
+    archiveExists = fs.existsSync(archiveDir);
+  } catch (err) {
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=archive',
+      `toolUseId=${toolUseId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { found: false, inaccessible: true, ioError: true };
+  }
+  if (!archiveExists) return { found: false, inaccessible: false };
 
   let entries;
   try {
     entries = fs.listSync(archiveDir);
   } catch (err) {
-    if (isFatalIOError(err)) {
+    if (isReadIOError(err)) {
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
         'dir=archive',
@@ -183,17 +238,12 @@ function lookupInArchive(
 
   for (const entry of sorted) {
     const sessionPath = `${archiveDir}/${entry.name}`;
+
+    let raw: string;
     try {
-      const session = JSON.parse(fs.readSync(sessionPath));
-      // phase 521 (review-round4 Foundation M): shape guard、同 lookupInCurrent
-      if (typeof session !== 'object' || session === null || Array.isArray(session)) continue;
-      const content = findContentInMessages(session.messages ?? [], toolUseId);
-      if (content !== null) {
-        const archivedAt = String(parseArchiveTs(entry.name));
-        return { found: true, content, archivedAt, inaccessible: false };
-      }
+      raw = fs.readSync(sessionPath);
     } catch (err) {
-      if (isFatalIOError(err)) {
+      if (isReadIOError(err)) {
         audit?.write?.(
           DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
           `file=${entry.name}`,
@@ -202,6 +252,20 @@ function lookupInArchive(
         );
         return { found: false, inaccessible: true, ioError: true };
       }
+      process.stderr.write(`[dialog-lookup] archive ${entry.name} read failed: ${err}\n`);
+      continue;
+    }
+
+    try {
+      const session = JSON.parse(raw);
+      // phase 521 (review-round4 Foundation M): shape guard、同 lookupInCurrent
+      if (typeof session !== 'object' || session === null || Array.isArray(session)) continue;
+      const content = findContentInMessages(session.messages ?? [], toolUseId);
+      if (content !== null) {
+        const archivedAt = String(parseArchiveTs(entry.name));
+        return { found: true, content, archivedAt, inaccessible: false };
+      }
+    } catch (err) {
       process.stderr.write(`[dialog-lookup] archive ${entry.name} parse failed: ${err}\n`);
       continue;
     }

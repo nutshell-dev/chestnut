@@ -131,7 +131,11 @@ export async function performRegimeSwitch(
   } = opts;
 
   // 1. 加载 oldMessages
-  const { session } = await currentStore.load();
+  const loadResult = await currentStore.load();
+  if (loadResult.source === 'io_error') {
+    throw new Error(`Session load failed: ${loadResult.error}`);
+  }
+  const { session } = loadResult;
   const oldMessages = session.messages;
 
   // 2. archive 当前 sessionManager（phase 1373 sub-2 fail-fast / 不 silent continue）

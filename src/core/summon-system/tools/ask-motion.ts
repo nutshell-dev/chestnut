@@ -56,7 +56,11 @@ export class AskMotionTool implements Tool {
       // phase 713: 全然一致性 reuse Motion DialogStore latest dialog snapshot
       // phase 1184: use loadStableTurnBoundary to avoid both mid-write race (phase 1102 loadStable)
       // and mid-turn 逻辑边界 race (unpaired tool_use → LLM API 400)
-      const { session } = await this.motionDialogStore.loadStableTurnBoundary();
+      const loadResult = await this.motionDialogStore.loadStableTurnBoundary();
+      if (loadResult.source === 'io_error') {
+        return { success: false, content: `Session load failed: ${loadResult.error}` };
+      }
+      const { session } = loadResult;
 
       // Backward compat: still pass full messages until runAgent supports handoff marker resolution
       // phase 517 B5: 透传 ctx.signal 给 LLM call、parent cancel/SIGTERM 时 ask-motion 内 LLM 调用也能中断

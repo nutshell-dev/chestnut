@@ -225,7 +225,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         const tools = this.toolRegistry.formatForLLM(
           this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
         );
-        const { session } = await this.sessionManager.load();
+        const loadResult = await this.sessionManager.load();
+        if (loadResult.source === 'io_error') {
+          throw new Error(`Session load failed: ${loadResult.error}`);
+        }
+        const { session } = loadResult;
         return {
           systemPrompt,
           tools,
@@ -281,6 +285,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       return null;
     });
     if (!loadResult) return;
+    if (loadResult.source === 'io_error') {
+      throw new Error(`Session load failed: ${loadResult.error}`);
+    }
     const { session, source } = loadResult;
     // interruptionMessage 由 caller（daemon）传入，runtime 不再直读 audit 文件
     this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_LOADED, `source=${source}`);
@@ -886,7 +893,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
     const { traceId, cleanup } = this._setupTurnContext();
     try {
-      const { session } = await this.sessionManager.load();
+      const loadResult = await this.sessionManager.load();
+      if (loadResult.source === 'io_error') {
+        throw new Error(`Session load failed: ${loadResult.error}`);
+      }
+      const { session } = loadResult;
       const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
       const tools = this.getToolsForLLM();
       const systemPrompt = session.systemPrompt;
@@ -914,7 +925,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
     const { traceId, cleanup } = this._setupTurnContext();
     try {
-      const { session } = await this.sessionManager.load();
+      const loadResult = await this.sessionManager.load();
+      if (loadResult.source === 'io_error') {
+        throw new Error(`Session load failed: ${loadResult.error}`);
+      }
+      const { session } = loadResult;
       if (session.messages.length === 0) {
         return { status: 'failed', error: 'no messages to retry' };
       }
@@ -1046,7 +1061,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
   /** Load current session messages for turn construction. */
   async getMessages(): Promise<Message[]> {
-    const { session } = await this.sessionManager.load();
+    const loadResult = await this.sessionManager.load();
+    if (loadResult.source === 'io_error') {
+      throw new Error(`Session load failed: ${loadResult.error}`);
+    }
+    const { session } = loadResult;
     return session.messages;
   }
 
@@ -1079,7 +1098,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.contextManagerConfig || !this.sessionManager) {
       return;
     }
-    const { session } = await this.sessionManager.load();
+    const loadResult = await this.sessionManager.load();
+    if (loadResult.source === 'io_error') {
+      throw new Error(`Session load failed: ${loadResult.error}`);
+    }
+    const { session } = loadResult;
     const tools = this.getToolsForLLM();
     const providerInfo = this.llm.getProviderInfo?.();
     const contextWindow = resolveContextWindow(providerInfo?.model);

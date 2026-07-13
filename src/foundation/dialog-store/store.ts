@@ -138,7 +138,7 @@ export class DialogStore {
           `code=${(err as NodeJS.ErrnoException).code ?? 'unknown'}`,
           `reason=${formatErr(err)}`,
         );
-        return { session: this.makeEmptySession(), source: 'io_error', error: formatErr(err) };
+        return { source: 'io_error', error: formatErr(err), session: null };
       }
     }
 
@@ -159,7 +159,7 @@ export class DialogStore {
         `code=${(err as NodeJS.ErrnoException).code ?? 'unknown'}`,
         `reason=${formatErr(err)}`,
       );
-      return { session: this.makeEmptySession(), source: 'io_error', error: formatErr(err) };
+      return { source: 'io_error', error: formatErr(err), session: null };
     }
 
     return this.coldStart();
@@ -251,6 +251,9 @@ export class DialogStore {
    */
   async loadStableTurnBoundary(maxRetries = LOAD_STABLE_DEFAULT_RETRIES): Promise<LoadResult> {
     const result = await this.loadStable(maxRetries);
+    if (result.source === 'io_error') {
+      return result;
+    }
     const messages = result.session.messages;
 
     // Scan backwards for last unpaired tool_use
@@ -431,7 +434,11 @@ export class DialogStore {
    * commitTurn() flushes atomically, rollbackTurn() restores snapshot.
    */
   async beginTurn(): Promise<void> {
-    const { session } = await this.load();
+    const loadResult = await this.load();
+    if (loadResult.source === 'io_error') {
+      throw new Error(`Session load failed: ${loadResult.error}`);
+    }
+    const { session } = loadResult;
     this._turnSnapshot = {
       messages: JSON.parse(JSON.stringify(session.messages)) as Message[],
       systemPrompt: session.systemPrompt,

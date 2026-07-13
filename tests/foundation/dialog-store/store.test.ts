@@ -90,6 +90,19 @@ describe('DialogStore I/O vs corruption separation (phase 984)', () => {
     expect(loadFailed[0][1]).toContain('file=current.json');
   });
 
+  it('returns null session on I/O error (phase 987 discriminated union)', async () => {
+    const audit = makeMockAudit();
+    const fs = makeMockFs({
+      currentReadError: Object.assign(new Error('EIO'), { code: 'EIO' }),
+    });
+    const store = new DialogStore(fs, 'dialog', audit as unknown as AuditLog, 'current.json', 'c1');
+
+    const result = await store.load();
+
+    expect(result.source).toBe('io_error');
+    expect(result.session).toBeNull();
+  });
+
   it('isolates corrupted current.json to a timestamped filename', async () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({ currentContent: 'not valid json {{{' });
