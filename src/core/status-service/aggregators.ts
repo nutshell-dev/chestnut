@@ -140,7 +140,7 @@ export async function computeStorageView(fs: FileSystem): Promise<StorageView> {
 
 export function formatContractView(v: ContractView): string {
   if (v.type === 'no-active') return 'Contract: No active contract';
-  if (v.type === 'error') return 'Contract: Error loading';
+  if (v.type === 'error') return `Contract: Error loading (${v.message})`;
   if (v.type === 'active') {
     const lines = [`Contract: "${v.title}" (${v.doneCount}/${v.totalCount} subtasks done)`];
     for (const s of v.subtasks) {

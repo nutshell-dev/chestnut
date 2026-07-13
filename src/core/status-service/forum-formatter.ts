@@ -42,6 +42,9 @@ export function formatForumStatusView(view: ForumStatusView): string[] {
   for (const pid of view.orphans.daemon) {
     lines.push(`  ⚠ orphan daemon:   PID ${pid}`);
   }
+  if (view.orphans.error) {
+    lines.push(`  ⚠ orphan detection unavailable: ${view.orphans.error}`);
+  }
   lines.push('');
 
   // ── Active claws ──
@@ -49,8 +52,10 @@ export function formatForumStatusView(view: ForumStatusView): string[] {
   lines.push(`Active claws (${n} / ${view.totalClawCount})`);
   for (const claw of view.activeClaws) {
     lines.push(`  ${formatActiveClawHeader(claw)}`);
-    lines.push(`    last activity   ${humanizeAgo(claw.lastActivityAgoMs)}`);
-    lines.push(`    inbox           ${claw.inboxUnread} unread`);
+    if (claw.status === 'ok') {
+      lines.push(`    last activity   ${humanizeAgo(claw.lastActivityAgoMs)}`);
+      lines.push(`    inbox           ${claw.inboxUnread ?? '?'} unread`);
+    }
   }
 
   return lines;
@@ -72,6 +77,9 @@ function formatSystemRow(name: string, c: SystemComponentView): string {
 
 function formatActiveClawHeader(claw: ActiveClawView): string {
   const namePad = pad(claw.name, NAME_PAD);
+  if (claw.status === 'error') {
+    return `${namePad}unavailable   (${claw.error})`;
+  }
   return `${namePad}running   PID ${claw.pid}   uptime ${humanizeUptime(claw.uptimeMs)}`;
 }
 

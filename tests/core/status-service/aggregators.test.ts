@@ -60,7 +60,7 @@ describe('computeContractView', () => {
     if (v.type === 'error') {
       expect(v.message).toBe('disk read fail');
     }
-    expect(formatContractView(v)).toBe('Contract: Error loading');
+    expect(formatContractView(v)).toBe('Contract: Error loading (disk read fail)');
   });
 });
 

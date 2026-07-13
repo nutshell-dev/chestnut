@@ -35,14 +35,9 @@ export interface SystemComponentView {
   warning?: string;
 }
 
-export interface ActiveClawView {
-  name: string;
-  pid: number;
-  uptimeMs?: number;
-  lastActivityAgoMs?: number;
-  inboxUnread?: number;
-  error?: string;
-}
+export type ActiveClawView =
+  | { status: 'ok'; name: string; pid: number; uptimeMs?: number; lastActivityAgoMs?: number; inboxUnread?: number }
+  | { status: 'error'; name: string; error: string };
 
 export interface OrphansView {
   watchdog: number[];
@@ -217,6 +212,7 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
       if (location.kind !== 'local') continue;
       const clawFs = deps.fsFactory(location.clawDir);
       activeClaws.push({
+        status: 'ok',
         name: clawId,
         pid: s.pid,
         uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
@@ -225,11 +221,8 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
       });
     } catch (err) {
       activeClaws.push({
+        status: 'error',
         name: clawId,
-        pid: -1,
-        uptimeMs: undefined,
-        lastActivityAgoMs: undefined,
-        inboxUnread: undefined,
         error: formatErr(err),
       });
     }

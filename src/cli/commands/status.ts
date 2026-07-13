@@ -27,12 +27,14 @@ import {
 } from '../../core/status-service/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
+import { createSystemAudit } from '../../foundation/audit/index.js';
 
 export async function statusCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
   loadGlobalConfig(deps);
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const baseDir = path.dirname(motionDir);
+  const audit = createSystemAudit(deps.fsFactory(baseDir), baseDir);
   const pm = createProcessManagerForCLI({ ...deps, baseDir });
 
   const watchdogPid = getWatchdogPid(deps.fsFactory);
@@ -42,8 +44,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
     entryPath: getWatchdogEntryPath(deps.fsFactory),
   };
 
-  const nodeFs = deps.fsFactory(process.cwd());
-  const daemonEntryPath = resolveDaemonEntry(nodeFs);
+  const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(baseDir));
 
   const topology = createClawTopology({
     fs: deps.fsFactory(baseDir),
@@ -62,6 +63,8 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
     watchdog,
     daemonEntryPath,
   });
+
+  audit.write('status_forum', `claws=${view.activeClaws.length}`, `total=${view.totalClawCount}`);
 
   for (const line of formatForumStatusView(view)) {
     console.log(line);

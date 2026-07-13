@@ -395,6 +395,7 @@ describe('formatForumStatusView', () => {
       },
       activeClaws: [
         {
+          status: 'ok',
           name: 'cmdtool-v3',
           pid: 53508,
           uptimeMs: 1 * 3600_000 + 3 * 60_000,
@@ -402,6 +403,7 @@ describe('formatForumStatusView', () => {
           inboxUnread: 0,
         },
         {
+          status: 'ok',
           name: 'tools-auditor',
           pid: 54201,
           uptimeMs: 12 * 60_000,
@@ -481,5 +483,35 @@ describe('formatForumStatusView', () => {
       orphans: { watchdog: [], daemon: [] },
     });
     expect(lines).toContain('  watchdog  running (warning: PID file unreadable)   PID 1   uptime 1s');
+  });
+
+  it('renders error claw as unavailable with no activity/inbox lines', () => {
+    const lines = formatForumStatusView({
+      timestamp: '2026-05-30T14:23:07.000Z',
+      system: {
+        watchdog: { alive: false, pid: undefined, reason: 'stopped' },
+        motion: { alive: false, pid: undefined, reason: 'stopped' },
+      },
+      activeClaws: [{ status: 'error', name: 'cmdtool-v3', error: 'EACCES' }],
+      totalClawCount: 1,
+      orphans: { watchdog: [], daemon: [] },
+    });
+    expect(lines).toContain('  cmdtool-v3        unavailable   (EACCES)');
+    expect(lines).not.toContain('    last activity');
+    expect(lines).not.toContain('    inbox');
+  });
+
+  it('renders orphan detection error when process list unavailable', () => {
+    const lines = formatForumStatusView({
+      timestamp: '2026-05-30T14:23:07.000Z',
+      system: {
+        watchdog: { alive: false, pid: undefined, reason: 'stopped' },
+        motion: { alive: false, pid: undefined, reason: 'stopped' },
+      },
+      activeClaws: [],
+      totalClawCount: 0,
+      orphans: { watchdog: [], daemon: [], error: 'process list unavailable' },
+    });
+    expect(lines).toContain('  ⚠ orphan detection unavailable: process list unavailable');
   });
 });

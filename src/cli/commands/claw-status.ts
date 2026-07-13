@@ -33,6 +33,7 @@ import {
   formatTaskView,
   formatStorageView,
 } from '../../core/status-service/index.js';
+import { STATUS_AUDIT_EVENTS } from '../../core/status-service/audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 interface ClawStatusOpts {
@@ -73,6 +74,13 @@ export async function clawStatusCommand(
     computeTaskView(clawFs),
     computeStorageView(clawFs),
   ]);
+
+  if (contractView.type === 'error') {
+    audit.write(STATUS_AUDIT_EVENTS.CONTRACT_ERROR, `error=${contractView.message}`);
+  }
+  if (taskView.type === 'counts' && taskView.pendingError) {
+    audit.write(STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR, `error=${taskView.pendingError}`);
+  }
 
   if (opts.json) {
     console.log(
