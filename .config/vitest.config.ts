@@ -96,6 +96,7 @@ const VI_MOCK_FILES = [
   // 'tests/core/contract/contract-system-close.test.ts',
   'tests/core/contract/lifecycle-orphan-lock.test.ts',
   'tests/core/contract/lifecycle-race.test.ts',
+  'tests/core/contract/lifecycle.test.ts',
   'tests/core/contract/lock.test.ts',
   'tests/core/contract/pause-abort-verifier.test.ts',
   'tests/core/event-loop/event-loop.test.ts',  // phase 783: vi.mock constants (LLM retry delay)
