@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { tmpdir } from 'node:os';
+import { getHostTmpDir } from '../utils/run-root.js';
 import { join } from 'node:path';
 import { connect as netConnect, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -18,7 +18,9 @@ const TIMEOUT_MS = 2000;
 const MSG_PROCESS_BUDGET_MS = 50;
 
 function makeSocketPath(): string {
-  return join(tmpdir(), `chestnut-test-${randomUUID()}.sock`);
+  // Unix domain socket 路径长度受限；TMPDIR 重定向后路径过长，
+  // 因此 socket 路径必须使用真实系统 tmpdir。
+  return join(getHostTmpDir(), `chestnut-test-${randomUUID()}.sock`);
 }
 
 // phase 1492: 注入 NodeFileSystem (baseDir=tmpdir) 满足 transport ctor required deps。
@@ -27,7 +29,7 @@ function makeSocketPath(): string {
 // Linux (EADDRINUSE → probeAndCleanStale → this.deps.fs.delete) 上撞 TypeError、
 // macOS 上 server.listen 在 regular file 上不返 EADDRINUSE 故走运没暴露。
 function makeTransport(): UnixDomainSocketTransport {
-  return new UnixDomainSocketTransport({ fs: new NodeFileSystem({ baseDir: tmpdir() }) });
+  return new UnixDomainSocketTransport({ fs: new NodeFileSystem({ baseDir: getHostTmpDir() }) });
 }
 
 function connectClient(path: string): Promise<Socket> {

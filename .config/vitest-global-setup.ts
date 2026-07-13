@@ -39,6 +39,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 
+// 在重定向 TMPDIR 前保存真实系统 tmpdir，供 teardown/reclaim 使用
+const HOST_TMPDIR = os.tmpdir();
+
 function getMaxMtime(dir: string): number {
   let max = 0;
   try {
@@ -88,7 +91,8 @@ export interface RunManifest {
 
 function createRunRoot(): RunManifest {
   const invocationId = randomUUID();
-  const runRoot = path.join(os.tmpdir(), `${RUN_ROOT_PREFIX}${invocationId}`);
+  // 始终在真实系统 tmpdir 下创建 run root（此时 TMPDIR 尚未被重定向）
+  const runRoot = path.join(HOST_TMPDIR, `${RUN_ROOT_PREFIX}${invocationId}`);
   fs.mkdirSync(runRoot, { recursive: true });
 
   const manifest: RunManifest = {
@@ -107,18 +111,18 @@ function createRunRoot(): RunManifest {
   // 写入环境变量供 worker 读取
   process.env.CHESTNUT_RUN_ROOT = runRoot;
   process.env.CHESTNUT_INVOCATION_ID = invocationId;
+  process.env.CHESTNUT_HOST_TMPDIR = HOST_TMPDIR;
 
   // 回收过期运行目录（owner 已失效的）
-  reclaimStaleRunRoots(invocationId);
+  reclaimStaleRunRoots(HOST_TMPDIR, invocationId);
 
   return manifest;
 }
 
-function reclaimStaleRunRoots(currentInvocationId: string): void {
-  const tmpDir = os.tmpdir();
+function reclaimStaleRunRoots(hostTmpdir: string, currentInvocationId: string): void {
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(tmpDir, { withFileTypes: true });
+    entries = fs.readdirSync(hostTmpdir, { withFileTypes: true });
   } catch {
     return;
   }
@@ -126,7 +130,7 @@ function reclaimStaleRunRoots(currentInvocationId: string): void {
   for (const entry of entries) {
     if (!entry.isDirectory() || !entry.name.startsWith(RUN_ROOT_PREFIX)) continue;
 
-    const runPath = path.join(tmpDir, entry.name);
+    const runPath = path.join(hostTmpdir, entry.name);
     const manifestPath = path.join(runPath, 'manifest.json');
 
     let manifest: RunManifest | null = null;
@@ -184,9 +188,14 @@ function isRunRootStale(runPath: string): boolean {
   }
 }
 
-export default function globalSetup(): void {
+export default function globalSetup(): () => Promise<void> {
   // 先创建运行根目录，让 worker 在测试运行期间可读取 CHESTNUT_RUN_ROOT
-  createRunRoot();
+  const manifest = createRunRoot();
+
+  // TMPDIR 重定向——让 worker 内的 os.tmpdir() 返回 run root
+  process.env.TMPDIR = manifest.runRoot;
+  process.env.TMP = manifest.runRoot;
+  process.env.TEMP = manifest.runRoot;
 
   const cwd = process.cwd();
   const distCli = path.join(cwd, 'dist', 'cli.js');
@@ -194,20 +203,36 @@ export default function globalSetup(): void {
 
   if (!existsSync(distCli)) {
     runBuild(cwd, 'dist/cli.js missing');
-    return;
+  } else {
+    let distMtime = 0;
+    try {
+      distMtime = statSync(distCli).mtimeMs;
+    } catch {
+      // existsSync said yes but stat failed (race?). Conservative: rebuild.
+      runBuild(cwd, 'dist/cli.js stat unreadable');
+    }
+
+    const srcMtime = getMaxMtime(srcDir);
+    if (srcMtime > distMtime) {
+      runBuild(cwd, 'src newer than dist/cli.js');
+    }
   }
 
-  let distMtime = 0;
-  try {
-    distMtime = statSync(distCli).mtimeMs;
-  } catch {
-    // existsSync said yes but stat failed (race?). Conservative: rebuild.
-    runBuild(cwd, 'dist/cli.js stat unreadable');
-    return;
-  }
-
-  const srcMtime = getMaxMtime(srcDir);
-  if (srcMtime > distMtime) {
-    runBuild(cwd, 'src newer than dist/cli.js');
-  }
+  // 返回 teardown 函数，在 invocation 结束时清理 run root
+  return async function teardown() {
+    const keep = process.env.CHESTNUT_KEEP_TEST_TMP === '1';
+    if (keep) {
+      console.warn(`[vitest-teardown] CHESTNUT_KEEP_TEST_TMP=1, preserving run root: ${manifest.runRoot}`);
+      return;
+    }
+    try {
+      await fs.promises.rm(manifest.runRoot, { recursive: true, force: true });
+    } catch (err) {
+      // teardown 失败必须让 invocation 失败
+      throw new Error(
+        `[vitest-teardown] Failed to remove run root ${manifest.runRoot}: ${err}`,
+        { cause: err },
+      );
+    }
+  };
 }
