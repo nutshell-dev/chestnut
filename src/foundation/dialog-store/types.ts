@@ -41,7 +41,7 @@ export interface RestoreResult {
   meta: {
     foundIn: 'current' | 'archive';
     foundFile?: string;
-    /** Phase 997: populated when current.json was degraded and archive was used as fallback. */
-    degradationNotes?: string[];
+    /** Phase 997/999: populated when current.json was degraded and archive was used as fallback. */
+    degradationNotes?: [string, ...string[]];
   };
 }

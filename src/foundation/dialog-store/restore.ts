@@ -178,7 +178,7 @@ export async function restoreMessages(
           messages: sliced,
           systemPrompt: data.systemPrompt,
           toolsForLLM: data.toolsForLLM,
-          meta: { foundIn: 'archive', foundFile: entry.name, degradationNotes: currentDegradationNotes.length > 0 ? currentDegradationNotes : undefined },
+          meta: { foundIn: 'archive', foundFile: entry.name, degradationNotes: currentDegradationNotes.length > 0 ? (currentDegradationNotes as unknown as [string, ...string[]]) : undefined },
         };
       }
     } catch (err) {

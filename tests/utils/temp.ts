@@ -85,7 +85,7 @@ export async function cleanupTempDir(tempDir: string): Promise<void> {
     await fs.rm(tempDir, { recursive: true, force: true });
     untrackTempDir(tempDir);
   } catch (err: any) {
-    if (err?.code === 'ENOENT') {
+    if (err?.code === 'ENOENT' || err?.code === 'EINVAL') {
       untrackTempDir(tempDir);
       return;
     }
@@ -103,7 +103,7 @@ export function cleanupTempDirSync(tempDir: string): void {
     rmSync(tempDir, { recursive: true, force: true });
     untrackTempDir(tempDir);
   } catch (err: any) {
-    if (err?.code === 'ENOENT') {
+    if (err?.code === 'ENOENT' || err?.code === 'EINVAL') {
       untrackTempDir(tempDir);
       return;
     }

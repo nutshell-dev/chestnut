@@ -17,9 +17,9 @@ import { formatErr } from '../node-utils/index.js';
 /** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
 export type LookupResult =
   | { source: 'current'; content: string }
-  | { source: 'archive'; content: string; archivedAt: string; degradationNotes?: string[] }
-  | { source: 'archive'; content: string; archivedAt: string; hashVerified: true; degradationNotes?: string[] }
-  | { source: 'unavailable'; reason: 'io_error'; detail: string[] }
+  | { source: 'archive'; content: string; archivedAt: string; degradationNotes?: [string, ...string[]] }
+  | { source: 'archive'; content: string; archivedAt: string; hashVerified: true; degradationNotes?: [string, ...string[]] }
+  | { source: 'unavailable'; reason: 'io_error'; detail: [string, ...string[]] }
   | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' };
 
 export interface LookupOptions {
@@ -125,7 +125,7 @@ export function lookupContentByToolUseId(
     if (archiveResult && !archiveResult.found && archiveResult.ioErrorDetail) {
       details.push(`archive: ${archiveResult.ioErrorDetail}`);
     }
-    return { source: 'unavailable', reason: 'io_error', detail: details.length > 0 ? details : ['unknown'] };
+    return { source: 'unavailable', reason: 'io_error', detail: details as [string, ...string[]] };
   }
   // phase 918: archive 目录读失败单独报告 not_in_archive
   if (archiveResult.inaccessible) {
@@ -304,7 +304,7 @@ function findContentInMessages(messages: unknown[], toolUseId: string): string |
   return null;
 }
 
-function buildDegradationNotes(currentResult: CurrentLookupResult | undefined): string[] | undefined {
+function buildDegradationNotes(currentResult: CurrentLookupResult | undefined): [string, ...string[]] | undefined {
   if (currentResult && !currentResult.found) {
     return [`current.json: ${currentResult.reason}${currentResult.errorDetail ? ` (${currentResult.errorDetail})` : ''}`];
   }
