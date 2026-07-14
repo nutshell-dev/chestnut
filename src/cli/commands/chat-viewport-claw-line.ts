@@ -19,6 +19,8 @@ export interface ClawTrack {
   lastError: string | null;
   hasContract: boolean;
   isAlive: boolean;
+  /** daemon 探针状态：running / starting / error / stopped */
+  daemonStatus: 'running' | 'starting' | 'error' | 'stopped';
 
   // 新增（rich，详细行用）
   currentTool: string | null;
@@ -35,7 +37,7 @@ export interface ClawTrack {
 export function makeClawTrack(): ClawTrack {
   return {
     fileSize: 0, leftover: '', turnCount: 0, step: 0, maxSteps: 100,
-    active: false, lastError: null, hasContract: false, isAlive: false,
+    active: false, lastError: null, hasContract: false, isAlive: false, daemonStatus: 'stopped',
     currentTool: null, toolSuccess: null, textBuffer: '', bufferType: null,
     lastOutput: '', lastInterrupted: false, referenceMs: null, clearOnNextDelta: false,
   };
@@ -43,6 +45,13 @@ export function makeClawTrack(): ClawTrack {
 
 /** 渲染 claw 状态行 / 1:1 保 chat-viewport.ts:379-433 body */
 export function buildClawLine(id: string, t: ClawTrack, cols: number): string {
+  // spawning / error state should be visible even when not alive
+  if (t.daemonStatus === 'starting') {
+    return `\x1b[38;5;220m[${id}] ⊙ starting\x1b[0m`;
+  }
+  if (t.daemonStatus === 'error') {
+    return `\x1b[38;5;214m[${id}] ✗ daemon unreadable\x1b[0m`;
+  }
   // Fix 2：daemon 崩溃检测（放在最前，无论 active 状态）
   if (!t.isAlive) {
     return `\x1b[38;5;240m[${id}] ✗ daemon stopped\x1b[0m`;

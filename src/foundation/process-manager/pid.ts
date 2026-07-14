@@ -161,3 +161,27 @@ export async function removePidIfMatch(
     return false;
   return removePid(ctx, daemonDir);
 }
+
+export async function removePidIfSpawning(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+): Promise<boolean> {
+  const stored = await readPid(ctx, daemonDir);
+  if (stored.status === 'spawning') {
+    // Re-read: verify content is still { pid: 0 } before deleting.
+    // The spawn→child transition is unidirectional (pid never goes back to 0),
+    // so re-reading+verifying is sufficient CAS without a lock.
+    const recheck = await readPid(ctx, daemonDir);
+    if (recheck.status === 'spawning') {
+      return removePid(ctx, daemonDir);
+    }
+    // Content changed between reads — spawn progressed, do NOT delete
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.PID_SPAWNING_RACE_AVOIDED,
+      `daemon_dir=${daemonDir}`,
+      `recheck_status=${recheck.status}`,
+    );
+    return false;
+  }
+  return false;
+}

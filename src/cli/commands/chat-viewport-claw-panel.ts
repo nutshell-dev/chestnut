@@ -85,11 +85,21 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           let alive = false;
           try {
             const stored = await deps.pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
-            alive = stored.status === 'valid' && isAlive(stored.pid);
+            if (stored.status === 'spawning') {
+              t.daemonStatus = 'starting';
+            } else if (stored.status === 'io_error' || stored.status === 'corrupt') {
+              t.daemonStatus = 'error';
+            } else if (stored.status === 'missing') {
+              t.daemonStatus = 'stopped';
+            } else {
+              alive = isAlive(stored.pid);
+              t.daemonStatus = alive ? 'running' : 'stopped';
+            }
           } catch {
             // silent: pid read failure → treat as not alive (fail-soft)
+            t.daemonStatus = 'error';
           }
-          if (alive) {
+          if (alive && t.daemonStatus === 'running') {
             deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
           } else {
             deps.clawManager.refreshClawStatus(clawId);

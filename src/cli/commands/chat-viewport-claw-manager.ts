@@ -225,17 +225,31 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       const track = clawTrackMap.get(clawId)!;
       try {
         const stored: PidReadResult = await pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
-        track.isAlive = stored.status === 'valid' && isAlive(stored.pid);
+        if (stored.status === 'spawning') {
+          track.daemonStatus = 'starting';
+          track.isAlive = false;
+        } else if (stored.status === 'io_error' || stored.status === 'corrupt') {
+          track.daemonStatus = 'error';
+          track.isAlive = false;
+          // don't misreport as dead — keep previous watcher if any
+        } else if (stored.status === 'missing') {
+          track.daemonStatus = 'stopped';
+          track.isAlive = false;
+        } else {
+          track.isAlive = isAlive(stored.pid);
+          track.daemonStatus = track.isAlive ? 'running' : 'stopped';
+        }
       } catch (e) {
         if (!isFileNotFound(e)) {
           process.stderr.write(`[viewport] readPid failed: ${(e as Error).message}\n`);
         }
+        track.daemonStatus = 'error';
         track.isAlive = false;
       }
       const loc2 = clawTopology.resolve(makeClawId(clawId));
       if (loc2.kind !== 'local') continue;
       track.hasContract = getActiveContractTimestamp(fs, loc2.clawDir) !== null;
-      if (track.isAlive && !clawWatchers.has(clawId)) {
+      if (track.isAlive && track.daemonStatus === 'running' && !clawWatchers.has(clawId)) {
         const streamFile = path.join(loc2.clawDir, STREAM_FILE);
         attachClawWatcher(clawId, streamFile);
       }

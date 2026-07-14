@@ -2,7 +2,7 @@ import { kill as defaultKill, isAlive as defaultL1IsAlive } from '../process-exe
 import type { DaemonDir } from './types.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { readPid, removePid } from './pid.js';
+import { readPid, removePid, removePidIfSpawning } from './pid.js';
 import type { ProcessManagerContext } from './types.js';
 
 
@@ -13,8 +13,8 @@ export async function stopProcess(ctx: ProcessManagerContext, daemonDir: DaemonD
     return false;
   }
   if (stored.status === 'spawning') {
-    // spawning: no process to kill, clean up pidfile
-    return removePid(ctx, daemonDir);
+    // spawning: no process to kill, CAS-clean pidfile to avoid deleting the real child PID
+    return removePidIfSpawning(ctx, daemonDir);
   }
   if (stored.status !== 'valid') {
     // io_error or corrupt → fail closed
