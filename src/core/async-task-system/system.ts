@@ -93,6 +93,7 @@ export class AsyncTaskSystem {
   private fsFactory: (baseDir: string) => FileSystem;
   private readonly askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   private readonly shortIdIndex: ShortIdIndex;
+  private readonly pendingQueueMax: number;
   private _shuttingDown = false;
   private _dispatchRunning = false;
   private _startPromise: Promise<void> | null = null;
@@ -162,6 +163,7 @@ export class AsyncTaskSystem {
     this.fsFactory = options.fsFactory;
     this.askMotionToolFactory = options.askMotionToolFactory;
     this.shortIdIndex = options.shortIdIndex;
+    this.pendingQueueMax = options.pendingQueueMax ?? PENDING_QUEUE_MAX;
 
     // Strategy table: dispatches task body by kind. Adding a new kind
     // requires extending union + registering one entry — _startTask itself
@@ -731,14 +733,14 @@ export class AsyncTaskSystem {
     const pendingIds = await this._getPendingTaskIds();
     const pendingCount = pendingIds.size;
 
-    // T6: PENDING_QUEUE_MAX cap check
+    // T6: pendingQueueMax cap check
     // Phase 886: off-by-one fix — accept exactly MAX pending tasks, reject MAX+1.
-    if (pendingCount > PENDING_QUEUE_MAX) {
+    if (pendingCount > this.pendingQueueMax) {
       emitPendingQueueOverflow(this.auditWriter, {
         fullTaskId: fullId,
         shortTaskId: shortId,
         queueLength: pendingCount,
-        cap: PENDING_QUEUE_MAX,
+        cap: this.pendingQueueMax,
       });
 
       const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
@@ -765,7 +767,7 @@ export class AsyncTaskSystem {
       let notified = false;
       try {
         await sendFallbackError(this.fs, this.auditWriter, task,
-          `Task rejected: pending queue overflow (${pendingCount} > ${PENDING_QUEUE_MAX}).`);
+          `Task rejected: pending queue overflow (${pendingCount} > ${this.pendingQueueMax}).`);
         try {
           await this.fs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, '');
           notified = true;
@@ -816,10 +818,10 @@ export class AsyncTaskSystem {
             type: 'task_queue_overflow',
             source: 'async-task-system',
             priority: 'critical',
-            body: `Task queue is at capacity (${PENDING_QUEUE_MAX} pending). The system is unable to dispatch tasks fast enough — likely a chronic processing failure.`,
+            body: `Task queue is at capacity (${this.pendingQueueMax} pending). The system is unable to dispatch tasks fast enough — likely a chronic processing failure.`,
             idPrefix: `${Date.now()}_overflow`,
             extraFields: {
-              cap: String(PENDING_QUEUE_MAX),
+              cap: String(this.pendingQueueMax),
               queue_length: String(pendingCount),
             },
           });
@@ -827,7 +829,7 @@ export class AsyncTaskSystem {
             fullTaskId: fullId,
             shortTaskId: shortId,
             queueLength: pendingCount,
-            cap: PENDING_QUEUE_MAX,
+            cap: this.pendingQueueMax,
           });
           this.overflowNotified = true;   // dedup until queue drains below cap
         } catch (notifyErr) {
@@ -844,7 +846,7 @@ export class AsyncTaskSystem {
     }
 
     // phase 7: queue 已降回 cap 以下 / 重置 dedup 允许下次 overflow 再发通知
-    if (this.overflowNotified && pendingCount < PENDING_QUEUE_MAX) {
+    if (this.overflowNotified && pendingCount < this.pendingQueueMax) {
       this.overflowNotified = false;
     }
 

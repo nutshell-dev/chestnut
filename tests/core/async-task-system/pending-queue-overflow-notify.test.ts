@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import type { AsyncTaskSystemOptions } from '../../../src/core/async-task-system/system.js';
-import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -77,12 +76,13 @@ describe('pending queue overflow motion notify', () => {
       outboxWriter: {} as any,
       registry: {} as any,
       selfInbox: mockInbox,
+      pendingQueueMax: 3,
     });
 
     // Phase 886: need MAX+1 pending tasks to trigger overflow (cap is now > MAX).
     // The overflow task itself must exist in pending so the move to failed succeeds.
     writePendingFile('overflow-task');
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(`task-${i}`);
     }
 
@@ -114,11 +114,12 @@ describe('pending queue overflow motion notify', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      pendingQueueMax: 3,
       // 不传 selfInbox
     });
 
     writePendingFile('no-inbox-task');
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(`task-${i}`);
     }
 
@@ -166,9 +167,10 @@ describe('pending queue overflow motion notify', () => {
       outboxWriter: {} as any,
       registry: {} as any,
       selfInbox: mockInbox,
+      pendingQueueMax: 3,
     });
 
-    for (let i = 0; i < 1000; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(`task-${i}`);
     }
 

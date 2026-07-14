@@ -88,10 +88,11 @@ describe('phase 886', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      pendingQueueMax: 3,
     });
 
     writePendingFile(baseDir, 'overflow-task');
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
 
@@ -127,6 +128,7 @@ describe('phase 886', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      pendingQueueMax: 3,
     });
 
     // Use a UUID-length task id so _loadTaskFromFile can validate the shape on retry.
@@ -147,7 +149,7 @@ describe('phase 886', () => {
     };
 
     writePendingFile(baseDir, taskId);
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(baseDir, `550e8400-e29b-41d4-a716-${String(i).padStart(12, '0')}`);
     }
 

@@ -112,6 +112,8 @@ export interface AsyncTaskSystemOptions {
   shortIdIndex: ShortIdIndex;
   /** phase 86: optional WatcherFactory for DI (test mock injection) */
   createWatcher?: WatcherFactory;
+  /** 待处理队列容量上限。默认 PENDING_QUEUE_MAX (1000)。 */
+  pendingQueueMax?: number;
 }
 
 

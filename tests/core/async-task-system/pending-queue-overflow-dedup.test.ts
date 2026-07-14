@@ -79,13 +79,13 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
       outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
+      pendingQueueMax: 3,
     });
 
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    // Phase 886: each overflow task must exist in pending so the move to failed succeeds.
+    for (let i = 0; i < 3; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
-
-    // Phase 886: each overflow task must exist in pending so the move to failed succeeds.
     for (let i = 0; i < 3; i++) {
       writePendingFile(baseDir, `overflow-${i}`);
     }
@@ -112,10 +112,11 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
       outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
+      pendingQueueMax: 3,
     });
 
     writePendingFile(baseDir, 'overflow-task');
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
 
@@ -123,12 +124,12 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
 
     const msg = inboxWrites.find(w => w.type === 'task_queue_overflow');
     expect(msg).toBeDefined();
-    expect(msg!.body).toContain(`at capacity (${PENDING_QUEUE_MAX} pending)`);
+    expect(msg!.body).toContain(`at capacity (3 pending)`);
     expect(msg!.body).toContain('chronic processing failure');
     // 新 body 不应再含 per-task framing (`Task <id> rejected`)
     expect(msg!.body as string).not.toMatch(/Task \S+ (rejected|\(\w+\))/);
     // extraFields 透传 cap + queue_length 给 composer
-    expect((msg!.extraFields as Record<string, string>).cap).toBe(String(PENDING_QUEUE_MAX));
+    expect((msg!.extraFields as Record<string, string>).cap).toBe('3');
   });
 
   it('after queue drains below cap, dedup resets — next overflow re-notifies', async () => {
@@ -143,11 +144,12 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
       outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
+      pendingQueueMax: 3,
     });
 
     // First overflow window
     writePendingFile(baseDir, 'first-overflow');
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
     await (system as any)._enqueueAndDispatch({ id: 'first-overflow', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
@@ -161,12 +163,23 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
 
     // Re-fill queue + second overflow
     writePendingFile(baseDir, 'second-overflow');
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writePendingFile(baseDir, `task2-${i}`);
     }
     await (system as any)._enqueueAndDispatch({ id: 'second-overflow', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
 
     // 2 notifications now (across 2 windows)
     expect(inboxWrites.filter(w => w.type === 'task_queue_overflow').length).toBe(2);
+  });
+
+  it('default pendingQueueMax falls back to PENDING_QUEUE_MAX (1000)', async () => {
+    const { audit } = makeAudit();
+    const realFs = new NodeFileSystem({ baseDir });
+    const system = new AsyncTaskSystem(baseDir, realFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit, llm: {} as any, contractManager: {} as any,
+      outboxWriter: {} as any, registry: {} as any,
+    });
+    expect((system as any).pendingQueueMax).toBe(PENDING_QUEUE_MAX);
   });
 });

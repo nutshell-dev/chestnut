@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
-import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -101,7 +100,7 @@ describe('phase 902', () => {
 
     const taskId = '550e8400-e29b-41d4-a716-446655440000';
     writeSubagentPendingFile(baseDir, taskId);
-    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
+    for (let i = 0; i < 3; i++) {
       writeToolPendingFile(baseDir, `550e8400-e29b-41d4-a716-${String(i).padStart(12, '0')}`);
     }
 
@@ -111,6 +110,7 @@ describe('phase 902', () => {
     const system = new AsyncTaskSystem(baseDir, realFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
+      pendingQueueMax: 3,
       ...makeTaskSystemDeps(),
     });
 
