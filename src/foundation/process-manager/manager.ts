@@ -61,9 +61,14 @@ export class ProcessManager {
 
   // pid CRUD
   readPid(daemonDir: DaemonDir): Promise<{ pid: number; startTime?: ProcessStartTime } | null> {
-    return pidOps.readPid(this._ctx, daemonDir);
+    return pidOps.readPid(this._ctx, daemonDir).then((result) => {
+      if (result.status === 'valid') {
+        return { pid: result.pid, startTime: result.startTime };
+      }
+      return null;
+    });
   }
-  removePid(daemonDir: DaemonDir): Promise<void> { return pidOps.removePid(this._ctx, daemonDir); }
+  removePid(daemonDir: DaemonDir): Promise<boolean> { return pidOps.removePid(this._ctx, daemonDir); }
   selfWritePid(daemonDir: DaemonDir): Promise<void> { return pidOps.selfWritePid(this._ctx, daemonDir); }
   selfRemovePid(daemonDir: DaemonDir): Promise<void> { return pidOps.selfRemovePid(this._ctx, daemonDir); }
 

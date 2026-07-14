@@ -9,14 +9,37 @@ import type { ProcessManagerContext } from './types.js';
 
 export async function stopProcess(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<boolean> {
   const stored = await readPid(ctx, daemonDir);
-  if (!stored) {
+  if (stored.status === 'missing') {
+    return false;
+  }
+  if (stored.status === 'spawning') {
+    // spawning: no process to kill, clean up pidfile
+    return removePid(ctx, daemonDir);
+  }
+  if (stored.status !== 'valid') {
+    // io_error or corrupt → fail closed
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `reason=pidfile_unreadable_or_corrupt`,
+      `detail=${stored.error}`,
+    );
     return false;
   }
 
   // phase 879：直接 l1IsAlive(pid) authoritative check（pid 已 line 10 拿、不依赖 pidfile probe）
   // 消除 isAliveByPidFile 经 getAliveStatus.readSync(pidFile) → 并发 caller race window
   if (!(ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, stored.startTime)) {
-    await removePid(ctx, daemonDir);
+    const removed = await removePid(ctx, daemonDir);
+    if (!removed) {
+      ctx.audit.write(
+        PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
+        `daemon_dir=${daemonDir}`,
+        `pid=${stored.pid}`,
+        `reason=pidfile_remove_failed`,
+      );
+      return false;
+    }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_STALE,
       `daemon_dir=${daemonDir}`,
@@ -65,7 +88,16 @@ export async function stopProcess(ctx: ProcessManagerContext, daemonDir: DaemonD
       }
     }
 
-    await removePid(ctx, daemonDir);
+    const removed = await removePid(ctx, daemonDir);
+    if (!removed) {
+      ctx.audit.write(
+        PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
+        `daemon_dir=${daemonDir}`,
+        `pid=${stored.pid}`,
+        `reason=pidfile_remove_failed`,
+      );
+      return false;
+    }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOPPED,
       `daemon_dir=${daemonDir}`,

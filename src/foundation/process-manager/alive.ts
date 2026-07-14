@@ -47,10 +47,15 @@ export function getAliveStatus(
         return { alive: false, reason: `invalid PID: "${trimmed}"` };
       }
     }
+
     // phase 458 (review N3-M): pid=0 sentinel = spawn 进行中、子 PID 未覆盖。
     // 跳过 kill 决策、视为「not alive 但 spawning」、防外部 stop 误杀父进程。
     if (pid === 0) {
       return { alive: false, reason: 'spawning placeholder (pid=0)' };
+    }
+
+    if (!Number.isInteger(pid) || pid < 0) {
+      return { alive: false, reason: `invalid PID: ${pid}` };
     }
 
     try {

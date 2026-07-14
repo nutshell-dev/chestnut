@@ -9,6 +9,10 @@ import { isFileNotFound } from '../fs/index.js';
 
 
 
+function isValidPid(n: unknown): n is number {
+  return typeof n === 'number' && Number.isInteger(n) && n > 0;
+}
+
 export type LockReadResult =
   | { status: 'missing' }
   | { status: 'valid'; holder: { pid: number; startTime?: ProcessStartTime } }
@@ -22,33 +26,38 @@ export function readLock(
   const lockFile = getLockFile(ctx, daemonDir);
   try {
     const content = ctx.fs.readSync(lockFile).trim();
+    if (content === '') {
+      return { status: 'missing' };
+    }
     // Try JSON first (same format as PID file)
     try {
       const parsed: unknown = JSON.parse(content);
-      if (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        typeof (parsed as { pid?: unknown }).pid === 'number'
-      ) {
-        return {
-          status: 'valid',
-          holder: {
-            pid: (parsed as { pid: number }).pid,
-            startTime:
-              typeof (parsed as { startTime?: unknown }).startTime === 'string'
-                ? makeProcessStartTime((parsed as { startTime: string }).startTime)
-                : undefined,
-          },
-        };
+      if (typeof parsed === 'object' && parsed !== null) {
+        const pid = (parsed as { pid?: unknown }).pid;
+        if (isValidPid(pid)) {
+          return {
+            status: 'valid',
+            holder: {
+              pid,
+              startTime:
+                typeof (parsed as { startTime?: unknown }).startTime === 'string'
+                  ? makeProcessStartTime((parsed as { startTime: string }).startTime)
+                  : undefined,
+            },
+          };
+        }
       }
     } catch {
       /* silent: JSON parse fail, fall through to legacy int parse */
     }
     // Legacy raw int format (phase 1023 lock file format JSON migration、sibling to pid.ts:34 同 audit const 共用)
     const legacyPid = parseInt(content, 10);
-    if (Number.isFinite(legacyPid)) {
-      ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PID_FILE_LEGACY_FORMAT, `daemon_dir=${daemonDir}`, `pid=${legacyPid}`, `file=lock`);
-      return { status: 'valid', holder: { pid: legacyPid, startTime: undefined } };
+    if (isValidPid(legacyPid)) {
+      if (/^\d+$/.test(content.trim())) {
+        ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PID_FILE_LEGACY_FORMAT, `daemon_dir=${daemonDir}`, `pid=${legacyPid}`, `file=lock`);
+        return { status: 'valid', holder: { pid: legacyPid, startTime: undefined } };
+      }
+      return { status: 'corrupt', error: 'legacy lock pid not strict integer' };
     }
     return { status: 'corrupt', error: `unparseable lock content: ${content.slice(0, 50)}` };
   } catch (err) {

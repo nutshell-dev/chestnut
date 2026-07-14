@@ -236,7 +236,21 @@ async function handlePidFileConflict(
   pidFile: string,
 ): Promise<void> {
   const stored = await readPid(ctx, daemonDir);
-  if (stored !== null) {
+  if (stored.status === 'missing') {
+    // pidfile disappeared during check → fall through to stale cleanup
+  } else if (stored.status !== 'valid') {
+    // io_error, corrupt, or spawning sentinel → cannot determine state / must not kill
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `context=eexist_check`,
+      `reason=${stored.status}${'error' in stored ? `: ${stored.error}` : ''}`,
+    );
+    throw new LockConflictError(
+      daemonDir,
+      `Cannot determine pidfile state for "${daemonDir}" (${stored.status})`,
+    );
+  } else {
     const startTimeForVerify = stored.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(stored.pid);
     if ((ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, startTimeForVerify)) {
       throw new LockConflictError(
@@ -256,7 +270,6 @@ async function handlePidFileConflict(
     }
     // startTime mismatch or unavailable → fall through to stale cleanup
   }
-  // pidfile disappeared during check → fall through to stale cleanup
 
   let existingContent = '';
   let readSucceeded = false;
@@ -293,14 +306,10 @@ async function handlePidFileConflict(
       `path=${pidFile}`,
     );
   }
-  await removePid(ctx, daemonDir).catch((err) => {
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
-      `daemon_dir=${daemonDir}`,
-      `context=spawn_retry_overwrite`,
-      `reason=${formatErr(err)}`,
-    );
-  });
+  const removed = await removePid(ctx, daemonDir, 'spawn_retry_overwrite');
+  if (!removed) {
+    // removePid already audited PID_REMOVE_FAILED with context=spawn_retry_overwrite
+  }
   // phase 518 (review-round4 medium、phase 458 gap 补完): EEXIST 恢复分支同 phase 458 主路径、
   // 写 pid=0 sentinel 而非 process.pid（父 PID）；alive.ts pid===0 识别为 spawning placeholder。
   ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: 0 }));
@@ -412,14 +421,7 @@ async function spawnAndAwaitReady(
       }
     }
     if (!childSurvived) {
-      await removePid(ctx, daemonDir).catch((removeErr) => {
-        ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
-          `daemon_dir=${daemonDir}`,
-          `context=spawn_cleanup`,
-          `reason=${formatErr(removeErr)}`,
-        );
-      });
+      await removePid(ctx, daemonDir, 'spawn_cleanup');
     }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
