@@ -110,7 +110,9 @@ function acquireLockFile(
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
 
-  const lockResult = readLock(ctx, daemonDir);
+  // phase 1019: 读参数传入的 lockFile（此前误用 readLock 硬编码读 daemon.lock，
+  // 导致 spawn 锁 EEXIST 时误读生命周期锁文件）
+  const lockResult = readLockFile(ctx, daemonDir, lockFile);
   if (lockResult.status === 'valid') {
     const holder = lockResult.holder;
     const holderStartTime = holder.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(holder.pid);
