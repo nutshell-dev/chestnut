@@ -29,7 +29,7 @@ export async function readPid(ctx: ProcessManagerContext, daemonDir: DaemonDir):
     const content = (await ctx.fs.read(pidFile)).trim();
 
     if (content === '') {
-      return { status: 'missing' };
+      return { status: 'corrupt', error: 'empty pid file' };
     }
 
     // Try JSON first

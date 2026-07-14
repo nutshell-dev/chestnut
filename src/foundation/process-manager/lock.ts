@@ -27,7 +27,7 @@ export function readLock(
   try {
     const content = ctx.fs.readSync(lockFile).trim();
     if (content === '') {
-      return { status: 'missing' };
+      return { status: 'corrupt', error: 'empty lock file' };
     }
     // Try JSON first (same format as PID file)
     try {
@@ -99,9 +99,9 @@ export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
 
-  const readLockPidFn = ctx.readLockPid ?? ((id: DaemonDir) => readLockPid(ctx, id));
-  const holder = readLockPidFn(daemonDir);
-  if (holder !== null) {
+  const lockResult = readLock(ctx, daemonDir);
+  if (lockResult.status === 'valid') {
+    const holder = lockResult.holder;
     const holderStartTime = holder.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(holder.pid);
     if ((ctx.l1IsAlive ?? defaultL1IsAlive)(holder.pid, holderStartTime)) {
       throw new LockConflictError(
@@ -116,7 +116,15 @@ export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
         `pid=${holder.pid}`,
       );
     }
+    // stale holder: fall through to reclaim
+  } else if (lockResult.status === 'io_error' || lockResult.status === 'corrupt') {
+    // Fail closed — refuse to acquire when lock state is indeterminate
+    throw new LockConflictError(
+      daemonDir,
+      `Cannot acquire lock: ${lockResult.status === 'io_error' ? 'I/O error' : 'corrupt'} (${lockResult.error})`,
+    );
   }
+  // missing: no lock, proceed to acquire
 
   try {
     ctx.fs.deleteSync(lockFile);

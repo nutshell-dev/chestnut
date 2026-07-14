@@ -19,6 +19,7 @@ import type { ProcessStartTime } from '../process-exec/index.js';
 import { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
 
 import * as pidOps from './pid.js';
+import type { PidReadResult } from './pid.js';
 import { getPidFile } from './paths.js';
 import * as aliveOps from './alive.js';
 import * as readyOps from './ready.js';
@@ -60,13 +61,8 @@ export class ProcessManager {
   }
 
   // pid CRUD
-  readPid(daemonDir: DaemonDir): Promise<{ pid: number; startTime?: ProcessStartTime } | null> {
-    return pidOps.readPid(this._ctx, daemonDir).then((result) => {
-      if (result.status === 'valid') {
-        return { pid: result.pid, startTime: result.startTime };
-      }
-      return null;
-    });
+  readPid(daemonDir: DaemonDir): Promise<PidReadResult> {
+    return pidOps.readPid(this._ctx, daemonDir);
   }
   removePid(daemonDir: DaemonDir): Promise<boolean> { return pidOps.removePid(this._ctx, daemonDir); }
   selfWritePid(daemonDir: DaemonDir): Promise<void> { return pidOps.selfWritePid(this._ctx, daemonDir); }
