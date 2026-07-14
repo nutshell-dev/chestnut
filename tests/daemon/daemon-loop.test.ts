@@ -160,7 +160,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       const abort = vi.fn();
       const eventLoop = { run, abort } as unknown as EventLoop;
 
-      const { stop } = startDaemonLoop({
+      const { promise, stop } = startDaemonLoop({
         fsFactory,
         eventLoop,
         agentDir,
@@ -171,6 +171,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
 
       await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
       stop();
+      await promise;
     });
   });
 });
