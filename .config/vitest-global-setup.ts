@@ -157,6 +157,28 @@ function reclaimStaleRunRoots(hostTmpdir: string, currentInvocationId: string): 
   }
 }
 
+// phase 1011: cache git worktree list so reclaimStaleRunRoots only shells out once per invocation.
+let registeredWorktrees: Set<string> | null = null;
+
+function getRegisteredWorktrees(): Set<string> {
+  if (registeredWorktrees) return registeredWorktrees;
+  registeredWorktrees = new Set();
+  try {
+    const list = execSync('git worktree list --porcelain', {
+      encoding: 'utf-8',
+      timeout: 2000,
+    });
+    for (const line of list.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        registeredWorktrees.add(line.slice('worktree '.length));
+      }
+    }
+  } catch {
+    // git 命令失败 → 返回空集，isOwnerAlive 会 fall back 到目录存在检查
+  }
+  return registeredWorktrees;
+}
+
 function isOwnerAlive(manifest: RunManifest): boolean {
   // 1. PID 存活检查
   try {
@@ -167,25 +189,16 @@ function isOwnerAlive(manifest: RunManifest): boolean {
 
   // 2. worktree 是否仍被当前 git 仓库注册
   // phase 1008: 用 git worktree list 判断路径是否仍注册，避免主仓库目录永远存在导致 PID 复用时误认存活。
-  try {
-    const list = execSync('git worktree list --porcelain', {
-      cwd: manifest.worktree,
-      encoding: 'utf-8',
-      timeout: 2000,
-    });
-    const registered = list
-      .split('\n')
-      .filter(line => line.startsWith('worktree '))
-      .map(line => line.slice('worktree '.length));
-    if (registered.includes(manifest.worktree)) {
-      return true; // worktree 仍注册 → 可能还有并行 invocation
-    }
-  } catch {
-    // git 命令失败 → 保守：目录存在即认为可能存活
-    try {
-      if (fs.statSync(manifest.worktree).isDirectory()) return true;
-    } catch { /* fall through */ }
+  // phase 1011: 缓存结果，避免每个 run root 都执行一次 git worktree list。
+  const registered = getRegisteredWorktrees();
+  if (registered.has(manifest.worktree)) {
+    return true; // worktree 仍注册 → 可能还有并行 invocation
   }
+
+  // git 命令失败或 worktree 未注册 → 保守：目录存在即认为可能存活
+  try {
+    if (fs.statSync(manifest.worktree).isDirectory()) return true;
+  } catch { /* fall through */ }
 
   return false;
 }

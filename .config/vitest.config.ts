@@ -154,9 +154,7 @@ const VI_MOCK_FILES = [
   'tests/core/subagent/agent-race-ghost.test.ts',
   'tests/core/subagent/subagent-tool-timeout-inherit.test.ts',
   'tests/daemon/daemon-loop-atomic-retry-state.test.ts',
-  'tests/daemon/daemon-loop.test.ts',  // phase 780: vi.mock constants (LLM retry delay)
   'tests/daemon/startup-check-atomic-write.test.ts',
-  'tests/e2e/contract-motion-full-chain.test.ts',
   'tests/foundation/anthropic-cache.test.ts',
   'tests/foundation/audit/fallback-periodic-reconcile.test.ts',
   'tests/foundation/audit/writer-fallback-origin.test.ts',
@@ -283,6 +281,8 @@ const VI_GLOBALS_FILES: string[] = [];
  * These run in a dedicated vitest project with isolate:true and limited concurrency.
  */
 const INTEGRATION_PROCESS_FILES = [
+  // phase 1011: root file is not matched by **/*.test.ts
+  'tests/foundation/process-exec.test.ts',
   'tests/foundation/process-exec/**/*.test.ts',
   'tests/foundation/process/**/*.test.ts',
   'tests/foundation/process-manager/*spawn*.test.ts',
@@ -296,7 +296,19 @@ const INTEGRATION_PROCESS_FILES = [
  * phase 1006 Step B: OS-integration tests that need real sockets/watcher/file events.
  */
 const INTEGRATION_IO_FILES = [
+  // phase 1011: real watcher files
+  'tests/daemon/daemon-loop.test.ts',
+  'tests/foundation/file-watcher/fallback-escalation.test.ts',
+  'tests/foundation/stream-reader.test.ts',
+  'tests/foundation/stream-reader-robustness.test.ts',
+  'tests/e2e/chat-viewport-subscribe.test.ts',
+  'tests/e2e/chat-viewport-regression.test.ts',
+  'tests/e2e/chat-viewport-regression-slow.test.ts',
+  'tests/e2e/contract-motion-full-chain.test.ts',
+  'tests/foundation/process-manager/ready.test.ts',
+  // socket
   'tests/foundation/transport.test.ts',
+  // watcher / symlink
   'tests/foundation/file-watcher*.test.ts',
   'tests/foundation/file-watcher/**/*.test.ts',
   'tests/foundation/fs/node-fs-symlink*.test.ts',

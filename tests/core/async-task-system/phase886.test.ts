@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
-import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -235,10 +234,11 @@ describe('phase 886', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      pendingQueueMax: 3,
     });
 
     // Fill to MAX-1.
-    for (let i = 0; i < PENDING_QUEUE_MAX - 1; i++) {
+    for (let i = 0; i < 2; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
 
