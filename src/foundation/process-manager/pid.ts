@@ -161,35 +161,3 @@ export async function removePidIfMatch(
     return false;
   return removePid(ctx, daemonDir);
 }
-
-export async function removePidIfSpawning(
-  ctx: ProcessManagerContext,
-  daemonDir: DaemonDir,
-): Promise<boolean> {
-  const pidFile = getPidFile(ctx, daemonDir);
-  try {
-    const content = (await ctx.fs.read(pidFile)).trim();
-    // Raw content verify before delete — minimizes the window between
-    // check and unlink. Not truly atomic (POSIX lacks compare-and-delete),
-    // but on a single CPU the window is essentially zero.
-    if (content === JSON.stringify({ pid: 0 })) {
-      await ctx.fs.delete(pidFile);
-      return true;
-    }
-    // Content changed — spawn progressed to real PID, do NOT delete
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.PID_SPAWNING_RACE_AVOIDED,
-      `daemon_dir=${daemonDir}`,
-    );
-    return false;
-  } catch (err) {
-    if (isFileNotFound(err)) return false;
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-      `daemon_dir=${daemonDir}`,
-      `context=remove_pid_if_spawning`,
-      `reason=${formatErr(err)}`,
-    );
-    return false;
-  }
-}

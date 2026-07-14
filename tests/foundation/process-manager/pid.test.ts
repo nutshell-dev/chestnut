@@ -1,6 +1,5 @@
 /**
  * pid.ts — PID validation + discriminated union (Phase 1003)
- *           + spawning CAS deletion (Phase 1009)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
@@ -8,12 +7,11 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { readPid, removePidIfSpawning } from '../../../src/foundation/process-manager/pid.js';
+import { readPid } from '../../../src/foundation/process-manager/pid.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 
 describe('readPid discriminated union (Phase 1003)', () => {
   let tempDir: string;
@@ -92,80 +90,5 @@ describe('readPid discriminated union (Phase 1003)', () => {
     const result = await readPid(ctx, testClawDaemonDir(tempDir, clawId));
     expect(result.status).toBe('io_error');
     expect('error' in result && (result as { error: string }).error).toContain('EIO');
-  });
-});
-
-describe('removePidIfSpawning CAS (Phase 1009)', () => {
-  let tempDir: string;
-  let nodeFs: NodeFileSystem;
-
-  beforeEach(async () => {
-    tempDir = await createTrackedTempDir('pid-spawning-cas-');
-    await fs.mkdir(tempDir, { recursive: true });
-    nodeFs = new NodeFileSystem({ baseDir: tempDir });
-  });
-
-  afterEach(async () => {
-    await cleanupTempDir(tempDir);
-    vi.restoreAllMocks();
-  });
-
-  function makeCtx() {
-    const { audit, events } = makeAudit();
-    return { ctx: { fs: nodeFs, audit }, events };
-  }
-
-  async function writePidFile(clawId: string, content: string): Promise<void> {
-    const pidFile = path.join(tempDir, 'claws', clawId, 'status', 'pid');
-    await fs.mkdir(path.dirname(pidFile), { recursive: true });
-    await fs.writeFile(pidFile, content, 'utf-8');
-  }
-
-  async function pidFileExists(clawId: string): Promise<boolean> {
-    try {
-      await fs.access(path.join(tempDir, 'claws', clawId, 'status', 'pid'));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  it('deletes a stable {pid:0} sentinel and returns true', async () => {
-    const { ctx } = makeCtx();
-    await writePidFile('stable-spawn', JSON.stringify({ pid: 0 }));
-    const daemonDir = testClawDaemonDir(tempDir, 'stable-spawn');
-
-    const removed = await removePidIfSpawning(ctx, daemonDir);
-
-    expect(removed).toBe(true);
-    expect(await pidFileExists('stable-spawn')).toBe(false);
-  });
-
-  it('returns false without deleting when content is not exactly {pid:0}', async () => {
-    const { ctx, events } = makeCtx();
-    await writePidFile('race-spawn', JSON.stringify({ pid: FAKE_LIVE_PID }));
-    const daemonDir = testClawDaemonDir(tempDir, 'race-spawn');
-
-    const removed = await removePidIfSpawning(ctx, daemonDir);
-
-    expect(removed).toBe(false);
-    expect(await pidFileExists('race-spawn')).toBe(true);
-    expect(events.some(e => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_SPAWNING_RACE_AVOIDED)).toBe(true);
-  });
-
-  it('returns false and audits read failure when pidfile cannot be read', async () => {
-    const { ctx, events } = makeCtx();
-    await writePidFile('io-err', JSON.stringify({ pid: 0 }));
-    const daemonDir = testClawDaemonDir(tempDir, 'io-err');
-
-    vi.spyOn(nodeFs, 'read').mockRejectedValueOnce(
-      Object.assign(new Error('EIO'), { code: 'EIO' }),
-    );
-
-    const removed = await removePidIfSpawning(ctx, daemonDir);
-
-    expect(removed).toBe(false);
-    expect(await pidFileExists('io-err')).toBe(true);
-    expect(events.some(e => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED)).toBe(true);
   });
 });

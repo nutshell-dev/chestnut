@@ -45,13 +45,18 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
   });
 
   function mockWriteExclusiveOnceEEXIST(): void {
-    let writeExclusiveCallCount = 0;
+    // phase 1014: spawn 先 acquireLock（writeExclusiveSync daemon.lock）再写 pid。
+    // EEXIST 注入只针对 pid 文件，锁写入正常 fresh 成功（不额外产生 readSync），
+    // 保持原有 readSync 调用顺序与 eexist_check 分支语义不变。
+    let pidWriteAttempts = 0;
     vi.spyOn(nodeFs, 'writeExclusiveSync').mockImplementation((p: string, c: string) => {
-      writeExclusiveCallCount++;
-      if (writeExclusiveCallCount === 1) {
-        const err = new Error('EEXIST') as NodeJS.ErrnoException;
-        err.code = 'EEXIST';
-        throw err;
+      if (path.basename(p) === 'pid') {
+        pidWriteAttempts++;
+        if (pidWriteAttempts === 1) {
+          const err = new Error('EEXIST') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
       }
       return (NodeFileSystem.prototype as any).writeExclusiveSync.call(nodeFs, p, c);
     });

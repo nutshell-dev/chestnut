@@ -69,13 +69,17 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
       spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
     };
 
-    let writeExclusiveCallCount = 0;
+    // phase 1014: spawn 先 acquireLock（writeExclusiveSync daemon.lock）再写 pid。
+    // EEXIST 注入只针对 pid 文件，锁写入正常 fresh 成功；只统计 pid 写入次数。
+    let pidWriteCount = 0;
     vi.spyOn(nodeFs, 'writeExclusiveSync').mockImplementation((p: string, c: string) => {
-      writeExclusiveCallCount++;
-      if (writeExclusiveCallCount === 1) {
-        const err = new Error('EEXIST') as NodeJS.ErrnoException;
-        err.code = 'EEXIST';
-        throw err;
+      if (path.basename(p) === 'pid') {
+        pidWriteCount++;
+        if (pidWriteCount === 1) {
+          const err = new Error('EEXIST') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
       }
       return (NodeFileSystem.prototype as any).writeExclusiveSync.call(nodeFs, p, c);
     });
@@ -87,7 +91,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
     });
 
     expect(result).toBe(FAKE_LIVE_PID);
-    expect(writeExclusiveCallCount).toBe(2);
+    expect(pidWriteCount).toBe(2);
 
     const pidRemoveEvents = events.filter(e => e[0] === 'pid_remove_failed');
     expect(pidRemoveEvents).toHaveLength(1);
