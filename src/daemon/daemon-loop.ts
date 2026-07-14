@@ -16,7 +16,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
-import type { Watcher } from '../foundation/file-watcher/index.js';
+import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/runtime/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
 import { shouldEmitStartupCheck } from './startup-check.js';
@@ -49,6 +49,9 @@ export interface DaemonLoopOptions {
 
   // motion 专用扩展（claw 整体省略）
   motion?: DaemonMotionExtensions;
+
+  /** watcher factory。测试可注入 fake 避免真实 chokidar。默认 createWatcher。 */
+  createWatcher?: WatcherFactory;
 }
 
 /**
@@ -59,7 +62,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   promise: Promise<void>;
   stop: () => void;
 } {
-  const { fsFactory, eventLoop, agentDir, audit, motion } = options;
+  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher } = options;
   const heartbeat = motion?.heartbeat;
   const agentFs = fsFactory(agentDir);
   let stopped = false;
@@ -151,7 +154,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
               audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT, `backoff_ms=${INTERRUPT_POLL_RECOVERY_BACKOFF_MS}`);
               interruptErrCount = 0;
               interruptWatcher = createInterruptWatcher({
-                agentFs, agentDir, onInterrupt, onError: onInterruptError,
+                agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher,
               });
               audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERED);
             }, INTERRUPT_POLL_RECOVERY_BACKOFF_MS);
@@ -159,7 +162,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         };
 
         interruptWatcher = createInterruptWatcher({
-          agentFs, agentDir, onInterrupt, onError: onInterruptError,
+          agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher,
         });
 
         try {

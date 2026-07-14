@@ -16,6 +16,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { EventLoop } from '../../src/core/event-loop/index.js';
+import type { Watcher } from '../../src/foundation/file-watcher/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 
 vi.mock('../../src/core/event-loop/constants.js', async () => {
@@ -124,11 +125,19 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
     const EVENTLOOP_TICK_MS = 30;
     // daemon-loop startup settle budget / stop() 前给 while tick 足够启动
     const EVENTLOOP_STARTUP_MS = 10;
-    // abort 测试：mock run 长期阻塞验证 abort 可达
-    const EVENTLOOP_ABORT_BLOCK_MS = 500;
+
+    function createFakeWatcher(): Watcher & { close: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> } {
+      return {
+        close: vi.fn(() => Promise.resolve()),
+        on: vi.fn().mockReturnThis(),
+        isActive: vi.fn(() => true),
+        getPath: vi.fn((p: string) => p),
+      } as unknown as Watcher & { close: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> };
+    }
 
     it('stop() 后 promise resolve + 不再起新 tick', async () => {
       const audit = createMockAudit();
+      const fakeWatcher = createFakeWatcher();
       const run = vi.fn().mockImplementation(async () => {
         await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
       });
@@ -142,6 +151,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         clawId: 'test-claw',
         label: '[test daemon]',
         audit,
+        createWatcher: () => fakeWatcher,
       });
 
       await new Promise(r => setTimeout(r, EVENTLOOP_STARTUP_MS));
@@ -150,13 +160,14 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
 
       expect(run).toHaveBeenCalledTimes(1);
       expect(abort).not.toHaveBeenCalled();
+      expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
     });
 
     it('interrupt watcher 触发时调用 eventLoop.abort()', async () => {
       const audit = createMockAudit();
-      const run = vi.fn().mockImplementation(async () => {
-        await new Promise(r => setTimeout(r, EVENTLOOP_ABORT_BLOCK_MS));
-      });
+      const fakeWatcher = createFakeWatcher();
+      let blockResolve: (() => void) | undefined;
+      const run = vi.fn().mockImplementation(() => new Promise<void>(r => { blockResolve = r; }));
       const abort = vi.fn();
       const eventLoop = { run, abort } as unknown as EventLoop;
 
@@ -167,11 +178,16 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         clawId: 'test-claw',
         label: '[test daemon]',
         audit,
+        createWatcher: () => fakeWatcher,
       });
 
-      await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
+      await new Promise(r => setTimeout(r, EVENTLOOP_STARTUP_MS));
       stop();
+      expect(blockResolve).toBeDefined();
+      blockResolve!();
       await promise;
+
+      expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
     });
   });
 });

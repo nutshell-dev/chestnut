@@ -8,6 +8,7 @@
 
 import * as path from 'path';
 import { createWatcher, type Watcher } from '../foundation/file-watcher/index.js';
+import type { WatcherFactory } from '../foundation/file-watcher/index.js';
 import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 
 export const INTERRUPT_FILE_NAME = 'interrupt';
@@ -17,6 +18,8 @@ export interface InterruptWatcherDeps {
   agentDir: string;               // abs path to clawDir（chokidar 需 abs path）
   onInterrupt: () => void;        // 由 caller 实现 runtime.abort() 等动作
   onError: (err: Error) => void;  // 由 caller 实现 WARN_EVERY + MAX_ERRORS audit + disable+recovery
+  /** watcher factory。测试可注入 fake 避免真实 chokidar。默认 createWatcher。 */
+  createWatcher?: WatcherFactory;
 }
 
 /**
@@ -33,7 +36,8 @@ export interface InterruptWatcherDeps {
  */
 export function createInterruptWatcher(deps: InterruptWatcherDeps): Watcher {
   const interruptPath = path.join(deps.agentDir, INTERRUPT_FILE_NAME);
-  return createWatcher(
+  const watcherFactory = deps.createWatcher ?? createWatcher;
+  return watcherFactory(
     interruptPath,
     (event) => {
       if (event.type === 'add' || event.type === 'change') {
