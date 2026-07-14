@@ -16,7 +16,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { EventLoop } from '../../src/core/event-loop/index.js';
-import type { Watcher } from '../../src/foundation/file-watcher/index.js';
+import type { Watcher, WatchEvent } from '../../src/foundation/file-watcher/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 
 vi.mock('../../src/core/event-loop/constants.js', async () => {
@@ -126,13 +126,21 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
     // daemon-loop startup settle budget / stop() 前给 while tick 足够启动
     const EVENTLOOP_STARTUP_MS = 10;
 
-    function createFakeWatcher(): Watcher & { close: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> } {
+    interface FakeWatcher extends Watcher {
+      close: ReturnType<typeof vi.fn>;
+      _setCallback: (cb: (event: WatchEvent) => void) => void;
+      _trigger: (event: WatchEvent) => void;
+    }
+
+    function createFakeWatcher(): FakeWatcher {
+      let callback: ((event: WatchEvent) => void) | undefined;
       return {
         close: vi.fn(() => Promise.resolve()),
-        on: vi.fn().mockReturnThis(),
         isActive: vi.fn(() => true),
         getPath: vi.fn((p: string) => p),
-      } as unknown as Watcher & { close: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> };
+        _setCallback: (cb: (event: WatchEvent) => void) => { callback = cb; },
+        _trigger: (event: WatchEvent) => { callback?.(event); },
+      } as unknown as FakeWatcher;
     }
 
     it('stop() 后 promise resolve + 不再起新 tick', async () => {
@@ -178,10 +186,19 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         clawId: 'test-claw',
         label: '[test daemon]',
         audit,
-        createWatcher: () => fakeWatcher,
+        createWatcher: (_path, callback) => {
+          fakeWatcher._setCallback(callback);
+          return fakeWatcher;
+        },
       });
 
       await new Promise(r => setTimeout(r, EVENTLOOP_STARTUP_MS));
+
+      // 模拟 interrupt 文件出现，触发 watcher callback
+      fsNative.writeFileSync(path.join(agentDir, 'interrupt'), 'abort');
+      fakeWatcher._trigger({ type: 'add', path: path.join(agentDir, 'interrupt') });
+      expect(abort).toHaveBeenCalledTimes(1);
+
       stop();
       expect(blockResolve).toBeDefined();
       blockResolve!();
