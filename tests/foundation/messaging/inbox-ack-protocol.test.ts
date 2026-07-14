@@ -159,4 +159,141 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
     expect(entries).toHaveLength(0);
     expect(handles).toHaveLength(0);
   });
+
+  // ─── Phase 1020: restore-to-pending conflict detection ────────────────────
+  describe('restore conflict detection (phase 1020)', () => {
+    const pendingDir = () => path.join(testDir, 'inbox', 'pending');
+    const inflightDir = () => path.join(testDir, 'inbox', 'inflight');
+    const doneDir = () => path.join(testDir, 'inbox', 'done');
+    const failedDir = () => path.join(testDir, 'inbox', 'failed');
+
+    async function mdFiles(dir: string): Promise<string[]> {
+      return (await fs.readdir(dir)).filter(f => f.endsWith('.md'));
+    }
+
+    // 把 pending 中的文件复制一份到 inflight、伪装成 stale claim（startTime=0 →
+    // mtime lease，backdate 超 STALE_THRESHOLD_MS）
+    async function plantStaleInflight(name: string, content: string): Promise<void> {
+      const inflightPath = path.join(inflightDir(), `99999_0_${name}`);
+      await fs.writeFile(inflightPath, content);
+      const oldMtime = new Date(Date.now() - 6 * 60 * 1000);
+      await fs.utimes(inflightPath, oldMtime, oldMtime);
+    }
+
+    function makeFreshReader(): { reader: InboxReader; calls: Array<{ type: string; cols: string[] }> } {
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      return {
+        reader: new InboxReader(pendingDir(), doneDir(), failedDir(), nfs, audit),
+        calls,
+      };
+    }
+
+    // ─── 反向测试 1: reconcile 同名同内容 → dedupe 归档 done ────────────────
+    it('reconcile: stale inflight + same-name same-content pending → archive to done, pending kept', async () => {
+      await writeMsg('msg-recon-dup', 'hello dup');
+      const [name] = await mdFiles(pendingDir());
+      const content = await fs.readFile(path.join(pendingDir(), name), 'utf-8');
+      await plantStaleInflight(name, content);
+
+      const { reader: freshReader, calls } = makeFreshReader();
+      await freshReader.init();
+
+      // pending 保留原文件、内容未被覆盖
+      expect(await mdFiles(pendingDir())).toEqual([name]);
+      expect(await fs.readFile(path.join(pendingDir(), name), 'utf-8')).toBe(content);
+      // inflight 清空；重复副本归档到 done/；failed/ 无新增
+      expect(await mdFiles(inflightDir())).toHaveLength(0);
+      expect(await mdFiles(doneDir())).toHaveLength(1);
+      expect(await mdFiles(failedDir())).toHaveLength(0);
+      // audit: INBOX_DEDUPED、无 INBOX_RESTORE_CONFLICT
+      expect(calls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED)).toBe(true);
+      expect(calls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RESTORE_CONFLICT)).toBe(false);
+    });
+
+    // ─── 反向测试 2: reconcile 同名异内容 → 入 failed/DLQ ───────────────────
+    it('reconcile: stale inflight + same-name different-content pending → inflight copy to failed, pending kept', async () => {
+      await writeMsg('msg-recon-conflict', 'hello conflict');
+      const [name] = await mdFiles(pendingDir());
+      const pendingContent = await fs.readFile(path.join(pendingDir(), name), 'utf-8');
+      const inflightContent = pendingContent + '\n<!-- diverged -->\n';
+      await plantStaleInflight(name, inflightContent);
+
+      const { reader: freshReader, calls } = makeFreshReader();
+      await freshReader.init();
+
+      // pending 保留原内容
+      expect(await mdFiles(pendingDir())).toEqual([name]);
+      expect(await fs.readFile(path.join(pendingDir(), name), 'utf-8')).toBe(pendingContent);
+      // inflight 清空；冲突副本入 failed/（内容 = inflight 版）；done/ 无新增
+      expect(await mdFiles(inflightDir())).toHaveLength(0);
+      const failedFiles = await mdFiles(failedDir());
+      expect(failedFiles).toHaveLength(1);
+      expect(await fs.readFile(path.join(failedDir(), failedFiles[0]), 'utf-8')).toBe(inflightContent);
+      expect(await mdFiles(doneDir())).toHaveLength(0);
+      // audit: INBOX_RESTORE_CONFLICT op=reconcile、无 INBOX_DEDUPED
+      const conflict = calls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RESTORE_CONFLICT);
+      expect(conflict).toHaveLength(1);
+      expect(conflict[0].cols.some(c => c === 'op=reconcile')).toBe(true);
+      expect(calls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED)).toBe(false);
+    });
+
+    // ─── 反向测试 3: nack 同名同内容 → dedupe 归档 done ─────────────────────
+    it('nack: pending already has same-name same-content file → archive to done, pending kept', async () => {
+      await writeMsg('msg-nack-dup', 'hello nack dup');
+      const { handles } = await reader.drainAndDeliver();
+      const handle = handles[0];
+      const inflightContent = await fs.readFile(handle.filePath, 'utf-8');
+      // 模拟 pending 中已存在同名同内容文件（另一投递路径已送达）
+      const targetPath = path.join(pendingDir(), handle.originalFileName);
+      await fs.writeFile(targetPath, inflightContent);
+
+      await reader.nack(handle, 'test_dup');
+
+      // pending 保留原文件、内容未被覆盖
+      expect(await mdFiles(pendingDir())).toEqual([handle.originalFileName]);
+      expect(await fs.readFile(targetPath, 'utf-8')).toBe(inflightContent);
+      // inflight 清空；重复副本归档到 done/；failed/ 无新增
+      expect(await mdFiles(inflightDir())).toHaveLength(0);
+      expect(await mdFiles(doneDir())).toHaveLength(1);
+      expect(await mdFiles(failedDir())).toHaveLength(0);
+      // audit: INBOX_DEDUPED；dedupe 路径不再 emit INBOX_NACK
+      expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED)).toBe(true);
+      expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_NACK)).toBe(false);
+    });
+
+    // ─── 反向测试 4: nack 同名异内容 → 入 failed/DLQ ────────────────────────
+    it('nack: pending already has same-name different-content file → inflight copy to failed, pending kept', async () => {
+      await writeMsg('msg-nack-conflict', 'hello nack conflict');
+      const { handles } = await reader.drainAndDeliver();
+      const handle = handles[0];
+      const inflightContent = await fs.readFile(handle.filePath, 'utf-8');
+      const pendingContent = inflightContent + '\n<!-- diverged -->\n';
+      // 模拟 pending 中已存在同名但内容不同的文件
+      const targetPath = path.join(pendingDir(), handle.originalFileName);
+      await fs.writeFile(targetPath, pendingContent);
+
+      await reader.nack(handle, 'test_conflict');
+
+      // pending 保留原内容
+      expect(await mdFiles(pendingDir())).toEqual([handle.originalFileName]);
+      expect(await fs.readFile(targetPath, 'utf-8')).toBe(pendingContent);
+      // inflight 清空；冲突副本入 failed/（内容 = inflight 版）；done/ 无新增
+      expect(await mdFiles(inflightDir())).toHaveLength(0);
+      const failedFiles = await mdFiles(failedDir());
+      expect(failedFiles).toHaveLength(1);
+      expect(await fs.readFile(path.join(failedDir(), failedFiles[0]), 'utf-8')).toBe(inflightContent);
+      expect(await mdFiles(doneDir())).toHaveLength(0);
+      // audit: INBOX_RESTORE_CONFLICT op=nack、无 INBOX_DEDUPED / INBOX_NACK
+      const conflict = auditCalls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RESTORE_CONFLICT);
+      expect(conflict).toHaveLength(1);
+      expect(conflict[0].cols.some(c => c === 'op=nack')).toBe(true);
+      expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED)).toBe(false);
+      expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_NACK)).toBe(false);
+    });
+  });
 });

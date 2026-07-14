@@ -37,6 +37,7 @@ import {
   emitInboxPeekRaceSkip,
   emitInboxPriorityUnknown,
   emitInboxReconcile,
+  emitInboxRestoreConflict,
   emitOutboxDelivered,
 } from './audit-emit.js';
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
@@ -242,10 +243,11 @@ export class InboxReader {
       if (!shouldReclaim) continue;
 
       const sourcePath = path.join(this.inflightDir, entry.name);
-      const targetPath = path.join(this.pendingDir, originalName);
       try {
-        await this.fs.move(sourcePath, targetPath);
-        revertedCount++;
+        // phase 1020: conflict-aware restore — never silently overwrite a pending
+        // file with the same name (bare rename semantics).
+        const restored = await this._restoreToPending(sourcePath, originalName, 'reconcile');
+        if (restored) revertedCount++;
       } catch (err) {
         const reason = formatErr(err);
         emitInboxMoveFailed(this.audit, {
@@ -507,9 +509,12 @@ export class InboxReader {
   async nack(handle: InboxHandle, reason?: string): Promise<void> {
     const sourcePath = this._validateHandle(handle);
     const fileName = handle.originalFileName;
-    const targetPath = path.join(this.pendingDir, fileName);
     try {
-      await this.fs.move(sourcePath, targetPath);
+      // phase 1020: conflict-aware restore — dedupe/conflict paths are audited
+      // inside _restoreToPending and sourcePath no longer exists afterwards, so
+      // skip the INBOX_NACK emit there.
+      const restored = await this._restoreToPending(sourcePath, fileName, 'nack');
+      if (!restored) return;
     } catch (err) {
       const errReason = formatErr(err);
       emitInboxMoveFailed(this.audit, {
@@ -521,6 +526,84 @@ export class InboxReader {
       throw new InboxMoveFailed(handle.filePath, 'nack_pending', err);
     }
     emitInboxNack(this.audit, { file: fileName, reason });
+  }
+
+  /**
+   * phase 1020: restore an inflight file back to pending/ with conflict detection.
+   *
+   * Bare `rename(2)` silently overwrites a same-named pending file; this method
+   * replaces it with a 3-stage protocol (mirrors outbox-reader._reconcileProcessing
+   * semantics, but TOCTOU-safe via O_EXCL create-if-absent):
+   *
+   *   Stage 1 — atomic stage: move source to a unique temp name inside pending/
+   *             (cannot conflict). ENOENT → another consumer already handled it.
+   *   Stage 2 — atomic detect: if the target name is absent, claim it with an
+   *             O_EXCL exclusive write (fails atomically with EEXIST if the
+   *             target appears concurrently — no exists→rename window).
+   *   Stage 3 — conflict resolve: target exists → compare content.
+   *             same content → archive the stage copy to done/ (dedupe);
+   *             different content → stage copy to failed/ DLQ (both preserved).
+   *
+   * @returns true if the message was restored to pending/ under its original
+   *          name; false if it was handled via dedupe/conflict (or vanished).
+   */
+  private async _restoreToPending(
+    sourcePath: string,
+    originalName: string,
+    op: string,
+  ): Promise<boolean> {
+    // Stage 1 — atomic stage (unique name cannot conflict)
+    const stageName = `.tmp_${newShortUuid()}_${originalName}`;
+    const stagePath = path.join(this.pendingDir, stageName);
+    try {
+      await this.fs.move(sourcePath, stagePath);
+    } catch (err) {
+      if (isFileNotFound(err)) return false; // concurrent ack/cleanup already handled
+      throw err;
+    }
+
+    const targetPath = path.join(this.pendingDir, originalName);
+
+    // Stage 2 — atomic create-if-absent via O_EXCL exclusive write
+    let targetContent: string | null = null;
+    try {
+      targetContent = await this.fs.read(targetPath);
+    } catch (err) {
+      if (!isFileNotFound(err)) throw err;
+      targetContent = null;
+    }
+    if (targetContent === null) {
+      const stageContent = await this.fs.read(stagePath);
+      try {
+        this.fs.writeExclusiveSync(targetPath, stageContent);
+        // claimed the name → drop the stage copy
+        try {
+          this.fs.deleteSync(stagePath);
+        } catch (err) {
+          if (!isFileNotFound(err)) throw err;
+        }
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        // target appeared concurrently → re-read and fall through to Stage 3
+        targetContent = await this.fs.read(targetPath);
+      }
+    }
+
+    // Stage 3 — conflict resolution: target exists
+    const stageContent = await this.fs.read(stagePath);
+    if (stageContent === targetContent) {
+      // same content → archive the stage copy to done/, keep the pending target
+      const archivePath = path.join(this.doneDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
+      await this.fs.move(stagePath, archivePath);
+      emitInboxDeduped(this.audit, { file: originalName });
+      return false;
+    }
+    // different content → keep both: stage copy goes to failed/ DLQ
+    const dlqPath = path.join(this.failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
+    await this.fs.move(stagePath, dlqPath);
+    emitInboxRestoreConflict(this.audit, { file: originalName, op, stageName });
+    return false;
   }
 
   /** Move processed file to done/ (legacy helper; ack() preferred) */

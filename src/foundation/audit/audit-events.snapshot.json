@@ -807,6 +807,7 @@
       "inbox_peek_race_skip",
       "inbox_priority_unknown",
       "inbox_reconcile",
+      "inbox_restore_conflict",
       "inbox_watcher_callback_failed",
       "inbox_watcher_failed",
       "inbox_write_failed",

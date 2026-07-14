@@ -212,6 +212,19 @@ export function emitInboxNack(
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_NACK, ...cols);
 }
 
+// ─── INBOX_RESTORE_CONFLICT (phase 1020) ──────────────────────────────────────
+export function emitInboxRestoreConflict(
+  audit: AuditLog,
+  opts: { file: string; op: string; stageName: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_RESTORE_CONFLICT,
+    `file=${opts.file}`,
+    `op=${opts.op}`,
+    `stage_name=${opts.stageName}`,
+  );
+}
+
 // ─── OUTBOX_SENT ──────────────────────────────────────────────────────────────
 export function emitOutboxSent(
   audit: AuditLog,
