@@ -495,18 +495,17 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   if (turnTracker.isActive()) {
     try {
       const stored: PidReadResult = await pm.readPid(resolveClawDaemonDir(makeClawId(options.label)));
-      if (stored.status === 'missing' || stored.status === 'corrupt' || stored.status === 'io_error') {
+      if (stored.status === 'missing') {
         turnTracker.forceReset();
-      } else if (stored.status === 'spawning') {
-        // spawning sentinel: daemon is starting, don't reset tracker
-      } else {
-        if (!isAlive(stored.pid)) { turnTracker.forceReset(); }
+      } else if (stored.status === 'valid' && !isAlive(stored.pid)) {
+        turnTracker.forceReset();
       }
+      // spawning / io_error / corrupt → keep tracker (uncertain state)
     } catch (e) {
       if (!isFileNotFound(e)) {
         process.stderr.write(`[viewport] turn tracker PID read failed: ${(e as Error).message}\n`);
       }
-      turnTracker.forceReset();
+      // uncertain state: don't forceReset, only audit above
     }
   }
 

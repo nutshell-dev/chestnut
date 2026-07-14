@@ -10,8 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 // Mock constants to eliminate sleep delays in spawn()
 // Mirror stop-race.test.ts:24-27 pattern — mock the correct constants module
@@ -43,9 +42,7 @@ let tempDir: string;
 let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  tempDir = path.join(tmpdir(), `pm-spawn-p19-${randomUUID()}`);
-  await fs.mkdir(tempDir, { recursive: true });
+  tempDir = await createTrackedTempDir('pm-spawn-p19-');
   nodeFs = new NodeFileSystem({ baseDir: tempDir });
   vi.clearAllMocks();
   // Mock isReady so spawn poll passes without a real daemon writing ready marker
@@ -56,7 +53,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  await cleanupTempDir(tempDir);
   vi.restoreAllMocks();
 });
 

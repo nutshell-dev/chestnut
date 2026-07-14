@@ -166,22 +166,30 @@ export async function removePidIfSpawning(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
 ): Promise<boolean> {
-  const stored = await readPid(ctx, daemonDir);
-  if (stored.status === 'spawning') {
-    // Re-read: verify content is still { pid: 0 } before deleting.
-    // The spawn→child transition is unidirectional (pid never goes back to 0),
-    // so re-reading+verifying is sufficient CAS without a lock.
-    const recheck = await readPid(ctx, daemonDir);
-    if (recheck.status === 'spawning') {
-      return removePid(ctx, daemonDir);
+  const pidFile = getPidFile(ctx, daemonDir);
+  try {
+    const content = (await ctx.fs.read(pidFile)).trim();
+    // Raw content verify before delete — minimizes the window between
+    // check and unlink. Not truly atomic (POSIX lacks compare-and-delete),
+    // but on a single CPU the window is essentially zero.
+    if (content === JSON.stringify({ pid: 0 })) {
+      await ctx.fs.delete(pidFile);
+      return true;
     }
-    // Content changed between reads — spawn progressed, do NOT delete
+    // Content changed — spawn progressed to real PID, do NOT delete
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PID_SPAWNING_RACE_AVOIDED,
       `daemon_dir=${daemonDir}`,
-      `recheck_status=${recheck.status}`,
+    );
+    return false;
+  } catch (err) {
+    if (isFileNotFound(err)) return false;
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `context=remove_pid_if_spawning`,
+      `reason=${formatErr(err)}`,
     );
     return false;
   }
-  return false;
 }

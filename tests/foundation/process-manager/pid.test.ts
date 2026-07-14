@@ -131,7 +131,7 @@ describe('removePidIfSpawning CAS (Phase 1009)', () => {
   }
 
   it('deletes a stable {pid:0} sentinel and returns true', async () => {
-    const { ctx, events } = makeCtx();
+    const { ctx } = makeCtx();
     await writePidFile('stable-spawn', JSON.stringify({ pid: 0 }));
     const daemonDir = testClawDaemonDir(tempDir, 'stable-spawn');
 
@@ -139,17 +139,12 @@ describe('removePidIfSpawning CAS (Phase 1009)', () => {
 
     expect(removed).toBe(true);
     expect(await pidFileExists('stable-spawn')).toBe(false);
-    expect(events.some(e => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_OK)).toBe(true);
   });
 
-  it('returns false without deleting when pid transitions between reads', async () => {
+  it('returns false without deleting when content is not exactly {pid:0}', async () => {
     const { ctx, events } = makeCtx();
-    await writePidFile('race-spawn', JSON.stringify({ pid: 0 }));
+    await writePidFile('race-spawn', JSON.stringify({ pid: FAKE_LIVE_PID }));
     const daemonDir = testClawDaemonDir(tempDir, 'race-spawn');
-
-    vi.spyOn(nodeFs, 'read')
-      .mockResolvedValueOnce(JSON.stringify({ pid: 0 }))
-      .mockResolvedValueOnce(JSON.stringify({ pid: FAKE_LIVE_PID }));
 
     const removed = await removePidIfSpawning(ctx, daemonDir);
 
@@ -158,15 +153,19 @@ describe('removePidIfSpawning CAS (Phase 1009)', () => {
     expect(events.some(e => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_SPAWNING_RACE_AVOIDED)).toBe(true);
   });
 
-  it('returns false when pidfile is not spawning', async () => {
+  it('returns false and audits read failure when pidfile cannot be read', async () => {
     const { ctx, events } = makeCtx();
-    await writePidFile('valid-pid', JSON.stringify({ pid: FAKE_LIVE_PID }));
-    const daemonDir = testClawDaemonDir(tempDir, 'valid-pid');
+    await writePidFile('io-err', JSON.stringify({ pid: 0 }));
+    const daemonDir = testClawDaemonDir(tempDir, 'io-err');
+
+    vi.spyOn(nodeFs, 'read').mockRejectedValueOnce(
+      Object.assign(new Error('EIO'), { code: 'EIO' }),
+    );
 
     const removed = await removePidIfSpawning(ctx, daemonDir);
 
     expect(removed).toBe(false);
-    expect(await pidFileExists('valid-pid')).toBe(true);
-    expect(events.some(e => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_SPAWNING_RACE_AVOIDED)).toBe(false);
+    expect(await pidFileExists('io-err')).toBe(true);
+    expect(events.some(e => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED)).toBe(true);
   });
 });
