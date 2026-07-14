@@ -296,4 +296,62 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
       expect(auditCalls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_NACK)).toBe(false);
     });
   });
+
+  // ─── Phase 1021: stage file hardening ─────────────────────────────────────
+  describe('stage file hardening (phase 1021)', () => {
+    const pendingDir = () => path.join(testDir, 'inbox', 'pending');
+
+    // ─── 反向测试 1: drainInbox 防御纵深跳过 .tmp_ 前缀 .md 文件 ────────────
+    it('drainInbox skips .tmp_-prefixed .md files (defense-in-depth)', async () => {
+      await writeMsg('msg-normal', 'legit message');
+      // 模拟旧版 stage 遗留（.md 结尾的 temp 文件）—— 内容合法、若被读取会被投递
+      const normalName = (await fs.readdir(pendingDir())).find(f => f.endsWith('.md'))!;
+      const legitContent = await fs.readFile(path.join(pendingDir(), normalName), 'utf-8');
+      const tmpName = `.tmp_abc12345_${normalName}`;
+      await fs.writeFile(path.join(pendingDir(), tmpName), legitContent);
+
+      const { entries } = await reader.drainInbox();
+
+      // 仅正常消息被处理；.tmp_ 文件被跳过（修复前会被 decode 并投递 → 重复投递）
+      expect(entries).toHaveLength(1);
+      expect(path.basename(entries[0].filePath)).toBe(normalName);
+      // .tmp_ 文件原样留在 pending（skip ≠ consume）
+      const remaining = await fs.readdir(pendingDir());
+      expect(remaining).toContain(tmpName);
+    });
+
+    // ─── 反向测试 2: init() 恢复崩溃遗留 .staging 文件 ──────────────────────
+    it('init() recovers crash-leftover .staging file to its original name', async () => {
+      const originalName = '1700000000000_message_1_abcd1234.md';
+      const stageName = `.tmp_abc12345_${originalName}.staging`;
+      const stageContent = '---\nid: msg-staged\n---\nstaged body\n';
+      await fs.writeFile(path.join(pendingDir(), stageName), stageContent);
+
+      // 新 reader → init() 应恢复遗留 stage
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // target 恢复、stage 删除
+      expect(await fs.readFile(path.join(pendingDir(), originalName), 'utf-8')).toBe(stageContent);
+      const remaining = await fs.readdir(pendingDir());
+      expect(remaining).not.toContain(stageName);
+      // audit: INBOX_RECONCILE from=stage
+      const reconcile = calls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RECONCILE);
+      expect(reconcile).toHaveLength(1);
+      expect(reconcile[0].cols.some(c => c === 'from=stage')).toBe(true);
+      expect(reconcile[0].cols.some(c => c === 'reason=startup_stage_recover')).toBe(true);
+    });
+  });
 });

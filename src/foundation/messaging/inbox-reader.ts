@@ -159,6 +159,7 @@ export class InboxReader {
     await this.fs.ensureDir(this.inflightDir);
     await this.fs.ensureDir(this.misroutedDir);  // phase 442
     await this._reconcileInflight();
+    await this._recoverStaged();  // phase 1021: recover crash-leftover stage files
   }
 
   /**
@@ -270,6 +271,81 @@ export class InboxReader {
   }
 
   /**
+   * phase 1021: recover crash-leftover stage files in pending/.
+   *
+   * `_restoreToPending` stages inflight files as `.tmp_<uuid>_<name>.staging`
+   * inside pending/. A crash between the target claim (O_EXCL write) and the
+   * stage cleanup leaves the `.staging` file behind. On startup, finish the
+   * interrupted restore with the same three-way semantics:
+   *   - target missing   → complete the restore (claim name, drop stage)
+   *   - same content     → the claim succeeded before the crash; drop the
+   *                        redundant stage copy (dedupe audit)
+   *   - different content → DLQ the stage copy to failed/ (both preserved)
+   */
+  private async _recoverStaged(): Promise<void> {
+    const STAGE_RE = /^\.tmp_[a-f0-9]{8}_(.+)\.staging$/;
+    let entries: { name: string }[] = [];
+    try {
+      entries = await this.fs.list(this.pendingDir, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      throw err;
+    }
+
+    let revertedCount = 0;
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.staging')) continue;
+      const match = entry.name.match(STAGE_RE);
+      if (!match) continue;  // foreign .staging file — leave untouched
+      const originalName = match[1];
+      const stagePath = path.join(this.pendingDir, entry.name);
+      const targetPath = path.join(this.pendingDir, originalName);
+
+      const stageContent = await this.fs.read(stagePath);
+      let targetContent: string | null = null;
+      try {
+        targetContent = await this.fs.read(targetPath);
+      } catch (err) {
+        if (!isFileNotFound(err)) throw err;
+        targetContent = null;
+      }
+
+      if (targetContent === null) {
+        // crash before the target claim → complete the restore atomically
+        this.fs.writeExclusiveSync(targetPath, stageContent);
+        try {
+          this.fs.deleteSync(stagePath);
+        } catch (err) {
+          if (!isFileNotFound(err)) throw err;
+        }
+        revertedCount++;
+      } else if (stageContent === targetContent) {
+        // crash after the claim, before stage cleanup → drop the redundant copy
+        try {
+          this.fs.deleteSync(stagePath);
+        } catch (err) {
+          if (!isFileNotFound(err)) throw err;
+        }
+        emitInboxDeduped(this.audit, { file: originalName });
+      } else {
+        // target exists with different content → DLQ the stage copy (both preserved)
+        const dlqPath = path.join(this.failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
+        await this.fs.move(stagePath, dlqPath);
+        emitInboxRestoreConflict(this.audit, { file: originalName, op: 'recover_stage', stageName: entry.name });
+      }
+    }
+
+    if (revertedCount > 0) {
+      emitInboxReconcile(this.audit, {
+        revertedCount,
+        from: 'stage',
+        to: 'pending',
+        reason: 'startup_stage_recover',
+      });
+    }
+  }
+
+  /**
    * Read all pending messages, sort by priority (desc) then timestamp (asc).
    *
    * Side effects (phase 427 Step C, review N12 — replaces earlier self-contradictory
@@ -301,6 +377,7 @@ export class InboxReader {
     const seenTaskIds = new Set<string>();
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
+      if (entry.name.startsWith('.tmp_')) continue;  // phase 1021: defense-in-depth — never drain temp files
       const filePath = path.join(this.pendingDir, entry.name);
       try {
         let content: string;
@@ -552,8 +629,10 @@ export class InboxReader {
     originalName: string,
     op: string,
   ): Promise<boolean> {
-    // Stage 1 — atomic stage (unique name cannot conflict)
-    const stageName = `.tmp_${newShortUuid()}_${originalName}`;
+    // Stage 1 — atomic stage (unique name cannot conflict).
+    // phase 1021: `.staging` suffix — must NOT end with `.md`, or a crash between
+    // the target claim and the stage cleanup would leave a drainable duplicate.
+    const stageName = `.tmp_${newShortUuid()}_${originalName}.staging`;
     const stagePath = path.join(this.pendingDir, stageName);
     try {
       await this.fs.move(sourcePath, stagePath);
