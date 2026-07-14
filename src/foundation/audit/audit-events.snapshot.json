@@ -840,6 +840,7 @@
       "pid_read_failed",
       "pid_remove_failed",
       "pid_remove_ok",
+      "pid_spawning_lock_retry",
       "pid_spawning_race_avoided",
       "pid_write_failed",
       "pid_write_ok",
