@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import * as path from 'path';
-import * as os from 'os';
 import * as fsNative from 'fs';
-import { randomUUID } from 'crypto';
+import { createTrackedTempDirSync, cleanupTempDirSync } from '../utils/temp.js';
 import { TestProcessManager } from '../helpers/test-process-manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
@@ -13,8 +12,7 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
   let pm: TestProcessManager;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tmpDir = path.join(os.tmpdir(), `daemon-fix4-${randomUUID()}`);
+    tmpDir = createTrackedTempDirSync('daemon-fix4-');
     fsNative.mkdirSync(tmpDir, { recursive: true });
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const audit = new AuditWriter(fs, 'audit.tsv');
@@ -23,14 +21,15 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
 
   afterEach(() => {
     vi.restoreAllMocks();
-    try {
-      fsNative.rmSync(tmpDir, { recursive: true, force: true });
-    } catch { /* ignore cleanup failure */ }
+    cleanupTempDirSync(tmpDir);
   });
 
   it('throws when another daemon acquires the lock during retry', () => {
-    // 模拟 readLockPid 返回一个已死进程的 PID
-    vi.spyOn(pm, 'readLockPid').mockReturnValue({ pid: 12345 });
+    // Pre-create a lockfile holding a dead PID
+    const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
+    fsNative.mkdirSync(statusDir, { recursive: true });
+    fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), '12345');
+
     vi.spyOn(process, 'kill').mockImplementation(() => {
       const err: any = new Error('ESRCH');
       err.code = 'ESRCH';
@@ -55,47 +54,45 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     );
   });
 
-  it('cleans stale lock with non-numeric content and acquires successfully', () => {
+  it('throws when lock file has corrupt non-numeric content', () => {
     const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
     fsNative.mkdirSync(statusDir, { recursive: true });
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), 'not-a-number');
 
-    // 非数字 PID 被视为 stale lock，清理后成功获取
-    pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'));
-    const content = fsNative.readFileSync(path.join(statusDir, 'daemon.lock'), 'utf-8');
-    const parsed = JSON.parse(content);
-    expect(parsed.pid).toBe(process.pid);
-    expect(parsed.startTime).toBeDefined();
+    // corrupt lock → fail closed
+    expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
+      /Cannot acquire lock: corrupt/,
+    );
   });
 
   it('throws on EPERM (holder alive but no permission to signal)', () => {
-    const fs = pm.testGetFs();
-    vi.spyOn(fs, 'writeExclusiveSync').mockImplementation(() => {
-      const err: any = new Error('EEXIST');
-      err.code = 'EEXIST';
-      throw err;
-    });
-    vi.spyOn(pm, 'readLockPid').mockReturnValue({ pid: 12345 });
+    const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
+    fsNative.mkdirSync(statusDir, { recursive: true });
+    fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), '12345');
+
     vi.spyOn(process, 'kill').mockImplementation(() => {
       const err: any = new Error('EPERM');
       err.code = 'EPERM';
       throw err;
     });
 
-    // isAlive(pid) returns true for EPERM → LockConflictError (generic message)
+    // isAlive(pid) returns true for EPERM → LockConflictError
     expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
       /daemon is running \(PID: 12345\)/,
     );
   });
 
   it('unknown kill errno → stale cleanup + retry (no longer conservative steal)', () => {
+    const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
+    fsNative.mkdirSync(statusDir, { recursive: true });
+    fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), '12345');
+
     const fs = pm.testGetFs();
     vi.spyOn(fs, 'writeExclusiveSync').mockImplementation(() => {
       const err: any = new Error('EEXIST');
       err.code = 'EEXIST';
       throw err;
     });
-    vi.spyOn(pm, 'readLockPid').mockReturnValue({ pid: 12345 });
     vi.spyOn(process, 'kill').mockImplementation(() => {
       const err: any = new Error('EINVAL');
       err.code = 'EINVAL';

@@ -9,8 +9,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
@@ -18,6 +16,7 @@ import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 /**
  * isReady mock 注入 delay (ms) — 模拟真 spawn poll loop 累积时长.
@@ -40,16 +39,14 @@ describe('spawn duration metric（phase 1148 / C.3）', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = path.join(tmpdir(), `spawn-duration-${randomUUID()}`);
+    tempDir = await createTrackedTempDir('spawn-duration-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(tempDir);
   });
 
   it('反向 1：PROCESS_SPAWNED emit 含 duration_ms 非 0 col', async () => {

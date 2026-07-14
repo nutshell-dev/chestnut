@@ -8,8 +8,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
@@ -18,6 +16,7 @@ import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { makeAudit } from '../../helpers/audit.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 // Mock constants to eliminate sleep delays
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
@@ -33,16 +32,14 @@ describe('spawn poll child-died fast-fail（phase 1136 / F.1，phase 1317 升级
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = path.join(tmpdir(), `spawn-fast-fail-${randomUUID()}`);
+    tempDir = await createTrackedTempDir('spawn-fast-fail-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(tempDir);
   });
 
   it('反向 1：child 半途死 → fast-fail throw "died during boot"', async () => {

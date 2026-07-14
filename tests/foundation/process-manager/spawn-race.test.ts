@@ -10,15 +10,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
+import { LockConflictError } from '../../../src/foundation/process-manager/types.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 // Mock constants to eliminate sleep delays
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
@@ -34,16 +34,14 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = path.join(tmpdir(), `spawn-race-${randomUUID()}`);
+    tempDir = await createTrackedTempDir('spawn-race-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(tempDir);
   });
 
   function mockWriteExclusiveOnceEEXIST(): void {
@@ -101,7 +99,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     expect(pidEmptyCalls).toHaveLength(0);
   });
 
-  it('readSync 成功 + 内容空 → audit PID_EMPTY 真语义保留', async () => {
+  it('空 pid file → readPid corrupt + spawn fail closed', async () => {
     const { audit, events } = makeAudit();
     const clawId = 'test-claw-empty';
 
@@ -113,29 +111,33 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
     };
 
-    // Pre-create empty PID file so readSync succeeds in the EEXIST branch
+    // Pre-create empty PID file
     const pidFilePath = path.join(tempDir, 'claws', clawId, 'status', 'pid');
     await fs.mkdir(path.dirname(pidFilePath), { recursive: true });
     await fs.writeFile(pidFilePath, '   ', 'utf-8');
 
     mockWriteExclusiveOnceEEXIST();
 
-    const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
-      command: 'node',
-      args: ['/fake/daemon-entry.js', clawId],
-      logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
-    });
+    await expect(
+      spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
+        command: 'node',
+        args: ['/fake/daemon-entry.js', clawId],
+        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+      }),
+    ).rejects.toBeInstanceOf(LockConflictError);
 
-    expect(result).toBe(FAKE_LIVE_PID);
+    expect(ctx.spawnDetached).not.toHaveBeenCalled();
 
-    const pidEmptyCalls = events.filter(
-      (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_EMPTY,
+    const pidReadFailedCalls = events.filter(
+      (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
     );
-    expect(pidEmptyCalls).toHaveLength(1);
-    expect(pidEmptyCalls[0]).toEqual(
+    expect(pidReadFailedCalls).toHaveLength(1);
+    expect(pidReadFailedCalls[0]).toEqual(
       expect.arrayContaining([
-        PROCESS_MANAGER_AUDIT_EVENTS.PID_EMPTY,
+        PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
         expect.stringContaining('daemon_dir='),
+        'context=eexist_check',
+        expect.stringContaining('reason='),
       ]),
     );
   });

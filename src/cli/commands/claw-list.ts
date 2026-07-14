@@ -107,7 +107,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
       if (isRunning) {
         try {
           const stored = await processManager.readPid(resolveClawDaemonDir(makeClawId(entry)));
-          if (stored !== null) pid = stored.pid;
+          if (stored.status === 'valid') pid = stored.pid;
         } catch { /* silent: ignore read errors */ }
       }
 

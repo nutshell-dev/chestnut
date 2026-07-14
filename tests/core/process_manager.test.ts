@@ -190,28 +190,27 @@ describe('ProcessManager', () => {
       }
     });
 
-    it('empty PID file triggers audit about possible concurrent spawn', async () => {
+    it('empty PID file triggers fail closed on spawn conflict', async () => {
       const { audit, events } = makeAudit();
       const pm = new ProcessManager(nodeFs, audit);
       const clawDir = path.join(tempDir, 'claws', 'empty-pid-claw');
       const pidFile = path.join(clawDir, 'status', 'pid');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
 
-      // Use a dead PID so event-driven readiness loop fast-fails instead of hanging
-      vi.mocked(spawn).mockReturnValue({ pid: 99999, unref: vi.fn() } as unknown as ReturnType<typeof import('child_process').spawn>);
-
-      // Pre-create an EMPTY PID file (simulates in-progress spawn by another process)
+      // Pre-create an EMPTY PID file
       await fs.mkdir(path.dirname(pidFile), { recursive: true });
       await fs.writeFile(pidFile, '', 'utf-8');
 
-      await pm.spawn(testClawDaemonDir(tempDir, 'empty-pid-claw'), {
-        command: 'node',
-        args: ['--version'],
-        logFile,
-        env: { ...process.env },
-      }).catch(() => { /* silent: expected-failure */ });
+      await expect(
+        pm.spawn(testClawDaemonDir(tempDir, 'empty-pid-claw'), {
+          command: 'node',
+          args: ['--version'],
+          logFile,
+          env: { ...process.env },
+        }),
+      ).rejects.toThrow(/Cannot determine pidfile state/);
 
-      expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('empty-pid-claw')))).toBe(true);
+      expect(events.some(e => e[0] === 'pid_read_failed' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('empty-pid-claw')))).toBe(true);
     });
   });
 

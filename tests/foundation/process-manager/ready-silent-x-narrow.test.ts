@@ -15,6 +15,7 @@ import { makeAudit } from '../../helpers/audit.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 
 function makeMockFs(overrides?: {

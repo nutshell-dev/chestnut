@@ -8,14 +8,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { makeAudit } from '../../helpers/audit.js';
 
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 // spawnDetached injected via ctx (phase 106 DI hygiene)
 
@@ -25,16 +24,14 @@ describe('ready-spawn real-poll interval', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = path.join(tmpdir(), `ready-spawn-real-poll-${randomUUID()}`);
+    tempDir = await createTrackedTempDir('ready-spawn-real-poll-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(tempDir);
   });
 
   it('ready marker 在真 poll interval 内被检测（不 mock SPAWN_POLL_INTERVAL_MS）', async () => {

@@ -87,7 +87,7 @@ describe('claw-list', () => {
 
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn().mockReturnValue(false),
-      readPid: vi.fn().mockResolvedValue(null),
+      readPid: vi.fn().mockResolvedValue({ status: 'missing' }),
     } as any);
 
     vi.mocked(formatRelativeTime).mockImplementation((ms: number) => `${Math.floor(ms / 60000)}m`);
@@ -101,7 +101,7 @@ describe('claw-list', () => {
   it('lists all claws with status', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn((dir: string) => dir.includes('claw-a')),
-      readPid: vi.fn().mockResolvedValue({ pid: FAKE_LIVE_PID }),
+      readPid: vi.fn().mockResolvedValue({ status: 'valid', pid: FAKE_LIVE_PID }),
     } as any);
 
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
@@ -151,7 +151,7 @@ describe('claw-list', () => {
   it('reports contract status and outbox count', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn().mockReturnValue(true),
-      readPid: vi.fn().mockResolvedValue({ pid: 9999 }),
+      readPid: vi.fn().mockResolvedValue({ status: 'valid', pid: 9999 }),
     } as any);
 
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
@@ -197,7 +197,7 @@ describe('claw-list', () => {
   it('outputs JSON when --json flag is passed', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn((dir: string) => dir.includes('claw-a')),
-      readPid: vi.fn().mockResolvedValue({ pid: FAKE_LIVE_PID }),
+      readPid: vi.fn().mockResolvedValue({ status: 'valid', pid: FAKE_LIVE_PID }),
     } as any);
 
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {

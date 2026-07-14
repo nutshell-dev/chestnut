@@ -11,8 +11,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { markReady, markNotReady, isReady } from '../../../src/foundation/process-manager/ready.js';
@@ -21,6 +19,7 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-ma
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_STRING } from '../../helpers/test-pids.js';
 import { waitForPathGone } from '../../helpers/wait-for-file.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 /** Stale marker self-cleanup safety budget (1s). phase 368: event-driven 替原 50ms × 20 polling. */
 const STALE_MARKER_BUDGET_MS = 1000;
@@ -31,15 +30,13 @@ describe('isReady / markReady / markNotReady', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = path.join(tmpdir(), `ready-test-${randomUUID()}`);
+    tempDir = await createTrackedTempDir('ready-test-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(tempDir);
   });
 
   function makeCtx(): ProcessManagerContext {

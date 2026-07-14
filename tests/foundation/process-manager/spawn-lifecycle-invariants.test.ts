@@ -10,7 +10,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -22,6 +21,7 @@ import { makeAudit } from '../../helpers/audit.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 // 压缩测试中的 sleep 间隔；DAEMON_SHUTDOWN_GRACE_MS=0 让 kill 路径立即返回
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
@@ -35,15 +35,14 @@ describe('spawn lifecycle invariants (Phase 914)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tempDir = path.join(tmpdir(), `spawn-inv-${randomUUID()}`);
+    tempDir = await createTrackedTempDir('spawn-inv-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(tempDir);
   });
 
   it('cleanupLock throws LockConflictError when lock holder is alive (no SIGTERM)', async () => {

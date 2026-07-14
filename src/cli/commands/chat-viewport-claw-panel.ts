@@ -60,7 +60,7 @@ export interface RescanClawsDirDeps {
   audit: AuditLog;
   agentDir: string;
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
-  pm: { readPid: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => Promise<{ pid: number; startTime?: string } | null> };
+  pm: { readPid: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => Promise<import('../../foundation/process-manager/index.js').PidReadResult> };
 }
 
 export function createRescanClawsDir(deps: RescanClawsDirDeps) {
@@ -85,7 +85,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           let alive = false;
           try {
             const stored = await deps.pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
-            alive = stored !== null && isAlive(stored.pid);
+            alive = stored.status === 'valid' && isAlive(stored.pid);
           } catch {
             // silent: pid read failure → treat as not alive (fail-soft)
           }

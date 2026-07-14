@@ -11,6 +11,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import type { PidReadResult } from '../../foundation/process-manager/index.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
 
 import { createDaemonLivenessMonitor } from './chat-viewport-daemon-liveness.js';
@@ -493,9 +494,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(options.label)));
-      if (stored === null) {
+      const stored: PidReadResult = await pm.readPid(resolveClawDaemonDir(makeClawId(options.label)));
+      if (stored.status === 'missing' || stored.status === 'corrupt' || stored.status === 'io_error') {
         turnTracker.forceReset();
+      } else if (stored.status === 'spawning') {
+        // spawning sentinel: daemon is starting, don't reset tracker
       } else {
         if (!isAlive(stored.pid)) { turnTracker.forceReset(); }
       }

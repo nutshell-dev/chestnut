@@ -8,18 +8,16 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 
 import { getAliveStatus } from '../../../src/foundation/process-manager/alive.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeDaemonDir, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
 
 let lastTempDir: string;
 
 function makeTempDir(): string {
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const dir = path.join(tmpdir(), `alive-conservative-${randomUUID()}`);
+  const dir = createTrackedTempDirSync('alive-conservative-');
   fs.mkdirSync(dir, { recursive: true });
   lastTempDir = dir;
   return dir;
@@ -47,11 +45,7 @@ function makeCtx(tempDir: string, overrides?: Partial<ProcessManagerContext>): P
 describe('getAliveStatus conservative verdicts (phase 912)', () => {
   afterEach(() => {
     if (lastTempDir) {
-      try {
-        fs.rmSync(lastTempDir, { recursive: true, force: true });
-      } catch (e: any) {
-        if (e?.code !== 'ENOENT') throw e;
-      }
+      cleanupTempDirSync(lastTempDir);
       lastTempDir = '';
     }
   });

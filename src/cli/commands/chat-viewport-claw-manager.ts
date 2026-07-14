@@ -11,14 +11,14 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
-import type { DaemonDir } from '../../foundation/process-manager/index.js';
+import type { DaemonDir, PidReadResult } from '../../foundation/process-manager/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import { createChatViewportWatcher, type Watcher } from './chat-viewport-watcher.js';
 
 
 export interface ClawManagerDeps {
   fs: FileSystem;
-  pm: { readPid: (daemonDir: DaemonDir) => Promise<{ pid: number; startTime?: string } | null> };
+  pm: { readPid: (daemonDir: DaemonDir) => Promise<PidReadResult> };
   audit: AuditLog;
   isMotion: boolean;
   clawTopology: ClawTopology;
@@ -224,8 +224,8 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       }
       const track = clawTrackMap.get(clawId)!;
       try {
-        const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
-        track.isAlive = stored !== null && isAlive(stored.pid);
+        const stored: PidReadResult = await pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
+        track.isAlive = stored.status === 'valid' && isAlive(stored.pid);
       } catch (e) {
         if (!isFileNotFound(e)) {
           process.stderr.write(`[viewport] readPid failed: ${(e as Error).message}\n`);

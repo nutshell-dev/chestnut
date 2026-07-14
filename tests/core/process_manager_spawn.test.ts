@@ -117,14 +117,14 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
     expect(killSpy).toHaveBeenCalledWith(orphanPid, 'SIGTERM');
   });
 
-  it('should warn and continue when stale empty PID file exists', async () => {
+  it('throws when stale empty PID file exists', async () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: '', stderr: '' } as any);
     vi.mocked(spawn).mockReturnValue({ pid: process.pid, unref: vi.fn() } as any);
 
     const clawId = 'stale-empty-claw';
     const statusDir = path.join(tempDir, 'claws', clawId, 'status');
     await fs.mkdir(statusDir, { recursive: true });
-    // Pre-create empty PID file (simulates concurrent spawn leaving an empty file)
+    // Pre-create empty PID file
     await fs.writeFile(path.join(statusDir, 'pid'), '', 'utf-8');
 
     const { audit, events } = makeAudit();
@@ -137,7 +137,7 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
       args: ['/fake/daemon-entry.js', clawId],
       logFile,
       env: { ...process.env },
-    })).resolves.toBeDefined();
-    expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('stale-empty-claw')))).toBe(true);
+    })).rejects.toThrow(/Cannot determine pidfile state/);
+    expect(events.some(e => e[0] === 'pid_read_failed' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('stale-empty-claw')))).toBe(true);
   });
 });
