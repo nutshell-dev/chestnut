@@ -61,7 +61,7 @@ export async function cleanupAllTrackedDirs(): Promise<void> {
       await fs.rm(dir, { recursive: true, force: true });
       trackedDirs.delete(dir);
     } catch (err: any) {
-      if (err?.code === 'ENOENT') {
+      if (err?.code === 'ENOENT' || err?.code === 'EINVAL') {
         trackedDirs.delete(dir);
         continue;
       }
@@ -85,7 +85,7 @@ export async function cleanupTempDir(tempDir: string): Promise<void> {
     await fs.rm(tempDir, { recursive: true, force: true });
     untrackTempDir(tempDir);
   } catch (err: any) {
-    if (err?.code === 'ENOENT') {
+    if (err?.code === 'ENOENT' || err?.code === 'EINVAL') {
       untrackTempDir(tempDir);
       return;
     }

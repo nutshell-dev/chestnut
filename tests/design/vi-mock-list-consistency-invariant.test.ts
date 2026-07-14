@@ -16,6 +16,11 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
+import {
+  INTEGRATION_PROCESS_FILES,
+  INTEGRATION_IO_FILES,
+  INFRA_FILES,
+} from '../../.config/vitest.config.js';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
@@ -72,9 +77,73 @@ function loadRealViMockUseSites(): Set<string> {
   return real;
 }
 
+/**
+ * phase 1006: OS-integration / infra projects run with isolate:true, so their
+ * file-level vi.mock do not need to be listed in VI_MOCK_FILES (which guards
+ * against cross-file static mock race in isolate:false projects).
+ */
+function matchesIntegrationPattern(file: string): boolean {
+  const patterns = [
+    ...INTEGRATION_PROCESS_FILES,
+    ...INTEGRATION_IO_FILES,
+    ...INFRA_FILES,
+  ];
+  return patterns.some(pattern => matchGlob(file, pattern));
+}
+
+function matchGlob(file: string, pattern: string): boolean {
+  const fileParts = file.split('/');
+  const patternParts = pattern.split('/');
+  return matchParts(fileParts, patternParts);
+}
+
+function matchParts(fileParts: string[], patternParts: string[]): boolean {
+  let f = 0;
+  let p = 0;
+  while (p < patternParts.length) {
+    const pat = patternParts[p];
+    if (pat === '**') {
+      if (p === patternParts.length - 1) return true;
+      const nextPat = patternParts[p + 1];
+      while (f < fileParts.length) {
+        if (matchSegment(fileParts[f], nextPat)) {
+          if (matchParts(fileParts.slice(f + 1), patternParts.slice(p + 2))) {
+            return true;
+          }
+        }
+        f++;
+      }
+      return false;
+    }
+    if (f >= fileParts.length) return false;
+    if (!matchSegment(fileParts[f], pat)) return false;
+    f++;
+    p++;
+  }
+  return f === fileParts.length;
+}
+
+function matchSegment(segment: string, pat: string): boolean {
+  const re = new RegExp(
+    '^' +
+    pat
+      .replace(/\./g, '\\.')
+      .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
+      .replace(/\*/g, '[^/]*')
+      .replace(/<<<DOUBLESTAR>>>/g, '.*') +
+    '$'
+  );
+  return re.test(segment);
+}
+
 describe('phase 316: VI_MOCK_FILES list ↔ tests/ vi.mock use site 一致性 invariant', () => {
   it('VI_MOCK_FILES list entries align with real vi.mock use sites', () => {
-    const realUseSites = loadRealViMockUseSites();
+    const rawRealUseSites = loadRealViMockUseSites();
+    // phase 1006: integration / infra projects run isolate:true and manage their
+    // own vi.mock files, so they are exempt from the VI_MOCK_FILES list.
+    const realUseSites = new Set(
+      Array.from(rawRealUseSites).filter(f => !matchesIntegrationPattern(f)),
+    );
     const listEntries = loadViMockList();
 
     const missingFromList: string[] = [];

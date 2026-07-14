@@ -161,8 +161,6 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/fallback-periodic-reconcile.test.ts',
   'tests/foundation/audit/writer-fallback-origin.test.ts',
   'tests/foundation/audit/writer-fallback.test.ts',
-  'tests/foundation/file-watcher-persistent.test.ts',
-  'tests/foundation/file-watcher.test.ts',
   'tests/foundation/fs.test.ts',
   'tests/foundation/llm-orchestrator/all-providers-context-exceeded-emit.test.ts',
   'tests/foundation/llm-orchestrator/hedge-post-first-chunk-failure.test.ts',
@@ -177,8 +175,6 @@ const VI_MOCK_FILES = [
   'tests/foundation/llm-provider/anthropic-adapter.test.ts',  // phase 862: vi.mock @anthropic-ai/sdk
   'tests/foundation/messaging/inbox-reader-race.test.ts',
   'tests/foundation/messaging/outbox-reader-reconcile.test.ts',  // phase 908: vi.mock process-exec isAlive
-  'tests/foundation/process-exec/process-starttime-catch-filter.test.ts',
-  'tests/foundation/process-exec/find-by-pattern.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
   // 'tests/foundation/process-manager/isready-stale-self-cleanup.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
@@ -215,6 +211,7 @@ const VI_MOCK_FILES = [
   // OS-bound chokidar event 5000ms 超风险。task.test.ts 改归 fast project。
   // 注释保留作历史 + 回滚锚。
   // 'tests/core/task.test.ts',
+  'tests/foundation/process-manager/stop.test.ts',
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/stream-reader-race.test.ts',
   'tests/foundation/unix-socket.test.ts',
@@ -253,14 +250,6 @@ const VI_MOCK_FILES = [
   'tests/daemon/idempotent-signal-handlers.test.ts',
   'tests/foundation/audit/fallback-drop-observability.test.ts',
   'tests/foundation/audit/multi-file-concurrent-write.test.ts',
-  'tests/foundation/process-manager/ready-spawn-integration.test.ts',
-  'tests/foundation/process-manager/spawn-duration-metric.test.ts',
-  'tests/foundation/process-manager/spawn-event-driven-readiness.test.ts',
-  'tests/foundation/process-manager/spawn-fast-fail-child-died.test.ts',
-  'tests/foundation/process-manager/spawn-lifecycle-invariants.test.ts',
-  'tests/foundation/process-manager/spawn-race.test.ts',
-  'tests/foundation/process-manager/spawn-remove-pid-audit.test.ts',
-  'tests/foundation/process/stop-race.test.ts',
   'tests/watchdog/audit-wired-in-cli.test.ts',
   'tests/watchdog/ensure-singleton-lock.test.ts',
   'tests/watchdog/foreign-workspace-fail-loud.test.ts',
@@ -288,6 +277,37 @@ const VI_DOMOCK_FILES = [
  * 5 file 全移 fast project: watchdog-utils + dialog + submit_subtask_tool + tool-executor-ctx-prototype + (phase 1344) process-exec
  */
 const VI_GLOBALS_FILES: string[] = [];
+
+/**
+ * phase 1006 Step B: OS-integration tests that need real process/spawn/ps/pgrep.
+ * These run in a dedicated vitest project with isolate:true and limited concurrency.
+ */
+const INTEGRATION_PROCESS_FILES = [
+  'tests/foundation/process-exec/**/*.test.ts',
+  'tests/foundation/process/**/*.test.ts',
+  'tests/foundation/process-manager/*spawn*.test.ts',
+  'tests/foundation/process-manager/ready-spawn*.test.ts',
+  'tests/cli/daemon.test.ts',
+  'tests/cli/already-running-sentinel.test.ts',
+  'tests/core/async-task-system/migrated-exec.test.ts',
+];
+
+/**
+ * phase 1006 Step B: OS-integration tests that need real sockets/watcher/file events.
+ */
+const INTEGRATION_IO_FILES = [
+  'tests/foundation/transport.test.ts',
+  'tests/foundation/file-watcher*.test.ts',
+  'tests/foundation/file-watcher/**/*.test.ts',
+  'tests/foundation/fs/node-fs-symlink*.test.ts',
+];
+
+/**
+ * phase 1006 Step C: recursive vitest spawn integration test — manual/CI preflight only.
+ */
+const INFRA_FILES = [
+  'tests/utils/run-root-teardown-integration.test.ts',
+];
 
 const ISOLATED_FILES = [...VI_MOCK_FILES, ...VI_DOMOCK_FILES, ...VI_GLOBALS_FILES];
 
@@ -320,7 +340,15 @@ export default defineConfig({
           globals: true,
           environment: 'node',
           include: ['tests/**/*.test.ts'],
-          exclude: [...ISOLATED_FILES, '**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+          exclude: [
+            ...ISOLATED_FILES,
+            ...INTEGRATION_PROCESS_FILES,
+            ...INTEGRATION_IO_FILES,
+            ...INFRA_FILES,
+            '**/.chestnut/**',
+            '**/node_modules/**',
+            '**/dist/**',
+          ],
           pool: 'threads',
           poolOptions: { threads: { maxThreads, isolate: false } },
           testTimeout: 15000,
@@ -351,6 +379,48 @@ export default defineConfig({
           teardownTimeout: 5000, // phase 781: force worker teardown after 5s to prevent orphan vitest processes
         },
       },
+      {
+        test: {
+          name: 'integration-process',
+          globals: true,
+          environment: 'node',
+          include: INTEGRATION_PROCESS_FILES,
+          exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+          pool: 'threads',
+          poolOptions: { threads: { maxThreads: 2, isolate: true } },
+          testTimeout: 30000,
+          hookTimeout: 15000,
+          teardownTimeout: 5000,
+        },
+      },
+      {
+        test: {
+          name: 'integration-io',
+          globals: true,
+          environment: 'node',
+          include: INTEGRATION_IO_FILES,
+          exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+          pool: 'threads',
+          poolOptions: { threads: { maxThreads: 2, isolate: true } },
+          testTimeout: 15000,
+          hookTimeout: 10000,
+          teardownTimeout: 5000,
+        },
+      },
+      {
+        test: {
+          name: 'infra',
+          globals: true,
+          environment: 'node',
+          include: INFRA_FILES,
+          exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+          pool: 'threads',
+          poolOptions: { threads: { maxThreads: 1, isolate: true } },
+          testTimeout: 60000,
+          hookTimeout: 30000,
+          teardownTimeout: 10000,
+        },
+      },
     ],
     // phase 1223: server.deps.inline ['chokidar'] reverted - 实测 transform 3x 反优化
     // chokidar 是 native+JS heavy package / inline 强制每 worker re-bundle / 不复用 cached require
@@ -367,3 +437,6 @@ export default defineConfig({
     }
   },
 });
+
+// phase 1006: export project file lists for invariant tests
+export { INTEGRATION_PROCESS_FILES, INTEGRATION_IO_FILES, INFRA_FILES };

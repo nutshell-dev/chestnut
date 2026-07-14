@@ -73,10 +73,10 @@ describe('temp.ts tracked temp dir API', () => {
     expect(getTrackedDirs().has(dir)).toBe(false);
   });
 
-  it('throws on EINVAL and does not untrack', async () => {
+  it('cleanupTempDir ignores EINVAL and untracks', async () => {
     const dir = await createTrackedTempDir('tracked-einval-');
     vi.spyOn(fs.promises, 'rm').mockRejectedValueOnce(Object.assign(new Error('EINVAL'), { code: 'EINVAL' }));
-    await expect(cleanupTempDir(dir)).rejects.toThrow('Failed to clean up');
-    expect(getTrackedDirs().has(dir)).toBe(true);
+    await cleanupTempDir(dir);
+    expect(getTrackedDirs().has(dir)).toBe(false);
   });
 });

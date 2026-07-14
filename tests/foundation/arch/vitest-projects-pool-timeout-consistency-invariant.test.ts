@@ -13,16 +13,19 @@ import * as path from 'node:path';
  * - one uses `pool: 'forks'` while another uses `'threads'` → memory
  *   isolation differs; same test can pass in one and fail in the other
  *
- * Doesn't lock specific values — only that all projects agree. Project
- * may upgrade these by editing all projects in one commit.
+ * phase 1006 update: integration / infra projects need longer timeouts and
+ * tighter concurrency, so the strict uniformity check applies only to the
+ * unit projects (fast + isolated). All projects still use the same pool kind.
  *
  * Pairs with phase 611 (vitest exclude base patterns), phase 610
  * (projects name unique), phase 634 (coverage config baseline).
  */
-type Proj = { test?: { pool?: unknown; testTimeout?: unknown; hookTimeout?: unknown } };
+type Proj = { test?: { name?: string; pool?: unknown; testTimeout?: unknown; hookTimeout?: unknown } };
+
+const UNIT_PROJECT_NAMES = new Set(['fast', 'isolated']);
 
 describe('vitest projects pool + timeout consistency invariant (phase 654)', () => {
-  it('all projects share same pool + testTimeout + hookTimeout', async () => {
+  it('all projects share same pool; unit projects share same testTimeout + hookTimeout', async () => {
     const repoRoot = path.resolve(__dirname, '../../..');
     const cfgPath = path.join(repoRoot, '.config/vitest.config.ts');
     const mod = (await import(cfgPath)) as { default?: unknown };
@@ -35,11 +38,12 @@ describe('vitest projects pool + timeout consistency invariant (phase 654)', () 
     expect(projects.length).toBeGreaterThan(1);
 
     const pools = new Set(projects.map(p => p.test?.pool));
-    const testTimeouts = new Set(projects.map(p => p.test?.testTimeout));
-    const hookTimeouts = new Set(projects.map(p => p.test?.hookTimeout));
-
     expect(pools.size).toBe(1);
-    expect(testTimeouts.size).toBe(1);
-    expect(hookTimeouts.size).toBe(1);
+
+    const unitProjects = projects.filter(p => UNIT_PROJECT_NAMES.has(p.test?.name ?? ''));
+    const unitTestTimeouts = new Set(unitProjects.map(p => p.test?.testTimeout));
+    const unitHookTimeouts = new Set(unitProjects.map(p => p.test?.hookTimeout));
+    expect(unitTestTimeouts.size).toBe(1);
+    expect(unitHookTimeouts.size).toBe(1);
   });
 });
