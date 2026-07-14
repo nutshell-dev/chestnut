@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex, PersistentShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
@@ -76,8 +76,8 @@ describe('Phase 868 legacy task file migration', () => {
   let tmpDir: string;
   let clawDir: string;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase868-migration-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('phase868-migration-');
     clawDir = path.join(tmpDir, 'claw');
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_PENDING_DIR), { recursive: true });
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_RUNNING_DIR), { recursive: true });
@@ -85,12 +85,8 @@ describe('Phase 868 legacy task file migration', () => {
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_FAILED_DIR), { recursive: true });
   });
 
-  afterEach(() => {
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch (e: any) {
-      if (e?.code !== 'ENOENT') throw e;
-    }
+  afterEach(async () => {
+    await cleanupTempDir(tmpDir);
   });
 
   it('migrates 8-char filename + missing shortId to UUID filename + dual-key', async () => {

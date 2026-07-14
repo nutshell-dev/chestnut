@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as fsp from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { StreamWriter } from '../../src/foundation/stream/index.js';
@@ -14,12 +13,12 @@ describe('StreamWriter', () => {
   let fs: NodeFileSystem;
 
   beforeEach(async () => {
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sw-test-'));
+    tmpDir = await createTrackedTempDir('sw-test-');
     fs = new NodeFileSystem({ baseDir: tmpDir });
   });
 
   afterEach(async () => {
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   it('write appends a line to stream.jsonl', () => {

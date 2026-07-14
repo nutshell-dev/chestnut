@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { clawTraceCommand } from '../../../src/cli/commands/claw-trace.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
@@ -82,7 +82,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     logSpy = vi.spyOn(console, 'log').mockImplementation((msg: unknown) => {
       logs.push(String(msg));
     });
-    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claw-trace-test-'));
+    tmpRoot = await createTrackedTempDir('claw-trace-test-');
     clawDir = path.join(tmpRoot, '.chestnut', 'claws', 'alice');
     fs.mkdirSync(clawDir, { recursive: true });
 
@@ -92,9 +92,9 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join(clawDir, name, 'config.yaml'));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     logSpy.mockRestore();
-    if (fs.existsSync(tmpRoot)) fs.rmSync(tmpRoot, { recursive: true, force: true });
+    await cleanupTempDir(tmpRoot);
   });
 
   it('header reads `Turns: N` not `Steps: N`', async () => {

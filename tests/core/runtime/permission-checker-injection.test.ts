@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import * as path from 'path';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
@@ -20,14 +20,14 @@ describe('phase 1273: permissionChecker injected into main runtime ExecContext',
   let tmpDir: string;
   let clawDir: string;
 
-  beforeAll(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-phase1273-'));
+  beforeAll(async () => {
+    tmpDir = await createTrackedTempDir('cf-phase1273-');
     clawDir = path.join(tmpDir, 'test-claw');
     fs.mkdirSync(clawDir, { recursive: true });
   });
 
-  afterAll(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+  afterAll(async () => {
+    await cleanupTempDir(tmpDir);
   });
 
   it('反向 1: main runtime ExecContext.permissionChecker !== undefined after initialize', async () => {

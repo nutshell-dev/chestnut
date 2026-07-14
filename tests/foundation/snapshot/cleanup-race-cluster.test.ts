@@ -7,7 +7,7 @@ import * as fsp from 'fs/promises';
 import * as fsSync from 'fs';
 import { execSync } from 'child_process';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { Snapshot } from '../../../src/foundation/snapshot/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { SNAPSHOT_AUDIT_EVENTS } from '../../../src/foundation/snapshot/audit-events.js';
@@ -21,12 +21,12 @@ describe.skipIf(!gitAvailable)('Snapshot cleanup race/safety cluster (phase 998)
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-race-test-'));
+    tmpDir = await createTrackedTempDir('snap-race-test-');
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   // ========================================================================
@@ -104,7 +104,7 @@ describe.skipIf(!gitAvailable)('Snapshot cleanup race/safety cluster (phase 998)
   it('H.3: rejects symlink cleanupDir pointing outside this.dir and audits traversal', async () => {
     const baseFs = new NodeFileSystem({ baseDir: tmpDir });
     const fs = Object.create(baseFs);
-    const outsideDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-outside-'));
+    const outsideDir = await createTrackedTempDir('snap-outside-');
     const symlinkDir = path.join(tmpDir, 'symlink-cleanup');
     await fsp.symlink(outsideDir, symlinkDir, 'dir');
 
@@ -135,6 +135,6 @@ describe.skipIf(!gitAvailable)('Snapshot cleanup race/safety cluster (phase 998)
       expect.stringContaining('resolved='),
     );
 
-    await fsp.rm(outsideDir, { recursive: true, force: true });
+    await cleanupTempDir(outsideDir);
   });
 });

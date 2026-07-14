@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { FileNotFoundError } from '../../src/foundation/fs/types.js';
@@ -11,15 +11,15 @@ describe('AuditWriter', () => {
   let nodeFs: NodeFileSystem;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-test-'));
+    tmpDir = await createTrackedTempDir('audit-test-');
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await cleanupTempDir(tmpDir);
     consoleErrorSpy.mockRestore();
   });
 

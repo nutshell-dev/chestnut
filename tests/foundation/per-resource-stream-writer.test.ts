@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as nativePath from 'path';
 import * as nativeFs from 'fs';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import {
   createPerResourceStreamWriter,
   PerResourceStreamWriter,
@@ -17,8 +17,8 @@ describe('PerResourceStreamWriter', () => {
   let auditPath: string;
   let streamPath: string;
 
-  beforeEach(() => {
-    tempDir = nativeFs.mkdtempSync(nativePath.join(os.tmpdir(), 'per-resource-stream-'));
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('per-resource-stream-');
     fs = new NodeFileSystem({ baseDir: tempDir });
     auditPath = nativePath.join(tempDir, 'audit.tsv');
     audit = createAuditWriter(fs, 'audit.tsv');
@@ -26,8 +26,8 @@ describe('PerResourceStreamWriter', () => {
     fs.ensureDirSync('sub');
   });
 
-  afterEach(() => {
-    nativeFs.rmSync(tempDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
   });
 
   it('appends JSONL line per event (phase 1152 G.1: void signature)', () => {

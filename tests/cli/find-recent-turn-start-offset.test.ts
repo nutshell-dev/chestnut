@@ -9,7 +9,7 @@ import { findRecentTurnStartOffset } from '../../src/foundation/stream/turn-star
 import { createDirContext } from '../../src/foundation/audit/index.js';
 import * as fsNative from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -17,13 +17,13 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 describe('findRecentTurnStartOffset', () => {
   let tmpDir: string;
 
-  beforeEach(() => {
-    tmpDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'find-turn-start-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('find-turn-start-');
   });
 
   // phase 999 r121 P fork C.D.1: cleanup tmpDir leak per test run
-  afterEach(() => {
-    if (tmpDir) fsNative.rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    if (tmpDir) await cleanupTempDir(tmpDir);
   });
 
   it('文件不存在 / 返 0', () => {

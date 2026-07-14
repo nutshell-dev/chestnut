@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fsNative from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { Runtime } from '../../../src/core/runtime/index.js';
@@ -10,15 +10,15 @@ import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-event
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-function makeTempAgentDir() {
-  const tmpDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'llm-retry-inv-'));
+async function makeTempAgentDir() {
+  const tmpDir = await createTrackedTempDir('llm-retry-inv-');
   fsNative.mkdirSync(path.join(tmpDir, 'inbox', 'pending'), { recursive: true });
   return tmpDir;
 }
 
-function cleanup(dir: string) {
+async function cleanup(dir: string) {
   try {
-    fsNative.rmSync(dir, { recursive: true, force: true });
+    await cleanupTempDir(dir);
   } catch { /* ignore cleanup failure */ }
 }
 
@@ -62,7 +62,7 @@ describe('llm-retry state load invariants', () => {
   });
 
   it('ENOENT silently uses defaults (first start)', async () => {
-    const agentDir = makeTempAgentDir();
+    const agentDir = await makeTempAgentDir();
     const audit = makeMockAudit();
     const eventLoop = makeEventLoop(agentDir, audit as unknown as AuditLog);
 
@@ -70,11 +70,11 @@ describe('llm-retry state load invariants', () => {
 
     const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('loadLlmRetryState')));
     expect(loadFailedCalls).toHaveLength(0);
-    cleanup(agentDir);
+    await cleanup(agentDir);
   });
 
   it('read_failed emits audit with reason=read_failed', async () => {
-    const agentDir = makeTempAgentDir();
+    const agentDir = await makeTempAgentDir();
     fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
     fsNative.writeFileSync(path.join(agentDir, 'status', 'llm-retry-state.json'), 'any');
     if (process.platform !== 'win32') {
@@ -91,11 +91,11 @@ describe('llm-retry state load invariants', () => {
       expect(loadFailedCalls.length).toBeGreaterThanOrEqual(1);
       fsNative.chmodSync(path.join(agentDir, 'status', 'llm-retry-state.json'), 0o644);
     }
-    cleanup(agentDir);
+    await cleanup(agentDir);
   });
 
   it('parse_failed emits audit with reason=parse_failed', async () => {
-    const agentDir = makeTempAgentDir();
+    const agentDir = await makeTempAgentDir();
     fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
     fsNative.writeFileSync(path.join(agentDir, 'status', 'llm-retry-state.json'), 'not-json{');
 
@@ -106,11 +106,11 @@ describe('llm-retry state load invariants', () => {
 
     const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('reason=parse_failed')));
     expect(loadFailedCalls.length).toBeGreaterThanOrEqual(1);
-    cleanup(agentDir);
+    await cleanup(agentDir);
   });
 
   it('schema_version_mismatch emits audit', async () => {
-    const agentDir = makeTempAgentDir();
+    const agentDir = await makeTempAgentDir();
     fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
     fsNative.writeFileSync(
       path.join(agentDir, 'status', 'llm-retry-state.json'),
@@ -124,11 +124,11 @@ describe('llm-retry state load invariants', () => {
 
     const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('reason=schema_version_mismatch')));
     expect(loadFailedCalls.length).toBeGreaterThanOrEqual(1);
-    cleanup(agentDir);
+    await cleanup(agentDir);
   });
 
   it('field_type_mismatch emits audit', async () => {
-    const agentDir = makeTempAgentDir();
+    const agentDir = await makeTempAgentDir();
     fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
     fsNative.writeFileSync(
       path.join(agentDir, 'status', 'llm-retry-state.json'),
@@ -142,11 +142,11 @@ describe('llm-retry state load invariants', () => {
 
     const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('reason=field_type_mismatch')));
     expect(loadFailedCalls.length).toBeGreaterThanOrEqual(1);
-    cleanup(agentDir);
+    await cleanup(agentDir);
   });
 
   it('valid schema_version=1 + valid fields applies state', async () => {
-    const agentDir = makeTempAgentDir();
+    const agentDir = await makeTempAgentDir();
     fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
     fsNative.writeFileSync(
       path.join(agentDir, 'status', 'llm-retry-state.json'),
@@ -160,6 +160,6 @@ describe('llm-retry state load invariants', () => {
 
     const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('loadLlmRetryState')));
     expect(loadFailedCalls).toHaveLength(0);
-    cleanup(agentDir);
+    await cleanup(agentDir);
   });
 });

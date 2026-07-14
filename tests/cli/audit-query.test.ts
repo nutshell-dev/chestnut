@@ -7,7 +7,7 @@ import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { parseIntOption } from '../../src/cli/parse-int-option.js';
 import * as fsNative from 'fs';  // phase 283: hoist 5 require('fs') calls
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -39,18 +39,16 @@ describe('audit query', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
   let tempDir: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    tempDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tempDir = await createTrackedTempDir('chestnut-test-');
     fsNative.mkdirSync(path.join(tempDir, 'claws', 'test-claw'), { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
-    try {
-      fsNative.rmSync(tempDir, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    await cleanupTempDir(tempDir);
   });
 
   function writeAudit(claw: string, content: string, fileName = 'audit.tsv') {

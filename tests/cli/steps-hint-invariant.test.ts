@@ -7,7 +7,7 @@ import { clawTraceCommand } from '../../src/cli/commands/claw-trace.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
@@ -81,22 +81,22 @@ describe('clawStepsCommand hint wire', () => {
   let originalRoot: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tmpDir = await createTrackedTempDir('chestnut-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleLogSpy.mockRestore();
     if (originalRoot === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalRoot;
     }
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function writeCurrentJson(subPath: string, session: unknown) {
@@ -153,22 +153,22 @@ describe('motionStepsCommand hint wire', () => {
   let originalRoot: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tmpDir = await createTrackedTempDir('chestnut-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleLogSpy.mockRestore();
     if (originalRoot === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalRoot;
     }
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function writeCurrentJson(subPath: string, session: unknown) {
@@ -207,22 +207,22 @@ describe('subagentStepsCommand hint wire', () => {
   let originalRoot: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tmpDir = await createTrackedTempDir('chestnut-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleLogSpy.mockRestore();
     if (originalRoot === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalRoot;
     }
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function setupClaw(name: string) {
@@ -277,22 +277,22 @@ describe('clawTraceCommand hint wire', () => {
   let originalRoot: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tmpDir = await createTrackedTempDir('chestnut-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleLogSpy.mockRestore();
     if (originalRoot === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalRoot;
     }
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function setupClawTrace(clawId: string, contractId: string) {

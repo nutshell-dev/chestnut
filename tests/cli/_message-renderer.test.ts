@@ -10,7 +10,7 @@ import { CliError } from '../../src/cli/errors.js';
 import type { Message, ToolUseBlock, ToolResultBlock } from '../../src/foundation/llm-provider/types.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -347,11 +347,11 @@ describe('_message-renderer', () => {
 
   describe('loadSessionFromFile', () => {
     let tmpDir: string;
-    beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    beforeEach(async () => {
+      tmpDir = await createTrackedTempDir('chestnut-test-');
     });
-    afterEach(() => {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+    afterEach(async () => {
+      await cleanupTempDir(tmpDir);
     });
 
     it('文件存在 + 合法 JSON → 返 SessionLike', () => {

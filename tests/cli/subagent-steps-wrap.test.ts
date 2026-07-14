@@ -5,7 +5,7 @@ import {
 } from '../../src/cli/commands/subagent-steps.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -17,9 +17,9 @@ describe('subagent-steps wrap', () => {
   let consoleErrSpy: ReturnType<typeof vi.spyOn>;
   let exitSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tmpDir = await createTrackedTempDir('chestnut-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -29,7 +29,7 @@ describe('subagent-steps wrap', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleLogSpy.mockRestore();
     consoleErrSpy.mockRestore();
     exitSpy.mockRestore();
@@ -38,7 +38,7 @@ describe('subagent-steps wrap', () => {
     } else {
       process.env.CHESTNUT_ROOT = originalRoot;
     }
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function setupClaw(name: string) {

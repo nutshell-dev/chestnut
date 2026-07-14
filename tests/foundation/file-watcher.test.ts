@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import * as fsp from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import * as os from 'os';
-
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { waitFor } from '../helpers/wait-for.js';
 
@@ -44,12 +42,12 @@ describe('FileWatcher', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'fw-test-'));
+    tmpDir = await createTrackedTempDir('fw-test-');
   });
 
   afterEach(async () => {
     vi.restoreAllMocks(); // phase 711 P3-P1.1/1.2：防 process.platform getter + globalThis.setInterval spy 跨 worker leak
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   // chokidar is vi.mocked with `queueMicrotask(emit(...))` (line 21+) so emit happens at

@@ -17,9 +17,7 @@ import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { ToolExecutorImpl } from '../../src/foundation/tools/executor.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
-import * as os from 'os';
-import * as path from 'path';
-import * as fs from 'fs/promises';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeExecContext } from '../helpers/exec-context.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
@@ -117,7 +115,7 @@ function makeMalformedToolInputLLM(toolUseId: string, toolName: string, rawInput
 const tmpDirs: string[] = [];
 
 async function makeRealCtx(opts: { signal?: AbortSignal } = {}): Promise<ExecContext> {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'step-exec-'));
+  const tmpDir = await createTrackedTempDir('step-exec-');
   tmpDirs.push(tmpDir);
   const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
   return new ExecContextImpl({
@@ -132,7 +130,7 @@ async function makeRealCtx(opts: { signal?: AbortSignal } = {}): Promise<ExecCon
 // phase 999 r121 P fork C.D.2: cleanup tmpDir leak per test run (async variant)
 afterEach(async () => {
   for (const d of tmpDirs) {
-    await fs.rm(d, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(d).catch(() => { /* silent: cleanup */ });
   }
   tmpDirs.length = 0;
 });

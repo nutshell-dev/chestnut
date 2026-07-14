@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { type ContractYaml } from '../../src/core/contract/index.js';
 
 vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
@@ -54,8 +54,8 @@ describe('notifyContractCreated audit observability', () => {
     );
   });
 
-  it('appends contract_created event to stream.jsonl via PerResourceStreamWriter (phase 1120)', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'contract-notify-'));
+  it('appends contract_created event to stream.jsonl via PerResourceStreamWriter (phase 1120)', async () => {
+    const tempDir = await createTrackedTempDir('contract-notify-');
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     try {
       (createDirContext as any).mockReturnValue({
@@ -86,7 +86,7 @@ describe('notifyContractCreated audit observability', () => {
       expect(typeof parsed.ts).toBe('number');
     } finally {
       fs.chmodSync(tempDir, 0o700);
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      await cleanupTempDir(tempDir);
     }
   });
 

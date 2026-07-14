@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { clawDaemonCommand, type DaemonPM } from '../../src/cli/commands/claw-daemon.js';
 import { motionDaemonCommand } from '../../src/cli/commands/motion-daemon.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -33,8 +33,8 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
   let logSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-ar-test-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('chestnut-ar-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -42,12 +42,12 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
     setupConfig();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     warnSpy.mockRestore();
     logSpy.mockRestore();
     if (originalRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = originalRoot;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function setupConfig() {

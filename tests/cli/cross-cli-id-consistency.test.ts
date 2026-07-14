@@ -6,7 +6,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import * as fsNative from 'fs';  // phase 283: hoist 6 require('fs') calls
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -41,8 +41,8 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
-function buildFixture() {
-  const tmpDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'phase152-cross-cli-'));
+async function buildFixture() {
+  const tmpDir = await createTrackedTempDir('phase152-cross-cli-');
   const clawDir = path.join(tmpDir, 'claws', 'test-claw');
   fsNative.mkdirSync(clawDir, { recursive: true });
 
@@ -79,25 +79,23 @@ function buildFixture() {
   return {
     tmpDir,
     clawDir,
-    tearDown: () => {
-      try {
-        fsNative.rmSync(tmpDir, { recursive: true, force: true });
-      } catch { /* ignore */ }
+    tearDown: async () => {
+      await cleanupTempDir(tmpDir);
     },
   };
 }
 
 describe('cross-CLI id consistency (phase 152 §5.B SoT guard)', () => {
-  let fixture: { tmpDir: string; clawDir: string; tearDown: () => void };
+  let fixture: { tmpDir: string; clawDir: string; tearDown: () => Promise<void> };
 
-  beforeAll(() => {
-    fixture = buildFixture();
+  beforeAll(async () => {
+    fixture = await buildFixture();
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
-  afterAll(() => {
-    fixture.tearDown();
+  afterAll(async () => {
+    await fixture.tearDown();
     vi.restoreAllMocks();
   });
 

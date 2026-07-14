@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { clawStatusCommand } from '../../../src/cli/commands/claw-status.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
@@ -81,7 +81,7 @@ describe('claw-status (phase 1472 Step C)', () => {
 
   beforeEach(async () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claw-status-test-'));
+    tmpRoot = await createTrackedTempDir('claw-status-test-');
     clawDir = path.join(tmpRoot, '.chestnut', 'claws', 'foo');
     fs.mkdirSync(clawDir, { recursive: true });
 
@@ -91,9 +91,9 @@ describe('claw-status (phase 1472 Step C)', () => {
     vi.mocked(getClawDir).mockImplementation(() => clawDir);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleLogSpy.mockRestore();
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    await cleanupTempDir(tmpRoot);
     vi.clearAllMocks();
   });
 

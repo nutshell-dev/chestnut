@@ -9,8 +9,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as fsNative from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 import { contractCancelCommand } from '../../src/cli/commands/contract.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
@@ -45,7 +45,7 @@ async function seedActiveContract(): Promise<string> {
 
 beforeEach(async () => {
   prevRoot = process.env.CHESTNUT_ROOT;
-  workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'phase1471-cancel-'));
+  workspaceRoot = await createTrackedTempDir('phase1471-cancel-');
   process.env.CHESTNUT_ROOT = workspaceRoot;
   clawDir = path.join(workspaceRoot, '.chestnut', 'claws', CLAW_ID);
   await fs.mkdir(clawDir, { recursive: true });
@@ -60,7 +60,7 @@ afterEach(async () => {
   try {
     fsNative.chmodSync(workspaceRoot, 0o700);
   } catch { /* ignore */ }
-  await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  await cleanupTempDir(workspaceRoot);
 });
 
 describe('contractCancelCommand (phase 1471)', () => {

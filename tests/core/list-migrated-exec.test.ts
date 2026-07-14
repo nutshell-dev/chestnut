@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { listMigratedExecTasks } from '../../src/core/async-task-system/index.js';
 import { TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../src/core/async-task-system/dirs.js';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import * as fs from 'fs';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 
@@ -12,13 +12,17 @@ describe('listMigratedExecTasks', () => {
   let runningDir: string;
   let resultsDir: string;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('chestnut-test-');
     clawDir = path.join(tmpDir, 'claws', 'test-claw');
     runningDir = path.join(clawDir, TASKS_QUEUES_RUNNING_DIR);
     resultsDir = path.join(clawDir, TASKS_QUEUES_RESULTS_DIR);
     fs.mkdirSync(runningDir, { recursive: true });
     fs.mkdirSync(resultsDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(tmpDir);
   });
 
   const makeDeps = () => ({

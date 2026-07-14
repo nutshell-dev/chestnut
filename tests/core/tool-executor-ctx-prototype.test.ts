@@ -16,7 +16,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
 import { MOTION_CLAW_ID } from '../../src/core/claw-topology/index.js';
 import * as fsp from 'fs/promises';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import * as path from 'path';
 
 describe('ToolExecutor: ctx prototype preservation across spread', () => {
@@ -26,7 +26,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
   let registry: ToolRegistryImpl;
 
   beforeEach(async () => {
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'phase332-'));
+    tmpDir = await createTrackedTempDir('phase332-');
     fs = new NodeFileSystem({ baseDir: tmpDir });
     registry = new ToolRegistryImpl();
     registry.register(createStatusTool({ loadActive: vi.fn().mockResolvedValue(null) } as any));
@@ -38,7 +38,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
   });
 
   afterEach(async () => {
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function makeMotionCtx(): ExecContextImpl {

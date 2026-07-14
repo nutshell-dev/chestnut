@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { writeVerificationInbox, writeVerificationError } from '../../../src/core/contract/verification-notify.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { VerificationContext } from '../../../src/core/contract/verification-types.js';
@@ -45,19 +45,19 @@ describe('phase 1388 Bug B: verification-notify Motion 端写正确 motion/inbox
   let tempDir: string;
   let originalEnv: string | undefined;
 
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1388-bug-b-'));
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('phase1388-bug-b-');
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (originalEnv === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalEnv;
     }
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await cleanupTempDir(tempDir);
   });
 
   it('Motion 路径 writeVerificationInbox 写到 .chestnut/motion/inbox/pending', () => {

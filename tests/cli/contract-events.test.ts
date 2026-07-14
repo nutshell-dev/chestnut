@@ -8,9 +8,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
-import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const mockAuditWrite = vi.hoisted(() => vi.fn());
 
@@ -52,7 +51,7 @@ describe('contractEventsCommand', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    clawDir = await fsAsync.mkdtemp(path.join(os.tmpdir(), 'contract-events-test-'));
+    clawDir = await createTrackedTempDir('contract-events-test-');
     (globalThis as any).__TEST_CLAW_DIR__ = clawDir;
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     mockAuditWrite.mockClear();
@@ -61,7 +60,7 @@ describe('contractEventsCommand', () => {
   afterEach(async () => {
     logSpy.mockRestore();
     delete (globalThis as any).__TEST_CLAW_DIR__;
-    await fsAsync.rm(clawDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await cleanupTempDir(clawDir);
   });
 
   it('should output nothing when no archive or active directories exist', async () => {

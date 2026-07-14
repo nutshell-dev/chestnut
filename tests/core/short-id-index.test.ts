@@ -4,7 +4,7 @@ import { PersistentShortIdIndex, InMemoryShortIdIndex } from '../../src/core/asy
 import { makeFullTaskId, makeShortTaskId } from '../../src/core/async-task-system/types.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 describe('InMemoryShortIdIndex', () => {
   it('add + has + resolve round-trip', () => {
@@ -101,18 +101,14 @@ describe('PersistentShortIdIndex', () => {
   let tmpDir: string;
   let fsFactory: (baseDir: string) => NodeFileSystem;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'short-id-index-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('short-id-index-');
     fs.mkdirSync(path.join(tmpDir, 'tasks', 'queues'), { recursive: true });
     fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
   });
 
-  afterEach(() => {
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch (e: any) {
-      if (e?.code !== 'ENOENT') throw e;
-    }
+  afterEach(async () => {
+    await cleanupTempDir(tmpDir);
   });
 
   it('loads empty map when file does not exist', () => {

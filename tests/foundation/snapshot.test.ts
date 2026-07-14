@@ -7,7 +7,7 @@ import * as fsp from 'fs/promises';
 import * as fsSync from 'fs';
 import { execSync } from 'child_process';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -32,11 +32,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('init creates .git with .gitignore and initial commit', async () => {
@@ -62,11 +62,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('init is idempotent — second call is no-op', async () => {
@@ -88,11 +88,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('init writes .gitignore with only DEFAULT_IGNORES when ignorePatterns is empty', async () => {
@@ -107,11 +107,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('init preserves duplicate patterns (Snapshot does not dedup)', async () => {
@@ -126,11 +126,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('init writes injected patterns before DEFAULT_IGNORES', async () => {
@@ -145,11 +145,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('init writes tasks/subagents/ into .gitignore (phase 512)', async () => {
@@ -165,11 +165,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit is no-op when no changes', async () => {
@@ -190,11 +190,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit creates snapshot when there are changes', async () => {
@@ -216,11 +216,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit returns Result.err on expected failure', async () => {
@@ -244,11 +244,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit upgrades to error after 3 consecutive failures', async () => {
@@ -273,11 +273,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit writes snapshot_degraded audit at exactly 3 consecutive failures', async () => {
@@ -306,11 +306,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit does not write snapshot_degraded on 4th+ failure', async () => {
@@ -335,11 +335,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit message with special characters works correctly', async () => {
@@ -361,11 +361,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit cleans only whitelisted sync scratch dirs, leaving lifecycle dirs intact', async () => {
@@ -401,11 +401,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit cleans multiple whitelisted dirs independently', async () => {
@@ -438,11 +438,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit() syncDir double-fail emits both SYNC_CLEAN_FAILED + SYNC_RESTORE_FAILED', async () => {
@@ -493,11 +493,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit skips cleanup + emits audit when caller mis-configures syncCleanupDirs with agent dir itself', async () => {
@@ -532,12 +532,12 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       let tmpDir: string;
 
       beforeEach(async () => {
-        tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+        tmpDir = await createTrackedTempDir('snap-test-');
       });
 
       afterEach(async () => {
         vi.restoreAllMocks();
-        await fsp.rm(tmpDir, { recursive: true, force: true });
+        await cleanupTempDir(tmpDir);
       });
 
       it('commit skips cleanup when realpath(this.dir) fails', async () => {
@@ -584,12 +584,12 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     let tmpDir: string;
 
     beforeEach(async () => {
-      tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-test-'));
+      tmpDir = await createTrackedTempDir('snap-test-');
     });
 
     afterEach(async () => {
       vi.restoreAllMocks();
-      await fsp.rm(tmpDir, { recursive: true, force: true });
+      await cleanupTempDir(tmpDir);
     });
 
     it('init returns Result.err on expected failure and cleans up .git', async () => {

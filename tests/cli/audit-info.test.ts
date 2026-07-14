@@ -4,7 +4,7 @@ import { auditInfoCommand } from '../../src/cli/commands/audit-info.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import * as fsNative from 'fs';  // phase 282: hoist require('fs') calls in beforeEach/afterEach/writeAudit
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -36,17 +36,15 @@ describe('audit info', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
   let tempDir: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    tempDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tempDir = await createTrackedTempDir('chestnut-test-');
     fsNative.mkdirSync(path.join(tempDir, 'claws', 'test-claw'), { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
-    try {
-      fsNative.rmSync(tempDir, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    await cleanupTempDir(tempDir);
   });
 
   function writeAudit(claw: string, content: string, fileName = 'audit.tsv') {

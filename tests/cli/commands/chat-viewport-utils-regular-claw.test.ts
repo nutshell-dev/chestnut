@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { writeUserChat } from '../../../src/cli/commands/chat-viewport-utils.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -9,19 +9,19 @@ describe('phase 1388 Bug A: writeUserChat 普通 claw 不嵌套 claws/claws/', (
   let tempDir: string;
   let originalEnv: string | undefined;
 
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1388-bug-a-'));
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('phase1388-bug-a-');
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (originalEnv === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalEnv;
     }
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await cleanupTempDir(tempDir);
   });
 
   it('writeUserChat for regular claw writes to .chestnut/claws/<id>/inbox/pending (NOT claws/claws/)', () => {

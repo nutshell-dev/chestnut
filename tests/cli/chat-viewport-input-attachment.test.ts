@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { writeUserChat } from '../../src/cli/commands/chat-viewport-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
@@ -11,8 +11,8 @@ describe('writeUserChat - phase 142 attachment fallback', () => {
   let motionDir: string;
   let fsFactory: (baseDir: string) => import('../../../src/foundation/fs/types.js').FileSystem;
 
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase142-'));
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('phase142-');
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;
     motionDir = path.join(tempDir, '.chestnut', 'motion');
@@ -20,13 +20,13 @@ describe('writeUserChat - phase 142 attachment fallback', () => {
     fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (originalEnv === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalEnv;
     }
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await cleanupTempDir(tempDir);
   });
 
   it('short message → inline body (no attachment file)', () => {

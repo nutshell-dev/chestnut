@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -15,12 +15,12 @@ describe('OutboxWriter', () => {
   let fs: NodeFileSystem;
 
   beforeEach(async () => {
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'ob-test-'));
+    tmpDir = await createTrackedTempDir('ob-test-');
     fs = new NodeFileSystem({ baseDir: tmpDir });
   });
 
   afterEach(async () => {
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   it('write success creates file in outbox/pending/ and audits OUTBOX_SENT', async () => {

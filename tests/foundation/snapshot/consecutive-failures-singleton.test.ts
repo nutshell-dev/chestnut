@@ -11,7 +11,7 @@ import * as fsp from 'fs/promises';
 import * as fsSync from 'fs';
 import { execSync } from 'child_process';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { Snapshot } from '../../../src/foundation/snapshot/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { SNAPSHOT_AUDIT_EVENTS } from '../../../src/foundation/snapshot/audit-events.js';
@@ -25,12 +25,12 @@ describe.skipIf(!gitAvailable)('consecutiveFailures singleton', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-singleton-'));
+    tmpDir = await createTrackedTempDir('snap-singleton-');
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   it('Case 2: DEGRADED trigger writes persist file with degradedAt', async () => {

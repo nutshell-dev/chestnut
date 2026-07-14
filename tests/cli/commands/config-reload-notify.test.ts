@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { notifyRunningDaemons } from '../../../src/cli/commands/config.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -35,18 +35,18 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
   let tmpDir: string;
   let originalRoot: string | undefined;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-reload-test-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('chestnut-reload-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     // Ensure chestnut root exists
     fs.mkdirSync(path.join(tmpDir, '.chestnut'), { recursive: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (originalRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = originalRoot;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   it('motion 存活 → reload 消息写入 motion inbox', () => {

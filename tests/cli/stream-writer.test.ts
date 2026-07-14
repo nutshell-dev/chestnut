@@ -4,8 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsp from 'fs/promises';
-import * as os from 'os';
 import * as path from 'path';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { StreamWriter } from '../../src/foundation/stream/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
@@ -15,12 +15,12 @@ describe('StreamWriter', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'sw-test-'));
+    tmpDir = await createTrackedTempDir('sw-test-');
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   it('write() before open does not throw + emits WRITE_AFTER_CLOSE audit (phase 1203)', () => {

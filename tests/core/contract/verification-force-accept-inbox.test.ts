@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { writeForceAcceptInbox } from '../../../src/core/contract/verification-notify.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { VerificationContext } from '../../../src/core/contract/verification-types.js';
@@ -48,16 +48,16 @@ describe('phase 1405 Fix 1: writeForceAcceptInbox', () => {
   let tempDir: string;
   let originalEnv: string | undefined;
 
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1405-fa-inbox-'));
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('phase1405-fa-inbox-');
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (originalEnv === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = originalEnv;
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    await cleanupTempDir(tempDir);
   });
 
   it('writes an inbox file with verdict=passed + force_accepted=true extraField', () => {

@@ -6,7 +6,7 @@ import { auditLookupCommand } from '../../src/cli/commands/audit-lookup.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import * as fsNative from 'fs';  // phase 283: hoist 8 require('fs') calls
-import * as os from 'node:os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -35,24 +35,22 @@ describe('audit CLI motion-aware adaptation (phase 167)', () => {
   let tempDir: string;
   let originalChestnutRoot: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    tempDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tempDir = await createTrackedTempDir('chestnut-test-');
     originalChestnutRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
     if (originalChestnutRoot === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalChestnutRoot;
     }
-    try {
-      fsNative.rmSync(tempDir, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    await cleanupTempDir(tempDir);
   });
 
   function writeMotionAudit(content: string, fileName = 'audit.tsv') {

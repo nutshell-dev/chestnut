@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { Runtime, buildMotionSystemPrompt } from '../../src/core/runtime/index.js';
 import { TestRuntime } from '../helpers/test-runtime.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
@@ -35,7 +35,7 @@ const mockLLMConfig: LLMOrchestratorConfig = {
 async function createTempDir(): Promise<string> {
   // clawDir 必须是 workspace/claws/{name} 结构
   // runtime.ts:125 做 path.resolve(clawDir, '..', '..') 推算 workspaceDir
-  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'motion-test-'));
+  const base = await createTrackedTempDir('motion-test-');
   const clawDir = path.join(base, 'claws', 'motion-test');
   await fs.mkdir(clawDir, { recursive: true });
   return clawDir;
@@ -44,7 +44,7 @@ async function createTempDir(): Promise<string> {
 async function cleanupDir(clawDir: string): Promise<void> {
   // clawDir = base/claws/motion-test，清理 base 根目录
   const base = path.resolve(clawDir, '..', '..');
-  await fs.rm(base, { recursive: true, force: true });
+  await cleanupTempDir(base);
 }
 
 async function createMotionRuntime(options: { clawId: string; clawDir: string; llmConfig: LLMOrchestratorConfig }) {

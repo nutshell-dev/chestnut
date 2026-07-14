@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { summarizeLastExit, readLastExitEvent } from '../../src/daemon/last-exit-summary.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
@@ -11,14 +11,14 @@ describe('summarizeLastExit', () => {
   let auditPath: string;
   let testFs: FileSystem;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'last-exit-test-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('last-exit-test-');
     auditPath = path.join(tmpDir, 'audit.tsv');
     testFs = new NodeFileSystem({ baseDir: tmpDir });
   });
 
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await cleanupTempDir(tmpDir);
   });
 
   function writeAudit(lines: string[]): void {
@@ -136,8 +136,8 @@ describe('summarizeLastExit', () => {
 describe('readLastExitEvent', () => {
   // 基础 reader 行为已被 summarizeLastExit 间接覆盖；
   // 这里补一个直接测试，验证返回结构
-  it('returns parsed event structure', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'last-exit-test-'));
+  it('returns parsed event structure', async () => {
+    const tmpDir = await createTrackedTempDir('last-exit-test-');
     const auditPath = path.join(tmpDir, 'audit.tsv');
     fs.writeFileSync(auditPath, '2026-04-16T10:00:00.000Z\tdaemon_stop\treason=sigterm\textra=col\n');
     const innerFs = new NodeFileSystem({ baseDir: tmpDir });
@@ -148,7 +148,7 @@ describe('readLastExitEvent', () => {
       expect(ev!.type).toBe('daemon_stop');
       expect(ev!.cols).toEqual(['reason=sigterm', 'extra=col']);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      await cleanupTempDir(tmpDir);
     }
   });
 });

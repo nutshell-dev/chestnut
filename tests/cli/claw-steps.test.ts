@@ -6,29 +6,29 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { CliError } from '../../src/cli/errors.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 describe('claw-steps', () => {
   let tmpDir: string;
   let originalRoot: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    tmpDir = await createTrackedTempDir('chestnut-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleLogSpy.mockRestore();
     if (originalRoot === undefined) {
       delete process.env.CHESTNUT_ROOT;
     } else {
       process.env.CHESTNUT_ROOT = originalRoot;
     }
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   function writeCurrentJson(subPath: string, session: unknown) {

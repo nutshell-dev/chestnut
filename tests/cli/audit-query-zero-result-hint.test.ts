@@ -3,9 +3,9 @@ import { Command } from 'commander';
 import { auditQueryCommand } from '../../src/cli/commands/audit-query.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import * as os from 'os';
 import * as path from 'path';
 import * as fsSync from 'fs';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 const shared = vi.hoisted(() => ({ baseDir: '' }));
 
@@ -40,10 +40,10 @@ describe('audit-query 0 result hint std-2 (phase 216 Step D)', () => {
   const originalStderrIsTTY = process.stderr.isTTY;
   let originalExitCode: number | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalExitCode = process.exitCode;
     process.exitCode = undefined;
-    tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'audit-query-hint-'));
+    tmpDir = await createTrackedTempDir('audit-query-hint-');
     shared.baseDir = tmpDir;
     fsSync.mkdirSync(path.join(tmpDir, 'claws', 'test-claw', '.chestnut'), { recursive: true });
     fsSync.writeFileSync(path.join(tmpDir, 'claws', 'test-claw', 'claw.json'), JSON.stringify({ id: 'test-claw', createdAt: new Date().toISOString() }));
@@ -58,13 +58,11 @@ describe('audit-query 0 result hint std-2 (phase 216 Step D)', () => {
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
     Object.defineProperty(process.stderr, 'isTTY', { value: originalStderrIsTTY, configurable: true });
     process.exitCode = originalExitCode;
-    try {
-      fsSync.rmSync(tmpDir, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    await cleanupTempDir(tmpDir);
   });
 
   it('0 result on tty: hint 2 line format + exit code 3', async () => {
@@ -160,10 +158,10 @@ describe('audit-query `--no-hint` commander wire (phase 219 Step A)', () => {
   const originalStderrIsTTY = process.stderr.isTTY;
   let originalExitCode: number | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalExitCode = process.exitCode;
     process.exitCode = undefined;
-    tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'audit-query-hint-wire-'));
+    tmpDir = await createTrackedTempDir('audit-query-hint-wire-');
     shared.baseDir = tmpDir;
     fsSync.mkdirSync(path.join(tmpDir, 'claws', 'test-claw', '.chestnut'), { recursive: true });
     fsSync.writeFileSync(path.join(tmpDir, 'claws', 'test-claw', 'claw.json'), JSON.stringify({ id: 'test-claw', createdAt: new Date().toISOString() }));
@@ -177,13 +175,11 @@ describe('audit-query `--no-hint` commander wire (phase 219 Step A)', () => {
     Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
     Object.defineProperty(process.stderr, 'isTTY', { value: originalStderrIsTTY, configurable: true });
     process.exitCode = originalExitCode;
-    try {
-      fsSync.rmSync(tmpDir, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    await cleanupTempDir(tmpDir);
   });
 
   it('commander --no-X flag shape: --no-hint produces hint=false, not noHint (regression guard)', async () => {

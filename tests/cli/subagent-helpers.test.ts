@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { scanSubagentResults, type SubagentKind } from '../../src/cli/commands/subagent-helpers.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../src/core/spawn-system/constants.js';
@@ -10,11 +10,11 @@ import { TASKS_SYNC_SHADOW_DIR } from '../../src/core/shadow-system/constants.js
 describe('subagent-helpers SubagentKind', () => {
   let tmpDir: string;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subagent-helpers-test-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('subagent-helpers-test-');
   });
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await cleanupTempDir(tmpDir);
   });
 
   it('SubagentKind union 含 shadow 成员（compile-time）', () => {

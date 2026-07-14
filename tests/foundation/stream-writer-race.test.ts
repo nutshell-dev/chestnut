@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as nativePath from 'path';
 import * as nativeFs from 'fs';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { StreamWriter, STREAM_FILE } from '../../src/foundation/stream/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createAuditWriter, type AuditLog } from '../../src/foundation/audit/index.js';
@@ -13,16 +13,16 @@ describe('StreamWriter open() race-safe (phase 1120)', () => {
   let auditPath: string;
   let streamPath: string;
 
-  beforeEach(() => {
-    tempDir = nativeFs.mkdtempSync(nativePath.join(os.tmpdir(), 'stream-race-'));
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('stream-race-');
     fs = new NodeFileSystem({ baseDir: tempDir });
     auditPath = nativePath.join(tempDir, 'audit.tsv');
     audit = createAuditWriter(fs, auditPath);
     streamPath = nativePath.join(tempDir, STREAM_FILE);
   });
 
-  afterEach(() => {
-    nativeFs.rmSync(tempDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
   });
 
   it('normal path: exclusive create empty file + emit WRITER_OPEN_CREATED_EMPTY', () => {

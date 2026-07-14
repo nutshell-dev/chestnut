@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { chatCommand } from '../../../src/cli/commands/claw-chat.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -11,8 +11,8 @@ describe('claw-chat', () => {
   let tmpDir: string;
   let originalRoot: string | undefined;
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-chat-test-'));
+  beforeEach(async () => {
+    tmpDir = await createTrackedTempDir('chestnut-chat-test-');
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
 
@@ -25,10 +25,10 @@ describe('claw-chat', () => {
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (originalRoot === undefined) delete process.env.CHESTNUT_ROOT;
     else process.env.CHESTNUT_ROOT = originalRoot;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await cleanupTempDir(tmpDir);
   });
 
   it('error msg contains Try guidance hint when claw does not exist (phase 981 E-α2)', async () => {
