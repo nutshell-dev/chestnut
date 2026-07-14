@@ -22,15 +22,14 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 0 };
 });
 
-// Mock removePid to throw on demand
+// Mock removePid to simulate failure (returns false and audits)
 vi.mock('../../../src/foundation/process-manager/pid.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/pid.js')>();
   return {
     ...actual,
-    removePid: vi.fn().mockImplementation(async () => {
-      const err = new Error('EACCES') as NodeJS.ErrnoException;
-      err.code = 'EACCES';
-      throw err;
+    removePid: vi.fn().mockImplementation(async (ctx: any, _daemonDir: any, context: any) => {
+      ctx.audit.write('pid_remove_failed', `daemon_dir=${_daemonDir}`, `context=${context}`, 'reason=[EACCES] EACCES permission denied');
+      return false;
     }),
   };
 });
@@ -45,10 +44,9 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
     vi.restoreAllMocks();
 
     const { removePid } = await import('../../../src/foundation/process-manager/pid.js');
-    vi.mocked(removePid).mockImplementation(async () => {
-      const err = new Error('EACCES') as NodeJS.ErrnoException;
-      err.code = 'EACCES';
-      throw err;
+    vi.mocked(removePid).mockImplementation(async (ctx: any, _daemonDir: any, context: any) => {
+      ctx.audit.write('pid_remove_failed', `daemon_dir=${_daemonDir}`, `context=${context}`, 'reason=[EACCES] EACCES permission denied');
+      return false;
     });
 
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -99,8 +97,8 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
     expect(pidRemoveEvents[0]).toEqual(
       expect.arrayContaining([
         'pid_remove_failed',
-        expect.stringContaining(''),
-        expect.stringContaining('context=spawn_retry_overwrite'),
+        expect.stringContaining('daemon_dir='),
+        'context=spawn_retry_overwrite',
         expect.stringContaining('reason=[EACCES]'),
       ]),
     );

@@ -58,7 +58,7 @@ describe('PID file format migration (phase 1023)', () => {
     };
 
     const result = await readPid(ctx, testClawDaemonDir(tempDir, clawId));
-    expect(result).toEqual({ pid: FAKE_LIVE_PID, startTime: undefined });
+    expect(result).toEqual({ status: 'valid', pid: FAKE_LIVE_PID, startTime: undefined });
 
     const legacyEvents = events.filter(
       (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_FILE_LEGACY_FORMAT,
@@ -80,7 +80,7 @@ describe('PID file format migration (phase 1023)', () => {
     await fs.writeFile(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID, startTime: 'Sat May 18 10:30:00 2026' }), 'utf-8');
 
     const result = await readPid(ctx, testClawDaemonDir(tempDir, clawId));
-    expect(result).toEqual({ pid: FAKE_LIVE_PID, startTime: 'Sat May 18 10:30:00 2026' });
+    expect(result).toEqual({ status: 'valid', pid: FAKE_LIVE_PID, startTime: 'Sat May 18 10:30:00 2026' });
   });
 
   it('readPid returns null for invalid content', async () => {
@@ -91,7 +91,7 @@ describe('PID file format migration (phase 1023)', () => {
     await fs.writeFile(pidFile, 'not-a-number', 'utf-8');
 
     const result = await readPid(ctx, testClawDaemonDir(tempDir, clawId));
-    expect(result).toBeNull();
+    expect(result).toEqual({ status: 'corrupt', error: expect.stringContaining('unparseable pid content') });
   });
 
   it('selfWritePid emits JSON with startTime on POSIX', async () => {
