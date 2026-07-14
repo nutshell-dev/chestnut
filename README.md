@@ -141,8 +141,9 @@ Configuration lives in `./.chestnut/config.yaml` (per workspace, relative to the
 ## Contributing
 
 ```bash
-pnpm test:run    # run all tests
-pnpm typecheck   # TypeScript strict check
+pnpm test:run        # run business tests (fast + isolated + integration, excludes infra)
+pnpm test:preflight  # run all tests including infra self-check
+pnpm typecheck       # TypeScript strict check
 ```
 
 ---
