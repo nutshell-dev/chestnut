@@ -45,7 +45,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
   });
 
   function mockWriteExclusiveOnceEEXIST(): void {
-    // phase 1014: spawn 先 acquireLock（writeExclusiveSync daemon.lock）再写 pid。
+    // phase 1014/1017: spawn 先 acquireSpawnLock（writeExclusiveSync daemon.lock.spawn）再写 pid。
     // EEXIST 注入只针对 pid 文件，锁写入正常 fresh 成功（不额外产生 readSync），
     // 保持原有 readSync 调用顺序与 eexist_check 分支语义不变。
     let pidWriteAttempts = 0;

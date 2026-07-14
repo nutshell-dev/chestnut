@@ -216,6 +216,37 @@ describe('spawn lifecycle invariants (Phase 914)', () => {
     expect(await fs.access(pidFile).then(() => true).catch(() => false)).toBe(true);
   });
 
+  it('spawn uses dedicated spawn lock and never touches the lifecycle lock (Phase 1017)', async () => {
+    const { audit } = makeAudit();
+    const clawId = `test-claw-spawn-lock-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const lifecycleLock = path.join(daemonDir, 'status', 'daemon.lock');
+    const spawnLock = path.join(daemonDir, 'status', 'daemon.lock.spawn');
+
+    const ctx: ProcessManagerContext = {
+      fs: nodeFs,
+      audit,
+      isAlive: () => false,
+      isReady: () => true,
+      l1IsAlive: vi.fn().mockReturnValue(true),
+      kill: vi.fn(),
+      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
+      getProcessStartTime: vi.fn().mockReturnValue(undefined),
+    };
+
+    const pid = await spawnProcess(ctx, daemonDir, {
+      command: 'node',
+      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+    });
+
+    expect(pid).toBe(FAKE_LIVE_PID);
+    // 生命周期锁从未被 spawn 窗口占用 → 子进程 assemble 时 acquireLock 不冲突
+    expect(await fs.access(lifecycleLock).then(() => true).catch(() => false)).toBe(false);
+    // spawn 锁在 writeAtomic({pid:real}) 后已释放
+    expect(await fs.access(spawnLock).then(() => true).catch(() => false)).toBe(false);
+  });
+
   it('throws when daemon does not become ready within deadline and kills child', async () => {
     const { audit } = makeAudit();
     const clawId = `test-claw-ready-deadline-${randomUUID()}`;

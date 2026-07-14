@@ -1,4 +1,4 @@
-import { getLockFile } from './paths.js';
+import { getLockFile, getSpawnLockFile } from './paths.js';
 import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from "../node-utils/index.js";
@@ -19,11 +19,11 @@ export type LockReadResult =
   | { status: 'corrupt'; error: string }
   | { status: 'io_error'; error: string };
 
-export function readLock(
+function readLockFile(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
+  lockFile: string,
 ): LockReadResult {
-  const lockFile = getLockFile(ctx, daemonDir);
   try {
     const content = ctx.fs.readSync(lockFile).trim();
     if (content === '') {
@@ -73,6 +73,13 @@ export function readLock(
   }
 }
 
+export function readLock(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+): LockReadResult {
+  return readLockFile(ctx, daemonDir, getLockFile(ctx, daemonDir));
+}
+
 export function readLockPid(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
@@ -82,8 +89,12 @@ export function readLockPid(
   return null;
 }
 
-export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
-  const lockFile = getLockFile(ctx, daemonDir);
+function acquireLockFile(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  lockFile: string,
+  auditCols: string[],
+): void {
   ctx.fs.ensureDirSync(path.dirname(lockFile));
   try {
     const startTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
@@ -93,7 +104,7 @@ export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
     }));
     // phase 584: 加 context=fresh col、与 L101 context=stale_retry 对齐
     // forensic 解析能区分 LOCK_ACQUIRED 的 2 路径 (首次 acquire vs stale 后重试)
-    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, `context=fresh`);
+    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, `context=fresh`, ...auditCols);
     return;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
@@ -149,6 +160,7 @@ export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
       `daemon_dir=${daemonDir}`,
       `pid=${process.pid}`,
       `context=stale_retry`,
+      ...auditCols,
     );
   } catch (retryErr) {
     if ((retryErr as NodeJS.ErrnoException).code === 'EEXIST') {
@@ -161,14 +173,29 @@ export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
   }
 }
 
-export function releaseLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
-  const readLockPidFn = ctx.readLockPid ?? ((id: DaemonDir) => readLockPid(ctx, id));
-  const holder = readLockPidFn(daemonDir);
+export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
+  acquireLockFile(ctx, daemonDir, getLockFile(ctx, daemonDir), []);
+}
+
+// phase 1017: spawn-transition 专用锁（daemon.lock.spawn）。语义与生命周期锁一致
+// （EEXIST 校验持有者、stale reclaim、io_error/corrupt fail-closed），仅锁文件与
+// audit col (lock=spawn) 不同。覆盖 {pid:0} → {pid:real} 窗口，与子 daemon assemble
+// 时 acquireLock（daemon.lock）互不干扰。
+export function acquireSpawnLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
+  acquireLockFile(ctx, daemonDir, getSpawnLockFile(ctx, daemonDir), ['lock=spawn']);
+}
+
+function releaseLockFile(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  lockFile: string,
+  holder: { pid: number; startTime?: ProcessStartTime } | null,
+  auditCols: string[],
+): void {
   if (holder === null || holder.pid !== process.pid) return;
-  const lockFile = getLockFile(ctx, daemonDir);
   try {
     ctx.fs.deleteSync(lockFile);
-    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`);
+    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, ...auditCols);
   } catch (err) {
     if (!isFileNotFound(err)) {
       ctx.audit.write(
@@ -176,7 +203,20 @@ export function releaseLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
         `daemon_dir=${daemonDir}`,
         `op=release`,
         `reason=${formatErr(err)}`,
+        ...auditCols,
       );
     }
   }
+}
+
+export function releaseLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
+  const readLockPidFn = ctx.readLockPid ?? ((id: DaemonDir) => readLockPid(ctx, id));
+  releaseLockFile(ctx, daemonDir, getLockFile(ctx, daemonDir), readLockPidFn(daemonDir), []);
+}
+
+// phase 1017: releaseSpawnLock — 仅当 spawn 锁持有者是本进程时删除（防误删他人锁）
+export function releaseSpawnLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
+  const lockFile = getSpawnLockFile(ctx, daemonDir);
+  const result = readLockFile(ctx, daemonDir, lockFile);
+  releaseLockFile(ctx, daemonDir, lockFile, result.status === 'valid' ? result.holder : null, ['lock=spawn']);
 }

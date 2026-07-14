@@ -69,7 +69,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
       spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
     };
 
-    // phase 1014: spawn 先 acquireLock（writeExclusiveSync daemon.lock）再写 pid。
+    // phase 1014/1017: spawn 先 acquireSpawnLock（writeExclusiveSync daemon.lock.spawn）再写 pid。
     // EEXIST 注入只针对 pid 文件，锁写入正常 fresh 成功；只统计 pid 写入次数。
     let pidWriteCount = 0;
     vi.spyOn(nodeFs, 'writeExclusiveSync').mockImplementation((p: string, c: string) => {

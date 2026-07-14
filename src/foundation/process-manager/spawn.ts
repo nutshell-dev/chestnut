@@ -9,7 +9,7 @@ import { isFileNotFound } from '../fs/index.js';
 import { ProcessListUnavailable } from './errors.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
 import { isReady as checkReady } from './ready.js';
-import { readLock, acquireLock, releaseLock } from './lock.js';
+import { readLock, acquireSpawnLock, releaseSpawnLock } from './lock.js';
 import { readPid, removePid } from './pid.js';
 import type { PidFileContent } from './pid.js';
 import { findProcessesDetailed, commandContainsDaemonDirToken } from './find.js';
@@ -61,13 +61,14 @@ export async function spawnProcess(
   await cleanupOrphans(ctx, daemonDir, options);
   await cleanupLock(ctx, daemonDir);
 
-  // Acquire the exclusive lock to cover the {pid:0} → {pid:real} spawning window,
-  // so a concurrent stop cannot remove the pid:0 sentinel while we write the real
-  // child PID. The lock is released right after writeAtomic({pid:real}) inside
-  // spawnAndAwaitReady (before the ready poll), so the child's own assemble-time
-  // acquireLock (core-infrastructure) does not deadlock. The finally below only
-  // covers error paths that throw before that release.
-  acquireLock(ctx, daemonDir);
+  // Acquire the spawn-transition lock (daemon.lock.spawn — phase 1017, separate from the
+  // daemon lifecycle lock) to cover the {pid:0} → {pid:real} spawning window, so a
+  // concurrent stop cannot remove the pid:0 sentinel while we write the real child PID.
+  // The lock is released right after writeAtomic({pid:real}) inside spawnAndAwaitReady
+  // (before the ready poll) to keep the hold time minimal — the window only needs to
+  // cover the pidfile transition. The finally below only covers error paths that throw
+  // before that release.
+  acquireSpawnLock(ctx, daemonDir);
   try {
     await writePidExclusive(ctx, daemonDir);
 
@@ -75,7 +76,7 @@ export async function spawnProcess(
 
     return await spawnAndAwaitReady(ctx, daemonDir, options, startMs, isAliveByPidFile);
   } finally {
-    releaseLock(ctx, daemonDir);
+    releaseSpawnLock(ctx, daemonDir);
   }
 }
 
@@ -364,10 +365,10 @@ async function spawnAndAwaitReady(
     await ctx.fs.writeAtomic(pidFile, JSON.stringify(pidPayload));
 
     // Release the spawn-window lock now that the real child PID is on disk.
-    // The ready poll below runs outside the lock so the child can acquire its own
-    // lock during assemble (core-infrastructure) without deadlocking. The outer
-    // spawnProcess finally releaseLock is a no-op once this runs.
-    releaseLock(ctx, daemonDir);
+    // The ready poll below runs outside the lock to keep the hold time minimal — the
+    // lock only needs to cover the {pid:0} → {pid:real} transition. The outer
+    // spawnProcess finally releaseSpawnLock is a no-op once this runs.
+    releaseSpawnLock(ctx, daemonDir);
 
     const isReady = ctx.isReady ?? ((id: DaemonDir) => checkReady(ctx, id));
     let ready = isReady(daemonDir);
