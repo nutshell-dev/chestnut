@@ -89,5 +89,4 @@ describe('eslint custom rule: no-silent-catch-outside-allowlist (phase 343)', ()
     ],
   });
 
-  it('rule loaded', () => {});
 });

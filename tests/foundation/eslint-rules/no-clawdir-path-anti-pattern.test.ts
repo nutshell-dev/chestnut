@@ -62,5 +62,4 @@ describe('eslint custom rule: no-clawdir-path-anti-pattern (phase 327)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

@@ -88,5 +88,4 @@ describe('eslint custom rule: typed-emit-cascade-first-line-guard (phase 424)', 
     ],
   });
 
-  it('rule loaded', () => {});
 });

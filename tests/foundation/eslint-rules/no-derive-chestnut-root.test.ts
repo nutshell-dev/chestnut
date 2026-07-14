@@ -34,5 +34,4 @@ describe('eslint custom rule: no-derive-chestnut-root (phase 327)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

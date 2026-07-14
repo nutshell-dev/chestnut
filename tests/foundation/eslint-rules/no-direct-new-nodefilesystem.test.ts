@@ -74,5 +74,4 @@ describe('eslint custom rule: no-direct-new-nodefilesystem (phase 359)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

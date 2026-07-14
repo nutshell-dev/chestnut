@@ -71,5 +71,4 @@ describe('eslint custom rule: no-entry-literal-outside-allowlist (phase 420)', (
     ],
   });
 
-  it('rule loaded', () => {});
 });

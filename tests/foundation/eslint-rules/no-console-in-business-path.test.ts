@@ -64,5 +64,4 @@ describe('eslint custom rule: no-console-in-business-path (phase 340)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

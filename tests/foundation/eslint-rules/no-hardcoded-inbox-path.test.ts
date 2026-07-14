@@ -40,7 +40,4 @@ describe('eslint custom rule: no-hardcoded-inbox-path (phase 315)', () => {
     ],
   });
 
-  it('rule loaded', () => {
-    // dummy test for vitest describe completeness
-  });
 });

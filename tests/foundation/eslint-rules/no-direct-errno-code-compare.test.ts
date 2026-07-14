@@ -40,7 +40,4 @@ describe('eslint custom rule: no-direct-errno-code-compare (phase 312)', () => {
     ],
   });
 
-  it('rule loaded', () => {
-    // dummy test for vitest describe completeness
-  });
 });

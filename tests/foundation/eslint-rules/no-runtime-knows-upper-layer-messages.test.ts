@@ -82,5 +82,4 @@ describe('eslint custom rule: no-runtime-knows-upper-layer-messages (phase 383)'
     ],
   });
 
-  it('rule loaded', () => {});
 });

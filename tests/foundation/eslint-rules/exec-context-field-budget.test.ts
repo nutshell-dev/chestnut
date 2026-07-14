@@ -65,5 +65,4 @@ describe('eslint custom rule: exec-context-field-budget (phase 404)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

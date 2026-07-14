@@ -49,5 +49,4 @@ describe('eslint custom rule: no-perm-management-in-command-tool (phase 322)', (
     ],
   });
 
-  it('rule loaded', () => {});
 });

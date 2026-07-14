@@ -61,5 +61,4 @@ describe('eslint custom rule: no-runtime-current-state-getter (phase 353)', () =
     ],
   });
 
-  it('rule loaded', () => {});
 });

@@ -148,5 +148,4 @@ describe('eslint custom rule: no-silent-x-without-allowed-pattern (phase 349)', 
     ],
   });
 
-  it('rule loaded', () => {});
 });

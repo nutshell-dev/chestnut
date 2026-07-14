@@ -53,5 +53,4 @@ describe('eslint custom rule: no-filename-tag (phase 382)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

@@ -42,7 +42,4 @@ describe('eslint custom rule: no-direct-fs-writeatomic-to-inbox (phase 315)', ()
     ],
   });
 
-  it('rule loaded', () => {
-    // dummy test for vitest describe completeness
-  });
 });

@@ -34,7 +34,4 @@ describe('eslint custom rule: no-direct-process-exit-in-cli (phase 312)', () => 
     ],
   });
 
-  it('rule loaded', () => {
-    // dummy test for vitest describe completeness
-  });
 });

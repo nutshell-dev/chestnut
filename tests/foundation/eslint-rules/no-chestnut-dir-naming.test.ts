@@ -69,5 +69,4 @@ describe('eslint custom rule: no-chestnut-dir-naming (phase 378)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

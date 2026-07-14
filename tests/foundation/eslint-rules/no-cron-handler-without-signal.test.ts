@@ -40,5 +40,4 @@ describe('eslint custom rule: no-cron-handler-without-signal (phase 423)', () =>
     ],
   });
 
-  it('rule loaded', () => {});
 });

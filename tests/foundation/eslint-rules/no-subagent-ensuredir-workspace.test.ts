@@ -74,5 +74,4 @@ describe('eslint custom rule: no-subagent-ensuredir-workspace (phase 402)', () =
     ],
   });
 
-  it('rule loaded', () => {});
 });

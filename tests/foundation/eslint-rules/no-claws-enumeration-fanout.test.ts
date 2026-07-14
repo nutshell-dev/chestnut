@@ -83,5 +83,4 @@ describe('eslint custom rule: no-claws-enumeration-fanout (phase 357)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

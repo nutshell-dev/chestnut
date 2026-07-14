@@ -109,7 +109,4 @@ describe('eslint custom rule: no-bare-tempdir-in-tests (phase 998)', () => {
     ],
   });
 
-  it('rule loaded', () => {
-    // dummy test for vitest describe completeness
-  });
 });

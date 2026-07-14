@@ -58,5 +58,4 @@ describe('eslint custom rule: formatter-parity-require-constants (phase 329)', (
     ],
   });
 
-  it('rule loaded', () => {});
 });

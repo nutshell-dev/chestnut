@@ -80,5 +80,4 @@ describe('eslint custom rule: foundation-no-business-role-literal (phase 330 + p
     ],
   });
 
-  it('rule loaded', () => {});
 });

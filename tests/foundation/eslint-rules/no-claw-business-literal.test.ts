@@ -102,5 +102,4 @@ describe('eslint custom rule: no-claw-business-literal (phase 377)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

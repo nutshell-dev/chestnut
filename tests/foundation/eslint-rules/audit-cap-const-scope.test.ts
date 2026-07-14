@@ -53,5 +53,4 @@ describe('eslint custom rule: audit-cap-const-scope (phase 330)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

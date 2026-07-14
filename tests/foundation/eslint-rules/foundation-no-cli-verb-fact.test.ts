@@ -51,5 +51,4 @@ describe('eslint custom rule: foundation-no-cli-verb-fact (phase 330)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

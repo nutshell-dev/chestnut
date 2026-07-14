@@ -34,7 +34,7 @@
 
 import { existsSync, statSync, readdirSync, rmSync } from 'node:fs';
 import * as fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -79,7 +79,7 @@ function runBuild(cwd: string, reason: string): void {
 }
 
 const RUN_ROOT_PREFIX = 'chestnut-run-';
-const STALE_AGE_MS = 60 * 60 * 1000; // 1 hour
+const STALE_AGE_MS = 10 * 60 * 1000; // 10 minutes
 
 export interface RunManifest {
   invocationId: string;
@@ -166,14 +166,25 @@ function isOwnerAlive(manifest: RunManifest): boolean {
   }
 
   // 2. worktree 是否仍被当前 git 仓库注册
-  // 如果 worktree 路径仍属于同一 repo，保守认为 owner 可能还活着，不回收。
+  // phase 1008: 用 git worktree list 判断路径是否仍注册，避免主仓库目录永远存在导致 PID 复用时误认存活。
   try {
-    if (fs.statSync(manifest.worktree).isDirectory()) {
-      // 保守策略：只要 worktree 目录仍存在，就认为可能还有并行 invocation
-      return true;
+    const list = execSync('git worktree list --porcelain', {
+      cwd: manifest.worktree,
+      encoding: 'utf-8',
+      timeout: 2000,
+    });
+    const registered = list
+      .split('\n')
+      .filter(line => line.startsWith('worktree '))
+      .map(line => line.slice('worktree '.length));
+    if (registered.includes(manifest.worktree)) {
+      return true; // worktree 仍注册 → 可能还有并行 invocation
     }
   } catch {
-    // worktree 目录已不存在 → 继续检查 mtime
+    // git 命令失败 → 保守：目录存在即认为可能存活
+    try {
+      if (fs.statSync(manifest.worktree).isDirectory()) return true;
+    } catch { /* fall through */ }
   }
 
   return false;

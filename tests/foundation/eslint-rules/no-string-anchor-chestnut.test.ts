@@ -29,5 +29,4 @@ describe('eslint custom rule: no-string-anchor-chestnut (phase 327)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

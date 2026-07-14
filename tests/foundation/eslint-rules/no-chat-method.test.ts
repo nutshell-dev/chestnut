@@ -87,5 +87,4 @@ describe('eslint custom rule: no-chat-method (phase 377)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

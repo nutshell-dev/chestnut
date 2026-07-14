@@ -37,7 +37,4 @@ describe('eslint custom rule: no-string-sniff-error (phase 312)', () => {
     ],
   });
 
-  it('rule loaded', () => {
-    // dummy test for vitest describe completeness
-  });
 });

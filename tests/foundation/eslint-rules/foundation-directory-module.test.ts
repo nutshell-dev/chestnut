@@ -60,5 +60,4 @@ describe('eslint custom rule: foundation-directory-module (phase 717)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });

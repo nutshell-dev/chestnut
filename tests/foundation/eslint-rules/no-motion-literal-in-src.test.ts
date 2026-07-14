@@ -57,5 +57,4 @@ describe('eslint custom rule: no-motion-literal-in-src (phase 336)', () => {
     ],
   });
 
-  it('rule loaded', () => {});
 });
