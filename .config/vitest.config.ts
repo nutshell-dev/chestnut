@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 124 file (sync 2026-07-11 / phase 902 added phase902 mock)
+ * 数量: 112 file (sync 2026-07-14 / phase 1023 碎片合并: -26 +10)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -63,43 +63,37 @@ const VI_MOCK_FILES = [
   // 'tests/cli/stop-orphan-cleanup-audit.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext.
   // 'tests/cli/watchdog.test.ts',
-  'tests/core/async-task-system/cancel-pending-corrupt.test.ts',
+  // phase 1023: cancel-pending-corrupt 等 5 文件合并入 cancel-invariants；
+  // task-recovery-phase872/874/875/904/989 合并入 task-recovery-invariants；
+  // phase879/881/882 合并入 phase-messaging-invariants；
+  // phase883/884/885/905 合并入 dispatch-resilience-invariants；
+  // phase886/887/889/902 合并入 migration-recovery-invariants
+  'tests/core/async-task-system/cancel-invariants.test.ts',  // vi.mock file-watcher
+  'tests/core/async-task-system/task-recovery-invariants.test.ts',  // vi.mock result-delivery + process-exec
+  'tests/core/async-task-system/phase-messaging-invariants.test.ts',  // vi.mock messaging
+  'tests/core/async-task-system/dispatch-resilience-invariants.test.ts',  // vi.mock result-delivery
+  'tests/core/async-task-system/migration-recovery-invariants.test.ts',  // vi.mock result-delivery
   'tests/core/async-task-system/race-deadletter.test.ts',
   'tests/core/async-task-system/sent-marker-idempotency.test.ts',
   'tests/core/async-task-system/silent-catch.test.ts',
   'tests/core/async-task-system/task-recovery-corrupt.test.ts',
-  'tests/core/async-task-system/phase879.test.ts',  // phase 879: vi.mock messaging
-  'tests/core/async-task-system/task-recovery-phase989.test.ts',
-  'tests/core/async-task-system/task-recovery-phase872.test.ts',  // phase 872: vi.mock result-delivery
-  'tests/core/async-task-system/task-recovery-phase874.test.ts',  // phase 874: vi.mock result-delivery
-  'tests/core/async-task-system/task-recovery-phase875.test.ts',  // phase 875: vi.mock result-delivery
-  'tests/core/async-task-system/phase881.test.ts',  // phase 881: vi.mock messaging
-  'tests/core/async-task-system/phase882.test.ts',  // phase 882: vi.mock messaging
-  'tests/core/async-task-system/phase883.test.ts',  // phase 883: vi.mock result-delivery
-  'tests/core/async-task-system/phase885.test.ts',  // phase 885: vi.mock result-delivery
-  'tests/core/async-task-system/phase886.test.ts',  // phase 886: vi.mock result-delivery
-  'tests/core/async-task-system/phase887.test.ts',  // phase 887: vi.mock result-delivery
-  'tests/core/async-task-system/phase889.test.ts',  // phase 889: vi.mock result-delivery
-  'tests/core/async-task-system/phase902.test.ts',  // phase 902: vi.mock result-delivery
-  'tests/core/async-task-system/phase905.test.ts',  // phase 905: vi.mock result-delivery
   'tests/core/async-task-system/phase906.test.ts',  // phase 906: vi.mock result-delivery
-  'tests/core/async-task-system/task-recovery-phase904.test.ts',  // phase 904: vi.mock result-delivery + process-exec
   // phase 1352 reverted (post-merge fix): spawn tool extraction conflicted with phase 1332
   // builtins.test.ts now has vi.hoisted only (mockSchedule) → stays in fast project
   // phase 1353: builtins-slow.test.ts moved to fast (dead vi.mock removed)
   // phase 118 (SHA <TBD>): EvolutionSystemDeps DI 复用替 vi.mock skill-system pattern
   // 'tests/core/contract-review-request.test.ts',
-  'tests/core/contract/archive-race.test.ts',
-  'tests/core/contract/audit-completed-single-emit.test.ts',
-  'tests/core/contract/cancel-save-before-abort.test.ts',
+  // phase 1023: archive-race/audit-completed-single-emit/cancel-save-before-abort 等
+  // 10 文件合并入 archive/boot/dispose/lifecycle/lock-invariants
+  'tests/core/contract/archive-invariants.test.ts',  // vi.mock constants
+  'tests/core/contract/boot-invariants.test.ts',  // vi.mock constants
+  'tests/core/contract/dispose-invariants.test.ts',  // vi.mock constants + verifier-job
+  'tests/core/contract/lifecycle-invariants.test.ts',  // vi.mock constants
+  'tests/core/contract/lock-invariants.test.ts',  // vi.mock constants (5/100)
   // phase 87: verifier-job DI 替 vi.mock pattern、2 测试不需 module registry isolation、移 fast project。
   // 'tests/core/contract/cancel-signal-propagation.test.ts',
   // 'tests/core/contract/contract-system-close.test.ts',
-  'tests/core/contract/lifecycle-orphan-lock.test.ts',
-  'tests/core/contract/lifecycle-race.test.ts',
-  'tests/core/contract/lifecycle.test.ts',
   'tests/core/contract/lock.test.ts',
-  'tests/core/contract/pause-abort-verifier.test.ts',
   'tests/core/event-loop/event-loop.test.ts',  // phase 783: vi.mock constants (LLM retry delay)
   // phase 102 (SHA fb9764d0): LockContext + VerificationContext DI 替 vi.mock pattern。
   // 'tests/core/contract/verification.test.ts',
@@ -239,9 +233,6 @@ const VI_MOCK_FILES = [
   'tests/cli/stop-orphan-cleanup-audit.test.ts',
   'tests/cli/stop-orphan-watchdog-sweep.test.ts',
   'tests/cli/watchdog.test.ts',
-  'tests/core/contract/dispose-await-verifier.test.ts',
-  'tests/core/contract/lock-retry-jitter.test.ts',
-  'tests/core/contract/mark-crashed.test.ts',
   'tests/core/contract_manager_llm.test.ts',
   'tests/core/subagent/agent-tool-call-input-audit.test.ts',
   'tests/daemon/interrupt-watcher.test.ts',
