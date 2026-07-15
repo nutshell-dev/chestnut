@@ -13,12 +13,6 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-ma
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
-// Mock constants to eliminate sleep delays
-vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SIGKILL_DEAD_VERIFY_GRACE_MS: 0 };
-});
-
 describe('stopProcess Phase 1003 guards', () => {
   let tempDir: string;
   let nodeFs: NodeFileSystem;

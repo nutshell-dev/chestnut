@@ -13,16 +13,16 @@ const ANTI_HANG_DEADLINE_MS = 2000;
 // Capture watcher callback for manual trigger
 let capturedCallback: ((ev: WatchEvent) => void) | null = null;
 
-vi.mock('../../src/foundation/file-watcher/index.js', () => ({
-  createWatcher: vi.fn((_path: string, callback: (ev: WatchEvent) => void) => {
+function createMockWatcher(createWatcher: ReturnType<typeof vi.fn>) {
+  createWatcher.mockImplementation((_path: string, callback: (ev: WatchEvent) => void) => {
     capturedCallback = callback;
     return {
       close: vi.fn().mockResolvedValue(undefined),
       isActive: () => true,
       getPath: () => _path,
     };
-  }),
-}));
+  });
+}
 
 function createMockFs(opts: {
   sizes: number[];
@@ -72,8 +72,12 @@ function createMockFs(opts: {
 }
 
 describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
+  let createWatcher: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     capturedCallback = null;
+    createWatcher = vi.fn();
+    createMockWatcher(createWatcher);
     vi.clearAllMocks();
   });
 
@@ -100,7 +104,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     });
 
     const { audit } = makeAudit();
-    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit);
+    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit, { createWatcher });
 
     // start() sets offset = file size = 0
     reader.start();
@@ -134,7 +138,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
 
     const { audit } = makeAudit();
     const events: unknown[] = [];
-    const reader = createStreamReader(fs, 'stream.jsonl', (ev) => events.push(ev), audit);
+    const reader = createStreamReader(fs, 'stream.jsonl', (ev) => events.push(ev), audit, { createWatcher });
 
     reader.start();
 
@@ -155,7 +159,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     });
 
     const { audit } = makeAudit();
-    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit);
+    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit, { createWatcher });
 
     reader.start();
 
@@ -185,7 +189,6 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     //
     // For the "reverse" we simply assert the expected 2x count; if the guard
     // were removed this count would be higher (or offset would be corrupted).
-    // This test serves as the baseline that the guard is working.
 
     const fs = createMockFs({
       sizes: [0, 8, 16],
@@ -193,7 +196,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     });
 
     const { audit } = makeAudit();
-    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit);
+    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit, { createWatcher });
     reader.start();
 
     const p1 = capturedCallback!({ type: 'change', path: 'stream.jsonl' });
@@ -217,7 +220,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     });
 
     const { audit } = makeAudit();
-    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit);
+    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit, { createWatcher });
     reader.start();
 
     const p1 = capturedCallback!({ type: 'change', path: 'stream.jsonl' });
@@ -241,7 +244,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     });
 
     const { audit } = makeAudit();
-    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit);
+    const reader = createStreamReader(fs, 'stream.jsonl', vi.fn(), audit, { createWatcher });
     reader.start();
 
     const readPromise = capturedCallback!({ type: 'change', path: 'stream.jsonl' });

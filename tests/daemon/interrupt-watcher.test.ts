@@ -12,16 +12,11 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { createInterruptWatcher } from '../../src/daemon/interrupt-watcher.js';
+import type { Watcher } from '../../src/foundation/file-watcher/index.js';
 
 interface MockFs {
   deleteSync: ReturnType<typeof vi.fn>;
 }
-
-vi.mock('../../src/foundation/file-watcher/index.js', () => ({
-  createWatcher: vi.fn(),
-}));
-
-import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 
 describe('createInterruptWatcher (phase 361 event-driven)', () => {
   function makeFs(): MockFs {
@@ -30,8 +25,17 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     };
   }
 
-  function captureCallback(): (event: { type: string; path: string }) => void {
-    const calls = (createWatcher as ReturnType<typeof vi.fn>).mock.calls;
+  function makeCreateWatcher() {
+    return vi.fn((_path: string, callback: (ev: { type: string; path: string }) => void) => {
+      return {
+        close: vi.fn(),
+        _callback: callback,
+      } as unknown as Watcher;
+    });
+  }
+
+  function captureCallback(createWatcher: ReturnType<typeof makeCreateWatcher>): (event: { type: string; path: string }) => void {
+    const calls = createWatcher.mock.calls;
     return calls[calls.length - 1][1];
   }
 
@@ -39,16 +43,17 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     const agentFs = makeFs();
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const createWatcher = makeCreateWatcher();
 
-    (createWatcher as ReturnType<typeof vi.fn>).mockReturnValue({ close: vi.fn() });
     createInterruptWatcher({
       agentFs: agentFs as never,
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      createWatcher,
     });
 
-    const callback = captureCallback();
+    const callback = captureCallback(createWatcher);
     callback({ type: 'add', path: '/test/agent/interrupt' });
 
     expect(agentFs.deleteSync).toHaveBeenCalledWith('interrupt');
@@ -65,16 +70,17 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     });
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const createWatcher = makeCreateWatcher();
 
-    (createWatcher as ReturnType<typeof vi.fn>).mockReturnValue({ close: vi.fn() });
     createInterruptWatcher({
       agentFs: agentFs as never,
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      createWatcher,
     });
 
-    const callback = captureCallback();
+    const callback = captureCallback(createWatcher);
     callback({ type: 'add', path: '/test/agent/interrupt' });
 
     expect(onInterrupt).not.toHaveBeenCalled();
@@ -90,16 +96,17 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     });
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const createWatcher = makeCreateWatcher();
 
-    (createWatcher as ReturnType<typeof vi.fn>).mockReturnValue({ close: vi.fn() });
     createInterruptWatcher({
       agentFs: agentFs as never,
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      createWatcher,
     });
 
-    const callback = captureCallback();
+    const callback = captureCallback(createWatcher);
     callback({ type: 'add', path: '/test/agent/interrupt' });
 
     expect(onInterrupt).not.toHaveBeenCalled();
@@ -111,16 +118,17 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     const agentFs = makeFs();
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const createWatcher = makeCreateWatcher();
 
-    (createWatcher as ReturnType<typeof vi.fn>).mockReturnValue({ close: vi.fn() });
     createInterruptWatcher({
       agentFs: agentFs as never,
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      createWatcher,
     });
 
-    const callback = captureCallback();
+    const callback = captureCallback(createWatcher);
     callback({ type: 'change', path: '/test/agent/interrupt' });
 
     expect(agentFs.deleteSync).toHaveBeenCalledWith('interrupt');
@@ -131,16 +139,17 @@ describe('createInterruptWatcher (phase 361 event-driven)', () => {
     const agentFs = makeFs();
     const onInterrupt = vi.fn();
     const onError = vi.fn();
+    const createWatcher = makeCreateWatcher();
 
-    (createWatcher as ReturnType<typeof vi.fn>).mockReturnValue({ close: vi.fn() });
     createInterruptWatcher({
       agentFs: agentFs as never,
       agentDir: '/test/agent',
       onInterrupt,
       onError,
+      createWatcher,
     });
 
-    const callback = captureCallback();
+    const callback = captureCallback(createWatcher);
     callback({ type: 'unlink', path: '/test/agent/interrupt' });
 
     expect(agentFs.deleteSync).not.toHaveBeenCalled();

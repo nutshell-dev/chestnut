@@ -18,7 +18,7 @@ import type { FileSystem } from '../fs/index.js';
 import { formatErr } from "../node-utils/index.js";
 import type { StreamEvent } from './types.js';
 import type { AuditLog } from '../audit/index.js';
-import { createWatcher, type Watcher } from '../file-watcher/index.js';
+import { createWatcher, type Watcher, type WatcherFactory } from '../file-watcher/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 import { StringDecoder } from 'node:string_decoder';
 
@@ -109,7 +109,7 @@ export function createStreamReader(
   streamPath: string,
   onEvent: (event: StreamEvent) => void,
   audit: AuditLog,
-  options?: { persistent?: boolean; onReady?: () => void },
+  options?: { persistent?: boolean; onReady?: () => void; createWatcher?: WatcherFactory },
 ): StreamReader {
   let watcher: Watcher | null = null;
   let offset = 0;
@@ -262,7 +262,8 @@ export function createStreamReader(
           )
         );
       }
-      watcher = createWatcher(
+      const watcherFactory = options?.createWatcher ?? createWatcher;
+      watcher = watcherFactory(
         fs.resolve(streamPath),
         async (ev) => {
           if (ev.type === 'add' || ev.type === 'change') {

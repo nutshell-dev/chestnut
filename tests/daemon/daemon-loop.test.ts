@@ -19,14 +19,7 @@ import type { EventLoop } from '../../src/core/event-loop/index.js';
 import type { Watcher, WatchEvent } from '../../src/foundation/file-watcher/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 
-vi.mock('../../src/core/event-loop/constants.js', async () => {
-  const actual = await vi.importActual('../../src/core/event-loop/constants.js');
-  return {
-    ...actual,
-    LLM_RETRY_INITIAL_DELAY_MS: 10,
-    LLM_RETRY_MAX_DELAY_MS: 50,
-  };
-});
+
 
 /**
  * 给 chokidar watcher 完成内部 fs.watch 注册 / ready 触发的 budget.

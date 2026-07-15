@@ -20,13 +20,10 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import { FileNotFoundError } from '../../../src/foundation/fs/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
-// Mock constants to eliminate sleep delays
-vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
-});
-
 // spawnDetached injected via ctx (phase 106 DI hygiene)
+
+/** Delay before writing the ready marker to simulate a slow daemon boot (ms). */
+const READY_MARKER_DELAY_MS = 50;
 
 /**
  * ready marker — spawn poll predicate 切换 verify (phase 1114，phase 1317 升级 event-driven)
@@ -67,7 +64,7 @@ describe('ready-spawn-integration', () => {
         const statusDir = path.join(tempDir, 'claws', clawId, 'status');
         await fs.mkdir(statusDir, { recursive: true });
         await fs.writeFile(path.join(statusDir, 'ready'), JSON.stringify({ pid: process.pid }), 'utf-8');
-      }, 50);
+      }, READY_MARKER_DELAY_MS);
 
       const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
         command: 'node',

@@ -160,7 +160,6 @@ const VI_MOCK_FILES = [
   // 'tests/foundation/process-manager/ready-stale-cleanup-narrow.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
   // 'tests/foundation/process-manager/ready.test.ts',
-  'tests/foundation/process-manager/ready-invariants.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
   // 'tests/foundation/process-manager/spawn-duration-metric.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
@@ -183,9 +182,7 @@ const VI_MOCK_FILES = [
   // OS-bound chokidar event 5000ms 超风险。task.test.ts 改归 fast project。
   // 注释保留作历史 + 回滚锚。
   // 'tests/core/task.test.ts',
-  'tests/foundation/process-manager/stop.test.ts',
   'tests/foundation/spawn-defaults.test.ts',
-  'tests/foundation/stream-reader-race.test.ts',
   'tests/foundation/misc-invariants.test.ts',
   'tests/watchdog/cron-crash-invariants.test.ts',
   'tests/watchdog/shutdown-invariants.test.ts',
@@ -210,7 +207,6 @@ const VI_MOCK_FILES = [
   'tests/cli/watchdog.test.ts',
   'tests/core/contract_manager_llm.test.ts',
   'tests/core/subagent/agent-tool-call-input-audit.test.ts',
-  'tests/daemon/interrupt-watcher.test.ts',
   'tests/daemon/idempotent-signal-handlers.test.ts',
   'tests/foundation/audit/fallback-drop-observability.test.ts',
   'tests/foundation/audit/multi-file-concurrent-write.test.ts',
