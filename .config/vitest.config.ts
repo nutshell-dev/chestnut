@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 110 file (sync 2026-07-14 / phase 1023 碎片合并: -26 +10)
+ * 数量: 111 file (sync 2026-07-14 / phase 1023 碎片合并: -26 +10)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -179,6 +179,7 @@ const VI_MOCK_FILES = [
   // 'tests/foundation/process-manager/ready-stale-cleanup-narrow.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
   // 'tests/foundation/process-manager/ready.test.ts',
+  'tests/foundation/process-manager/ready-invariants.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
   // 'tests/foundation/process-manager/spawn-duration-metric.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
