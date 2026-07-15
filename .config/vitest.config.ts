@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 112 file (sync 2026-07-14 / phase 1023 碎片合并: -26 +10)
+ * 数量: 110 file (sync 2026-07-14 / phase 1023 碎片合并: -26 +10)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -154,14 +154,12 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/writer-fallback-origin.test.ts',
   'tests/foundation/audit/writer-fallback.test.ts',
   'tests/foundation/fs.test.ts',
-  'tests/foundation/llm-orchestrator/all-providers-context-exceeded-emit.test.ts',
-  'tests/foundation/llm-orchestrator/hedge-post-first-chunk-failure.test.ts',
+  'tests/foundation/llm-orchestrator/hedge-cleanup-invariants.test.ts',
   'tests/foundation/llm-orchestrator/hedge-primary-success-race-lost.test.ts',
   'tests/foundation/llm-orchestrator/hedge-state-machine-cluster.test.ts',
   'tests/foundation/llm-orchestrator/hedge.test.ts',
-  'tests/foundation/llm-orchestrator/merge-signals-cleanup.test.ts',
+  'tests/foundation/llm-orchestrator/orchestrator-misc-invariants.test.ts',
   'tests/foundation/llm-orchestrator/orchestrator.test.ts',  // phase 896: vi.mock anthropic adapter
-  'tests/foundation/llm-orchestrator/timeout-distinction.test.ts',
   'tests/foundation/llm-service.test.ts',
   'tests/foundation/llm.test.ts',
   'tests/foundation/llm-provider/anthropic-adapter.test.ts',  // phase 862: vi.mock @anthropic-ai/sdk
