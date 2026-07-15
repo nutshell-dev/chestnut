@@ -22,14 +22,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 
-vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
-  return {
-    ...actual,
-    LOCK_MAX_RETRIES: 5,
-    LOCK_RETRY_DELAY_MS: 100,
-  };
-});
+
 
 /**
  * Phase 1325 — lock retry jitter + per-retry audit emit
@@ -83,7 +76,7 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
     };
 
     await expect(
-      acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true) }, '/tmp/test.lock')
+      acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true), lockMaxRetries: 5, lockRetryDelayMs: 100 }, '/tmp/test.lock')
     ).rejects.toThrow(/Failed to acquire lock after/);
 
     // 5 retries → 4 delays → 4 audit emits
@@ -123,7 +116,7 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
 
     // 10 concurrent acquireLock on different lock paths
     const promises = Array.from({ length: 10 }, (_, i) =>
-      acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true) }, `/tmp/test-${i}.lock`).catch(() => {
+      acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true), lockMaxRetries: 5, lockRetryDelayMs: 100 }, `/tmp/test-${i}.lock`).catch(() => {
         // expected to fail
       })
     );
@@ -180,7 +173,7 @@ describe('LockContentionExhaustedError (phase 67)', () => {
     const contractDirFn = vi.fn().mockImplementation(() => {
       return Promise.resolve(dirs[callCount++ % dirs.length]);
     });
-    const ctx = { fs: nodeFs, audit: mockAudit as any };
+    const ctx = { fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 5, lockRetryDelayMs: 100 };
 
     await expect(lockContract(ctx, 'c1', contractDirFn)).rejects.toThrow(LockContentionExhaustedError);
   });
@@ -195,7 +188,7 @@ describe('LockContentionExhaustedError (phase 67)', () => {
     const contractDirFn = vi.fn().mockImplementation(() => {
       return Promise.resolve(dirs[callCount++ % dirs.length]);
     });
-    const ctx = { fs: nodeFs, audit: mockAudit as any };
+    const ctx = { fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 5, lockRetryDelayMs: 100 };
 
     try {
       await lockContract(ctx, 'c1', contractDirFn);
@@ -236,7 +229,7 @@ describe('lock-contract-atomic', () => {
   describe('lockContract (phase 1362)', () => {
     it('happy path: contractDir return dir → acquireLock → re-verify same → return helper', async () => {
       const contractDirFn = vi.fn().mockResolvedValue('active');
-      const ctx = { fs: nodeFs, audit: mockAudit as any };
+      const ctx = { fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 5, lockRetryDelayMs: 100 };
 
       const result = await lockContract(ctx, 'c1', contractDirFn);
 
@@ -261,7 +254,7 @@ describe('lock-contract-atomic', () => {
       const contractDirFn = vi.fn().mockImplementation(() => {
         return Promise.resolve(dirs[callCount++]);
       });
-      const ctx = { fs: nodeFs, audit: mockAudit as any };
+      const ctx = { fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 5, lockRetryDelayMs: 100 };
 
       const result = await lockContract(ctx, 'c1', contractDirFn);
 
@@ -323,6 +316,8 @@ describe('lock-contract-atomic', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+        lockMaxRetries: 5,
+        lockRetryDelayMs: 100,
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),});
 

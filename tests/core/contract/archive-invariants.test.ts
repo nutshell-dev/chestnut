@@ -23,14 +23,7 @@ import { acquireLock, releaseLock } from '../../../src/core/contract/lock.js';  
 import { listArchiveContracts } from '../../../src/core/contract/persistence.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
-vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
-  return {
-    ...actual,
-    LOCK_MAX_RETRIES: 3,
-    LOCK_RETRY_DELAY_MS: 10,
-  };
-});
+
 
 /**
  * moveContractToArchive lock acquire (phase 860 / P0-B)
@@ -55,6 +48,8 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });

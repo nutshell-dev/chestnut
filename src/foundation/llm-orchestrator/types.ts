@@ -40,6 +40,8 @@ export interface LLMOrchestratorConfig {
   retryDelayMs: number;
   events: LLMEventSink;
   circuitBreaker?: { failureThreshold: number; resetTimeoutMs: number };
+  /** phase 1028: AnthropicAdapter factory DI seam — tests inject mock adapter, production defaults to real adapter */
+  createAnthropicAdapter?: (config: ProviderConfig) => ProviderAdapter;
 }
 
 /**

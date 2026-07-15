@@ -12,26 +12,14 @@ import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit
 import { LLMNetworkError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type {
   ProviderAdapter,
+  ProviderConfig,
   StreamChunk,
   LLMEventSink,
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
 
-vi.mock('../../../src/foundation/llm-provider/anthropic.js', () => ({
-  AnthropicAdapter: class MockAnthropicAdapter {
-    name = 'mock-anthropic';
-    model = 'mock-model';
-    constructor(public config: any) {}
-    async call() {
-      return { content: [{ type: 'text', text: 'mock response' }], stop_reason: 'end_turn' };
-    }
-    async *stream() {
-      yield { type: 'text_delta', delta: 'mock chunk' };
-      yield { type: 'done' };
-    }
-  },
-}));
+
 
 /**
  * Hedge drain post-first-chunk failure — reverse test for phase 903 B2
@@ -91,6 +79,10 @@ describe('hedge-post-first-chunk-failure', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    };
     const service = new LLMOrchestratorImpl({
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
@@ -98,9 +90,8 @@ describe('hedge-post-first-chunk-failure', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = fallbacks;
     return service;
   }
 
@@ -243,6 +234,10 @@ describe('hedge-double-fail-generator-cleanup', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    };
     const service = new LLMOrchestratorImpl({
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
@@ -250,9 +245,8 @@ describe('hedge-double-fail-generator-cleanup', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = fallbacks;
     return service;
   }
 
@@ -417,6 +411,10 @@ describe('hedge-bwins-cleanup', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    };
     const service = new LLMOrchestratorImpl({
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
@@ -424,9 +422,8 @@ describe('hedge-bwins-cleanup', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = fallbacks;
     return service;
   }
 

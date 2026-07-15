@@ -26,6 +26,7 @@ import {
 import { createLLMAuditSink } from '../../../src/assembly/llm-audit-sink.js';
 import type {
   ProviderAdapter,
+  ProviderConfig,
   StreamChunk,
   LLMEventSink,
   LLMEvent,
@@ -33,20 +34,7 @@ import type {
 } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
-vi.mock('../../../src/foundation/llm-provider/anthropic.js', () => ({
-  AnthropicAdapter: class MockAnthropicAdapter {
-    name = 'mock-anthropic';
-    model = 'mock-model';
-    constructor(public config: any) {}
-    async call() {
-      return { content: [{ type: 'text', text: 'mock response' }], stop_reason: 'end_turn' };
-    }
-    async *stream() {
-      yield { type: 'text_delta', delta: 'mock chunk' };
-      yield { type: 'done' };
-    }
-  },
-}));
+
 
 /**
  * Phase 1013 E.1: breaker_opened transition fire audit
@@ -184,8 +172,8 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
+        createAnthropicAdapter: () => primary as any,
       });
-      (service as any).primary = primary;
 
       await expect(
         service.call({ messages: [], hardTimeoutMs: 50 }),
@@ -226,8 +214,8 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: sink,
+        createAnthropicAdapter: () => primary as any,
       });
-      (service as any).primary = primary;
 
       const chunks: StreamChunk[] = [];
       try {
@@ -264,8 +252,8 @@ describe('timeout-distinction', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
+        createAnthropicAdapter: () => primary as any,
       });
-      (service as any).primary = primary;
 
       const chunks: StreamChunk[] = [];
       for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 100 })) {
@@ -309,6 +297,10 @@ describe('all-providers-context-exceeded-emit', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    };
     const service = new LLMOrchestratorImpl({
       primary: { name: primary.name, apiKey: 'test', model: primary.model, maxTokens: 1024, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, maxTokens: 1024, apiFormat: 'anthropic' as const })),
@@ -316,9 +308,8 @@ describe('all-providers-context-exceeded-emit', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = fallbacks;
     return service;
   }
 
@@ -491,8 +482,8 @@ describe('merge-signals-cleanup', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
+        createAnthropicAdapter: () => primary as any,
       });
-      (service as any).primary = primary;
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
 
@@ -524,8 +515,8 @@ describe('merge-signals-cleanup', () => {
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
+        createAnthropicAdapter: () => primary as any,
       });
-      (service as any).primary = primary;
 
       const signal = new TrackedAbortSignal() as unknown as AbortSignal;
 
@@ -624,6 +615,10 @@ describe('race-loser-cleanup', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    };
     const service = new LLMOrchestratorImpl({
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
@@ -631,9 +626,8 @@ describe('race-loser-cleanup', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = fallbacks;
     return service;
   }
 
@@ -836,6 +830,10 @@ describe('hedge-cache-token-emit', () => {
 
   function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const noopSink: LLMEventSink = { emit: () => {} };
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    };
     const service = new LLMOrchestratorImpl({
       primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
@@ -843,9 +841,8 @@ describe('hedge-cache-token-emit', () => {
       retryDelayMs: 0,
       events: noopSink,
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = fallbacks;
     return service;
   }
 
@@ -1015,13 +1012,12 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const { sink, emitted } = createMockSink();
       const primary = createFailingProvider('primary', 999);
       const orchestrator = new LLMOrchestratorImpl({
-        primary: { name: 'mock', apiKey: 'test', model: 'mock-model', apiFormat: 'anthropic' as const },
+        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
+        createAnthropicAdapter: () => primary as any,
       });
-      // Override primary with mock
-      (orchestrator as any).primary = primary;
       (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
       await expect(orchestrator.call({})).rejects.toThrow();
@@ -1056,12 +1052,12 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const { sink, emitted } = createMockSink();
       const primary = createFailingProvider('primary', 1);
       const orchestrator = new LLMOrchestratorImpl({
-        primary: { name: 'mock', apiKey: 'test', model: 'mock-model', apiFormat: 'anthropic' as const },
+        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
+        createAnthropicAdapter: () => primary as any,
       });
-      (orchestrator as any).primary = primary;
       (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
       const result = await orchestrator.call({});
@@ -1083,12 +1079,12 @@ describe('call-retry-provider-attempt-failed-emit', () => {
       const { sink, emitted } = createMockSink();
       const primary = createFailingProvider('primary', 1);
       const orchestrator = new LLMOrchestratorImpl({
-        primary: { name: 'mock', apiKey: 'test', model: 'mock-model', apiFormat: 'anthropic' as const },
+        primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
         maxAttempts: 2,
         retryDelayMs: 10,
         events: sink,
+        createAnthropicAdapter: () => primary as any,
       });
-      (orchestrator as any).primary = primary;
       (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
 
       await orchestrator.call({});
@@ -1147,9 +1143,8 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
+        createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
-      (orchestrator as any).primary = primary;
-      (orchestrator as any).fallbacks = [fallback];
       (orchestrator as any).breakers = [
         new CircuitBreaker(5, 1000, () => {}),
         new CircuitBreaker(5, 1000, () => {}),
@@ -1181,9 +1176,8 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
+        createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
-      (orchestrator as any).primary = primary;
-      (orchestrator as any).fallbacks = [fallback];
       (orchestrator as any).breakers = [
         new CircuitBreaker(5, 1000, () => {}),
         new CircuitBreaker(5, 1000, () => {}),
@@ -1222,9 +1216,8 @@ describe('call-retry-symmetry', () => {
         maxAttempts: 3,
         retryDelayMs: 10,
         events: sink,
+        createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
       });
-      (orchestrator as any).primary = primary;
-      (orchestrator as any).fallbacks = [fallback];
       (orchestrator as any).breakers = [
         new CircuitBreaker(5, 1000, () => {}),
         new CircuitBreaker(5, 1000, () => {}),
@@ -1293,15 +1286,18 @@ describe('streaming-fallback-switched-emit', () => {
 
   function buildOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
     const { sink, emitted } = createMockSink();
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+    };
     const orchestrator = new LLMOrchestratorImpl({
       primary: { name: primary.name, apiKey: 'k', model: primary.model, apiFormat: 'anthropic' as const },
       fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'k', model: fb.model, apiFormat: 'anthropic' as const })),
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
     });
-    (orchestrator as any).primary = primary;
-    (orchestrator as any).fallbacks = fallbacks;
     (orchestrator as any).breakers = [primary, ...fallbacks].map(() => new CircuitBreaker(5, 1000, () => {}));
     return { orchestrator, emitted };
   }

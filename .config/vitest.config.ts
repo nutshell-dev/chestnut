@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 108 file (sync 2026-07-14 / phase 1025 碎片合并: -9 +6)
+ * 数量: 96 file (sync 2026-07-15 / phase 1028: -12 via AnthropicAdapter + lock constants DI)
  * Invariant test: tests/design/invariants.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -79,15 +79,12 @@ const VI_MOCK_FILES = [
   // 'tests/core/contract-review-request.test.ts',
   // phase 1023: archive-race/audit-completed-single-emit/cancel-save-before-abort 等
   // 10 文件合并入 archive/boot/dispose/lifecycle/lock-invariants
-  'tests/core/contract/archive-invariants.test.ts',  // vi.mock constants
-  'tests/core/contract/boot-invariants.test.ts',  // vi.mock constants
+  // phase 1028: archive/boot/lifecycle/lock-invariants + lock + contract_manager-locks
+  // 移出 ISOLATED — lock retry constants 改为 LockContext/ContractSystemDeps DI 注入。
   'tests/core/contract/dispose-invariants.test.ts',  // vi.mock constants + verifier-job
-  'tests/core/contract/lifecycle-invariants.test.ts',  // vi.mock constants
-  'tests/core/contract/lock-invariants.test.ts',  // vi.mock constants (5/100)
   // phase 87: verifier-job DI 替 vi.mock pattern、2 测试不需 module registry isolation、移 fast project。
   // 'tests/core/contract/cancel-signal-propagation.test.ts',
   // 'tests/core/contract/contract-system-close.test.ts',
-  'tests/core/contract/lock.test.ts',
   'tests/core/event-loop/event-loop.test.ts',  // phase 783: vi.mock constants (LLM retry delay)
   // phase 102 (SHA fb9764d0): LockContext + VerificationContext DI 替 vi.mock pattern。
   // 'tests/core/contract/verification.test.ts',
@@ -106,7 +103,7 @@ const VI_MOCK_FILES = [
   // project / no vi.mock」注释 + phase 1465 mutex instance-bound 共指本 file
   // 可 fast。若再触 flake、回 ISOLATED。
   // 'tests/core/contract_manager-fire-and-forget.test.ts',
-  'tests/core/contract_manager-locks.test.ts',
+  // phase 1028: contract_manager-locks 移出 ISOLATED — lock retry constants DI 注入。
   // phase 94 (SHA <Step B 合 main>): ContractSystem 加 runSubagent? DI 透传到
   // VerifierConfig（与 phase 87 + 91 形成 3 层 carrier 链）、本测试不需 module
   // registry isolation、移 fast project。subagent vi.mock 9× cluster 收官。
@@ -148,12 +145,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/writer-fallback-origin.test.ts',
   'tests/foundation/audit/writer-fallback.test.ts',
   'tests/foundation/fs.test.ts',
-  'tests/foundation/llm-orchestrator/hedge-cleanup-invariants.test.ts',
-  'tests/foundation/llm-orchestrator/hedge-primary-success-race-lost.test.ts',
-  'tests/foundation/llm-orchestrator/hedge-state-machine-cluster.test.ts',
-  'tests/foundation/llm-orchestrator/hedge.test.ts',
-  'tests/foundation/llm-orchestrator/orchestrator-misc-invariants.test.ts',
-  'tests/foundation/llm-orchestrator/orchestrator.test.ts',  // phase 896: vi.mock anthropic adapter
+  // phase 1028: llm-orchestrator 6 文件移出 ISOLATED — AnthropicAdapter 改为 createAnthropicAdapter DI 注入。
   'tests/foundation/llm-service.test.ts',
   'tests/foundation/llm.test.ts',
   'tests/foundation/llm-provider/anthropic-adapter.test.ts',  // phase 862: vi.mock @anthropic-ai/sdk

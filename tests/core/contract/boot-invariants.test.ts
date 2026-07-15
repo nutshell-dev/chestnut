@@ -23,14 +23,7 @@ import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
-vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
-  return {
-    ...actual,
-    LOCK_MAX_RETRIES: 3,
-    LOCK_RETRY_DELAY_MS: 10,
-  };
-});
+
 
 /**
  * @module tests/core/contract/boot-reconcile
@@ -67,6 +60,8 @@ describe('ContractSystem.init() boot reconcile', () => {
       audit: { write: auditWrite , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   }

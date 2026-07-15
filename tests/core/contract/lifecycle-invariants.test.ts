@@ -20,14 +20,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { ToolError } from '../../../src/foundation/tools/errors.js';
 
-vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
-  return {
-    ...actual,
-    LOCK_MAX_RETRIES: 3,
-    LOCK_RETRY_DELAY_MS: 10,
-  };
-});
+
 
 // ───── source: lifecycle.test.ts ─────
 /**
@@ -50,6 +43,8 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
       audit: { write: vi.fn(), preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });
@@ -181,6 +176,8 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -267,6 +264,8 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       llm: mockLLM,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -355,6 +354,8 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -509,6 +510,8 @@ describe('phase 63: markCrashed', () => {
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     manager.setOnNotify((type, data) => {
@@ -598,6 +601,8 @@ describe('phase 63: markCrashed', () => {
       audit: audit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

@@ -16,14 +16,7 @@ import { DEAD_PID } from '../../helpers/dead-pid.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 
-vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
-  return {
-    ...actual,
-    LOCK_MAX_RETRIES: 3,
-    LOCK_RETRY_DELAY_MS: 10,
-  };
-});
+
 
 let tmpDir: string;
 let nodeFs: NodeFileSystem;
@@ -62,7 +55,7 @@ describe('acquireLock', () => {
     // 预先写入 schema 非法的 lock 文件
     await fs.writeFile(absLockPath, JSON.stringify({ pid: 'abc', time: null }), 'utf-8');
 
-    await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
 
     // audit LOCK_SCHEMA_INVALID 被调用
     expect(mockAudit.write).toHaveBeenCalledWith(
@@ -86,7 +79,7 @@ describe('acquireLock', () => {
     // 写入合法但 dead pid 的 lock 文件
     await fs.writeFile(absLockPath, JSON.stringify({ pid: DEAD_PID, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
-    await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
 
     const schemaInvalidCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
       c[0] === 'contract_lock_schema_invalid'
@@ -108,7 +101,7 @@ describe('acquireLock', () => {
     await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     await expect(
-      acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath)
+      acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
     ).rejects.toThrow(/Failed to acquire lock after/);
 
     const schemaInvalidCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
@@ -147,7 +140,7 @@ describe('acquireLock', () => {
     };
 
     await expect(
-      acquireLock({ fs: nodeFs, audit: mockAudit as any, l1IsAlive }, lockPath)
+      acquireLock({ fs: nodeFs, audit: mockAudit as any, l1IsAlive, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
     ).rejects.toThrow('EIO');
 
     // The lock must remain on disk because we could not determine staleness.
@@ -168,7 +161,7 @@ describe('acquireLock', () => {
     );
 
     await expect(
-      acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath)
+      acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
     ).rejects.toThrow(/Failed to acquire lock after/);
 
     // The lock must be preserved because the holder PID is still alive.
@@ -189,7 +182,7 @@ describe('acquireLock', () => {
     );
 
     await expect(
-      acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath)
+      acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
     ).rejects.toThrow(/Failed to acquire lock after/);
 
     // Fail-closed: the old-format live lock must NOT be cleaned up.
@@ -205,7 +198,7 @@ describe('releaseLock', () => {
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
     await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, ownerToken: 'token' }), 'utf-8');
 
-    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, 'token');
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath, 'token');
 
     await expect(fs.access(absLockPath)).rejects.toThrow();
   });
@@ -218,7 +211,7 @@ describe('releaseLock', () => {
     // Corrupt / unparseable lock JSON.
     await fs.writeFile(absLockPath, 'not-json', 'utf-8');
 
-    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, 'token');
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath, 'token');
 
     // Ownership could not be verified — must not delete.
     const lockExists = await pathExists(absLockPath);
@@ -254,7 +247,7 @@ describe('releaseLock', () => {
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
 
     // First acquire
-    const token1 = await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    const token1 = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
 
     // Simulate stale lock held by a dead PID so the next acquire force-clears and re-acquires
     const staleTime = Date.now() - 6 * 60 * 1000; // older than LOCK_STALE_TIMEOUT_MS (5 min)
@@ -262,12 +255,12 @@ describe('releaseLock', () => {
     await fs.writeFile(absLockPath, staleContent, 'utf-8');
 
     // Second acquire clears the stale lock and writes a new ownerToken
-    const token2 = await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    const token2 = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
     expect(token2).not.toBe(token1);
     expect(await fs.stat(absLockPath).then(() => true).catch(() => false)).toBe(true);
 
     // Releasing with the old token must NOT delete the current lock
-    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, token1);
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath, token1);
 
     expect(await fs.stat(absLockPath).then(() => true).catch(() => false)).toBe(true);
     const raw = await fs.readFile(absLockPath, 'utf-8');
@@ -293,7 +286,7 @@ describe('lockContract', () => {
     };
 
     await expect(
-      lockContract({ fs: nodeFs, audit: mockAudit as any }, contractId, dirFn)
+      lockContract({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, contractId, dirFn)
     ).rejects.toThrow('verification failed');
 
     // The lock acquired before the verification error must have been released.

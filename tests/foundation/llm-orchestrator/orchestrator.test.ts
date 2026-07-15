@@ -18,6 +18,7 @@ import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit
 import { LLMNetworkError, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type {
   ProviderAdapter,
+  ProviderConfig,
   StreamChunk,
   LLMEventSink,
   LLMEvent,
@@ -86,6 +87,10 @@ function createMockProvider(
 
 function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
   const noopSink: LLMEventSink = { emit: () => {} };
+  const findAdapter = (cfg: ProviderConfig) => {
+    if (cfg.name === primary.name) return primary;
+    return fallbacks.find(fb => fb.name === cfg.name) ?? primary;
+  };
   const service = new LLMOrchestratorImpl({
     primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
     fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, apiFormat: 'anthropic' as const })),
@@ -93,9 +98,8 @@ function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter
     retryDelayMs: 0,
     events: noopSink,
     circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+    createAnthropicAdapter: (cfg) => findAdapter(cfg),
   });
-  (service as any).primary = primary;
-  (service as any).fallbacks = fallbacks;
   return service;
 }
 
@@ -115,20 +119,7 @@ function attachEventSpy(service: LLMOrchestratorImpl) {
   return emitted;
 }
 
-vi.mock('../../../src/foundation/llm-provider/anthropic.js', () => ({
-  AnthropicAdapter: class MockAnthropicAdapter {
-    name = 'mock-anthropic';
-    model = 'mock-model';
-    constructor(public config: any) {}
-    async call() {
-      return { content: [{ type: 'text', text: 'mock response' }], stop_reason: 'end_turn' };
-    }
-    async *stream() {
-      yield { type: 'text_delta', delta: 'mock chunk' };
-      yield { type: 'done' };
-    }
-  },
-}));
+
 
 describe('LLMOrchestratorImpl Phase 896 fixes', () => {
   beforeEach(() => {
@@ -292,8 +283,8 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 2,
       retryDelayMs: 0,
       events: sink,
+      createAnthropicAdapter: () => primary as any,
     });
-    (service as any).primary = primary;
 
     const promise = (async () => {
       const chunks: StreamChunk[] = [];
@@ -347,9 +338,8 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       retryDelayMs: 0,
       events: sink,
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1_000 },
+      createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
 
     const breaker = (service as any).breakers[0];
     const onFailureSpy = vi.spyOn(breaker, 'onFailure');
@@ -391,9 +381,8 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
+      createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });
-    (service as any).primary = primary;
-    (service as any).fallbacks = [fallback];
 
     const chunks: StreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {

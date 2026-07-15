@@ -43,6 +43,10 @@ export interface LockContext {
   fs: FileSystem;
   audit: AuditLog;
   l1IsAlive?: typeof defaultL1IsAlive;
+  /** phase 1028: injectable lock retry budget — defaults to LOCK_MAX_RETRIES */
+  lockMaxRetries?: number;
+  /** phase 1028: injectable lock retry delay (ms) — defaults to LOCK_RETRY_DELAY_MS */
+  lockRetryDelayMs?: number;
 }
 
 export async function acquireLock(ctx: LockContext, lockPath: string): Promise<string> {
@@ -51,7 +55,11 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<s
   const ownerToken = newShortUuid();
   let lastReason = 'unknown';
 
-  for (let i = 0; i < LOCK_MAX_RETRIES; i++) {
+  // phase 1028: use injected retry constants or fall back to module defaults
+  const maxRetries = ctx.lockMaxRetries ?? LOCK_MAX_RETRIES;
+  const retryDelayMs = ctx.lockRetryDelayMs ?? LOCK_RETRY_DELAY_MS;
+
+  for (let i = 0; i < maxRetries; i++) {
     try {
       ctx.fs.writeExclusiveSync(
         lockPath,
@@ -142,13 +150,13 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<s
         }
       }
 
-      if (i < LOCK_MAX_RETRIES - 1) {
+      if (i < maxRetries - 1) {
         // jitter range [T/2, 1.5T] / 0 NEW magic / uses only existing LOCK_RETRY_DELAY_MS
         // (per phase 1317 user ratify「魔法数字不接受」/ dispatch α exp backoff + cap 5s REFRAMED)
-        const delayMs = LOCK_RETRY_DELAY_MS / 2 + Math.random() * LOCK_RETRY_DELAY_MS;
+        const delayMs = retryDelayMs / 2 + Math.random() * retryDelayMs;
         emitContractLockRetry(ctx.audit, {
           attempt: i + 1,
-          max_retries: LOCK_MAX_RETRIES,
+          max_retries: maxRetries,
           reason: lastReason,
           delay_ms: Math.round(delayMs),
         });
@@ -156,7 +164,7 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<s
       }
     }
   }
-  throw new ToolError(`Failed to acquire lock after ${LOCK_MAX_RETRIES} retries: ${lockPath} (${lastReason})`);
+  throw new ToolError(`Failed to acquire lock after ${maxRetries} retries: ${lockPath} (${lastReason})`);
 }
 
 export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason: string): Promise<boolean> {

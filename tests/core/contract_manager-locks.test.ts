@@ -24,14 +24,7 @@ import { makeMockAudit } from '../helpers/audit.js';
  */
 const PRE_RELEASE_LOCK_MS = 50;
 
-vi.mock('../../src/core/contract/constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/contract/constants.js')>();
-  return {
-    ...actual,
-    LOCK_MAX_RETRIES: 3,        // 从 20 降到 3
-    LOCK_RETRY_DELAY_MS: 10,    // 从 500ms 降到 10ms
-  };
-});
+
 
 let testDir: string;
 let clawDir: string;
@@ -60,6 +53,8 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -113,6 +108,8 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
       audit: mockAudit,
       toolRegistry: createToolRegistry(),
       fsFactory,
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -169,6 +166,8 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
       audit: mockAudit,
       toolRegistry: createToolRegistry(),
       fsFactory,
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

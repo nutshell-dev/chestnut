@@ -29,6 +29,7 @@ import type {
   StreamChunk,
   LLMEventSink,
   ProviderConfig,
+  ProviderAdapter,
 } from './types.js';
 import type { LLMOrchestrator } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
@@ -99,6 +100,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   private auditLogIdMap = new WeakMap<AuditSink, string>();
   private nextAuditLogId = 0;
 
+  // phase 1028: AnthropicAdapter factory DI seam
+  private readonly createAnthropicAdapter: ((config: ProviderConfig) => ProviderAdapter) | undefined;
+
   /**
    * phase 287 Step C: extract backoff formula to helper (M#1 共用基础设施单源)
    *
@@ -158,7 +162,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       configFingerprint,
     ].join(':');
     if (!this.sdkClientCache.has(key)) {
-      this.sdkClientCache.set(key, createLLMProvider(config));
+      const provider = this.createAnthropicAdapter
+        ? (this.createAnthropicAdapter(config) as LLMProvider)
+        : createLLMProvider(config);
+      this.sdkClientCache.set(key, provider);
       this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
     } else {
       this.events?.emit({ type: 'sdk_client_cache_hit', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
@@ -169,6 +176,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   constructor(config: LLMOrchestratorConfig) {
     this.config = config;
     this.events = config.events;
+    this.createAnthropicAdapter = config.createAnthropicAdapter;
     this.primary = this.getSdkClient(config.primary);
     this.fallbacks = (config.fallbacks ?? []).map((c) => this.getSdkClient(c));
     

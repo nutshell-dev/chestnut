@@ -124,6 +124,10 @@ export interface ContractSystemDeps {
   fsFactory: (baseDir: string) => FileSystem;
   runContractVerifier?: typeof defaultRunContractVerifier;
   runSubagent?: VerifierConfig['runSubagent'];
+  /** phase 1028: injectable lock retry budget — defaults to LOCK_MAX_RETRIES */
+  lockMaxRetries?: number;
+  /** phase 1028: injectable lock retry delay (ms) — defaults to LOCK_RETRY_DELAY_MS */
+  lockRetryDelayMs?: number;
 }
 
 export class ContractSystem {
@@ -138,6 +142,8 @@ export class ContractSystem {
   private fsFactory: (baseDir: string) => FileSystem;
   private runContractVerifier: typeof defaultRunContractVerifier;
   private runSubagent?: VerifierConfig['runSubagent'];
+  private lockMaxRetries?: number;
+  private lockRetryDelayMs?: number;
 
   private activeDir = CONTRACT_ACTIVE_DIR;
   private pausedDir = CONTRACT_PAUSED_DIR;
@@ -251,6 +257,8 @@ export class ContractSystem {
     this.fsFactory = deps.fsFactory;
     this.runContractVerifier = deps.runContractVerifier ?? defaultRunContractVerifier;
     this.runSubagent = deps.runSubagent;
+    this.lockMaxRetries = deps.lockMaxRetries;
+    this.lockRetryDelayMs = deps.lockRetryDelayMs;
   }
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
@@ -366,7 +374,7 @@ export class ContractSystem {
   // ============================================================================
 
   private _lockCtx(): LockContext {
-    return { fs: this.fs, audit: this.audit };
+    return { fs: this.fs, audit: this.audit, lockMaxRetries: this.lockMaxRetries, lockRetryDelayMs: this.lockRetryDelayMs };
   }
 
   private _persistenceCtx(): PersistenceContext {
