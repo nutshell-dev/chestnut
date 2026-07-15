@@ -17,19 +17,13 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
  * 数量: 108 file (sync 2026-07-14 / phase 1025 碎片合并: -9 +6)
- * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
+ * Invariant test: tests/design/invariants.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
 const VI_MOCK_FILES = [
-  // phase 121: 5 assembly tests moved out of ISOLATED
-  // SkillSystem vi.mock removed via AssembleDeps DI; remaining vi.mock
-  // (ContractSystem / AsyncTaskSystem / Messaging) do not cause cross-file
-  // module registry race in 5x consecutive fast-project runs.
-  // 'tests/assembly/assemble-dream-trigger-guard.test.ts',
-  // 'tests/assembly/assemble-evolution-guard.test.ts',
-  // 'tests/assembly/assemble-evolution-toolregistry.test.ts',
-  // 'tests/assembly/assemble-lockfile-cleanup.test.ts',
-  // 'tests/assembly/assemble.test.ts',
+  // phase 1026: 4 heavy assembly graph tests merged into invariants.test.ts;
+  // detect-unclean-exit remains isolated because it mocks global 'fs'.
+  'tests/assembly/invariants.test.ts',
   'tests/assembly/detect-unclean-exit.test.ts',
   // phase 1421: tests/cli/already-running-sentinel.test.ts moved to fast project
   // — daemon command bodies extracted with DI seam; tests no longer need vi.mock.
@@ -212,10 +206,7 @@ const VI_MOCK_FILES = [
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
   'tests/watchdog/watchdog-state-schema-version.test.ts',
   // phase 288 Step C sync: 48 entries added per find -name '*.test.ts' -exec grep 'vi.mock(' {} \;
-  'tests/assembly/assemble-dream-trigger-guard.test.ts',
-  'tests/assembly/assemble-evolution-guard.test.ts',
-  'tests/assembly/assemble-evolution-toolregistry.test.ts',
-  'tests/assembly/assemble-lockfile-cleanup.test.ts',
+  'tests/assembly/invariants.test.ts',
   'tests/assembly/assemble.test.ts',
   'tests/cli/audit-lookup.test.ts',
   'tests/cli/audit-motion-aware.test.ts',
