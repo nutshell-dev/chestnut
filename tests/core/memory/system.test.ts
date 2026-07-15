@@ -2,16 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemorySystem, createMemorySystem } from '../../../src/core/memory/system.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 
-vi.mock('../../../src/core/memory/deep-dream.js', () => ({
-  runDeepDream: vi.fn(async () => {}),
-}));
-vi.mock('../../../src/core/memory/random-dream.js', () => ({
-  runRandomDream: vi.fn(async () => {}),
-}));
-
-import { runDeepDream as runDeepDreamMock } from '../../../src/core/memory/deep-dream.js';
-import { runRandomDream as runRandomDreamMock } from '../../../src/core/memory/random-dream.js';
-
 describe('MemorySystem', () => {
   const mockTopology = {
     enumerate: vi.fn(() => []),
@@ -48,10 +38,11 @@ describe('MemorySystem', () => {
 
   describe('runDeepDream', () => {
     it('delegates to runDeepDream helper with opts forwarded', async () => {
-      const sys = createMemorySystem(mockOpts);
+      const runDeepDream = vi.fn(async () => {});
+      const sys = createMemorySystem({ ...mockOpts, runDeepDream });
       await sys.runDeepDream();
-      expect(runDeepDreamMock).toHaveBeenCalledOnce();
-      expect(runDeepDreamMock).toHaveBeenCalledWith(expect.objectContaining({
+      expect(runDeepDream).toHaveBeenCalledOnce();
+      expect(runDeepDream).toHaveBeenCalledWith(expect.objectContaining({
         clawTopology: mockTopology,
         llmConfig: mockOpts.llmConfig,
         llmService: mockOpts.llmService,
@@ -63,17 +54,19 @@ describe('MemorySystem', () => {
     });
 
     it('uses override maxCompressionTokens when passed', async () => {
-      const sys = createMemorySystem(mockOpts);
+      const runDeepDream = vi.fn(async () => {});
+      const sys = createMemorySystem({ ...mockOpts, runDeepDream });
       await sys.runDeepDream(200);
-      expect(runDeepDreamMock).toHaveBeenCalledWith(expect.objectContaining({
+      expect(runDeepDream).toHaveBeenCalledWith(expect.objectContaining({
         maxCompressionTokens: 200,
       }));
     });
 
     it('falls back to opts.maxCompressionTokens when override undefined', async () => {
-      const sys = createMemorySystem({ ...mockOpts, maxCompressionTokens: 50 });
+      const runDeepDream = vi.fn(async () => {});
+      const sys = createMemorySystem({ ...mockOpts, maxCompressionTokens: 50, runDeepDream });
       await sys.runDeepDream();
-      expect(runDeepDreamMock).toHaveBeenCalledWith(expect.objectContaining({
+      expect(runDeepDream).toHaveBeenCalledWith(expect.objectContaining({
         maxCompressionTokens: 50,
       }));
     });
@@ -81,10 +74,11 @@ describe('MemorySystem', () => {
 
   describe('runRandomDream', () => {
     it('delegates to runRandomDream helper with opts forwarded', async () => {
-      const sys = createMemorySystem(mockOpts);
+      const runRandomDream = vi.fn(async () => {});
+      const sys = createMemorySystem({ ...mockOpts, runRandomDream });
       await sys.runRandomDream();
-      expect(runRandomDreamMock).toHaveBeenCalledOnce();
-      expect(runRandomDreamMock).toHaveBeenCalledWith(expect.objectContaining({
+      expect(runRandomDream).toHaveBeenCalledOnce();
+      expect(runRandomDream).toHaveBeenCalledWith(expect.objectContaining({
         motionDir: '/tmp/motion',
         taskSystem: mockOpts.taskSystem,
         fs: mockOpts.fs,

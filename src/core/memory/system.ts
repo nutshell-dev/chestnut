@@ -4,7 +4,9 @@ import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { LLMOrchestrator, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { ProgressData } from '../contract/index.js';
 import { runDeepDream } from './deep-dream.js';
+import type { DeepDreamOptions } from './deep-dream.js';
 import { runRandomDream } from './random-dream.js';
+import type { RandomDreamOptions } from './random-dream.js';
 import type { ContractId } from '../contract/types.js';
 import type { RandomDreamNotifyMotionFn } from './random-dream.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
@@ -28,13 +30,18 @@ export interface MemorySystemOptions {
   getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>;
   /** phase 92: random-dream caller-bound notify motion */
   notifyMotion: RandomDreamNotifyMotionFn;
+  /** phase 1031: deep-dream factory DI seam — tests inject mock, production defaults to real runDeepDream */
+  runDeepDream?: (opts: DeepDreamOptions) => Promise<void>;
+  /** phase 1031: random-dream factory DI seam — tests inject mock, production defaults to real runRandomDream */
+  runRandomDream?: (opts: RandomDreamOptions) => Promise<void>;
 }
 
 export class MemorySystem {
   constructor(private readonly opts: MemorySystemOptions) {}
 
   async runDeepDream(maxCompressionTokens?: number, opts?: { signal?: AbortSignal }): Promise<void> {
-    return runDeepDream({
+    const run = this.opts.runDeepDream ?? runDeepDream;
+    return run({
       clawTopology: this.opts.clawTopology,
       motionDir: this.opts.motionDir,
       motionFs: this.opts.motionFs,
@@ -49,7 +56,8 @@ export class MemorySystem {
   }
 
   async runRandomDream(opts?: { signal?: AbortSignal }): Promise<void> {
-    return runRandomDream({
+    const run = this.opts.runRandomDream ?? runRandomDream;
+    return run({
       motionDir: this.opts.motionDir,
       taskSystem: this.opts.taskSystem,
       fs: this.opts.fs,

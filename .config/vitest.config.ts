@@ -113,7 +113,6 @@ const VI_MOCK_FILES = [
   // 无 module-level vi.mock、不引 cross-file 模块串扰
   // 'tests/core/evolution-system/system-clawfs-factory.test.ts',
   // 'tests/core/evolution-system/system-contract-factory.test.ts',
-  'tests/core/memory/system.test.ts',
   'tests/core/process_manager.test.ts',
   'tests/core/process_manager_spawn.test.ts',
   // phase 88 (SHA 91b0b934): spawn-system createSpawnTool DI replaced vi.mock
@@ -129,9 +128,6 @@ const VI_MOCK_FILES = [
   // 加 runSubagent? DI 替 vi.mock pattern、本测试不需 module registry isolation、
   // 移 fast project。
   // 'tests/core/subagent-executor.test.ts',
-  'tests/core/subagent.test.ts',
-  'tests/core/subagent/agent-audit-first.test.ts',
-  'tests/core/subagent/agent-race-ghost.test.ts',
   'tests/core/subagent/subagent-tool-timeout-inherit.test.ts',
   'tests/daemon/daemon-loop-atomic-retry-state.test.ts',
   'tests/daemon/startup-check-atomic-write.test.ts',
@@ -141,7 +137,6 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/writer-fallback.test.ts',
   'tests/foundation/fs.test.ts',
   // phase 1028: llm-orchestrator 6 文件移出 ISOLATED — AnthropicAdapter 改为 createAnthropicAdapter DI 注入。
-  'tests/foundation/llm-service.test.ts',
   'tests/foundation/llm.test.ts',
   'tests/foundation/llm-provider/anthropic-adapter.test.ts',  // phase 862: vi.mock @anthropic-ai/sdk
   'tests/foundation/messaging/inbox-reader-race.test.ts',

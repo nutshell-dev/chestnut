@@ -4,7 +4,7 @@
  * SubAgent runs with restricted permissions and cannot spawn other agents.
  */
 
-import { runReact } from '../agent-executor/index.js';
+import { runReact, type ReactOptions, type ReactResult } from '../agent-executor/index.js';
 // phase 692 Step B: 删 MOTION_CLAW_ID import (L3 → L4 反向 import = M#5 违反)。
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
@@ -56,6 +56,8 @@ export interface SubAgentOptions {
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
   permissionChecker?: PermissionChecker;                      // phase 1072: subagent file tool permission check
+  /** phase 1031: ReAct loop factory DI seam — tests inject mock runReact, production defaults to real loop */
+  runReact?: (options: ReactOptions) => Promise<ReactResult>;
 }
 
 export class SubAgent {
@@ -84,6 +86,7 @@ export class SubAgent {
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
   private permissionChecker?: PermissionChecker;
+  private runReact: (options: ReactOptions) => Promise<ReactResult>;
 
   // phase 283: textEndCount retained for AC-4; other counters dropped (by-construction equal via commitTurnEvent)
   private textEndCount = 0;
@@ -113,6 +116,7 @@ export class SubAgent {
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
     this.permissionChecker = options.permissionChecker;
+    this.runReact = options.runReact ?? runReact;
   }
 
   /**
@@ -212,7 +216,7 @@ export class SubAgent {
       // tool 结果写盘形成 orphan write、违 phase 805 sub-3「subagent workspace 0 创建」.
       // signal 已通过 timeout.signal 抛 turn_timeout / idle_timeout、runReact 会感知 abort、
       // 我们等其自然 settle、再抛 race 的 timeout error 出。
-      const runReactPromise: Promise<{ finalText?: string; stopReason: string }> = runReact({
+      const runReactPromise: Promise<{ finalText?: string; stopReason: string }> = this.runReact({
         messages,
           systemPrompt,
           llm: this.llm,

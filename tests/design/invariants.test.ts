@@ -874,9 +874,9 @@ describe('vi-mock-list-consistency-invariant', () => {
       }
     });
 
-    it('VI_MOCK_FILES list has ≥80 entries (sanity guard)', () => {
+    it('VI_MOCK_FILES list has ≥70 entries (sanity guard)', () => {
       const listEntries = loadViMockList();
-      expect(listEntries.size).toBeGreaterThanOrEqual(80);
+      expect(listEntries.size).toBeGreaterThanOrEqual(70);
     });
 
     it('real vi.mock use sites have ≥80 entries (sanity guard)', () => {

@@ -19,10 +19,6 @@ import type { StreamEvent } from '../../../src/foundation/stream/types.js';
  */
 let runReactRelease: (() => void) | undefined;
 
-vi.mock('../../../src/core/agent-executor/loop.js', () => ({
-  runReact: vi.fn(),
-}));
-
 // phase 1489: ToolExecutor 注入 SubAgentOptions / 不再 vi.mock executor.js
 function makeMockToolExecutor(): ToolExecutor {
   return {
@@ -39,8 +35,6 @@ function makeMockToolExecutor(): ToolExecutor {
     }),
   } as unknown as ToolExecutor;
 }
-
-import { runReact } from '../../../src/core/agent-executor/loop.js';
 
 class CollectingStreamWriter {
   events: StreamEvent[] = [];
@@ -81,6 +75,7 @@ function makeSubAgent(overrides: { timeoutMs?: number; idleTimeoutMs?: number } 
   } as unknown as LLMOrchestrator;
 
   const sw = new CollectingStreamWriter();
+  const runReact = vi.fn();
 
   const agent = new SubAgent({
     agentId: 'test-agent',
@@ -98,9 +93,10 @@ function makeSubAgent(overrides: { timeoutMs?: number; idleTimeoutMs?: number } 
     idleTimeoutMs: overrides.idleTimeoutMs,
     taskStreamWriter: sw,
     auditWriter: mockAuditWriter,
+    runReact,
   });
 
-  return { agent, sw, mockAuditWriter };
+  return { agent, sw, mockAuditWriter, runReact };
 }
 
 describe('SubAgent race ghost callback (Phase 538)', () => {
@@ -109,7 +105,7 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
   });
 
   it('timeout 后 runReact callback 不污染 sw（safeSwWrite 丢弃 / ghost audit 写一次）', async () => {
-    const { agent, sw, mockAuditWriter } = makeSubAgent({ timeoutMs: 50 });
+    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
 
     // phase 373: wrap mockAuditWriter.write 在 GHOST_CALLBACK_AFTER_TURN_END 时 resolve、替原 vi.waitFor polling
     let ghostAuditResolve!: () => void;
@@ -121,7 +117,7 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
     });
 
     // runReact 在 timeout 后才调 callback（timeout 已触发）
-    (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+    runReact.mockImplementation(
       async (opts: {
         onTextDelta?: (delta: string) => void;
         onToolCall?: (name: string, toolUseId: string) => void;
@@ -160,9 +156,9 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
   });
 
   it('正常完成时 sw 不受 safeSwWrite 影响', async () => {
-    const { agent, sw } = makeSubAgent();
+    const { agent, sw, runReact } = makeSubAgent();
 
-    (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+    runReact.mockImplementation(
       async (opts: {
         onTextDelta?: (delta: string) => void;
         onToolCall?: (name: string, toolUseId: string) => void;

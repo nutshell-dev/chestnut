@@ -21,10 +21,6 @@ import type { StreamEvent } from '../../../src/foundation/stream/types.js';
  */
 let runReactRelease: (() => void) | undefined;
 
-vi.mock('../../../src/core/agent-executor/loop.js', () => ({
-  runReact: vi.fn(),
-}));
-
 // phase 1489: ToolExecutor 注入 SubAgentOptions / 不再 vi.mock executor.js
 function makeMockToolExecutor(): ToolExecutor {
   return {
@@ -41,8 +37,6 @@ function makeMockToolExecutor(): ToolExecutor {
     }),
   } as unknown as ToolExecutor;
 }
-
-import { runReact } from '../../../src/core/agent-executor/loop.js';
 
 class CollectingStreamWriter {
   events: StreamEvent[] = [];
@@ -88,6 +82,7 @@ function makeSubAgent(overrides: { timeoutMs?: number } = {}) {
   } as unknown as LLMOrchestrator;
 
   const sw = new CollectingStreamWriter();
+  const runReact = vi.fn();
 
   const agent = new SubAgent({
     agentId: 'test-agent',
@@ -104,9 +99,10 @@ function makeSubAgent(overrides: { timeoutMs?: number } = {}) {
     timeoutMs: overrides.timeoutMs ?? 1000,
     taskStreamWriter: sw,
     auditWriter: mockAuditWriter,
+    runReact,
   });
 
-  return { agent, sw, mockAuditWriter };
+  return { agent, sw, mockAuditWriter, runReact };
 }
 
 describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
@@ -115,10 +111,10 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
   });
 
   it('audit emit 先于 stream emit (canonical ordering)', async () => {
-    const { agent, sw, mockAuditWriter } = makeSubAgent();
+    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent();
     const swWriteSpy = vi.spyOn(sw, 'write');
 
-    (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+    runReact.mockImplementation(
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
@@ -147,7 +143,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
   });
 
   it('反向 1 (误删反向)：test infra 可检测 audit emit 缺失', async () => {
-    const { agent, sw, mockAuditWriter } = makeSubAgent();
+    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent();
     const swWriteSpy = vi.spyOn(sw, 'write');
     const originalWrite = mockAuditWriter.write;
 
@@ -161,7 +157,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
       return originalWrite(event, ...args);
     };
 
-    (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+    runReact.mockImplementation(
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
@@ -189,10 +185,10 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
   });
 
   it('反向 2 (schema 反向)：audit payload key sequence 不变', async () => {
-    const { agent, sw, mockAuditWriter } = makeSubAgent();
+    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent();
     vi.spyOn(sw, 'write');
 
-    (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+    runReact.mockImplementation(
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
@@ -220,7 +216,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
   });
 
   it('反向 3 (边界路径反向)：swClosed 状态下 audit 仍 emit', async () => {
-    const { agent, sw, mockAuditWriter } = makeSubAgent({ timeoutMs: 50 });
+    const { agent, sw, mockAuditWriter, runReact } = makeSubAgent({ timeoutMs: 50 });
     const swWriteSpy = vi.spyOn(sw, 'write');
 
     // phase 373: wrap mockAuditWriter.write 在 'tool_result' 时 resolve、替原 vi.waitFor polling
@@ -233,7 +229,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
     });
 
     // timeout 后 runReact 才调 onToolResult → ghost callback
-    (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+    runReact.mockImplementation(
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {

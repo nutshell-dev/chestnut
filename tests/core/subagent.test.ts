@@ -13,11 +13,6 @@ import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/inde
 import type { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 
-// Mock the entire react loop module so runReact is fully controllable
-vi.mock('../../src/core/agent-executor/loop.js', () => ({
-  runReact: vi.fn(),
-}));
-
 // phase 1489: ToolExecutor 注入到 SubAgentOptions / 测试不再依赖 vi.mock executor.js、
 // 直接构造一个最小 mock 对象 satisfy `getExecContext` 方法即可。
 function makeMockToolExecutor(): ToolExecutor {
@@ -35,8 +30,6 @@ function makeMockToolExecutor(): ToolExecutor {
     }),
   } as unknown as ToolExecutor;
 }
-
-import { runReact } from '../../src/core/agent-executor/loop.js';
 
 function makeSubAgent(
   overrides: { fs?: Partial<FileSystem> } = {},
@@ -72,6 +65,7 @@ function makeSubAgent(
     getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
   } as unknown as LLMOrchestrator;
 
+  const runReact = vi.fn();
   return {
     agent: new SubAgent({
       agentId: 'test-agent',
@@ -91,9 +85,11 @@ function makeSubAgent(
       maxSteps: 5,
       taskStreamWriter: new NoopStreamWriter(),
       auditWriter: mockAuditWriter,
+      runReact,
     }),
     mockFs,
     mockAuditWriter,
+    runReact,
   };
 }
 
@@ -109,7 +105,7 @@ describe('SubAgent', () => {
   // ─── fix 1: onStepComplete fs.append failure is caught ──────────────────────
   describe('fix 1 — onStepComplete error handling', () => {
     it('when steps log append throws, audit writes the error and run() still completes', async () => {
-      const { agent, mockFs, mockAuditWriter } = makeSubAgent();
+      const { agent, mockFs, mockAuditWriter, runReact } = makeSubAgent();
 
       // fs.append fails for the steps JSONL, succeeds for main log
       (mockFs.append as ReturnType<typeof vi.fn>).mockImplementation(
@@ -122,7 +118,7 @@ describe('SubAgent', () => {
       );
 
       // runReact calls onStepComplete once, then returns success
-      (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+      runReact.mockImplementation(
         async (opts: { onStepComplete?: () => Promise<void> }) => {
           await opts.onStepComplete?.();
           return { finalText: 'result', stopReason: 'end_turn' };
@@ -141,14 +137,14 @@ describe('SubAgent', () => {
 
     it('step counters increment even when steps log append throws', async () => {
       // Verify that the catch block does NOT rethrow (run completes normally)
-      const { agent, mockFs } = makeSubAgent();
+      const { agent, mockFs, runReact } = makeSubAgent();
 
       (mockFs.append as ReturnType<typeof vi.fn>).mockImplementation((p: string) =>
         p.includes('/steps.jsonl') ? Promise.reject(new Error('fail')) : Promise.resolve(),
       );
 
       let stepCallCount = 0;
-      (runReact as ReturnType<typeof vi.fn>).mockImplementation(
+      runReact.mockImplementation(
         async (opts: { onStepComplete?: () => Promise<void> }) => {
           await opts.onStepComplete?.();
           stepCallCount++;
@@ -166,12 +162,12 @@ describe('SubAgent', () => {
     it('timeoutController.abort() is called after runReact completes', async () => {
       const abortSpy = vi.spyOn(AbortController.prototype, 'abort');
 
-      (runReact as ReturnType<typeof vi.fn>).mockResolvedValue({
+      const { agent, runReact } = makeSubAgent();
+
+      runReact.mockResolvedValue({
         finalText: 'done',
         stopReason: 'end_turn',
       });
-
-      const { agent } = makeSubAgent();
       await agent.run();
 
       // abort() should have been called at least once (cleanup path)
