@@ -43,6 +43,11 @@ async function writeSentMarker(
   }
 }
 
+export interface ResultDeliveryDeps {
+  /** phase 1029: 注入 writeInboxAsync，未提供时使用真实实现。 */
+  writeInboxAsync?: typeof import('../../foundation/messaging/index.js').writeInboxAsync;
+}
+
 interface SendResultCoreParams {
   fs: FileSystem;
   auditWriter: AuditLog;
@@ -58,6 +63,7 @@ interface SendResultCoreParams {
     initialWrite: string;
     orphanDelete: string;
   };
+  deps?: ResultDeliveryDeps;
 }
 
 /**
@@ -77,6 +83,7 @@ interface SendResultCoreParams {
 const TASK_RESULT_SUMMARY_MAX_CHARS = 500;
 
 async function sendResultCore(p: SendResultCoreParams): Promise<void> {
+  const writeInbox = p.deps?.writeInboxAsync ?? writeInboxAsync;
   let resultRef: string | undefined;
   try {
     const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${p.taskId}/result.txt`;
@@ -107,11 +114,11 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
   };
 
   try {
-    await writeInboxAsync(p.fs, INBOX_PENDING_DIR, baseMsg, p.auditWriter);
+    await writeInbox(p.fs, INBOX_PENDING_DIR, baseMsg, p.auditWriter);
   } catch (err) {
     if (resultRef) {
       try {
-        await writeInboxAsync(p.fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, p.auditWriter);
+        await writeInbox(p.fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, p.auditWriter);
         // Persist sent marker BEFORE deleting resultRef.
         // If crash occurs between marker and delete, recovery sees marker and skips re-send.
         let markerOk = true;
@@ -172,6 +179,7 @@ export async function sendToolResult(
   task: ToolTask,
   result: ToolResult | string,
   isError: boolean,
+  deps?: ResultDeliveryDeps,
 ): Promise<void> {
   const fullContent = typeof result === 'string' ? result : result.content;
   const shortId = taskShortId(task);
@@ -200,6 +208,7 @@ export async function sendToolResult(
     isError,
     writeMarkerOnSuccess: false,
     auditContexts: { initialWrite: 'write_result', orphanDelete: 'orphan_delete' },
+    deps,
   });
 }
 
@@ -214,6 +223,7 @@ export async function sendResult(
   task: SubAgentTask,
   result: string,
   isError: boolean,
+  deps?: ResultDeliveryDeps,
 ): Promise<void> {
   const shortId = taskShortId(task);
   await sendResultCore({
@@ -239,6 +249,7 @@ export async function sendResult(
     isError,
     writeMarkerOnSuccess: true,
     auditContexts: { initialWrite: 'send_result_write', orphanDelete: 'orphan_delete_send' },
+    deps,
   });
 }
 
@@ -251,7 +262,9 @@ export async function sendFallbackError(
   auditWriter: AuditLog,
   task: SubAgentTask | ToolTask,
   errorMsg: string,
+  deps?: ResultDeliveryDeps,
 ): Promise<void> {
+  const writeInbox = deps?.writeInboxAsync ?? writeInboxAsync;
   const msgId = newUuid();
   const msg: InboxMessage = {
     id: msgId,
@@ -267,7 +280,7 @@ export async function sendFallbackError(
     priority: 'high',
     timestamp: new Date().toISOString(),
   };
-  await writeInboxAsync(fs, INBOX_PENDING_DIR, msg, auditWriter);
+  await writeInbox(fs, INBOX_PENDING_DIR, msg, auditWriter);
 
   // phase 789 (audit-2026-05-14 P0.20): SubAgentTask fallback inbox success → 写 SENT_MARKER
   // 防止 next recovery 重发 sendResult 导致父 inbox 收 fallback + real result 双投递

@@ -12,20 +12,33 @@ import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
-import { recoverTasks } from '../../../src/core/async-task-system/task-recovery.js';
-import { sendFallbackError } from '../../../src/core/async-task-system/result-delivery.js';
+import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { ToolTask } from '../../../src/core/async-task-system/types.js';
-import type { WatcherFactory } from '../../../src/foundation/file-watcher/index.js';
+import type { WatcherFactory, WatchEvent } from '../../../src/foundation/file-watcher/index.js';
 
-vi.mock('../../../src/core/async-task-system/result-delivery.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/async-task-system/result-delivery.js')>();
+function makeMockWatcherFactory(): WatcherFactory {
+  return vi.fn((_path: string, _callback: (event: WatchEvent) => void) => ({
+    close: vi.fn().mockResolvedValue(undefined),
+    isActive: vi.fn().mockReturnValue(true),
+    getPath: vi.fn().mockReturnValue(_path),
+  }));
+}
+
+const mockWatcherFactory = makeMockWatcherFactory();
+
+const mockSendFallbackError = vi.fn().mockResolvedValue(undefined);
+
+function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
   return {
-    ...actual,
-    sendFallbackError: vi.fn().mockResolvedValue(undefined),
+    fs,
+    auditWriter,
+    sendResult: vi.fn().mockResolvedValue(undefined),
+    sendFallbackError: mockSendFallbackError,
+    sendToolResult: vi.fn().mockResolvedValue(undefined),
   };
-});
+}
 
 /**
  * Phase 883:
@@ -77,6 +90,8 @@ describe('phase883.test.ts', () => {
         shortIdIndex,
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        createWatcher: mockWatcherFactory,
+        sendFallbackError: mockSendFallbackError,
       });
       await system.initialize();
 
@@ -143,6 +158,8 @@ describe('phase883.test.ts', () => {
         shortIdIndex,
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        createWatcher: mockWatcherFactory,
+        sendFallbackError: mockSendFallbackError,
       });
       await system.initialize();
 
@@ -211,10 +228,10 @@ describe('phase883.test.ts', () => {
         exists: vi.fn().mockImplementation((path: string) => Promise.resolve(fileMap.has(path))),
       } as unknown as FileSystem;
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit });
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       // sendFallbackError must NOT be called because marker exists.
-      expect(sendFallbackError).not.toHaveBeenCalled();
+      expect(mockSendFallbackError).not.toHaveBeenCalled();
 
       // Task must be moved to failed directory.
       const failedPath = 'tasks/queues/failed/550e8400-e29b-41d4-a716-446655440003.json';
@@ -281,6 +298,7 @@ describe('phase 884: startDispatch + dispatch loop resilience', () => {
       auditWriter: audit,
       createWatcher: makeMockWatcherFactory(),
       ...makeTaskSystemDeps(),
+      sendFallbackError: mockSendFallbackError,
     });
   });
 
@@ -449,9 +467,9 @@ describe('phase885.test.ts', () => {
         exists: vi.fn().mockImplementation((path: string) => Promise.resolve(fileMap.has(path))),
       } as unknown as FileSystem;
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit });
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(sendFallbackError).toHaveBeenCalledTimes(1);
+      expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
       expect(fileMap.has(taskFile)).toBe(true);
       expect(fileMap.has(failedPath)).toBe(false);
 
@@ -513,9 +531,9 @@ describe('phase885.test.ts', () => {
         }),
       } as unknown as FileSystem;
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit });
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(sendFallbackError).not.toHaveBeenCalled();
+      expect(mockSendFallbackError).not.toHaveBeenCalled();
       expect(fileMap.has(taskFile)).toBe(true);
       expect(fileMap.has(failedPath)).toBe(false);
 
@@ -568,6 +586,7 @@ describe('phase885.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
+        sendFallbackError: mockSendFallbackError,
       });
       await system.initialize();
 
@@ -611,6 +630,7 @@ describe('phase885.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
+        sendFallbackError: mockSendFallbackError,
       });
     });
 
@@ -713,6 +733,7 @@ describe('phase905.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
+        sendFallbackError: mockSendFallbackError,
       });
     });
 
@@ -762,6 +783,7 @@ describe('phase905.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
+        sendFallbackError: mockSendFallbackError,
       });
     });
 
@@ -806,6 +828,7 @@ describe('phase905.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
+        sendFallbackError: mockSendFallbackError,
       });
     });
 
@@ -847,8 +870,8 @@ describe('phase905.test.ts', () => {
       await system.initialize();
       await system.cancel(shortId);
 
-      expect(sendFallbackError).toHaveBeenCalledTimes(1);
-      const calledTask = (sendFallbackError as any).mock.calls[0][2];
+      expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
+      const calledTask = mockSendFallbackError.mock.calls[0][2];
       expect(calledTask.id).toBe(fullId);
       expect(calledTask.kind).toBe('subagent');
 

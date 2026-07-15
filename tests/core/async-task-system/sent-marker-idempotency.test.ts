@@ -4,23 +4,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { sendResult, sendFallbackError, SENT_MARKER } from '../../../src/core/async-task-system/result-delivery.js';
+import type { writeInboxAsync } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
-vi.mock('../../../src/foundation/messaging/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/foundation/messaging/index.js')>();
-  const MockInboxWriter = vi.fn().mockImplementation(() => ({
-    write: vi.fn().mockResolvedValue(undefined),
-  }));
-  return {
-    ...actual,
-    InboxWriter: MockInboxWriter,
-    writeInboxAsync: vi.fn().mockImplementation((fs, inboxDir, message, audit) => {
-      return new MockInboxWriter(fs, inboxDir, audit).write(message);
-    }),
-  };
-});
+const mockWriteInboxAsync = vi.fn().mockResolvedValue(undefined) as unknown as typeof writeInboxAsync;
 
 function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
   const events: Array<[string, ...(string | number)[]]> = [];
@@ -65,7 +54,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       maxSteps: 5,
       createdAt: new Date().toISOString(),
     };
-    await sendResult(mockFs, audit, task, 'result content', false);
+    await sendResult(mockFs, audit, task, 'result content', false, { writeInboxAsync: mockWriteInboxAsync });
 
     const sentMarkerWrites = writeAtomicCalls.filter((c) => c[0].endsWith('.sent'));
     expect(sentMarkerWrites.length).toBe(1);
@@ -85,7 +74,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       maxSteps: 5,
       createdAt: new Date().toISOString(),
     };
-    await sendFallbackError(mockFs, audit, task, 'fail msg');
+    await sendFallbackError(mockFs, audit, task, 'fail msg', { writeInboxAsync: mockWriteInboxAsync });
 
     const sentMarkerWrites = writeAtomicCalls.filter((c) => c[0].endsWith('.sent'));
     expect(sentMarkerWrites.length).toBe(1);
@@ -106,7 +95,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       maxRetries: 2,
       retryCount: 0,
     };
-    await sendFallbackError(mockFs, audit, task, 'fail msg');
+    await sendFallbackError(mockFs, audit, task, 'fail msg', { writeInboxAsync: mockWriteInboxAsync });
 
     const sentMarkerWrites = writeAtomicCalls.filter((c) => c[0].endsWith('.sent'));
     expect(sentMarkerWrites.length).toBe(0);
@@ -145,10 +134,10 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
     };
 
     // sendResult success writes SENT_MARKER
-    await sendResult(mockFsWithInboxFail, audit, task, 'result data', false);
+    await sendResult(mockFsWithInboxFail, audit, task, 'result data', false, { writeInboxAsync: mockWriteInboxAsync });
 
     // sendFallbackError on same task also writes SENT_MARKER (if called)
-    await sendFallbackError(mockFsWithInboxFail, audit, task, 'fallback msg');
+    await sendFallbackError(mockFsWithInboxFail, audit, task, 'fallback msg', { writeInboxAsync: mockWriteInboxAsync });
 
     // Each function writes independently; in real recovery only one path executes.
     // Here we verify both functions write the correct marker path.

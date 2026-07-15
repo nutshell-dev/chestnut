@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 96 file (sync 2026-07-15 / phase 1028: -12 via AnthropicAdapter + lock constants DI)
+ * 数量: 85 file (sync 2026-07-15 / phase 1029: -8 via async-task-system result-delivery + messaging DI; task-recovery-invariants kept for process-exec vi.mock)
  * Invariant test: tests/design/invariants.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -62,16 +62,11 @@ const VI_MOCK_FILES = [
   // phase879/881/882 合并入 phase-messaging-invariants；
   // phase883/884/885/905 合并入 dispatch-resilience-invariants；
   // phase886/887/889/902 合并入 migration-recovery-invariants
-  'tests/core/async-task-system/cancel-invariants.test.ts',  // vi.mock file-watcher
-  'tests/core/async-task-system/task-recovery-invariants.test.ts',  // vi.mock result-delivery + process-exec
-  'tests/core/async-task-system/phase-messaging-invariants.test.ts',  // vi.mock messaging
-  'tests/core/async-task-system/dispatch-resilience-invariants.test.ts',  // vi.mock result-delivery
-  'tests/core/async-task-system/migration-recovery-invariants.test.ts',  // vi.mock result-delivery
-  'tests/core/async-task-system/race-deadletter.test.ts',
-  'tests/core/async-task-system/sent-marker-idempotency.test.ts',
-  'tests/core/async-task-system/silent-catch.test.ts',
-  'tests/core/async-task-system/task-recovery-corrupt.test.ts',
-  'tests/core/async-task-system/phase906.test.ts',  // phase 906: vi.mock result-delivery
+  // phase 1029: cancel-invariants/silent-catch/task-recovery-corrupt/dispatch-resilience/
+  // migration-recovery/race-deadletter/phase-messaging/sent-marker-idempotency 移出 ISOLATED
+  // — result-delivery / messaging / file-watcher 改 DI 注入。
+  'tests/core/async-task-system/task-recovery-invariants.test.ts',  // vi.mock process-exec (result-delivery 已 DI)
+  'tests/core/async-task-system/phase906.test.ts',  // phase 906: vi.mock result-delivery + process-exec
   // phase 1352 reverted (post-merge fix): spawn tool extraction conflicted with phase 1332
   // builtins.test.ts now has vi.hoisted only (mockSchedule) → stays in fast project
   // phase 1353: builtins-slow.test.ts moved to fast (dead vi.mock removed)

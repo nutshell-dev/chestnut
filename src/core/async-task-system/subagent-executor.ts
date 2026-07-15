@@ -20,7 +20,8 @@ import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from '.
 import * as nodePath from 'path';
 
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
-import { sendResult, sendFallbackError } from './result-delivery.js';
+import { sendResult as defaultSendResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
+import type { ResultDeliveryDeps } from './result-delivery.js';
 
 import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
@@ -51,6 +52,9 @@ interface ExecuteSubAgentTaskDeps {
   // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
   askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   runSubagent?: typeof defaultRunSubagent;
+  sendResult?: typeof import('./result-delivery.js').sendResult;
+  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
+  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
 }
 
 async function applyPostProcessor(
@@ -95,7 +99,10 @@ export async function executeSubAgentTask(
   deps: ExecuteSubAgentTaskDeps,
 ): Promise<void> {
   const { fs, fsFactory, auditWriter, llm, registry, clawDir, parentStreamLog, postProcessors, moveTaskToDone, moveTaskToFailed } = deps;
+  const sendResult = deps.sendResult ?? defaultSendResult;
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
   const taskStartTime = Date.now();
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   let taskFailed = false;
 
   // Per-task result dir + TASK_ATTEMPT_START stream marker（async 特有 lifecycle）
@@ -184,7 +191,7 @@ export async function executeSubAgentTask(
 
     const displayResult = getDisplayResult(text, capturedResult);
     const inboxResult = await applyPostProcessor(displayResult, task, false, postProcessors, fs, auditWriter);
-    await sendResult(fs, auditWriter, task, inboxResult, false);
+    await sendResult(fs, auditWriter, task, inboxResult, false, resultDeliveryDeps);
 
     emitTaskCompleted(auditWriter, {
       fullTaskId: task.id as FullTaskId,
@@ -206,11 +213,11 @@ export async function executeSubAgentTask(
 
     // Send error result to parent inbox
     try {
-      await sendResult(fs, auditWriter, task, inboxResult, true);
+      await sendResult(fs, auditWriter, task, inboxResult, true, resultDeliveryDeps);
     } catch (sendErr) {
       // sendResult 本身失败：降级写最小通知，确保 parent 不被永远挂起
       try {
-        await sendFallbackError(fs, auditWriter, task, errorMsg);
+        await sendFallbackError(fs, auditWriter, task, errorMsg, resultDeliveryDeps);
       } catch (fallbackErr) {
         emitResultDeliveryFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,

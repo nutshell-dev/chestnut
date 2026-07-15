@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
-import { sendResult } from '../../../src/core/async-task-system/result-delivery.js';
+
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
@@ -15,14 +15,18 @@ import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { waitFor } from '../../helpers/wait-for.js';
 
 
-vi.mock('../../../src/core/async-task-system/result-delivery.js', () => ({
-  sendResult: vi.fn(),
-  sendFallbackError: vi.fn().mockRejectedValue(new Error('fallback failed')),
-  SENT_MARKER: (taskId: string) => `tasks/queues/results/${taskId}/result.txt.sent`,
+const mockSendResult = vi.fn();
+const mockSendFallbackError = vi.fn().mockRejectedValue(new Error('fallback failed'));
+
+const mockWatcherFactory = vi.fn((_path: string, _callback: unknown) => ({
+  close: vi.fn().mockResolvedValue(undefined),
+  isActive: vi.fn().mockReturnValue(true),
+  getPath: vi.fn().mockReturnValue(_path),
 }));
 
-// phase 260: hoist; 4 tests previously did `await import` for the same module per call.
-import { sendFallbackError } from '../../../src/core/async-task-system/result-delivery.js';
+function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
+  return { fs, auditWriter, sendResult: mockSendResult, sendFallbackError: mockSendFallbackError, sendToolResult: vi.fn().mockResolvedValue(undefined) };
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -51,7 +55,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     beforeEach(async () => {
       vi.restoreAllMocks();
 
-      vi.mocked(sendFallbackError).mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
 
       mockFs = {
         ensureDir: vi.fn().mockResolvedValue(undefined),
@@ -73,6 +77,10 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        sendResult: mockSendResult,
+        sendFallbackError: mockSendFallbackError,
+        sendToolResult: vi.fn().mockResolvedValue(undefined),
+        createWatcher: mockWatcherFactory,
       });
     });
 
@@ -158,7 +166,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
   // ─── C2: dead-letter cluster ───────────────────────────────────────────────
   describe('C2: dead-letter cluster', () => {
     beforeEach(async () => {
-      vi.mocked(sendFallbackError).mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
     });
 
     const taskJson = JSON.stringify({
@@ -202,9 +210,9 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         writeAtomic: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileSystem;
 
-      (sendResult as any).mockRejectedValue(new Error('send failed'));
+      mockSendResult.mockRejectedValue(new Error('send failed'));
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       // retryPath 应该被 delete 调用过
       const deleteCalls = (mockFs.delete as any).mock.calls;
@@ -251,9 +259,9 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         writeAtomic: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileSystem;
 
-      (sendResult as any).mockRejectedValue(new Error('send failed'));
+      mockSendResult.mockRejectedValue(new Error('send failed'));
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       const moveFailedEvents = events.filter(
         (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=dead_letter_move_failed')),
@@ -279,7 +287,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     beforeEach(async () => {
       vi.restoreAllMocks();
 
-      vi.mocked(sendFallbackError).mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
 
       mockFs = {
         ensureDir: vi.fn().mockResolvedValue(undefined),
@@ -301,6 +309,10 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        sendResult: mockSendResult,
+        sendFallbackError: mockSendFallbackError,
+        sendToolResult: vi.fn().mockResolvedValue(undefined),
+        createWatcher: mockWatcherFactory,
       });
     });
 
@@ -429,7 +441,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
   // ─── P1.8: retryCount<MAX retry pending (phase 612) ──────────────────────────
   describe('P1.8 retryCount<MAX retry pending (phase 612)', () => {
     beforeEach(async () => {
-      vi.mocked(sendFallbackError).mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
     });
 
     const taskJson = JSON.stringify({
@@ -473,9 +485,9 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         writeAtomic: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileSystem;
 
-      (sendResult as any).mockRejectedValue(new Error('send failed'));
+      mockSendResult.mockRejectedValue(new Error('send failed'));
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       // task 不应被 move 到 DONE
       const moveCalls = (mockFs.move as any).mock.calls;
@@ -537,9 +549,9 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         writeAtomic: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileSystem;
 
-      (sendResult as any).mockRejectedValue(new Error('send failed'));
+      mockSendResult.mockRejectedValue(new Error('send failed'));
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       // task 应被 move 到 FAILED
       const moveCalls = (mockFs.move as any).mock.calls;
@@ -582,9 +594,9 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         writeAtomic: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileSystem;
 
-      (sendResult as any).mockResolvedValue(undefined);
+      mockSendResult.mockResolvedValue(undefined);
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       // task 应被 move 到 DONE
       const moveCalls = (mockFs.move as any).mock.calls;

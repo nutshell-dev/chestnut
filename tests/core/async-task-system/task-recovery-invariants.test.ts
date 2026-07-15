@@ -15,12 +15,15 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
-vi.mock('../../../src/core/async-task-system/result-delivery.js', () => ({
-  sendResult: vi.fn().mockRejectedValue(new Error('send fail')),
-  sendFallbackError: vi.fn().mockRejectedValue(new Error('fallback fail')),
-  sendToolResult: vi.fn().mockResolvedValue(undefined),
-  SENT_MARKER: (taskId: string) => `tasks/queues/results/${taskId}/result.txt.sent`,
-}));
+function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
+  return {
+    fs,
+    auditWriter,
+    sendResult: vi.fn().mockRejectedValue(new Error('send fail')),
+    sendFallbackError: vi.fn().mockRejectedValue(new Error('fallback fail')),
+    sendToolResult: vi.fn().mockResolvedValue(undefined),
+  };
+}
 
 vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
@@ -126,7 +129,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     await mockFs.writeAtomic(sentMarker, '1');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // running file must be preserved for next recovery retry
     expect(await mockFs.exists(taskFile)).toBe(true);
@@ -153,7 +156,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     await mockFs.writeAtomic(sentMarker, '1');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // task should end up in failed/, not done/
     expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
@@ -182,7 +185,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     await mockFs.writeAtomic(sentMarker, '1');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // task should end up in done/
     expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
@@ -210,7 +213,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     await mockFs.writeAtomic(sentMarker, '1');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // task should end up in done/
     expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
@@ -239,7 +242,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     await mockFs.writeAtomic(sentMarker, '1');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // running file must be preserved for next recovery retry
     expect(await mockFs.exists(taskFile)).toBe(true);
@@ -369,7 +372,7 @@ describe('phase 874: ToolTask terminalState + dead-letter retry counter', () => 
     });
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
     expect(await mockFs.exists('tasks/queues/pending/550e8400-e29b-41d4-a716-446655440000.json')).toBe(false);
@@ -391,7 +394,7 @@ describe('phase 874: ToolTask terminalState + dead-letter retry counter', () => 
     });
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
     expect(await mockFs.exists('tasks/queues/pending/550e8400-e29b-41d4-a716-446655440000.json')).toBe(false);
@@ -419,7 +422,7 @@ describe('phase 874: ToolTask terminalState + dead-letter retry counter', () => 
     await mockFs.writeAtomic(retryPath, '2');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // running file must be preserved for next recovery retry
     expect(await mockFs.exists(taskFile)).toBe(true);
@@ -549,7 +552,7 @@ describe('phase 875: migrated ToolTask terminalState + RECOVERED/DEAD_LETTER aud
     });
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
     expect(await mockFs.exists(taskFile)).toBe(false);
@@ -570,7 +573,7 @@ describe('phase 875: migrated ToolTask terminalState + RECOVERED/DEAD_LETTER aud
     });
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
 
@@ -588,7 +591,7 @@ describe('phase 875: migrated ToolTask terminalState + RECOVERED/DEAD_LETTER aud
     });
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
 
@@ -612,7 +615,7 @@ describe('phase 875: migrated ToolTask terminalState + RECOVERED/DEAD_LETTER aud
     await mockFs.writeAtomic(retryPath, '2');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     const deadLetterEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_DEAD_LETTER);
     expect(deadLetterEvents.length).toBe(0);
@@ -727,7 +730,7 @@ describe('phase 904: migrated recovery radical fix', () => {
     });
 
     const { audit } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(killSpy).toHaveBeenCalledWith(task.migratedPid, 'SIGTERM');
 
@@ -745,7 +748,7 @@ describe('phase 904: migrated recovery radical fix', () => {
     });
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(mockFs.move).not.toHaveBeenCalled();
 
@@ -766,7 +769,7 @@ describe('phase 904: migrated recovery radical fix', () => {
     });
 
     const { audit } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     expect(mockFs.move).not.toHaveBeenCalled();
   });
@@ -865,7 +868,7 @@ describe('phase 989 task-recovery sub-fixes', () => {
     await mockFs.writeAtomic(retryPath, 'abc');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // Verify: audit emitted retry_counter_corrupt
     const corruptEvents = events.filter(
@@ -900,7 +903,7 @@ describe('phase 989 task-recovery sub-fixes', () => {
     await mockFs.writeAtomic(retryPath, '2');
 
     const { audit, events } = makeMockAudit();
-    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
 
     // Verify: task moved to done/
     expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);

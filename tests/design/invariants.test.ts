@@ -874,14 +874,14 @@ describe('vi-mock-list-consistency-invariant', () => {
       }
     });
 
-    it('VI_MOCK_FILES list has ≥90 entries (sanity guard)', () => {
+    it('VI_MOCK_FILES list has ≥80 entries (sanity guard)', () => {
       const listEntries = loadViMockList();
-      expect(listEntries.size).toBeGreaterThanOrEqual(90);
+      expect(listEntries.size).toBeGreaterThanOrEqual(80);
     });
 
-    it('real vi.mock use sites have ≥100 entries (sanity guard)', () => {
+    it('real vi.mock use sites have ≥80 entries (sanity guard)', () => {
       const realUseSites = loadRealViMockUseSites();
-      expect(realUseSites.size).toBeGreaterThanOrEqual(100);
+      expect(realUseSites.size).toBeGreaterThanOrEqual(80);
     });
   });
 });

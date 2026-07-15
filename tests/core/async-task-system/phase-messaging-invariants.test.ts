@@ -14,19 +14,18 @@ import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { recoverTasks } from '../../../src/core/async-task-system/task-recovery.js';
-import { writeInboxAsync } from '../../../src/foundation/messaging/index.js';
-import * as messaging from '../../../src/foundation/messaging/index.js';
+import type { writeInboxAsync } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { ToolTask } from '../../../src/core/async-task-system/types.js';
 
-vi.mock('../../../src/foundation/messaging/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/foundation/messaging/index.js')>();
-  return {
-    ...actual,
-    writeInboxAsync: vi.fn(),
-  };
-});
+const mockWriteInboxAsync = vi.fn().mockResolvedValue(undefined) as unknown as typeof writeInboxAsync;
+
+const mockWatcherFactory = vi.fn((_path: string, _callback: unknown) => ({
+  close: vi.fn().mockResolvedValue(undefined),
+  isActive: vi.fn().mockReturnValue(true),
+  getPath: vi.fn().mockReturnValue(_path),
+}));
 
 /**
  * Phase 879 — resultRef deletion ordering + isIdempotent guard + fallback dual IDs
@@ -100,14 +99,14 @@ describe('phase879.test.ts', () => {
     });
 
     it('preserves result.txt when both ref and inline inbox writes fail', async () => {
-      vi.mocked(messaging.writeInboxAsync).mockRejectedValue(new Error('inbox write failed'));
+      mockWriteInboxAsync.mockRejectedValue(new Error('inbox write failed'));
 
       const mockFs = makeMockFs();
       const { audit } = makeMockAudit();
       const task = makeToolTask();
       const resultPath = `tasks/queues/results/${task.id}/result.txt`;
 
-      await expect(sendToolResult(mockFs, audit, task, 'large result content', false)).rejects.toThrow('inbox write failed');
+      await expect(sendToolResult(mockFs, audit, task, 'large result content', false, { writeInboxAsync: mockWriteInboxAsync })).rejects.toThrow('inbox write failed');
 
       // result.txt must still exist because inline fallback also failed
       expect(await mockFs.exists(resultPath)).toBe(true);
@@ -153,7 +152,7 @@ describe('phase879.test.ts', () => {
 
     it('sendFallbackError uses shortId for taskId and full UUID for fullTaskId', async () => {
       const inboxMessages: Array<{ content: string }> = [];
-      vi.mocked(messaging.writeInboxAsync).mockImplementation(async (_fs, _dir, message) => {
+      mockWriteInboxAsync.mockImplementation(async (_fs, _dir, message) => {
         inboxMessages.push({ content: message.content });
         return Promise.resolve(undefined);
       });
@@ -162,7 +161,7 @@ describe('phase879.test.ts', () => {
       const { audit } = makeMockAudit();
       const task = makeToolTask();
 
-      await sendFallbackError(mockFs, audit, task, 'fallback reason');
+      await sendFallbackError(mockFs, audit, task, 'fallback reason', { writeInboxAsync: mockWriteInboxAsync });
 
       expect(inboxMessages.length).toBe(1);
       const parsed = JSON.parse(inboxMessages[0]!.content);
@@ -231,6 +230,8 @@ describe('phase881.test.ts', () => {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        writeInboxAsync: mockWriteInboxAsync,
+        createWatcher: mockWatcherFactory,
       });
       await system.initialize();
 
@@ -255,6 +256,8 @@ describe('phase881.test.ts', () => {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        writeInboxAsync: mockWriteInboxAsync,
+        createWatcher: mockWatcherFactory,
       });
       await system.initialize();
 
@@ -297,6 +300,8 @@ describe('phase881.test.ts', () => {
         shortIdIndex,
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        writeInboxAsync: mockWriteInboxAsync,
+        createWatcher: mockWatcherFactory,
       });
       await system.initialize();
 
@@ -350,7 +355,7 @@ describe('phase881.test.ts', () => {
       const taskFile = 'tasks/queues/running/550e8400-e29b-41d4-a716-446655440001.json';
       const fileMap = new Map<string, string>([[taskFile, JSON.stringify(task)]]);
 
-      vi.mocked(writeInboxAsync).mockResolvedValue(undefined);
+      mockWriteInboxAsync.mockResolvedValue(undefined);
 
       const mockFs: FileSystem = {
         list: vi.fn().mockImplementation((dir: string) => {
@@ -380,13 +385,13 @@ describe('phase881.test.ts', () => {
       } as unknown as FileSystem;
 
       const { audit } = makeMockAudit();
-      await recoverTasks({ fs: mockFs, auditWriter: audit });
+      await recoverTasks({ fs: mockFs, auditWriter: audit, writeInboxAsync: mockWriteInboxAsync });
 
       const failedPath = 'tasks/queues/failed/550e8400-e29b-41d4-a716-446655440001.json';
       expect(await mockFs.exists(failedPath)).toBe(true);
 
-      expect(writeInboxAsync).toHaveBeenCalled();
-      const inboxCalls = vi.mocked(writeInboxAsync).mock.calls;
+      expect(mockWriteInboxAsync).toHaveBeenCalled();
+      const inboxCalls = mockWriteInboxAsync.mock.calls;
       const lastCall = inboxCalls[inboxCalls.length - 1];
       const message = lastCall[2] as { content: string };
       const parsed = JSON.parse(message.content);
@@ -402,7 +407,7 @@ describe('phase881.test.ts', () => {
 
     it('writes sent marker before deleting resultRef on inline fallback', async () => {
       let inboxCallCount = 0;
-      vi.mocked(writeInboxAsync).mockImplementation(() => {
+      mockWriteInboxAsync.mockImplementation(() => {
         inboxCallCount++;
         // First call (ref message) fails; second call (inline fallback) succeeds.
         if (inboxCallCount === 1) return Promise.reject(new Error('inbox write failed'));
@@ -435,7 +440,7 @@ describe('phase881.test.ts', () => {
         createdAt: new Date().toISOString(),
       };
 
-      await sendResult(mockFs, audit, task, 'x'.repeat(2000), false);
+      await sendResult(mockFs, audit, task, 'x'.repeat(2000), false, { writeInboxAsync: mockWriteInboxAsync });
 
       const markerIndex = operationLog.findIndex(o => o.op === 'writeAtomic' && o.path.endsWith('.sent'));
       const deleteIndex = operationLog.findIndex(o => o.op === 'delete' && o.path.endsWith('result.txt'));
@@ -475,7 +480,7 @@ describe('phase882.test.ts', () => {
 
     it('preserves resultRef when sent marker write fails on inline fallback', async () => {
       let inboxCallCount = 0;
-      vi.mocked(writeInboxAsync).mockImplementation(() => {
+      mockWriteInboxAsync.mockImplementation(() => {
         inboxCallCount++;
         // First call (ref message) fails; second call (inline fallback) succeeds.
         if (inboxCallCount === 1) return Promise.reject(new Error('inbox write failed'));
@@ -512,7 +517,7 @@ describe('phase882.test.ts', () => {
         createdAt: new Date().toISOString(),
       };
 
-      await sendResult(mockFs, audit, task, 'x'.repeat(2000), false);
+      await sendResult(mockFs, audit, task, 'x'.repeat(2000), false, { writeInboxAsync: mockWriteInboxAsync });
 
       // Marker write failure should be audited.
       const markerFailedEvents = events.filter(
@@ -561,6 +566,8 @@ describe('phase882.test.ts', () => {
         shortIdIndex,
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        writeInboxAsync: mockWriteInboxAsync,
+        createWatcher: mockWatcherFactory,
       });
       await system.initialize();
 
@@ -620,7 +627,7 @@ describe('phase882.test.ts', () => {
       const fileMap = new Map<string, string>([[taskFile, JSON.stringify(task)]]);
 
       // Simulate inbox notification failure.
-      vi.mocked(writeInboxAsync).mockRejectedValue(new Error('inbox unreachable'));
+      mockWriteInboxAsync.mockRejectedValue(new Error('inbox unreachable'));
 
       const { audit, events } = makeMockAudit();
       const mockFs: FileSystem = {
@@ -650,7 +657,7 @@ describe('phase882.test.ts', () => {
         exists: vi.fn().mockImplementation((path: string) => Promise.resolve(fileMap.has(path))),
       } as unknown as FileSystem;
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit });
+      await recoverTasks({ fs: mockFs, auditWriter: audit, writeInboxAsync: mockWriteInboxAsync });
 
       // Notification failure must be audited.
       const notifyFailedEvents = events.filter(

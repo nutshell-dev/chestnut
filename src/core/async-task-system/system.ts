@@ -30,7 +30,8 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { Tool } from '../../foundation/tools/index.js';
-import { sendFallbackError } from './result-delivery.js';
+import { sendResult, sendFallbackError, sendToolResult } from './result-delivery.js';
+import type { ResultDeliveryDeps } from './result-delivery.js';
 import { recoverTasks, recoverMigratedToolTask } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { executeSubAgentTask } from './subagent-executor.js';
@@ -94,6 +95,10 @@ export class AsyncTaskSystem {
   private readonly askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   private readonly shortIdIndex: ShortIdIndex;
   private readonly pendingQueueMax: number;
+  private readonly sendResult: typeof import('./result-delivery.js').sendResult;
+  private readonly sendFallbackError: typeof import('./result-delivery.js').sendFallbackError;
+  private readonly sendToolResult: typeof import('./result-delivery.js').sendToolResult;
+  private readonly writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
   private _shuttingDown = false;
   private _dispatchRunning = false;
   private _startPromise: Promise<void> | null = null;
@@ -139,6 +144,9 @@ export class AsyncTaskSystem {
       moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
       parentStreamLog: this.parentStreamLog,
       shortIdIndex: this.shortIdIndex,
+      sendToolResult: this.sendToolResult,
+      sendFallbackError: this.sendFallbackError,
+      writeInboxAsync: this.writeInboxAsync,
     });
   }
 
@@ -164,6 +172,10 @@ export class AsyncTaskSystem {
     this.askMotionToolFactory = options.askMotionToolFactory;
     this.shortIdIndex = options.shortIdIndex;
     this.pendingQueueMax = options.pendingQueueMax ?? PENDING_QUEUE_MAX;
+    this.sendResult = options.sendResult ?? sendResult;
+    this.sendFallbackError = options.sendFallbackError ?? sendFallbackError;
+    this.sendToolResult = options.sendToolResult ?? sendToolResult;
+    this.writeInboxAsync = options.writeInboxAsync;
 
     // Strategy table: dispatches task body by kind. Adding a new kind
     // requires extending union + registering one entry — _startTask itself
@@ -212,6 +224,9 @@ export class AsyncTaskSystem {
           retryBaseDelayMs: this.retryBaseDelayMs,
           moveTaskToDone: (id: TaskId) => this.moveTaskToDone(id),
           moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
+          sendToolResult: this.sendToolResult,
+          sendFallbackError: this.sendFallbackError,
+          writeInboxAsync: this.writeInboxAsync,
         });
       },
       subagent: async (task, signal) => {
@@ -231,6 +246,9 @@ export class AsyncTaskSystem {
           toolTimeoutMs: this.toolTimeoutMs,
           permissionChecker: this.permissionChecker,
           askMotionToolFactory: this.askMotionToolFactory,
+          sendResult: this.sendResult,
+          sendFallbackError: this.sendFallbackError,
+          writeInboxAsync: this.writeInboxAsync,
         });
       },
     };
@@ -271,7 +289,14 @@ export class AsyncTaskSystem {
 
     // Cold-start recovery: running tasks are moved back to pending by recoverTasks.
     // No in-memory pending queue is kept; pending state is derived from fs on demand.
-    await recoverTasks({ fs: this.fs, auditWriter: this.auditWriter });
+    await recoverTasks({
+      fs: this.fs,
+      auditWriter: this.auditWriter,
+      sendResult: this.sendResult,
+      sendFallbackError: this.sendFallbackError,
+      sendToolResult: this.sendToolResult,
+      writeInboxAsync: this.writeInboxAsync,
+    });
   }
 
   /**
@@ -679,8 +704,8 @@ export class AsyncTaskSystem {
       // Notification not yet sent (or marker missing) — retry
       let notifyOk = false;
       try {
-        await sendFallbackError(this.fs, this.auditWriter, task,
-          'Task rejected: pending queue overflow.');
+        await this.sendFallbackError(this.fs, this.auditWriter, task,
+          'Task rejected: pending queue overflow.', { writeInboxAsync: this.writeInboxAsync });
         try {
           await this.fs.writeAtomic(notifiedPath, '');
           notifyOk = true;
@@ -766,8 +791,8 @@ export class AsyncTaskSystem {
       // pending so _getPendingTasks can retry on the next dispatch cycle.
       let notified = false;
       try {
-        await sendFallbackError(this.fs, this.auditWriter, task,
-          `Task rejected: pending queue overflow (${pendingCount} > ${this.pendingQueueMax}).`);
+        await this.sendFallbackError(this.fs, this.auditWriter, task,
+          `Task rejected: pending queue overflow (${pendingCount} > ${this.pendingQueueMax}).`, { writeInboxAsync: this.writeInboxAsync });
         try {
           await this.fs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, '');
           notified = true;
@@ -932,7 +957,14 @@ export class AsyncTaskSystem {
       if (!deadlineMs || Date.now() < deadlineMs) continue;
 
       await recoverMigratedToolTask(
-        { fs: this.fs, auditWriter: this.auditWriter },
+        {
+          fs: this.fs,
+          auditWriter: this.auditWriter,
+          sendResult: this.sendResult,
+          sendFallbackError: this.sendFallbackError,
+          sendToolResult: this.sendToolResult,
+          writeInboxAsync: this.writeInboxAsync,
+        },
         runningPath,
         task as ToolTask,
       );
@@ -1022,7 +1054,7 @@ export class AsyncTaskSystem {
         error: formatErr(error),
       });
       // 通知 parent，避免永久挂起
-      await sendFallbackError(this.fs, this.auditWriter, task, `Task failed to start: ${errorMsg}`).catch((e) => {
+      await this.sendFallbackError(this.fs, this.auditWriter, task, `Task failed to start: ${errorMsg}`, { writeInboxAsync: this.writeInboxAsync }).catch((e) => {
         emitStartFailed(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
@@ -1398,7 +1430,7 @@ export class AsyncTaskSystem {
       let notified = false;
       if (task) {
         try {
-          await sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution');
+          await this.sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution', { writeInboxAsync: this.writeInboxAsync });
           notified = true;
           await this.fs.writeAtomic(
             `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, ''

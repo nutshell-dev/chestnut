@@ -16,6 +16,8 @@ import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
 import { executeToolTask } from './tool-executor.js';
+import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
+import type { ResultDeliveryDeps } from './result-delivery.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
@@ -39,6 +41,9 @@ interface AsyncExecWrapperDeps {
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   parentStreamLog?: { write(entry: Record<string, unknown>): void };
   shortIdIndex: ShortIdIndex;
+  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
+  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
+  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
 }
 
 const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
@@ -144,6 +149,8 @@ export function createAsyncExecWrapper(
   const timeout = softTimeoutMs ?? ASYNC_EXEC_SOFT_TIMEOUT_MS;
   const migratedHardTimeoutMs = params.migratedHardTimeoutMs ?? ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, parentStreamLog, shortIdIndex } = deps;
+  const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
 
   const tool: Tool = {
     name: EXEC_TOOL_NAME,
@@ -362,7 +369,7 @@ export function createAsyncExecWrapper(
             task,
             () => Promise.resolve({ success: true, content: '' }),
             new AbortController().signal,
-            { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed },
+            { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackError, writeInboxAsync: deps.writeInboxAsync },
           );
         } catch (monitorErr) {
           // Hard timeout or process exited with an error: kill if we timed out,
@@ -394,7 +401,7 @@ export function createAsyncExecWrapper(
               task,
               () => Promise.resolve({ success: true, content: '' }),
               new AbortController().signal,
-              { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed },
+              { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackError, writeInboxAsync: deps.writeInboxAsync },
             );
           } catch (execErr) {
             emitHandlerFailed(auditWriter, {

@@ -6,6 +6,7 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import type { WatcherFactory, WatchEvent } from '../../../src/foundation/file-watcher/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -102,24 +103,25 @@ function makeMockFsForRecovery(opts: {
   } as unknown as FileSystem;
 }
 
-let capturedWatcherCallback: ((event: { type: string; path: string }) => void) | undefined;
-
-vi.mock('../../../src/foundation/file-watcher/index.js', () => ({
-  createWatcher: vi.fn((_path: string, callback: (event: { type: string; path: string }) => void) => {
+function makeMockWatcherFactory(): { createWatcher: WatcherFactory; getCallback: () => ((event: WatchEvent) => void) | undefined } {
+  let capturedWatcherCallback: ((event: WatchEvent) => void) | undefined;
+  const createWatcher: WatcherFactory = (_path, callback) => {
     capturedWatcherCallback = callback;
     return {
       close: vi.fn().mockResolvedValue(undefined),
       isActive: vi.fn().mockReturnValue(true),
       getPath: vi.fn().mockReturnValue(_path),
     };
-  }),
-}));
+  };
+  return { createWatcher, getCallback: () => capturedWatcherCallback };
+}
+
+const mockWatcherFactory = makeMockWatcherFactory();
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('task-recovery corrupt-backup 三件套', () => {
   afterEach(() => {
-    capturedWatcherCallback = undefined;
     vi.clearAllMocks();
   });
 
@@ -291,12 +293,12 @@ describe('task-recovery corrupt-backup 三件套', () => {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
         ...makeTaskSystemDeps(),
+        createWatcher: mockWatcherFactory.createWatcher,
       });
     });
 
     afterEach(async () => {
       await system.shutdown(1).catch(() => { /* silent: shutdown */ });
-      capturedWatcherCallback = undefined;
     });
 
     it('JSON.parse fail → backup + audit TASK_CORRUPT + return null (skip ingest)', async () => {

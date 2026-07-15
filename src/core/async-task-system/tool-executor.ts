@@ -3,7 +3,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
-import { sendToolResult, sendFallbackError } from './result-delivery.js';
+import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
+import type { ResultDeliveryDeps } from './result-delivery.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { getProcessStartTime } from '../../foundation/process-exec/index.js';
@@ -24,6 +25,9 @@ interface ExecuteToolTaskDeps {
   retryBaseDelayMs: number;
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
+  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
+  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
+  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
 }
 
 
@@ -52,6 +56,9 @@ async function executeMigratedToolTask(
   deps: ExecuteToolTaskDeps,
 ): Promise<void> {
   const { fs, auditWriter, moveTaskToDone, moveTaskToFailed } = deps;
+  const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const taskStartTime = Date.now();
 
   // PID reuse defense: verify the running process has the expected start time.
@@ -68,7 +75,7 @@ async function executeMigratedToolTask(
         `actual=${actualStartTime}`,
       );
       const errorMsg = 'Migrated process PID reused';
-      await sendToolResult(fs, auditWriter, task, errorMsg, true).catch((sendErr) => {
+      await sendToolResult(fs, auditWriter, task, errorMsg, true, resultDeliveryDeps).catch((sendErr) => {
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
           shortTaskId: taskShortId(task),
@@ -96,9 +103,9 @@ async function executeMigratedToolTask(
   const result: ToolResult = { success: true, content: resultContent };
 
   try {
-    await sendToolResult(fs, auditWriter, task, result, false);
+    await sendToolResult(fs, auditWriter, task, result, false, resultDeliveryDeps);
   } catch (sendErr) {
-    await sendFallbackError(fs, auditWriter, task, 'Failed to send migrated result').catch((e) => {
+    await sendFallbackError(fs, auditWriter, task, 'Failed to send migrated result', resultDeliveryDeps).catch((e) => {
       emitHandlerFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
@@ -152,6 +159,9 @@ export async function executeToolTask(
   }
 
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed } = deps;
+  const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const taskStartTime = Date.now();
   let lastError: string | undefined;
   let success = false;
@@ -168,10 +178,10 @@ export async function executeToolTask(
       const result = await executeCallback();
       // Success - send result and mark success
       try {
-        await sendToolResult(fs, auditWriter, task, result, false);
+        await sendToolResult(fs, auditWriter, task, result, false, resultDeliveryDeps);
       } catch (sendErr) {
         // sendToolResult 本身失败：降级写最小通知，不进入重试（执行已成功）
-        await sendFallbackError(fs, auditWriter, task, 'Failed to send result').catch((e) => {
+        await sendFallbackError(fs, auditWriter, task, 'Failed to send result', resultDeliveryDeps).catch((e) => {
           emitHandlerFailed(auditWriter, {
             fullTaskId: task.id as FullTaskId,
             shortTaskId: taskShortId(task),
@@ -259,11 +269,12 @@ export async function executeToolTask(
         task.maxRetries > 0
           ? `Execution failed after ${task.retryCount} retries: ${finalError}`
           : finalError,
-        true
+        true,
+        resultDeliveryDeps
       );
     } catch (sendErr) {
       // sendToolResult 失败：降级写最小通知
-      await sendFallbackError(fs, auditWriter, task, finalError).catch((e) => {
+      await sendFallbackError(fs, auditWriter, task, finalError, resultDeliveryDeps).catch((e) => {
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
           shortTaskId: taskShortId(task),

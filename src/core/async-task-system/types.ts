@@ -112,6 +112,12 @@ export interface AsyncTaskSystemOptions {
   shortIdIndex: ShortIdIndex;
   /** phase 86: optional WatcherFactory for DI (test mock injection) */
   createWatcher?: WatcherFactory;
+  /** phase 1029: result-delivery 函数。测试注入 mock，生产默认真实实现。 */
+  sendResult?: typeof import('./result-delivery.js').sendResult;
+  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
+  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
+  /** phase 1029: messaging 函数。测试注入 mock，生产默认真实实现。 */
+  writeInboxAsync?: typeof import('../../foundation/messaging/index.js').writeInboxAsync;
   /** 待处理队列容量上限。默认 PENDING_QUEUE_MAX (1000)。 */
   pendingQueueMax?: number;
 }

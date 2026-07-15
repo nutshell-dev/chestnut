@@ -11,6 +11,7 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import type { WatcherFactory, WatchEvent } from '../../../src/foundation/file-watcher/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { waitFor } from '../../helpers/wait-for.js';
 
@@ -68,18 +69,21 @@ function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string |
 
 // ─── S3 helpers ───────────────────────────────────────────────────────────────
 
-let capturedWatcherCallback: ((event: { type: string; path: string }) => void) | undefined;
-
-vi.mock('../../../src/foundation/file-watcher/index.js', () => ({
-  createWatcher: vi.fn((_path: string, callback: (event: { type: string; path: string }) => void) => {
+function makeMockWatcherFactory(): { createWatcher: WatcherFactory; getCallback: () => ((event: WatchEvent) => void) | undefined } {
+  let capturedWatcherCallback: ((event: WatchEvent) => void) | undefined;
+  const createWatcher: WatcherFactory = (_path, callback) => {
     capturedWatcherCallback = callback;
     return {
       close: vi.fn().mockResolvedValue(undefined),
       isActive: vi.fn().mockReturnValue(true),
       getPath: vi.fn().mockReturnValue(_path),
     };
-  }),
-}));
+  };
+  return { createWatcher, getCallback: () => capturedWatcherCallback };
+}
+
+const mockWatcherFactory = makeMockWatcherFactory();
+const capturedWatcherCallback = mockWatcherFactory.getCallback;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -230,12 +234,13 @@ describe('phase 541: silent catch fixes', () => {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
+        createWatcher: mockWatcherFactory.createWatcher,
       });
     });
 
     afterEach(async () => {
       await system.shutdown(1).catch(() => { /* silent: shutdown */ });
-      capturedWatcherCallback = undefined;
+      // callback state reset implicitly per mockWatcherFactory closure
     });
 
     it('watcher async ingest reject writes PENDING_INGEST_FAILED audit (context=watcher_async)', async () => {
@@ -246,8 +251,8 @@ describe('phase 541: silent catch fixes', () => {
       const originalIngest = (system as any)._ingestPendingFile.bind(system);
       (system as any)._ingestPendingFile = vi.fn().mockRejectedValue(new Error('ingest explosion'));
 
-      expect(capturedWatcherCallback).toBeDefined();
-      capturedWatcherCallback!({ type: 'add', path: 'tasks/queues/pending/task-watcher.json' });
+      expect(capturedWatcherCallback()).toBeDefined();
+      capturedWatcherCallback()!({ type: 'add', path: 'tasks/queues/pending/task-watcher.json' });
 
       // phase 789: waitFor poll until PENDING_INGEST_FAILED (context=watcher_async) lands
       await waitFor(() => auditEvents.some(

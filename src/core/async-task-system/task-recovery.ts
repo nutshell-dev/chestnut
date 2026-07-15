@@ -21,7 +21,13 @@ import {
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { isAlive, getProcessStartTime } from '../../foundation/process-exec/index.js';
-import { sendFallbackError, sendResult, sendToolResult, SENT_MARKER } from './result-delivery.js';
+import {
+  SENT_MARKER,
+  sendResult as defaultSendResult,
+  sendFallbackError as defaultSendFallbackError,
+  sendToolResult as defaultSendToolResult,
+  type ResultDeliveryDeps,
+} from './result-delivery.js';
 import type { TaskId } from './types.js';
 
 
@@ -39,6 +45,10 @@ const MAX_RECOVERY_RETRIES = 3;
 export interface RecoverTasksDeps {
   fs: FileSystem;
   auditWriter: AuditLog;
+  sendResult?: typeof import('./result-delivery.js').sendResult;
+  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
+  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
+  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
 }
 
 async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
@@ -81,6 +91,8 @@ async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
 async function _recoverToolTask(
   deps: RecoverTasksDeps, filePath: string, task: ToolTask,
 ): Promise<number> {
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   // Phase 875: terminalState outranks mode; a migrated task may already be done/failed.
   const ts = (task as unknown as Record<string, unknown>).terminalState as string | undefined;
   if (ts === 'done') {
@@ -184,7 +196,7 @@ async function _recoverToolTask(
 
   // First time — send notification, then marker, then move
   await sendFallbackError(deps.fs, deps.auditWriter, task,
-    'Non-idempotent tool task cannot be retried after crash. Manual intervention required.')
+    'Non-idempotent tool task cannot be retried after crash. Manual intervention required.', resultDeliveryDeps)
     .then(async () => {
       // Persist notification-sent marker BEFORE moving to failed.
       // If crash occurs between marker and move, next recovery skips re-notification.
@@ -234,6 +246,9 @@ export async function recoverMigratedToolTask(
   deps: RecoverTasksDeps, filePath: string, task: ToolTask,
 ): Promise<number> {
   const { fs, auditWriter } = deps;
+  const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const pid = task.migratedPid!;
 
   // 1. Check whether the migrated process is still alive.
@@ -392,7 +407,7 @@ export async function recoverMigratedToolTask(
       return 0;
     }
 
-    const sent = await sendToolResult(fs, auditWriter, task, resultContent, false)
+    const sent = await sendToolResult(fs, auditWriter, task, resultContent, false, resultDeliveryDeps)
       .then(() => true)
       .catch(() => false);
 
@@ -441,7 +456,7 @@ export async function recoverMigratedToolTask(
   }
 
   // 3. Process is dead and no result exists: output is unrecoverable.
-  const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output')
+  const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output', resultDeliveryDeps)
     .then(() => true)
     .catch((e) => {
       emitRecoveryFailed(auditWriter, {
@@ -580,6 +595,9 @@ async function _recoverWithResult(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, resultPath: string,
 ): Promise<number> {
   const { fs, auditWriter } = deps;
+  const sendResult = deps.sendResult ?? defaultSendResult;
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const retryPath = RETRY_COUNT_PATH(task.id);
 
   let retryCount = 0;
@@ -617,7 +635,7 @@ async function _recoverWithResult(
   }
 
   const resultContent = await fs.read(resultPath);
-  const resultSent = await sendResult(fs, auditWriter, task, resultContent, false)
+  const resultSent = await sendResult(fs, auditWriter, task, resultContent, false, resultDeliveryDeps)
     .then(() => true)
     .catch(async (e) => {
       emitRecoveryFailed(auditWriter, {
@@ -629,7 +647,7 @@ async function _recoverWithResult(
       // 防止 fallback 成功后 next startup 重试 sendResult 导致父 inbox 双投递
       // sendFallbackError 内会写 SENT_MARKER（phase 789 invariant）
       try {
-        await sendFallbackError(fs, auditWriter, task, 'Result resend failed after recovery');
+        await sendFallbackError(fs, auditWriter, task, 'Result resend failed after recovery', resultDeliveryDeps);
         return true;  // fallback delivered = inbox-written 视作 sent
       } catch (fallbackErr) {
         emitRecoveryFailed(auditWriter, {

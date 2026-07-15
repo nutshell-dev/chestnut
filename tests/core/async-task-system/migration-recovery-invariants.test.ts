@@ -13,7 +13,7 @@ import { InMemoryShortIdIndex, PersistentShortIdIndex } from '../../../src/core/
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
-import { sendToolResult, sendResult, sendFallbackError, SENT_MARKER } from '../../../src/core/async-task-system/result-delivery.js';
+
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -23,16 +23,23 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
-vi.mock('../../../src/core/async-task-system/result-delivery.js', () => ({
-  sendResult: vi.fn().mockResolvedValue(undefined),
-  sendFallbackError: vi.fn().mockResolvedValue(undefined),
-  sendToolResult: vi.fn().mockResolvedValue(undefined),
-  SENT_MARKER: (taskId: string) => `tasks/queues/results/${taskId}/result.txt.sent`,
-}));
-
 /**
  * Phase 886: overflow parent notification + move propagation + corrupt cancel + cap boundary.
  */
+const mockSendResult = vi.fn().mockResolvedValue(undefined);
+const mockSendFallbackError = vi.fn().mockResolvedValue(undefined);
+const mockSendToolResult = vi.fn().mockResolvedValue(undefined);
+
+const mockWatcherFactory = vi.fn((_path: string, _callback: unknown) => ({
+  close: vi.fn().mockResolvedValue(undefined),
+  isActive: vi.fn().mockReturnValue(true),
+  getPath: vi.fn().mockReturnValue(_path),
+}));
+
+function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
+  return { fs, auditWriter, sendResult: mockSendResult, sendFallbackError: mockSendFallbackError, sendToolResult: mockSendToolResult };
+}
+
 describe('phase 886', () => {
   function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
     const events: Array<[string, ...(string | number)[]]> = [];
@@ -101,6 +108,10 @@ describe('phase 886', () => {
       outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     writePendingFile(baseDir, 'overflow-task');
@@ -117,8 +128,8 @@ describe('phase 886', () => {
       parentClawId: 'parent-claw',
     } as any);
 
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
-    const callArgs = (sendFallbackError as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
+    const callArgs = (mockSendFallbackError as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(callArgs[2]).toMatchObject({ id: 'overflow-task' });
     expect(callArgs[3]).toContain('pending queue overflow');
 
@@ -141,6 +152,10 @@ describe('phase 886', () => {
       outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     // Use a UUID-length task id so _loadTaskFromFile can validate the shape on retry.
@@ -210,6 +225,10 @@ describe('phase 886', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     // Use a UUID-length task id so _resolveFullTaskId accepts it without a ShortIdIndex entry.
@@ -248,6 +267,10 @@ describe('phase 886', () => {
       outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     // Fill to MAX-1.
@@ -369,6 +392,10 @@ describe('phase 887', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     const taskId = '550e8400-e29b-41d4-a716-446655440000';
@@ -386,7 +413,7 @@ describe('phase 887', () => {
     expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${taskId}.json`))).toBe(false);
 
     // No fallback notification retry because marker exists
-    expect(sendFallbackError).not.toHaveBeenCalled();
+    expect(mockSendFallbackError).not.toHaveBeenCalled();
 
     const moveFailedEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED && e.some(c => typeof c === 'string' && c.includes('context=retry_overflow_move')),
@@ -407,6 +434,10 @@ describe('phase 887', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     const taskId = '550e8400-e29b-41d4-a716-446655440001';
@@ -416,8 +447,8 @@ describe('phase 887', () => {
     expect(pendingTasks.some((t: { id: string }) => t.id === taskId)).toBe(false);
 
     // Notification retried
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
-    const callArgs = (sendFallbackError as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
+    const callArgs = (mockSendFallbackError as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(callArgs[2]).toMatchObject({ id: taskId });
     expect(callArgs[3]).toContain('pending queue overflow');
 
@@ -448,6 +479,10 @@ describe('phase 887', () => {
       outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     const taskId = '550e8400-e29b-41d4-a716-446655440003';
@@ -459,7 +494,7 @@ describe('phase 887', () => {
     expect(fs.readdirSync(path.join(baseDir, TASKS_QUEUES_PENDING_DIR)).length).toBe(4);
 
     let callCount = 0;
-    (sendFallbackError as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    (mockSendFallbackError as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       callCount++;
       if (callCount === 1) {
         throw new Error('notify-down');
@@ -513,6 +548,10 @@ describe('phase 887', () => {
       contractManager: {} as any,
       outboxWriter: {} as any,
       registry: {} as any,
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     const taskId = '550e8400-e29b-41d4-a716-446655440002';
@@ -679,10 +718,10 @@ describe('phase889.test.ts', () => {
       );
       const { audit, events } = makeMockAudit();
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       expect(mockFs.move).not.toHaveBeenCalled();
-      expect(sendToolResult).not.toHaveBeenCalled();
+      expect(mockSendToolResult).not.toHaveBeenCalled();
       expect(await mockFs.exists(taskFile)).toBe(true);
 
       const failedEvents = events.filter(
@@ -720,9 +759,9 @@ describe('phase889.test.ts', () => {
       await mockFs.writeAtomic(resultPath, 'output');
       const { audit, events } = makeMockAudit();
 
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(sendToolResult).not.toHaveBeenCalled();
+      expect(mockSendToolResult).not.toHaveBeenCalled();
       expect(await mockFs.exists(taskFile)).toBe(true);
 
       const failedEvents = events.filter(
@@ -744,9 +783,9 @@ describe('phase889.test.ts', () => {
       await mockFs.writeAtomic(sentMarkerPath, '1');
 
       const { audit, events } = makeMockAudit();
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(sendToolResult).not.toHaveBeenCalled();
+      expect(mockSendToolResult).not.toHaveBeenCalled();
       expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
 
       const recoveredEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERED);
@@ -788,9 +827,9 @@ describe('phase889.test.ts', () => {
       await mockFs.writeAtomic(resultPath, 'result content');
 
       const { audit, events } = makeMockAudit();
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(sendResult).not.toHaveBeenCalled();
+      expect(mockSendResult).not.toHaveBeenCalled();
       expect(await mockFs.exists(taskFile)).toBe(true);
 
       const failedEvents = events.filter(
@@ -807,8 +846,8 @@ describe('phase889.test.ts', () => {
       const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
       const retryPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt.retry-count`;
 
-      vi.mocked(sendResult).mockRejectedValueOnce(new Error('delivery failed'));
-      vi.mocked(sendFallbackError).mockRejectedValueOnce(new Error('fallback fail'));
+      mockSendResult.mockRejectedValueOnce(new Error('delivery failed'));
+      mockSendFallbackError.mockRejectedValueOnce(new Error('fallback fail'));
 
       const mockFs = makeMockFs(
         [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
@@ -827,9 +866,9 @@ describe('phase889.test.ts', () => {
       await mockFs.writeAtomic(resultPath, 'result content');
 
       const { audit, events } = makeMockAudit();
-      await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(sendResult).toHaveBeenCalledTimes(1);
+      expect(mockSendResult).toHaveBeenCalledTimes(1);
       expect(await mockFs.exists(taskFile)).toBe(true);
       expect(await mockFs.exists(retryPath)).toBe(false);
 
@@ -936,6 +975,10 @@ describe('phase 902', () => {
       auditWriter: audit,
       pendingQueueMax: 3,
       ...makeTaskSystemDeps(),
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     vi.spyOn(system as any, '_setTerminalState').mockRejectedValue(new Error('terminal-state-disk-full'));
@@ -956,7 +999,7 @@ describe('phase 902', () => {
     expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_FAILED_DIR, `${taskId}.json`))).toBe(false);
 
     // Notification must not be attempted once terminalState fails.
-    expect(sendFallbackError).not.toHaveBeenCalled();
+    expect(mockSendFallbackError).not.toHaveBeenCalled();
 
     const terminalStateFailedEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED && e.some(c => typeof c === 'string' && c.includes('context=cap_overflow_terminal_state_failed')),
@@ -988,13 +1031,17 @@ describe('phase 902', () => {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
+      sendResult: mockSendResult,
+      sendFallbackError: mockSendFallbackError,
+      sendToolResult: mockSendToolResult,
+      createWatcher: mockWatcherFactory,
     });
 
     const pendingTasks = await (system as any)._getPendingTasks();
     expect(pendingTasks.some((t: { id: string }) => t.id === taskId)).toBe(false);
 
     // Must NOT retry notification when marker state is unknown.
-    expect(sendFallbackError).not.toHaveBeenCalled();
+    expect(mockSendFallbackError).not.toHaveBeenCalled();
 
     // Task must stay in pending for next cycle retry.
     expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${taskId}.json`))).toBe(true);
