@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 111 file (sync 2026-07-14 / phase 1023 碎片合并: -26 +10)
+ * 数量: 108 file (sync 2026-07-14 / phase 1025 碎片合并: -9 +6)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -206,12 +206,10 @@ const VI_MOCK_FILES = [
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/stream-reader-race.test.ts',
   'tests/foundation/unix-socket.test.ts',
-  'tests/watchdog/handler-idempotent-install.test.ts',
-  'tests/watchdog/watchdog-cron-dedup.test.ts',
-  'tests/watchdog/watchdog-ever-spawned-crash.test.ts',
+  'tests/watchdog/cron-crash-invariants.test.ts',
+  'tests/watchdog/shutdown-invariants.test.ts',
+  'tests/watchdog/state-invariants.test.ts',
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
-  'tests/watchdog/watchdog-shutdown-guard.test.ts',
-  'tests/watchdog/watchdog-state-narrow.test.ts',
   'tests/watchdog/watchdog-state-schema-version.test.ts',
   // phase 288 Step C sync: 48 entries added per find -name '*.test.ts' -exec grep 'vi.mock(' {} \;
   'tests/assembly/assemble-dream-trigger-guard.test.ts',
@@ -246,7 +244,6 @@ const VI_MOCK_FILES = [
   'tests/watchdog/watchdog-a8-final-audit.test.ts',
   'tests/watchdog/watchdog-claws-dir-list-failed-audit.test.ts',
   'tests/watchdog/watchdog-cron-map-cleanup-no-claws-dir.test.ts',
-  'tests/watchdog/watchdog-cron-skip-audit.test.ts',
   'tests/watchdog/watchdog-cli-stop-pid-missing.test.ts',
 ];
 
