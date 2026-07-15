@@ -199,7 +199,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/process-manager/stop.test.ts',
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/stream-reader-race.test.ts',
-  'tests/foundation/unix-socket.test.ts',
+  'tests/foundation/misc-invariants.test.ts',
   'tests/watchdog/cron-crash-invariants.test.ts',
   'tests/watchdog/shutdown-invariants.test.ts',
   'tests/watchdog/state-invariants.test.ts',
