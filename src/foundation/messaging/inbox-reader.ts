@@ -378,14 +378,33 @@ export class InboxReader {
     }
 
     if (targetContent === null) {
-      // 崩溃发生在 target claim 之前 → 完成恢复
-      this.fs.writeExclusiveSync(targetPath, stageContent);
       try {
-        this.fs.deleteSync(stagePath);
+        // 崩溃发生在 target claim 之前 → 完成恢复
+        this.fs.writeExclusiveSync(targetPath, stageContent);
+        // claimed the name → drop the stage copy
+        try {
+          this.fs.deleteSync(stagePath);
+        } catch (err) {
+          if (!isFileNotFound(err)) throw err;
+        }
+        return 'restored';
       } catch (err) {
-        if (!isFileNotFound(err)) throw err;
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        // 并发写入出现了 target → 重读，fall through 到三向决策
+        try {
+          targetContent = await this.fs.read(targetPath);
+        } catch (readErr) {
+          if (!isFileNotFound(readErr)) throw readErr;
+          // target 在 EEXIST→重读之间又消失了（极端竞态）→ 重试恢复
+          this.fs.writeExclusiveSync(targetPath, stageContent);
+          try {
+            this.fs.deleteSync(stagePath);
+          } catch (delErr) {
+            if (!isFileNotFound(delErr)) throw delErr;
+          }
+          return 'restored';
+        }
       }
-      return 'restored';
     }
 
     if (stageContent === targetContent) {

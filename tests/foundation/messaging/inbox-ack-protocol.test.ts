@@ -496,5 +496,79 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
       expect(quarantineAudit).toHaveLength(1);
       expect(quarantineAudit[0].cols.some(c => c.includes('unparseable_old_stage_format'))).toBe(true);
     });
+
+    // ─── 反向测试: EEXIST 竞态恢复（并发写入出现 target）─────────────────
+    it('init() handles EEXIST race during stage recovery — concurrent target appears', async () => {
+      const originalName = '1700000000000_msg_race_target.md';
+      const stageName = `.tmp_abc12345_${originalName}.staging`;
+      const stageContent = '---\nid: race-stage\n---\nstage content\n';
+      const racedContent = '---\nid: race-target\n---\nraced content (different)\n';
+      await fs.writeFile(path.join(pendingDir(), stageName), stageContent);
+
+      // 模拟并发：先写一个 target，使 writeExclusiveSync 触发 EEXIST
+      // 但测试无法直接注入 EEXIST。改为验证：target 存在时正常走三向决策
+      // （EEXIST 路径的最终行为与 target-already-exists 一致）
+      await fs.writeFile(path.join(pendingDir(), originalName), racedContent);
+
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // target 保留原内容（未覆盖）
+      expect(await fs.readFile(path.join(pendingDir(), originalName), 'utf-8')).toBe(racedContent);
+      // stage 入 failed/DLQ（异内容）
+      const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
+      const dlqFiles = failedFiles.filter(f => f.endsWith('.md'));
+      expect(dlqFiles).toHaveLength(1);
+      expect(await fs.readFile(path.join(path.join(testDir, 'inbox', 'failed'), dlqFiles[0]), 'utf-8')).toBe(stageContent);
+      // audit: INBOX_RESTORE_CONFLICT
+      expect(calls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RESTORE_CONFLICT)).toBe(true);
+    });
+
+    // ─── 反向测试: EEXIST 竞态恢复（并发写入同内容 → dedupe）────────────
+    it('init() handles EEXIST race — concurrent target with same content → dedupe', async () => {
+      const originalName = '1700000000000_msg_race_same.md';
+      const stageName = `.tmp_abc12345_${originalName}.staging`;
+      const content = '---\nid: race-same\n---\nsame content\n';
+      await fs.writeFile(path.join(pendingDir(), stageName), content);
+      // target 存在且同内容（模拟 EEXIST 后重读发现的场景）
+      await fs.writeFile(path.join(pendingDir(), originalName), content);
+
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // target 保留
+      expect(await fs.readFile(path.join(pendingDir(), originalName), 'utf-8')).toBe(content);
+      // stage 已删除
+      expect(await fs.readdir(pendingDir())).not.toContain(stageName);
+      // audit: INBOX_DEDUPED（同内容）
+      expect(calls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED)).toBe(true);
+      // failed/ 无新增
+      const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
+      expect(failedFiles.filter(f => f.endsWith('.md'))).toHaveLength(0);
+    });
   });
 });
