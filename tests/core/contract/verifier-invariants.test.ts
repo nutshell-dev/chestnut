@@ -580,3 +580,105 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
     expect(result.structured).toEqual({ passed: true, reason: 'ok' });
   });
 });
+
+/**
+ * verifier-job unit tests (phase 990 / r121 F fork)
+ *
+ * Tests runContractVerifier result-parsing paths via mocked runSubagent.
+ * Pure-logic cluster: capturedResult, JSON codeblock, plain JSON, parse error, timeout, generic error.
+ */
+
+const { mockRunSubagentUnit } = vi.hoisted(() => ({
+  mockRunSubagentUnit: vi.fn(),
+}));
+
+function makeUnitConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
+  return {
+    agentId: 'verifier-test',
+    clawId: 'claw-test',
+    clawDir: '/tmp/claw',
+    fs: {} as unknown as VerifierConfig['fs'],
+    llm: {} as unknown as VerifierConfig['llm'],
+    audit: makeMockAudit() as unknown as VerifierConfig['audit'],
+    prompt: 'test prompt',
+    toolRegistry: {
+      getForProfile: vi.fn().mockReturnValue([]),
+    } as unknown as VerifierConfig['toolRegistry'],
+    fsFactory: vi.fn(() => ({}) as unknown as VerifierConfig['fs']),
+    runSubagent: mockRunSubagentUnit,
+    ...overrides,
+  };
+}
+
+describe('runContractVerifier (phase 990)', () => {
+  beforeEach(() => {
+    mockRunSubagentUnit.mockReset();
+  });
+
+  it('returns structured result when capturedResult is present', async () => {
+    mockRunSubagentUnit.mockResolvedValue({
+      text: '',
+      capturedResult: { passed: true, reason: 'ok', issues: ['a'] },
+    });
+    const result = await runContractVerifier(makeUnitConfig());
+    expect(result.passed).toBe(true);
+    expect(result.structured).toEqual({ passed: true, reason: 'ok', issues: ['a'] });
+  });
+
+  it('parses JSON codeblock when no capturedResult', async () => {
+    mockRunSubagentUnit.mockResolvedValue({
+      text: '```json\n{"passed":true,"reason":"ok"}\n```',
+    });
+    const result = await runContractVerifier(makeUnitConfig());
+    expect(result.passed).toBe(true);
+    expect(result.structured).toEqual({ passed: true, reason: 'ok' });
+  });
+
+  it('parses bare JSON when no codeblock', async () => {
+    mockRunSubagentUnit.mockResolvedValue({
+      text: '{"passed":false,"reason":"nope"}',
+    });
+    const result = await runContractVerifier(makeUnitConfig());
+    expect(result.passed).toBe(false);
+    expect(result.structured).toEqual({ passed: false, reason: 'nope' });
+  });
+
+  it('returns format error when text has no JSON', async () => {
+    mockRunSubagentUnit.mockResolvedValue({ text: 'plain text only' });
+    const result = await runContractVerifier(makeUnitConfig());
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toContain('格式错误');
+  });
+
+  it('returns timeout feedback on ToolTimeoutError', async () => {
+    mockRunSubagentUnit.mockRejectedValue(new ToolTimeoutError('timeout', { timeoutMs: 100 }));
+    const result = await runContractVerifier(makeUnitConfig());
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toContain('超时');
+  });
+
+  it('returns failure feedback on generic error', async () => {
+    mockRunSubagentUnit.mockRejectedValue(new Error('boom'));
+    const result = await runContractVerifier(makeUnitConfig());
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toContain('boom');
+  });
+
+  it('rejects legacy result with non-boolean passed field', async () => {
+    mockRunSubagentUnit.mockResolvedValue({
+      text: '{"passed":false,"reason":"rejected legacy shape"}',
+      capturedResult: { passed: 'yes', reason: 'looks good' },
+    });
+    const result = await runContractVerifier(makeUnitConfig());
+    expect(result.passed).toBe(false);
+    expect(result.structured).toEqual({ passed: false, reason: 'rejected legacy shape' });
+  });
+
+  it('propagates signal abort instead of returning passed:false', async () => {
+    const abortError = new Error('Aborted');
+    abortError.name = 'AbortError';
+    mockRunSubagentUnit.mockRejectedValue(abortError);
+    const config = makeUnitConfig({ signal: AbortSignal.abort() });
+    await expect(runContractVerifier(config)).rejects.toThrow('Aborted');
+  });
+});
