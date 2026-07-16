@@ -15,6 +15,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   LOCK_SCHEMA_INVALID: 'contract_lock_schema_invalid',   // ← NEW (phase 576)
   LOCK_CLEANUP_FAILED: 'contract_lock_cleanup_failed',   // ← NEW (phase 850 / r108 F fork F2.1)
   LOCK_RETRY: 'contract_lock_retry',                    // ← NEW (phase 1325 / r137 B fork)
+  LOCK_CLAIM_LEGACY_FORMAT_MIGRATED: 'contract_lock_claim_legacy_format_migrated', // ← NEW (phase 1048)
   PROGRESS_SCHEMA_INVALID: 'contract_progress_schema_invalid',  // ← NEW (phase 587)
   CONTRACT_YAML_SCHEMA_INVALID: 'contract_yaml_schema_invalid', // ← NEW (phase 587)
   OBSERVER_STATE_PARSE_FAILED: 'contract_observer_state_parse_failed',  // ← NEW (phase 1012 / r123 C fork)
@@ -187,6 +188,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_lock_schema_invalid: 'audit',
   contract_lock_cleanup_failed: 'audit',
   contract_lock_retry: 'audit',
+  contract_lock_claim_legacy_format_migrated: 'audit',
   contract_progress_schema_invalid: 'audit',
   contract_yaml_schema_invalid: 'audit',
   contract_observer_state_parse_failed: 'audit',

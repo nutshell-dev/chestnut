@@ -40,6 +40,21 @@ export class LockContentionExhaustedError extends Error {
 }
 
 /**
+ * phase 1048: 旧格式单文件锁被存活持有者持有时 fail-closed。
+ *
+ * 触发：acquireLock 迁移旧格式 progress.lock 时发现持有者 PID 仍存活。
+ */
+export class LockConflictError extends Error {
+  readonly name = 'LockConflictError';
+  readonly lockPath: string;
+
+  constructor(lockPath: string, message: string) {
+    super(message);
+    this.lockPath = lockPath;
+  }
+}
+
+/**
  * phase 67: contract create input validation typed Error
  *
  * 触发：ContractSystem.create() 内 6 类 yaml validation 失败。

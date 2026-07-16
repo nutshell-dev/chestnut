@@ -360,9 +360,9 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
 
 
 /**
- * releaseLock restore path (phase 1037)
+ * releaseLock no-overwrite invariant (phase 1037 legacy + phase 1048 per-contender)
  */
-describe('releaseLock restore path (phase 1037)', () => {
+describe('releaseLock no-overwrite invariant', () => {
   let tempDir: string;
   let clawDir: string;
 
@@ -377,44 +377,39 @@ describe('releaseLock restore path (phase 1037)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('does not overwrite a concurrently re-acquired lock when token mismatches', async () => {
+  it('does not delete a concurrently held claim when token mismatches', async () => {
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const ctx: LockContext = {
       fs: nodeFs,
       audit: { write: () => {}, preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as any,
     };
     const lockPath = 'progress.lock';
-    const ownerToken = await acquireLock(ctx, lockPath);
-    const releasedPath = `${lockPath}.released-${ownerToken}`;
+    const lockDir = path.dirname(lockPath);
+    const claimsDir = path.join(clawDir, lockDir, 'claims');
 
-    const staleToken = 'stale-third-party-token';
-    const newToken = 'new-third-party-token';
-
-    vi.spyOn(nodeFs, 'move').mockImplementation(async (src, dst) => {
-      // Simulate the atomic claim step.
-      await fs.rename(path.join(clawDir, src), path.join(clawDir, dst));
-      // The released file turns out to be stale (belongs to someone else).
-      await fs.writeFile(
-        path.join(clawDir, releasedPath),
-        JSON.stringify({ pid: process.pid, ownerToken: staleToken }),
-      );
-      // Meanwhile a third party has already re-acquired the lock.
-      await fs.writeFile(
-        path.join(clawDir, lockPath),
-        JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: newToken }),
-        { flag: 'wx' },
-      );
-    });
+    // phase 1048: 模拟已存在的新协议 claim
+    const ownerToken = 'owner-token';
+    const otherToken = 'other-token';
+    const ownerClaimName = `claim.${Date.now()}.${process.pid}.${ownerToken}`;
+    const otherClaimName = `claim.${Date.now() - 1}.${process.pid}.${otherToken}`;
+    await fs.mkdir(claimsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(claimsDir, ownerClaimName),
+      JSON.stringify({ pid: process.pid, timestamp: Date.now(), ownerToken, startTime: '0' }),
+    );
+    await fs.writeFile(
+      path.join(claimsDir, otherClaimName),
+      JSON.stringify({ pid: process.pid, timestamp: Date.now() - 1, ownerToken: otherToken, startTime: '0' }),
+    );
 
     await releaseLock(ctx, lockPath, ownerToken);
 
-    // The stale released file must be discarded, not restored over the valid lock.
-    const releasedExists = await fs.stat(path.join(clawDir, releasedPath)).then(() => true).catch(() => false);
-    expect(releasedExists).toBe(false);
+    // 自己的 claim 被删除
+    const ownerExists = await fs.stat(path.join(claimsDir, ownerClaimName)).then(() => true).catch(() => false);
+    expect(ownerExists).toBe(false);
 
-    // The valid concurrent lock must remain intact.
-    const currentLockRaw = await fs.readFile(path.join(clawDir, lockPath), 'utf-8');
-    const currentLock = JSON.parse(currentLockRaw);
-    expect(currentLock.ownerToken).toBe(newToken);
+    // 他人的 claim 保留
+    const otherExists = await fs.stat(path.join(claimsDir, otherClaimName)).then(() => true).catch(() => false);
+    expect(otherExists).toBe(true);
   });
 });

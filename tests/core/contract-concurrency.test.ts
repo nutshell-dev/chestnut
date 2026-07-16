@@ -222,11 +222,13 @@ describe('ContractSystem — 并发幂等与锁', () => {
     });
 
     expect(result.passed).toBe(true);
+    // phase 1048: dead-pid legacy lock 被迁移到 claims/，审计事件变为
+    // LOCK_CLAIM_LEGACY_FORMAT_MIGRATED 而非旧的 LOCK_CLEARED。
     expect(mockAudit.write).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.LOCK_CLEARED,
+      CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED,
+      expect.stringContaining('progress.lock'),
       `pid=${DEAD_PID}`,
-      expect.stringContaining('timeout='),
-      'reason=stale_and_dead',
+      'reason=holder_dead',
     );
   });
 

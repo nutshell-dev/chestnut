@@ -1,39 +1,36 @@
 /**
  * @module L4.ContractSystem.Lock
  * Contract progress lock primitives — 函数化 / 0 class state
+ *
+ * phase 1048: 内部实现迁移到 per-contender 文件锁协议。
+ *   - acquireLock/releaseLock 使用 foundation/fs/lock-protocol 的
+ *     tryAcquireClaim/releaseClaim。
+ *   - 保留旧格式 progress.lock 的兼容读取路径（migrateLegacyLock）。
+ *   - lockContract 的 post-lock re-verify TOCTOU 保护保持不变。
  */
 
 import * as path from 'path';
 import { z } from 'zod';
-import { formatErr, newShortUuid } from "../../foundation/node-utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/index.js';
-import { ToolError } from '../../foundation/tools/errors.js';
-import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS } from './constants.js';
-import { PROGRESS_LOCK_FILE } from './dirs.js';
+import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS } from './constants.js';
 import {
-  emitContractLockSchemaInvalid,
-  emitContractLockCleared,
   emitContractLockUnlinkFailed,
   emitContractLockRetry,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
-import { type ContractId, makeContractId } from './types.js';
-import { isolateCorruptedFile } from './_isolation-helper.js';
-import { LockContentionExhaustedError } from './errors.js';
+import { isAlive as defaultL1IsAlive, makeProcessStartTime } from '../../foundation/process-exec/index.js';
+import type { ProcessStartTime } from '../../foundation/process-exec/index.js';
+import { type ContractId } from './types.js';
+import { LockContentionExhaustedError, LockConflictError } from './errors.js';
+import { tryAcquireClaim, releaseClaim } from '../../foundation/fs/lock-protocol.js';
 
 // phase 326 Zod SoT (ML#9 优先编译器检查): inline lock metadata schemas
 // LockMetadataSchema: acquire 路径、{ pid, time } 必为有限数
 // LockMetadataReleaseSchema: release verify 路径、subset (pid only)
-const LockMetadataSchema = z.object({
-  pid: z.number().finite(),
-  time: z.number().finite(),
-  ownerToken: z.string(),
-}).strict();
-
 const LockMetadataReleaseSchema = z.object({
   pid: z.number().finite(),
   ownerToken: z.string(),
@@ -49,110 +46,81 @@ export interface LockContext {
   lockRetryDelayMs?: number;
 }
 
+/**
+ * phase 1048: 同进程内对同一 lockDir 的锁需要串行化。
+ *
+ * per-contender 协议的 stale recovery 会把同 pid 的其它 claim 视为上次 crash
+ * 残留并删除；这在同进程并发持锁时会破坏互斥。因此在本进程内用内存互斥量
+ * 保证每个 lockDir 同时只有一个持有者（从 acquire 到 release）。
+ */
+class LockDirMutex {
+  // 按 FileSystem 实例隔离：不同 ContractSystem / 不同测试的相对路径不会互相阻塞。
+  private pending = new Map<FileSystem, Map<string, Promise<void>>>();
+
+  async acquire(fs: FileSystem, lockDir: string): Promise<() => void> {
+    let fsMap = this.pending.get(fs);
+    if (!fsMap) {
+      fsMap = new Map();
+      this.pending.set(fs, fsMap);
+    }
+    const previous = fsMap.get(lockDir);
+    let release: () => void;
+    const promise = new Promise<void>(resolve => { release = resolve; });
+    fsMap.set(lockDir, promise);
+    if (previous) {
+      await previous;
+    }
+    return () => {
+      fsMap!.delete(lockDir);
+      if (fsMap!.size === 0) {
+        this.pending.delete(fs);
+      }
+      release();
+    };
+  }
+}
+
+const lockDirMutex = new LockDirMutex();
+const activeMutexReleasers = new Map<string, () => void>();
+
 export async function acquireLock(ctx: LockContext, lockPath: string): Promise<string> {
-  await ctx.fs.ensureDir(path.dirname(lockPath));
+  // lockPath 语义：旧格式是 <contractDir>/progress.lock，新协议 lockDir 是 <contractDir>
+  const lockDir = path.dirname(lockPath);
 
-  const ownerToken = newShortUuid();
-  let lastReason = 'unknown';
+  // 先获取同进程互斥量，持锁期间阻塞同进程内其它同 lockDir 的 acquire
+  const releaseMutex = await lockDirMutex.acquire(ctx.fs, lockDir);
 
-  // phase 1028: use injected retry constants or fall back to module defaults
-  const maxRetries = ctx.lockMaxRetries ?? LOCK_MAX_RETRIES;
-  const retryDelayMs = ctx.lockRetryDelayMs ?? LOCK_RETRY_DELAY_MS;
+  try {
+    const claimsDir = `${lockDir}/claims`;
 
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      ctx.fs.writeExclusiveSync(
-        lockPath,
-        JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken }),
+    // 确保 lockDir 存在（兼容旧调用方以及新协议 claims 父目录）
+    await ctx.fs.ensureDir(lockDir);
+
+    // phase 1048: 旧格式兼容。claims/ 不存在且旧 progress.lock 存在时，先判活再迁移。
+    const hasClaims = await ctx.fs.exists(claimsDir).catch(() => false);
+    const hasLegacyLock = !hasClaims && (await ctx.fs.exists(lockPath).catch(() => false));
+    if (hasLegacyLock) {
+      await migrateLegacyLock(ctx, lockPath, lockDir);
+    }
+
+    // per-contender 协议
+    const maxRetries = ctx.lockMaxRetries ?? LOCK_MAX_RETRIES;
+    const retryDelayMs = ctx.lockRetryDelayMs ?? LOCK_RETRY_DELAY_MS;
+
+    let lastReason = 'unknown';
+    for (let i = 0; i < maxRetries; i++) {
+      const ownerToken = await tryAcquireClaim(
+        { fs: ctx.fs, audit: ctx.audit, isAlive: ctx.l1IsAlive },
+        lockDir,
       );
-      return ownerToken;
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
-
-      try {
-        const raw = await ctx.fs.read(lockPath);
-        // phase 326 Zod SoT (ML#9 优先编译器检查): pid + time 必为有限数、非法视同 corrupt
-        const rawParsed: unknown = JSON.parse(raw);
-        const validation = LockMetadataSchema.safeParse(rawParsed);
-        if (!validation.success) {
-          // Old schema (no ownerToken) or other parse failure.
-          // Try to extract pid from the raw data to check liveness.
-          const legacyPid = typeof rawParsed === 'object' && rawParsed !== null
-            ? (rawParsed as Record<string, unknown>).pid : undefined;
-          if (typeof legacyPid === 'number' && (ctx.l1IsAlive ?? defaultL1IsAlive)(legacyPid)) {
-            // Old-format lock held by a live process — fail-closed.
-            // Don't clean it up; the owner is still running its critical section.
-            lastReason = `lock schema invalid but PID ${legacyPid} is alive — cannot determine ownership; lock preserved`;
-            continue;
-          }
-          emitContractLockSchemaInvalid(
-            ctx.audit,
-            { path: lockPath, raw: ctx.audit.preview(raw) },
-          );
-          // phase 66: 隔离 corrupt lock 文件、然后继续重试
-          const contractDir = path.dirname(lockPath);
-          const contractId = path.basename(contractDir);
-          const isolated = await isolateCorruptedFile(ctx.fs, ctx.audit, {
-            contractId: makeContractId(contractId),
-            contractDir,
-            filename: PROGRESS_LOCK_FILE,
-            reason: 'schema_invalid',
-          });
-          if (isolated) {
-            lastReason = 'lock schema corruption isolated; retrying';
-            continue;
-          }
-          // 隔离失败 → fallback 到 unlink stale lock（像处理 corrupt lock file 一样）
-          if (await unlinkStaleLock(ctx, lockPath, 'corrupt_lock_file_schema_invalid')) continue;
-          lastReason = 'unlink failed on corrupt lock file after isolation failed';
-        }
-        const { pid, time } = validation.success ? validation.data : { pid: 0, time: 0 };
-        const isAlive = (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
-        const isStale = Date.now() - time > LOCK_STALE_TIMEOUT_MS;
-        if (!isAlive && isStale) {
-          // Both stale-by-time AND dead-by-signal — safe to clean up.
-          lastReason = `holder PID ${pid} is dead and stale`;
-          emitContractLockCleared(
-            ctx.audit,
-            { pid, timeout: LOCK_STALE_TIMEOUT_MS, reason: 'stale_and_dead' },
-          );
-          if (await unlinkStaleLock(ctx, lockPath, `stale_timeout_pid_${pid}`)) continue;
-          lastReason = `unlink failed on stale lock (PID ${pid})`;
-        } else if (!isAlive) {
-          lastReason = `holder PID ${pid} is dead (stale lock)`;
-          if (await unlinkStaleLock(ctx, lockPath, `stale_pid_${pid}`)) continue;
-          lastReason = `unlink failed on stale lock (PID ${pid})`;
-        } else if (isStale) {
-          // Stale by time but PID is alive — the lock is still valid.
-          // Don't clear it. The process may be slow but not dead.
-          lastReason = `holder PID ${pid} exceeded timeout (${LOCK_STALE_TIMEOUT_MS}ms) but is alive — lock preserved`;
-        } else {
-          lastReason = `held by PID ${pid} (${Math.round((Date.now() - time) / 1000)}s)`;
-        }
-      } catch (err) {
-        if (err instanceof SyntaxError) {
-          // Non-JSON lock file content — treat as corrupt and attempt cleanup
-          // (legacy behavior preserved; we can confirm the file is not a valid
-          // lock and therefore not owned by a live process).
-          lastReason = 'lock file corrupt or unreadable';
-          if (await unlinkStaleLock(ctx, lockPath, 'corrupt_lock_file')) continue;
-          lastReason = 'unlink failed on corrupt lock file';
-        } else {
-          // Unknown errors (I/O, l1IsAlive failure) → fail-closed.
-          // Cannot determine if the holder is dead — don't delete the lock.
-          emitContractLockUnlinkFailed(ctx.audit, {
-            context: 'acquireLock_stale_check',
-            path: lockPath,
-            reason: 'unknown_error_cannot_determine_staleness',
-            error: formatErr(err),
-          });
-          throw err;
-        }
+      if (ownerToken !== null) {
+        activeMutexReleasers.set(ownerToken, releaseMutex);
+        return ownerToken;
       }
 
+      lastReason = 'election lost to another contender';
       if (i < maxRetries - 1) {
-        // jitter range [T/2, 1.5T] / 0 NEW magic / uses only existing LOCK_RETRY_DELAY_MS
-        // (per phase 1317 user ratify「魔法数字不接受」/ dispatch α exp backoff + cap 5s REFRAMED)
+        // jitter range [T/2, 1.5T]
         const delayMs = retryDelayMs / 2 + Math.random() * retryDelayMs;
         emitContractLockRetry(ctx.audit, {
           attempt: i + 1,
@@ -163,8 +131,72 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<s
         await new Promise(r => setTimeout(r, delayMs));
       }
     }
+    throw new LockContentionExhaustedError(lockDir, maxRetries);
+  } catch (err) {
+    releaseMutex();
+    throw err;
   }
-  throw new ToolError(`Failed to acquire lock after ${maxRetries} retries: ${lockPath} (${lastReason})`);
+}
+
+/**
+ * phase 1048: 旧格式 progress.lock 兼容迁移。
+ *
+ * 调用前提：claims/ 目录不存在且 lockPath 存在。
+ *   - 若旧锁持有者存活 → fail-closed，抛 LockConflictError。
+ *   - 若持有者已死或文件不可读 → 删除旧锁，后续 acquire 走新协议并创建 claims/。
+ */
+async function migrateLegacyLock(ctx: LockContext, lockPath: string, _lockDir: string): Promise<void> {
+  try {
+    const raw = await ctx.fs.read(lockPath);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // 非法 JSON → 直接删除旧锁
+      await ctx.fs.delete(lockPath).catch(() => {});
+      ctx.audit.write(CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED, `path=${lockPath}`, 'reason=unparseable');
+      return;
+    }
+
+    const pid = typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>).pid
+      : undefined;
+    const startTime = typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>).startTime
+      : undefined;
+
+    if (typeof pid !== 'number') {
+      // 旧锁内容不含有效 pid → 视为死锁/损坏，直接删除
+      await ctx.fs.delete(lockPath).catch(() => {});
+      ctx.audit.write(CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED, `path=${lockPath}`, 'reason=no_pid');
+      return;
+    }
+
+    const isAliveFn = ctx.l1IsAlive ?? defaultL1IsAlive;
+    const expectedStartTime: ProcessStartTime | undefined = typeof startTime === 'string' ? makeProcessStartTime(startTime) : undefined;
+    if (isAliveFn(pid, expectedStartTime)) {
+      // 旧锁持有者存活 → 不迁移，让它正常释放
+      throw new LockConflictError(lockPath, `Legacy lock held by live PID ${pid}`);
+    }
+
+    // 持有者已死 → 删旧锁，后续 acquire 会创建 claims/
+    await ctx.fs.delete(lockPath).catch(() => {});
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED,
+      `path=${lockPath}`,
+      `pid=${pid}`,
+      'reason=holder_dead',
+    );
+  } catch (err) {
+    if (err instanceof LockConflictError) throw err;
+    // 读失败/其他错误 → 删旧锁后迁移
+    await ctx.fs.delete(lockPath).catch(() => {});
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED,
+      `path=${lockPath}`,
+      `reason=${formatErr(err)}`,
+    );
+  }
 }
 
 export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason: string): Promise<boolean> {
@@ -186,6 +218,24 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
 }
 
 export async function releaseLock(ctx: LockContext, lockPath: string, ownerToken: string): Promise<void> {
+  const lockDir = path.dirname(lockPath);
+  const claimsDir = `${lockDir}/claims`;
+
+  // phase 1048: 释放同进程互斥量（无论文件锁是否成功释放都要释放）
+  const releaseMutex = activeMutexReleasers.get(ownerToken);
+  if (releaseMutex) {
+    activeMutexReleasers.delete(ownerToken);
+    releaseMutex();
+  }
+
+  // phase 1048: 新协议路径 — 只删除文件名含自己 token 的 claim
+  const hasClaims = await ctx.fs.exists(claimsDir).catch(() => false);
+  if (hasClaims) {
+    await releaseClaim({ fs: ctx.fs, audit: ctx.audit }, lockDir, ownerToken);
+    return;
+  }
+
+  // 旧格式路径（兼容未迁移的锁）：保留现有 restore/no-replace 逻辑作为 fallback
   // Atomic claim: rename the lock file to a "released" path that includes our token.
   // If the lock was already replaced by another owner, the rename target will be
   // different and our token check will fail against the post-rename file.

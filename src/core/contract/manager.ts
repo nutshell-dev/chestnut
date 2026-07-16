@@ -76,6 +76,7 @@ import {
 } from './persistence.js';
 import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } from './schemas.js';
 import { type ContractId, makeContractId } from './types.js';
+import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
 import { ContractValidationError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
@@ -128,6 +129,8 @@ export interface ContractSystemDeps {
   lockMaxRetries?: number;
   /** phase 1028: injectable lock retry delay (ms) — defaults to LOCK_RETRY_DELAY_MS */
   lockRetryDelayMs?: number;
+  /** phase 1048: injectable process liveness checker for lock protocol */
+  l1IsAlive?: typeof defaultL1IsAlive;
 }
 
 export class ContractSystem {
@@ -144,6 +147,7 @@ export class ContractSystem {
   private runSubagent?: VerifierConfig['runSubagent'];
   private lockMaxRetries?: number;
   private lockRetryDelayMs?: number;
+  private l1IsAlive?: typeof defaultL1IsAlive;
 
   private activeDir = CONTRACT_ACTIVE_DIR;
   private pausedDir = CONTRACT_PAUSED_DIR;
@@ -259,6 +263,7 @@ export class ContractSystem {
     this.runSubagent = deps.runSubagent;
     this.lockMaxRetries = deps.lockMaxRetries;
     this.lockRetryDelayMs = deps.lockRetryDelayMs;
+    this.l1IsAlive = deps.l1IsAlive;
   }
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
@@ -374,7 +379,7 @@ export class ContractSystem {
   // ============================================================================
 
   private _lockCtx(): LockContext {
-    return { fs: this.fs, audit: this.audit, lockMaxRetries: this.lockMaxRetries, lockRetryDelayMs: this.lockRetryDelayMs };
+    return { fs: this.fs, audit: this.audit, lockMaxRetries: this.lockMaxRetries, lockRetryDelayMs: this.lockRetryDelayMs, l1IsAlive: this.l1IsAlive };
   }
 
   private _persistenceCtx(): PersistenceContext {

@@ -64,20 +64,19 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
       return originalSetTimeout(cb, 1); // accelerate to 1ms for fast test
     });
 
+    const otherClaimName = `claim.${Date.now() - 1000}.12345.existing-token`;
     const mockFs = {
       ensureDir: vi.fn().mockResolvedValue(undefined),
-      writeExclusiveSync: vi.fn(() => {
-        const err = new Error('EEXIST') as NodeJS.ErrnoException;
-        err.code = 'EEXIST';
-        throw err;
-      }),
-      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, time: Date.now(), ownerToken: 'existing-token' })),
+      exists: vi.fn().mockResolvedValue(false),
+      writeExclusiveSync: vi.fn().mockResolvedValue(undefined),
+      list: vi.fn().mockResolvedValue([{ name: otherClaimName, isDirectory: false, isFile: true, size: 1, mtime: new Date(), ctime: new Date(), path: `claims/${otherClaimName}` }]),
+      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, timestamp: Date.now() - 1000, ownerToken: 'existing-token', startTime: '0' })),
       delete: vi.fn().mockResolvedValue(undefined),
     };
 
     await expect(
       acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true), lockMaxRetries: 5, lockRetryDelayMs: 100 }, '/tmp/test.lock')
-    ).rejects.toThrow(/Failed to acquire lock after/);
+    ).rejects.toThrow(LockContentionExhaustedError);
 
     // 5 retries → 4 delays → 4 audit emits
     const retryCalls = mockAudit.write.mock.calls.filter(
@@ -103,14 +102,13 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
       return originalSetTimeout(cb, 1);
     });
 
+    const otherClaimName = `claim.${Date.now() - 1000}.12345.existing-token`;
     const mockFs = {
       ensureDir: vi.fn().mockResolvedValue(undefined),
-      writeExclusiveSync: vi.fn(() => {
-        const err = new Error('EEXIST') as NodeJS.ErrnoException;
-        err.code = 'EEXIST';
-        throw err;
-      }),
-      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, time: Date.now(), ownerToken: 'existing-token' })),
+      exists: vi.fn().mockResolvedValue(false),
+      writeExclusiveSync: vi.fn().mockResolvedValue(undefined),
+      list: vi.fn().mockResolvedValue([{ name: otherClaimName, isDirectory: false, isFile: true, size: 1, mtime: new Date(), ctime: new Date(), path: `claims/${otherClaimName}` }]),
+      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, timestamp: Date.now() - 1000, ownerToken: 'existing-token', startTime: '0' })),
       delete: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -330,9 +328,12 @@ describe('lock-contract-atomic', () => {
       expect(contractDirSpy).toHaveBeenCalledTimes(2);
       expect(contractDirSpy).toHaveBeenCalledWith(contractId);
 
-      // lock file should be released (deleted) after withProgressLock returns
-      const lockPath = path.join(contractDir, 'progress.lock');
-      await expect(fs.access(lockPath)).rejects.toThrow();
+      // lock should be released after withProgressLock returns
+      // phase 1048: claims/ 目录可能保留，但不应有活跃 claim 文件
+      const claimsDir = path.join(contractDir, 'claims');
+      const claims = await fs.readdir(claimsDir).catch(() => [] as string[]);
+      const activeClaims = claims.filter(name => name.startsWith('claim.'));
+      expect(activeClaims).toHaveLength(0);
     });
   });
 });

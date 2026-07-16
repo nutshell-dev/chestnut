@@ -1,22 +1,20 @@
 /**
  * Contract Lock 子模块测试
  *
- * Phase 576: lock JSON.parse defensive schema 校验
+ * Phase 1048: 迁移到 per-contender 文件锁协议。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { makeMockAudit } from '../../helpers/audit.js';
 import * as fs from 'fs/promises';
-import * as fsSync from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { acquireLock, releaseLock, lockContract } from '../../../src/core/contract/lock.js';
+import { LockConflictError, LockContentionExhaustedError } from '../../../src/core/contract/errors.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { DEAD_PID } from '../../helpers/dead-pid.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
-
-
 
 let tmpDir: string;
 let nodeFs: NodeFileSystem;
@@ -46,153 +44,183 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 });
 
-describe('acquireLock', () => {
-  it('lock 文件 schema 非法（pid 非 number）→ audit LOCK_SCHEMA_INVALID + 走 corrupt 路径重建（A.lock-schema-validation phase 576）', async () => {
+describe('acquireLock (per-contender protocol)', () => {
+  it('writes a claim file and returns ownerToken', async () => {
     const lockPath = 'test/progress.lock';
-    const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+    const lockDir = path.join(tmpDir, 'test');
+    const claimsDir = path.join(lockDir, 'claims');
 
-    // 预先写入 schema 非法的 lock 文件
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: 'abc', time: null }), 'utf-8');
+    const token = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
 
-    await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
+    expect(token).toBeTruthy();
+    expect(typeof token).toBe('string');
 
-    // audit LOCK_SCHEMA_INVALID 被调用
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'contract_lock_schema_invalid',
-      expect.stringMatching(/^path=/),
-      expect.stringMatching(/^raw=/),
-    );
+    const claims = await fs.readdir(claimsDir);
+    expect(claims).toHaveLength(1);
+    expect(claims[0]).toMatch(/^claim\.\d+\.\d+\.[a-zA-Z0-9_-]+$/);
 
-    // 第二次 retry 成功写入，锁文件内容应为合法 schema
-    const raw = await fs.readFile(absLockPath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    expect(typeof parsed.pid).toBe('number');
-    expect(typeof parsed.time).toBe('number');
-  }, 2000);
-
-  it('lock 文件 schema 合法（pid + time 皆 number）但 pid dead → 0 LOCK_SCHEMA_INVALID audit / 走 stale_pid 路径', async () => {
-    const lockPath = 'test/progress.lock';
-    const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
-
-    // 写入合法但 dead pid 的 lock 文件
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: DEAD_PID, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
-
-    await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
-
-    const schemaInvalidCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
-      c[0] === 'contract_lock_schema_invalid'
-    );
-    expect(schemaInvalidCalls).toHaveLength(0);
-
-    // 第二次 retry 成功写入
-    const raw = await fs.readFile(absLockPath, 'utf-8');
+    const absClaim = path.join(claimsDir, claims[0]);
+    const raw = await fs.readFile(absClaim, 'utf-8');
     const parsed = JSON.parse(raw);
     expect(parsed.pid).toBe(process.pid);
+    expect(typeof parsed.timestamp).toBe('number');
+    expect(parsed.ownerToken).toBe(token);
+    expect(typeof parsed.startTime).toBe('string');
   }, 2000);
 
-  it('lock 文件 schema 合法且 alive → 0 LOCK_SCHEMA_INVALID audit + acquireLock 最终失败', async () => {
+  it('recovers a stale claim from a dead PID and wins', async () => {
     const lockPath = 'test/progress.lock';
-    const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+    const lockDir = path.join(tmpDir, 'test');
+    const claimsDir = path.join(lockDir, 'claims');
+    await fs.mkdir(claimsDir, { recursive: true });
 
-    // 写入当前进程持有的合法 lock 文件
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
+    const staleToken = 'stale-token';
+    const staleClaimName = `claim.${Date.now() - 1000}.${DEAD_PID}.${staleToken}`;
+    await fs.writeFile(
+      path.join(claimsDir, staleClaimName),
+      JSON.stringify({ pid: DEAD_PID, timestamp: Date.now() - 1000, ownerToken: staleToken, startTime: '0' }),
+      'utf-8',
+    );
+
+    const token = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
+
+    expect(token).toBeTruthy();
+    // stale claim removed
+    expect(await pathExists(path.join(claimsDir, staleClaimName))).toBe(false);
+    // our claim exists
+    const claims = await fs.readdir(claimsDir);
+    expect(claims.some(name => name.endsWith(token))).toBe(true);
+
+    const migratedCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
+      c[0] === 'lock_claim_stale_recovered'
+    );
+    expect(migratedCalls).toHaveLength(1);
+  }, 2000);
+
+  it('loses election when another live contender holds an earlier claim', async () => {
+    const lockPath = 'test/progress.lock';
+    const lockDir = path.join(tmpDir, 'test');
+    const claimsDir = path.join(lockDir, 'claims');
+    await fs.mkdir(claimsDir, { recursive: true });
+
+    const otherToken = 'other-token';
+    const otherClaimName = `claim.${Date.now() - 1000}.${FAKE_LIVE_PID}.${otherToken}`;
+    await fs.writeFile(
+      path.join(claimsDir, otherClaimName),
+      JSON.stringify({ pid: FAKE_LIVE_PID, timestamp: Date.now() - 1000, ownerToken: otherToken, startTime: '0' }),
+      'utf-8',
+    );
 
     await expect(
-      acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
-    ).rejects.toThrow(/Failed to acquire lock after/);
+      acquireLock({ fs: nodeFs, audit: mockAudit as any, l1IsAlive: () => true, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
+    ).rejects.toThrow(LockContentionExhaustedError);
 
-    const schemaInvalidCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
-      c[0] === 'contract_lock_schema_invalid'
-    );
-    expect(schemaInvalidCalls).toHaveLength(0);
+    // other claim preserved
+    expect(await pathExists(path.join(claimsDir, otherClaimName))).toBe(true);
   }, 2000);
 
-  it('lock 文件 schema 非法（time 为 NaN）→ audit LOCK_SCHEMA_INVALID', async () => {
+  it('legacy dead-pid progress.lock is migrated to claims/', async () => {
     const lockPath = 'test/progress.lock';
     const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+    const absLockDir = path.dirname(absLockPath);
+    await fs.mkdir(absLockDir, { recursive: true });
 
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: FAKE_LIVE_PID, time: NaN }), 'utf-8');
-
-    // Treat the legacy PID as dead so the schema-invalid path can isolate/unlink it.
-    await acquireLock({ fs: nodeFs, audit: mockAudit as any, l1IsAlive: () => false }, lockPath);
-
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'contract_lock_schema_invalid',
-      expect.stringMatching(/^path=/),
-      expect.stringMatching(/^raw=/),
-    );
-  }, 2000);
-
-  it('throws without deleting lock when l1IsAlive fails', async () => {
-    const lockPath = 'test/progress.lock';
-    const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
-
-    // Write a lock held by a fake live PID.
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: FAKE_LIVE_PID, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
-
-    const l1IsAlive = () => {
-      throw new Error('EIO');
-    };
-
-    await expect(
-      acquireLock({ fs: nodeFs, audit: mockAudit as any, l1IsAlive, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
-    ).rejects.toThrow('EIO');
-
-    // The lock must remain on disk because we could not determine staleness.
-    const lockExists = await pathExists(absLockPath);
-    expect(lockExists).toBe(true);
-  }, 2000);
-
-  it('does not clear lock when PID is alive even if timeout exceeded', async () => {
-    const lockPath = 'test/progress.lock';
-    const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
-
-    const staleTime = Date.now() - 6 * 60 * 1000; // older than LOCK_STALE_TIMEOUT_MS (5 min)
     await fs.writeFile(
       absLockPath,
-      JSON.stringify({ pid: process.pid, time: staleTime, ownerToken: 'existing-token' }),
+      JSON.stringify({ pid: DEAD_PID, time: Date.now(), ownerToken: 'legacy-token' }),
+      'utf-8',
+    );
+
+    const token = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
+
+    expect(token).toBeTruthy();
+    // old lock gone
+    expect(await pathExists(absLockPath)).toBe(false);
+    // claims created
+    const claimsDir = path.join(absLockDir, 'claims');
+    const claims = await fs.readdir(claimsDir);
+    expect(claims.some(name => name.endsWith(token))).toBe(true);
+
+    const migratedCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
+      c[0] === CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED
+    );
+    expect(migratedCalls).toHaveLength(1);
+  }, 2000);
+
+  it('legacy live-pid progress.lock throws LockConflictError', async () => {
+    const lockPath = 'test/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+
+    await fs.writeFile(
+      absLockPath,
+      JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: 'legacy-token' }),
       'utf-8',
     );
 
     await expect(
       acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
-    ).rejects.toThrow(/Failed to acquire lock after/);
+    ).rejects.toThrow(LockConflictError);
 
-    // The lock must be preserved because the holder PID is still alive.
-    const lockExists = await pathExists(absLockPath);
-    expect(lockExists).toBe(true);
+    // old lock preserved
+    expect(await pathExists(absLockPath)).toBe(true);
   }, 2000);
 
-  it('throws on old-format lock when PID is alive', async () => {
+  it('legacy unparseable progress.lock is migrated', async () => {
     const lockPath = 'test/progress.lock';
     const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+    const absLockDir = path.dirname(absLockPath);
+    await fs.mkdir(absLockDir, { recursive: true });
 
-    // Old schema { pid, time } without ownerToken held by the live current process.
-    await fs.writeFile(
-      absLockPath,
-      JSON.stringify({ pid: process.pid, time: Date.now() }),
-      'utf-8',
-    );
+    await fs.writeFile(absLockPath, 'not-json', 'utf-8');
 
-    await expect(
-      acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath)
-    ).rejects.toThrow(/Failed to acquire lock after/);
+    const token = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
 
-    // Fail-closed: the old-format live lock must NOT be cleaned up.
-    const lockExists = await pathExists(absLockPath);
-    expect(lockExists).toBe(true);
+    expect(token).toBeTruthy();
+    expect(await pathExists(absLockPath)).toBe(false);
+    const claimsDir = path.join(absLockDir, 'claims');
+    const claims = await fs.readdir(claimsDir);
+    expect(claims.some(name => name.endsWith(token))).toBe(true);
   }, 2000);
 });
 
-describe('releaseLock', () => {
-  it('should delete lock file owned by current process', async () => {
+describe('releaseLock (per-contender protocol)', () => {
+  it('deletes its own claim file', async () => {
+    const lockPath = 'test/progress.lock';
+    const token = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
+
+    const claimsDir = path.join(tmpDir, 'test', 'claims');
+    const claimsBefore = await fs.readdir(claimsDir);
+    expect(claimsBefore.some(name => name.endsWith(token))).toBe(true);
+
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, token);
+
+    const claimsAfter = await fs.readdir(claimsDir);
+    expect(claimsAfter.some(name => name.endsWith(token))).toBe(false);
+  }, 2000);
+
+  it('does not delete a claim owned by a different token', async () => {
+    const lockPath = 'test/progress.lock';
+    const lockDir = path.join(tmpDir, 'test');
+    const claimsDir = path.join(lockDir, 'claims');
+    await fs.mkdir(claimsDir, { recursive: true });
+
+    const otherToken = 'other-token';
+    const otherClaimName = `claim.${Date.now()}.${process.pid}.${otherToken}`;
+    await fs.writeFile(
+      path.join(claimsDir, otherClaimName),
+      JSON.stringify({ pid: process.pid, timestamp: Date.now(), ownerToken: otherToken, startTime: '0' }),
+      'utf-8',
+    );
+
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, 'wrong-token');
+
+    expect(await pathExists(path.join(claimsDir, otherClaimName))).toBe(true);
+  }, 2000);
+});
+
+describe('releaseLock (legacy fallback)', () => {
+  it('deletes lock file owned by current process', async () => {
     const lockPath = 'test/progress.lock';
     const absLockPath = path.join(tmpDir, lockPath);
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
@@ -240,41 +268,13 @@ describe('releaseLock', () => {
     expect(current.ownerToken).toBe(tokenB);
     expect(current.pid).toBe(process.pid);
   }, 2000);
-
-  it('does not delete lock owned by different token (phase 954)', async () => {
-    const lockPath = 'test/progress.lock';
-    const absLockPath = path.join(tmpDir, lockPath);
-    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
-
-    // First acquire
-    const token1 = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
-
-    // Simulate stale lock held by a dead PID so the next acquire force-clears and re-acquires
-    const staleTime = Date.now() - 6 * 60 * 1000; // older than LOCK_STALE_TIMEOUT_MS (5 min)
-    const staleContent = JSON.stringify({ pid: DEAD_PID, time: staleTime, ownerToken: token1 });
-    await fs.writeFile(absLockPath, staleContent, 'utf-8');
-
-    // Second acquire clears the stale lock and writes a new ownerToken
-    const token2 = await acquireLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath);
-    expect(token2).not.toBe(token1);
-    expect(await fs.stat(absLockPath).then(() => true).catch(() => false)).toBe(true);
-
-    // Releasing with the old token must NOT delete the current lock
-    await releaseLock({ fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 3, lockRetryDelayMs: 10 }, lockPath, token1);
-
-    expect(await fs.stat(absLockPath).then(() => true).catch(() => false)).toBe(true);
-    const raw = await fs.readFile(absLockPath, 'utf-8');
-    const current = JSON.parse(raw);
-    expect(current.ownerToken).toBe(token2);
-    expect(current.pid).toBe(process.pid);
-  }, 2000);
 });
 
 describe('lockContract', () => {
   it('releases lock when post-acquire verification fails', async () => {
     const contractId = makeContractId('cid');
-    const lockPath = 'contracts/cid/progress.lock';
-    const absLockPath = path.join(tmpDir, lockPath);
+    const lockDir = path.join(tmpDir, 'contracts', 'cid');
+    const claimsDir = path.join(lockDir, 'claims');
 
     let callCount = 0;
     const dirFn = async () => {
@@ -290,7 +290,9 @@ describe('lockContract', () => {
     ).rejects.toThrow('verification failed');
 
     // The lock acquired before the verification error must have been released.
-    const lockExists = await pathExists(absLockPath);
-    expect(lockExists).toBe(false);
+    // The empty claims/ directory may remain; we only assert no claim files.
+    const claims = await fs.readdir(claimsDir).catch(() => [] as string[]);
+    const activeClaims = claims.filter(name => name.startsWith('claim.'));
+    expect(activeClaims).toHaveLength(0);
   });
 });
