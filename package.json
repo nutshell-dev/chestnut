@@ -48,7 +48,6 @@
     "@mariozechner/pi-tui": "^0.58.3",
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
-    "fs-ext": "^2.1.1",
     "js-tiktoken": "^1.0.21",
     "js-yaml": "^4.1.0",
     "string-width": "^8.2.0",

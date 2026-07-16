@@ -6,7 +6,6 @@
  */
 
 import { promises as fs } from 'fs';
-import * as fsSync from 'node:fs';
 import * as path from 'path';
 import { newUuid } from  '../node-utils/index.js';
 import type { StatInfo } from './types.js';
@@ -133,54 +132,6 @@ export async function moveFile(src: string, dst: string): Promise<void> {
       throw new Error(`moveFile EXDEV size mismatch: src=${src} (${srcStat.size}) dst=${dst} (${dstStat.size})`);
     }
     await fs.unlink(src);
-  }
-}
-
-/**
- * Synchronous variant of writeAtomic.
- *
- * Used by code paths that must remain synchronous (e.g. sync lock handle
- * constructors) while still persisting state atomically.
- */
-export function writeAtomicSync(filePath: string, content: string): void {
-  const dir = path.dirname(filePath);
-  const tmpFile = path.join(dir, `${IGNORE_PATTERN}${newUuid()}`);
-
-  try {
-    fsSync.writeFileSync(tmpFile, content, { encoding: 'utf-8', mode: 0o644 });
-    const fd = fsSync.openSync(tmpFile, 'r+');
-    try {
-      fsSync.fsyncSync(fd);
-    } finally {
-      fsSync.closeSync(fd);
-    }
-    fsSync.renameSync(tmpFile, filePath);
-    try {
-      const dirFd = fsSync.openSync(dir, 'r');
-      try {
-        fsSync.fsyncSync(dirFd);
-      } finally {
-        fsSync.closeSync(dirFd);
-      }
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (
-        code !== 'EISDIR' &&
-        code !== 'EACCES' &&
-        code !== 'EPERM' &&
-        code !== 'ENOTSUP' &&
-        code !== 'EINVAL'
-      ) {
-        // silent: directory fsync unsupported on this filesystem/platform
-      }
-    }
-  } catch (error) {
-    try {
-      fsSync.unlinkSync(tmpFile);
-    } catch {
-      // silent: rollback cleanup best-effort
-    }
-    throw error;
   }
 }
 
