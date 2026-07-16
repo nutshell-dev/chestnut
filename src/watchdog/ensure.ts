@@ -30,6 +30,14 @@ const LOCK_ACQUIRE_TIMEOUT_MS = 3000;
 const LOCK_RETRY_INTERVAL_MS = 50;
 
 /**
+ * 旧锁迁移结果。
+ * - no_legacy: 无旧锁文件，直接走新协议。
+ * - migrated: 旧锁已处理（已迁移或 dead/旧格式），claims 目录已创建。
+ * - legacy_live: 旧 watchdog 仍存活，调用方必须等待，不能创建 claims 参与选举。
+ */
+type LegacyMigrateResult = 'no_legacy' | 'migrated' | 'legacy_live';
+
+/**
  * 锁文件内容：{ pid, startTime, ownerToken }。
  * ownerToken 使每次 tryAcquireLock 产生的锁全局唯一，避免 stale 判定/释放时的固定路径 TOCTOU。
  */
@@ -111,7 +119,16 @@ async function tryAcquireLock(fs: FileSystem, relLockPath: string, timeoutMs: nu
   const deadline = Date.now() + timeoutMs;
 
   // 旧格式兼容：首次发现旧 watchdog.lock 时做一次性迁移
-  await migrateLegacyWatchdogLock(fs, relLockPath);
+  // 若旧持有者仍存活，必须阻塞等待，不能创建 claims 参与新协议选举。
+  const migrateResult = await migrateLegacyWatchdogLock(fs, relLockPath);
+  if (migrateResult === 'legacy_live') {
+    while (Date.now() < deadline) {
+      const recheck = await migrateLegacyWatchdogLock(fs, relLockPath);
+      if (recheck !== 'legacy_live') break;
+      await new Promise(r => setTimeout(r, LOCK_RETRY_INTERVAL_MS));
+    }
+    if (Date.now() >= deadline) return null;
+  }
   await fs.ensureDir(claimsDir);
 
   while (Date.now() < deadline) {
@@ -126,27 +143,28 @@ async function tryAcquireLock(fs: FileSystem, relLockPath: string, timeoutMs: nu
   return null;
 }
 
-async function migrateLegacyWatchdogLock(fs: FileSystem, relLockPath: string): Promise<void> {
+async function migrateLegacyWatchdogLock(fs: FileSystem, relLockPath: string): Promise<LegacyMigrateResult> {
   const exists = await fs.exists(relLockPath).catch(() => false);
-  if (!exists) return;
+  if (!exists) return 'no_legacy';
   const lockDir = path.dirname(relLockPath) || '.';
   const claimsDir = `${lockDir}/watchdog-lock/claims`;
   const claimsExist = await fs.exists(claimsDir).catch(() => false);
   if (claimsExist) {
     // 已迁移，删旧文件
     try { fs.deleteSync(relLockPath); } catch { /* silent: 旧锁清理 best-effort */ }
-    return;
+    return 'migrated';
   }
   // 读旧锁判活 → dead 则删旧锁 + 创建 claims/
   const token = readLockToken(fs, relLockPath);
   if (token !== null && isAlive(token.pid, makeProcessStartTime(token.startTime))) {
-    return; // 存活 → 不动旧锁
+    return 'legacy_live'; // 旧持有者存活 → 调用方必须等待，不能创建 claims
   }
   // dead/旧格式 → 删旧锁
   try { fs.deleteSync(relLockPath); } catch { /* silent: 旧锁清理 best-effort */ }
   const auditWriter = getAuditWriter();
   auditWriter?.write(WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_STALE_RECOVERED, `path=${relLockPath}`);
   await fs.ensureDir(claimsDir);
+  return 'migrated';
 }
 
 function readLockToken(fs: FileSystem, relLockPath: string): LockToken | null {
