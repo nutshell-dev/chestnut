@@ -71,9 +71,13 @@ class LockDirMutex {
       await previous;
     }
     return () => {
-      fsMap!.delete(lockDir);
-      if (fsMap!.size === 0) {
-        this.pending.delete(fs);
+      // 仅在当前 entry 仍是自己的 Promise 时才删除；
+      // 若已被后续调用方替换（A release 时 B/C 已排队），则保留后续的 Promise
+      if (fsMap!.get(lockDir) === promise) {
+        fsMap!.delete(lockDir);
+        if (fsMap!.size === 0) {
+          this.pending.delete(fs);
+        }
       }
       release();
     };
