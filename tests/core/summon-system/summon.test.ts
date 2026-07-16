@@ -537,8 +537,10 @@ Content.
       await testTool.execute({ goal: 'test task' }, ctx);
 
       expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_load_skills_failed',
-        'error=Error: permission denied',
+        'skill_rescan_aborted',
+        'op=list_dir',
+        'dir=clawspace/dispatch-skills',
+        'reason=[EACCES] permission denied',
       );
 
       existsSpy.mockRestore();

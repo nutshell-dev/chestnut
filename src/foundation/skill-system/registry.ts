@@ -97,19 +97,34 @@ export class SkillSystem {
    * 接重新扫描、即使已 loaded 也跑、用于 explicit 强制 re-scan（罕见）。
    */
   async loadAll(): Promise<void> {
-    // 检查 skills 目录是否存在
-    const exists = await this.fs.exists(this.skillsDir);
-    if (!exists) {
-      this.audit?.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
-      this.metaMap.clear();
-      this.nameSourceMap.clear();
-      this._loaded = true; // 空目录也算加载完成
-      return; // 空目录，不报错
-    }
+    // 检查并列出 skills 目录；I/O 错误纳入统一错误边界
+    let entries: { name: string; isDirectory: boolean }[];
+    try {
+      const exists = await this.fs.exists(this.skillsDir);
+      if (!exists) {
+        this.audit?.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
+        this.metaMap.clear();
+        this.nameSourceMap.clear();
+        this._loaded = true; // 空目录也算加载完成
+        return; // 空目录，不报错
+      }
 
-    // 列出 skills 目录下的子目录（按名称排序确保确定性遍历顺序）
-    const entries = (await this.fs.list(this.skillsDir, { includeDirs: true }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      // 列出 skills 目录下的子目录（按名称排序确保确定性遍历顺序）
+      entries = (await this.fs.list(this.skillsDir, { includeDirs: true }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      if (isFileNotFound(err)) {
+        // 空目录或 race 删除：清空快照
+        this.audit?.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
+        this.metaMap.clear();
+        this.nameSourceMap.clear();
+        this._loaded = true;
+        return;
+      }
+      this.audit?.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+        `op=list_dir`, `dir=${this.skillsDir}`, `reason=${formatErr(err)}`);
+      return; // 保留旧 Map
+    }
 
     // phase 1070: 用临时 Map 完整扫描；phase 1079: I/O 错误时保留旧 Map
     // phase 1084: 翻转边界——仅 FileNotFound / SkillParseError 按单个 skill skip；
@@ -123,8 +138,17 @@ export class SkillSystem {
       const skillDir = `${this.skillsDir}/${entry.name}`;
       const skillMdPath = `${skillDir}/SKILL.md`;
 
-      // 检查 SKILL.md 是否存在
-      const hasSkillMd = await this.fs.exists(skillMdPath);
+      // 检查 SKILL.md 是否存在；I/O 错误纳入统一错误边界
+      let hasSkillMd = false;
+      try {
+        hasSkillMd = await this.fs.exists(skillMdPath);
+      } catch (err) {
+        if (!isFileNotFound(err)) {
+          this.audit?.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+            `op=exists`, `path=${skillMdPath}`, `reason=${formatErr(err)}`);
+          return; // 保留旧 Map
+        }
+      }
       if (!hasSkillMd) continue;
 
       try {
