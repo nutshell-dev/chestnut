@@ -5,6 +5,8 @@
  */
 import { makeChestnutRoot } from '../core/claw-topology/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
+import { newShortUuid } from '../foundation/node-utils/index.js';
+import { isAlive, getProcessStartTime, makeProcessStartTime } from '../foundation/process-exec/index.js';
 import { getChestnutDir, getAuditWriter } from './watchdog-context.js';
 import { isWatchdogAlive } from './watchdog-pid.js';
 import { startCommand as rawStartCommand } from './watchdog-cli.js';
@@ -27,6 +29,16 @@ const LOCK_ACQUIRE_TIMEOUT_MS = 3000;
 const LOCK_RETRY_INTERVAL_MS = 50;
 
 /**
+ * 锁文件内容：{ pid, startTime, ownerToken }。
+ * ownerToken 使每次 tryAcquireLock 产生的锁全局唯一，避免 stale 判定/释放时的固定路径 TOCTOU。
+ */
+interface LockToken {
+  pid: number;
+  startTime: string;
+  ownerToken: string;
+}
+
+/**
  * 唯一入口、所有 caller 必经此。
  * - foreign workspace → throw（caller 决定如何 surface）
  * - 已活 → no-op
@@ -47,8 +59,8 @@ export async function ensureWatchdog(
   const chestnutRoot = makeChestnutRoot(getChestnutDir());
   const fs = fsFactory(chestnutRoot);
   const relLockPath = 'watchdog.lock';
-  const acquired = await tryAcquireLock(fs, relLockPath, LOCK_ACQUIRE_TIMEOUT_MS);
-  if (!acquired) {
+  const ownerToken = await tryAcquireLock(fs, relLockPath, LOCK_ACQUIRE_TIMEOUT_MS);
+  if (ownerToken === null) {
     // 别 caller 持锁中、等其 spawn 完
     if (isWatchdogAlive(fsFactory)) return;
     const auditWriter = getAuditWriter();
@@ -69,43 +81,73 @@ export async function ensureWatchdog(
       await rawStartCommand(fsFactory);
     }
   } finally {
-    releaseLock(fs, relLockPath);
+    releaseLock(fs, relLockPath, ownerToken);
   }
 }
 
-async function tryAcquireLock(fs: FileSystem, relLockPath: string, timeoutMs: number): Promise<boolean> {
+async function tryAcquireLock(fs: FileSystem, relLockPath: string, timeoutMs: number): Promise<string | null> {
+  const ownerToken = newShortUuid();
+  const startTime = getProcessStartTime(process.pid) ?? '0';
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       // writeExclusiveSync atomic claim (throws EEXIST if already exists)
-      fs.writeExclusiveSync(relLockPath, `${process.pid}\n`);
-      return true;
+      fs.writeExclusiveSync(relLockPath, JSON.stringify({
+        pid: process.pid,
+        startTime,
+        ownerToken,
+      }));
+      return ownerToken;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      // 检查 lock 持有者是否还活、stale 则清
-      if (isLockStale(fs, relLockPath)) {
-        try { fs.deleteSync(relLockPath); } catch { /* silent: stale-lock cleanup 与并发 unlink race / loser ENOENT 视为 winner 已清 / 外层 continue retry 收敛 */ }
-        const auditWriter = getAuditWriter();
-        auditWriter?.write(WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_STALE_RECOVERED, `path=${relLockPath}`);
-        continue;
+      // 检查 lock 持有者是否还活；stale / 旧格式 / 无法解析 则清掉重试
+      const token = readLockToken(fs, relLockPath);
+      if (token !== null) {
+        const holderAlive = isAlive(token.pid, makeProcessStartTime(token.startTime));
+        if (holderAlive) {
+          await new Promise(r => setTimeout(r, LOCK_RETRY_INTERVAL_MS));
+          continue;
+        }
+        // Stale holder is dead → reclaim. 读→删之间仍可能被替换，但下一轮 retry 会自我纠正。
       }
-      await new Promise(r => setTimeout(r, LOCK_RETRY_INTERVAL_MS));
+      try { fs.deleteSync(relLockPath); } catch { /* silent: stale-lock cleanup 与并发 unlink race / loser ENOENT 视为 winner 已清 / 外层 continue retry 收敛 */ }
+      const auditWriter = getAuditWriter();
+      auditWriter?.write(WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_STALE_RECOVERED, `path=${relLockPath}`);
+      continue;
     }
   }
-  return false;
+  return null;
 }
 
-function isLockStale(fs: FileSystem, relLockPath: string): boolean {
+function readLockToken(fs: FileSystem, relLockPath: string): LockToken | null {
   try {
     const content = fs.readSync(relLockPath).trim();
-    const pid = parseInt(content, 10);
-    if (Number.isNaN(pid)) return true;
-    try { process.kill(pid, 0); return false; } catch { return true; }
+    const parsed: unknown = JSON.parse(content);
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      typeof (parsed as { pid: unknown }).pid !== 'number' ||
+      typeof (parsed as { ownerToken: unknown }).ownerToken !== 'string'
+    ) {
+      return null;
+    }
+    const token = parsed as { pid: number; startTime?: unknown; ownerToken: string };
+    return {
+      pid: token.pid,
+      startTime: typeof token.startTime === 'string' ? token.startTime : '0',
+      ownerToken: token.ownerToken,
+    };
   } catch {
-    return false; // 读不到、保守视为非 stale (concurrent unlink)
+    return null; // 旧格式 / 损坏 / 并发 unlink — 调用方按 reclaim 处理
   }
 }
 
-function releaseLock(fs: FileSystem, relLockPath: string): void {
-  try { fs.deleteSync(relLockPath); } catch { /* silent: release-lock idempotent / stale-recover 路径已先 unlink 时 ENOENT 合规 */ }
+function releaseLock(fs: FileSystem, relLockPath: string, ownerToken: string): void {
+  try {
+    const token = readLockToken(fs, relLockPath);
+    if (token === null || token.ownerToken !== ownerToken) return; // lock replaced by another caller / already released
+    fs.deleteSync(relLockPath);
+  } catch {
+    // silent: ENOENT / corrupt lock on release — idempotent fail-soft
+  }
 }

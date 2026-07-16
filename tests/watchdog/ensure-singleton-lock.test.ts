@@ -12,6 +12,7 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { WatchdogPidForeignWorkspaceError } from '../../src/watchdog/watchdog-pid.js';
+import { getProcessStartTime } from '../../src/foundation/process-exec/index.js';
 
 /**
  * Mock spawn race window 延 (30ms): 夸大 spawn 之间 race window.
@@ -113,9 +114,64 @@ describe('ensureWatchdog singleton lock', () => {
     expect(spawnCount).toBe(1);
   });
 
+  it('writes JSON lock token with pid, startTime, ownerToken', async () => {
+    const lockPath = path.join(chestnutDir, 'watchdog.lock');
+    const [{ startCommand: mockedStart }] = await Promise.all([
+      import('../../src/watchdog/watchdog-cli.js'),
+    ]);
+    const mockStart = vi.mocked(mockedStart);
+    mockStart.mockImplementation(async () => {
+      spawnCount++;
+      const pidFile = path.join(chestnutDir, 'watchdog.pid');
+      fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/test/root' }));
+
+      // Lock must exist and be in new JSON format during spawn
+      const raw = fs.readFileSync(lockPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      expect(parsed).toMatchObject({
+        pid: process.pid,
+        startTime: expect.any(String),
+        ownerToken: expect.any(String),
+      });
+      expect(parsed.ownerToken.length).toBeGreaterThan(0);
+    });
+
+    await ensureWatchdog(fsFactory);
+
+    expect(spawnCount).toBe(1);
+  });
+
   it('stale lock recovery: second caller cleans dead lock holder + spawns', async () => {
     const lockPath = path.join(chestnutDir, 'watchdog.lock');
-    // Write a lock file with a dead PID
+    // Write a lock file with a dead PID in new JSON token format
+    fs.writeFileSync(lockPath, JSON.stringify({
+      pid: 999999999,
+      startTime: 'Sat Jan  1 00:00:00 2000',
+      ownerToken: 'dead-token',
+    }));
+
+    const [{ startCommand: mockedStart }] = await Promise.all([
+      import('../../src/watchdog/watchdog-cli.js'),
+    ]);
+    const mockStart = vi.mocked(mockedStart);
+    mockStart.mockImplementation(async () => {
+      spawnCount++;
+      const pidFile = path.join(chestnutDir, 'watchdog.pid');
+      fs.writeFileSync(pidFile, JSON.stringify({ pid: 12345, root: '/test/root' }));
+    });
+
+    await ensureWatchdog(fsFactory);
+
+    expect(spawnCount).toBe(1);
+    expect(auditSpy).toHaveBeenCalledWith(
+      WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_STALE_RECOVERED,
+      expect.stringContaining('path='),
+    );
+  });
+
+  it('migrates old-format lock and spawns', async () => {
+    const lockPath = path.join(chestnutDir, 'watchdog.lock');
+    // Legacy raw PID format — readLockToken returns null, ensure.ts reclaims it
     fs.writeFileSync(lockPath, `${999999999}\n`);
 
     const [{ startCommand: mockedStart }] = await Promise.all([
@@ -144,8 +200,13 @@ describe('ensureWatchdog singleton lock', () => {
     vi.useFakeTimers();
     try {
       const lockPath = path.join(chestnutDir, 'watchdog.lock');
-      // Write a lock file with the CURRENT process PID (alive, never releases)
-      fs.writeFileSync(lockPath, `${process.pid}\n`);
+      // Write a lock file with the CURRENT process PID (alive, never releases) in new token format
+      const startTime = getProcessStartTime(process.pid) ?? '0';
+      fs.writeFileSync(lockPath, JSON.stringify({
+        pid: process.pid,
+        startTime,
+        ownerToken: 'alive-token',
+      }));
 
       const ensurePromise = ensureWatchdog(fsFactory).catch((e: unknown) => e);
 
