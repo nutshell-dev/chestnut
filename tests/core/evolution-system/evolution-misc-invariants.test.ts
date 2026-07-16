@@ -98,7 +98,7 @@ describe('retro-chain-stall', () => {
       expect(stallCalls).toHaveLength(0);
     });
 
-    it('prev 永不 resolve → 超时后本次进 impl + emit RETRO_CHAIN_STALLED', async () => {
+    it('prev 永不 resolve → 超时后返回 blocked + emit RETRO_CHAIN_STALLED，不进入 impl', async () => {
       vi.useFakeTimers();
       const sys = makeSystem();
 
@@ -124,8 +124,9 @@ describe('retro-chain-stall', () => {
       await vi.advanceTimersByTimeAsync(RETRO_CHAIN_STALL_TIMEOUT_MS + 100);
 
       const r2 = await p2;
-      expect(r2.status).toBe('finished');
-      expect(impl).toHaveBeenCalledTimes(2);  // 第二次 impl 跑了
+      expect(r2.status).toBe('blocked');
+      expect(r2.reason).toBe('previous_retro_stalled');
+      expect(impl).toHaveBeenCalledTimes(1);  // 第二次 impl 没有跑
 
       const stallCalls = auditWrite.mock.calls.filter(c => c[0] === RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED);
       expect(stallCalls).toHaveLength(1);

@@ -40,8 +40,10 @@ export interface RetroResult {
     | 'skipped_duplicate'
     | 'skipped_index_missing'
     | 'skipped_missing_completed_at'  // phase 324 C5
-    | 'error';
+    | 'error'
+    | 'blocked';  // phase 1071: retro chain stall 不继续执行
   detail?: string;
+  reason?: string;  // phase 1071: blocked 原因
 }
 
 /** Motion 侧资源（pending-retrospective 索引读取 + motion audit 路由）。
@@ -232,6 +234,7 @@ export class EvolutionSystem {
           `contract_id=${contractId}`,
           `timeout_ms=${RETRO_CHAIN_STALL_TIMEOUT_MS}`,
         );
+        return { status: 'blocked' as const, reason: 'previous_retro_stalled' };
       }
       return this._runRetroForContractImpl(contractId, ctx);
     })();
