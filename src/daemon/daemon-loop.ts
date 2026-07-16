@@ -66,7 +66,9 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const heartbeat = motion?.heartbeat;
   const agentFs = fsFactory(agentDir);
   let stopped = false;
+  let stopping = false;
   let startupFired = false;
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   // phase 324 H4: dedup motion 自审 watchdog audit。
   let watchdogMissingAudited = false;
 
@@ -81,7 +83,14 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   }, LIVENESS_HEARTBEAT_MS);
   livenessTimer.unref(); // 不阻 event loop 退出
 
-  const stop = () => { stopped = true; };
+  const stop = () => {
+    stopping = true;
+    stopped = true;
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+      recoveryTimer = null;
+    }
+  };
 
   const promise = (async () => {
     while (!stopped) {
@@ -126,6 +135,11 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
 
       let interruptWatcher: Watcher | null = null;
 
+      if (recoveryTimer) {
+        clearTimeout(recoveryTimer);
+        recoveryTimer = null;
+      }
+
       try {
         // Event-driven interrupt watcher (phase 361: 替原 setInterval polling)
         let interruptErrCount = 0;
@@ -149,15 +163,38 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
             interruptWatcher?.close().catch(() => { /* silent: disable cleanup */ });
             interruptWatcher = null;
             // phase 229: DP「中断可恢复」+ DP「系统能自己做的就自己做好」delayed retry recovery
-            setTimeout(() => {
-              if (stopped) return;
-              audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT, `backoff_ms=${INTERRUPT_POLL_RECOVERY_BACKOFF_MS}`);
-              interruptErrCount = 0;
-              interruptWatcher = createInterruptWatcher({
-                agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher,
-              });
-              audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERED);
-            }, INTERRUPT_POLL_RECOVERY_BACKOFF_MS);
+            // phase 1072: wrap recovery in try/catch + bounded exponential backoff + cancel on stop.
+            const MAX_RECOVERY_RETRIES = 5;
+            const INITIAL_BACKOFF = INTERRUPT_POLL_RECOVERY_BACKOFF_MS;
+            const MAX_BACKOFF = 5 * 60 * 1000;
+            let recoveryFailures = 0;
+            let backoff = INITIAL_BACKOFF;
+
+            const tryRecover = () => {
+              if (stopping) return;
+              try {
+                interruptErrCount = 0;
+                audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT, `backoff_ms=${backoff}`);
+                interruptWatcher = createInterruptWatcher({
+                  agentFs, agentDir, onInterrupt, onError: onInterruptError, createWatcher,
+                });
+                audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERED);
+                backoff = INITIAL_BACKOFF;
+                recoveryFailures = 0;
+              } catch (err) {
+                recoveryFailures++;
+                audit.write(
+                  DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_FAILED,
+                  `attempt=${recoveryFailures}`,
+                  `reason=${formatErr(err)}`,
+                );
+                if (recoveryFailures < MAX_RECOVERY_RETRIES && !stopping) {
+                  backoff = Math.min(backoff * 2, MAX_BACKOFF);
+                  recoveryTimer = setTimeout(tryRecover, backoff);
+                }
+              }
+            };
+            recoveryTimer = setTimeout(tryRecover, backoff);
           }
         };
 

@@ -736,6 +736,7 @@
       "daemon_loop_interrupt_poller_error",
       "daemon_loop_interrupt_poller_recovered",
       "daemon_loop_interrupt_poller_recovery_attempt",
+      "daemon_loop_interrupt_poller_recovery_failed",
       "daemon_spawn_attempt",
       "daemon_spawn_failed",
       "daemon_spawn_success",

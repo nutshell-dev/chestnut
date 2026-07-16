@@ -16,6 +16,7 @@ export const DAEMON_AUDIT_EVENTS = {
   LOOP_INTERRUPT_POLLER_ERROR: 'daemon_loop_interrupt_poller_error',
   LOOP_INTERRUPT_POLLER_RECOVERED: 'daemon_loop_interrupt_poller_recovered',
   LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT: 'daemon_loop_interrupt_poller_recovery_attempt',
+  LOOP_INTERRUPT_POLLER_RECOVERY_FAILED: 'daemon_loop_interrupt_poller_recovery_failed',
   LOOP_FATAL: 'daemon_loop_fatal',
   LIVENESS_HEARTBEAT: 'daemon_liveness_heartbeat',
   // cleanup 路径
