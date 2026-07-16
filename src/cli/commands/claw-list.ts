@@ -89,38 +89,58 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   // Helper: get latest contract title (active > paused > most recent archive)
   function getLatestContractTitle(clawFs: FileSystem): FieldValue {
     try {
-      if (clawFs.existsSync(CONTRACT_ACTIVE_DIR)) {
-        const activeEntries = clawFs
+      let activeEntries: Array<{ name: string; isDirectory: boolean }> = [];
+      try {
+        activeEntries = clawFs
           .listSync(CONTRACT_ACTIVE_DIR, { includeDirs: true })
           .filter(e => e.isDirectory)
           .sort((a, b) => a.name.localeCompare(b.name));
-        if (activeEntries.length > 0) {
-          const yamlPath = path.join(CONTRACT_ACTIVE_DIR, activeEntries[0].name, CONTRACT_YAML_FILE);
-          if (clawFs.existsSync(yamlPath)) {
-            const content = clawFs.readSync(yamlPath);
-            const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
-            if (match) return { kind: 'value', text: match[1].slice(0, CLAW_TITLE_DISPLAY_CHARS) };
-          }
-          return { kind: 'missing' };
+      } catch (err) {
+        if (!isFileNotFound(err)) {
+          return { kind: 'error', reason: `active contract scan failed: ${formatErr(err)}` };
         }
+        // ENOENT means no active contract directory; fall through to archive scan.
+      }
+
+      if (activeEntries.length > 0) {
+        const yamlPath = path.join(CONTRACT_ACTIVE_DIR, activeEntries[0].name, CONTRACT_YAML_FILE);
+        try {
+          const content = clawFs.readSync(yamlPath);
+          const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          if (match) return { kind: 'value', text: match[1].slice(0, CLAW_TITLE_DISPLAY_CHARS) };
+        } catch (err) {
+          if (isFileNotFound(err)) return { kind: 'missing' };
+          return { kind: 'error', reason: `active contract scan failed: ${formatErr(err)}` };
+        }
+        return { kind: 'missing' };
       }
     } catch (err) {
       return { kind: 'error', reason: `active contract scan failed: ${formatErr(err)}` };
     }
 
     try {
-      if (!clawFs.existsSync(CONTRACT_ARCHIVE_DIR)) return { kind: 'missing' };
-      const dirs = clawFs.listSync(CONTRACT_ARCHIVE_DIR, { includeDirs: true }).map(e => e.name);
+      let archiveEntries: Array<{ name: string; isDirectory: boolean }> = [];
+      try {
+        archiveEntries = clawFs.listSync(CONTRACT_ARCHIVE_DIR, { includeDirs: true });
+      } catch (err) {
+        if (isFileNotFound(err)) return { kind: 'missing' };
+        return { kind: 'error', reason: `archive contract scan failed: ${formatErr(err)}` };
+      }
+
       let latest: { mtime: number; title: string } | null = null;
-      for (const dir of dirs) {
-        const relYamlPath = path.join(CONTRACT_ARCHIVE_DIR, dir, CONTRACT_YAML_FILE);
-        if (!clawFs.existsSync(relYamlPath)) continue;
-        const stat = clawFs.statSync(relYamlPath);
-        if (latest && stat.mtime.getTime() <= latest.mtime) continue;
-        const content = clawFs.readSync(relYamlPath);
-        const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
-        if (!match) continue;
-        latest = { mtime: stat.mtime.getTime(), title: match[1].slice(0, CLAW_TITLE_DISPLAY_CHARS) };
+      for (const entry of archiveEntries) {
+        const relYamlPath = path.join(CONTRACT_ARCHIVE_DIR, entry.name, CONTRACT_YAML_FILE);
+        try {
+          const stat = clawFs.statSync(relYamlPath);
+          if (latest && stat.mtime.getTime() <= latest.mtime) continue;
+          const content = clawFs.readSync(relYamlPath);
+          const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          if (!match) continue;
+          latest = { mtime: stat.mtime.getTime(), title: match[1].slice(0, CLAW_TITLE_DISPLAY_CHARS) };
+        } catch (err) {
+          if (isFileNotFound(err)) continue;
+          return { kind: 'error', reason: `archive contract scan failed: ${formatErr(err)}` };
+        }
       }
       if (latest) return { kind: 'value', text: latest.title };
       return { kind: 'missing' };
