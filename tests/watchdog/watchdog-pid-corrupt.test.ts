@@ -144,4 +144,17 @@ describe('watchdog-pid corrupt path', () => {
     expect(result).toBe(FAKE_LIVE_PID_ALT);
     expect(auditSpy).not.toHaveBeenCalled();
   });
+
+  it('non-ENOENT read error: emits PID_READ_FAILED audit + returns null', () => {
+    const pidFile = path.join(chestnutDir, 'watchdog.pid');
+    fs.mkdirSync(pidFile);
+
+    const result = getWatchdogPid(fsFactory);
+
+    expect(result).toBeNull();
+    expect(auditSpy).toHaveBeenCalledWith(
+      WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
+      expect.stringContaining('reason='),
+    );
+  });
 });

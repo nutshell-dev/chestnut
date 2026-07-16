@@ -110,8 +110,13 @@ export function getWatchdogPid(fsFactory: (baseDir: string) => FileSystem): numb
       return null;
     }
     return parsed.pid;
-  } catch {
-    // ENOENT etc — silent (既有合规)
+  } catch (err) {
+    if (isFileNotFound(err)) return null;
+    const auditWriter = getAuditWriter();
+    auditWriter?.write(
+      WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
+      `reason=${auditWriter?.message(formatErr(err)) ?? formatErr(err)}`,
+    );
     return null;
   }
 }
