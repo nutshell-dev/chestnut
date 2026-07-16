@@ -28,6 +28,7 @@
     "test:integration": "vitest run --config .config/vitest.config.ts --project=integration-process --project=integration-io",
     "test:infra": "vitest run --config .config/vitest.config.ts --project=infra",
     "test:diff": "vitest run --config .config/vitest.config.ts --changed=main",
+    "bench:test-cost": "node scripts/test-cost-baseline.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "pnpm run typecheck && pnpm run lint:arch && pnpm run lint:lint",
     "lint:arch": "bash -c 'set -o pipefail; depcruise --config .config/dependency-cruiser.cjs src | sed \"s/ modules,/ graph nodes,/\"'",
