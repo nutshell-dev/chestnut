@@ -11,6 +11,7 @@ import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 const mockMessagesCreate = vi.fn();
 const mockMessagesStream = vi.fn();
+const mockAnthropicConstructor = vi.fn();
 
 function createMockSDKStream(events: unknown[]): AsyncIterable<unknown> {
   return {
@@ -64,6 +65,9 @@ vi.mock('@anthropic-ai/sdk', () => {
   class PermissionDeniedError extends Error { status = 403; }
   class NotFoundError extends Error { status = 404; }
   class MockAnthropic {
+    constructor() {
+      mockAnthropicConstructor();
+    }
     messages = {
       create: mockMessagesCreate,
       stream: mockMessagesStream,
@@ -116,9 +120,27 @@ describe.sequential('AnthropicAdapter', () => {
   beforeEach(() => {
     mockMessagesCreate.mockClear();
     mockMessagesStream.mockClear();
+    mockAnthropicConstructor.mockClear();
   });
 
   describe('call()', () => {
+    it('constructs the SDK client lazily and reuses it', async () => {
+      const adapter = new AnthropicAdapter(config);
+      expect(mockAnthropicConstructor).not.toHaveBeenCalled();
+
+      mockMessagesCreate.mockResolvedValue({
+        model: 'claude-test',
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+
+      await adapter.call({ messages: [] });
+      await adapter.call({ messages: [] });
+
+      expect(mockAnthropicConstructor).toHaveBeenCalledTimes(1);
+    });
+
     it('retries with adjusted max_tokens on BadRequestError (output budget exceeded)', async () => {
       const { writes, sink } = createAuditSink();
       const adapter = new AnthropicAdapter({ ...config, auditLog: sink as any });

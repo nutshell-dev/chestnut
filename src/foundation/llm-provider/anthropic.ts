@@ -4,7 +4,7 @@
  * Implements ProviderAdapter for Anthropic's Claude API using the official SDK.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import type {
   LLMResponse,
   ContentBlock,
@@ -20,7 +20,6 @@ import {
   LLMOutputBudgetExceededError,
   LLMContextExceededError,
 } from './errors.js';
-import { AuthenticationError, PermissionDeniedError, NotFoundError, APIError } from '@anthropic-ai/sdk';
 import { parseRetryAfter, parseOutputBudgetError } from './_helpers.js';
 import type {
   ProviderConfig,
@@ -32,6 +31,14 @@ import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
 import { assertContentBlocks } from './_block-guards.js';
 
+type AnthropicSDKModule = typeof import('@anthropic-ai/sdk');
+let anthropicSDKPromise: Promise<AnthropicSDKModule> | undefined;
+
+function loadAnthropicSDK(): Promise<AnthropicSDKModule> {
+  anthropicSDKPromise ??= import('@anthropic-ai/sdk');
+  return anthropicSDKPromise;
+}
+
 /**
  * Anthropic adapter implementation using official SDK
  * Works for native api.anthropic.com and proxies (e.g., OpenRouter).
@@ -41,7 +48,8 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
   readonly model: string;
   protected readonly config: ProviderConfig;
   private readonly baseUrl: string;
-  private readonly client: Anthropic;
+  private clientPromise: Promise<Anthropic> | undefined;
+  private sdkModule: AnthropicSDKModule | undefined;
 
   constructor(config: ProviderConfig) {
     super();
@@ -49,10 +57,20 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     this.name = config.name;
     this.model = config.model;
     this.baseUrl = config.baseUrl ?? 'https://api.anthropic.com';
-    this.client = new Anthropic({
-      apiKey: config.apiKey,
+  }
+
+  private getClient(): Promise<Anthropic> {
+    this.clientPromise ??= this.createClient();
+    return this.clientPromise;
+  }
+
+  private async createClient(): Promise<Anthropic> {
+    const sdk = await loadAnthropicSDK();
+    this.sdkModule = sdk;
+    return new sdk.default({
+      apiKey: this.config.apiKey,
       baseURL: this.baseUrl,
-      defaultHeaders: config.extraHeaders,
+      defaultHeaders: this.config.extraHeaders,
       maxRetries: 0,
     });
   }
@@ -117,13 +135,14 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
-    if (error instanceof AuthenticationError || error instanceof PermissionDeniedError) {
+    const sdk = this.sdkModule;
+    if (sdk && (error instanceof sdk.AuthenticationError || error instanceof sdk.PermissionDeniedError)) {
       return new LLMAuthError(this.name, error.status ?? 401, error.message);
     }
-    if (error instanceof NotFoundError) {
+    if (sdk && error instanceof sdk.NotFoundError) {
       return new LLMModelNotFoundError(this.name, this.model);
     }
-    if (error instanceof APIError) {
+    if (sdk && error instanceof sdk.APIError) {
       const apiErr = error as { status?: number; message: string };
       const parsed = parseOutputBudgetError(apiErr.message);
       if (parsed) {
@@ -152,13 +171,14 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
    */
   async call(options: LLMCallOptions): Promise<LLMResponse> {
     const body = this.buildRequestBody(options);
+    const client = await this.getClient();
     const requestOptions: Anthropic.RequestOptions = {
       ...this.buildRequestOptions(),
       timeout: options.timeoutMs ?? this.config.timeoutMs,
       signal: options.signal,
     };
     try {
-      const response = await this.client.messages.create(
+      const response = await client.messages.create(
         body as Anthropic.MessageCreateParamsNonStreaming,
         requestOptions,
       );
@@ -215,7 +235,8 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       this.assertThinkingBudgetFits(adjusted, auditPayload);
       const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
       try {
-        const response = await this.client.messages.create(
+        const client = await this.getClient();
+        const response = await client.messages.create(
           retryBody as Anthropic.MessageCreateParamsNonStreaming,
           requestOptions,
         );
@@ -242,6 +263,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
    */
   async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
     const body = this.buildRequestBody(options);
+    const client = await this.getClient();
     const requestOptions: Anthropic.RequestOptions = {
       ...this.buildRequestOptions(),
       timeout: options.timeoutMs ?? this.config.timeoutMs,
@@ -249,7 +271,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     };
     let yieldedChunks = false;
     try {
-      const sdkStream = this.client.messages.stream(
+      const sdkStream = client.messages.stream(
         body as Anthropic.MessageStreamParams,
         requestOptions,
       );
@@ -278,7 +300,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
           this.assertThinkingBudgetFits(adjusted, auditPayload);
           const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
           try {
-            const retryStream = this.client.messages.stream(
+            const retryStream = client.messages.stream(
               retryBody as Anthropic.MessageStreamParams,
               requestOptions,
             );
