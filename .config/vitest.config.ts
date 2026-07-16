@@ -28,7 +28,7 @@ const VI_MOCK_FILES = [
   // phase 1421: tests/cli/already-running-sentinel.test.ts moved to fast project
   // — daemon command bodies extracted with DI seam; tests no longer need vi.mock.
   'tests/core/agent-executor/maxsteps-default.test.ts',  // phase 221: vi.mock DEFAULT_MAX_STEPS → 5 (was 23s/run)
-  'tests/cli/audit-info.test.ts',
+  'tests/cli/audit-command-invariants.test.ts',
   'tests/cli/audit-query.test.ts',
   'tests/cli/daemon-handlers.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — tests no longer need vi.mock for process-exec isAlive.
@@ -187,8 +187,6 @@ const VI_MOCK_FILES = [
   // phase 288 Step C sync: 48 entries added per find -name '*.test.ts' -exec grep 'vi.mock(' {} \;
   'tests/assembly/invariants.test.ts',
   'tests/assembly/assemble.test.ts',
-  'tests/cli/audit-lookup.test.ts',
-  'tests/cli/audit-motion-aware.test.ts',
   'tests/cli/audit-query-zero-result-hint.test.ts',
   'tests/cli/claw-send-status-hint.test.ts',
   'tests/cli/commands/claw-ls.test.ts',
