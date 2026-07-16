@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function normalizeId(id, cwd) {
   const clean = id.split('?')[0].replaceAll('\\', '/');
@@ -17,6 +17,22 @@ function finite(value, field, moduleId) {
 }
 
 export default class VitestCostReporter {
+  runStartedAt = 0;
+  moduleStartedAt = new Map();
+  moduleEndedAt = new Map();
+
+  onTestRunStart() {
+    this.runStartedAt = performance.now();
+  }
+
+  onTestModuleStart(testModule) {
+    this.moduleStartedAt.set(testModule.moduleId, performance.now());
+  }
+
+  onTestModuleEnd(testModule) {
+    this.moduleEndedAt.set(testModule.moduleId, performance.now());
+  }
+
   async onTestRunEnd(testModules, unhandledErrors, reason) {
     const output = process.env.CHESTNUT_COST_OUTPUT;
     const projectName = process.env.CHESTNUT_COST_PROJECT;
@@ -25,6 +41,7 @@ export default class VitestCostReporter {
     }
 
     const cwd = process.cwd();
+    const runEndedAt = performance.now();
     const modules = [...testModules].map((testModule) => {
       const moduleId = normalizeId(testModule.moduleId, cwd);
       const diagnostic = testModule.diagnostic();
@@ -33,6 +50,10 @@ export default class VitestCostReporter {
       const setupMs = finite(diagnostic.setupDuration, 'setupDuration', moduleId);
       const collectMs = finite(diagnostic.collectDuration, 'collectDuration', moduleId);
       const testAndHooksMs = finite(diagnostic.duration, 'duration', moduleId);
+      const testStartedAt = finite(this.moduleStartedAt.get(testModule.moduleId), 'timeline.start', moduleId);
+      const moduleEndedAt = finite(this.moduleEndedAt.get(testModule.moduleId), 'timeline.end', moduleId);
+      const inferredStartMs = testStartedAt - this.runStartedAt - (environmentSetupMs + prepareMs + setupMs + collectMs);
+      const endMs = moduleEndedAt - this.runStartedAt;
       const imports = Object.entries(diagnostic.importDurations ?? {})
         .map(([id, duration]) => ({
           moduleId: normalizeId(id, cwd),
@@ -51,16 +72,25 @@ export default class VitestCostReporter {
         collectMs,
         testAndHooksMs,
         preRunMs: environmentSetupMs + prepareMs + setupMs + collectMs,
+        inferredStartMs,
+        endMs,
         imports,
       };
     }).sort((a, b) => a.moduleId.localeCompare(b.moduleId));
 
+    const earliestModuleMs = Math.min(...modules.map((module) => module.inferredStartMs));
+    const latestModuleMs = Math.max(...modules.map((module) => module.endMs));
+    const reporterWallMs = runEndedAt - this.runStartedAt;
     const payload = {
       schemaVersion: SCHEMA_VERSION,
       run: {
         projectName,
         reason,
         unhandledErrorCount: unhandledErrors.length,
+        reporterWallMs,
+        moduleSpanMs: latestModuleMs - earliestModuleMs,
+        beforeModulesMs: earliestModuleMs,
+        afterModulesMs: reporterWallMs - latestModuleMs,
       },
       modules,
     };

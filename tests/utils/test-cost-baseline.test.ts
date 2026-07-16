@@ -6,8 +6,11 @@ import { aggregateRawRuns, compareSummaries, renderReport } from '../../scripts/
 
 function raw(preRun: number, dependencySelf: number) {
   return {
-    schemaVersion: 2,
-    projects: [{ projectName: 'fast', wallMs: 40 }],
+    schemaVersion: 3,
+    projects: [{
+      projectName: 'fast', wallMs: 40, reporterWallMs: 30,
+      moduleSpanMs: 24, beforeModulesMs: 3, afterModulesMs: 3,
+    }],
     modules: [{
       projectName: 'fast', moduleId: 'tests/a.test.ts',
       environmentSetupMs: 1, prepareMs: 2, setupMs: 3,
@@ -19,7 +22,7 @@ function raw(preRun: number, dependencySelf: number) {
 
 function manifest(workers = 4) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     environment: {
       nodeVersion: 'v20', vitestVersion: 'vitest/3.2.4', os: 'darwin', arch: 'arm64',
       cpuModel: 'fixture', vitestConfigHash: 'abc',
@@ -41,6 +44,12 @@ describe('test-cost baseline aggregation', () => {
       schedulingLowerBoundMedianMs: 24,
       schedulingGapMedianMs: 16,
       schedulingEfficiencyMedian: 0.6,
+    });
+    expect(summary.analysis.projects[0]).toMatchObject({
+      externalRunnerMedianMs: 10,
+      reporterOverheadMedianMs: 6,
+      moduleSpanMedianMs: 24,
+      moduleSchedulingLossMedianMs: 0,
     });
     expect(renderReport(summary, 1)).toContain('Scheduling lower bound');
     expect(renderReport(summary, 1)).toContain('src/shared.ts');

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const DEFAULT_PROJECTS = ['fast', 'isolated'];
 
 function median(values) {
@@ -92,8 +92,15 @@ function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
     const workMs = jobs.reduce((sum, value) => sum + value, 0);
     const largestJobMs = Math.max(0, ...jobs);
     const lowerBoundMs = Math.max(workMs / workers, largestJobMs);
-    const wallMs = run.projects?.find((project) => project.projectName === projectName)?.wallMs ?? 0;
-    return { projectName, workMs, largestJobMs, lowerBoundMs, wallMs };
+    const timeline = run.projects?.find((project) => project.projectName === projectName);
+    const wallMs = timeline?.wallMs ?? 0;
+    return {
+      projectName, workMs, largestJobMs, lowerBoundMs, wallMs,
+      reporterWallMs: timeline?.reporterWallMs ?? 0,
+      moduleSpanMs: timeline?.moduleSpanMs ?? 0,
+      beforeModulesMs: timeline?.beforeModulesMs ?? 0,
+      afterModulesMs: timeline?.afterModulesMs ?? 0,
+    };
   });
   return {
     projects,
@@ -179,6 +186,10 @@ export function aggregateRawRuns(rawRuns, manifest) {
         workMedianMs: median(samples.map((sample) => sample.workMs)),
         largestJobMedianMs: median(samples.map((sample) => sample.largestJobMs)),
         schedulingLowerBoundMedianMs: median(samples.map((sample) => sample.lowerBoundMs)),
+        externalRunnerMedianMs: median(samples.map((sample) => sample.wallMs - sample.reporterWallMs)),
+        reporterOverheadMedianMs: median(samples.map((sample) => sample.beforeModulesMs + sample.afterModulesMs)),
+        moduleSpanMedianMs: median(samples.map((sample) => sample.moduleSpanMs)),
+        moduleSchedulingLossMedianMs: median(samples.map((sample) => sample.moduleSpanMs - sample.lowerBoundMs)),
       };
     }),
   };
@@ -236,11 +247,11 @@ export function renderReport(summary, top) {
     '> Scheduling lower bound is `max(sum(file work)/workers, largest file work)` per project; concurrent projects use the maximum.',
     '> Engineering lower bound removes exclusive self time for repeated `src/**` dependencies (fan-in >= 2). It is a direction-finding floor, not a forecast.', '',
     '### Per-project scheduling bounds', '',
-    '| Project | Actual wall | Work | Largest file | Scheduling lower bound |',
-    '|---|---:|---:|---:|---:|',
+    '| Project | Actual wall | External runner | Run edge overhead | Module span | Scheduling lower bound | Module scheduling loss |',
+    '|---|---:|---:|---:|---:|---:|---:|',
   ];
   summary.analysis.projects.forEach((project) => lines.push(
-    `| ${escapeCell(project.projectName)} | ${fixed(project.actualWallMedianMs)} | ${fixed(project.workMedianMs)} | ${fixed(project.largestJobMedianMs)} | ${fixed(project.schedulingLowerBoundMedianMs)} |`,
+    `| ${escapeCell(project.projectName)} | ${fixed(project.actualWallMedianMs)} | ${fixed(project.externalRunnerMedianMs)} | ${fixed(project.reporterOverheadMedianMs)} | ${fixed(project.moduleSpanMedianMs)} | ${fixed(project.schedulingLowerBoundMedianMs)} | ${fixed(project.moduleSchedulingLossMedianMs)} |`,
   ));
   lines.push('', '### Candidate optimization simulations', '',
     '| # | Dependency | Fan-in | Work removed | Simulated lower bound | Theoretical lower-bound saving |',
@@ -326,7 +337,17 @@ async function runSample(rootDir, runDir, label, projects, workers, filters) {
   const payloads = processes.filter((entry) => fs.existsSync(entry.rawPath))
     .map((entry) => JSON.parse(fs.readFileSync(entry.rawPath, 'utf8')));
   const combined = mergeProjectRaw(payloads, label);
-  combined.projects = processes.map((entry) => ({ projectName: entry.project, wallMs: entry.wallMs }));
+  combined.projects = processes.map((entry) => {
+    const payload = payloads.find((candidate) => candidate.run?.projectName === entry.project);
+    return {
+      projectName: entry.project,
+      wallMs: entry.wallMs,
+      reporterWallMs: payload?.run?.reporterWallMs ?? 0,
+      moduleSpanMs: payload?.run?.moduleSpanMs ?? 0,
+      beforeModulesMs: payload?.run?.beforeModulesMs ?? 0,
+      afterModulesMs: payload?.run?.afterModulesMs ?? 0,
+    };
+  });
   fs.writeFileSync(path.join(runDir, 'runs', `${label}.json`), `${JSON.stringify(combined, null, 2)}\n`, { flag: 'wx' });
   return {
     combined,
