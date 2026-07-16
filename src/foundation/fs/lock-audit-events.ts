@@ -7,4 +7,6 @@
 export const LOCK_AUDIT_EVENTS = {
   CLAIM_STALE_RECOVERED: 'lock_claim_stale_recovered',
   CLAIM_ELECTION_LOST: 'lock_claim_election_lost',
+  CLAIM_READ_FAILED: 'lock_claim_read_failed',
+  CLAIM_CORRUPT: 'lock_claim_corrupt',
 } as const;

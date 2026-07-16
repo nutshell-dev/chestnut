@@ -36,7 +36,6 @@ export async function tryAcquireClaim(
 ): Promise<string | null> {
   const claimsDir = `${lockDir}/claims`;
   const ownerToken = newShortUuid();
-  const timestamp = Date.now();
   const pid = process.pid;
   const getStartTime = ctx.getProcessStartTime ?? getProcessStartTime;
   const startTime = getStartTime(pid) ?? '0';
@@ -44,7 +43,10 @@ export async function tryAcquireClaim(
   // 1. 确保 claims 目录存在
   await ctx.fs.ensureDir(claimsDir);
 
-  // 2. 原子创建自己的 claim 文件（O_EXCL）
+  // 2. 在紧邻 write 之前获取 timestamp，缩小竞态窗口（P0-1 timestamp race）
+  const timestamp = Date.now();
+
+  // 3. 原子创建自己的 claim 文件（O_EXCL）
   const claimName = `claim.${timestamp}.${pid}.${ownerToken}`;
   const claimPath = `${claimsDir}/${claimName}`;
   const claimContent = JSON.stringify({ pid, timestamp, ownerToken, startTime });
@@ -58,7 +60,7 @@ export async function tryAcquireClaim(
     throw err;
   }
 
-  // 3. 列出所有 claim 文件
+  // 4. 列出所有 claim 文件
   let entries: { name: string }[];
   try {
     entries = await ctx.fs.list(claimsDir, { includeDirs: false });
@@ -67,7 +69,7 @@ export async function tryAcquireClaim(
     throw err;
   }
 
-  // 4. Stale recovery + 收集有效 claim
+  // 5. Stale recovery + 收集有效 claim（fail-closed：无法判死的 claim 视为存活）
   const aliveClaims: string[] = [];
   for (const entry of entries) {
     // 从文件名提取 pid（无需读内容）
@@ -76,20 +78,45 @@ export async function tryAcquireClaim(
     const filePid = parseInt(parts[2], 10);
     if (Number.isNaN(filePid)) continue;
 
-    // 自己的旧残留 → 直接删
+    // 同 PID 的 claim：需用 startTime 区分同进程实例重入与 PID 复用残留
     if (filePid === pid && !entry.name.endsWith(ownerToken)) {
-      try { await ctx.fs.delete(`${claimsDir}/${entry.name}`); } catch { /* silent: 自残留清理 best-effort，失败时留到下一轮 stale recovery 处理 */ }
+      let fileStartTime: string | undefined;
+      try {
+        const fc = JSON.parse(await ctx.fs.read(`${claimsDir}/${entry.name}`));
+        fileStartTime = fc.startTime;
+      } catch { /* 读失败/JSON 损坏 → 无法判定，走 fail-closed 路径 */ }
+
+      if (fileStartTime !== undefined && fileStartTime !== startTime) {
+        // 不同进程实例（PID 复用）→ 旧残留，可安全删除
+        try { await ctx.fs.delete(`${claimsDir}/${entry.name}`); } catch { /* silent: 并发竞争 */ }
+        ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED, `claim=${entry.name} reason=pid_reused`);
+        continue;
+      }
+
+      // startTime 相同或无法获取 → 同进程重入或无法判定，不删，参与选举
+      if (fileStartTime === undefined) {
+        ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_CORRUPT, `claim=${entry.name}`);
+      }
+      aliveClaims.push(entry.name);
       continue;
     }
 
-    // 其他进程 → 判活
-    let fileContent: string;
-    try {
-      fileContent = await ctx.fs.read(`${claimsDir}/${entry.name}`);
-    } catch { continue; } // silent: 并发 unlink/read race，跳过该文件
-
+    // 其他进程 → 判活（read/parse 失败时 fail-closed，视为存活并 audit）
     let parsed: { pid: number; startTime?: string };
-    try { parsed = JSON.parse(fileContent); } catch { continue; } // silent: 损坏 claim 文件，跳过
+    try {
+      const fileContent = await ctx.fs.read(`${claimsDir}/${entry.name}`);
+      try {
+        parsed = JSON.parse(fileContent);
+      } catch {
+        ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_CORRUPT, `claim=${entry.name}`);
+        aliveClaims.push(entry.name); // fail-closed: 损坏 claim 视为存活
+        continue;
+      }
+    } catch (readErr) {
+      ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_READ_FAILED, `claim=${entry.name} reason=${String(readErr)}`);
+      aliveClaims.push(entry.name); // fail-closed: 不可读 claim 视为存活
+      continue;
+    }
 
     const isAliveFn = ctx.isAlive ?? defaultIsAlive;
     if (!isAliveFn(parsed.pid, parsed.startTime as ProcessStartTime | undefined)) {
@@ -102,17 +129,26 @@ export async function tryAcquireClaim(
     aliveClaims.push(entry.name);
   }
 
-  // 5. 如果没有存活的 claim（全被 stale recovery 清了），当前就是 winner
+  // 6. 如果没有存活的 claim（全被 stale recovery 清了），当前就是 winner
   if (aliveClaims.length === 0) return ownerToken;
 
-  // 6. 选举：按 timestamp ASC → ownerToken ASC
+  // 7. 选举：按 timestamp ASC → ownerToken ASC
   aliveClaims.sort(compareClaimNames);
 
-  // 7. 判断自己是否是 winner
+  // 8. 判断自己是否是 winner，并在 return 前 double-check 防晚到早 timestamp 的 contender
   const winner = aliveClaims[0];
-  if (winner.endsWith(ownerToken)) return ownerToken;
+  if (winner.endsWith(ownerToken)) {
+    const recheck = await ctx.fs.list(claimsDir, { includeDirs: false });
+    const recheckNames = recheck.map(e => e.name).filter(n => n.startsWith('claim.'));
+    if (recheckNames.some(n => compareClaimNames(n, claimName) < 0)) {
+      // 出现了更早的 claim → 重选举，删除自己并返回 null
+      try { await ctx.fs.delete(claimPath); } catch { /* silent: 自删 best-effort */ }
+      return null;
+    }
+    return ownerToken;
+  }
 
-  // 8. 不是 winner → 删除自己的 claim
+  // 9. 不是 winner → 删除自己的 claim
   try { await ctx.fs.delete(claimPath); } catch { /* silent: 落选者自删 best-effort，残留由后续 stale recovery 处理 */ }
   ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_ELECTION_LOST, `winner=${winner} own=${claimName}`);
   return null;
@@ -157,12 +193,14 @@ export function tryAcquireClaimSync(
 ): string | null {
   const claimsDir = `${lockDir}/claims`;
   const ownerToken = newShortUuid();
-  const timestamp = Date.now();
   const pid = process.pid;
   const getStartTime = ctx.getProcessStartTime ?? getProcessStartTime;
   const startTime = getStartTime(pid) ?? '0';
 
   ctx.fs.ensureDirSync(claimsDir);
+
+  // timestamp 在 ensureDir 之后、write 之前获取，缩小竞态窗口
+  const timestamp = Date.now();
 
   const claimName = `claim.${timestamp}.${pid}.${ownerToken}`;
   const claimPath = `${claimsDir}/${claimName}`;
@@ -192,17 +230,40 @@ export function tryAcquireClaimSync(
     if (Number.isNaN(filePid)) continue;
 
     if (filePid === pid && !entry.name.endsWith(ownerToken)) {
-      try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
+      let fileStartTime: string | undefined;
+      try {
+        const fc = JSON.parse(ctx.fs.readSync(`${claimsDir}/${entry.name}`));
+        fileStartTime = fc.startTime;
+      } catch { /* 读失败/JSON 损坏 → 无法判定，走 fail-closed 路径 */ }
+
+      if (fileStartTime !== undefined && fileStartTime !== startTime) {
+        try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
+        ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED, `claim=${entry.name} reason=pid_reused`);
+        continue;
+      }
+
+      if (fileStartTime === undefined) {
+        ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_CORRUPT, `claim=${entry.name}`);
+      }
+      aliveClaims.push(entry.name);
       continue;
     }
 
-    let fileContent: string;
-    try {
-      fileContent = ctx.fs.readSync(`${claimsDir}/${entry.name}`);
-    } catch { continue; }
-
     let parsed: { pid: number; startTime?: string };
-    try { parsed = JSON.parse(fileContent); } catch { continue; }
+    try {
+      const fileContent = ctx.fs.readSync(`${claimsDir}/${entry.name}`);
+      try {
+        parsed = JSON.parse(fileContent);
+      } catch {
+        ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_CORRUPT, `claim=${entry.name}`);
+        aliveClaims.push(entry.name);
+        continue;
+      }
+    } catch (readErr) {
+      ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_READ_FAILED, `claim=${entry.name} reason=${String(readErr)}`);
+      aliveClaims.push(entry.name);
+      continue;
+    }
 
     const isAliveFn = ctx.isAlive ?? defaultIsAlive;
     if (!isAliveFn(parsed.pid, parsed.startTime as ProcessStartTime | undefined)) {
@@ -219,7 +280,15 @@ export function tryAcquireClaimSync(
   aliveClaims.sort(compareClaimNames);
 
   const winner = aliveClaims[0];
-  if (winner.endsWith(ownerToken)) return ownerToken;
+  if (winner.endsWith(ownerToken)) {
+    const recheck = ctx.fs.listSync(claimsDir, { includeDirs: false });
+    const recheckNames = recheck.map(e => e.name).filter(n => n.startsWith('claim.'));
+    if (recheckNames.some(n => compareClaimNames(n, claimName) < 0)) {
+      try { ctx.fs.deleteSync(claimPath); } catch { /* silent */ }
+      return null;
+    }
+    return ownerToken;
+  }
 
   try { ctx.fs.deleteSync(claimPath); } catch { /* silent */ }
   ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_ELECTION_LOST, `winner=${winner} own=${claimName}`);
