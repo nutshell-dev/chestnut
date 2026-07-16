@@ -1,12 +1,18 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // The production tool is plain ESM so Node can execute it without a TS loader.
 // @ts-expect-error No declaration file is intentionally emitted for this CLI module.
-import { aggregateRawRuns, compareSummaries, renderReport } from '../../scripts/test-cost-baseline.mjs';
+import {
+  aggregateRawRuns, aggregateRunDirectory, compareSummaries, renderReport,
+} from '../../scripts/test-cost-baseline.mjs';
+import { createTrackedTempDirSync } from './temp.js';
 
 function raw(preRun: number, dependencySelf: number) {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
+    importEdges: [{ importerId: 'tests/a.test.ts', dependencyId: 'src/shared.ts' }],
     projects: [{
       projectName: 'fast', wallMs: 40, reporterWallMs: 30,
       moduleSpanMs: 24, beforeModulesMs: 3, afterModulesMs: 3,
@@ -23,7 +29,7 @@ function raw(preRun: number, dependencySelf: number) {
 
 function manifest(workers = 4) {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     environment: {
       nodeVersion: 'v20', vitestVersion: 'vitest/3.2.4', os: 'darwin', arch: 'arm64',
       cpuModel: 'fixture', vitestConfigHash: 'abc',
@@ -55,6 +61,7 @@ describe('test-cost baseline aggregation', () => {
     expect(renderReport(summary, 1)).toContain('Scheduling lower bound');
     expect(renderReport(summary, 1)).toContain('Interior idle capacity');
     expect(renderReport(summary, 1)).toContain('src/shared.ts');
+    expect(summary.dependencyAttributions).toEqual([]);
   });
 
   it('decomposes worker capacity loss into interior gaps', () => {
@@ -95,6 +102,35 @@ describe('test-cost baseline aggregation', () => {
     });
   });
 
+  it('attributes shortest transitive paths and reports graph misses', () => {
+    const fixture = raw(20, 4);
+    fixture.importEdges = [
+      { importerId: 'tests/a.test.ts', dependencyId: 'src/entry.ts' },
+      { importerId: 'src/entry.ts', dependencyId: 'src/long-way.ts' },
+      { importerId: 'src/long-way.ts', dependencyId: 'src/shared.ts' },
+      { importerId: 'src/entry.ts', dependencyId: 'src/shared.ts' },
+    ];
+    fixture.modules.push({
+      ...fixture.modules[0], moduleId: 'tests/unresolved.test.ts',
+    });
+
+    const attribution = aggregateRawRuns([fixture], manifest(2)).dependencyAttributions[0];
+    expect(attribution).toMatchObject({
+      resolvedFiles: 1,
+      unresolvedFiles: 1,
+      affectedTestFiles: ['tests/a.test.ts', 'tests/unresolved.test.ts'],
+      entryModules: [{ moduleId: 'src/entry.ts', fanInFiles: 1 }],
+      representativePaths: [
+        { path: 'src/entry.ts → src/shared.ts', fanInFiles: 1 },
+        { path: 'src/entry.ts → src/long-way.ts → src/shared.ts', fanInFiles: 1 },
+      ],
+    });
+    expect(attribution.directImporters).toEqual([
+      { moduleId: 'src/entry.ts', fanInFiles: 1 },
+      { moduleId: 'src/long-way.ts', fanInFiles: 1 },
+    ]);
+  });
+
   it('rejects measured runs with different module sets', () => {
     const changed = raw(10, 2);
     changed.modules[0].moduleId = 'tests/b.test.ts';
@@ -111,5 +147,21 @@ describe('test-cost baseline aggregation', () => {
     const left = aggregateRawRuns([raw(10, 2)], manifest());
     const right = aggregateRawRuns([raw(7, 2)], manifest());
     expect(compareSummaries(left, right)[0].deltaPreRunMedianMs).toBe(-3);
+  });
+
+  it('rebuilds reports from a completed interrupted run directory', () => {
+    const runDir = createTrackedTempDirSync('test-cost-aggregate-');
+    fs.mkdirSync(path.join(runDir, 'runs'));
+    fs.writeFileSync(path.join(runDir, 'manifest.json'), JSON.stringify({
+      ...manifest(), finishedAt: '2026-07-16T00:00:00.000Z', failed: false,
+    }));
+    fs.writeFileSync(path.join(runDir, 'runs/run-1.json'), JSON.stringify(raw(10, 2)));
+    fs.writeFileSync(path.join(runDir, 'runs/run-2.json'), JSON.stringify(raw(20, 4)));
+    fs.writeFileSync(path.join(runDir, 'runs/run-3.json'), JSON.stringify(raw(30, 6)));
+
+    aggregateRunDirectory(runDir, 1);
+
+    expect(JSON.parse(fs.readFileSync(path.join(runDir, 'summary.json'), 'utf8')).measuredRunCount).toBe(3);
+    expect(fs.readFileSync(path.join(runDir, 'report.md'), 'utf8')).toContain('Vitest test-cost baseline');
   });
 });

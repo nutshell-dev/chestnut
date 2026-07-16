@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const DEFAULT_PROJECTS = ['fast', 'isolated'];
 
 function median(values) {
@@ -26,6 +26,7 @@ function parseArgs(argv) {
     else if (arg === '--warmup') options.warmup = Number(argv[++index]);
     else if (arg === '--runs') options.runs = Number(argv[++index]);
     else if (arg === '--top') options.top = Number(argv[++index]);
+    else if (arg === '--aggregate') options.aggregate = argv[++index];
     else if (arg === '--compare') {
       options.compare = [argv[++index], argv[++index]];
     } else if (arg === '--help') options.help = true;
@@ -161,6 +162,104 @@ function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
   };
 }
 
+function buildImportGraph(importEdges) {
+  const adjacency = new Map();
+  const importers = new Map();
+  for (const { importerId, dependencyId } of importEdges ?? []) {
+    if (!adjacency.has(importerId)) adjacency.set(importerId, new Set());
+    adjacency.get(importerId).add(dependencyId);
+    if (!importers.has(dependencyId)) importers.set(dependencyId, new Set());
+    importers.get(dependencyId).add(importerId);
+  }
+  return { adjacency, importers };
+}
+
+function traverseImportGraph(adjacency, startId) {
+  const queue = [startId];
+  const predecessor = new Map([[startId, undefined]]);
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    for (const dependencyId of [...(adjacency.get(current) ?? [])].sort()) {
+      if (!predecessor.has(dependencyId)) {
+        predecessor.set(dependencyId, current);
+        queue.push(dependencyId);
+      }
+    }
+  }
+  return predecessor;
+}
+
+function reconstructPath(predecessor, targetId) {
+  if (!predecessor.has(targetId)) return undefined;
+  const reversed = [];
+  for (let current = targetId; current !== undefined; current = predecessor.get(current)) reversed.push(current);
+  return reversed.reverse();
+}
+
+function attributeRunDependencies(run, targetDependencyIds) {
+  const attributions = new Map();
+  const graph = buildImportGraph(run.importEdges);
+  for (const testModule of run.modules) {
+    const predecessor = traverseImportGraph(graph.adjacency, testModule.moduleId);
+    for (const dependency of testModule.imports) {
+      if (!targetDependencyIds.has(dependency.moduleId)) continue;
+      if (!attributions.has(dependency.moduleId)) {
+        attributions.set(dependency.moduleId, {
+          resolvedFiles: 0, unresolvedFiles: 0, affectedTestFiles: new Set(),
+          importers: new Map(), entries: new Map(), paths: new Map(),
+        });
+      }
+      const attribution = attributions.get(dependency.moduleId);
+      attribution.affectedTestFiles.add(testModule.moduleId);
+      const importPaths = [...(graph.importers.get(dependency.moduleId) ?? [])].sort().flatMap((importerId) => {
+        const path = reconstructPath(predecessor, importerId);
+        return path ? [[...path, dependency.moduleId]] : [];
+      });
+      if (importPaths.length === 0) {
+        attribution.unresolvedFiles += 1;
+        continue;
+      }
+      attribution.resolvedFiles += 1;
+      const increment = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+      for (const importPath of importPaths) {
+        increment(attribution.importers, importPath.at(-2));
+        increment(attribution.paths, importPath.slice(1).join(' → '));
+      }
+      const shortestPath = importPaths.toSorted((left, right) => left.length - right.length
+        || left.join('\0').localeCompare(right.join('\0')))[0];
+      increment(attribution.entries, shortestPath[1]);
+    }
+  }
+  return attributions;
+}
+
+function aggregateDependencyAttributions(rawRuns, targetDependencyIds) {
+  const runs = rawRuns.map((run) => attributeRunDependencies(run, targetDependencyIds));
+  const dependencyIds = new Set(runs.flatMap((run) => [...run.keys()]));
+  const aggregateRanking = (samples, property, keyName) => {
+    const keys = new Set(samples.flatMap((sample) => [...(sample?.[property].keys() ?? [])]));
+    return [...keys].map((key) => ({
+      [keyName]: key,
+      fanInFiles: median(samples.map((sample) => sample?.[property].get(key) ?? 0)),
+    })).filter((entry) => entry.fanInFiles > 0)
+      .sort((left, right) => right.fanInFiles - left.fanInFiles
+        || (keyName === 'path' ? left.path.split(' → ').length - right.path.split(' → ').length : 0)
+        || left[keyName].localeCompare(right[keyName]));
+  };
+  return [...dependencyIds].map((moduleId) => {
+    const samples = runs.map((run) => run.get(moduleId));
+    return {
+      moduleId,
+      resolvedFiles: median(samples.map((sample) => sample?.resolvedFiles ?? 0)),
+      unresolvedFiles: median(samples.map((sample) => sample?.unresolvedFiles ?? 0)),
+      affectedTestFiles: [...new Set(samples.flatMap((sample) => [...(sample?.affectedTestFiles ?? [])]))].sort(),
+      directImporters: aggregateRanking(samples, 'importers', 'moduleId'),
+      entryModules: aggregateRanking(samples, 'entries', 'moduleId'),
+      representativePaths: aggregateRanking(samples, 'paths', 'path'),
+    };
+  }).sort((left, right) => right.resolvedFiles - left.resolvedFiles || left.moduleId.localeCompare(right.moduleId));
+}
+
 export function aggregateRawRuns(rawRuns, manifest) {
   if (rawRuns.length === 0) throw new Error('No measured runs to aggregate');
   const expected = rawRuns[0].modules.map((module) => `${module.projectName}:${module.moduleId}`).sort();
@@ -267,6 +366,12 @@ export function aggregateRawRuns(rawRuns, manifest) {
     .sort((a, b) => b.lowerBoundSavingsMedianMs - a.lowerBoundSavingsMedianMs
       || b.workReductionMedianMs - a.workReductionMedianMs || a.moduleId.localeCompare(b.moduleId));
 
+  const attributionLimit = manifest.options.top;
+  const attributedDependencyIds = new Set([
+    ...dependencies.slice(0, attributionLimit).map((dependency) => dependency.moduleId),
+    ...candidateSimulations.slice(0, attributionLimit).map((candidate) => candidate.moduleId),
+  ].filter((moduleId) => moduleId.startsWith('src/')
+    && dependencies.find((dependency) => dependency.moduleId === moduleId)?.fanInFiles >= 2));
   const fields = comparableFields(manifest);
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -275,6 +380,7 @@ export function aggregateRawRuns(rawRuns, manifest) {
     measuredRunCount: rawRuns.length,
     files,
     dependencies,
+    dependencyAttributions: aggregateDependencyAttributions(rawRuns, attributedDependencyIds),
     analysis,
     candidateSimulations,
   };
@@ -339,6 +445,19 @@ export function renderReport(summary, top) {
     `| ${index + 1} | ${escapeCell(dependency.moduleId)} | ${dependency.fanInFiles} | ${fixed(dependency.selfSumMedianMs)} | ${fixed(dependency.selfMedianMs)} | ${fixed(dependency.totalImpactMedianMs)} |`,
   ));
   lines.push('', '> `total impact` contains overlapping dependency subtrees and must not be summed across rows.', '');
+  lines.push('## Transitive dependency path attribution', '',
+    '| # | Dependency | Resolved files | Unresolved files | Top direct importer | Top test entry | Representative shortest path |',
+    '|---:|---|---:|---:|---|---|---|');
+  summary.dependencies.filter((dependency) => summary.dependencyAttributions.some(
+    (entry) => entry.moduleId === dependency.moduleId,
+  )).slice(0, top).forEach((dependency, index) => {
+    const attribution = summary.dependencyAttributions.find((entry) => entry.moduleId === dependency.moduleId);
+    const importer = attribution?.directImporters[0];
+    const entry = attribution?.entryModules[0];
+    const importPath = attribution?.representativePaths[0];
+    lines.push(`| ${index + 1} | ${escapeCell(dependency.moduleId)} | ${attribution.resolvedFiles} | ${attribution.unresolvedFiles} | ${escapeCell(importer ? `${importer.moduleId} (${importer.fanInFiles})` : '—')} | ${escapeCell(entry ? `${entry.moduleId} (${entry.fanInFiles})` : '—')} | ${escapeCell(importPath ? `${importPath.path} (${importPath.fanInFiles})` : '—')} |`);
+  });
+  lines.push('', '> Paths are shortest paths from each test to every reachable direct importer through Vite’s resolved module graph. Importer/path counts are non-additive because one test can reach the dependency through multiple importers. Unresolved files are reported explicitly.', '');
   return lines.join('\n');
 }
 
@@ -359,6 +478,7 @@ function mergeProjectRaw(projectPayloads, sample) {
   return {
     schemaVersion: SCHEMA_VERSION,
     sample,
+    importEdges: projectPayloads.flatMap((payload) => payload.importEdges ?? []),
     modules: projectPayloads.flatMap((payload) => payload.modules),
   };
 }
@@ -429,7 +549,23 @@ function usage() {
     `  --warmup N       unmeasured warmup runs (default 1)\n` +
     `  --runs N         measured runs (default 3)\n` +
     `  --top N          Markdown rows per ranking (default 50)\n` +
+    `  --aggregate DIR  rebuild summary/report from completed measured runs\n` +
     `  --compare A B    compare two summary.json files\n`;
+}
+
+export function aggregateRunDirectory(runDir, top) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(runDir, 'manifest.json'), 'utf8'));
+  if (manifest.failed || !manifest.finishedAt) throw new Error('Cannot aggregate an incomplete or failed baseline run');
+  const measured = fs.readdirSync(path.join(runDir, 'runs'))
+    .filter((name) => /^run-\d+\.json$/.test(name))
+    .sort((left, right) => Number(left.match(/\d+/)[0]) - Number(right.match(/\d+/)[0]))
+    .map((name) => JSON.parse(fs.readFileSync(path.join(runDir, 'runs', name), 'utf8')));
+  if (measured.length !== manifest.options.runs) {
+    throw new Error(`Expected ${manifest.options.runs} measured runs, found ${measured.length}`);
+  }
+  const summary = aggregateRawRuns(measured, manifest);
+  fs.writeFileSync(path.join(runDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx' });
+  fs.writeFileSync(path.join(runDir, 'report.md'), renderReport(summary, top), { flag: 'wx' });
 }
 
 async function main() {
@@ -445,6 +581,12 @@ async function main() {
       JSON.parse(fs.readFileSync(rightPath, 'utf8')),
     );
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  if (options.aggregate) {
+    const runDir = path.resolve(options.aggregate);
+    aggregateRunDirectory(runDir, options.top);
+    process.stdout.write(`${runDir}\n`);
     return;
   }
 

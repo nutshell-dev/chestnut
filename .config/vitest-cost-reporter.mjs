@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function normalizeId(id, cwd) {
-  const clean = id.split('?')[0].replaceAll('\\', '/');
+  const clean = id.split('?')[0].replace(/^\/@fs\//, '/').replaceAll('\\', '/');
   const root = cwd.replaceAll('\\', '/').replace(/\/$/, '');
   return clean.startsWith(`${root}/`) ? clean.slice(root.length + 1) : clean;
 }
@@ -17,9 +17,14 @@ function finite(value, field, moduleId) {
 }
 
 export default class VitestCostReporter {
+  vitest;
   runStartedAt = 0;
   moduleStartedAt = new Map();
   moduleEndedAt = new Map();
+
+  onInit(vitest) {
+    this.vitest = vitest;
+  }
 
   onTestRunStart() {
     this.runStartedAt = performance.now();
@@ -80,6 +85,16 @@ export default class VitestCostReporter {
 
     const earliestModuleMs = Math.min(...modules.map((module) => module.inferredStartMs));
     const latestModuleMs = Math.max(...modules.map((module) => module.endMs));
+    const project = this.vitest?.projects.find((candidate) => candidate.name === projectName)
+      ?? this.vitest?.projects[0];
+    const importEdges = [...(project?.vite.moduleGraph.idToModuleMap.values() ?? [])]
+      .flatMap((importer) => [...importer.importedModules].map((dependency) => ({
+        importerId: normalizeId(importer.id ?? importer.url, cwd),
+        dependencyId: normalizeId(dependency.id ?? dependency.url, cwd),
+      })))
+      .filter((edge) => edge.importerId !== edge.dependencyId)
+      .sort((left, right) => left.importerId.localeCompare(right.importerId)
+        || left.dependencyId.localeCompare(right.dependencyId));
     const reporterWallMs = runEndedAt - this.runStartedAt;
     const payload = {
       schemaVersion: SCHEMA_VERSION,
@@ -92,6 +107,7 @@ export default class VitestCostReporter {
         beforeModulesMs: earliestModuleMs,
         afterModulesMs: reporterWallMs - latestModuleMs,
       },
+      importEdges,
       modules,
     };
     fs.mkdirSync(path.dirname(output), { recursive: true });
