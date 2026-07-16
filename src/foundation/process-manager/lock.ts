@@ -6,6 +6,7 @@ import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessSt
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import { isFileNotFound } from '../fs/index.js';
+import { tryAcquireClaimSync, releaseClaimSync, type LockClaimContext } from '../fs/lock-protocol.js';
 
 
 
@@ -19,7 +20,82 @@ export type LockReadResult =
   | { status: 'corrupt'; error: string }
   | { status: 'io_error'; error: string };
 
-function readLockFile(
+/**
+ * 由旧格式单文件锁路径推导 per-contender 协议 lock 目录。
+ * e.g. daemon.lock → daemon-lock；daemon.lock.spawn → daemon.lock.spawn-lock
+ */
+function getLockNs(lockFile: string): string {
+  return `${lockFile}-lock`;
+}
+
+function makeClaimContext(ctx: ProcessManagerContext): LockClaimContext {
+  return {
+    fs: ctx.fs,
+    audit: ctx.audit,
+    isAlive: ctx.l1IsAlive ?? defaultL1IsAlive,
+    getProcessStartTime: ctx.getProcessStartTime ?? defaultGetProcessStartTime,
+  };
+}
+
+/**
+ * 旧格式单文件锁兼容：启动时若发现 legacy lock 文件，按旧协议判活一次。
+ * - 活持有者 → 抛 LockConflictError，保留旧锁文件（运行中旧 daemon 继续拥有它）。
+ * - 死持有者 → 删除旧锁文件，后续走新协议 acquire。
+ * - 损坏 / IO 错误 → fail-closed。
+ */
+function migrateLegacyProcessLock(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  lockFile: string,
+): void {
+  const legacyResult = readLegacyLockFile(ctx, daemonDir, lockFile);
+  if (legacyResult.status === 'missing') return;
+  if (legacyResult.status === 'io_error' || legacyResult.status === 'corrupt') {
+    throw new LockConflictError(
+      daemonDir,
+      `Cannot migrate legacy lock: ${legacyResult.status === 'io_error' ? 'I/O error' : 'corrupt'} (${legacyResult.error})`,
+    );
+  }
+
+  const holder = legacyResult.holder;
+  const holderStartTime = holder.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(holder.pid);
+  if ((ctx.l1IsAlive ?? defaultL1IsAlive)(holder.pid, holderStartTime)) {
+    throw new LockConflictError(
+      daemonDir,
+      `Another "${daemonDir}" daemon is running (PID: ${holder.pid})`,
+    );
+  }
+  if (holderStartTime === undefined && process.platform === 'win32') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.STARTTIME_VERIFY_SKIPPED_WINDOWS,
+      `daemon_dir=${daemonDir}`,
+      `pid=${holder.pid}`,
+    );
+  }
+
+  // stale holder：删除旧格式锁文件，让后续 tryAcquireClaimSync 创建 claims/。
+  try {
+    ctx.fs.deleteSync(lockFile);
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `op=migrate_legacy`,
+      `pid=${holder.pid}`,
+      `reason=holder_dead`,
+    );
+  } catch (e) {
+    if (!isFileNotFound(e)) {
+      ctx.audit.write(
+        PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+        `daemon_dir=${daemonDir}`,
+        `op=migrate_legacy`,
+        `reason=${formatErr(e)}`,
+      );
+    }
+  }
+}
+
+function readLegacyLockFile(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
   lockFile: string,
@@ -73,6 +149,95 @@ function readLockFile(
   }
 }
 
+/**
+ * 从 per-contender claims 目录读取当前 winner。
+ * claims/ 不存在或为空时返回 missing；winner claim 损坏时按 corrupt 处理。
+ */
+function readClaimLockFile(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  lockNs: string,
+): LockReadResult {
+  const claimsDir = `${lockNs}/claims`;
+  let entries: { name: string }[];
+  try {
+    entries = ctx.fs.listSync(claimsDir, { includeDirs: false });
+  } catch (err) {
+    if (isFileNotFound(err)) return { status: 'missing' };
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `path=${claimsDir}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { status: 'io_error', error: formatErr(err) };
+  }
+
+  const claimNames = entries
+    .filter((e) => {
+      const parts = e.name.split('.');
+      return parts.length >= 4 && parts[0] === 'claim' && !Number.isNaN(parseInt(parts[2], 10));
+    })
+    .map((e) => e.name)
+    .sort((a, b) => {
+      const ta = parseInt(a.split('.')[1], 10);
+      const tb = parseInt(b.split('.')[1], 10);
+      if (ta !== tb) return ta - tb;
+      const tokenA = a.split('.').slice(3).join('.');
+      const tokenB = b.split('.').slice(3).join('.');
+      return tokenA < tokenB ? -1 : tokenA > tokenB ? 1 : 0;
+    });
+
+  if (claimNames.length === 0) return { status: 'missing' };
+
+  const winner = claimNames[0];
+  try {
+    const content = ctx.fs.readSync(`${claimsDir}/${winner}`).trim();
+    if (content === '') return { status: 'corrupt', error: 'empty claim file' };
+    const parsed: unknown = JSON.parse(content);
+    if (typeof parsed === 'object' && parsed !== null) {
+      const pid = (parsed as { pid?: unknown }).pid;
+      if (isValidPid(pid)) {
+        return {
+          status: 'valid',
+          holder: {
+            pid,
+            startTime:
+              typeof (parsed as { startTime?: unknown }).startTime === 'string'
+                ? makeProcessStartTime((parsed as { startTime: string }).startTime)
+                : undefined,
+          },
+        };
+      }
+    }
+    return { status: 'corrupt', error: `unparseable claim content: ${content.slice(0, 50)}` };
+  } catch (err) {
+    if (isFileNotFound(err)) return { status: 'missing' };
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `path=${claimsDir}/${winner}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { status: 'io_error', error: formatErr(err) };
+  }
+}
+
+function readLockFile(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  lockFile: string,
+): LockReadResult {
+  const lockNs = getLockNs(lockFile);
+
+  // 新协议优先：claims/ 目录存在则读 winner claim。
+  const claimResult = readClaimLockFile(ctx, daemonDir, lockNs);
+  if (claimResult.status !== 'missing') return claimResult;
+
+  // 回退旧格式单文件锁（兼容运行中旧 daemon 或未迁移残留）。
+  return readLegacyLockFile(ctx, daemonDir, lockFile);
+}
+
 export function readLock(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
@@ -89,6 +254,32 @@ export function readLockPid(
   return null;
 }
 
+/**
+ * 缓存本 context 在各锁 namespace 上获得的 ownerToken，用于保持 release* API 不变。
+ * WeakMap 避免跨 context 污染；context 释放后 token 自动可回收。
+ */
+const ownerTokenCache = new WeakMap<ProcessManagerContext, Map<string, string>>();
+
+function getTokenMap(ctx: ProcessManagerContext): Map<string, string> {
+  let map = ownerTokenCache.get(ctx);
+  if (!map) {
+    map = new Map();
+    ownerTokenCache.set(ctx, map);
+  }
+  return map;
+}
+
+function cacheOwnerToken(ctx: ProcessManagerContext, lockNs: string, token: string): void {
+  getTokenMap(ctx).set(lockNs, token);
+}
+
+function takeOwnerToken(ctx: ProcessManagerContext, lockNs: string): string | undefined {
+  const map = getTokenMap(ctx);
+  const token = map.get(lockNs);
+  if (token !== undefined) map.delete(lockNs);
+  return token;
+}
+
 function acquireLockFile(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
@@ -96,83 +287,21 @@ function acquireLockFile(
   auditCols: string[],
 ): void {
   ctx.fs.ensureDirSync(path.dirname(lockFile));
-  try {
-    const startTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
-    ctx.fs.writeExclusiveSync(lockFile, JSON.stringify({
-      pid: process.pid,
-      ...(startTime !== undefined ? { startTime } : {}),
-    }));
-    // phase 584: 加 context=fresh col、与 L101 context=stale_retry 对齐
-    // forensic 解析能区分 LOCK_ACQUIRED 的 2 路径 (首次 acquire vs stale 后重试)
-    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, `context=fresh`, ...auditCols);
-    return;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+
+  // 旧格式兼容：若存在 legacy lock 文件，按旧协议判活一次。
+  if (ctx.fs.existsSync(lockFile)) {
+    migrateLegacyProcessLock(ctx, daemonDir, lockFile);
   }
 
-  // phase 1019: 读参数传入的 lockFile（此前误用 readLock 硬编码读 daemon.lock，
-  // 导致 spawn 锁 EEXIST 时误读生命周期锁文件）
-  const lockResult = readLockFile(ctx, daemonDir, lockFile);
-  if (lockResult.status === 'valid') {
-    const holder = lockResult.holder;
-    const holderStartTime = holder.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(holder.pid);
-    if ((ctx.l1IsAlive ?? defaultL1IsAlive)(holder.pid, holderStartTime)) {
-      throw new LockConflictError(
-        daemonDir,
-        `Another "${daemonDir}" daemon is running (PID: ${holder.pid})`,
-      );
-    }
-    if (holderStartTime === undefined && process.platform === 'win32') {
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.STARTTIME_VERIFY_SKIPPED_WINDOWS,
-        `daemon_dir=${daemonDir}`,
-        `pid=${holder.pid}`,
-      );
-    }
-    // stale holder: fall through to reclaim
-  } else if (lockResult.status === 'io_error' || lockResult.status === 'corrupt') {
-    // Fail closed — refuse to acquire when lock state is indeterminate
-    throw new LockConflictError(
-      daemonDir,
-      `Cannot acquire lock: ${lockResult.status === 'io_error' ? 'I/O error' : 'corrupt'} (${lockResult.error})`,
-    );
+  const lockNs = getLockNs(lockFile);
+  const ownerToken = tryAcquireClaimSync(makeClaimContext(ctx), lockNs);
+  if (ownerToken === null) {
+    throw new LockConflictError(daemonDir, 'Election lost');
   }
-  // missing: no lock, proceed to acquire
+  cacheOwnerToken(ctx, lockNs, ownerToken);
 
-  try {
-    ctx.fs.deleteSync(lockFile);
-  } catch (e) {
-    if (!isFileNotFound(e)) {
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `op=acquire_retry`,
-        `reason=${formatErr(e)}`,
-      );
-    }
-  }
-  try {
-    const retryStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
-    ctx.fs.writeExclusiveSync(lockFile, JSON.stringify({
-      pid: process.pid,
-      ...(retryStartTime !== undefined ? { startTime: retryStartTime } : {}),
-    }));
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED,
-      `daemon_dir=${daemonDir}`,
-      `pid=${process.pid}`,
-      `context=stale_retry`,
-      ...auditCols,
-    );
-  } catch (retryErr) {
-    if ((retryErr as NodeJS.ErrnoException).code === 'EEXIST') {
-      throw new LockConflictError(
-        daemonDir,
-        `Another "${daemonDir}" daemon acquired the lock during retry`,
-      );
-    }
-    throw retryErr;
-  }
+  // phase 584: 加 context=fresh col、与旧实现 stale_retry 路径对齐
+  ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, `context=fresh`, ...auditCols);
 }
 
 export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
@@ -191,34 +320,42 @@ function releaseLockFile(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
   lockFile: string,
-  holder: { pid: number; startTime?: ProcessStartTime } | null,
   auditCols: string[],
 ): void {
-  if (holder === null || holder.pid !== process.pid) return;
-  try {
-    ctx.fs.deleteSync(lockFile);
-    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, ...auditCols);
-  } catch (err) {
-    if (!isFileNotFound(err)) {
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `op=release`,
-        `reason=${formatErr(err)}`,
-        ...auditCols,
-      );
+  const lockNs = getLockNs(lockFile);
+  const ownerToken = takeOwnerToken(ctx, lockNs);
+  if (ownerToken === undefined) {
+    // 无缓存 token：可能是直接对旧格式锁文件调用 release，按旧语义只删除持有者是本进程的文件。
+    const legacyResult = readLegacyLockFile(ctx, daemonDir, lockFile);
+    if (legacyResult.status !== 'valid' || legacyResult.holder.pid !== process.pid) {
+      return;
     }
+    try {
+      ctx.fs.deleteSync(lockFile);
+      ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, `context=legacy_fallback`, ...auditCols);
+    } catch (err) {
+      if (!isFileNotFound(err)) {
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+          `daemon_dir=${daemonDir}`,
+          `op=release_legacy_fallback`,
+          `reason=${formatErr(err)}`,
+          ...auditCols,
+        );
+      }
+    }
+    return;
   }
+
+  releaseClaimSync(makeClaimContext(ctx), lockNs, ownerToken);
+  ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, ...auditCols);
 }
 
 export function releaseLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
-  const readLockPidFn = ctx.readLockPid ?? ((id: DaemonDir) => readLockPid(ctx, id));
-  releaseLockFile(ctx, daemonDir, getLockFile(ctx, daemonDir), readLockPidFn(daemonDir), []);
+  releaseLockFile(ctx, daemonDir, getLockFile(ctx, daemonDir), []);
 }
 
 // phase 1017: releaseSpawnLock — 仅当 spawn 锁持有者是本进程时删除（防误删他人锁）
 export function releaseSpawnLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {
-  const lockFile = getSpawnLockFile(ctx, daemonDir);
-  const result = readLockFile(ctx, daemonDir, lockFile);
-  releaseLockFile(ctx, daemonDir, lockFile, result.status === 'valid' ? result.holder : null, ['lock=spawn']);
+  releaseLockFile(ctx, daemonDir, getSpawnLockFile(ctx, daemonDir), ['lock=spawn']);
 }

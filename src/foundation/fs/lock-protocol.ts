@@ -20,6 +20,8 @@ export interface LockClaimContext {
   fs: FileSystem;
   audit?: AuditLog;
   isAlive?: (pid: number, startTime?: ProcessStartTime) => boolean;
+  /** 可选的进程启动时间探针；未提供时使用 process-exec 默认实现。 */
+  getProcessStartTime?: (pid: number) => ProcessStartTime | undefined;
 }
 
 /**
@@ -36,7 +38,8 @@ export async function tryAcquireClaim(
   const ownerToken = newShortUuid();
   const timestamp = Date.now();
   const pid = process.pid;
-  const startTime = getProcessStartTime(pid) ?? '0';
+  const getStartTime = ctx.getProcessStartTime ?? getProcessStartTime;
+  const startTime = getStartTime(pid) ?? '0';
 
   // 1. 确保 claims 目录存在
   await ctx.fs.ensureDir(claimsDir);
@@ -141,6 +144,113 @@ export async function releaseClaim(
     }
   }
   // 找不到 → 已被 stale recovery 清理 → no-op
+}
+
+/**
+ * 同步单次 acquire 尝试（process-manager spawn 路径需要同步原语）。
+ *
+ * 语义与 tryAcquireClaim 完全一致，仅使用 FileSystem 同步方法。
+ */
+export function tryAcquireClaimSync(
+  ctx: LockClaimContext,
+  lockDir: string,
+): string | null {
+  const claimsDir = `${lockDir}/claims`;
+  const ownerToken = newShortUuid();
+  const timestamp = Date.now();
+  const pid = process.pid;
+  const getStartTime = ctx.getProcessStartTime ?? getProcessStartTime;
+  const startTime = getStartTime(pid) ?? '0';
+
+  ctx.fs.ensureDirSync(claimsDir);
+
+  const claimName = `claim.${timestamp}.${pid}.${ownerToken}`;
+  const claimPath = `${claimsDir}/${claimName}`;
+  const claimContent = JSON.stringify({ pid, timestamp, ownerToken, startTime });
+  try {
+    ctx.fs.writeExclusiveSync(claimPath, claimContent);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      return tryAcquireClaimSync(ctx, lockDir);
+    }
+    throw err;
+  }
+
+  let entries: { name: string }[];
+  try {
+    entries = ctx.fs.listSync(claimsDir, { includeDirs: false });
+  } catch (err) {
+    if (isFileNotFound(err)) return null;
+    throw err;
+  }
+
+  const aliveClaims: string[] = [];
+  for (const entry of entries) {
+    const parts = entry.name.split('.');
+    if (parts.length < 4 || parts[0] !== 'claim') continue;
+    const filePid = parseInt(parts[2], 10);
+    if (Number.isNaN(filePid)) continue;
+
+    if (filePid === pid && !entry.name.endsWith(ownerToken)) {
+      try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
+      continue;
+    }
+
+    let fileContent: string;
+    try {
+      fileContent = ctx.fs.readSync(`${claimsDir}/${entry.name}`);
+    } catch { continue; }
+
+    let parsed: { pid: number; startTime?: string };
+    try { parsed = JSON.parse(fileContent); } catch { continue; }
+
+    const isAliveFn = ctx.isAlive ?? defaultIsAlive;
+    if (!isAliveFn(parsed.pid, parsed.startTime as ProcessStartTime | undefined)) {
+      try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
+      ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED, `claim=${entry.name}`);
+      continue;
+    }
+
+    aliveClaims.push(entry.name);
+  }
+
+  if (aliveClaims.length === 0) return ownerToken;
+
+  aliveClaims.sort(compareClaimNames);
+
+  const winner = aliveClaims[0];
+  if (winner.endsWith(ownerToken)) return ownerToken;
+
+  try { ctx.fs.deleteSync(claimPath); } catch { /* silent */ }
+  ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_ELECTION_LOST, `winner=${winner} own=${claimName}`);
+  return null;
+}
+
+/**
+ * 同步释放自己持有的 claim。
+ *
+ * 语义与 releaseClaim 一致，仅使用 FileSystem 同步方法。
+ */
+export function releaseClaimSync(
+  ctx: LockClaimContext,
+  lockDir: string,
+  ownerToken: string,
+): void {
+  const claimsDir = `${lockDir}/claims`;
+  let entries: { name: string }[];
+  try {
+    entries = ctx.fs.listSync(claimsDir, { includeDirs: false });
+  } catch (err) {
+    if (isFileNotFound(err)) return;
+    throw err;
+  }
+
+  for (const entry of entries) {
+    if (entry.name.endsWith(ownerToken)) {
+      try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
+      return;
+    }
+  }
 }
 
 function compareClaimNames(a: string, b: string): number {

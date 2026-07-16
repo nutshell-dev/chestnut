@@ -24,33 +24,33 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     cleanupTempDirSync(tmpDir);
   });
 
-  it('throws when another daemon acquires the lock during retry', () => {
-    // Pre-create a lockfile holding a dead PID
+  it('throws when another daemon holds the per-contender lock', () => {
+    // Pre-create a legacy lockfile holding a dead PID; migrate deletes it.
     const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
     fsNative.mkdirSync(statusDir, { recursive: true });
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), '12345');
 
-    vi.spyOn(process, 'kill').mockImplementation(() => {
-      const err: any = new Error('ESRCH');
-      err.code = 'ESRCH';
-      throw err;
-    });
-    // 模拟重试时又被抢占：deleteSync 成功，writeExclusiveSync 抛 EEXIST
-    const fs = pm.testGetFs();
-    const origWriteExclusive = fs.writeExclusiveSync.bind(fs);
-    let callCount = 0;
-    vi.spyOn(fs, 'writeExclusiveSync').mockImplementation((p: string, c: string) => {
-      callCount++;
-      if (callCount === 1 || callCount === 2) {
-        const err: any = new Error('EEXIST');
-        err.code = 'EEXIST';
+    vi.spyOn(process, 'kill').mockImplementation((pid: number) => {
+      if (pid === 12345) {
+        const err: any = new Error('ESRCH');
+        err.code = 'ESRCH';
         throw err;
       }
-      return origWriteExclusive(p, c);
+      // 其他 pid（含 99999 与 process.pid）视为存活
     });
 
+    // 模拟另一个存活 contender 已持有 per-contender claim → 本进程选举失败。
+    const claimsDir = path.join(statusDir, 'daemon.lock-lock', 'claims');
+    fsNative.mkdirSync(claimsDir, { recursive: true });
+    const earlierToken = 'other-token';
+    fsNative.writeFileSync(
+      path.join(claimsDir, `claim.${Date.now() - 1000}.99999.${earlierToken}`),
+      JSON.stringify({ pid: 99999, timestamp: Date.now() - 1000, ownerToken: earlierToken, startTime: '0' }),
+      { flag: 'wx' },
+    );
+
     expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
-      /acquired the lock during retry/,
+      /Election lost/,
     );
   });
 
@@ -59,9 +59,9 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     fsNative.mkdirSync(statusDir, { recursive: true });
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), 'not-a-number');
 
-    // corrupt lock → fail closed
+    // corrupt legacy lock → fail closed
     expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
-      /Cannot acquire lock: corrupt/,
+      /Cannot migrate legacy lock: corrupt/,
     );
   });
 
@@ -82,26 +82,33 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     );
   });
 
-  it('unknown kill errno → stale cleanup + retry (no longer conservative steal)', () => {
+  it('unknown kill errno → stale cleanup + election lost (no longer conservative steal)', () => {
     const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
     fsNative.mkdirSync(statusDir, { recursive: true });
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), '12345');
 
-    const fs = pm.testGetFs();
-    vi.spyOn(fs, 'writeExclusiveSync').mockImplementation(() => {
-      const err: any = new Error('EEXIST');
-      err.code = 'EEXIST';
-      throw err;
-    });
-    vi.spyOn(process, 'kill').mockImplementation(() => {
-      const err: any = new Error('EINVAL');
-      err.code = 'EINVAL';
-      throw err;
+    vi.spyOn(process, 'kill').mockImplementation((pid: number) => {
+      if (pid === 12345) {
+        const err: any = new Error('EINVAL');
+        err.code = 'EINVAL';
+        throw err;
+      }
+      // 其他 pid（含 99999 与 process.pid）视为存活
     });
 
-    // isAlive(pid) returns false for unknown errno → stale cleanup → retry → EEXIST
+    // 未知 errno → 旧持有者视为已死 → migrate 删除 legacy lock；
+    // 同时另一个存活 contender 已持有 claim → 选举失败。
+    const claimsDir = path.join(statusDir, 'daemon.lock-lock', 'claims');
+    fsNative.mkdirSync(claimsDir, { recursive: true });
+    const earlierToken = 'other-token';
+    fsNative.writeFileSync(
+      path.join(claimsDir, `claim.${Date.now() - 1000}.99999.${earlierToken}`),
+      JSON.stringify({ pid: 99999, timestamp: Date.now() - 1000, ownerToken: earlierToken, startTime: '0' }),
+      { flag: 'wx' },
+    );
+
     expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
-      /acquired the lock during retry/,
+      /Election lost/,
     );
   });
 

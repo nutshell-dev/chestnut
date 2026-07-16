@@ -261,8 +261,8 @@ describe('spawn-lock-isolation', () => {
       return {
         fs: nodeFs,
         audit: makeAudit().audit,
-        // 只有 FAKE_LIVE_PID 视为存活；DEAD_PID 与 process.pid 之外的均视为死
-        l1IsAlive: vi.fn().mockImplementation((pid: number) => pid === FAKE_LIVE_PID),
+        // FAKE_LIVE_PID 与本进程视为存活；DEAD_PID 与其他 pid 视为死
+        l1IsAlive: vi.fn().mockImplementation((pid: number) => pid === FAKE_LIVE_PID || pid === process.pid),
         getProcessStartTime: vi.fn().mockReturnValue(undefined),
       };
     }
@@ -277,7 +277,7 @@ describe('spawn-lock-isolation', () => {
       const ctx = makeCtx();
       expect(() => acquireSpawnLock(ctx, daemonDir)).toThrow(LockConflictError);
 
-      // spawn 锁未被回收/删除
+      // 旧格式 spawn 锁未被回收/删除（运行中旧 daemon 继续拥有它）
       const spawnContent = await fs.readFile(spawnLock, 'utf-8');
       expect(JSON.parse(spawnContent).pid).toBe(FAKE_LIVE_PID);
       // 生命周期锁未被创建
@@ -289,6 +289,7 @@ describe('spawn-lock-isolation', () => {
       const daemonDir = testClawDaemonDir(tempDir, clawId);
       const lifecycleLock = path.join(daemonDir, 'status', 'daemon.lock');
       const spawnLock = path.join(daemonDir, 'status', 'daemon.lock.spawn');
+      const spawnLockNs = `${spawnLock}-lock`;
       await writeLock(lifecycleLock, FAKE_LIVE_PID);
       await writeLock(spawnLock, DEAD_PID);
 
@@ -296,9 +297,13 @@ describe('spawn-lock-isolation', () => {
       // 不抛错：stale spawn 锁被回收（修复前会误读 lifecycle 锁的活持有者而抛 LockConflictError）
       expect(() => acquireSpawnLock(ctx, daemonDir)).not.toThrow();
 
-      // spawn 锁持有者变为本进程
-      const spawnContent = await fs.readFile(spawnLock, 'utf-8');
-      expect(JSON.parse(spawnContent).pid).toBe(process.pid);
+      // spawn 锁已迁移到 per-contender 协议：旧文件被删除，claims 目录下持有者是本进程
+      expect(await fs.access(spawnLock).then(() => true).catch(() => false)).toBe(false);
+      const claimsDir = path.join(spawnLockNs, 'claims');
+      const claimNames = await fs.readdir(claimsDir);
+      expect(claimNames).toHaveLength(1);
+      const claimContent = await fs.readFile(path.join(claimsDir, claimNames[0]), 'utf-8');
+      expect(JSON.parse(claimContent).pid).toBe(process.pid);
       // 生命周期锁内容原样不动
       const lifecycleContent = await fs.readFile(lifecycleLock, 'utf-8');
       expect(JSON.parse(lifecycleContent).pid).toBe(FAKE_LIVE_PID);
@@ -702,16 +707,19 @@ describe('spawn-race', () => {
 
       mockWriteExclusiveOnceEEXIST();
 
-      // The first readSync call comes from checkAlive (initial).
-      // The 2nd call is readLockPid (lockFile).
-      // The 3rd call is our explicit readSync in the EEXIST branch.
-      let readSyncCallCount = 0;
+      // 注入 pid 文件读 IO 错：仅在第 2 次读取 pid 文件时抛 EACCES
+      //（第 1 次来自初始 checkAlive，应返回 ENOENT 以继续 spawn；
+      //  第 2 次来自 pid 文件 EEXIST 分支的 holder 校验）。
+      const pidFilePath = path.join(tempDir, 'claws', clawId, 'status', 'pid');
+      let pidFileReadCount = 0;
       vi.spyOn(nodeFs, 'readSync').mockImplementation((p: string) => {
-        readSyncCallCount++;
-        if (readSyncCallCount === 3) {
-          const err = new Error('EACCES permission denied') as NodeJS.ErrnoException;
-          err.code = 'EACCES';
-          throw err;
+        if (path.resolve(p) === path.resolve(pidFilePath)) {
+          pidFileReadCount++;
+          if (pidFileReadCount === 2) {
+            const err = new Error('EACCES permission denied') as NodeJS.ErrnoException;
+            err.code = 'EACCES';
+            throw err;
+          }
         }
         return (NodeFileSystem.prototype as any).readSync.call(nodeFs, p);
       });

@@ -86,6 +86,7 @@ describe('spawn lifecycle invariants (Phase 914)', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
+      l1IsAlive: () => true,
       getProcessStartTime: vi.fn().mockReturnValue('Sat May 18 10:30:00 2026'),
     };
 
@@ -264,9 +265,12 @@ describe('spawn lifecycle invariants (Phase 914)', () => {
       getProcessStartTime: vi.fn().mockReturnValue(undefined),
     };
 
-    // 让 startMs 与 bootStart 拿到同一时间后，下一次 Date.now 直接跳过 30s
+    // 让 startMs 与 bootStart 拿到同一时间后，下一次 Date.now 直接跳过 30s。
+    // per-contender 锁协议在 acquireSpawnLock 中调用一次 Date.now() 生成 claim timestamp，
+    // 因此需要额外提供一个 1000。
     const nowSpy = vi
       .spyOn(Date, 'now')
+      .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1000)
       .mockReturnValue(1000 + 35_000);
