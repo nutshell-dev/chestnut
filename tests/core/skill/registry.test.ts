@@ -173,6 +173,9 @@ describe('SkillSystem', () => {
       (mockFs.read as any).mockResolvedValue(fullContent);
       const registry = new SkillSystem(mockFs, SKILLS_DIR_DEFAULT, mockAudit);
       await registry.register('skills/eta');
+      // phase 1070: loadFull 内部 _ensureLoaded 会触发 loadAll 原子重扫；
+      // 这里只测 loadFull 对已注册 skill 的读取行为，故标记 loaded 避免重扫。
+      (registry as any)._loaded = true;
       const result = await registry.loadFull('eta');
       expect(result).toBe(fullContent);
     });

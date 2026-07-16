@@ -90,6 +90,8 @@ export class SkillSystem {
     const exists = await this.fs.exists(this.skillsDir);
     if (!exists) {
       this.audit?.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
+      this.metaMap.clear();
+      this.nameSourceMap.clear();
       this._loaded = true; // 空目录也算加载完成
       return; // 空目录，不报错
     }
@@ -97,19 +99,46 @@ export class SkillSystem {
     // 列出 skills 目录下的子目录（按名称排序确保确定性遍历顺序）
     const entries = (await this.fs.list(this.skillsDir, { includeDirs: true }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    
+
+    // phase 1070: 用临时 Map 完整扫描，成功后一次性原子替换
+    const newMetaMap = new Map<string, SkillMeta>();
+    const newNameSourceMap = new Map<string, 'frontmatter' | 'fallback_dirname'>();
+
     for (const entry of entries) {
       if (!entry.isDirectory) continue;
-      
+
       const skillDir = `${this.skillsDir}/${entry.name}`;
       const skillMdPath = `${skillDir}/SKILL.md`;
-      
+
       // 检查 SKILL.md 是否存在
       const hasSkillMd = await this.fs.exists(skillMdPath);
       if (!hasSkillMd) continue;
 
       try {
-        await this.register(skillDir);
+        const { meta, nameSource } = await this.loadSkillMeta(skillDir);
+
+        // Duplicate check: reject duplicate registration (phase 1235 B.1)
+        // phase 1267 D.2: idempotent when same skillDir (prevents _ensureLoaded cascade duplicate)
+        if (newMetaMap.has(meta.name)) {
+          const existing = newMetaMap.get(meta.name)!;
+          if (existing.skillDir === skillDir) {
+            continue;
+          }
+          const existingNameSource = newNameSourceMap.get(meta.name) || 'unknown';
+          this.audit?.write(SKILL_AUDIT_EVENTS.DUPLICATE_REJECTED,
+            `name=${meta.name}`,
+            `existing_skill_dir=${existing.skillDir}`,
+            `attempted_skill_dir=${skillDir}`,
+            `existing_name_source=${existingNameSource}`,
+            `attempted_name_source=${nameSource}`,
+            `existing_version=${existing.version}`,
+            `attempted_version=${meta.version}`,
+            `skills_dir=${this.skillsDir}`,
+          );
+          throw new SkillDuplicateError(meta.name, existing.skillDir, skillDir);
+        }
+        newMetaMap.set(meta.name, meta);
+        newNameSourceMap.set(meta.name, nameSource);
       } catch (err) {
         if (err instanceof SkillDuplicateError) throw err;
         this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
@@ -121,6 +150,10 @@ export class SkillSystem {
       }
     }
 
+    // 原子替换
+    this.metaMap = newMetaMap;
+    this.nameSourceMap = newNameSourceMap;
+
     // 正常出口 audit
     this.audit?.write(SKILL_AUDIT_EVENTS.REGISTRY_LOADED,
       `skills_dir=${this.skillsDir}`,
@@ -130,25 +163,29 @@ export class SkillSystem {
   }
 
   /**
-   * 手动注册单个技能
+   * 加载单个 skill 的元信息（不写入 registry，供 register / loadAll 共享）。
    */
-  async register(skillDir: string): Promise<SkillMeta> {
+  private async loadSkillMeta(skillDir: string): Promise<{
+    meta: SkillMeta;
+    nameSource: 'frontmatter' | 'fallback_dirname';
+    versionSource: 'frontmatter' | 'fallback_default';
+  }> {
     const skillMdPath = `${skillDir}/SKILL.md`;
     const content = await this.fs.read(skillMdPath);
-    
+
     // 解析 frontmatter (phase 62: frame syntax 共享 helper + caller-side unquote 自治)
     const { meta: rawMeta } = parseFrontmatterFrame(content, { eofTolerant: true });
     const frontmatter: Record<string, string> = {};
     for (const [k, v] of Object.entries(rawMeta)) {
       frontmatter[k] = v.replace(/^["']|["']$/g, '');
     }
-    
+
     // 从路径提取技能名（作为 fallback）
     const dirName = skillDir.split('/').pop() || 'unknown';
 
     // phase 953: track whether name came from frontmatter or fallback dirName
     const nameSource: 'frontmatter' | 'fallback_dirname' = frontmatter.name ? 'frontmatter' : 'fallback_dirname';
-    
+
     const meta: SkillMeta = {
       name: frontmatter.name || dirName,
       description: frontmatter.description || '',
@@ -182,6 +219,15 @@ export class SkillSystem {
         `Skill name namespace invalid: ${meta.name}. expected <author>/<skill> or simple-kebab-name matching ${SKILL_NAME_NAMESPACE_PATTERN.source}`,
       );
     }
+
+    return { meta, nameSource, versionSource };
+  }
+
+  /**
+   * 手动注册单个技能
+   */
+  async register(skillDir: string): Promise<SkillMeta> {
+    const { meta, nameSource, versionSource } = await this.loadSkillMeta(skillDir);
 
     // Duplicate check: reject duplicate registration (phase 1235 B.1)
     // phase 1267 D.2: idempotent when same skillDir (prevents _ensureLoaded cascade duplicate)

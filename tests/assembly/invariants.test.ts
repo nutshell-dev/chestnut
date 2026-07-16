@@ -18,7 +18,11 @@ import { LockConflictError } from '../../src/assembly/index.js';
 import { buildLLMConfig } from '../../src/assembly/config/config-load.js';
 
 const { mockSkillFactory } = vi.hoisted(() => ({
-  mockSkillFactory: vi.fn(() => ({ loadAll: vi.fn().mockResolvedValue(undefined), getSkills: vi.fn(() => []) })),
+  mockSkillFactory: vi.fn(() => ({
+    loadAll: vi.fn().mockResolvedValue(undefined),
+    ensureLoaded: vi.fn().mockResolvedValue(undefined),
+    getSkills: vi.fn(() => []),
+  })),
 }));
 
 const mockAuditWrite = vi.fn();

@@ -95,14 +95,14 @@ describe('phase 1267 D.2: SkillDuplicateError fail-loud in loadAll', () => {
     const audit = mockAudit();
     const sys = new SkillSystem(fs, skillsDir, audit);
 
-    // Make register throw a non-SkillDuplicateError
-    const originalRegister = sys.register.bind(sys);
-    sys.register = vi.fn(async (skillDir: string) => {
+    // Make loadSkillMeta throw a non-SkillDuplicateError for dir1
+    const originalLoadSkillMeta = (sys as any).loadSkillMeta.bind(sys);
+    (sys as any).loadSkillMeta = vi.fn(async (skillDir: string) => {
       if (skillDir === dir1) {
         throw new Error('mock frontmatter parse failure');
       }
-      return originalRegister(skillDir);
-    }) as any;
+      return originalLoadSkillMeta(skillDir);
+    });
 
     await sys.loadAll();
     (sys as any)._loaded = true; // prevent _ensureLoaded from re-running loadAll

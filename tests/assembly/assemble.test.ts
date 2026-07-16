@@ -43,7 +43,11 @@ const callOrder: string[] = [];
 const { mockSkillFactory } = vi.hoisted(() => ({
   mockSkillFactory: vi.fn((..._args: any[]) => {
     callOrder.push('SkillSystem');
-    return { loadAll: vi.fn().mockResolvedValue(undefined), getSkills: vi.fn(() => []) };
+    return {
+      loadAll: vi.fn().mockResolvedValue(undefined),
+      ensureLoaded: vi.fn().mockResolvedValue(undefined),
+      getSkills: vi.fn(() => []),
+    };
   }),
 }));
 

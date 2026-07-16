@@ -225,6 +225,8 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     try {
       const createSkillFn = input.createSkillSystem ?? defaultCreateSkillSystem;
       skillRegistry = createSkillFn(systemFs, SKILLS_DIR_DEFAULT, auditWriter);
+      // phase 1070: 首 prompt 前完成 skill 加载，避免 formatForContext 读到空 registry
+      await skillRegistry.ensureLoaded();
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=skill_registry`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: SkillSystem construct failed: ${formatErr(e)}`, { cause: e });
