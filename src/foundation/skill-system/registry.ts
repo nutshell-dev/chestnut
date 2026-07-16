@@ -6,7 +6,7 @@
  * - 调用 skill 工具时才加载完整内容
  */
 
-import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../node-utils/index.js";
 import { parseFrontmatterFrame } from "../messaging/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -24,6 +24,12 @@ const SKILL_NAME_NAMESPACE_PATTERN = /^[a-z0-9-]+(\/[a-z0-9-]+)?$/;
  * phase 59 / skillsystem-auditor §P4 follow-up.
  */
 const SKILL_VERSION_PATTERN = /^\d+\.\d+\.\d+/;
+
+function isIoError(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('code' in err)) return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === 'EIO' || code === 'EACCES' || code === 'EMFILE';
+}
 
 export class SkillDuplicateError extends Error {
   constructor(
@@ -100,9 +106,10 @@ export class SkillSystem {
     const entries = (await this.fs.list(this.skillsDir, { includeDirs: true }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    // phase 1070: 用临时 Map 完整扫描，成功后一次性原子替换
+    // phase 1070: 用临时 Map 完整扫描；phase 1079: I/O 错误时保留旧 Map
     const newMetaMap = new Map<string, SkillMeta>();
     const newNameSourceMap = new Map<string, 'frontmatter' | 'fallback_dirname'>();
+    let hadIoError = false;
 
     for (const entry of entries) {
       if (!entry.isDirectory) continue;
@@ -141,6 +148,11 @@ export class SkillSystem {
         newNameSourceMap.set(meta.name, nameSource);
       } catch (err) {
         if (err instanceof SkillDuplicateError) throw err;
+        if (isFileNotFound(err)) continue; // race → treat as deleted
+        if (isIoError(err)) {
+          hadIoError = true; // EIO/EACCES/EMFILE → preserve old Map
+          continue;
+        }
         this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
           `skill_dir=${skillDir}`,
           `skills_dir=${this.skillsDir}`,
@@ -149,6 +161,9 @@ export class SkillSystem {
         continue;
       }
     }
+
+    // 任一 skill 出现 I/O 错误则整次 rescan 失败，保留旧 Map，不提交新快照
+    if (hadIoError) return;
 
     // 原子替换
     this.metaMap = newMetaMap;
