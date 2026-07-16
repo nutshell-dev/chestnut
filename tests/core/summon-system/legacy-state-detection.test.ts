@@ -4,6 +4,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { checkLegacySummonStateFiles } from '../../../src/core/summon-system/legacy-state-detection.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import { FileNotFoundError } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import * as path from 'path';
 import * as os from 'os';
@@ -79,16 +80,53 @@ describe('checkLegacySummonStateFiles (phase 281 Step B)', () => {
     await expect(checkLegacySummonStateFiles(fs, undefined)).resolves.toBeUndefined();
   });
 
-  it('fs.list throw → catch 不抛、不 emit', async () => {
+  it('fs.exists throw FS_NOT_FOUND → 0 emit', async () => {
+    const { fs } = await createTempFs();
+    const audit = makeFakeAudit();
+    const originalExists = fs.exists.bind(fs);
+    fs.exists = async () => { throw new FileNotFoundError('summon-state'); };
+    await checkLegacySummonStateFiles(fs, audit);
+    expect(audit.entries).toHaveLength(0);
+    fs.exists = originalExists;
+  });
+
+  it('fs.exists throw 其他错误 → emit error=exists_failed', async () => {
+    const { fs } = await createTempFs();
+    const audit = makeFakeAudit();
+    const originalExists = fs.exists.bind(fs);
+    fs.exists = async () => { throw new Error('exists failed'); };
+    await checkLegacySummonStateFiles(fs, audit);
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0][0]).toBe('summon_legacy_state_file_detected');
+    expect(audit.entries[0][1]).toContain('dir=summon-state');
+    expect(audit.entries[0][2]).toContain('error=exists_failed');
+    expect(audit.entries[0][3]).toContain('reason=');
+    fs.exists = originalExists;
+  });
+
+  it('fs.list throw FS_NOT_FOUND → 0 emit', async () => {
     const { fs } = await createTempFs();
     const audit = makeFakeAudit();
     await fs.ensureDir('summon-state');
-    // 用无权限文件模拟 list 失败：在 summon-state 下放一个非目录同名路径不可行，
-    // 这里直接 spy exists 返回 true 且 list 抛错来测试韧性。
+    const originalList = fs.list.bind(fs);
+    fs.list = async () => { throw new FileNotFoundError('summon-state'); };
+    await checkLegacySummonStateFiles(fs, audit);
+    expect(audit.entries).toHaveLength(0);
+    fs.list = originalList;
+  });
+
+  it('fs.list throw 其他错误 → emit error=list_failed', async () => {
+    const { fs } = await createTempFs();
+    const audit = makeFakeAudit();
+    await fs.ensureDir('summon-state');
     const originalList = fs.list.bind(fs);
     fs.list = async () => { throw new Error('list failed'); };
     await checkLegacySummonStateFiles(fs, audit);
-    expect(audit.entries).toHaveLength(0);
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0][0]).toBe('summon_legacy_state_file_detected');
+    expect(audit.entries[0][1]).toContain('dir=summon-state');
+    expect(audit.entries[0][2]).toContain('error=list_failed');
+    expect(audit.entries[0][3]).toContain('reason=');
     fs.list = originalList;
   });
 });

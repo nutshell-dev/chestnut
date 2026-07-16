@@ -9,6 +9,7 @@
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 
 const SUMMON_STATE_SUBDIR = 'summon-state';
@@ -19,10 +20,34 @@ export async function checkLegacySummonStateFiles(
 ): Promise<void> {
   if (!audit) return;
 
-  const exists = await fs.exists(SUMMON_STATE_SUBDIR).catch(() => false);
+  let exists: boolean;
+  try {
+    exists = await fs.exists(SUMMON_STATE_SUBDIR);
+  } catch (err) {
+    if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return; // dir absent → no legacy state
+    audit.write(
+      SUMMON_AUDIT_EVENTS.SUMMON_LEGACY_STATE_FILE_DETECTED,
+      `dir=${SUMMON_STATE_SUBDIR}`,
+      `error=exists_failed`,
+      `reason=${formatErr(err)}`,
+    );
+    return;
+  }
   if (!exists) return;
 
-  const entries = await fs.list(SUMMON_STATE_SUBDIR, { includeDirs: false }).catch(() => []);
+  let entries: { name: string }[];
+  try {
+    entries = await fs.list(SUMMON_STATE_SUBDIR, { includeDirs: false });
+  } catch (err) {
+    if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return;
+    audit.write(
+      SUMMON_AUDIT_EVENTS.SUMMON_LEGACY_STATE_FILE_DETECTED,
+      `dir=${SUMMON_STATE_SUBDIR}`,
+      `error=list_failed`,
+      `reason=${formatErr(err)}`,
+    );
+    return;
+  }
   if (entries.length === 0) return;
 
   audit.write(
