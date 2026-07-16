@@ -10,7 +10,7 @@ import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { getLatestContractStats, CONTRACT_ACTIVE_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import type { ContractSubtaskStats } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
@@ -64,12 +64,12 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   // Helper: check contract status
   function getContractStatus(clawFs: FileSystem): FieldValue {
     try {
-      if (!clawFs.existsSync(CONTRACT_ACTIVE_DIR)) return { kind: 'missing' };
       const entries = clawFs.listSync(CONTRACT_ACTIVE_DIR, { includeDirs: true });
       return entries.some(e => e.isDirectory)
         ? { kind: 'value', text: 'active' }
         : { kind: 'missing' };
     } catch (err) {
+      if (isFileNotFound(err)) return { kind: 'missing' };
       return { kind: 'error', reason: formatErr(err) };
     }
   }
@@ -131,11 +131,14 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   async function readPidField(clawName: string): Promise<FieldValue> {
     const daemonDir = resolveClawDaemonDir(makeClawId(clawName));
-    if (!processManager.isAlive(daemonDir)) return { kind: 'missing' };
     try {
-      const stored = await processManager.readPid(daemonDir);
-      if (stored.status === 'valid') return { kind: 'value', text: String(stored.pid) };
-      return { kind: 'missing' };
+      const pidResult = await processManager.readPid(daemonDir);
+      switch (pidResult.status) {
+        case 'valid':    return { kind: 'value', text: String(pidResult.pid) };
+        case 'spawning': return { kind: 'value', text: 'spawning' };
+        case 'missing':  return { kind: 'missing' };
+        case 'io_error': case 'corrupt':  return { kind: 'error', reason: pidResult.error };
+      }
     } catch (err) {
       return { kind: 'error', reason: formatErr(err) };
     }
