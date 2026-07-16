@@ -302,7 +302,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
     const pendingDir = () => path.join(testDir, 'inbox', 'pending');
 
     // ─── 反向测试 1: drainInbox 防御纵深跳过 .tmp_ 前缀 .md 文件 ────────────
-    it('drainInbox skips .tmp_-prefixed .md files (defense-in-depth)', async () => {
+    it('drainInbox defense-in-depth still skips .tmp_ .md files (recovery already handled in init)', async () => {
       await writeMsg('msg-normal', 'legit message');
       // 模拟旧版 stage 遗留（.md 结尾的 temp 文件）—— 内容合法、若被读取会被投递
       const normalName = (await fs.readdir(pendingDir())).find(f => f.endsWith('.md'))!;
@@ -352,6 +352,149 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
       expect(reconcile).toHaveLength(1);
       expect(reconcile[0].cols.some(c => c === 'from=stage')).toBe(true);
       expect(reconcile[0].cols.some(c => c === 'reason=startup_stage_recover')).toBe(true);
+    });
+
+    // ─── 反向测试 3: init() 恢复旧版 .tmp_<uuid>_<original>.md stage ────────
+    it('init() recovers old-format .tmp_<uuid>_<original>.md stage file', async () => {
+      const originalName = '1700000000000_message_1_abcd1234.md';
+      const oldStageName = `.tmp_abc12345_${originalName}`;  // 旧格式：以 .md 结尾
+      const stageContent = '---\nid: msg-old-stage\n---\nold stage body\n';
+      await fs.writeFile(path.join(pendingDir(), oldStageName), stageContent);
+
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // target 已恢复、旧 stage 已删除
+      expect(await fs.readFile(path.join(pendingDir(), originalName), 'utf-8')).toBe(stageContent);
+      const remaining = await fs.readdir(pendingDir());
+      expect(remaining).not.toContain(oldStageName);
+      // audit: INBOX_RECONCILE from=stage
+      const reconcile = calls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RECONCILE);
+      expect(reconcile).toHaveLength(1);
+      expect(reconcile[0].cols.some(c => c === 'from=stage')).toBe(true);
+    });
+
+    // ─── 反向测试 4: init() 同内容 dedupe 旧版 stage ─────────────────────────
+    it('init() dedupes old-format stage when target exists with same content', async () => {
+      const originalName = '1700000000000_msg_dup_test.md';
+      const oldStageName = `.tmp_abc12345_${originalName}`;
+      const content = '---\nid: dup-msg\n---\ndup body\n';
+      // 先写 target
+      await fs.writeFile(path.join(pendingDir(), originalName), content);
+      // 再写旧格式 stage（同内容）
+      await fs.writeFile(path.join(pendingDir(), oldStageName), content);
+
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // target 保留、stage 删除
+      expect(await fs.readFile(path.join(pendingDir(), originalName), 'utf-8')).toBe(content);
+      const remaining = await fs.readdir(pendingDir());
+      expect(remaining).not.toContain(oldStageName);
+      // audit: INBOX_DEDUPED
+      expect(calls.some(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED)).toBe(true);
+      // failed/ 无新增
+      const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
+      expect(failedFiles.filter(f => f.endsWith('.md'))).toHaveLength(0);
+    });
+
+    // ─── 反向测试 5: init() 异内容 DLQ 旧版 stage ────────────────────────────
+    it('init() DLQs old-format stage when target exists with different content', async () => {
+      const originalName = '1700000000000_msg_conflict_test.md';
+      const oldStageName = `.tmp_abc12345_${originalName}`;
+      const targetContent = '---\nid: conflict-msg\n---\ntarget body\n';
+      const stageContent = '---\nid: conflict-msg\n---\nstage body (diverged)\n';
+      await fs.writeFile(path.join(pendingDir(), originalName), targetContent);
+      await fs.writeFile(path.join(pendingDir(), oldStageName), stageContent);
+
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // target 保留原内容
+      expect(await fs.readFile(path.join(pendingDir(), originalName), 'utf-8')).toBe(targetContent);
+      // stage 已删除
+      const remaining = await fs.readdir(pendingDir());
+      expect(remaining).not.toContain(oldStageName);
+      // stage 内容入 failed/DLQ
+      const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
+      const dlqFiles = failedFiles.filter(f => f.endsWith('.md'));
+      expect(dlqFiles).toHaveLength(1);
+      expect(await fs.readFile(path.join(testDir, 'inbox', 'failed', dlqFiles[0]), 'utf-8')).toBe(stageContent);
+      // audit: INBOX_RESTORE_CONFLICT
+      const conflict = calls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_RESTORE_CONFLICT);
+      expect(conflict).toHaveLength(1);
+      expect(conflict[0].cols.some(c => c === 'op=recover_stage')).toBe(true);
+    });
+
+    // ─── 反向测试 6: init() 无法解析的旧版 stage 入 quarantine ───────────────
+    it('init() quarantines unparseable old-format .tmp_ file', async () => {
+      // 格式不符合 OLD_STAGE_RE（uuid 段不是 8 位 hex）
+      const weirdName = '.tmp_badformat_no_separator.md';
+      const content = '---\nid: weird\n---\nweird body\n';
+      await fs.writeFile(path.join(pendingDir(), weirdName), content);
+
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // pending 中旧文件已移除
+      const remaining = await fs.readdir(pendingDir());
+      expect(remaining).not.toContain(weirdName);
+      // 内容移入 failed/（quarantine）
+      const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
+      const quarantineFiles = failedFiles.filter(f => f.includes('quarantine'));
+      expect(quarantineFiles).toHaveLength(1);
+      // audit: INBOX_STAGE_QUARANTINE
+      const quarantineAudit = calls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_STAGE_QUARANTINE);
+      expect(quarantineAudit).toHaveLength(1);
+      expect(quarantineAudit[0].cols.some(c => c.includes('unparseable_old_stage_format'))).toBe(true);
     });
   });
 });

@@ -808,6 +808,7 @@
       "inbox_priority_unknown",
       "inbox_reconcile",
       "inbox_restore_conflict",
+      "inbox_stage_quarantine",
       "inbox_watcher_callback_failed",
       "inbox_watcher_failed",
       "inbox_write_failed",

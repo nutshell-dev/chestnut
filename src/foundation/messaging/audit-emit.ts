@@ -225,6 +225,18 @@ export function emitInboxRestoreConflict(
   );
 }
 
+// ─── INBOX_STAGE_QUARANTINE (phase 1034) ──────────────────────────────────────
+export function emitInboxStageQuarantine(
+  audit: AuditLog,
+  opts: { file: string; reason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_STAGE_QUARANTINE,
+    `file=${opts.file}`,
+    `reason=${opts.reason}`,
+  );
+}
+
 // ─── OUTBOX_SENT ──────────────────────────────────────────────────────────────
 export function emitOutboxSent(
   audit: AuditLog,

@@ -26,6 +26,8 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_NACK: 'inbox_nack',
   // phase 1020: inbox restore to pending 时发现同名不同内容 → stage 入 failed/DLQ
   INBOX_RESTORE_CONFLICT: 'inbox_restore_conflict',
+  // phase 1034: 旧版 .tmp_<uuid>_<original>.md stage 文件无法可靠解析原文件名 → 移入 failed/ 隔离审计
+  INBOX_STAGE_QUARANTINE: 'inbox_stage_quarantine',
   // phase 442 (review N3-C-H1 / R2-C-N1): unaddressed inbox 文件移到 misrouted/ 隔离
   INBOX_MISROUTED: 'inbox_misrouted',
   // phase 429 Step A (review medium): inbox body 超 cap、防 disk DoS / runaway bug
@@ -70,6 +72,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   inbox_reconcile: 'audit',
   inbox_nack: 'audit',
   inbox_restore_conflict: 'audit',
+  inbox_stage_quarantine: 'audit',
   inbox_misrouted: 'audit',
   inbox_body_oversize: 'audit',
   outbox_sent: 'audit',

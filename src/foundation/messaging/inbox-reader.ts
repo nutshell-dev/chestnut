@@ -38,6 +38,7 @@ import {
   emitInboxPriorityUnknown,
   emitInboxReconcile,
   emitInboxRestoreConflict,
+  emitInboxStageQuarantine,
   emitOutboxDelivered,
 } from './audit-emit.js';
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
@@ -271,7 +272,7 @@ export class InboxReader {
   }
 
   /**
-   * phase 1021: recover crash-leftover stage files in pending/.
+   * phase 1021 + phase 1034: recover crash-leftover stage files in pending/.
    *
    * `_restoreToPending` stages inflight files as `.tmp_<uuid>_<name>.staging`
    * inside pending/. A crash between the target claim (O_EXCL write) and the
@@ -281,9 +282,16 @@ export class InboxReader {
    *   - same content     → the claim succeeded before the crash; drop the
    *                        redundant stage copy (dedupe audit)
    *   - different content → DLQ the stage copy to failed/ (both preserved)
+   *
+   * phase 1034: additionally recover the legacy `.tmp_<uuid>_<original>.md`
+   * stage files produced before the `.staging` rename. Unparseable legacy
+   * stage files are quarantined to failed/ and audited instead of silently
+   * skipped.
    */
   private async _recoverStaged(): Promise<void> {
     const STAGE_RE = /^\.tmp_[a-f0-9]{8}_(.+)\.staging$/;
+    const OLD_STAGE_RE = /^\.tmp_([a-f0-9]{8})_(.+\.md)$/;
+
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
@@ -293,45 +301,46 @@ export class InboxReader {
     }
 
     let revertedCount = 0;
-    for (const entry of entries) {
-      if (!entry.name.endsWith('.staging')) continue;
-      const match = entry.name.match(STAGE_RE);
-      if (!match) continue;  // foreign .staging file — leave untouched
-      const originalName = match[1];
-      const stagePath = path.join(this.pendingDir, entry.name);
-      const targetPath = path.join(this.pendingDir, originalName);
 
-      const stageContent = await this.fs.read(stagePath);
-      let targetContent: string | null = null;
-      try {
-        targetContent = await this.fs.read(targetPath);
-      } catch (err) {
-        if (!isFileNotFound(err)) throw err;
-        targetContent = null;
+    for (const entry of entries) {
+      // 新版格式: .tmp_<uuid>_<original>.staging
+      if (entry.name.endsWith('.staging')) {
+        const match = entry.name.match(STAGE_RE);
+        if (!match) continue;  // foreign .staging file — leave untouched
+        const originalName = match[1];
+        const stagePath = path.join(this.pendingDir, entry.name);
+        const stageContent = await this.fs.read(stagePath);
+        const result = await this._resolveStagedFile(entry.name, originalName, stageContent);
+        if (result === 'restored') revertedCount++;
+        continue;
       }
 
-      if (targetContent === null) {
-        // crash before the target claim → complete the restore atomically
-        this.fs.writeExclusiveSync(targetPath, stageContent);
-        try {
-          this.fs.deleteSync(stagePath);
-        } catch (err) {
-          if (!isFileNotFound(err)) throw err;
+      // 旧版格式 (phase 1020 之前): .tmp_<uuid>_<original>.md
+      if (entry.name.startsWith('.tmp_') && entry.name.endsWith('.md')) {
+        const match = entry.name.match(OLD_STAGE_RE);
+        if (!match) {
+          // 无法可靠解析原文件名 → 移入 failed/ 隔离审计
+          const stagePath = path.join(this.pendingDir, entry.name);
+          const quarantineName = `${Date.now()}_${newShortUuid()}_quarantine_${entry.name}`;
+          const quarantinePath = path.join(this.failedDir, quarantineName);
+          try {
+            await this.fs.move(stagePath, quarantinePath);
+          } catch (err) {
+            if (isFileNotFound(err)) continue;
+            throw err;
+          }
+          emitInboxStageQuarantine(this.audit, {
+            file: entry.name,
+            reason: 'unparseable_old_stage_format',
+          });
+          continue;
         }
-        revertedCount++;
-      } else if (stageContent === targetContent) {
-        // crash after the claim, before stage cleanup → drop the redundant copy
-        try {
-          this.fs.deleteSync(stagePath);
-        } catch (err) {
-          if (!isFileNotFound(err)) throw err;
-        }
-        emitInboxDeduped(this.audit, { file: originalName });
-      } else {
-        // target exists with different content → DLQ the stage copy (both preserved)
-        const dlqPath = path.join(this.failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
-        await this.fs.move(stagePath, dlqPath);
-        emitInboxRestoreConflict(this.audit, { file: originalName, op: 'recover_stage', stageName: entry.name });
+        const originalName = match[2];  // group 2 = 原文件名（含 .md）
+        const stagePath = path.join(this.pendingDir, entry.name);
+        const stageContent = await this.fs.read(stagePath);
+        const result = await this._resolveStagedFile(entry.name, originalName, stageContent);
+        if (result === 'restored') revertedCount++;
+        continue;
       }
     }
 
@@ -343,6 +352,58 @@ export class InboxReader {
         reason: 'startup_stage_recover',
       });
     }
+  }
+
+  /**
+   * phase 1034: 三向 stage 文件恢复决策（新旧格式共用）。
+   *
+   * @returns 'restored' — 目标不存在，已恢复为原文件名
+   *          'deduped'  — 目标存在且同内容，stage 副本已删除
+   *          'dlq'      — 目标存在但不同内容，stage 已移入 failed/
+   */
+  private async _resolveStagedFile(
+    stageName: string,
+    originalName: string,
+    stageContent: string,
+  ): Promise<'restored' | 'deduped' | 'dlq'> {
+    const stagePath = path.join(this.pendingDir, stageName);
+    const targetPath = path.join(this.pendingDir, originalName);
+
+    let targetContent: string | null = null;
+    try {
+      targetContent = await this.fs.read(targetPath);
+    } catch (err) {
+      if (!isFileNotFound(err)) throw err;
+      targetContent = null;
+    }
+
+    if (targetContent === null) {
+      // 崩溃发生在 target claim 之前 → 完成恢复
+      this.fs.writeExclusiveSync(targetPath, stageContent);
+      try {
+        this.fs.deleteSync(stagePath);
+      } catch (err) {
+        if (!isFileNotFound(err)) throw err;
+      }
+      return 'restored';
+    }
+
+    if (stageContent === targetContent) {
+      // 崩溃发生在 claim 之后、stage 清理之前 → 丢弃冗余副本
+      try {
+        this.fs.deleteSync(stagePath);
+      } catch (err) {
+        if (!isFileNotFound(err)) throw err;
+      }
+      emitInboxDeduped(this.audit, { file: originalName });
+      return 'deduped';
+    }
+
+    // target 存在且内容不同 → 双方保留，stage 入 failed/DLQ
+    const dlqPath = path.join(this.failedDir, `${Date.now()}_${newShortUuid()}_${originalName}`);
+    await this.fs.move(stagePath, dlqPath);
+    emitInboxRestoreConflict(this.audit, { file: originalName, op: 'recover_stage', stageName });
+    return 'dlq';
   }
 
   /**
