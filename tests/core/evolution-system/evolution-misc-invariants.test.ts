@@ -180,6 +180,44 @@ describe('retro-chain-stall', () => {
       expect(rD.status).toBe('finished');
       expect(impl).toHaveBeenCalledTimes(2); // A + D
     });
+
+    it('phase 1089: B and C both enqueued before B timeout, both blocked', async () => {
+      vi.useFakeTimers();
+      const sys = makeSystem();
+
+      let resolveA: (() => void) | undefined;
+      const aPromise = new Promise<void>(r => { resolveA = r; });
+
+      // A: 作为当前 retroChain 永久卡住
+      (sys as any).retroChain = aPromise;
+
+      // B: 在 A 超时前入队
+      const bPromise = sys.runRetroForContract('c-1' as ContractId, {} as never);
+      // C: 也在 A/B 超时前入队
+      const cPromise = sys.runRetroForContract('c-2' as ContractId, {} as never);
+
+      // 推进到 B 超时
+      await vi.advanceTimersByTimeAsync(RETRO_CHAIN_STALL_TIMEOUT_MS + 100);
+
+      const [bResult, cResult] = await Promise.all([bPromise, cPromise]);
+
+      // B 超时返回 blocked
+      expect(bResult.status).toBe('blocked');
+      expect(bResult.reason).toBe('previous_retro_stalled');
+
+      // C 越过 Promise.race 后被双重检查拦截
+      expect(cResult.status).toBe('blocked');
+      expect(cResult.reason).toBe('previous_retro_stalled');
+
+      // A 仍未完成，阻塞标志保持
+      expect((sys as any).retroChainBlocked).toBe(true);
+
+      // A settle 后标志清除
+      resolveA!();
+      await aPromise;
+      await Promise.resolve();
+      expect((sys as any).retroChainBlocked).toBe(false);
+    });
   });
 });
 
