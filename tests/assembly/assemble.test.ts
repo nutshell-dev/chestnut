@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { assemble } from '../../src/assembly/assemble.js';
+import { cleanupOrphanedTemp } from '../../src/assembly/cleanup.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
 import { LockConflictError } from '../../src/assembly/index.js';
 
@@ -352,6 +353,22 @@ describe('assemble', () => {
       expect.stringContaining('clawId=motion'),
       expect.stringContaining('pid=')
     );
+  });
+
+  it('启动清理在 writer 激活前 await 执行并传入 startTime', async () => {
+    const before = Date.now();
+    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    const after = Date.now();
+
+    expect(cleanupOrphanedTemp).toHaveBeenCalledTimes(1);
+    expect(cleanupOrphanedTemp).toHaveBeenCalledWith(
+      expect.anything(),
+      baseConfig.clawDir,
+      expect.any(Number),
+    );
+    const startTime = (cleanupOrphanedTemp as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2] as number;
+    expect(startTime).toBeGreaterThanOrEqual(before);
+    expect(startTime).toBeLessThanOrEqual(after);
   });
 
   // --------------------------------------------------------------------------

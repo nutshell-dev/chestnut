@@ -68,6 +68,28 @@ describe('cleanupOrphanedTemp', () => {
     const content = await fs.readFile(filePath, 'utf-8');
     expect(content).toBe(originalContent);
   });
+
+  it('should skip temp files newer than olderThanMs to avoid runtime race', async () => {
+    const now = Date.now();
+    const oldTempFile = path.join(tempDir, '.tmp_orphaned_old');
+    const newTempFile = path.join(tempDir, '.tmp_orphaned_new');
+
+    await fs.writeFile(oldTempFile, 'old', 'utf-8');
+    // Force mtime clearly older than boundary
+    const oldMtime = new Date(now - 60_000);
+    await fs.utimes(oldTempFile, oldMtime, oldMtime);
+
+    await fs.writeFile(newTempFile, 'new', 'utf-8');
+    // Keep newTempFile mtime at now (>= olderThanMs)
+
+    const nodeFs = new NodeFileSystem({ baseDir: tempDir });
+    const cleaned = await cleanupOrphanedTemp(nodeFs, tempDir, now);
+
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0]).toBe(oldTempFile);
+    await expect(fs.access(newTempFile)).resolves.toBeUndefined();
+    await expect(fs.access(oldTempFile)).rejects.toThrow();
+  });
 });
 
 // Reverse cases: verify cleanupOrphanedTemp only swallows FS_NOT_FOUND
@@ -157,5 +179,16 @@ describe('cleanupOrphanedTemp FS_NOT_FOUND narrow', () => {
     });
 
     await expect(cleanupOrphanedTemp(mockFs, '/somedir')).rejects.toThrow();
+  });
+
+  it('stat failure with olderThanMs → skips file instead of deleting', async () => {
+    const mockFs = makeMockFs({
+      list: vi.fn().mockResolvedValue([makeEntry('.tmp_file1', true)]),
+      stat: vi.fn().mockRejectedValue(new Error('stat boom')),
+    });
+
+    const cleaned = await cleanupOrphanedTemp(mockFs, '/somedir', Date.now());
+    expect(cleaned).toHaveLength(0);
+    expect(mockFs.delete).not.toHaveBeenCalled();
   });
 });

@@ -9,13 +9,26 @@ import * as path from 'node:path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { IGNORE_PATTERN } from '../foundation/fs/atomic.js';
 
-export async function cleanupOrphanedTemp(fs: FileSystem, dirPath: string): Promise<string[]> {
+export async function cleanupOrphanedTemp(
+  fs: FileSystem,
+  dirPath: string,
+  olderThanMs?: number,
+): Promise<string[]> {
   const cleaned: string[] = [];
   try {
     const entries = await fs.list(dirPath, { includeDirs: true });
     for (const entry of entries) {
       if (!entry.name.startsWith(IGNORE_PATTERN)) continue;
       if (!entry.isFile) continue;
+      // 仅删除早于启动时间的孤儿文件（olderThanMs 未传时保持原行为）
+      if (olderThanMs !== undefined) {
+        try {
+          const stat = await fs.stat(path.join(dirPath, entry.name));
+          if (stat.mtime.getTime() >= olderThanMs) continue;
+        } catch {
+          continue;
+        }
+      }
       const fullPath = path.join(dirPath, entry.name);
       try {
         await fs.delete(fullPath);

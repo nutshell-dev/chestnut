@@ -72,6 +72,7 @@ export function detectUncleanExit(_auditDir: string, auditWriter: AuditLog, fs: 
 // (file 0/empty/clean-stop) — NOT error path. assemble (below) throws on validation failure (real error).
 // Two functions = two patterns by-design; audit B-2 framing「throw + return error model mix」reframe-out.
 export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Promise<Instances> {
+  const startTime = Date.now();
   const { identity, clawId, clawDir } = config;
   if (identity === 'claw' && !config.clawConfig) {
     throw new Error('clawConfig is required when identity=claw');
@@ -103,7 +104,7 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
     streamWriter = sw;
 
     // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）
-    cleanupOrphanedTemp(systemFs, clawDir).catch((err: unknown) => {
+    await cleanupOrphanedTemp(systemFs, clawDir, startTime).catch((err: unknown) => {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.CLEANUP_TEMP_FILES_FAILED, `reason=${formatErr(err)}`);
     });
 
