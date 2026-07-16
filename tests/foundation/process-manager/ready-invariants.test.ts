@@ -22,7 +22,7 @@ import { FileNotFoundError } from '../../../src/foundation/fs/types.js';
  */
 describe('ready-stale-cleanup-narrow', () => {
   function makeMockFs(overrides?: {
-    delete?: () => Promise<void>;
+    deleteSync?: () => void;
   }): FileSystem {
     return {
       readSync: vi.fn().mockImplementation((p: string) => {
@@ -34,7 +34,8 @@ describe('ready-stale-cleanup-narrow', () => {
       writeAtomicSync: vi.fn(),
       append: vi.fn(),
       appendSync: vi.fn(),
-      delete: overrides?.delete ?? vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+      deleteSync: overrides?.deleteSync ?? vi.fn(),
       move: vi.fn(),
       ensureDir: vi.fn(),
       removeDir: vi.fn(),
@@ -57,7 +58,7 @@ describe('ready-stale-cleanup-narrow', () => {
     it('reverse 1: delete throws non-ENOENT (EACCES) → audit emit READY_STALE_CLEANUP_FAILED', async () => {
       const { audit, events } = makeAudit();
       const mockFs = makeMockFs({
-        delete: vi.fn().mockRejectedValue(Object.assign(new Error('permission denied'), { code: 'EACCES' })),
+        deleteSync: vi.fn(() => { throw Object.assign(new Error('permission denied'), { code: 'EACCES' }); }),
       });
       const ctx: ProcessManagerContext = {
         fs: mockFs,
@@ -66,9 +67,6 @@ describe('ready-stale-cleanup-narrow', () => {
       };
 
       expect(isReady(ctx, 'test-claw')).toBe(false);
-
-      // wait for the fire-and-forget catch handler to execute
-      await new Promise((resolve) => setImmediate(resolve));
 
       const staleCleanupFailedEvents = events.filter(
         (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
@@ -86,7 +84,7 @@ describe('ready-stale-cleanup-narrow', () => {
     it('reverse 2: delete throws ENOENT → 0 audit emit READY_STALE_CLEANUP_FAILED (benign race)', async () => {
       const { audit, events } = makeAudit();
       const mockFs = makeMockFs({
-        delete: vi.fn().mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' })),
+        deleteSync: vi.fn(() => { throw Object.assign(new Error('not found'), { code: 'ENOENT' }); }),
       });
       const ctx: ProcessManagerContext = {
         fs: mockFs,
@@ -95,8 +93,6 @@ describe('ready-stale-cleanup-narrow', () => {
       };
 
       expect(isReady(ctx, 'test-claw')).toBe(false);
-
-      await new Promise((resolve) => setImmediate(resolve));
 
       const staleCleanupFailedEvents = events.filter(
         (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
@@ -107,7 +103,7 @@ describe('ready-stale-cleanup-narrow', () => {
     it('reverse 3: delete succeeds → 0 audit emit READY_STALE_CLEANUP_FAILED', async () => {
       const { audit, events } = makeAudit();
       const mockFs = makeMockFs({
-        delete: vi.fn().mockResolvedValue(undefined),
+        deleteSync: vi.fn(),
       });
       const ctx: ProcessManagerContext = {
         fs: mockFs,
@@ -116,8 +112,6 @@ describe('ready-stale-cleanup-narrow', () => {
       };
 
       expect(isReady(ctx, 'test-claw')).toBe(false);
-
-      await new Promise((resolve) => setImmediate(resolve));
 
       const staleCleanupFailedEvents = events.filter(
         (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
@@ -137,7 +131,7 @@ describe('ready-stale-cleanup-narrow', () => {
  */
 describe('ready-cleanup-narrow', () => {
   function makeMockFs(overrides?: {
-    delete?: () => Promise<void>;
+    deleteSync?: () => void;
   }): FileSystem {
     return {
       readSync: vi.fn().mockImplementation((p: string) => {
@@ -149,7 +143,8 @@ describe('ready-cleanup-narrow', () => {
       writeAtomicSync: vi.fn(),
       append: vi.fn(),
       appendSync: vi.fn(),
-      delete: overrides?.delete ?? vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+      deleteSync: overrides?.deleteSync ?? vi.fn(),
       move: vi.fn(),
       ensureDir: vi.fn(),
       removeDir: vi.fn(),
@@ -165,7 +160,7 @@ describe('ready-cleanup-narrow', () => {
     } as unknown as FileSystem;
   }
 
-  describe('phase 1215: ready.ts:98 fire-and-forget delete isFileNotFound narrow', () => {
+  describe('phase 1215: ready.ts stale deleteSync isFileNotFound narrow', () => {
     beforeEach(() => {
       vi.restoreAllMocks();
     });
@@ -173,7 +168,7 @@ describe('ready-cleanup-narrow', () => {
     it('reverse 1: delete throws FileNotFoundError → 0 audit emit READY_STALE_CLEANUP_FAILED', async () => {
       const { audit, events } = makeAudit();
       const mockFs = makeMockFs({
-        delete: vi.fn().mockRejectedValue(new FileNotFoundError('/tmp/test-claw/ready')),
+        deleteSync: vi.fn(() => { throw new FileNotFoundError('/tmp/test-claw/ready'); }),
       });
       const ctx: ProcessManagerContext = {
         fs: mockFs,
@@ -182,8 +177,6 @@ describe('ready-cleanup-narrow', () => {
       };
 
       expect(isReady(ctx, 'test-claw')).toBe(false);
-
-      await new Promise((resolve) => setImmediate(resolve));
 
       const staleCleanupFailedEvents = events.filter(
         (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
@@ -194,7 +187,7 @@ describe('ready-cleanup-narrow', () => {
     it('reverse 2: delete throws raw ENOENT → 0 audit emit READY_STALE_CLEANUP_FAILED', async () => {
       const { audit, events } = makeAudit();
       const mockFs = makeMockFs({
-        delete: vi.fn().mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' })),
+        deleteSync: vi.fn(() => { throw Object.assign(new Error('not found'), { code: 'ENOENT' }); }),
       });
       const ctx: ProcessManagerContext = {
         fs: mockFs,
@@ -203,8 +196,6 @@ describe('ready-cleanup-narrow', () => {
       };
 
       expect(isReady(ctx, 'test-claw')).toBe(false);
-
-      await new Promise((resolve) => setImmediate(resolve));
 
       const staleCleanupFailedEvents = events.filter(
         (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
@@ -215,7 +206,7 @@ describe('ready-cleanup-narrow', () => {
     it('reverse 3: delete throws EACCES → audit emit READY_STALE_CLEANUP_FAILED', async () => {
       const { audit, events } = makeAudit();
       const mockFs = makeMockFs({
-        delete: vi.fn().mockRejectedValue(Object.assign(new Error('permission denied'), { code: 'EACCES' })),
+        deleteSync: vi.fn(() => { throw Object.assign(new Error('permission denied'), { code: 'EACCES' }); }),
       });
       const ctx: ProcessManagerContext = {
         fs: mockFs,
@@ -224,8 +215,6 @@ describe('ready-cleanup-narrow', () => {
       };
 
       expect(isReady(ctx, 'test-claw')).toBe(false);
-
-      await new Promise((resolve) => setImmediate(resolve));
 
       const staleCleanupFailedEvents = events.filter(
         (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,

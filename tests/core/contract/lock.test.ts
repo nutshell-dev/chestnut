@@ -199,6 +199,42 @@ describe('releaseLock (per-contender protocol)', () => {
     expect(claimsAfter.some(name => name.endsWith(token))).toBe(false);
   }, 2000);
 
+  it('removes the disk claim before waking the next in-process waiter', async () => {
+    const lockPath = 'test/progress.lock';
+    const ctx = { fs: nodeFs, audit: mockAudit as any, lockMaxRetries: 1, lockRetryDelayMs: 1 };
+    const firstToken = await acquireLock(ctx, lockPath);
+
+    const originalDelete = nodeFs.delete.bind(nodeFs);
+    let finishDelete!: () => void;
+    const deleteBarrier = new Promise<void>(resolve => { finishDelete = resolve; });
+    const deleteStarted = new Promise<void>(resolve => {
+      vi.spyOn(nodeFs, 'delete').mockImplementation(async (relativePath) => {
+        if (relativePath.includes(firstToken)) {
+          resolve();
+          await deleteBarrier;
+        }
+        return originalDelete(relativePath);
+      });
+    });
+
+    const releasing = releaseLock(ctx, lockPath, firstToken);
+    await deleteStarted;
+
+    let secondAcquired = false;
+    const second = acquireLock(ctx, lockPath).then(token => {
+      secondAcquired = true;
+      return token;
+    });
+    await Promise.resolve();
+    expect(secondAcquired).toBe(false);
+
+    finishDelete();
+    await releasing;
+    const secondToken = await second;
+    expect(secondToken).toBeTruthy();
+    await releaseLock(ctx, lockPath, secondToken);
+  }, 2000);
+
   it('does not delete a claim owned by a different token', async () => {
     const lockPath = 'test/progress.lock';
     const lockDir = path.join(tmpDir, 'test');

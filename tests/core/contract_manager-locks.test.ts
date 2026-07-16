@@ -20,11 +20,6 @@ import { FAKE_LIVE_PID } from '../helpers/test-pids.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
 
-/**
- * Pre-lock-release scheduling (50ms): pause() 第一次 election lost 后 wait 100ms 内必释放.
- */
-const PRE_RELEASE_LOCK_MS = 50;
-
 let testDir: string;
 let clawDir: string;
 
@@ -77,17 +72,23 @@ describe('ContractSystem - lock retry (phase 1351 split + phase 1048)', () => {
       'utf-8',
     );
 
-    // 15ms 后删除竞争 claim；使用 l1IsAlive 让 FAKE_LIVE_PID 被视为存活
-    setTimeout(() => fs.unlink(path.join(claimsDir, otherClaimName)).catch(() => { /* silent: cleanup */ }), 15);
+    const competingClaim = path.join(claimsDir, otherClaimName);
+    const lockRetrySleep = vi.fn(async () => {
+      // The first lost election is the synchronization barrier: remove the
+      // competing claim completely before allowing the next acquire attempt.
+      await fs.unlink(competingClaim);
+    });
 
     const contendingManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: makeMockAudit(), toolRegistry: createToolRegistry(), fsFactory,
       lockMaxRetries: 5,
       lockRetryDelayMs: 10,
+      lockRetrySleep,
       l1IsAlive: vi.fn(() => true),
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
     await expect(contendingManager.pause(contractId, 'checkpoint')).resolves.not.toThrow();
+    expect(lockRetrySleep).toHaveBeenCalledTimes(1);
   }, 2000);
 
   it('should throw LockContentionExhaustedError when lock is never released and retries exhausted', async () => {

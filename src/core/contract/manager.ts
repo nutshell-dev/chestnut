@@ -129,6 +129,8 @@ export interface ContractSystemDeps {
   lockMaxRetries?: number;
   /** phase 1028: injectable lock retry delay (ms) — defaults to LOCK_RETRY_DELAY_MS */
   lockRetryDelayMs?: number;
+  /** Injectable lock retry wait for deterministic contention tests. */
+  lockRetrySleep?: (delayMs: number) => Promise<void>;
   /** phase 1048: injectable process liveness checker for lock protocol */
   l1IsAlive?: typeof defaultL1IsAlive;
 }
@@ -147,6 +149,7 @@ export class ContractSystem {
   private runSubagent?: VerifierConfig['runSubagent'];
   private lockMaxRetries?: number;
   private lockRetryDelayMs?: number;
+  private lockRetrySleep?: (delayMs: number) => Promise<void>;
   private l1IsAlive?: typeof defaultL1IsAlive;
 
   private activeDir = CONTRACT_ACTIVE_DIR;
@@ -263,6 +266,7 @@ export class ContractSystem {
     this.runSubagent = deps.runSubagent;
     this.lockMaxRetries = deps.lockMaxRetries;
     this.lockRetryDelayMs = deps.lockRetryDelayMs;
+    this.lockRetrySleep = deps.lockRetrySleep;
     this.l1IsAlive = deps.l1IsAlive;
   }
 
@@ -379,7 +383,14 @@ export class ContractSystem {
   // ============================================================================
 
   private _lockCtx(): LockContext {
-    return { fs: this.fs, audit: this.audit, lockMaxRetries: this.lockMaxRetries, lockRetryDelayMs: this.lockRetryDelayMs, l1IsAlive: this.l1IsAlive };
+    return {
+      fs: this.fs,
+      audit: this.audit,
+      lockMaxRetries: this.lockMaxRetries,
+      lockRetryDelayMs: this.lockRetryDelayMs,
+      lockRetrySleep: this.lockRetrySleep,
+      l1IsAlive: this.l1IsAlive,
+    };
   }
 
   private _persistenceCtx(): PersistenceContext {

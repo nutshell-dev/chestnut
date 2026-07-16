@@ -144,7 +144,9 @@ export function isReady(ctx: ProcessManagerContext, daemonDir: DaemonDir): boole
       `pid_file_pid=${pidFilePid}`,
     );
     // r128 C fork C.1: narrow ENOENT only / non-ENOENT audit emit (mirror phase 1032 cleanup.ts)
-    ctx.fs.delete(readyFile).catch((e) => {
+    try {
+      ctx.fs.deleteSync(readyFile);
+    } catch (e) {
       if (!isFileNotFound(e)) {
         // phase 685: 加 path forensic col、与 ready.ts:45 (phase 684) + lock.ts:172 同模块对齐
         ctx.audit.write(
@@ -155,7 +157,7 @@ export function isReady(ctx: ProcessManagerContext, daemonDir: DaemonDir): boole
         );
       }
       // ENOENT silent: benign race / next markReady or already gone
-    });
+    }
     return false;
   }
   try {

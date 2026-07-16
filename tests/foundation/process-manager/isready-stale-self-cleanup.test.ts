@@ -115,10 +115,10 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     const clawId = 'test-claw';
     const nodeFsLocal = new NodeFileSystem({ baseDir: tempDir });
 
-    // mock delete to reject ENOENT (simulating race where another cleanup already removed it)
-    vi.spyOn(nodeFsLocal, 'delete').mockRejectedValue(
-      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
-    );
+    // mock deleteSync to throw ENOENT (simulating race where another cleanup already removed it)
+    vi.spyOn(nodeFsLocal, 'deleteSync').mockImplementation(() => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    });
 
     const ctx: ProcessManagerContext = {
       fs: nodeFsLocal,

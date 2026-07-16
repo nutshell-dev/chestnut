@@ -44,6 +44,8 @@ export interface LockContext {
   lockMaxRetries?: number;
   /** phase 1028: injectable lock retry delay (ms) — defaults to LOCK_RETRY_DELAY_MS */
   lockRetryDelayMs?: number;
+  /** Injectable retry wait. Tests use it as a deterministic contention barrier. */
+  lockRetrySleep?: (delayMs: number) => Promise<void>;
 }
 
 /**
@@ -132,7 +134,7 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<s
           reason: lastReason,
           delay_ms: Math.round(delayMs),
         });
-        await new Promise(r => setTimeout(r, delayMs));
+        await (ctx.lockRetrySleep ?? sleep)(delayMs);
       }
     }
     throw new LockContentionExhaustedError(lockDir, maxRetries);
@@ -157,7 +159,7 @@ async function migrateLegacyLock(ctx: LockContext, lockPath: string, _lockDir: s
       parsed = JSON.parse(raw);
     } catch {
       // 非法 JSON → 直接删除旧锁
-      await ctx.fs.delete(lockPath).catch(() => {});
+      await ctx.fs.delete(lockPath).catch(() => { /* silent: migration audit below records the cleanup decision */ });
       ctx.audit.write(CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED, `path=${lockPath}`, 'reason=unparseable');
       return;
     }
@@ -171,7 +173,7 @@ async function migrateLegacyLock(ctx: LockContext, lockPath: string, _lockDir: s
 
     if (typeof pid !== 'number') {
       // 旧锁内容不含有效 pid → 视为死锁/损坏，直接删除
-      await ctx.fs.delete(lockPath).catch(() => {});
+      await ctx.fs.delete(lockPath).catch(() => { /* silent: migration audit below records the cleanup decision */ });
       ctx.audit.write(CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED, `path=${lockPath}`, 'reason=no_pid');
       return;
     }
@@ -184,7 +186,7 @@ async function migrateLegacyLock(ctx: LockContext, lockPath: string, _lockDir: s
     }
 
     // 持有者已死 → 删旧锁，后续 acquire 会创建 claims/
-    await ctx.fs.delete(lockPath).catch(() => {});
+    await ctx.fs.delete(lockPath).catch(() => { /* silent: migration audit below records the cleanup decision */ });
     ctx.audit.write(
       CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED,
       `path=${lockPath}`,
@@ -194,7 +196,7 @@ async function migrateLegacyLock(ctx: LockContext, lockPath: string, _lockDir: s
   } catch (err) {
     if (err instanceof LockConflictError) throw err;
     // 读失败/其他错误 → 删旧锁后迁移
-    await ctx.fs.delete(lockPath).catch(() => {});
+    await ctx.fs.delete(lockPath).catch(() => { /* silent: migration audit below records the cleanup decision */ });
     ctx.audit.write(
       CONTRACT_AUDIT_EVENTS.LOCK_CLAIM_LEGACY_FORMAT_MIGRATED,
       `path=${lockPath}`,
@@ -222,15 +224,23 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
 }
 
 export async function releaseLock(ctx: LockContext, lockPath: string, ownerToken: string): Promise<void> {
+  const releaseMutex = activeMutexReleasers.get(ownerToken);
+  try {
+    await releaseFileLock(ctx, lockPath, ownerToken);
+  } finally {
+    // The disk claim must disappear before the next in-process waiter wakes.
+    // Releasing in the opposite order makes the waiter contend with our own
+    // still-live claim and can exhaust its retry budget under I/O load.
+    if (releaseMutex) {
+      activeMutexReleasers.delete(ownerToken);
+      releaseMutex();
+    }
+  }
+}
+
+async function releaseFileLock(ctx: LockContext, lockPath: string, ownerToken: string): Promise<void> {
   const lockDir = path.dirname(lockPath);
   const claimsDir = `${lockDir}/claims`;
-
-  // phase 1048: 释放同进程互斥量（无论文件锁是否成功释放都要释放）
-  const releaseMutex = activeMutexReleasers.get(ownerToken);
-  if (releaseMutex) {
-    activeMutexReleasers.delete(ownerToken);
-    releaseMutex();
-  }
 
   // phase 1048: 新协议路径 — 只删除文件名含自己 token 的 claim
   const hasClaims = await ctx.fs.exists(claimsDir).catch(() => false);
@@ -320,6 +330,10 @@ export async function releaseLock(ctx: LockContext, lockPath: string, ownerToken
       },
     );
   }
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, delayMs));
 }
 
 export interface LockContractResult {
