@@ -41,27 +41,39 @@ export function waitForInbox(
       } catch { return false; }
     };
 
-    // 3. Filtered resolve: only on genuinely new files
-    const tryDone = async () => {
+    // 3. Unconditional settle helper: audit close errors but always resolve once.
+    const settleAndClose = async () => {
       if (settled) return;
-      if (!hasNewFile()) return;  // fallback poller false positive → ignore
       settled = true;
       clearTimeout(timer);
-      await watcher?.close();
-      watcher = null;
-      resolve();
+      try {
+        await watcher?.close();
+      } catch (err) {
+        audit.write(
+          MESSAGING_AUDIT_EVENTS.INBOX_WATCHER_FAILED,
+          `path=${inboxPendingDir}`,
+          'context=close',
+          `reason=${formatErr(err)}`,
+        );
+      } finally {
+        watcher = null;
+        resolve();
+      }
     };
 
-    // 4. Timeout with last check
+    // 4. Filtered resolve: only on genuinely new files
+    const tryDone = () => {
+      if (settled) return;
+      if (!hasNewFile()) return;  // fallback poller false positive → ignore
+      void settleAndClose();
+    };
+
+    // 5. Timeout with last check
     const timer = setTimeout(() => {
       if (!settled && hasNewFile()) {
-        settled = true;
-        if (watcher) { void watcher.close().then(() => resolve()); }
-        else resolve();
+        void settleAndClose();
       } else if (!settled) {
-        settled = true;
-        if (watcher) { void watcher.close().then(() => resolve()); }
-        else resolve();
+        void settleAndClose();
       }
     }, timeoutMs);
 
@@ -85,7 +97,7 @@ export function waitForInbox(
           },
         },
       );
-      // 5. Re-check after watcher setup (close race: file arrived between snapshot and watcher start)
+      // 6. Re-check after watcher setup (close race: file arrived between snapshot and watcher start)
       if (hasNewFile()) { void tryDone(); }
     } catch (err) {
       audit.write(
