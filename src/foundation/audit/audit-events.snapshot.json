@@ -1000,6 +1000,7 @@
       "cron_drain_late_settle",
       "cron_drain_timeout",
       "cron_handler_aborted",
+      "cron_handler_recovered_after_stuck",
       "cron_handler_stuck",
       "cron_handler_timeout",
       "cron_job_error",

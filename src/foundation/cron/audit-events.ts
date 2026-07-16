@@ -15,6 +15,7 @@ export const CRON_AUDIT_EVENTS = {
   HANDLER_TIMEOUT: 'cron_handler_timeout',
   HANDLER_ABORTED: 'cron_handler_aborted',  // NEW phase 1232 r132 C
   HANDLER_STUCK: 'cron_handler_stuck',
+  HANDLER_RECOVERED_AFTER_STUCK: 'cron_handler_recovered_after_stuck',  // NEW phase 1080
   JOB_LATE_SETTLED: 'cron_job_late_settled',  // NEW phase 758
   RUNNER_DRAIN_TIMEOUT: 'cron_drain_timeout',   // phase 793 (P0.22): stop drain cap timeout
   RUNNER_DRAIN_LATE_SETTLE: 'cron_drain_late_settle',  // NEW phase 867 (r111 E fork): post-drain late settle observability
@@ -35,6 +36,7 @@ export const CRON_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> = {
   cron_handler_aborted: 'audit',
   cron_handler_timeout: 'audit',
   cron_handler_stuck: 'audit',
+  cron_handler_recovered_after_stuck: 'audit',
   cron_job_error: 'audit',
   cron_job_late_settled: 'audit',
 } as const;

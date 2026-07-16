@@ -333,6 +333,15 @@ export class CronRunner {
             this.cancelling.delete(job.name);
             this.cancellingTicks.delete(job.name);
             this._activeAbortControllers.delete(job.name);
+            // Phase 1080: handler 真实 settle 后从 stuckJobs 恢复，避免永久禁用
+            if (this.stuckJobs.has(job.name)) {
+              this.stuckJobs.delete(job.name);
+              this.audit.write(
+                CRON_AUDIT_EVENTS.HANDLER_RECOVERED_AFTER_STUCK,
+                `job=${job.name}`,
+                `run_key=${key}`,
+              );
+            }
           }
         },
         err => {
@@ -346,6 +355,15 @@ export class CronRunner {
             this.cancelling.delete(job.name);
             this.cancellingTicks.delete(job.name);
             this._activeAbortControllers.delete(job.name);
+            // Phase 1080: handler 真实 settle 后从 stuckJobs 恢复，避免永久禁用
+            if (this.stuckJobs.has(job.name)) {
+              this.stuckJobs.delete(job.name);
+              this.audit.write(
+                CRON_AUDIT_EVENTS.HANDLER_RECOVERED_AFTER_STUCK,
+                `job=${job.name}`,
+                `run_key=${key}`,
+              );
+            }
           }
           // 非 timedOut 时 race chain 路径已 audit JOB_ERROR / 此处不重 audit
         }

@@ -476,5 +476,48 @@ describe('runner-handler-stuck', () => {
       // late_after_timeout 也不应有（late-settle resolve 路径不 audit JOB_ERROR）
       expect(audit.events.filter(e => e.type === CRON_AUDIT_EVENTS.JOB_ERROR)).toEqual([]);
     });
+
+    it('handler late-settle 在 stuck audit 之后 清除 stuckJobs 并允许再次调度', async () => {
+      let resolveFn: () => void = () => {};
+      const audit = new MockAudit();
+      const lateHandler = vi.fn(() => new Promise<void>((r) => { resolveFn = r; }));
+      const job: CronJob = {
+        name: 'recover-job',
+        enabled: true,
+        schedule: { type: 'interval', minutes: 1 },
+        handler: lateHandler,
+        timeoutMs: 100,
+      };
+      const runner = new CronRunner([job], audit as unknown as AuditLog);
+
+      runner.tick();
+      await vi.advanceTimersByTimeAsync(150); // timeout 触发
+
+      // 12 次 tick 触发 HANDLER_STUCK + stuckJobs
+      for (let i = 0; i < 12; i++) {
+        runner.tick();
+      }
+      expect(audit.events.some(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK)).toBe(true);
+      expect((runner as unknown as { stuckJobs: Set<string> }).stuckJobs.has('recover-job')).toBe(true);
+
+      // handler 最终 settle
+      resolveFn();
+      await vi.runAllTicks();
+
+      // Phase 1080: 应写 HANDLER_RECOVERED_AFTER_STUCK 审计并清 stuckJobs
+      const recoveredAudits = audit.events.filter(
+        e => e.type === CRON_AUDIT_EVENTS.HANDLER_RECOVERED_AFTER_STUCK
+      );
+      expect(recoveredAudits.length).toBe(1);
+      expect(recoveredAudits[0]!.cols).toContain('job=recover-job');
+      expect(recoveredAudits[0]!.cols.some(c => c.startsWith('run_key='))).toBe(true);
+      expect((runner as unknown as { stuckJobs: Set<string> }).stuckJobs.has('recover-job')).toBe(false);
+
+      // 下一 interval block 可再次调度
+      vi.setSystemTime(new Date(2026, 3, 21, 10, 31, 0));
+      (runner as unknown as { lastRunKey: Map<string, string> }).lastRunKey.delete('recover-job');
+      runner.tick();
+      expect(lateHandler).toHaveBeenCalledTimes(2);
+    });
   });
 });
