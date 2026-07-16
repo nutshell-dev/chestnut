@@ -42,10 +42,12 @@ describe('executor race-loser audit (phase 816 B2)', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await cleanupTempDir(tempDir);
   });
 
   it('execution slow + timeout fast: winner audit ToolTimeoutError + loser audit real error', async () => {
+    vi.useFakeTimers();
     registry.register({
       name: 'slow-throw',
       description: 'slow then throw',
@@ -60,12 +62,15 @@ describe('executor race-loser audit (phase 816 B2)', () => {
       },
     });
 
-    const result = await executor.execute({
+    const pendingResult = executor.execute({
       toolName: 'slow-throw',
       args: {},
       ctx,
       timeoutMs: 50,
     });
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await pendingResult;
+    vi.useRealTimers();
 
     expect(result.success).toBe(false);
     expect(result.content).toMatch(/execution limit/);

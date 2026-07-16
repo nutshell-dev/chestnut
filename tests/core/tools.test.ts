@@ -7,7 +7,7 @@
  * - ExecContext: permissions, elapsed time
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { ToolExecutorImpl } from '../../src/foundation/tools/executor.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
@@ -17,13 +17,13 @@ import {
   ToolTimeoutError,
 } from '../../src/foundation/tools/errors.js';
 
-/**
- * Monotonic clock probe delay for getElapsedMs() test: real time must elapse.
- * Derivation: > 1ms 跨 microtask flush / < typical vitest tick 不显著拖慢.
- */
 const ELAPSED_MS_PROBE_DELAY_MS = 10;
 
 describe('Tools', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('ToolRegistryImpl', () => {
     let registry: ToolRegistryImpl;
 
@@ -191,6 +191,7 @@ describe('Tools', () => {
     const mockFs = {} as FileSystem;
 
     it('should track elapsed time', async () => {
+      vi.useFakeTimers();
       const ctx = new ExecContextImpl({
         clawId: 'test',
         clawDir: '/test',
@@ -199,8 +200,9 @@ describe('Tools', () => {
       });
 
       const elapsed1 = ctx.getElapsedMs();
-      await new Promise(r => setTimeout(r, ELAPSED_MS_PROBE_DELAY_MS));
+      await vi.advanceTimersByTimeAsync(ELAPSED_MS_PROBE_DELAY_MS);
       const elapsed2 = ctx.getElapsedMs();
+      vi.useRealTimers();
 
       expect(elapsed1).toBeGreaterThanOrEqual(0);
       expect(elapsed2).toBeGreaterThan(elapsed1);
@@ -271,6 +273,7 @@ describe('Tools', () => {
     });
 
     it('should throw ToolTimeoutError on timeout', async () => {
+      vi.useFakeTimers();
       registry.register({
         name: 'slow',
         description: 'Slow tool',
@@ -293,12 +296,15 @@ describe('Tools', () => {
         fs: mockFs,
       });
 
-      const result = await executor.execute({
+      const pendingResult = executor.execute({
         toolName: 'slow',
         args: {},
         ctx,
         timeoutMs: 50,
       });
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await pendingResult;
+      vi.useRealTimers();
       expect(result.success).toBe(false);
       expect(result.content).toContain('execution limit');
     });

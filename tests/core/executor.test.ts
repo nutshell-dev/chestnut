@@ -4,7 +4,7 @@
  * 覆盖 audit.tsv TSV 记录功能（设计缺口 C）
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
@@ -47,6 +47,7 @@ describe('ToolExecutor', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await cleanupTempDir(tempDir);
   });
 
@@ -373,6 +374,7 @@ describe('ToolExecutor', () => {
     });
 
     it('should propagate ctx.signal abort to tool when no options.signal given', async () => {
+      vi.useFakeTimers();
       // Regression test: Step 2 initially lost ctx.signal in mergedSignal,
       // breaking upstream abort propagation from subagent.
       const abortController = new AbortController();
@@ -409,8 +411,10 @@ describe('ToolExecutor', () => {
 
       // Abort after a short delay
       setTimeout(() => abortController.abort(), ABORT_TRIGGER_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(ABORT_TRIGGER_DELAY_MS);
 
       const result = await execPromise;
+      vi.useRealTimers();
       expect(result.success).toBe(false);
       expect(result.content).toContain('aborted');
     });
