@@ -208,19 +208,49 @@ export async function releaseLock(ctx: LockContext, lockPath: string, ownerToken
 
   // Now read the renamed file to verify it's still ours (no race window between
   // read and move — the move itself is the atomic claim).
+  let raw: string;
   try {
-    const raw = await ctx.fs.read(releasedPath);
-    const rawParsed: unknown = JSON.parse(raw);
-    const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
-    if (!validation.success || validation.data.pid !== process.pid || validation.data.ownerToken !== ownerToken) {
-      // Token/pid mismatch after rename — something is wrong. Restore the lock.
-      await ctx.fs.move(releasedPath, lockPath).catch(() => { /* silent: best-effort cleanup */ });
-      return;
-    }
+    raw = await ctx.fs.read(releasedPath);
   } catch {
-    // Can't read or parse the renamed file → ownership unverifiable. Restore the
-    // lock rather than deleting data we cannot confirm belongs to us.
-    await ctx.fs.move(releasedPath, lockPath).catch(() => { /* silent: best-effort cleanup */ });
+    // Can't read the renamed file → ownership unverifiable.
+    // Don't overwrite lockPath; releasedPath stays as forensic evidence.
+    return;
+  }
+
+  let rawParsed: unknown;
+  try {
+    rawParsed = JSON.parse(raw);
+  } catch {
+    // Corrupt JSON but we have raw bytes → try no-replace restore.
+    // Use writeExclusiveSync (O_EXCL): if lockPath was re-acquired by C,
+    // this fails with EEXIST rather than overwriting C's valid lock.
+    try {
+      ctx.fs.writeExclusiveSync(lockPath, raw);
+      await ctx.fs.delete(releasedPath);
+    } catch (writeErr) {
+      if ((writeErr as NodeJS.ErrnoException).code === 'EEXIST') {
+        // C acquired a valid lock → discard our stale copy
+        await ctx.fs.delete(releasedPath).catch(() => { /* silent: best-effort discard stale released copy after EEXIST */ });
+      }
+      // Non-EEXIST I/O error → leave releasedPath as forensic evidence
+    }
+    return;
+  }
+
+  const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
+  if (!validation.success || validation.data.pid !== process.pid || validation.data.ownerToken !== ownerToken) {
+    // Token/pid mismatch after rename — something is wrong.
+    // Try no-replace restore; if lockPath was re-acquired, discard our stale copy.
+    try {
+      ctx.fs.writeExclusiveSync(lockPath, raw);
+      await ctx.fs.delete(releasedPath);
+    } catch (writeErr) {
+      if ((writeErr as NodeJS.ErrnoException).code === 'EEXIST') {
+        // C acquired a valid lock → discard our stale copy
+        await ctx.fs.delete(releasedPath).catch(() => { /* silent: best-effort discard stale released copy after EEXIST */ });
+      }
+      // Non-EEXIST I/O error → leave releasedPath as forensic evidence
+    }
     return;
   }
 

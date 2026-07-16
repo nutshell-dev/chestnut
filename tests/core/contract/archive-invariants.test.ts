@@ -19,7 +19,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { acquireLock, releaseLock } from '../../../src/core/contract/lock.js';  // phase 262: hoist
+import { acquireLock, releaseLock, type LockContext } from '../../../src/core/contract/lock.js';  // phase 262: hoist
 import { listArchiveContracts } from '../../../src/core/contract/persistence.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
@@ -355,5 +355,66 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
       (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PROGRESS_READ_FAILED,
     );
     expect(failedCall).toBeUndefined();
+  });
+});
+
+
+/**
+ * releaseLock restore path (phase 1037)
+ */
+describe('releaseLock restore path (phase 1037)', () => {
+  let tempDir: string;
+  let clawDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+    clawDir = path.join(tempDir, 'claw');
+    await fs.mkdir(clawDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanupTempDir(tempDir);
+  });
+
+  it('does not overwrite a concurrently re-acquired lock when token mismatches', async () => {
+    const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    const ctx: LockContext = {
+      fs: nodeFs,
+      audit: { write: () => {}, preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as any,
+    };
+    const lockPath = 'progress.lock';
+    const ownerToken = await acquireLock(ctx, lockPath);
+    const releasedPath = `${lockPath}.released-${ownerToken}`;
+
+    const staleToken = 'stale-third-party-token';
+    const newToken = 'new-third-party-token';
+
+    vi.spyOn(nodeFs, 'move').mockImplementation(async (src, dst) => {
+      // Simulate the atomic claim step.
+      await fs.rename(path.join(clawDir, src), path.join(clawDir, dst));
+      // The released file turns out to be stale (belongs to someone else).
+      await fs.writeFile(
+        path.join(clawDir, releasedPath),
+        JSON.stringify({ pid: process.pid, ownerToken: staleToken }),
+      );
+      // Meanwhile a third party has already re-acquired the lock.
+      await fs.writeFile(
+        path.join(clawDir, lockPath),
+        JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: newToken }),
+        { flag: 'wx' },
+      );
+    });
+
+    await releaseLock(ctx, lockPath, ownerToken);
+
+    // The stale released file must be discarded, not restored over the valid lock.
+    const releasedExists = await fs.stat(path.join(clawDir, releasedPath)).then(() => true).catch(() => false);
+    expect(releasedExists).toBe(false);
+
+    // The valid concurrent lock must remain intact.
+    const currentLockRaw = await fs.readFile(path.join(clawDir, lockPath), 'utf-8');
+    const currentLock = JSON.parse(currentLockRaw);
+    expect(currentLock.ownerToken).toBe(newToken);
   });
 });
