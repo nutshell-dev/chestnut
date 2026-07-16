@@ -1,13 +1,16 @@
+import { describe, expect, it, vi } from 'vitest';
+import { parseAnthropicSSEStream as parseCustomAnthropic } from '../../../src/foundation/llm-provider/custom-anthropic-sse-parser.js';
+import { LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
+import { parseGeminiSSEStream } from '../../../src/foundation/llm-provider/gemini-sse-parser.js';
+import { parseSSEStream as parseOpenAI } from '../../../src/foundation/llm-provider/openai-sse-parser.js';
+import type { StreamChunk } from '../../../src/foundation/llm-provider/types.js';
+
 /**
  * Phase 1139 — gemini-sse-parser SSE 解析语义 dedicated unit test
  *
  * 补充 phase 1022 sse-abort-body-cancel.test.ts 仅覆盖 abort/cancel 行为
  * 覆盖: chunk buffer 拼接 / JSON.parse / done event / functionCall vs text part / malformed line
  */
-import { describe, it, expect, vi } from 'vitest';
-import { parseGeminiSSEStream } from '../../../src/foundation/llm-provider/gemini-sse-parser.js';
-import { LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
-import type { StreamChunk } from '../../../src/foundation/llm-provider/types.js';
 
 function makeMockResponse(chunks: string[]): Response {
   let index = 0;
@@ -97,5 +100,72 @@ describe('parseGeminiSSEStream — SSE 解析语义', () => {
     const sseLine = JSON.stringify({ error: { code: 429, message: 'rate limited', status: 'RESOURCE_EXHAUSTED' } });
     const response = makeMockResponse([`data: ${sseLine}\n\n`]);
     await expect(drain(response)).rejects.toThrow(LLMRateLimitError);
+  });
+});
+
+/**
+ * Phase 1022 r124 H fork — SSE parser finally reader.cancel() 释放 TCP buffered chunk
+ *
+ * 反向 3 项:
+ *   (1) abort 后 reader.cancel 被调 (mock fetch response + AbortController abort 模拟)
+ *   (2) 正常完成 stream 后 reader.cancel 仍被调 (no-op safe per spec)
+ *   (3) reader.cancel throw 时 finally 兜底不外溢 (defensive try/catch)
+ *
+ * 3 parser site verify:
+ *   - openai-sse-parser.ts
+ *   - gemini-sse-parser.ts
+ *   - custom-anthropic-sse-parser.ts
+ */
+
+function makeCancelableMockResponse(chunks: string[]): { response: Response; cancelSpy: ReturnType<typeof vi.fn> } {
+  const cancelSpy = vi.fn(() => Promise.resolve());
+  let index = 0;
+  const readerMock = {
+    read: async () => {
+      if (index >= chunks.length) return { done: true, value: undefined };
+      const chunk = chunks[index++];
+      return { done: false, value: new TextEncoder().encode(chunk) };
+    },
+    cancel: cancelSpy,
+    releaseLock: vi.fn(),
+  };
+  const response = {
+    body: {
+      getReader: () => readerMock,
+      cancel: vi.fn(),
+    } as unknown as ReadableStream<Uint8Array>,
+  } as unknown as Response;
+  return { response, cancelSpy };
+}
+
+const cancelNoopHandle = { abort: () => {}, signal: new AbortController().signal, enterStreamPhase: () => {} };
+
+describe.each([
+  ['openai-sse-parser', parseOpenAI],
+  ['gemini-sse-parser', parseGeminiSSEStream],
+  ['custom-anthropic-sse-parser', parseCustomAnthropic],
+])('phase 1022 — %s reader.cancel in finally', (name, parser) => {
+  it('正常完成 stream → reader.cancel 被调 (no-op safe)', async () => {
+    const { response, cancelSpy } = makeCancelableMockResponse(['data: {"event": "done"}\n\n']);
+    const gen = parser(response, cancelNoopHandle as any, 60_000, 'test-provider');
+    for await (const _ of gen) { /* drain */ }
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it('caller break (return) → finally reader.cancel 被调', async () => {
+    const { response, cancelSpy } = makeCancelableMockResponse(['data: chunk1\n\n', 'data: chunk2\n\n']);
+    const gen = parser(response, cancelNoopHandle as any, 60_000, 'test-provider');
+    for await (const _ of gen) { break; }
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it('reader.cancel throw → finally 兜底不外溢 (defensive try/catch)', async () => {
+    const { response, cancelSpy } = makeCancelableMockResponse(['data: done\n\n']);
+    cancelSpy.mockImplementationOnce(() => Promise.reject(new Error('mock cancel throw')));
+    const gen = parser(response, cancelNoopHandle as any, 60_000, 'test-provider');
+    // 不抛 (try/catch defensive)
+    await expect(async () => {
+      for await (const _ of gen) { /* drain */ }
+    }).not.toThrow();
   });
 });
