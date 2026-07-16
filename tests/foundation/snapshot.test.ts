@@ -434,61 +434,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       });
     });
 
-    describe('commit() syncDir double-fail emits both SYNC_CLEAN_FAILED + SYNC_RESTORE_FAILED', () => {
-      let tmpDir: string;
-
-      beforeEach(async () => {
-        tmpDir = await createTrackedTempDir('snap-test-');
-      });
-
-      afterEach(async () => {
-        await cleanupTempDir(tmpDir);
-      });
-
-      it('commit() syncDir double-fail emits both SYNC_CLEAN_FAILED + SYNC_RESTORE_FAILED', async () => {
-      const baseFs = new NodeFileSystem({ baseDir: tmpDir });
-      let ensureDirCallCount = 0;
-      const fs = Object.create(baseFs);
-      // phase 998 H.3: realpath is called first, then list. Mock realpath to succeed and list to fail
-      // so that catch -> ensureDir restore path is triggered.
-      fs.realpath = vi.fn().mockImplementation(async (dir: string) => dir);
-      fs.list = vi.fn().mockRejectedValue(new Error('mock list failure'));
-      fs.ensureDir = vi.fn().mockImplementation(async (dir: string) => {
-        ensureDirCallCount++;
-        if (ensureDirCallCount <= 1) {
-          throw new Error(`mock ensureDir failure #${ensureDirCallCount}`);
-        }
-        return baseFs.ensureDir(dir);
-      });
-
-      const audit = makeMockAudit();
-      const scratchDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
-      const snapshot = new Snapshot(tmpDir, fs, audit, [], [scratchDir]);
-      await snapshot.init();
-
-      // trigger commit with a change
-      await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
-      const result = await snapshot.commit('test-double-fail');
-      expect(result.ok).toBe(true); // best-effort: commit itself OK
-
-      const events = audit.write.mock.calls.map((c: any[]) => c[0]);
-      expect(events).toContain('snapshot_sync_restore_failed');
-      expect(events).toContain('snapshot_sync_clean_failed');
-
-      // forensics order: RESTORE emitted before CLEAN (inner before outer)
-      expect(events.indexOf('snapshot_sync_restore_failed'))
-        .toBeLessThan(events.indexOf('snapshot_sync_clean_failed'));
-
-      // verify payload schema
-      const restoreCall = audit.write.mock.calls.find((c: any[]) => c[0] === 'snapshot_sync_restore_failed');
-      expect(restoreCall).toEqual([
-        'snapshot_sync_restore_failed',
-        expect.stringContaining('dir='),
-        expect.stringContaining('restoreReason=mock ensureDir failure #1'),
-      ]);
-      });
-    });
-
     describe('commit skips cleanup + emits audit when caller mis-configures syncCleanupDirs with agent dir itself', () => {
       let tmpDir: string;
 
@@ -682,6 +627,63 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       expect.stringContaining('dir='),
       expect.stringContaining('kind='),
     );
+    });
+  });
+
+  // Moved out of describe.concurrent: vi.fn() mocks on Object.create(baseFs)
+  // interfere with concurrent sibling tests, causing "path.relative received undefined".
+  describe('commit() syncDir double-fail emits both SYNC_CLEAN_FAILED + SYNC_RESTORE_FAILED', () => {
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      tmpDir = await createTrackedTempDir('snap-test-');
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(tmpDir);
+    });
+
+    it('commit() syncDir double-fail emits both SYNC_CLEAN_FAILED + SYNC_RESTORE_FAILED', async () => {
+    const baseFs = new NodeFileSystem({ baseDir: tmpDir });
+    let ensureDirCallCount = 0;
+    const fs = Object.create(baseFs);
+    // phase 998 H.3: realpath is called first, then list. Mock realpath to succeed and list to fail
+    // so that catch -> ensureDir restore path is triggered.
+    fs.realpath = vi.fn().mockImplementation(async (dir: string) => dir);
+    fs.list = vi.fn().mockRejectedValue(new Error('mock list failure'));
+    fs.ensureDir = vi.fn().mockImplementation(async (dir: string) => {
+      ensureDirCallCount++;
+      if (ensureDirCallCount <= 1) {
+        throw new Error(`mock ensureDir failure #${ensureDirCallCount}`);
+      }
+      return baseFs.ensureDir(dir);
+    });
+
+    const audit = makeMockAudit();
+    const scratchDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
+    const snapshot = new Snapshot(tmpDir, fs, audit, [], [scratchDir]);
+    await snapshot.init();
+
+    // trigger commit with a change
+    await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
+    const result = await snapshot.commit('test-double-fail');
+    expect(result.ok).toBe(true); // best-effort: commit itself OK
+
+    const events = audit.write.mock.calls.map((c: any[]) => c[0]);
+    expect(events).toContain('snapshot_sync_restore_failed');
+    expect(events).toContain('snapshot_sync_clean_failed');
+
+    // forensics order: RESTORE emitted before CLEAN (inner before outer)
+    expect(events.indexOf('snapshot_sync_restore_failed'))
+      .toBeLessThan(events.indexOf('snapshot_sync_clean_failed'));
+
+    // verify payload schema
+    const restoreCall = audit.write.mock.calls.find((c: any[]) => c[0] === 'snapshot_sync_restore_failed');
+    expect(restoreCall).toEqual([
+      'snapshot_sync_restore_failed',
+      expect.stringContaining('dir='),
+      expect.stringContaining('restoreReason=mock ensureDir failure #1'),
+    ]);
     });
   });
 });
