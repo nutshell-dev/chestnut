@@ -18,6 +18,7 @@ import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 import type { CallerType } from '../permissions/caller-types.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
+import type { SendResult, SendFallbackError, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
 
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
 // 「物理迁自 core/async-task-system/types.ts」(phase 1365)
@@ -113,11 +114,11 @@ export interface AsyncTaskSystemOptions {
   /** phase 86: optional WatcherFactory for DI (test mock injection) */
   createWatcher?: WatcherFactory;
   /** phase 1029: result-delivery 函数。测试注入 mock，生产默认真实实现。 */
-  sendResult?: typeof import('./result-delivery.js').sendResult;
-  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
-  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
+  sendResult?: SendResult<SubAgentTask>;
+  sendFallbackError?: SendFallbackError<SubAgentTask | ToolTask>;
+  sendToolResult?: SendToolResult<ToolTask>;
   /** phase 1029: messaging 函数。测试注入 mock，生产默认真实实现。 */
-  writeInboxAsync?: typeof import('../../foundation/messaging/index.js').writeInboxAsync;
+  writeInboxAsync?: WriteInboxAsync;
   /** 待处理队列容量上限。默认 PENDING_QUEUE_MAX (1000)。 */
   pendingQueueMax?: number;
 }

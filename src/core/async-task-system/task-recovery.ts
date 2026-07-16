@@ -26,8 +26,8 @@ import {
   sendResult as defaultSendResult,
   sendFallbackError as defaultSendFallbackError,
   sendToolResult as defaultSendToolResult,
-  type ResultDeliveryDeps,
 } from './result-delivery.js';
+import type { SendResult, SendFallbackError, SendToolResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
 import type { TaskId } from './types.js';
 
 
@@ -45,10 +45,10 @@ const MAX_RECOVERY_RETRIES = 3;
 export interface RecoverTasksDeps {
   fs: FileSystem;
   auditWriter: AuditLog;
-  sendResult?: typeof import('./result-delivery.js').sendResult;
-  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
-  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
-  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
+  sendResult?: SendResult<SubAgentTask>;
+  sendFallbackError?: SendFallbackError<SubAgentTask | ToolTask>;
+  sendToolResult?: SendToolResult<ToolTask>;
+  writeInboxAsync?: WriteInboxAsync;
 }
 
 async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {

@@ -16,6 +16,7 @@ import type { SubAgentTask, ToolTask, FullTaskId, ShortTaskId } from './types.js
 import { deriveShortIdFromTaskId, taskShortId } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { TaskId } from './types.js';
+import type { ResultDeliveryDeps } from './result-delivery-types.js';
 
 
 
@@ -43,10 +44,7 @@ async function writeSentMarker(
   }
 }
 
-export interface ResultDeliveryDeps {
-  /** phase 1029: 注入 writeInboxAsync，未提供时使用真实实现。 */
-  writeInboxAsync?: typeof import('../../foundation/messaging/index.js').writeInboxAsync;
-}
+export type { ResultDeliveryDeps } from './result-delivery-types.js';
 
 interface SendResultCoreParams {
   fs: FileSystem;

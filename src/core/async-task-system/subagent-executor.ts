@@ -21,11 +21,11 @@ import * as nodePath from 'path';
 
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import { sendResult as defaultSendResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
-import type { ResultDeliveryDeps } from './result-delivery.js';
+import type { SendResult, SendFallbackError, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
 
 import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
-import type { SubAgentTask, FullTaskId } from './types.js';
+import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
@@ -52,9 +52,9 @@ interface ExecuteSubAgentTaskDeps {
   // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
   askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   runSubagent?: typeof defaultRunSubagent;
-  sendResult?: typeof import('./result-delivery.js').sendResult;
-  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
-  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
+  sendResult?: SendResult<SubAgentTask>;
+  sendFallbackError?: SendFallbackError<SubAgentTask | ToolTask>;
+  writeInboxAsync?: WriteInboxAsync;
 }
 
 async function applyPostProcessor(

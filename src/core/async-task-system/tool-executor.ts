@@ -4,7 +4,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
 import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
-import type { ResultDeliveryDeps } from './result-delivery.js';
+import type { SendToolResult, SendFallbackError, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { getProcessStartTime } from '../../foundation/process-exec/index.js';
@@ -25,9 +25,9 @@ interface ExecuteToolTaskDeps {
   retryBaseDelayMs: number;
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
-  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
-  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
-  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
+  sendToolResult?: SendToolResult<ToolTask>;
+  sendFallbackError?: SendFallbackError<ToolTask>;
+  writeInboxAsync?: WriteInboxAsync;
 }
 
 

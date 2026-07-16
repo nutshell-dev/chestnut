@@ -17,7 +17,7 @@ import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
 import { executeToolTask } from './tool-executor.js';
 import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
-import type { ResultDeliveryDeps } from './result-delivery.js';
+import type { SendToolResult, SendFallbackError, WriteInboxAsync } from './result-delivery-types.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
@@ -41,9 +41,9 @@ interface AsyncExecWrapperDeps {
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   parentStreamLog?: { write(entry: Record<string, unknown>): void };
   shortIdIndex: ShortIdIndex;
-  sendToolResult?: typeof import('./result-delivery.js').sendToolResult;
-  sendFallbackError?: typeof import('./result-delivery.js').sendFallbackError;
-  writeInboxAsync?: ResultDeliveryDeps['writeInboxAsync'];
+  sendToolResult?: SendToolResult<ToolTask>;
+  sendFallbackError?: SendFallbackError<ToolTask>;
+  writeInboxAsync?: WriteInboxAsync;
 }
 
 const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
