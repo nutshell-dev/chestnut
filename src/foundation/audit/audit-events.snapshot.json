@@ -881,6 +881,7 @@
       "skill_load_failed",
       "skill_namespace_invalid",
       "skill_registry_loaded",
+      "skill_rescan_aborted",
       "skill_version_invalid"
     ],
     "foundation_command-tool_audit-events": [

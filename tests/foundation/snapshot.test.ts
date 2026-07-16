@@ -269,67 +269,6 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       });
     });
 
-    describe('commit writes snapshot_degraded audit at exactly 3 consecutive failures', () => {
-      let tmpDir: string;
-
-      beforeEach(async () => {
-        tmpDir = await createTrackedTempDir('snap-test-');
-      });
-
-      afterEach(async () => {
-        await cleanupTempDir(tmpDir);
-      });
-
-      it('commit writes snapshot_degraded audit at exactly 3 consecutive failures', async () => {
-      const audit = makeMockAudit();
-      const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
-      await snapshot.init();
-      await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
-
-      // 破坏 git
-      await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
-
-      await snapshot.commit('fail-1');
-      await snapshot.commit('fail-2');
-      expect(audit.write).not.toHaveBeenCalledWith(SNAPSHOT_AUDIT_EVENTS.DEGRADED, expect.anything(), expect.anything());
-
-      await snapshot.commit('fail-3');
-      expect(audit.write).toHaveBeenCalledWith(
-        SNAPSHOT_AUDIT_EVENTS.DEGRADED,
-        expect.stringContaining('dir='),
-        expect.stringContaining('consecutive=3'),
-      );
-      });
-    });
-
-    describe('commit does not write snapshot_degraded on 4th+ failure', () => {
-      let tmpDir: string;
-
-      beforeEach(async () => {
-        tmpDir = await createTrackedTempDir('snap-test-');
-      });
-
-      afterEach(async () => {
-        await cleanupTempDir(tmpDir);
-      });
-
-      it('commit does not write snapshot_degraded on 4th+ failure', async () => {
-      const audit = makeMockAudit();
-      const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
-      await snapshot.init();
-      await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
-      await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
-
-      await snapshot.commit('fail-1');
-      await snapshot.commit('fail-2');
-      await snapshot.commit('fail-3'); // 写一次 degraded
-      await snapshot.commit('fail-4');
-      await snapshot.commit('fail-5');
-
-      const degradedCalls = audit.write.mock.calls.filter((c: any[]) => c[0] === SNAPSHOT_AUDIT_EVENTS.DEGRADED);
-      expect(degradedCalls).toHaveLength(1);
-      });
-    });
 
     describe('commit message with special characters works correctly', () => {
       let tmpDir: string;
@@ -632,6 +571,70 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
   // Moved out of describe.concurrent: vi.fn() mocks on Object.create(baseFs)
   // interfere with concurrent sibling tests, causing "path.relative received undefined".
+  // Moved out of describe.concurrent: degraded counter tests rely on consecutive
+  // failure state across multiple commits; concurrent siblings make DEGRADED counts drift.
+  describe('commit writes snapshot_degraded audit at exactly 3 consecutive failures', () => {
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      tmpDir = await createTrackedTempDir('snap-test-');
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(tmpDir);
+    });
+
+    it('commit writes snapshot_degraded audit at exactly 3 consecutive failures', async () => {
+    const audit = makeMockAudit();
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
+    await snapshot.init();
+    await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
+
+    // 破坏 git
+    await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
+
+    await snapshot.commit('fail-1');
+    await snapshot.commit('fail-2');
+    expect(audit.write).not.toHaveBeenCalledWith(SNAPSHOT_AUDIT_EVENTS.DEGRADED, expect.anything(), expect.anything());
+
+    await snapshot.commit('fail-3');
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.DEGRADED,
+      expect.stringContaining('dir='),
+      expect.stringContaining('consecutive=3'),
+    );
+    });
+  });
+
+  describe('commit does not write snapshot_degraded on 4th+ failure', () => {
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      tmpDir = await createTrackedTempDir('snap-test-');
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(tmpDir);
+    });
+
+    it('commit does not write snapshot_degraded on 4th+ failure', async () => {
+    const audit = makeMockAudit();
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
+    await snapshot.init();
+    await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
+    await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
+
+    await snapshot.commit('fail-1');
+    await snapshot.commit('fail-2');
+    await snapshot.commit('fail-3'); // 写一次 degraded
+    await snapshot.commit('fail-4');
+    await snapshot.commit('fail-5');
+
+    const degradedCalls = audit.write.mock.calls.filter((c: any[]) => c[0] === SNAPSHOT_AUDIT_EVENTS.DEGRADED);
+    expect(degradedCalls).toHaveLength(1);
+    });
+  });
+
   describe('commit() syncDir double-fail emits both SYNC_CLEAN_FAILED + SYNC_RESTORE_FAILED', () => {
     let tmpDir: string;
 
