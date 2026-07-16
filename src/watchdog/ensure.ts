@@ -3,10 +3,11 @@
  * 「确保 watchdog 在运行」职责唯一入口 (M#1)
  * OS-level advisory lock 保 atomic check-and-spawn (M#9)
  */
+import * as path from 'path';
 import { makeChestnutRoot } from '../core/claw-topology/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { newShortUuid } from '../foundation/node-utils/index.js';
-import { isAlive, getProcessStartTime, makeProcessStartTime } from '../foundation/process-exec/index.js';
+import { tryAcquireClaim, releaseClaim } from '../foundation/fs/lock-protocol.js';
+import { isAlive, makeProcessStartTime } from '../foundation/process-exec/index.js';
 import { getChestnutDir, getAuditWriter } from './watchdog-context.js';
 import { isWatchdogAlive } from './watchdog-pid.js';
 import { startCommand as rawStartCommand } from './watchdog-cli.js';
@@ -49,7 +50,25 @@ type SweepFn = (
   opts: { excludePid: number | null },
 ) => Promise<unknown>;
 
+/**
+ * 进程级单飞 promise：确保同一进程内并发 ensureWatchdog 调用只产生一次 spawn。
+ * Per-contender 协议在 same-PID 并发时会将同进程其他 contender 的 claim 视为旧残留
+ * 清理，导致多 spawn；用进程级序列化消除该竞态。
+ */
+let ensurePromise: Promise<void> | null = null;
+
 export async function ensureWatchdog(
+  fsFactory: (baseDir: string) => FileSystem,
+  sweep: SweepFn = defaultSweep,
+): Promise<void> {
+  if (ensurePromise) return ensurePromise;
+  ensurePromise = ensureWatchdogInternal(fsFactory, sweep).finally(() => {
+    ensurePromise = null;
+  });
+  return ensurePromise;
+}
+
+async function ensureWatchdogInternal(
   fsFactory: (baseDir: string) => FileSystem,
   sweep: SweepFn = defaultSweep,
 ): Promise<void> {
@@ -86,37 +105,48 @@ export async function ensureWatchdog(
 }
 
 async function tryAcquireLock(fs: FileSystem, relLockPath: string, timeoutMs: number): Promise<string | null> {
-  const ownerToken = newShortUuid();
-  const startTime = getProcessStartTime(process.pid) ?? '0';
+  // relLockPath = 'watchdog.lock' → lockDir = '.'
+  const lockDir = path.dirname(relLockPath) || '.';
+  const claimsDir = `${lockDir}/watchdog-lock/claims`;
   const deadline = Date.now() + timeoutMs;
+
+  // 旧格式兼容：首次发现旧 watchdog.lock 时做一次性迁移
+  await migrateLegacyWatchdogLock(fs, relLockPath);
+  await fs.ensureDir(claimsDir);
+
   while (Date.now() < deadline) {
-    try {
-      // writeExclusiveSync atomic claim (throws EEXIST if already exists)
-      fs.writeExclusiveSync(relLockPath, JSON.stringify({
-        pid: process.pid,
-        startTime,
-        ownerToken,
-      }));
-      return ownerToken;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      // 检查 lock 持有者是否还活；stale / 旧格式 / 无法解析 则清掉重试
-      const token = readLockToken(fs, relLockPath);
-      if (token !== null) {
-        const holderAlive = isAlive(token.pid, makeProcessStartTime(token.startTime));
-        if (holderAlive) {
-          await new Promise(r => setTimeout(r, LOCK_RETRY_INTERVAL_MS));
-          continue;
-        }
-        // Stale holder is dead → reclaim. 读→删之间仍可能被替换，但下一轮 retry 会自我纠正。
-      }
-      try { fs.deleteSync(relLockPath); } catch { /* silent: stale-lock cleanup 与并发 unlink race / loser ENOENT 视为 winner 已清 / 外层 continue retry 收敛 */ }
-      const auditWriter = getAuditWriter();
-      auditWriter?.write(WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_STALE_RECOVERED, `path=${relLockPath}`);
-      continue;
-    }
+    const auditWriter = getAuditWriter();
+    const ownerToken = await tryAcquireClaim(
+      { fs, audit: auditWriter ?? undefined },
+      `${lockDir}/watchdog-lock`,
+    );
+    if (ownerToken !== null) return ownerToken;
+    await new Promise(r => setTimeout(r, LOCK_RETRY_INTERVAL_MS));
   }
   return null;
+}
+
+async function migrateLegacyWatchdogLock(fs: FileSystem, relLockPath: string): Promise<void> {
+  const exists = await fs.exists(relLockPath).catch(() => false);
+  if (!exists) return;
+  const lockDir = path.dirname(relLockPath) || '.';
+  const claimsDir = `${lockDir}/watchdog-lock/claims`;
+  const claimsExist = await fs.exists(claimsDir).catch(() => false);
+  if (claimsExist) {
+    // 已迁移，删旧文件
+    try { fs.deleteSync(relLockPath); } catch { /* silent: 旧锁清理 best-effort */ }
+    return;
+  }
+  // 读旧锁判活 → dead 则删旧锁 + 创建 claims/
+  const token = readLockToken(fs, relLockPath);
+  if (token !== null && isAlive(token.pid, makeProcessStartTime(token.startTime))) {
+    return; // 存活 → 不动旧锁
+  }
+  // dead/旧格式 → 删旧锁
+  try { fs.deleteSync(relLockPath); } catch { /* silent: 旧锁清理 best-effort */ }
+  const auditWriter = getAuditWriter();
+  auditWriter?.write(WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_STALE_RECOVERED, `path=${relLockPath}`);
+  await fs.ensureDir(claimsDir);
 }
 
 function readLockToken(fs: FileSystem, relLockPath: string): LockToken | null {
@@ -143,11 +173,8 @@ function readLockToken(fs: FileSystem, relLockPath: string): LockToken | null {
 }
 
 function releaseLock(fs: FileSystem, relLockPath: string, ownerToken: string): void {
-  try {
-    const token = readLockToken(fs, relLockPath);
-    if (token === null || token.ownerToken !== ownerToken) return; // lock replaced by another caller / already released
-    fs.deleteSync(relLockPath);
-  } catch {
-    // silent: ENOENT / corrupt lock on release — idempotent fail-soft
-  }
+  const lockDir = path.dirname(relLockPath) || '.';
+  releaseClaim({ fs }, `${lockDir}/watchdog-lock`, ownerToken).catch(() => {
+    // silent: release best-effort，已释放或并发清理均视为 no-op
+  });
 }

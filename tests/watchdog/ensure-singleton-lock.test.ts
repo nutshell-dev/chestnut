@@ -115,7 +115,7 @@ describe('ensureWatchdog singleton lock', () => {
   });
 
   it('writes JSON lock token with pid, startTime, ownerToken', async () => {
-    const lockPath = path.join(chestnutDir, 'watchdog.lock');
+    const claimsDir = path.join(chestnutDir, 'watchdog-lock', 'claims');
     const [{ startCommand: mockedStart }] = await Promise.all([
       import('../../src/watchdog/watchdog-cli.js'),
     ]);
@@ -125,8 +125,10 @@ describe('ensureWatchdog singleton lock', () => {
       const pidFile = path.join(chestnutDir, 'watchdog.pid');
       fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/test/root' }));
 
-      // Lock must exist and be in new JSON format during spawn
-      const raw = fs.readFileSync(lockPath, 'utf8');
+      // Lock claim must exist and be in new JSON format during spawn
+      const claims = fs.readdirSync(claimsDir);
+      expect(claims.length).toBeGreaterThan(0);
+      const raw = fs.readFileSync(path.join(claimsDir, claims[0]), 'utf8');
       const parsed = JSON.parse(raw);
       expect(parsed).toMatchObject({
         pid: process.pid,
