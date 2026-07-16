@@ -31,6 +31,8 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   PID_SPAWNING_LOCK_RETRY: 'pid_spawning_lock_retry', // ← NEW phase 1014: stop 在 spawning 分支重试 acquire 互斥锁、超时不删 PID
   LOCKFILE_READ_FAILED: 'lockfile_read_failed',
   LOCKFILE_CLEANUP_FAILED: 'lockfile_cleanup_failed',
+  LOCK_STALE_RECOVERED: 'lock_stale_recovered',
+  LOCK_LEGACY_MIGRATED: 'lock_legacy_migrated',
   LOCK_ACQUIRED: 'lock_acquired',
   LOCK_RELEASED: 'lock_released',
   PROCESS_LIST_FAILED: 'process_list_failed',

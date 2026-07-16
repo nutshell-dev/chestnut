@@ -47,8 +47,8 @@ function migrateLegacyProcessLock(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
   lockFile: string,
+  legacyResult: LockReadResult,
 ): void {
-  const legacyResult = readLegacyLockFile(ctx, daemonDir, lockFile);
   if (legacyResult.status === 'missing') return;
   if (legacyResult.status === 'io_error' || legacyResult.status === 'corrupt') {
     throw new LockConflictError(
@@ -77,7 +77,7 @@ function migrateLegacyProcessLock(
   try {
     ctx.fs.deleteSync(lockFile);
     ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+      PROCESS_MANAGER_AUDIT_EVENTS.LOCK_STALE_RECOVERED,
       `daemon_dir=${daemonDir}`,
       `op=migrate_legacy`,
       `pid=${holder.pid}`,
@@ -288,9 +288,10 @@ function acquireLockFile(
 ): void {
   ctx.fs.ensureDirSync(path.dirname(lockFile));
 
-  // 旧格式兼容：若存在 legacy lock 文件，按旧协议判活一次。
-  if (ctx.fs.existsSync(lockFile)) {
-    migrateLegacyProcessLock(ctx, daemonDir, lockFile);
+  // 旧格式兼容：用 readSync 替代 existsSync，按 missing / io_error / valid 三分支判定。
+  const legacyResult = readLegacyLockFile(ctx, daemonDir, lockFile);
+  if (legacyResult.status !== 'missing') {
+    migrateLegacyProcessLock(ctx, daemonDir, lockFile, legacyResult);
   }
 
   const lockNs = getLockNs(lockFile);
@@ -325,30 +326,15 @@ function releaseLockFile(
   const lockNs = getLockNs(lockFile);
   const ownerToken = takeOwnerToken(ctx, lockNs);
   if (ownerToken === undefined) {
-    // 无缓存 token：可能是直接对旧格式锁文件调用 release，按旧语义只删除持有者是本进程的文件。
-    const legacyResult = readLegacyLockFile(ctx, daemonDir, lockFile);
-    if (legacyResult.status !== 'valid' || legacyResult.holder.pid !== process.pid) {
-      return;
-    }
-    try {
-      ctx.fs.deleteSync(lockFile);
-      ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, `context=legacy_fallback`, ...auditCols);
-    } catch (err) {
-      if (!isFileNotFound(err)) {
-        ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-          `daemon_dir=${daemonDir}`,
-          `op=release_legacy_fallback`,
-          `reason=${formatErr(err)}`,
-          ...auditCols,
-        );
-      }
-    }
+    // 无缓存 token：旧格式锁不由新协议释放；旧持有者进程死亡后由 stale recovery 清理。
     return;
   }
 
-  releaseClaimSync(makeClaimContext(ctx), lockNs, ownerToken);
-  ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, ...auditCols);
+  const released = releaseClaimSync(makeClaimContext(ctx), lockNs, ownerToken);
+  if (released) {
+    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, ...auditCols);
+  }
+  // 未释放 → 保留 token，下次 release 重试
 }
 
 export function releaseLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {

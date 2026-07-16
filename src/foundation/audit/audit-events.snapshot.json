@@ -788,7 +788,10 @@
       "search_overflow_persist_failed"
     ],
     "foundation_fs_lock-audit-events": [
+      "lock_claim_corrupt",
       "lock_claim_election_lost",
+      "lock_claim_read_failed",
+      "lock_claim_release_failed",
       "lock_claim_stale_recovered"
     ],
     "foundation_llm-provider_audit-events": [
@@ -835,7 +838,9 @@
     "foundation_process-manager_audit-events": [
       "clean_stop_signaled",
       "lock_acquired",
+      "lock_legacy_migrated",
       "lock_released",
+      "lock_stale_recovered",
       "lockfile_cleanup_failed",
       "lockfile_read_failed",
       "orphan_cleanup_partial",

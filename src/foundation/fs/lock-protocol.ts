@@ -298,28 +298,39 @@ export function tryAcquireClaimSync(
 /**
  * 同步释放自己持有的 claim。
  *
+ * 返回 true 表示确认释放成功（删除成功或 ENOENT）；返回 false 表示删除失败（如
+ * EACCES/EIO），调用方应保留 ownerToken 以便重试。
+ *
  * 语义与 releaseClaim 一致，仅使用 FileSystem 同步方法。
  */
 export function releaseClaimSync(
   ctx: LockClaimContext,
   lockDir: string,
   ownerToken: string,
-): void {
+): boolean {
   const claimsDir = `${lockDir}/claims`;
   let entries: { name: string }[];
   try {
     entries = ctx.fs.listSync(claimsDir, { includeDirs: false });
   } catch (err) {
-    if (isFileNotFound(err)) return;
+    if (isFileNotFound(err)) return true;
     throw err;
   }
 
   for (const entry of entries) {
     if (entry.name.endsWith(ownerToken)) {
-      try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
-      return;
+      try {
+        ctx.fs.deleteSync(`${claimsDir}/${entry.name}`);
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return true;
+        ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_RELEASE_FAILED, `claim=${entry.name} reason=${String(err)}`);
+        return false;
+      }
     }
   }
+  // 找不到 → 已被 stale recovery 清理 → 视为成功
+  return true;
 }
 
 function compareClaimNames(a: string, b: string): number {

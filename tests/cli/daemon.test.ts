@@ -112,14 +112,16 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     );
   });
 
-  it('releaseLock deletes lock when held by current process', () => {
+  it('releaseLock does not delete legacy lock without owner token', () => {
+    // Phase 1056: legacy release 不再提供无 token 删除路径；旧格式锁应通过
+    // migrate/stale recovery 清理，或由旧持有者按旧协议释放。
     const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
     fsNative.mkdirSync(statusDir, { recursive: true });
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), String(process.pid));
 
     pm.releaseLock(testClawDaemonDir(tmpDir, 'test-claw'));
 
-    expect(fsNative.existsSync(path.join(statusDir, 'daemon.lock'))).toBe(false);
+    expect(fsNative.existsSync(path.join(statusDir, 'daemon.lock'))).toBe(true);
   });
 
   it('releaseLock is silent when lock file does not exist', () => {
