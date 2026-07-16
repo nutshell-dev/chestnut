@@ -29,7 +29,6 @@ export function auditFileContains(
   keyword: string,
 ): LightweightResult<boolean> {
   try {
-    if (!fs.existsSync(auditPath)) return { ok: true, value: false };
     const content = fs.readSync(auditPath);
     return { ok: true, value: content.includes(keyword) };
   } catch (err) {
@@ -47,7 +46,6 @@ export function auditFirstTimestamp(
   auditPath: string,
 ): LightweightResult<string | null> {
   try {
-    if (!fs.existsSync(auditPath)) return { ok: true, value: null };
     const content = fs.readSync(auditPath);
     const firstLine = content.split('\n').find(l => l.trim());
     if (!firstLine) return { ok: true, value: null };
@@ -67,7 +65,6 @@ export function auditFileGetMtime(
   auditPath: string,
 ): LightweightResult<number | null> {
   try {
-    if (!fs.existsSync(auditPath)) return { ok: true, value: null };
     return { ok: true, value: fs.statSync(auditPath).mtime.getTime() };
   } catch (err) {
     if (isFileNotFound(err)) return { ok: true, value: null };
