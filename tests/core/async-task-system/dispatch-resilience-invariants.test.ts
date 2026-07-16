@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
+import { SHUTDOWN_DRAIN_GRACE_MS } from '../../../src/core/async-task-system/constants.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -29,6 +30,17 @@ function makeMockWatcherFactory(): WatcherFactory {
 const mockWatcherFactory = makeMockWatcherFactory();
 
 const mockSendFallbackError = vi.fn().mockResolvedValue(undefined);
+
+async function shutdownWithVirtualGrace(system: AsyncTaskSystem): Promise<boolean> {
+  vi.useFakeTimers();
+  try {
+    const shutdown = system.shutdown(1);
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DRAIN_GRACE_MS + 1);
+    return await shutdown;
+  } finally {
+    vi.useRealTimers();
+  }
+}
 
 function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
   return {
@@ -756,7 +768,7 @@ describe('phase905.test.ts', () => {
         close: vi.fn().mockRejectedValue(closeError),
       };
 
-      await system.shutdown(1);
+      await shutdownWithVirtualGrace(system);
 
       expect(abortSpy).toHaveBeenCalled();
 
@@ -801,7 +813,7 @@ describe('phase905.test.ts', () => {
         promise: new Promise(() => { /* never resolves */ }),
       });
 
-      await system.shutdown(1);
+      await shutdownWithVirtualGrace(system);
 
       expect(executingTasks.has(taskId)).toBe(true);
 
@@ -882,4 +894,3 @@ describe('phase905.test.ts', () => {
     });
   });
 });
-

@@ -19,6 +19,7 @@ import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
+import { SHUTDOWN_DRAIN_GRACE_MS } from '../../src/core/async-task-system/constants.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { TEST_LLM_TIMEOUT_MS, SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/constants.js';
@@ -123,6 +124,17 @@ function createAbortableHangingMockLLM(): LLMOrchestrator {
     healthCheck: vi.fn().mockResolvedValue(true),
     getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
   } as unknown as LLMOrchestrator;
+}
+
+async function shutdownWithVirtualGrace(system: AsyncTaskSystem): Promise<boolean> {
+  vi.useFakeTimers();
+  try {
+    const shutdown = system.shutdown(1);
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DRAIN_GRACE_MS + 1);
+    return await shutdown;
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 describe('Task System + SubAgent', () => {
@@ -525,7 +537,7 @@ describe('Task System + SubAgent', () => {
       await waitForNextAuditEvent(emitter, TASK_AUDIT_EVENTS.TASK_STARTED);
 
       // Shutdown with 1ms timeout to force timeout path
-      await ctx.taskSystem.shutdown(1);
+      await shutdownWithVirtualGrace(ctx.taskSystem);
 
       // Wait for cleanups to drain before asserting audit events (phase 779 Step B/C)
       await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.SHUTDOWN_TIMEOUT);
@@ -556,7 +568,7 @@ describe('Task System + SubAgent', () => {
       await waitFor(() => ctx.taskSystem.listRunning().includes(taskId));
 
       // Should not throw even with null auditWriter
-      await expect(ctx.taskSystem.shutdown(1)).resolves.not.toThrow();
+      await expect(shutdownWithVirtualGrace(ctx.taskSystem)).resolves.not.toThrow();
     });
 
     describe('addPostProcessor / postProcessor field', () => {
