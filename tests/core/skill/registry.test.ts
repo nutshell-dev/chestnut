@@ -92,7 +92,8 @@ describe('SkillSystem', () => {
       ]);
       (mockFs.read as any).mockImplementation((p: string) => {
         if (p === 'skills/skill-a/SKILL.md') return Promise.resolve(makeSkillMd({ name: 'alpha', description: 'A', version: '1.0' }));
-        if (p === 'skills/skill-b/SKILL.md') return Promise.reject(new Error('disk read error'));
+        // phase 1084: 单个 skill 校验/解析失败（namespace 非法）→ LOAD_FAILED + continue
+        if (p === 'skills/skill-b/SKILL.md') return Promise.resolve(makeSkillMd({ name: 'Bad_Name', description: 'B', version: '1.0' }));
         return Promise.reject(new Error('not found'));
       });
       const registry = new SkillSystem(mockFs, SKILLS_DIR_DEFAULT, mockAudit);

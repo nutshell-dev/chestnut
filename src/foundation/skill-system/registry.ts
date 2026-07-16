@@ -25,12 +25,6 @@ const SKILL_NAME_NAMESPACE_PATTERN = /^[a-z0-9-]+(\/[a-z0-9-]+)?$/;
  */
 const SKILL_VERSION_PATTERN = /^\d+\.\d+\.\d+/;
 
-function isIoError(err: unknown): boolean {
-  if (!err || typeof err !== 'object' || !('code' in err)) return false;
-  const code = (err as NodeJS.ErrnoException).code;
-  return code === 'EIO' || code === 'EACCES' || code === 'EMFILE';
-}
-
 export class SkillDuplicateError extends Error {
   constructor(
     public readonly skillName: string,
@@ -43,7 +37,18 @@ export class SkillDuplicateError extends Error {
   }
 }
 
-
+/**
+ * Phase 1084: 校验/解析失败（frontmatter 损坏、namespace 非法等）。
+ * 这类错误在 loadAll 中按单个坏 skill skip（audit LOAD_FAILED），不影响整轮快照。
+ */
+export class SkillParseError extends Error {
+  constructor(
+    public readonly skillDir: string,
+    message: string,
+  ) {
+    super(`Skill parse/validation failed: ${skillDir}: ${message}`);
+  }
+}
 
 export interface SkillMeta {
   name: string;
@@ -107,9 +112,10 @@ export class SkillSystem {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     // phase 1070: 用临时 Map 完整扫描；phase 1079: I/O 错误时保留旧 Map
+    // phase 1084: 翻转边界——仅 FileNotFound / SkillParseError 按单个 skill skip；
+    // 其余未知读取错误中止提交并保留旧快照。
     const newMetaMap = new Map<string, SkillMeta>();
     const newNameSourceMap = new Map<string, 'frontmatter' | 'fallback_dirname'>();
-    let hadIoError = false;
 
     for (const entry of entries) {
       if (!entry.isDirectory) continue;
@@ -149,21 +155,26 @@ export class SkillSystem {
       } catch (err) {
         if (err instanceof SkillDuplicateError) throw err;
         if (isFileNotFound(err)) continue; // race → treat as deleted
-        if (isIoError(err)) {
-          hadIoError = true; // EIO/EACCES/EMFILE → preserve old Map
+        if (err instanceof SkillParseError) {
+          // 单个 skill 校验/解析失败 → audit + skip，不影响整轮快照
+          this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
+            `skill_dir=${skillDir}`,
+            `skills_dir=${this.skillsDir}`,
+            `error=${formatErr(err)}`,
+          );
           continue;
         }
-        this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
+        // 其余未知读取错误（EIO/EACCES/EPERM/ENFILE/EROFS/ENOSPC/ETIMEDOUT/unknown）
+        // → 中止本轮提交，保留旧 Map
+        this.audit?.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+          `skill=${entry.name}`,
           `skill_dir=${skillDir}`,
           `skills_dir=${this.skillsDir}`,
-          `error=${formatErr(err)}`,
+          `reason=${formatErr(err)}`,
         );
-        continue;
+        return;
       }
     }
-
-    // 任一 skill 出现 I/O 错误则整次 rescan 失败，保留旧 Map，不提交新快照
-    if (hadIoError) return;
 
     // 原子替换
     this.metaMap = newMetaMap;
@@ -189,7 +200,13 @@ export class SkillSystem {
     const content = await this.fs.read(skillMdPath);
 
     // 解析 frontmatter (phase 62: frame syntax 共享 helper + caller-side unquote 自治)
-    const { meta: rawMeta } = parseFrontmatterFrame(content, { eofTolerant: true });
+    let rawMeta: Record<string, string>;
+    try {
+      const parsed = parseFrontmatterFrame(content, { eofTolerant: true });
+      rawMeta = parsed.meta;
+    } catch (parseErr) {
+      throw new SkillParseError(skillDir, `failed to parse frontmatter: ${formatErr(parseErr)}`);
+    }
     const frontmatter: Record<string, string> = {};
     for (const [k, v] of Object.entries(rawMeta)) {
       frontmatter[k] = v.replace(/^["']|["']$/g, '');
@@ -230,7 +247,8 @@ export class SkillSystem {
         `expected=<author>/<skill> or simple-kebab-name`,
         `skillDir=${skillDir}`,
       );
-      throw new Error(
+      throw new SkillParseError(
+        skillDir,
         `Skill name namespace invalid: ${meta.name}. expected <author>/<skill> or simple-kebab-name matching ${SKILL_NAME_NAMESPACE_PATTERN.source}`,
       );
     }

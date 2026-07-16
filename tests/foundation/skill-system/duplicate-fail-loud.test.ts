@@ -4,7 +4,7 @@
  * loadAll() must escalate SkillDuplicateError instead of swallowing it.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { SkillSystem, SkillDuplicateError } from '../../../src/foundation/skill-system/registry.js';
+import { SkillSystem, SkillDuplicateError, SkillParseError } from '../../../src/foundation/skill-system/registry.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SKILL_AUDIT_EVENTS } from '../../../src/foundation/skill-system/audit-events.js';
@@ -81,13 +81,13 @@ describe('phase 1267 D.2: SkillDuplicateError fail-loud in loadAll', () => {
     await expect(sys.loadAll()).rejects.toThrow(SkillDuplicateError);
   });
 
-  it('reverse 2: non-duplicate error in loadAll (e.g. frontmatter parse fail) → swallowed + LOAD_FAILED audit + continue', async () => {
+  it('reverse 2: SkillParseError in loadAll (e.g. frontmatter parse fail) → swallowed + LOAD_FAILED audit + continue', async () => {
     const skillsDir = '/skills';
     const dir1 = '/skills/bad';
     const dir2 = '/skills/good';
     const fs = mockFs(
       {
-        [`${dir1}/SKILL.md`]: '---\nname: ok\n---\n', // valid frontmatter, but let's simulate a namespace-invalid by overriding behavior
+        [`${dir1}/SKILL.md`]: '---\nname: ok\n---\n', // valid frontmatter, but let's simulate a parse failure by overriding behavior
         [`${dir2}/SKILL.md`]: '---\nname: good-skill\n---\n',
       },
       [skillsDir, dir1, dir2],
@@ -95,11 +95,11 @@ describe('phase 1267 D.2: SkillDuplicateError fail-loud in loadAll', () => {
     const audit = mockAudit();
     const sys = new SkillSystem(fs, skillsDir, audit);
 
-    // Make loadSkillMeta throw a non-SkillDuplicateError for dir1
+    // Make loadSkillMeta throw SkillParseError for dir1
     const originalLoadSkillMeta = (sys as any).loadSkillMeta.bind(sys);
     (sys as any).loadSkillMeta = vi.fn(async (skillDir: string) => {
       if (skillDir === dir1) {
-        throw new Error('mock frontmatter parse failure');
+        throw new SkillParseError(skillDir, 'mock frontmatter parse failure');
       }
       return originalLoadSkillMeta(skillDir);
     });
@@ -115,6 +115,50 @@ describe('phase 1267 D.2: SkillDuplicateError fail-loud in loadAll', () => {
 
     // good skill should still be loaded
     expect(sys.getMeta('good-skill')).toBeDefined();
+  });
+
+  it('reverse 4: unknown I/O error in loadAll (e.g. EACCES) → RESCAN_ABORTED audit + preserve old Map', async () => {
+    const skillsDir = '/skills';
+    const dirGood = '/skills/good';
+    const dirBad = '/skills/bad';
+    const files: Record<string, string> = {
+      [`${dirGood}/SKILL.md`]: '---\nname: good-skill\n---\n',
+      [`${dirBad}/SKILL.md`]: '---\nname: bad-skill\n---\n',
+    };
+    const dirs = [skillsDir, dirGood];
+    const fs = mockFs(files, dirs);
+    const audit = mockAudit();
+    const sys = new SkillSystem(fs, skillsDir, audit);
+
+    // Seed old Map with only good-skill
+    await sys.loadAll();
+    (sys as any)._loaded = true;
+    expect(sys.getMeta('good-skill')).toBeDefined();
+    expect(sys.getMeta('bad-skill')).toBeUndefined();
+
+    // Second rescan: bad-skill appears and its read throws EACCES
+    dirs.push(dirBad);
+    const originalRead = (fs as any).read.getMockImplementation();
+    (fs as any).read = vi.fn(async (p: string) => {
+      if (p === `${dirBad}/SKILL.md`) {
+        const err = new Error('permission denied') as NodeJS.ErrnoException;
+        err.code = 'EACCES';
+        throw err;
+      }
+      return originalRead!(p);
+    });
+
+    await sys.loadAll();
+
+    const rescanAbortedCall = audit.calls.find(
+      c => c[0] === SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+    );
+    expect(rescanAbortedCall).toBeDefined();
+    expect(rescanAbortedCall!.slice(1).join(' ')).toContain('EACCES');
+
+    // old Map preserved: good-skill still present, bad-skill never committed
+    expect(sys.getMeta('good-skill')).toBeDefined();
+    expect(sys.getMeta('bad-skill')).toBeUndefined();
   });
 
   it('reverse 3: single duplicate skill → loadAll rejects with SkillDuplicateError carrying correct metadata', async () => {
