@@ -246,6 +246,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/cli/daemon.test.ts',
   'tests/cli/already-running-sentinel.test.ts',
   'tests/core/async-task-system/migrated-exec.test.ts',
+  // phase 1069: real exec timeout integration test
+  'tests/core/builtins-slow.test.ts',
 ];
 
 /**
