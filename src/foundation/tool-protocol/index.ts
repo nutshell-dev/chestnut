@@ -50,8 +50,8 @@ export interface ToolResult {
 // backward compat 表面、外部 caller 0 改动。
 // ============================================================================
 
-export type { ToolUseId } from '../llm-provider/index.js';
-export { makeToolUseId } from '../llm-provider/index.js';
+export type { ToolUseId } from '../llm-provider/tool-use-id.js';
+export { makeToolUseId } from '../llm-provider/tool-use-id.js';
 
 // ============================================================================
 // phase 457: PermissionChecker barrel re-export (M#7 接口稳定 / barrel-only)

@@ -7,7 +7,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
-import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
+import { estimateTextTokens } from '../../foundation/llm-provider/token-estimator.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';

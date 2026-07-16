@@ -9,7 +9,7 @@ import {
   estimateTextTokens,
   estimateMessagesTokens,
   estimateToolsTokens,
-} from '../../foundation/llm-provider/index.js';
+} from '../../foundation/llm-provider/token-estimator.js';
 import { trimAndPersist, type TrimAndPersistResult } from './trim-and-persist.js';
 import {
   CACHE_TTL_MS,

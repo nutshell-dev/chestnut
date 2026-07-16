@@ -7,7 +7,7 @@ import {
   estimateToolsTokens,
   estimateInputTokens,
   PER_MESSAGE_OVERHEAD_TOKENS,
-} from '../../../src/foundation/llm-provider/index.js';
+} from '../../../src/foundation/llm-provider/token-estimator.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/index.js';
 
 describe('token-estimator', () => {

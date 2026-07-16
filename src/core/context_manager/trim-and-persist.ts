@@ -5,7 +5,7 @@
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
-import { estimateTextTokens, estimateToolsTokens } from '../../foundation/llm-provider/index.js';
+import { estimateTextTokens, estimateToolsTokens } from '../../foundation/llm-provider/token-estimator.js';
 import { trimV2, type AuditWriter } from './trim-v2.js';
 import { CONTEXT_TRIM_ARCHIVED } from './audit-events.js';
 

@@ -1,5 +1,5 @@
 import { formatErr } from "../../../foundation/node-utils/index.js";
-import { makeExternalAbortError, type AbortReason } from '../../../foundation/llm-provider/index.js';
+import { makeExternalAbortError, type AbortReason } from '../../../foundation/llm-provider/abort-helper.js';
 /**
  * @module L2c.Messaging
  * notify_claw tool - motion 视角、向 target claw inbox 直接发消息（指挥型 push 模型）

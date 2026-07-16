@@ -7,7 +7,7 @@
  */
 
 import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock } from '../llm-provider/types.js';
-import { makeExternalAbortError, type AbortReason } from '../llm-provider/index.js';
+import { makeExternalAbortError, type AbortReason } from '../llm-provider/abort-helper.js';
 import type { StreamChunk } from '../llm-provider/types.js';
 
 /**
