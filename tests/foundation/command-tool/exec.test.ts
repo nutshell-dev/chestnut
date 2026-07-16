@@ -4,8 +4,9 @@
  * 验证空 output 时 placeholder 附加运行命令、长命令截断。
  */
 import { describe, it, expect } from 'vitest';
-import { execTool } from '../../../src/foundation/command-tool/exec.js';
+import { execTool, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
 import { EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
+import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 
 describe('phase 96 exec empty-output placeholder', () => {
@@ -42,5 +43,21 @@ describe('phase 96 exec empty-output placeholder', () => {
     expect(commandLine!.length).toBeLessThanOrEqual(
       EXEC_COMMAND_PLACEHOLDER_CHARS + '[command]: '.length + '[truncated]'.length,
     );
+  });
+});
+
+describe('processExecErrorToToolResult', () => {
+  it('maps a killed timeout to a failed ToolResult with command and output', () => {
+    const error = new ProcessExecError({
+      message: 'Command timed out after 1000ms',
+      output: 'partial output',
+      exitCode: null,
+      killed: true,
+    });
+
+    expect(processExecErrorToToolResult(error, 'sleep 5')).toEqual({
+      success: false,
+      content: 'Error: Command timed out after 1000ms\n[command]: sleep 5\n[output]: partial output',
+    });
   });
 });
