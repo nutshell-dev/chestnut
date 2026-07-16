@@ -92,6 +92,8 @@ export class EvolutionSystem {
   private retroChain: Promise<unknown> = Promise.resolve();
   // phase 1078: retro chain stalled 后保持阻塞，直到原 chain 真实 settle
   private retroChainBlocked = false;
+  // phase 1083: 绑定阻塞标志到原始 stalled promise，避免绑定到包装 Promise
+  private retroChainStalledPromise: Promise<unknown> | null = null;
 
   constructor(private readonly deps: EvolutionSystemDeps) {
   }
@@ -219,43 +221,62 @@ export class EvolutionSystem {
     // phase 450 (review-round3 §3): wait prev 加 stall timeout、超时不让 chain 永久阻塞下游
     // phase 1078: stalled 时不替换 chain，保留原 prev 并设置 blocked 标志；
     // 后续请求持续返回 blocked，直到原 prev 真实 settle 后清除标志。
+    // phase 1083: 在 Promise.race 之后、执行 impl 之前再次检查 blocked，
+    // 并将清除回调绑定到原始 stalled promise，避免 B/C 在 A 超时前入队后绕过阻塞。
     const prev = this.retroChain;
+    const stalledPromise = this.retroChainStalledPromise;
     if (this.retroChainBlocked) {
       return { status: 'blocked' as const, reason: 'previous_retro_stalled' };
     }
 
-    const p = (async (): Promise<RetroResult> => {
-      let stalled = false;
-      await Promise.race([
-        prev.catch(() => undefined),  // 既有 chain-only swallow 保留
-        new Promise<void>(resolve => {
-          const t = setTimeout(() => {
-            stalled = true;
-            resolve();
-          }, RETRO_CHAIN_STALL_TIMEOUT_MS);
-          t.unref?.();  // 防 timer 阻塞 Node 退出
-        }),
-      ]);
-      if (stalled) {
-        this.retroChainBlocked = true;
-        this.deps.audit.write(
-          RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED,
-          `contract_id=${contractId}`,
-          `timeout_ms=${RETRO_CHAIN_STALL_TIMEOUT_MS}`,
-        );
-        return { status: 'blocked' as const, reason: 'previous_retro_stalled' };
-      }
-      return this._runRetroForContractImpl(contractId, ctx);
-    })();
+    let resolveChain: () => void;
+    const chainPromise = new Promise<void>(r => { resolveChain = r; });
+    this.retroChain = chainPromise;
 
-    // phase 1078: 保持 chain 前进，但 prev 真实 settle 后清除 blocked 标志，
-    // 让后续请求在 stall 期间持续返回 blocked，直到原 chain 恢复。
-    this.retroChain = p;
-    prev.finally(() => {
+    const stalled = await Promise.race([
+      prev.catch(() => undefined).then(() => false as const),  // 既有 chain-only swallow 保留
+      new Promise<true>(resolve => {
+        const t = setTimeout(() => resolve(true as const), RETRO_CHAIN_STALL_TIMEOUT_MS);
+        t.unref?.();  // 防 timer 阻塞 Node 退出
+      }),
+    ]);
+
+    const clearBlocked = () => {
       this.retroChainBlocked = false;
-    });
+      this.retroChainStalledPromise = null;
+    };
 
-    return p;
+    if (stalled) {
+      this.retroChainBlocked = true;
+      // 阻塞标志绑定到原始 stalled promise（A），而非 B 的包装 Promise
+      this.retroChainStalledPromise = prev;
+      this.deps.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED,
+        `contract_id=${contractId}`,
+        `timeout_ms=${RETRO_CHAIN_STALL_TIMEOUT_MS}`,
+      );
+      // 用 prev.then(clear, clear) 确保 A 真实 settle 后才清除 blocked
+      prev.then(clearBlocked, clearBlocked);
+      resolveChain!();
+      return { status: 'blocked' as const, reason: 'previous_retro_stalled' };
+    }
+
+    // 双重检查：A 在 B/C 入队后才超时，避免 C 越过阻塞继续执行 impl
+    if (this.retroChainBlocked) {
+      resolveChain!();
+      return { status: 'blocked' as const, reason: 'previous_retro_stalled' };
+    }
+
+    // 处理之前 stalled 但此时已 settle 的 promise，解除阻塞
+    if (stalledPromise) {
+      stalledPromise.then(clearBlocked, clearBlocked);
+    }
+
+    try {
+      return await this._runRetroForContractImpl(contractId, ctx);
+    } finally {
+      resolveChain!();
+    }
   }
 
   private async _runRetroForContractImpl(
