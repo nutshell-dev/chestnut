@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 function normalizeId(id, cwd) {
   const clean = id.split('?')[0].replaceAll('\\', '/');

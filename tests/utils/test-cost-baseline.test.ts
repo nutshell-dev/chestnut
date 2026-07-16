@@ -6,7 +6,8 @@ import { aggregateRawRuns, compareSummaries, renderReport } from '../../scripts/
 
 function raw(preRun: number, dependencySelf: number) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    projects: [{ projectName: 'fast', wallMs: 40 }],
     modules: [{
       projectName: 'fast', moduleId: 'tests/a.test.ts',
       environmentSetupMs: 1, prepareMs: 2, setupMs: 3,
@@ -18,7 +19,7 @@ function raw(preRun: number, dependencySelf: number) {
 
 function manifest(workers = 4) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     environment: {
       nodeVersion: 'v20', vitestVersion: 'vitest/3.2.4', os: 'darwin', arch: 'arm64',
       cpuModel: 'fixture', vitestConfigHash: 'abc',
@@ -34,7 +35,34 @@ describe('test-cost baseline aggregation', () => {
     expect(summary.dependencies[0]).toMatchObject({
       moduleId: 'src/shared.ts', fanInFiles: 1, selfMedianMs: 4, selfSumMedianMs: 4,
     });
+    expect(summary.analysis).toMatchObject({
+      actualWallMedianMs: 40,
+      totalWorkMedianMs: 24,
+      schedulingLowerBoundMedianMs: 24,
+      schedulingGapMedianMs: 16,
+      schedulingEfficiencyMedian: 0.6,
+    });
+    expect(renderReport(summary, 1)).toContain('Scheduling lower bound');
     expect(renderReport(summary, 1)).toContain('src/shared.ts');
+  });
+
+  it('simulates repeated source dependency removal without summing overlapping total time', () => {
+    const fixture = raw(20, 4);
+    fixture.modules.push({
+      ...fixture.modules[0],
+      moduleId: 'tests/b.test.ts',
+      imports: [{ moduleId: 'src/shared.ts', selfMs: 6, totalMs: 100 }],
+    });
+    const summary = aggregateRawRuns([fixture], manifest(2));
+
+    expect(summary.analysis.schedulingLowerBoundMedianMs).toBe(24);
+    expect(summary.analysis.engineeringLowerBoundMedianMs).toBe(20);
+    expect(summary.candidateSimulations[0]).toMatchObject({
+      moduleId: 'src/shared.ts',
+      workReductionMedianMs: 10,
+      simulatedLowerBoundMedianMs: 20,
+      lowerBoundSavingsMedianMs: 4,
+    });
   });
 
   it('rejects measured runs with different module sets', () => {

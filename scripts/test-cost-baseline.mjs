@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const DEFAULT_PROJECTS = ['fast', 'isolated'];
 
 function median(values) {
@@ -70,6 +70,39 @@ function comparableKey(fields) {
   return crypto.createHash('sha256').update(JSON.stringify(fields)).digest('hex');
 }
 
+function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
+  const fanIn = new Map();
+  for (const module of run.modules) {
+    for (const dependency of module.imports) {
+      fanIn.set(dependency.moduleId, (fanIn.get(dependency.moduleId) ?? 0) + 1);
+    }
+  }
+  const projectNames = [...new Set(run.modules.map((module) => module.projectName))].sort();
+  const projects = projectNames.map((projectName) => {
+    const jobs = run.modules.filter((module) => module.projectName === projectName).map((module) => {
+      const removableMs = module.imports.reduce((sum, dependency) => {
+        const engineeringCandidate = dependency.moduleId.startsWith('src/')
+          && (fanIn.get(dependency.moduleId) ?? 0) >= 2;
+        const remove = removedDependencyIds.has(dependency.moduleId)
+          || (removedDependencyIds.has('*') && engineeringCandidate);
+        return sum + (remove ? dependency.selfMs : 0);
+      }, 0);
+      return Math.max(0, module.preRunMs + module.testAndHooksMs - removableMs);
+    });
+    const workMs = jobs.reduce((sum, value) => sum + value, 0);
+    const largestJobMs = Math.max(0, ...jobs);
+    const lowerBoundMs = Math.max(workMs / workers, largestJobMs);
+    const wallMs = run.projects?.find((project) => project.projectName === projectName)?.wallMs ?? 0;
+    return { projectName, workMs, largestJobMs, lowerBoundMs, wallMs };
+  });
+  return {
+    projects,
+    workMs: projects.reduce((sum, project) => sum + project.workMs, 0),
+    lowerBoundMs: Math.max(0, ...projects.map((project) => project.lowerBoundMs)),
+    wallMs: Math.max(0, ...projects.map((project) => project.wallMs)),
+  };
+}
+
 export function aggregateRawRuns(rawRuns, manifest) {
   if (rawRuns.length === 0) throw new Error('No measured runs to aggregate');
   const expected = rawRuns[0].modules.map((module) => `${module.projectName}:${module.moduleId}`).sort();
@@ -122,6 +155,48 @@ export function aggregateRawRuns(rawRuns, manifest) {
     };
   }).sort((a, b) => b.selfSumMedianMs - a.selfSumMedianMs || b.fanInFiles - a.fanInFiles || a.moduleId.localeCompare(b.moduleId));
 
+  const schedulingRuns = rawRuns.map((run) => calculateRunBounds(run, manifest.options.workers));
+  const engineeringRuns = rawRuns.map((run) => calculateRunBounds(run, manifest.options.workers, new Set(['*'])));
+  const projectNames = [...new Set(schedulingRuns.flatMap((run) => run.projects.map((project) => project.projectName)))].sort();
+  const analysis = {
+    actualWallMedianMs: median(schedulingRuns.map((run) => run.wallMs)),
+    totalWorkMedianMs: median(schedulingRuns.map((run) => run.workMs)),
+    schedulingLowerBoundMedianMs: median(schedulingRuns.map((run) => run.lowerBoundMs)),
+    schedulingGapMedianMs: median(schedulingRuns.map((run) => run.wallMs - run.lowerBoundMs)),
+    schedulingEfficiencyMedian: median(schedulingRuns.map((run) => run.wallMs > 0 ? run.lowerBoundMs / run.wallMs : 0)),
+    engineeringLowerBoundMedianMs: median(engineeringRuns.map((run) => run.lowerBoundMs)),
+    engineeringHeadroomMedianMs: median(engineeringRuns.map((run, index) => schedulingRuns[index].wallMs - run.lowerBoundMs)),
+    assumptions: {
+      fileWork: 'preRunMs + testAndHooksMs',
+      scheduling: 'max(sum(fileWork)/workers, max(fileWork)) per project; concurrent projects use max',
+      engineering: 'zero exclusive self time for src/** dependencies with fan-in >= 2',
+    },
+    projects: projectNames.map((projectName) => {
+      const samples = schedulingRuns.map((run) => run.projects.find((project) => project.projectName === projectName));
+      return {
+        projectName,
+        actualWallMedianMs: median(samples.map((sample) => sample.wallMs)),
+        workMedianMs: median(samples.map((sample) => sample.workMs)),
+        largestJobMedianMs: median(samples.map((sample) => sample.largestJobMs)),
+        schedulingLowerBoundMedianMs: median(samples.map((sample) => sample.lowerBoundMs)),
+      };
+    }),
+  };
+  const candidateSimulations = dependencies
+    .filter((dependency) => dependency.moduleId.startsWith('src/') && dependency.fanInFiles >= 2)
+    .map((dependency) => {
+      const simulated = rawRuns.map((run) => calculateRunBounds(run, manifest.options.workers, new Set([dependency.moduleId])));
+      return {
+        moduleId: dependency.moduleId,
+        fanInFiles: dependency.fanInFiles,
+        workReductionMedianMs: dependency.selfSumMedianMs,
+        simulatedLowerBoundMedianMs: median(simulated.map((run) => run.lowerBoundMs)),
+        lowerBoundSavingsMedianMs: median(simulated.map((run, index) => schedulingRuns[index].lowerBoundMs - run.lowerBoundMs)),
+      };
+    })
+    .sort((a, b) => b.lowerBoundSavingsMedianMs - a.lowerBoundSavingsMedianMs
+      || b.workReductionMedianMs - a.workReductionMedianMs || a.moduleId.localeCompare(b.moduleId));
+
   const fields = comparableFields(manifest);
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -130,6 +205,8 @@ export function aggregateRawRuns(rawRuns, manifest) {
     measuredRunCount: rawRuns.length,
     files,
     dependencies,
+    analysis,
+    candidateSimulations,
   };
 }
 
@@ -146,10 +223,35 @@ export function renderReport(summary, top) {
     '# Vitest test-cost baseline', '',
     `- Comparable key: \`${summary.comparableKey}\``,
     `- Measured runs: ${summary.measuredRunCount}`, '',
+    '## Optimization space', '',
+    '| Metric | Median |',
+    '|---|---:|',
+    `| Actual wall | ${fixed(summary.analysis.actualWallMedianMs)} ms |`,
+    `| Total file work | ${fixed(summary.analysis.totalWorkMedianMs)} ms |`,
+    `| Scheduling lower bound | ${fixed(summary.analysis.schedulingLowerBoundMedianMs)} ms |`,
+    `| Scheduling gap | ${fixed(summary.analysis.schedulingGapMedianMs)} ms |`,
+    `| Scheduling efficiency | ${fixed(summary.analysis.schedulingEfficiencyMedian * 100)}% |`,
+    `| Optimistic engineering lower bound | ${fixed(summary.analysis.engineeringLowerBoundMedianMs)} ms |`,
+    `| Optimistic engineering headroom | ${fixed(summary.analysis.engineeringHeadroomMedianMs)} ms |`, '',
+    '> Scheduling lower bound is `max(sum(file work)/workers, largest file work)` per project; concurrent projects use the maximum.',
+    '> Engineering lower bound removes exclusive self time for repeated `src/**` dependencies (fan-in >= 2). It is a direction-finding floor, not a forecast.', '',
+    '### Per-project scheduling bounds', '',
+    '| Project | Actual wall | Work | Largest file | Scheduling lower bound |',
+    '|---|---:|---:|---:|---:|',
+  ];
+  summary.analysis.projects.forEach((project) => lines.push(
+    `| ${escapeCell(project.projectName)} | ${fixed(project.actualWallMedianMs)} | ${fixed(project.workMedianMs)} | ${fixed(project.largestJobMedianMs)} | ${fixed(project.schedulingLowerBoundMedianMs)} |`,
+  ));
+  lines.push('', '### Candidate optimization simulations', '',
+    '| # | Dependency | Fan-in | Work removed | Simulated lower bound | Theoretical lower-bound saving |',
+    '|---:|---|---:|---:|---:|---:|');
+  summary.candidateSimulations.slice(0, top).forEach((candidate, index) => lines.push(
+    `| ${index + 1} | ${escapeCell(candidate.moduleId)} | ${candidate.fanInFiles} | ${fixed(candidate.workReductionMedianMs)} | ${fixed(candidate.simulatedLowerBoundMedianMs)} | ${fixed(candidate.lowerBoundSavingsMedianMs)} |`,
+  ));
+  lines.push('', '> Each candidate simulation removes one dependency only; rows are not additive.', '',
     '## Highest per-file pre-run cost', '',
     '| # | Project | Test file | Pre-run median ms | Collect | Setup | Prepare | Environment | Test + hooks |',
-    '|---:|---|---|---:|---:|---:|---:|---:|---:|',
-  ];
+    '|---:|---|---|---:|---:|---:|---:|---:|---:|');
   summary.files.slice(0, top).forEach((file, index) => lines.push(
     `| ${index + 1} | ${escapeCell(file.projectName)} | ${escapeCell(file.moduleId)} | ${fixed(file.preRunMedianMs)} | ${fixed(file.collectMedianMs)} | ${fixed(file.setupMedianMs)} | ${fixed(file.prepareMedianMs)} | ${fixed(file.environmentSetupMedianMs)} | ${fixed(file.testAndHooksMedianMs)} |`,
   ));
@@ -186,6 +288,7 @@ function mergeProjectRaw(projectPayloads, sample) {
 
 function runProject(rootDir, runDir, label, project, workers, filters) {
   return new Promise((resolve) => {
+    const startedAt = performance.now();
     const rawPath = path.join(runDir, 'raw', `${label}-${project}.json`);
     const args = ['exec', 'vitest', 'run', '--config', '.config/vitest.config.ts', `--project=${project}`,
       '--reporter=default', '--reporter=./.config/vitest-cost-reporter.mjs', ...filters];
@@ -202,11 +305,14 @@ function runProject(rootDir, runDir, label, project, workers, filters) {
     const stderr = fs.createWriteStream(path.join(runDir, 'logs', `${label}-${project}.stderr.log`), { flags: 'wx' });
     child.stdout.pipe(stdout);
     child.stderr.pipe(stderr);
-    child.once('error', (error) => resolve({ label, project, exitCode: null, signal: null, error: String(error), rawPath }));
+    child.once('error', (error) => resolve({
+      label, project, exitCode: null, signal: null, error: String(error), rawPath,
+      wallMs: performance.now() - startedAt,
+    }));
     child.once('close', (exitCode, signal) => {
       stdout.end();
       stderr.end();
-      resolve({ label, project, exitCode, signal, rawPath });
+      resolve({ label, project, exitCode, signal, rawPath, wallMs: performance.now() - startedAt });
     });
   });
 }
@@ -220,6 +326,7 @@ async function runSample(rootDir, runDir, label, projects, workers, filters) {
   const payloads = processes.filter((entry) => fs.existsSync(entry.rawPath))
     .map((entry) => JSON.parse(fs.readFileSync(entry.rawPath, 'utf8')));
   const combined = mergeProjectRaw(payloads, label);
+  combined.projects = processes.map((entry) => ({ projectName: entry.project, wallMs: entry.wallMs }));
   fs.writeFileSync(path.join(runDir, 'runs', `${label}.json`), `${JSON.stringify(combined, null, 2)}\n`, { flag: 'wx' });
   return {
     combined,
