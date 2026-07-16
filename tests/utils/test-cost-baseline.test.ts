@@ -15,6 +15,7 @@ function raw(preRun: number, dependencySelf: number) {
       projectName: 'fast', moduleId: 'tests/a.test.ts',
       environmentSetupMs: 1, prepareMs: 2, setupMs: 3,
       collectMs: preRun - 6, preRunMs: preRun, testAndHooksMs: 4,
+      inferredStartMs: 3, endMs: 3 + preRun + 4,
       imports: [{ moduleId: 'src/shared.ts', selfMs: dependencySelf, totalMs: dependencySelf + 2 }],
     }],
   };
@@ -52,7 +53,27 @@ describe('test-cost baseline aggregation', () => {
       moduleSchedulingLossMedianMs: 0,
     });
     expect(renderReport(summary, 1)).toContain('Scheduling lower bound');
+    expect(renderReport(summary, 1)).toContain('Interior idle capacity');
     expect(renderReport(summary, 1)).toContain('src/shared.ts');
+  });
+
+  it('decomposes worker capacity loss into interior gaps', () => {
+    const fixture = raw(6, 0);
+    fixture.projects[0].moduleSpanMs = 22;
+    fixture.modules = [
+      { ...fixture.modules[0], moduleId: 'tests/a.test.ts', inferredStartMs: 0, endMs: 10 },
+      { ...fixture.modules[0], moduleId: 'tests/b.test.ts', inferredStartMs: 0, endMs: 10 },
+      { ...fixture.modules[0], moduleId: 'tests/c.test.ts', inferredStartMs: 12, endMs: 22 },
+      { ...fixture.modules[0], moduleId: 'tests/d.test.ts', inferredStartMs: 12, endMs: 22 },
+    ];
+    const project = aggregateRawRuns([fixture], manifest(2)).analysis.projects[0];
+    expect(project).toMatchObject({
+      moduleStartupLossMedianMs: 0,
+      moduleInteriorLossMedianMs: 2,
+      moduleTailLossMedianMs: 0,
+      moduleUnattributedLossMedianMs: 0,
+      interiorSlotGapPerFileMedianMs: 1,
+    });
   });
 
   it('simulates repeated source dependency removal without summing overlapping total time', () => {

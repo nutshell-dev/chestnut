@@ -70,6 +70,52 @@ function comparableKey(fields) {
   return crypto.createHash('sha256').update(JSON.stringify(fields)).digest('hex');
 }
 
+function calculateCapacityLoss(modules, workers) {
+  const events = modules.flatMap((module) => [
+    [module.inferredStartMs, 1],
+    [module.endMs, -1],
+  ]).sort((left, right) => left[0] - right[0] || right[1] - left[1]);
+  if (events.length === 0) {
+    return { startupLossMs: 0, interiorLossMs: 0, tailLossMs: 0, interiorSlotGapPerFileMs: 0 };
+  }
+
+  const segments = [];
+  let active = 0;
+  let previousMs = events[0][0];
+  for (const [atMs, delta] of events) {
+    if (atMs > previousMs) segments.push({ startMs: previousMs, endMs: atMs, active });
+    active += delta;
+    previousMs = atMs;
+  }
+  const fullSegments = segments.filter((segment) => segment.active >= workers);
+  const firstFullMs = fullSegments[0]?.startMs;
+  const lastFullMs = fullSegments.at(-1)?.endMs;
+  const wallEquivalentLoss = (selected) => selected.reduce(
+    (sum, segment) => sum + Math.max(0, workers - segment.active) * (segment.endMs - segment.startMs),
+    0,
+  ) / workers;
+  if (firstFullMs === undefined || lastFullMs === undefined) {
+    const interiorLossMs = wallEquivalentLoss(segments);
+    return {
+      startupLossMs: 0,
+      interiorLossMs,
+      tailLossMs: 0,
+      interiorSlotGapPerFileMs: modules.length > 0 ? interiorLossMs * workers / modules.length : 0,
+    };
+  }
+  const startupLossMs = wallEquivalentLoss(segments.filter((segment) => segment.endMs <= firstFullMs));
+  const interiorLossMs = wallEquivalentLoss(segments.filter(
+    (segment) => segment.startMs >= firstFullMs && segment.endMs <= lastFullMs,
+  ));
+  const tailLossMs = wallEquivalentLoss(segments.filter((segment) => segment.startMs >= lastFullMs));
+  return {
+    startupLossMs,
+    interiorLossMs,
+    tailLossMs,
+    interiorSlotGapPerFileMs: modules.length > 0 ? interiorLossMs * workers / modules.length : 0,
+  };
+}
+
 function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
   const fanIn = new Map();
   for (const module of run.modules) {
@@ -79,7 +125,8 @@ function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
   }
   const projectNames = [...new Set(run.modules.map((module) => module.projectName))].sort();
   const projects = projectNames.map((projectName) => {
-    const jobs = run.modules.filter((module) => module.projectName === projectName).map((module) => {
+    const projectModules = run.modules.filter((module) => module.projectName === projectName);
+    const jobs = projectModules.map((module) => {
       const removableMs = module.imports.reduce((sum, dependency) => {
         const engineeringCandidate = dependency.moduleId.startsWith('src/')
           && (fanIn.get(dependency.moduleId) ?? 0) >= 2;
@@ -94,12 +141,16 @@ function calculateRunBounds(run, workers, removedDependencyIds = new Set()) {
     const lowerBoundMs = Math.max(workMs / workers, largestJobMs);
     const timeline = run.projects?.find((project) => project.projectName === projectName);
     const wallMs = timeline?.wallMs ?? 0;
+    const capacityLoss = workMs / workers >= largestJobMs
+      ? calculateCapacityLoss(projectModules, workers)
+      : { startupLossMs: 0, interiorLossMs: 0, tailLossMs: 0, interiorSlotGapPerFileMs: 0 };
     return {
       projectName, workMs, largestJobMs, lowerBoundMs, wallMs,
       reporterWallMs: timeline?.reporterWallMs ?? 0,
       moduleSpanMs: timeline?.moduleSpanMs ?? 0,
       beforeModulesMs: timeline?.beforeModulesMs ?? 0,
       afterModulesMs: timeline?.afterModulesMs ?? 0,
+      ...capacityLoss,
     };
   });
   return {
@@ -190,6 +241,14 @@ export function aggregateRawRuns(rawRuns, manifest) {
         reporterOverheadMedianMs: median(samples.map((sample) => sample.beforeModulesMs + sample.afterModulesMs)),
         moduleSpanMedianMs: median(samples.map((sample) => sample.moduleSpanMs)),
         moduleSchedulingLossMedianMs: median(samples.map((sample) => sample.moduleSpanMs - sample.lowerBoundMs)),
+        moduleStartupLossMedianMs: median(samples.map((sample) => sample.startupLossMs)),
+        moduleInteriorLossMedianMs: median(samples.map((sample) => sample.interiorLossMs)),
+        moduleTailLossMedianMs: median(samples.map((sample) => sample.tailLossMs)),
+        moduleUnattributedLossMedianMs: median(samples.map((sample) => (
+          sample.moduleSpanMs - sample.lowerBoundMs
+          - sample.startupLossMs - sample.interiorLossMs - sample.tailLossMs
+        ))),
+        interiorSlotGapPerFileMedianMs: median(samples.map((sample) => sample.interiorSlotGapPerFileMs)),
       };
     }),
   };
@@ -253,7 +312,14 @@ export function renderReport(summary, top) {
   summary.analysis.projects.forEach((project) => lines.push(
     `| ${escapeCell(project.projectName)} | ${fixed(project.actualWallMedianMs)} | ${fixed(project.externalRunnerMedianMs)} | ${fixed(project.reporterOverheadMedianMs)} | ${fixed(project.moduleSpanMedianMs)} | ${fixed(project.schedulingLowerBoundMedianMs)} | ${fixed(project.moduleSchedulingLossMedianMs)} |`,
   ));
-  lines.push('', '### Candidate optimization simulations', '',
+  lines.push('', '### Module scheduling loss decomposition', '',
+    '| Project | Startup fill | Interior idle capacity | Tail drain | Unattributed | Interior slot gap / file |',
+    '|---|---:|---:|---:|---:|---:|');
+  summary.analysis.projects.forEach((project) => lines.push(
+    `| ${escapeCell(project.projectName)} | ${fixed(project.moduleStartupLossMedianMs)} | ${fixed(project.moduleInteriorLossMedianMs)} | ${fixed(project.moduleTailLossMedianMs)} | ${fixed(project.moduleUnattributedLossMedianMs)} | ${fixed(project.interiorSlotGapPerFileMedianMs)} |`,
+  ));
+  lines.push('', '> Capacity loss integrates unused worker slots and reports their wall-time equivalent. Interior excludes initial pool fill and final drain.', '',
+    '### Candidate optimization simulations', '',
     '| # | Dependency | Fan-in | Work removed | Simulated lower bound | Theoretical lower-bound saving |',
     '|---:|---|---:|---:|---:|---:|');
   summary.candidateSimulations.slice(0, top).forEach((candidate, index) => lines.push(
