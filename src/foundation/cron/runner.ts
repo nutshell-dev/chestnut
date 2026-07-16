@@ -132,6 +132,9 @@ export class CronRunner {
   private _activeAbortControllers = new Map<string, AbortController>();
   // F5: per-job initial scan guard to prevent daily double-fire on daemon restart
   private _initialScanDone = new Set<string>();
+  // Phase 1073: cancelling 期间超过 stuck 阈值仍未 settle 的 job 标记为 degraded，
+  // 在 handler 真实 settle 后仍阻塞同名后续调度，防止并发写相同资源。
+  private stuckJobs = new Set<string>();
 
   constructor(
     private readonly jobs: CronJob[],
@@ -218,38 +221,27 @@ export class CronRunner {
    */
   tick(): void {
     const now = new Date();
-    // P1.14 stuck watchdog：cancelling 中 job tick 计数 / 阈值后 audit + 强清 cancelling 让下 tick 自然重试（D1c 中断可恢复 + handler 幂等假设）
+    // Phase 1073: cancelling 中 job tick 计数仅用于 stuck 检测 + audit。
+    // 关键：cancelling 不再因 tick 计数被删除；只有 handler Promise 真实 settle
+    // （fulfilled 或 rejected）后，settle 回调才会清理 cancelling。在 settle 前，
+    // 同名 job 因 cancelling.has(job) 被跳过，避免旧 handler 与新 handler 并发。
     for (const name of this.cancelling) {
       const ticks = (this.cancellingTicks.get(name) ?? 0) + 1;
-      if (ticks >= CANCELLING_STUCK_TICKS) {
+      this.cancellingTicks.set(name, ticks);
+      if (ticks >= CANCELLING_STUCK_TICKS && !this.stuckJobs.has(name)) {
         const job = this.jobs.find(j => j.name === name);
         this.audit.write(CRON_AUDIT_EVENTS.HANDLER_STUCK,
           `job=${name}`,
           `ticks=${ticks}`,
           `timeout_ms=${job?.timeoutMs ?? 'unknown'}`,
         );
-        // phase 1232 r132 C: 再 abort (idempotent) + cleanup controller
-        const ctrl = this._activeAbortControllers.get(name);
-        if (ctrl) {
-          ctrl.abort();  // idempotent if already aborted
-          this.audit.write(
-            CRON_AUDIT_EVENTS.HANDLER_ABORTED,
-            `job=${name}`,
-            `ticks=${ticks}`,
-            'context=stuck_watchdog',
-          );
-          this._activeAbortControllers.delete(name);
-        }
-        this.cancelling.delete(name);
-        this.cancellingTicks.delete(name);
-      } else {
-        this.cancellingTicks.set(name, ticks);
+        this.stuckJobs.add(name);
       }
     }
     for (const job of this.jobs) {
       if (!job.enabled) continue;
       if (job.schedule === null) continue; // invalid schedule — skip registration (G3)
-      if (this.running.has(job.name) || this.cancelling.has(job.name)) continue; // 上次还没跑完 或 cancelling 中，跳过
+      if (this.running.has(job.name) || this.cancelling.has(job.name) || this.stuckJobs.has(job.name)) continue; // 上次还没跑完 / cancelling 中 / 已 degraded，跳过
       // F5: daily first-tick guard — skip if daemon started before target time
       if (job.schedule.type === 'daily' && !this._initialScanDone.has(job.name)) {
         const [h, m] = job.schedule.time.split(':').map(Number);

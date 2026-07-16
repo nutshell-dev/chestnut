@@ -382,7 +382,7 @@ describe('runner-handler-stuck', () => {
       vi.restoreAllMocks();
     });
 
-    it('handler 永挂 + timeout + N ticks 后 audit HANDLER_STUCK 并清 cancelling', async () => {
+    it('handler 永挂 + timeout + N ticks 后 audit HANDLER_STUCK 并标记 degraded，cancelling 继续阻塞同名 job', async () => {
       const audit = new MockAudit();
       const stuckHandler = vi.fn(() => new Promise<void>(() => {})); // 永挂
       const job: CronJob = {
@@ -411,8 +411,14 @@ describe('runner-handler-stuck', () => {
       expect(stuckAudits[0]!.cols).toContain('job=stuck-job');
       expect(stuckAudits[0]!.cols.some(c => c.startsWith('ticks='))).toBe(true);
 
-      // cancelling 已清
-      expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('stuck-job')).toBe(false);
+      // Phase 1073: cancelling 不清除，继续阻塞；stuckJobs 标记 degraded
+      expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('stuck-job')).toBe(true);
+      expect((runner as unknown as { stuckJobs: Set<string> }).stuckJobs.has('stuck-job')).toBe(true);
+
+      // 再 tick 到下一 interval block，同名 job 仍被跳过
+      vi.setSystemTime(new Date(2026, 3, 21, 10, 31, 0));
+      runner.tick();
+      expect(stuckHandler).toHaveBeenCalledTimes(1);
     });
 
     it('handler 正常 settle 不触发 stuck watchdog', async () => {

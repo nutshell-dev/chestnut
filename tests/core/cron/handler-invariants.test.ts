@@ -187,8 +187,8 @@ describe('handler-real-abort', () => {
       runner.stop();
     });
 
-    // 反向 2: stuck watchdog 路径再次 abort idempotent + 清 controller map
-    it('stuck watchdog 路径 idempotent abort + controller cleanup', async () => {
+    // 反向 2: Phase 1073 stuck watchdog 只 audit HANDLER_STUCK，不改变互斥状态、不清理 controller
+    it('stuck watchdog 路径 audit HANDLER_STUCK + 标记 degraded + 不释放 controller', async () => {
       const audit = makeMockAudit();
       const job: CronJob = {
         name: 'stuck-job',
@@ -204,11 +204,14 @@ describe('handler-real-abort', () => {
       // 模拟 10+ ticks stuck 后 watchdog
       for (let i = 0; i < 12; i++) runner.tick();
       const stuckEvents = audit.events.filter(
-        e => e[0] === CRON_AUDIT_EVENTS.HANDLER_ABORTED && e.some(c => c.includes('context=stuck_watchdog'))
+        e => e[0] === CRON_AUDIT_EVENTS.HANDLER_STUCK
       );
-      expect(stuckEvents.length).toBeGreaterThan(0);
-      // controller map should be cleaned
-      expect((runner as any)._activeAbortControllers.has('stuck-job')).toBe(false);
+      expect(stuckEvents.length).toBe(1);
+      expect(stuckEvents[0]).toContain('job=stuck-job');
+      // Phase 1073: 标记 degraded，controller/cancelling 仍持有直到 handler 真实 settle
+      expect((runner as any).stuckJobs.has('stuck-job')).toBe(true);
+      expect((runner as any)._activeAbortControllers.has('stuck-job')).toBe(true);
+      expect((runner as any).cancelling.has('stuck-job')).toBe(true);
       runner.stop();
     });
 
