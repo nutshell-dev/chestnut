@@ -90,6 +90,8 @@ export class EvolutionSystem {
   // mark) silently downgrades and dedupe drifts. Same pattern as
   // foundation/messaging/SequenceCounter.next().
   private retroChain: Promise<unknown> = Promise.resolve();
+  // phase 1078: retro chain stalled 后保持阻塞，直到原 chain 真实 settle
+  private retroChainBlocked = false;
 
   constructor(private readonly deps: EvolutionSystemDeps) {
   }
@@ -215,7 +217,13 @@ export class EvolutionSystem {
   ): Promise<RetroResult> {
     // phase 406 Step B (review N7): mutex serialize、防 HWM race
     // phase 450 (review-round3 §3): wait prev 加 stall timeout、超时不让 chain 永久阻塞下游
+    // phase 1078: stalled 时不替换 chain，保留原 prev 并设置 blocked 标志；
+    // 后续请求持续返回 blocked，直到原 prev 真实 settle 后清除标志。
     const prev = this.retroChain;
+    if (this.retroChainBlocked) {
+      return { status: 'blocked' as const, reason: 'previous_retro_stalled' };
+    }
+
     const p = (async (): Promise<RetroResult> => {
       let stalled = false;
       await Promise.race([
@@ -229,6 +237,7 @@ export class EvolutionSystem {
         }),
       ]);
       if (stalled) {
+        this.retroChainBlocked = true;
         this.deps.audit.write(
           RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED,
           `contract_id=${contractId}`,
@@ -238,7 +247,14 @@ export class EvolutionSystem {
       }
       return this._runRetroForContractImpl(contractId, ctx);
     })();
+
+    // phase 1078: 保持 chain 前进，但 prev 真实 settle 后清除 blocked 标志，
+    // 让后续请求在 stall 期间持续返回 blocked，直到原 chain 恢复。
     this.retroChain = p;
+    prev.finally(() => {
+      this.retroChainBlocked = false;
+    });
+
     return p;
   }
 

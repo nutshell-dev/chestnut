@@ -136,6 +136,50 @@ describe('retro-chain-stall', () => {
       // cleanup: 解锁第一个 retro
       resolveFirst?.();
     });
+
+    it('phase 1078: stall 标志持续阻塞后续请求，直到原 prev 真实 settle', async () => {
+      vi.useFakeTimers();
+      const sys = makeSystem();
+
+      let resolveFirst: (() => void) | null = null;
+      const neverPromise = new Promise<{ status: 'finished' }>(res => {
+        resolveFirst = () => res({ status: 'finished' });
+      });
+      const impl = vi.fn()
+        .mockImplementationOnce(() => neverPromise)
+        .mockResolvedValue({ status: 'finished' } as never);
+      (sys as unknown as { _runRetroForContractImpl: typeof impl })._runRetroForContractImpl = impl;
+
+      // A: 卡住
+      const pA = sys.runRetroForContract('c-1' as ContractId, {} as never);
+      await Promise.resolve();
+
+      // B: 检测到 stall，返回 blocked
+      const pB = sys.runRetroForContract('c-2' as ContractId, {} as never);
+      await vi.advanceTimersByTimeAsync(RETRO_CHAIN_STALL_TIMEOUT_MS + 100);
+      const rB = await pB;
+      expect(rB.status).toBe('blocked');
+      expect(rB.reason).toBe('previous_retro_stalled');
+
+      // C: 在 A 未 settle 前到达，应被标志立即阻塞，不进入 impl，也不产生新 STALLED audit
+      const pC = sys.runRetroForContract('c-3' as ContractId, {} as never);
+      const rC = await pC;
+      expect(rC.status).toBe('blocked');
+      expect(rC.reason).toBe('previous_retro_stalled');
+      expect(impl).toHaveBeenCalledTimes(1); // 只有 A 调用了 impl
+
+      const stallCallsAfterC = auditWrite.mock.calls.filter(c => c[0] === RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED);
+      expect(stallCallsAfterC).toHaveLength(1); // C 不产生额外 audit
+
+      // A 真实 settle；等待 pA 完成以触发 prev.finally() 清除 blocked 标志
+      resolveFirst?.();
+      await pA;
+
+      // D: 原 prev 已 settle，应恢复执行
+      const rD = await sys.runRetroForContract('c-4' as ContractId, {} as never);
+      expect(rD.status).toBe('finished');
+      expect(impl).toHaveBeenCalledTimes(2); // A + D
+    });
   });
 });
 
