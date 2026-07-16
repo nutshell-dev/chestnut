@@ -109,6 +109,21 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
   /**
    * Map SDK errors to our error types
    */
+  private isLoadError(error: unknown): boolean {
+    if (error instanceof LLMError) return false;
+    const sdk = this.sdkModule;
+    if (sdk && error instanceof sdk.APIError) return false;
+    return true;
+  }
+
+  private clearClientCache(error: unknown): void {
+    if (!this.isLoadError(error)) return;
+    this.clientPromise = undefined;
+    if (!this.sdkModule) {
+      anthropicSDKPromise = undefined;
+    }
+  }
+
   private mapSDKError(error: unknown, timeoutMs: number, signal?: AbortSignal): Error {
     // Use name check for mock compatibility in tests
     const errName = (error as Error)?.constructor?.name;
@@ -171,13 +186,13 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
    */
   async call(options: LLMCallOptions): Promise<LLMResponse> {
     const body = this.buildRequestBody(options);
-    const client = await this.getClient();
     const requestOptions: Anthropic.RequestOptions = {
       ...this.buildRequestOptions(),
       timeout: options.timeoutMs ?? this.config.timeoutMs,
       signal: options.signal,
     };
     try {
+      const client = await this.getClient();
       const response = await client.messages.create(
         body as Anthropic.MessageCreateParamsNonStreaming,
         requestOptions,
@@ -185,6 +200,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       const data = response as Anthropic.Message;
       return this.parseResponse(data);
     } catch (error) {
+      this.clearClientCache(error);
       const mapped = this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
       if (mapped instanceof LLMOutputBudgetExceededError) {
         return this.handleOutputBudgetExceeded(mapped, body, options, requestOptions);
@@ -263,7 +279,6 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
    */
   async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
     const body = this.buildRequestBody(options);
-    const client = await this.getClient();
     const requestOptions: Anthropic.RequestOptions = {
       ...this.buildRequestOptions(),
       timeout: options.timeoutMs ?? this.config.timeoutMs,
@@ -271,6 +286,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     };
     let yieldedChunks = false;
     try {
+      const client = await this.getClient();
       const sdkStream = client.messages.stream(
         body as Anthropic.MessageStreamParams,
         requestOptions,
@@ -280,6 +296,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
         yield chunk;
       }
     } catch (error) {
+      this.clearClientCache(error);
       const mapped = this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
       if (mapped instanceof LLMOutputBudgetExceededError) {
         if (yieldedChunks) {
@@ -300,6 +317,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
           this.assertThinkingBudgetFits(adjusted, auditPayload);
           const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
           try {
+            const client = await this.getClient();
             const retryStream = client.messages.stream(
               retryBody as Anthropic.MessageStreamParams,
               requestOptions,

@@ -5,8 +5,9 @@ import {
   LLMContextExceededError,
   LLMRateLimitError,
   LLMOutputBudgetExceededError,
+  LLMError,
 } from '../../../src/foundation/llm-provider/errors.js';
-import { BadRequestError, RateLimitError } from '@anthropic-ai/sdk';
+import { BadRequestError, RateLimitError, APIUserAbortError } from '@anthropic-ai/sdk';
 import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 const mockMessagesCreate = vi.fn();
@@ -61,6 +62,8 @@ vi.mock('@anthropic-ai/sdk', () => {
   Object.defineProperty(RateLimitError, 'name', { value: 'RateLimitError', configurable: true });
   class APIConnectionTimeoutError extends Error {}
   class APIUserAbortError extends Error {}
+  // Vitest may mangle the mock class name; preserve it so mapSDKError recognises the error.
+  Object.defineProperty(APIUserAbortError, 'name', { value: 'APIUserAbortError', configurable: true });
   class AuthenticationError extends Error { status = 401; }
   class PermissionDeniedError extends Error { status = 403; }
   class NotFoundError extends Error { status = 404; }
@@ -316,6 +319,108 @@ describe.sequential('AnthropicAdapter', () => {
       });
 
       expect(mockMessagesStream).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('client loading failure paths', () => {
+    it('maps SDK constructor throw and allows a second call to succeed', async () => {
+      const adapter = new AnthropicAdapter(config);
+      mockAnthropicConstructor.mockImplementationOnce(() => {
+        throw new Error('constructor failed');
+      });
+
+      await expect(adapter.call({ messages: [] })).rejects.toMatchObject({
+        message: expect.stringContaining('constructor failed'),
+      });
+      expect(mockAnthropicConstructor).toHaveBeenCalledTimes(1);
+
+      mockMessagesCreate.mockResolvedValueOnce({
+        model: 'claude-test',
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+      const result = await adapter.call({ messages: [] });
+      expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+      expect(mockAnthropicConstructor).toHaveBeenCalledTimes(2);
+    });
+
+    it('maps signal abort during client construction to external AbortError', async () => {
+      const adapter = new AnthropicAdapter(config);
+      const controller = new AbortController();
+      controller.abort({ type: 'user' });
+      mockAnthropicConstructor.mockImplementationOnce(() => {
+        if (controller.signal.aborted) {
+          throw new APIUserAbortError('aborted');
+        }
+      });
+
+      await expect(
+        adapter.call({ messages: [], signal: controller.signal }),
+      ).rejects.toMatchObject({
+        name: 'AbortError',
+        message: expect.stringContaining('Execution aborted'),
+      });
+    });
+
+    it('recovers on the second call after a constructor failure', async () => {
+      const adapter = new AnthropicAdapter(config);
+      mockAnthropicConstructor.mockImplementationOnce(() => {
+        throw new Error('constructor failed');
+      });
+      await expect(adapter.call({ messages: [] })).rejects.toBeInstanceOf(LLMError);
+
+      mockMessagesCreate.mockResolvedValueOnce({
+        model: 'claude-test',
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'recovered' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+      const result = await adapter.call({ messages: [] });
+      expect(result.content).toEqual([{ type: 'text', text: 'recovered' }]);
+    });
+  });
+
+  describe('dynamic import failure', () => {
+    it('maps a rejected SDK dynamic import to LLMError and recovers after clearing cache', async () => {
+      vi.doMock('@anthropic-ai/sdk', () => {
+        throw new Error('import failed');
+      });
+      vi.resetModules();
+      try {
+        const { AnthropicAdapter: Adapter } = await import(
+          '../../../src/foundation/llm-provider/anthropic.js'
+        );
+        const { LLMError: DynLLMError } = await import(
+          '../../../src/foundation/llm-provider/errors.js'
+        );
+        const adapter = new Adapter(config);
+        await expect(adapter.call({ messages: [] })).rejects.toBeInstanceOf(DynLLMError);
+
+        vi.doMock('@anthropic-ai/sdk', () => {
+          class MockAnthropic {
+            messages = {
+              create: () =>
+                Promise.resolve({
+                  model: 'claude-test',
+                  stop_reason: 'end_turn',
+                  content: [{ type: 'text', text: 'recovered' }],
+                  usage: { input_tokens: 1, output_tokens: 1 },
+                }),
+            };
+          }
+          return { default: MockAnthropic };
+        });
+        vi.resetModules();
+        const { AnthropicAdapter: RecoveredAdapter } = await import(
+          '../../../src/foundation/llm-provider/anthropic.js'
+        );
+        const result = await new RecoveredAdapter(config).call({ messages: [] });
+        expect(result.content).toEqual([{ type: 'text', text: 'recovered' }]);
+      } finally {
+        vi.doUnmock('@anthropic-ai/sdk');
+        vi.resetModules();
+      }
     });
   });
 
