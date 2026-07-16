@@ -1,4 +1,5 @@
-import { getEncoding, type Tiktoken } from 'js-tiktoken';
+import { createRequire } from 'node:module';
+import type { Tiktoken } from 'js-tiktoken';
 import type { Message, ContentBlock, ToolDefinition } from './types.js';
 
 /**
@@ -24,6 +25,9 @@ export const PER_MESSAGE_OVERHEAD_TOKENS = 4;
 
 /** Lazy singleton tiktoken encoding (cl100k_base baseline) */
 let encodingCache: Tiktoken | null = null;
+const requireModule = createRequire(
+  typeof __filename === 'string' ? __filename : import.meta.url
+);
 
 export function __resetForTest(): void {
   if (process.env.NODE_ENV !== 'test') {
@@ -33,6 +37,7 @@ export function __resetForTest(): void {
 }
 function getEnc(): Tiktoken {
   if (encodingCache === null) {
+    const { getEncoding } = requireModule('js-tiktoken') as typeof import('js-tiktoken');
     encodingCache = getEncoding('cl100k_base');
   }
   return encodingCache;
