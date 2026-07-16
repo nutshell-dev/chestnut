@@ -131,7 +131,7 @@ function mapEventType(chokidarEvent: string): WatchEventType | null {
  */
 export function createWatcher(
   absolutePath: string,
-  callback: (event: WatchEvent) => void,
+  callback: (event: WatchEvent) => void | Promise<void>,
   options?: {
     /** Watch recursively (for directories) */
     recursive?: boolean;
@@ -197,7 +197,10 @@ export function createWatcher(
     }
 
     try {
-      callback(watchEvent);
+      void Promise.resolve(callback(watchEvent)).catch((err: unknown) => {
+        const e = err instanceof Error ? err : new Error(String(err));
+        try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
+      });
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
