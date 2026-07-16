@@ -20,7 +20,7 @@
     "copy-templates": "cp -r src/templates dist/",
     "copy-skills": "cp -r src/skills dist/",
     "dev": "tsup --config .config/tsup.config.ts --watch",
-    "test": "vitest --config .config/vitest.config.ts",
+    "test": "vitest --config .config/vitest.config.ts --project=fast --project=isolated",
     "test:run": "vitest run --config .config/vitest.config.ts --project=fast --project=isolated --project=integration-process --project=integration-io",
     "test:preflight": "vitest run --config .config/vitest.config.ts",
     "test:fast": "vitest run --config .config/vitest.config.ts --project=fast --project=isolated",

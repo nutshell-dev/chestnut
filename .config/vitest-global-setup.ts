@@ -39,8 +39,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 
-// 在重定向 TMPDIR 前保存真实系统 tmpdir，供 teardown/reclaim 使用
-const HOST_TMPDIR = os.tmpdir();
+// 在重定向 TMPDIR 前保存真实系统 tmpdir，供 teardown/reclaim 使用。
+// watch 热重载时复用首次捕获的 CHESTNUT_HOST_TMPDIR，防止二次重定向到 run root。
+const HOST_TMPDIR = process.env.CHESTNUT_HOST_TMPDIR ?? os.tmpdir();
 
 function getMaxMtime(dir: string): number {
   let max = 0;

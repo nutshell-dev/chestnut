@@ -27,6 +27,7 @@ function runVitestInSandbox(
       TEMP: sandbox,
       CHESTNUT_RUN_ROOT: undefined,
       CHESTNUT_INVOCATION_ID: undefined,
+      CHESTNUT_HOST_TMPDIR: undefined,
       CHESTNUT_KEEP_TEST_TMP: keep ? '1' : undefined,
     },
     timeout: 120000,

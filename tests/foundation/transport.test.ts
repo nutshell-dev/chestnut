@@ -21,8 +21,8 @@ const createdSockets: string[] = [];
 
 function makeSocketPath(): string {
   // Unix domain socket 路径长度受限；TMPDIR 重定向后路径过长，
-  // 因此 socket 路径必须使用真实系统 tmpdir。
-  const p = join(getHostTmpDir(), `chestnut-test-${randomUUID()}.sock`);
+  // 因此 socket 路径必须使用真实系统 tmpdir。文件名缩短以避开 macOS 104 字节上限。
+  const p = join(getHostTmpDir(), `ct-${randomUUID().slice(0, 16)}.sock`);
   createdSockets.push(p);
   return p;
 }
