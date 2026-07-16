@@ -54,6 +54,10 @@ const ALLOWLIST_BASENAMES = new Set([
   // unreadable/race paths return null / degraded result to callers without audit dependency.
   'lightweight-query.ts',
   'list-archive.ts',
+  // phase 1047: per-contender 文件锁协议核心原语；所有 silent catch 均为并发 race /
+  // best-effort cleanup 路径（自残留清理、stale recovery、落选者自删、release no-op），
+  // 失败不影响正确性，残留由后续 contender 的 stale recovery 处理。
+  'lock-protocol.ts',
 ]);
 
 function basenameOf(filepath) {

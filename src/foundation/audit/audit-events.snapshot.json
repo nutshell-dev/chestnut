@@ -786,6 +786,10 @@
       "read_overflow_persist_failed",
       "search_overflow_persist_failed"
     ],
+    "foundation_fs_lock-audit-events": [
+      "lock_claim_election_lost",
+      "lock_claim_stale_recovered"
+    ],
     "foundation_llm-provider_audit-events": [
       "llm_output_budget_adjusted",
       "llm_provider_assistant_empty_content_skipped",
