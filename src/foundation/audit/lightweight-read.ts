@@ -4,9 +4,20 @@
  * AuditLog is append-only by design; these are diagnostic helpers, not query APIs.
  *
  * @phase 753
+ * @phase 1074: return discriminated Result<T> to distinguish I/O errors from empty results.
  */
 
 import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
+
+/**
+ * Discriminated result for lightweight audit helpers.
+ * Only `not_found` is treated as an empty/ benign result; `io_error` is propagated
+ * so callers can distinguish unreadable audits from missing audits.
+ */
+export type LightweightResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: 'not_found' | 'io_error' };
 
 /**
  * Check if audit file contains a specific keyword anywhere in its content.
@@ -16,13 +27,14 @@ export function auditFileContains(
   fs: FileSystem,
   auditPath: string,
   keyword: string,
-): boolean {
-  if (!fs.existsSync(auditPath)) return false;
+): LightweightResult<boolean> {
   try {
+    if (!fs.existsSync(auditPath)) return { ok: true, value: false };
     const content = fs.readSync(auditPath);
-    return content.includes(keyword);
-  } catch {
-    return false;
+    return { ok: true, value: content.includes(keyword) };
+  } catch (err) {
+    if (isFileNotFound(err)) return { ok: true, value: false };
+    return { ok: false, error: 'io_error' };
   }
 }
 
@@ -33,15 +45,16 @@ export function auditFileContains(
 export function auditFirstTimestamp(
   fs: FileSystem,
   auditPath: string,
-): string | null {
-  if (!fs.existsSync(auditPath)) return null;
+): LightweightResult<string | null> {
   try {
+    if (!fs.existsSync(auditPath)) return { ok: true, value: null };
     const content = fs.readSync(auditPath);
     const firstLine = content.split('\n').find(l => l.trim());
-    if (!firstLine) return null;
-    return firstLine.split('\t')[0] || null;
-  } catch {
-    return null;
+    if (!firstLine) return { ok: true, value: null };
+    return { ok: true, value: firstLine.split('\t')[0] || null };
+  } catch (err) {
+    if (isFileNotFound(err)) return { ok: true, value: null };
+    return { ok: false, error: 'io_error' };
   }
 }
 
@@ -52,11 +65,12 @@ export function auditFirstTimestamp(
 export function auditFileGetMtime(
   fs: FileSystem,
   auditPath: string,
-): number | null {
-  if (!fs.existsSync(auditPath)) return null;
+): LightweightResult<number | null> {
   try {
-    return fs.statSync(auditPath).mtime.getTime();
-  } catch {
-    return null;
+    if (!fs.existsSync(auditPath)) return { ok: true, value: null };
+    return { ok: true, value: fs.statSync(auditPath).mtime.getTime() };
+  } catch (err) {
+    if (isFileNotFound(err)) return { ok: true, value: null };
+    return { ok: false, error: 'io_error' };
   }
 }

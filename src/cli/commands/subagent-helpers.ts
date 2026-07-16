@@ -30,7 +30,7 @@ import { deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-s
 
 
 export type SubagentKind = 'summon' | 'spawn' | 'shadow' | 'verifier' | 'random_dream' | 'cron';
-export type SubagentStatus = 'completed' | 'running' | 'failed';
+export type SubagentStatus = 'completed' | 'running' | 'failed' | 'error';
 
 /** Phase 849: resolve a task id (short or full) to the id used for filesystem paths. */
 function resolvePathTaskId(id: string, shortIdIndex?: ShortIdIndex): string {
@@ -94,7 +94,9 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem; sh
 
   // Fallback: check audit.tsv for random_dream signals
   const auditRel = path.join(TASKS_QUEUES_RESULTS_DIR, pathId, AUDIT_FILE);
-  if (auditFileContains(clawFs, auditRel, 'cron_random_dream_job')) return 'random_dream';
+  const randomDreamResult = auditFileContains(clawFs, auditRel, 'cron_random_dream_job');
+  if (randomDreamResult.ok && randomDreamResult.value) return 'random_dream';
+  // I/O error reading audit: cannot confirm random_dream, conservatively fallback to spawn.
 
   return 'spawn';
 }
@@ -104,10 +106,16 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   if (resultFs.existsSync('result.txt')) return 'completed';
 
   const auditRel = path.join(resultDir, AUDIT_FILE);
-  if (auditFileContains(resultFs, auditRel, 'task_failed') ||
-      auditFileContains(resultFs, auditRel, 'task_handler_failed') ||
-      auditFileContains(resultFs, auditRel, 'task_start_failed')) return 'failed';
-  if (auditFileContains(resultFs, auditRel, 'task_completed')) return 'completed';
+  const failedResult = auditFileContains(resultFs, auditRel, 'task_failed');
+  const handlerFailedResult = auditFileContains(resultFs, auditRel, 'task_handler_failed');
+  const startFailedResult = auditFileContains(resultFs, auditRel, 'task_start_failed');
+  const completedResult = auditFileContains(resultFs, auditRel, 'task_completed');
+
+  if (!failedResult.ok || !handlerFailedResult.ok || !startFailedResult.ok || !completedResult.ok) {
+    return 'error';
+  }
+  if (failedResult.value || handlerFailedResult.value || startFailedResult.value) return 'failed';
+  if (completedResult.value) return 'completed';
 
   return 'running';
 }
@@ -135,8 +143,8 @@ export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem;
   // Fallback to audit.tsv first line timestamp
   const resultFs = deps.fsFactory(resultDir);
   const auditRel = path.join(resultDir, AUDIT_FILE);
-  const ts = auditFirstTimestamp(resultFs, auditRel);
-  if (ts) return new Date(ts);
+  const tsResult = auditFirstTimestamp(resultFs, auditRel);
+  if (tsResult.ok && tsResult.value) return new Date(tsResult.value);
 
   return undefined;
 }
@@ -197,9 +205,9 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
           durationMs = clawFs.statSync(resultTxtRel).mtime.getTime() - startedAt.getTime();
         } else {
           const auditRel = path.join(asyncRel, pathId, AUDIT_FILE);
-          const mtime = auditFileGetMtime(clawFs, auditRel);
-          if (mtime !== null) {
-            durationMs = mtime - startedAt.getTime();
+          const mtimeResult = auditFileGetMtime(clawFs, auditRel);
+          if (mtimeResult.ok && mtimeResult.value !== null) {
+            durationMs = mtimeResult.value - startedAt.getTime();
           }
         }
       }
@@ -239,9 +247,9 @@ function scanSyncDir(
     let durationMs: number | undefined;
     if (startedAt) {
       const auditRel = path.join(dirRel, id, AUDIT_FILE);
-      const mtime = auditFileGetMtime(clawFs, auditRel);
-      if (mtime !== null) {
-        durationMs = mtime - startedAt.getTime();
+      const mtimeResult = auditFileGetMtime(clawFs, auditRel);
+      if (mtimeResult.ok && mtimeResult.value !== null) {
+        durationMs = mtimeResult.value - startedAt.getTime();
       }
     }
     // contractId only meaningful for verifier-<contractId>-<subtaskId>
