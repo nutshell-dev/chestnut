@@ -306,7 +306,23 @@ export class InboxReader {
       // 新版格式: .tmp_<uuid>_<original>.staging
       if (entry.name.endsWith('.staging')) {
         const match = entry.name.match(STAGE_RE);
-        if (!match) continue;  // foreign .staging file — leave untouched
+        if (!match) {
+          // 无法可靠解析 staging 文件名 → 移入 failed/ 隔离审计（与旧格式一致）
+          const stagePath = path.join(this.pendingDir, entry.name);
+          const quarantineName = `${Date.now()}_${newShortUuid()}_quarantine_staging_${entry.name}`;
+          const quarantinePath = path.join(this.failedDir, quarantineName);
+          try {
+            await this.fs.move(stagePath, quarantinePath);
+          } catch (err) {
+            if (isFileNotFound(err)) continue;
+            throw err;
+          }
+          emitInboxStageQuarantine(this.audit, {
+            file: entry.name,
+            reason: 'unparseable_staging_format',
+          });
+          continue;
+        }
         const originalName = match[1];
         const stagePath = path.join(this.pendingDir, entry.name);
         const stageContent = await this.fs.read(stagePath);

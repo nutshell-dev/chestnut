@@ -570,5 +570,40 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
       const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
       expect(failedFiles.filter(f => f.endsWith('.md'))).toHaveLength(0);
     });
+
+    // ─── 反向测试: 不符合 STAGE_RE 的 .staging 文件入 quarantine ────────
+    it('init() quarantines unparseable .staging file (does not match STAGE_RE)', async () => {
+      // 文件名不含有效的 uuid + original 结构 → STAGE_RE 不匹配
+      const weirdStaging = '.tmp_broken_no_original.staging';
+      const content = '---\nid: weird-staging\n---\nmalformed staging\n';
+      await fs.writeFile(path.join(pendingDir(), weirdStaging), content);
+
+      const calls: Array<{ type: string; cols: string[] }> = [];
+      const audit = {
+        write(type: string, ...cols: (string | number)[]) {
+          calls.push({ type, cols: cols.map(String) });
+        },
+      };
+      const freshReader = new InboxReader(
+        pendingDir(),
+        path.join(testDir, 'inbox', 'done'),
+        path.join(testDir, 'inbox', 'failed'),
+        nfs,
+        audit,
+      );
+      await freshReader.init();
+
+      // pending 中旧文件已移除
+      const remaining = await fs.readdir(pendingDir());
+      expect(remaining).not.toContain(weirdStaging);
+      // 内容移入 failed/（quarantine）
+      const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
+      const quarantineFiles = failedFiles.filter(f => f.includes('quarantine_staging'));
+      expect(quarantineFiles).toHaveLength(1);
+      // audit: INBOX_STAGE_QUARANTINE with staging reason
+      const quarantineAudit = calls.filter(c => c.type === MESSAGING_AUDIT_EVENTS.INBOX_STAGE_QUARANTINE);
+      expect(quarantineAudit).toHaveLength(1);
+      expect(quarantineAudit[0].cols.some(c => c.includes('unparseable_staging_format'))).toBe(true);
+    });
   });
 });
