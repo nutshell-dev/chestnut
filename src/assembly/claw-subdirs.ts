@@ -21,7 +21,7 @@ import { DIALOG_DIR, DIALOG_ARCHIVE_DIR } from '../foundation/dialog-store/index
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
-import { TASKS_SYNC_WRITE_DIR, TASKS_SYNC_SEARCH_DIR } from '../foundation/file-tool/index.js';
+import { TASKS_SYNC_WRITE_DIR, TASKS_SYNC_SEARCH_DIR } from '../foundation/file-tool/constants.js';
 import {
   TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_RESULTS_DIR,

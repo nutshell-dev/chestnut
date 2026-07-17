@@ -6,7 +6,7 @@ import { makeClawId } from '../foundation/claw-identity/index.js';
 
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
-import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
+import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/constants.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
