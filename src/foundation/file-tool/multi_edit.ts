@@ -23,6 +23,7 @@ import { enforceFullReadGate } from './fullread-gate.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 import { findFirstMatchLine, formatEditDiff, lineDelta, findNearMatches, findAllMatchLines } from './edit-text-utils.js';
+import { literalReplace } from './literal-replace.js';
 export const MULTI_EDIT_TOOL_NAME = 'multi_edit' as const;
 
 const MultiEditInputSchema = z.object({
@@ -43,17 +44,6 @@ const MultiEditInputSchema = z.object({
 }).strict();
 
 type MultiEditInput = z.infer<typeof MultiEditInputSchema>;
-
-function countMatches(s: string, pattern: string): number {
-  if (!pattern) return 0;
-  let count = 0;
-  let pos = 0;
-  while ((pos = s.indexOf(pattern, pos)) !== -1) {
-    count++;
-    pos += pattern.length;
-  }
-  return count;
-}
 
 export const multiEditTool: Tool = {
   name: MULTI_EDIT_TOOL_NAME,
@@ -157,21 +147,23 @@ export const multiEditTool: Tool = {
 
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i];
-      const matches = countMatches(current, edit.oldText);
-      if (matches === 0) {
-        // phase 1456 P1: attach near-miss hint (against the post-prev-edits `current` state)
-        const nearMatches = findNearMatches(current, edit.oldText);
-        const nearHint = nearMatches.length > 0
-          ? `\n\nNear matches in the file's current state (line: text):\n` + nearMatches.map(m => `  ${m.line} (${m.score}): ${m.text}`).join('\n')
-          : '';
-        return {
-          success: false,
-          content: `Error: edit[${i}] 0 matches for oldText. All changes rolled back / 0 file writes. Verify current content with \`read\` (the file may have changed) — also note: edits[${i}].oldText must match the file AFTER edits[0..${i - 1}] have been applied, so an earlier edit may have invalidated this one.${nearHint}`,
-          metadata: { failed_index: i, results },
-        };
-      }
-      if (matches > 1 && !edit.replaceAll) {
+      const replaceResult = literalReplace(current, edit.oldText, edit.newText, edit.replaceAll ? 'all' : 'unique');
+      if (!replaceResult.ok) {
+        if (replaceResult.reason === 'not-found') {
+          // phase 1456 P1: attach near-miss hint (against the post-prev-edits `current` state)
+          const nearMatches = findNearMatches(current, edit.oldText);
+          const nearHint = nearMatches.length > 0
+            ? `\n\nNear matches in the file's current state (line: text):\n` + nearMatches.map(m => `  ${m.line} (${m.score}): ${m.text}`).join('\n')
+            : '';
+          return {
+            success: false,
+            content: `Error: edit[${i}] 0 matches for oldText. All changes rolled back / 0 file writes. Verify current content with \`read\` (the file may have changed) — also note: edits[${i}].oldText must match the file AFTER edits[0..${i - 1}] have been applied, so an earlier edit may have invalidated this one.${nearHint}`,
+            metadata: { failed_index: i, results },
+          };
+        }
+        // replaceResult.reason === 'multiple-matches'
         // phase 1456 P2: attach match line list
+        const matches = replaceResult.matches;
         const lines = findAllMatchLines(current, edit.oldText, 5);
         const lineList = lines.join(', ') + (matches > 5 ? `, +${matches - 5} more` : '');
         return {
@@ -184,10 +176,8 @@ export const multiEditTool: Tool = {
       if (i === 0) {
         firstEditPreview = formatEditDiff(current, edit.oldText, edit.newText);
       }
-      current = edit.replaceAll
-        ? current.split(edit.oldText).join(edit.newText)
-        : current.replace(edit.oldText, edit.newText);
-      results.push({ index: i, replaced: edit.replaceAll ? matches : 1, line: matchLine });
+      current = replaceResult.content;
+      results.push({ index: i, replaced: replaceResult.replaced, line: matchLine });
     }
 
     // All edits succeeded — single atomic write

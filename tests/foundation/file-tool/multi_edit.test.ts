@@ -362,6 +362,43 @@ describe('multi_edit tool', () => {
       expect(result.content).toContain('edit[0].oldText must be a non-empty string');
     });
 
+    // phase 1109 Step B: literal replacement regression
+    describe('phase 1109: literal replacement semantics', () => {
+      it('applies replacement tokens literally in a chain', async () => {
+        await mockFs.ensureDir('clawspace');
+        await mockFs.writeAtomic('clawspace/tokens.txt', "a = r'\\d+$'\nb = r'\\w+'");
+
+        const result = await multiEditTool.execute({
+          path: 'tokens.txt',
+          edits: [
+            { oldText: "r'\\d+$'", newText: "r'\\s+'" },
+            { oldText: "r'\\w+'", newText: "r'\\W+'" },
+          ],
+        }, ctx);
+
+        expect(result.success).toBe(true);
+        const content = await mockFs.read('clawspace/tokens.txt');
+        expect(content).toBe("a = r'\\s+'\nb = r'\\W+'");
+      });
+
+      it('matches against output of previous edit literally', async () => {
+        await mockFs.ensureDir('clawspace');
+        await mockFs.writeAtomic('clawspace/chain.txt', 'alpha beta');
+
+        const result = await multiEditTool.execute({
+          path: 'chain.txt',
+          edits: [
+            { oldText: 'alpha', newText: '$&' },
+            { oldText: '$& beta', newText: 'done' },
+          ],
+        }, ctx);
+
+        expect(result.success).toBe(true);
+        const content = await mockFs.read('clawspace/chain.txt');
+        expect(content).toBe('done');
+      });
+    });
+
     it('Applied summary annotates line numbers as "before this edit"', async () => {
       await mockFs.ensureDir('clawspace');
       await mockFs.writeAtomic('clawspace/a.txt', 'alpha beta gamma');

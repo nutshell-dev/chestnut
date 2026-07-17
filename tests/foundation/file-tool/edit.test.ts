@@ -361,6 +361,54 @@ describe('edit tool', () => {
       writeSpy.mockRestore();
     });
 
+    // phase 1109 Step B: literal replacement regression
+    describe('phase 1109: literal replacement semantics', () => {
+      it('writes replacement tokens literally (not as JS replacement templates)', async () => {
+        await mockFs.ensureDir('clawspace');
+        await mockFs.writeAtomic('clawspace/tokens.txt', "pattern = r'\\d+$'");
+
+        const result = await editTool.execute({
+          path: 'tokens.txt',
+          oldText: "r'\\d+$'",
+          newText: "r'\\w+'",
+        }, ctx);
+
+        expect(result.success).toBe(true);
+        const content = await mockFs.read('clawspace/tokens.txt');
+        expect(content).toBe("pattern = r'\\w+'");
+      });
+
+      it("treats $& / $$ / `$` / $\\' / \\1 / \\g<1> as literal newText", async () => {
+        await mockFs.ensureDir('clawspace');
+        await mockFs.writeAtomic('clawspace/lit.txt', 'PLACEHOLDER');
+
+        const result = await editTool.execute({
+          path: 'lit.txt',
+          oldText: 'PLACEHOLDER',
+          newText: "$$\\1\\g<1>$&$`$'",
+        }, ctx);
+
+        expect(result.success).toBe(true);
+        const content = await mockFs.read('clawspace/lit.txt');
+        expect(content).toBe("$$\\1\\g<1>$&$`$'");
+      });
+
+      it('preserves emoji and CRLF literally', async () => {
+        await mockFs.ensureDir('clawspace');
+        await mockFs.writeAtomic('clawspace/emoji.txt', 'hello 🌍\r\n世界');
+
+        const result = await editTool.execute({
+          path: 'emoji.txt',
+          oldText: 'hello',
+          newText: 'hi',
+        }, ctx);
+
+        expect(result.success).toBe(true);
+        const content = await mockFs.read('clawspace/emoji.txt');
+        expect(content).toBe('hi 🌍\r\n世界');
+      });
+    });
+
     it('rejects empty oldText immediately', async () => {
       await mockFs.ensureDir('clawspace');
       await mockFs.writeAtomic('clawspace/e.txt', 'content');
