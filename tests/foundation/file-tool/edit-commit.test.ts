@@ -23,29 +23,13 @@ function createAuditWriter() {
   };
 }
 
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(r => { resolve = r; });
+  return { promise, resolve };
+}
+
 describe('edit-commit coordinator', () => {
-  // Time budgets for concurrent-commit tests.
-  // These are not production timeouts; they exist only to let the single-threaded
-  // test scheduler reach predictable points without hard-coding unexplained ms.
-
-  /**
-   * Yield window used after starting two concurrent same-path commits.
-   * Derivation: editCommit's enqueue() is synchronous, so both tasks are already
-   * in the per-path queue by the time the Promise is returned. 10 ms is >> the
-   * few event-loop turns needed for the async task bodies to start, giving the
-   * test a stable window to release the first write while the second is queued.
-   */
-  const DUAL_COMMIT_QUEUE_YIELD_MS = 10;
-
-  /**
-   * Completion deadline used when asserting that a different-path commit is not
-   * blocked by another path's delayed write.
-   * Derivation: an unblocked single-edit commit typically finishes in < 5 ms in
-   * these temp-fs tests; 100 ms provides an order-of-magnitude headroom to avoid
-   * flaky false positives without masking a real serialization bug.
-   */
-  const DIFFERENT_PATH_COMPLETION_TIMEOUT_MS = 100;
-
   let tempDir: string;
   let mockFs: NodeFileSystem;
   let ctx: ExecContextImpl;
@@ -273,6 +257,7 @@ describe('edit-commit coordinator', () => {
     await mockFs.ensureDir('clawspace');
     await mockFs.writeAtomic('clawspace/file.txt', 'hello world');
 
+    const firstWriteReached = createDeferred<void>();
     let releaseFirstWrite: () => void;
     const firstWriteGate = new Promise<void>(resolve => { releaseFirstWrite = resolve; });
     let targetWriteCount = 0;
@@ -282,6 +267,7 @@ describe('edit-commit coordinator', () => {
       if (targetPath === 'clawspace/file.txt') {
         targetWriteCount++;
         if (targetWriteCount === 1) {
+          firstWriteReached.resolve();
           await firstWriteGate;
         }
       }
@@ -300,6 +286,9 @@ describe('edit-commit coordinator', () => {
       editCount: 1,
     });
 
+    // Wait until commit1 has actually entered its per-path critical section.
+    await firstWriteReached.promise;
+
     const commit2 = editCommit({
       ctx,
       tool: 'edit',
@@ -312,8 +301,6 @@ describe('edit-commit coordinator', () => {
       editCount: 1,
     });
 
-    // Let both tasks reach the coordinator queue.
-    await new Promise(r => setTimeout(r, DUAL_COMMIT_QUEUE_YIELD_MS));
     releaseFirstWrite!();
 
     const [result1, result2] = await Promise.all([commit1, commit2]);
@@ -332,8 +319,10 @@ describe('edit-commit coordinator', () => {
     await mockFs.writeAtomic('clawspace/a.txt', 'a');
     await mockFs.writeAtomic('clawspace/b.txt', 'b');
 
+    const aWriteReached = createDeferred<void>();
     let releaseA: () => void;
     const gateA = new Promise<void>(resolve => { releaseA = resolve; });
+    const bWriteReached = createDeferred<void>();
     let aWriteCount = 0;
     const originalWriteAtomic = mockFs.writeAtomic.bind(mockFs);
     const writeSpy = vi.spyOn(mockFs, 'writeAtomic').mockImplementation(async (...args: [string, string]) => {
@@ -341,8 +330,11 @@ describe('edit-commit coordinator', () => {
       if (targetPath === 'clawspace/a.txt') {
         aWriteCount++;
         if (aWriteCount === 1) {
+          aWriteReached.resolve();
           await gateA;
         }
+      } else if (targetPath === 'clawspace/b.txt') {
+        bWriteReached.resolve();
       }
       return originalWriteAtomic(...args);
     });
@@ -359,6 +351,9 @@ describe('edit-commit coordinator', () => {
       editCount: 1,
     });
 
+    // Confirm A is blocked inside its own path's critical section.
+    await aWriteReached.promise;
+
     const commitB = editCommit({
       ctx,
       tool: 'edit',
@@ -371,16 +366,16 @@ describe('edit-commit coordinator', () => {
       editCount: 1,
     });
 
-    // B must complete even though A is still blocked on its first target write.
-    const bCompleted = await Promise.race([
-      commitB.then(() => true),
-      new Promise<boolean>(resolve => setTimeout(() => resolve(false), DIFFERENT_PATH_COMPLETION_TIMEOUT_MS)),
-    ]);
-    expect(bCompleted).toBe(true);
+    // Confirm B can reach its own target write while A is still gated.
+    // If different paths were incorrectly serialized, this would deadlock and
+    // the test framework's overall timeout would catch it.
+    await bWriteReached.promise;
 
     releaseA!();
-    await Promise.all([commitA, commitB]);
+    const [resultA, resultB] = await Promise.all([commitA, commitB]);
 
+    expect(resultA.ok).toBe(true);
+    expect(resultB.ok).toBe(true);
     expect(await mockFs.read('clawspace/a.txt')).toBe('A');
     expect(await mockFs.read('clawspace/b.txt')).toBe('B');
 
