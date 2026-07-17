@@ -191,6 +191,10 @@ export async function completeSubtaskSync(
 
     if (progress.status !== 'running') {
       // paused / crashed / archive_pending_recovery / cancelled
+      result = {
+        passed: false,
+        feedback: `Contract status is "${progress.status}", cannot complete subtask "${subtaskId}".`,
+      };
       emitContractVerificationResetFailed(
         ctx.audit,
         {

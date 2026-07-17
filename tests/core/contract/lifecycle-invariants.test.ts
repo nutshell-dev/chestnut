@@ -304,6 +304,10 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     // Try to complete subtask on cancelled contract
     const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toContain('cancelled');
+    expect(result.allCompleted).toBe(false);
+
     const progress = await manager.getProgress(contractId);
     expect(progress.status).toBe('cancelled');
     expect(progress.subtasks['t1'].status).toBe('todo');
