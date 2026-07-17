@@ -306,7 +306,7 @@ describe('verification outcome observability (phase 1371 sub-4)', () => {
       notifyClaw: vi.fn(),});
   }
 
-  it('cancelled contract → background done audit contains outcomeKind=cancelled + cancel_reason', async () => {
+  it('cancelled contract → lifecycle guard rejects without starting background verification', async () => {
     const { audit, events, emitter } = makeAudit();
     const manager = makeManager(audit);
 
@@ -319,19 +319,19 @@ describe('verification outcome observability (phase 1371 sub-4)', () => {
     await manager.cancel(contractId, 'test cancel');
 
     // Mock runScriptVerification so it would succeed if not cancelled
-    vi.spyOn(manager as any, 'runScriptVerification').mockResolvedValue({ passed: true, feedback: 'ok' });
+    const runScriptSpy = vi.spyOn(manager as any, 'runScriptVerification').mockResolvedValue({ passed: true, feedback: 'ok' });
 
-    // Start pipeline — it should read cancelled status and abort
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
+    // Start pipeline — lifecycle guard should reject before background starts
+    const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
 
-    // Wait for background done audit
-    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
+    expect(result.passed).toBe(false);
+    expect(result.async).toBeUndefined();
+    expect(result.feedback).toContain('cancelled');
+    expect(runScriptSpy).not.toHaveBeenCalled();
 
+    // No background done audit should be emitted
     const doneEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
-    expect(doneEvents.length).toBeGreaterThanOrEqual(1);
-    const lastDone = doneEvents[doneEvents.length - 1];
-    expect(lastDone.some((c: any) => String(c).includes('result=cancelled'))).toBe(true);
-    expect(lastDone.some((c: any) => String(c).includes('cancel_reason='))).toBe(true);
+    expect(doneEvents.length).toBe(0);
   });
 
   it('missing subtask → background done audit contains outcomeKind=missing_subtask + missing_subtask_id', async () => {

@@ -339,6 +339,7 @@ export async function runVerificationPipeline(
     }
 
   const attemptId = newUuid();
+  let lifecycleRejected: string | null = null;
 
   await ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
@@ -347,6 +348,7 @@ export async function runVerificationPipeline(
     }
     // Phase 968: lifecycle guard — only running contracts may start verification
     if (progress.status !== 'running') {
+      lifecycleRejected = progress.status;
       emitContractVerificationResetFailed(ctx.audit, {
         contractId,
         subtaskId,
@@ -375,6 +377,13 @@ export async function runVerificationPipeline(
     await ctx.saveProgress(contractId, progress);
     emitContractVerificationStarted(ctx.audit, { contractId, subtaskId });
   });
+
+  if (lifecycleRejected) {
+    return {
+      passed: false,
+      feedback: `Contract status is "${lifecycleRejected}", cannot start verification for subtask "${subtaskId}".`,
+    };
+  }
 
   // phase 337 M1 / review-2026-06-13: mutex hold must span the background
   // work lifetime, not just the in-progress mark commit. Earlier early-release

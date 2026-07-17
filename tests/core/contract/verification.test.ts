@@ -310,11 +310,11 @@ describe('runVerificationInBackground (Phase 965)', () => {
 });
 
 describe('runVerificationPipeline (Phase 968)', () => {
-  it('does not mark subtask in_progress when contract is paused', async () => {
+  it('does not start background verification when contract status is not running (lifecycle guard)', async () => {
     const contractId = 'c1';
     const subtaskId = 'st1';
     const progress = {
-      status: 'paused',
+      status: 'cancelled',
       subtasks: {
         [subtaskId]: { status: 'todo' },
       },
@@ -337,7 +337,9 @@ describe('runVerificationPipeline (Phase 968)', () => {
       evidence: 'ev',
     });
 
-    expect(result).toEqual({ passed: false, feedback: '', async: true });
+    expect(result.passed).toBe(false);
+    expect(result.async).toBeUndefined();
+    expect(result.feedback).toContain('cancelled');
     expect(saveProgress).not.toHaveBeenCalled();
     expect(progress.subtasks[subtaskId].status).toBe('todo');
     expect(audit.write).toHaveBeenCalledWith(
@@ -345,8 +347,11 @@ describe('runVerificationPipeline (Phase 968)', () => {
       expect.stringContaining(`contractId=${contractId}`),
       expect.stringContaining(`subtaskId=${subtaskId}`),
       expect.stringContaining('runVerificationPipeline'),
-      expect.stringContaining('paused'),
+      expect.stringContaining('cancelled'),
     );
+
+    // mutex 已释放：同 (contractId, subtaskId) 再次 acquire 成功
+    expect(ctx.verificationMutex.acquire(contractId, subtaskId)).toBe(true);
   });
 });
 
