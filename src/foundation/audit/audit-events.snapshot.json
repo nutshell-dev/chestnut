@@ -778,6 +778,10 @@
       "session_save_failed"
     ],
     "foundation_file-tool_audit-events": [
+      "file_edit_backup_failed",
+      "file_edit_committed",
+      "file_edit_conflict",
+      "file_edit_verification_failed",
       "file_tool_backup_failed",
       "file_tool_input_validation_failed",
       "overwrite_gate_rejected",

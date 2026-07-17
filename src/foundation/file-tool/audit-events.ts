@@ -8,6 +8,18 @@ export const FILE_TOOL_AUDIT_EVENTS = {
   /** sync-backup catch swallow → audit injection / phase 684 B-P2.10 / phase 706 L1-P1.1 dotcase → snake_case */
   BACKUP_FAILED: 'file_tool_backup_failed',
 
+  /** phase 1109 Step C: edit committed successfully、payload: tool path before_hash after_hash backup_path replaced edit_count */
+  FILE_EDIT_COMMITTED: 'file_edit_committed',
+
+  /** phase 1109 Step C: pre-commit content hash conflict、payload: tool path before_hash current_hash stage=precommit */
+  FILE_EDIT_CONFLICT: 'file_edit_conflict',
+
+  /** phase 1109 Step C: edit backup failed → fail closed、payload: tool path before_hash reason */
+  FILE_EDIT_BACKUP_FAILED: 'file_edit_backup_failed',
+
+  /** phase 1109 Step C: post-write verification failed、payload: tool path expected_hash actual_hash backup_path */
+  FILE_EDIT_VERIFICATION_FAILED: 'file_edit_verification_failed',
+
   /** read overflow > READ_OUTPUT_HARD_CAP_BYTES、persist 落盘失败（phase 1430 字面 → phase 1443 const） */
   READ_OVERFLOW_PERSIST_FAILED: 'read_overflow_persist_failed',
 

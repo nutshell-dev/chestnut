@@ -177,32 +177,42 @@ describe('edit tool', () => {
     writeSpy.mockRestore();
   });
 
-  it('should succeed even if backup fails', async () => {
+  // phase 1109 Step C: backup failure is now fail-closed (contract reversal)
+  it('fails and leaves file untouched when backup fails', async () => {
     await mockFs.ensureDir('clawspace');
     await mockFs.writeAtomic('clawspace/file.txt', 'hello world');
     const originalWriteAtomic = mockFs.writeAtomic.bind(mockFs);
-    let callCount = 0;
     const writeSpy = vi.spyOn(mockFs, 'writeAtomic').mockImplementation(async (...args: [string, string]) => {
-      callCount++;
-      // First call is backup write — fail it
-      if (callCount === 1) {
+      const [targetPath] = args;
+      // Fail the backup write (sync scratch) but let any target write pass through.
+      if (targetPath.includes('/sync/write/') || targetPath.includes('tasks\\sync\\write\\')) {
         throw new Error('disk full');
       }
-      // Subsequent calls pass through
       return originalWriteAtomic(...args);
+    });
+
+    const auditWriter = { __brand: 'AuditLog' as const, write: vi.fn(), preview: vi.fn(), message: vi.fn(), summary: vi.fn() };
+    const testCtx = new ExecContextImpl({
+      clawId: 'test-claw',
+      clawDir: tempDir,
+      syncDir: path.join(tempDir, 'tasks', 'sync'),
+      profile: 'subagent',
+      fs: mockFs,
+      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      auditWriter,
     });
 
     const result = await editTool.execute({
       path: 'file.txt',
       oldText: 'hello',
       newText: 'hi',
-    }, ctx);
+    }, testCtx);
 
-    expect(result.success).toBe(true);
-    expect(result.content).not.toContain('backup:');
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('backup could not be created');
 
     const content = await mockFs.read('clawspace/file.txt');
-    expect(content).toBe('hi world');
+    expect(content).toBe('hello world');
     writeSpy.mockRestore();
   });
 

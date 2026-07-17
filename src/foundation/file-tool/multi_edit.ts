@@ -16,14 +16,13 @@ import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import { formatErr } from '../node-utils/index.js';
 
-import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
-import { recordEditResult } from './file-state-manager.js';
 import { enforceFullReadGate } from './fullread-gate.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 import { findFirstMatchLine, formatEditDiff, lineDelta, findNearMatches, findAllMatchLines } from './edit-text-utils.js';
 import { literalReplace } from './literal-replace.js';
+import { editCommit } from './edit-commit.js';
 export const MULTI_EDIT_TOOL_NAME = 'multi_edit' as const;
 
 const MultiEditInputSchema = z.object({
@@ -137,9 +136,6 @@ export const multiEditTool: Tool = {
 
     const original = await ctx.fs.read(resolved);
 
-    // Single backup before applying edits
-    const backupPath = await backupToSync(ctx, resolved, 'multi_edit_backup');
-
     // Apply edits in-memory
     let current = original;
     const results: Array<{ index: number; replaced: number; line: number | null }> = [];
@@ -180,13 +176,28 @@ export const multiEditTool: Tool = {
       results.push({ index: i, replaced: replaceResult.replaced, line: matchLine });
     }
 
-    // All edits succeeded — single atomic write
-    await ctx.fs.writeAtomic(resolved, current);
-    // phase 1437: 不升 isFullRead=true、保 prevState。phase 1439 V3: 语义封装到 recordEditResult。
-    const newStat = await ctx.fs.stat(resolved);
-    recordEditResult(ctx, resolved, current, newStat.mtime.getTime());
+    // phase 1109 Step C: commit through shared coordinator
+    const totalReplaced = results.reduce((sum, r) => sum + r.replaced, 0);
+    const commitResult = await editCommit({
+      ctx,
+      tool: 'multi_edit',
+      path: filePath,
+      resolved,
+      original,
+      candidate: current,
+      backupSource: 'multi_edit_backup',
+      replaced: totalReplaced,
+      editCount: edits.length,
+    });
 
-    const backupHint = backupPath ? ` (backup: ${backupPath})` : '';
+    if (!commitResult.ok) {
+      return {
+        success: false,
+        content: commitResult.content,
+      };
+    }
+
+    const backupHint = commitResult.backupPath ? ` (backup: ${commitResult.backupPath})` : '';
     const totalDelta = edits.reduce(
       (sum, e, i) => sum + lineDelta(e.oldText, e.newText) * results[i].replaced,
       0,
