@@ -24,6 +24,28 @@ function createAuditWriter() {
 }
 
 describe('edit-commit coordinator', () => {
+  // Time budgets for concurrent-commit tests.
+  // These are not production timeouts; they exist only to let the single-threaded
+  // test scheduler reach predictable points without hard-coding unexplained ms.
+
+  /**
+   * Yield window used after starting two concurrent same-path commits.
+   * Derivation: editCommit's enqueue() is synchronous, so both tasks are already
+   * in the per-path queue by the time the Promise is returned. 10 ms is >> the
+   * few event-loop turns needed for the async task bodies to start, giving the
+   * test a stable window to release the first write while the second is queued.
+   */
+  const DUAL_COMMIT_QUEUE_YIELD_MS = 10;
+
+  /**
+   * Completion deadline used when asserting that a different-path commit is not
+   * blocked by another path's delayed write.
+   * Derivation: an unblocked single-edit commit typically finishes in < 5 ms in
+   * these temp-fs tests; 100 ms provides an order-of-magnitude headroom to avoid
+   * flaky false positives without masking a real serialization bug.
+   */
+  const DIFFERENT_PATH_COMPLETION_TIMEOUT_MS = 100;
+
   let tempDir: string;
   let mockFs: NodeFileSystem;
   let ctx: ExecContextImpl;
@@ -291,7 +313,7 @@ describe('edit-commit coordinator', () => {
     });
 
     // Let both tasks reach the coordinator queue.
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise(r => setTimeout(r, DUAL_COMMIT_QUEUE_YIELD_MS));
     releaseFirstWrite!();
 
     const [result1, result2] = await Promise.all([commit1, commit2]);
@@ -352,7 +374,7 @@ describe('edit-commit coordinator', () => {
     // B must complete even though A is still blocked on its first target write.
     const bCompleted = await Promise.race([
       commitB.then(() => true),
-      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 100)),
+      new Promise<boolean>(resolve => setTimeout(() => resolve(false), DIFFERENT_PATH_COMPLETION_TIMEOUT_MS)),
     ]);
     expect(bCompleted).toBe(true);
 
