@@ -9,7 +9,7 @@ import { execSync } from 'child_process';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
-import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/index.js';
+import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/config/snapshot-patterns.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { SNAPSHOT_AUDIT_EVENTS } from '../../src/foundation/snapshot/audit-events.js';
 import * as processExecMod from '../../src/foundation/process-exec/index.js';  // phase 275: hoist 5 dyn imports
