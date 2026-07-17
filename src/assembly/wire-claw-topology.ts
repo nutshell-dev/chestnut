@@ -11,11 +11,13 @@
 
 import {
   createClawTopology,
+  type ClawTopology,
+} from '../core/claw-topology/index.js';
+import {
   createCrossClawReadTool,
   createCrossClawLsTool,
   createCrossClawSearchTool,
-  type ClawTopology,
-} from '../core/claw-topology/index.js';
+} from '../core/claw-topology/agent-tools.js';
 import type { ToolRegistry } from '../foundation/tools/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';

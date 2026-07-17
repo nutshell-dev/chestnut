@@ -17,11 +17,6 @@ export {
 } from './claw-instance-paths.js';
 export { makeAgentDirResolver } from './agent-dir-resolver.js';
 export { resolveClawDaemonDir } from './daemon-dir.js';
-export {
-  createCrossClawReadTool,
-  createCrossClawLsTool,
-  createCrossClawSearchTool,
-} from './agent-tools.js';
 // phase 765: notify_claw tool (moved from L2c Messaging)
 export { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from './tools/notify-claw.js';
 export type { NotifyClawDeps } from './tools/notify-claw.js';
