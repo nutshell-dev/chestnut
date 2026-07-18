@@ -38,6 +38,9 @@ let unhandledRejectionHandler: ((reason: unknown) => void | Promise<void>) | nul
 let sigtermHandler: (() => void) | null = null;
 let sigintHandler: (() => void) | null = null;
 
+// phase 1124: shutdown 重入 guard（mirror watchdog.ts:87-111）
+let shutdownStarted: string | null = null;
+
 /** Test-only: reset all 4 daemon signal handlers between tests (mirror watchdog `_resetShutdownGuard`) */
 export function _resetDaemonSignalHandlers(): void {
   if (process.env.NODE_ENV !== 'test') {
@@ -47,6 +50,7 @@ export function _resetDaemonSignalHandlers(): void {
   if (unhandledRejectionHandler) { process.removeListener('unhandledRejection', unhandledRejectionHandler); unhandledRejectionHandler = null; }
   if (sigtermHandler) { process.removeListener('SIGTERM', sigtermHandler); sigtermHandler = null; }
   if (sigintHandler) { process.removeListener('SIGINT', sigintHandler); sigintHandler = null; }
+  shutdownStarted = null;
 }
 
 export interface DaemonCommandDeps {
@@ -127,6 +131,20 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     await processManager.selfWritePid(resolveClawDaemonDir(makeClawId(clawId)));
 
     const { runtime, streamWriter, snapshot, auditWriter, heartbeat } = instances;
+
+    // phase 1124: 4 个 shutdown 入口统一重入 guard（mirror watchdog.ts:87-111）
+    const beginShutdown = (cause: string): boolean => {
+      if (shutdownStarted !== null) {
+        auditWriter.write(
+          DAEMON_AUDIT_EVENTS.SHUTDOWN_REENTRY_SUPPRESSED,
+          `cause=${cause}`,
+          `in_progress=${shutdownStarted}`,
+        );
+        return false;
+      }
+      shutdownStarted = cause;
+      return true;
+    };
 
     const inboxPendingDir = path.join(dir, INBOX_PENDING_DIR);
 
@@ -250,6 +268,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     if (unhandledRejectionHandler) process.removeListener('unhandledRejection', unhandledRejectionHandler);
     uncaughtHandler = (err) => {
       writeCrash(err);
+      // phase 1124: crash 记录优先于 guard（独立 crash 均需留痕）
+      if (!beginShutdown('uncaughtException')) return Promise.resolve();
       // phase 517 B2: crash 路径也走 graceful shutdown（5s timeout 兜底防 dispose 死锁）
       // return Promise → Node 实际忽略、但测试可 await 验 exit + audit；类型由 listener void-return 兼容
       return gracefulShutdown('uncaughtException', 5_000).finally(() => {
@@ -259,6 +279,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     };
     unhandledRejectionHandler = (reason) => {
       writeCrash(reason);
+      // phase 1124: crash 记录优先于 guard
+      if (!beginShutdown('unhandledRejection')) return Promise.resolve();
       return gracefulShutdown('unhandledRejection', 5_000).finally(() => {
         auditWriter.dispose?.();
         process.exit(1);
@@ -269,6 +291,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     // shutdown (SIGTERM/SIGINT)
     const shutdown = async (signal: string): Promise<void> => {
+      if (!beginShutdown(signal)) return;  // phase 1124: 重入抑制、首个继续
       await gracefulShutdown(signal, 30_000);
       process.exit(0);
     };

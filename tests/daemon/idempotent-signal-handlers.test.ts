@@ -63,16 +63,20 @@ const mockFs = {
   readBytesSync: vi.fn().mockReturnValue(Buffer.from('')),
 };
 
+const mockAuditWriter = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
+const mockDisassemble = vi.fn().mockResolvedValue(undefined);
+const mockAssemble = vi.fn().mockResolvedValue({
+  runtime: { initialize: vi.fn().mockResolvedValue(undefined) },
+  streamWriter: {},
+  snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) },
+  auditWriter: mockAuditWriter,
+  heartbeat: null,
+});
+
 const daemonCommand = createDaemonCommand({
   fsFactory: () => mockFs as any,
-  assemble: vi.fn().mockResolvedValue({
-    runtime: { initialize: vi.fn().mockResolvedValue(undefined) },
-    streamWriter: {},
-    snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) },
-    auditWriter: { write: vi.fn() },
-    heartbeat: null,
-  }),
-  disassemble: vi.fn().mockResolvedValue(undefined),
+  assemble: mockAssemble,
+  disassemble: mockDisassemble,
   auditEvents: {
     assembleFailed: 'assemble_failed',
     daemonStart: 'daemon_start',
@@ -187,5 +191,60 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
       stopFn = null;
     }
     await p2.catch(() => { /* silent: shutdown */ });
+  });
+
+  it('case 4: concurrent SIGTERM during graceful shutdown → second disassemble suppressed + audit', async () => {
+    const p = daemonCommand('test-claw-reentry');
+    await flushMicrotasks(10);
+
+    const sigtermListener = process.listeners('SIGTERM').pop() as () => void;
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+
+    sigtermListener();
+    sigtermListener();
+
+    await flushMicrotasks(10);
+
+    expect(mockDisassemble).toHaveBeenCalledTimes(1);
+    expect(mockAuditWriter.write).toHaveBeenCalledWith(
+      'daemon_shutdown_reentry_suppressed',
+      expect.stringMatching(/cause=SIGTERM/),
+      expect.stringMatching(/in_progress=SIGTERM/),
+    );
+
+    exitSpy.mockRestore();
+    if (stopFn) {
+      stopFn();
+      stopFn = null;
+    }
+    await p.catch(() => { /* silent: shutdown */ });
+  });
+
+  it('case 5: SIGTERM during uncaughtException shutdown → suppressed (cross-entry guard)', async () => {
+    const p = daemonCommand('test-claw-cross');
+    await flushMicrotasks(10);
+
+    const uncaughtListener = process.listeners('uncaughtException').pop() as (err: Error) => void | Promise<void>;
+    const sigtermListener = process.listeners('SIGTERM').pop() as () => void;
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+
+    uncaughtListener(new Error('boom'));
+    sigtermListener();
+
+    await flushMicrotasks(10);
+
+    expect(mockDisassemble).toHaveBeenCalledTimes(1);
+    expect(mockAuditWriter.write).toHaveBeenCalledWith(
+      'daemon_shutdown_reentry_suppressed',
+      expect.stringMatching(/cause=SIGTERM/),
+      expect.stringMatching(/in_progress=uncaughtException/),
+    );
+
+    exitSpy.mockRestore();
+    if (stopFn) {
+      stopFn();
+      stopFn = null;
+    }
+    await p.catch(() => { /* silent: shutdown */ });
   });
 });

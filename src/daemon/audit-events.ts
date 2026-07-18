@@ -36,6 +36,8 @@ export const DAEMON_AUDIT_EVENTS = {
   WATCHDOG_MISSING: 'watchdog_missing',
   // phase 851: startup-check I/O 错误可观察
   STARTUP_CHECK_IO_ERROR: 'daemon_startup_check_io_error',
+  // phase 1124: shutdown 重入 guard 留痕
+  SHUTDOWN_REENTRY_SUPPRESSED: 'daemon_shutdown_reentry_suppressed',
 } as const;
 
 /**
