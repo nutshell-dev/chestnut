@@ -148,21 +148,7 @@ describe('runtime proactive trim integration', () => {
     expect((runtime as any).lastLLMCallAt).toBeGreaterThan(0);
   });
 
-  it('5. retryLastTurn does not call maybeTrimProactive', async () => {
-    const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
-    const runtime = await makeRuntime({ filterSubtypes: new Set() });
-    await (runtime as any).sessionManager.save({
-      systemPrompt: 'sys',
-      messages: [{ role: 'user', content: 'retry me' } as Message],
-      toolsForLLM: [],
-    });
-
-    await runtime.retryLastTurn();
-
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('6. does not call maybeTrimProactive when contextManagerConfig is absent', async () => {
+  it('5. does not call maybeTrimProactive when contextManagerConfig is absent', async () => {
     const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const runtime = await makeRuntime();
     runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);

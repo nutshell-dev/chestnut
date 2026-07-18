@@ -45,7 +45,7 @@ function makeEventLoop(agentDir: string, audit: AuditLog, runtime?: Partial<Runt
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      retryLastTurn: vi.fn().mockResolvedValue({ status: 'success' }),
+      markLoopCrashed: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
     }) as Runtime,
     fsFactory,

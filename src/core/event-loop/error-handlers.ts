@@ -37,7 +37,6 @@ interface LoopErrorContext {
   llmRetry: {
     count: number;
     delayMs: number;
-    pending: boolean;
   };
   saveLlmRetryState: () => void;
 }
@@ -113,7 +112,6 @@ const llmRetryHandler: ErrorHandler = {
     );
     await new Promise(resolve => setTimeout(resolve, ctx.llmRetry.delayMs));
     ctx.llmRetry.delayMs = Math.min(ctx.llmRetry.delayMs * 2, LLM_RETRY_MAX_DELAY_MS);
-    ctx.llmRetry.pending = true;
     ctx.saveLlmRetryState();
   },
 };

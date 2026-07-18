@@ -13,7 +13,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import type { Runtime, StreamCallbacks, TurnResult } from '../runtime/index.js';
+import type { Runtime, TurnResult } from '../runtime/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
@@ -48,7 +48,6 @@ export class EventLoop {
   // LLM failure retry state
   private llmRetryCount = 0;
   private llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
-  private llmRetryPending = false;
 
   constructor(options: EventLoopOptions) {
     this.runtime = options.runtime;
@@ -92,13 +91,6 @@ export class EventLoop {
       : undefined;
 
     try {
-      if (this.llmRetryPending) {
-        this.llmRetryPending = false;
-        const result = await this.runtime.retryLastTurn(wrappedCallbacks);
-        await this._handleTurnResult(result, [], wrappedCallbacks);
-        return;
-      }
-
       // drain and process, with internal chaining
       let chainIters = 0;
       let chainTotal = 0;
@@ -178,22 +170,6 @@ export class EventLoop {
     this.runtime.abort();
   }
 
-  private async _handleTurnResult(
-    result: TurnResult,
-    addressedHandles: InboxHandle[],
-    _callbacks?: StreamCallbacks,
-  ): Promise<void> {
-    if (result.status === 'success') {
-      this._resetLlmRetryState();
-      this._saveLlmRetryState();
-      await this.onBatchComplete?.();
-    } else if (result.status === 'interrupted') {
-      // graceful interrupt during retry: no ack/nack, continue
-    } else {
-      await this._handleFailedTurn(result, addressedHandles, []);
-    }
-  }
-
   private async _handleFailedTurn(
     result: TurnResult,
     addressedHandles: InboxHandle[],
@@ -227,8 +203,6 @@ export class EventLoop {
         set count(v) { self.llmRetryCount = v; },
         get delayMs() { return self.llmRetryDelayMs; },
         set delayMs(v) { self.llmRetryDelayMs = v; },
-        get pending() { return self.llmRetryPending; },
-        set pending(v) { self.llmRetryPending = v; },
       },
       saveLlmRetryState: () => this._saveLlmRetryState(),
     });
@@ -248,7 +222,8 @@ export class EventLoop {
           schema_version: 1,
           llmRetryCount: this.llmRetryCount,
           llmRetryDelayMs: this.llmRetryDelayMs,
-          llmRetryPending: this.llmRetryPending,
+          // P1-10: pending 字段已废弃，恒 false 保持 schema 兼容。
+          llmRetryPending: false,
         }),
       );
     } catch (e) {
@@ -328,6 +303,14 @@ export class EventLoop {
 
     this.llmRetryCount = s.llmRetryCount;
     this.llmRetryDelayMs = s.llmRetryDelayMs;
-    this.llmRetryPending = s.llmRetryPending;
+    // P1-10: 旧文件 pending=true 不再恢复，消息已经 inflight reconcile 重投。
+    // 仅审计记录后忽略，避免重复重放。
+    if (s.llmRetryPending === true) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.ITERATION,
+        `context=loadLlmRetryState`,
+        `reason=legacy_pending_ignored`,
+      );
+    }
   }
 }

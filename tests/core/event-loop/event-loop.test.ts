@@ -96,7 +96,6 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      retryLastTurn: vi.fn().mockResolvedValue(makeTurnResult('success')),
       markLoopCrashed,
       abort: vi.fn(),
     } as unknown as Runtime;
@@ -141,7 +140,6 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      retryLastTurn: vi.fn().mockResolvedValue(makeTurnResult('success')),
       markLoopCrashed,
       abort: vi.fn(),
     } as unknown as Runtime;
@@ -154,14 +152,14 @@ describe('EventLoop.run', () => {
     expect(nackHandles).not.toHaveBeenCalled();
   });
 
-  it('context_exceeded 错误走 llmRetry + reactive trim，耗尽后 cooldown', async () => {
+  it('context_exceeded 错误走 nack + 退避 + re-drain 全新 turn，耗尽后 cooldown', async () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
     const ctxErr = new LLMContextExceededError('test-provider', 400, 'context length exceeded');
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: ctxErr }));
-    const retryLastTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: ctxErr }));
     const reactiveTrim = vi.fn().mockResolvedValue(undefined);
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
 
     const runtime = {
       drainInbox: vi.fn().mockResolvedValue({
@@ -169,7 +167,7 @@ describe('EventLoop.run', () => {
         sources: [{ text: 'hi', type: 'user_chat' }],
         count: 1,
         infos: [] as InboxMessage[],
-        addressedHandles: [] as InboxHandle[],
+        addressedHandles: ['handle-1'],
       }),
       getSystemPrompt: vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
@@ -177,31 +175,33 @@ describe('EventLoop.run', () => {
       proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
       processTurn,
       ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles,
       reactiveTrim,
-      retryLastTurn,
+      markLoopCrashed: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
 
-    // 第 1 轮：processTurn 失败 → 进入 retry pending
+    // 第 1 轮：processTurn 失败 → nack + reactive trim + llmRetry
     const run1 = eventLoop.run();
     await vi.advanceTimersByTimeAsync(20);
     await run1;
 
     expect(processTurn).toHaveBeenCalledTimes(1);
     expect(reactiveTrim).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
 
-    // 后续 3 轮 retry（LLM_MAX_RETRIES=3），每次前进足够覆盖指数退避
+    // 后续 3 轮 retry（LLM_MAX_RETRIES=3），每次 drain 重投同一消息
     for (let i = 0; i < 3; i++) {
       const run = eventLoop.run();
       await vi.advanceTimersByTimeAsync(100);
       await run;
     }
 
-    expect(retryLastTurn).toHaveBeenCalledTimes(3);
+    expect(processTurn).toHaveBeenCalledTimes(4);
     expect(reactiveTrim).toHaveBeenCalledTimes(3);
+    expect(nackHandles).toHaveBeenCalledTimes(4);
 
     const retryEntries = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY);
     expect(retryEntries.length).toBe(3);
@@ -247,7 +247,6 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      retryLastTurn: vi.fn().mockResolvedValue(makeTurnResult('success')),
       abort: vi.fn(),
     } as unknown as Runtime;
 
@@ -285,7 +284,6 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      retryLastTurn: vi.fn().mockResolvedValue(makeTurnResult('success')),
       abort: vi.fn(),
       getCurrentTraceId: vi.fn().mockReturnValue(undefined),
     } as unknown as Runtime;

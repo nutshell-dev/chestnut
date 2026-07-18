@@ -925,10 +925,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   }
 
   /**
-   * Retry the last turn without draining inbox.
-   * Used by daemon-loop to recover from transient LLM errors.
-   */
-  /**
    * P0-2: 将确定性 agent-loop crash 错误升级到 ContractSystem.markCrashed。
    * 由 EventLoop 在失败分支统一调用，替代 phase 783 误删的 runtime catch 内路由。
    */
@@ -956,53 +952,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
   }
 
-  async retryLastTurn(callbacks?: StreamCallbacks): Promise<TurnResult> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-    const { traceId, cleanup } = this._setupTurnContext();
-    try {
-      const loadResult = await this.sessionManager.load();
-      if (loadResult.source === 'io_error') {
-        throw new Error(`Session load failed: ${loadResult.error}`);
-      }
-      const { session } = loadResult;
-      if (session.messages.length === 0) {
-        return { status: 'failed', error: 'no messages to retry' };
-      }
-
-      // Find the last user message boundary for safe retry.
-      // If messages end after assistant/tool_result steps, truncate back to the last
-      // user message so we don't re-run from a partial state that could re-execute
-      // non-idempotent tools.
-      let retryMessages = session.messages;
-      const lastUserIdx = [...session.messages].map(m => m.role).lastIndexOf('user');
-      if (lastUserIdx === -1) {
-        // No user message at all — nothing to retry
-        return { status: 'failed', error: 'no user message to retry' };
-      }
-      if (lastUserIdx < session.messages.length - 1) {
-        // Messages have assistant/tool content after the last user message.
-        // Truncate so the retry starts from a clean user turn boundary.
-        retryMessages = session.messages.slice(0, lastUserIdx + 1);
-        await this.sessionManager.save({
-          systemPrompt: session.systemPrompt,
-          messages: retryMessages,
-          toolsForLLM: this.getToolsForLLM(),
-        });
-      }
-
-      // Retry is also a turn (tag it so stream consumers know it's a retry)
-      callbacks?.onTurnStart?.([{ text: 'LLM retry', type: 'system_retry' }]);
-      // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-      // phase 722: 加 caller col 区分 retry caller 路径
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-
-      return await this.processTurn(retryMessages, session.systemPrompt, this.getToolsForLLM(), callbacks, traceId);
-    } finally {
-      cleanup();
-    }
-  }
+  // P1-10: retryLastTurn 方法已删除。rollback-first 流程下其「截断到 lastUserIdx 重放」
+  // 语义必然命中上一轮成功 turn，导致非幂等副作用重复执行；删除后 LLM 类失败重试走
+  // rollback + nack + 退避 → re-drain 全新 turn。
 
   /**
    * Abort the currently running turn

@@ -6,7 +6,8 @@ import type { StreamWriter } from '../../foundation/stream/index.js';
 export interface LLMRetryState {
   count: number;
   delayMs: number;
-  pending: boolean;
+  /** @deprecated P1-10: pending 字段已废弃，仅存于文件 schema 兼容。 */
+  pending?: boolean;
 }
 
 export interface LoopErrorContext {
