@@ -32,6 +32,7 @@ import { newShortUuid } from  '../node-utils/index.js';
 import { formatErr } from "../node-utils/index.js";
 import type { TraceId } from './types.js';
 import * as nodeFs from 'node:fs';
+import * as nodeFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { FileNotFoundError } from '../fs/index.js';
 import type { FileSystem } from '../fs/index.js';
@@ -180,10 +181,12 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
       const content = nodeFs.readFileSync(dumpPath, 'utf8');
       const allLines = content.split('\n');
       let dropMeta: { since: number; total: number; first: number; last: number } | null = null;
+      let frontmatterRaw: string | null = null;
       // phase 1380: detect optional frontmatter (旧文件首行不以 prefix 起、跳过)
       if (allLines[0] && allLines[0].startsWith(FALLBACK_FRONTMATTER_PREFIX)) {
         const m = allLines[0].match(FRONTMATTER_RE);
         if (m) {
+          frontmatterRaw = allLines[0] + '\n';
           dropMeta = { since: +m[1], total: +m[2], first: +m[3], last: +m[4] };
           allLines.shift();
         }
@@ -199,6 +202,7 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
         if (!lines) { lines = []; byOrigin.set(origin, lines); }
         lines.push(rest);
       }
+      const failedOrigins = new Map<string, string[]>();
       for (const [origin, lines] of byOrigin) {
         try {
           await fs.appendSync(origin, lines.join('\n') + '\n');
@@ -221,10 +225,31 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
         } catch (perOriginErr) {
           // phase 426 Step A (review medium silent-catch): inner 失败可能 PermissionError /
           // 文件被删；console.error 留痕、不依赖 audit 防递归 (我们正在 reconcile audit 自身)。
+          failedOrigins.set(origin, lines);
           console.error(`[AUDIT WARNING] reconcile fallback per-origin write failed: origin=${origin} reason=${formatErr(perOriginErr)}`);
         }
       }
-      nodeFs.unlinkSync(dumpPath);
+      // phase 1115 Step B: 完全成功才删 dump；失败 origin 重写回 dump 供下轮重试。
+      if (failedOrigins.size === 0) {
+        nodeFs.unlinkSync(dumpPath);
+      } else {
+        try {
+          const body = [...failedOrigins]
+            .map(([origin, lines]) => lines.map(line => `${esc(origin)}\t${line}\n`).join(''))
+            .join('');
+          const next = `${dumpPath}.next`;
+          await nodeFsPromises.writeFile(next, (frontmatterRaw ?? '') + body);
+          try {
+            const fd = nodeFs.openSync(next, 'r+');
+            try { nodeFs.fsyncSync(fd); } finally { nodeFs.closeSync(fd); }
+          } catch { /* silent: fsync best-effort（与 dumpFallback 同边界） */ }
+          nodeFs.renameSync(next, dumpPath);
+        } catch (rewriteErr) {
+          console.error(`[AUDIT WARNING] reconcile fallback dump rewrite failed: dumpPath=${dumpPath} reason=${formatErr(rewriteErr)}`);
+          // 重写失败 → 原 dump 保留全量、下轮重试（best-effort 边界）
+        }
+        console.error(`[AUDIT WARNING] reconcile fallback dump kept for retry: dumpPath=${dumpPath} failed_origins=${failedOrigins.size}`);
+      }
     } catch (dumpErr) {
       // phase 426 Step A (review medium silent-catch): outer dump 解析失败 (corrupt /
       // PermissionError on read)；console.error 留痕、下轮 reconcile 重试。

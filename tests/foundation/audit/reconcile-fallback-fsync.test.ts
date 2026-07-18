@@ -11,17 +11,34 @@ import { join } from 'node:path';
 import { reconcileFallbackDumps } from '../../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
+const realTmpdir = vi.hoisted(() => {
+  const { tmpdir: fn } = require('node:os');
+  return fn as () => string;
+});
+const mockTmpdir = vi.hoisted(() => vi.fn(() => realTmpdir()));
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return {
+    ...actual,
+    tmpdir: mockTmpdir,
+  };
+});
+
+const tmpDirs: string[] = [];
 const dumpFiles: string[] = [];
 
-async function writeDump(lines: string[]): Promise<string> {
+async function makeTmpDir(): Promise<string> {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const dumpDir = tmpdir();
-  let ts = Date.now();
-  let p = join(dumpDir, `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
-  while (nodeFs.existsSync(p)) {
-    ts++;
-    p = join(dumpDir, `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
-  }
+  const d = await nodeFsPromises.mkdtemp(`${tmpdir()}/chestnut-test-tmpdir-`);
+  tmpDirs.push(d);
+  return d;
+}
+
+async function writeDump(lines: string[]): Promise<string> {
+  const tmpDir = await makeTmpDir();
+  mockTmpdir.mockReturnValue(tmpDir);
+  const p = join(tmpDir, `chestnut-audit-fallback-${process.pid}-${Date.now()}.tsv`);
   await nodeFsPromises.writeFile(p, lines.join('\n') + '\n');
   dumpFiles.push(p);
   return p;
@@ -30,8 +47,14 @@ async function writeDump(lines: string[]): Promise<string> {
 afterEach(async () => {
   for (const p of dumpFiles) {
     try { await nodeFsPromises.unlink(p); } catch { /* silent: test cleanup */ }
+    try { await nodeFsPromises.unlink(`${p}.next`); } catch { /* silent: test cleanup */ }
   }
   dumpFiles.length = 0;
+  for (const d of tmpDirs) {
+    try { await nodeFsPromises.rm(d, { recursive: true, force: true }); } catch { /* silent: test cleanup */ }
+  }
+  tmpDirs.length = 0;
+  mockTmpdir.mockImplementation(() => realTmpdir());
 });
 
 function createMockFs(opts: {

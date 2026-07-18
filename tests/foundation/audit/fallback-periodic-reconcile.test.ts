@@ -200,4 +200,28 @@ describe('fallback periodic flush and reconcile', () => {
       mockTmpdir.mockImplementation(() => realTmpdir());
     }
   });
+
+  it('keeps dump with only failed origins when per-origin append fails (no data loss)', async () => {
+    const clawDir = await makeClawDir();
+    const okOrigin = `${clawDir}/status/ok.tsv`;
+    const failOrigin = `${clawDir}/status/fail.tsv`;
+    const dumpPath = await writeDump([`${okOrigin}\tline-ok`, `${failOrigin}\tline-fail`]);
+
+    const written: string[] = [];
+    const mockFs: FileSystem = {
+      appendSync: vi.fn((p: string) => {
+        if (p === failOrigin) throw new Error('EIO');
+        written.push(p);
+      }),
+      syncSync: vi.fn(),
+    } as any;
+
+    await reconcileFallbackDumps(mockFs);
+
+    expect(written).toContain(okOrigin);
+    expect(nodeFs.existsSync(dumpPath)).toBe(true);
+    const remaining = nodeFs.readFileSync(dumpPath, 'utf8');
+    expect(remaining).toContain('line-fail');
+    expect(remaining).not.toContain('line-ok');
+  });
 });
