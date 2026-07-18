@@ -273,8 +273,8 @@ describe('ContractSystem', () => {
     const result = await manager.getProgress(contractId);
     expect(result).toBeNull();
 
-    // contract 被移到 archive
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    // contract 被移到 archive/corrupted
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.stat(archiveContractDir)).resolves.toBeDefined();
 
     // 损坏文件被隔离
@@ -317,8 +317,8 @@ describe('ContractSystem', () => {
     expect(result.passed).toBe(true);
     expect(result.allCompleted).toBe(true);
 
-    // 契约已移入 archive（active/ 目录不再存在）
-    const archivePath = path.join(clawDir, 'contract', 'archive', contractId);
+    // 契约已移入 archive/completed（active/ 目录不再存在）
+    const archivePath = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
     await expect(fs.access(archivePath)).resolves.not.toThrow();
     const activePath = path.join(clawDir, 'contract', 'active', contractId);
     await expect(fs.access(activePath)).rejects.toThrow();

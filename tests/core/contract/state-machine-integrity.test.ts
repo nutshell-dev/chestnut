@@ -127,7 +127,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       const { ctx, notifyCalls } = makeAcceptanceCtx({ moveToArchiveThrows: false });
       await archiveAndEmit(ctx, 'c2', 'Test', 'test');
 
-      expect(ctx.moveContractToArchive).toHaveBeenCalledWith('c2');
+      expect(ctx.moveContractToArchive).toHaveBeenCalledWith('c2', 'completed');
       expect(notifyCalls).toContainEqual(expect.objectContaining({ type: 'contract_completed' }));
     });
 

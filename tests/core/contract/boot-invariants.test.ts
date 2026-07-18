@@ -141,7 +141,7 @@ describe('ContractSystem.init() boot reconcile', () => {
     expect(movedAudit).toContainEqual('contract_id=cancelled-contract');
     expect(movedAudit).toContainEqual('status=cancelled');
 
-    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled-contract');
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', 'cancelled-contract');
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
     expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(false);
   });

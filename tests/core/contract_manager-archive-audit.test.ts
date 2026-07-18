@@ -200,7 +200,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       // Complete the subtask (no verification = allCompleted = true, sync path)
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
-      expect(moveSpy).toHaveBeenCalledWith(contractId);
+      expect(moveSpy).toHaveBeenCalledWith(contractId, 'completed');
       // updateContractStatus already writes contract_completed; the additional
       // title-bearing audit in _completeSubtaskSync should not run on failure
       const titleAuditCalls = mockAudit.write.mock.calls.filter(
@@ -234,7 +234,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
 
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
-      expect(moveSpy).toHaveBeenCalledWith(contractId);
+      expect(moveSpy).toHaveBeenCalledWith(contractId, 'completed');
       // phase 705: contractId 加 key= prefix
       expect(mockAudit.write).toHaveBeenCalledWith(CONTRACT_AUDIT_EVENTS.COMPLETED, `contractId=${contractId}`, 'title=Test', expect.stringContaining('claw='));
 

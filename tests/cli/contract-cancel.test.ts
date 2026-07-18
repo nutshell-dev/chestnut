@@ -76,9 +76,9 @@ describe('contractCancelCommand (phase 1471)', () => {
       { audit },
     );
 
-    // active dir gone, archive entry present with progress.status=cancelled
+    // active dir gone, archive/cancelled entry present with progress.status=cancelled
     const activePath = path.join(clawDir, 'contract', 'active', contractId);
-    const archivePath = path.join(clawDir, 'contract', 'archive', contractId);
+    const archivePath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(activePath)).rejects.toBeTruthy();
     const progressRaw = await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8');
     const progress = JSON.parse(progressRaw);
@@ -111,7 +111,7 @@ describe('contractCancelCommand (phase 1471)', () => {
       { audit },
     );
 
-    const archivePath = path.join(clawDir, 'contract', 'archive', contractId);
+    const archivePath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     const progress = JSON.parse(
       await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8'),
     );

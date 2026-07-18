@@ -47,7 +47,7 @@ export async function archiveAndEmit(
 
   // Phase 2: commit — move to archive (irreversible)
   try {
-    await ctx.moveContractToArchive(contractId);
+    await ctx.moveContractToArchive(contractId, 'completed');
   } catch (err) {
     // Move failed BEFORE commit point: attempt rollback for retry.
     try {

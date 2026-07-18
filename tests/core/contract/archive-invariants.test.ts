@@ -92,7 +92,10 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     // - Active with cancelled status (cancel won, saveProgress completed)
     // - Active with any status (cancel's saveProgress may not have completed;
     //   the contract is still in a valid readable state)
-    const inArchive = contractDir === 'contract/archive';
+    const inArchive =
+      contractDir.startsWith('contract/archive/completed') ||
+      contractDir.startsWith('contract/archive/cancelled') ||
+      contractDir.startsWith('contract/archive/corrupted');
     const inActive = contractDir === 'contract/active';
     expect(inArchive || inActive).toBe(true);
   });
@@ -118,7 +121,7 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     await (manager as any).moveToArchive(contractId);
 
     // Lock released by releaseLock@TARGET (lock file deleted after move)
-    const archiveLockPath = path.join(clawDir, 'contract', 'archive', contractId, 'progress.lock');
+    const archiveLockPath = path.join(clawDir, 'contract', 'archive', 'completed', contractId, 'progress.lock');
     const lockExists = await fsArchiveRace.stat(archiveLockPath).then(() => true).catch(() => false);
     expect(lockExists).toBe(false);
 

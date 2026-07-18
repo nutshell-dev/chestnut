@@ -83,7 +83,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   }
 
   async function waitForArchive(contractId: string, timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS): Promise<boolean> {
-    const archiveDir = path.join(clawDir, 'contract/archive', contractId);
+    const archiveDir = path.join(clawDir, 'contract/archive/completed', contractId);
     // phase 367: file-watcher 监父 dir 'addDir' 事件 替原 50ms fs.access polling
     try {
       await waitForPathExists(archiveDir, timeoutMs);

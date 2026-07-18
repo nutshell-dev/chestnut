@@ -79,7 +79,7 @@ import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } f
 import { type ContractId, makeContractId } from './types.js';
 import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
 import { ContractValidationError } from './errors.js';
-import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
+import { type SubtaskId, type ArchiveDir, type ArchiveState, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
   cancelContract, markCorrupted,
@@ -442,7 +442,7 @@ export class ContractSystem {
       getProgress: (id) => this.getProgress(id),
       saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
-      moveContractToArchive: (id) => this.moveToArchive(id),
+      moveContractToArchive: (id, targetState) => this.moveToArchive(id, targetState),
       emitContractCompleted: (id) => this._emitContractCompleted(id),
       // phase 438: lazy thunk、同 _lifecycleCtx
       onNotify: (type, data) => this.onNotify?.(type, data),
@@ -608,6 +608,13 @@ export class ContractSystem {
 
           if (progress.status === 'archive_pending_recovery') {
             const contractId = makeContractId(progress.contract_id ?? entry.name);
+            // phase 1127 Step D: recovery must first transition status to completed
+            // so the typed writer can move it into archive/completed/.
+            progress.status = 'completed';
+            progress.completed_at = new Date().toISOString();
+            const persistedProgress: Record<string, unknown> = { ...progress };
+            stripDerivableStatus(persistedProgress);
+            await this.fs.writeAtomic(progressPath, JSON.stringify(persistedProgress, null, 2));
             const contractYaml = await this.loadContractYaml(contractId);
             if (contractYaml) {
               await archiveAndEmit(
@@ -691,8 +698,9 @@ export class ContractSystem {
     }
 
     // phase 954 / 1123 Step C: boot reconcile — recover terminal contracts stuck in active/.
-    // pause/resume current semantics are removed; legacy paused/ data is observed only.
-    const TERMINAL_STATUSES = new Set(['cancelled', 'crashed', 'completed']);
+    // phase 1127 Step D: route to the canonical state subdirectory; crashed has no
+    // current archive state directory and is left in active/ for explicit handling.
+    const BOOT_RECONCILE_TERMINAL_STATUSES = new Set(['cancelled', 'completed']);
     try {
       if (await this.fs.exists(this.activeDir)) {
         const activeEntries = await this.fs.list(this.activeDir, { includeDirs: true });
@@ -706,24 +714,28 @@ export class ContractSystem {
             const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
             if (!validation.success) continue;
             const progress = validation.data;
+            const status = progress.status ?? '';
 
-            if (TERMINAL_STATUSES.has(progress.status ?? '')) {
-              const contractId = makeContractId(progress.contract_id ?? entry.name);
+            if (!BOOT_RECONCILE_TERMINAL_STATUSES.has(status)) continue;
+
+            const contractId = makeContractId(progress.contract_id ?? entry.name);
+            if (status === 'completed') {
               const contractYaml = await this.loadContractYaml(contractId);
-              if (contractYaml) {
-                await archiveAndEmit(
-                  this._verificationCtx(),
-                  contractId,
-                  contractYaml,
-                  'ContractSystem.init.bootReconcile.terminal',
-                );
-                this.audit.write(
-                  CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVED,
-                  `contract_id=${contractId}`,
-                  `status=${progress.status}`,
-                );
-              }
+              if (!contractYaml) continue;
+              await archiveAndEmit(
+                this._verificationCtx(),
+                contractId,
+                contractYaml,
+                'ContractSystem.init.bootReconcile.terminal',
+              );
+            } else if (status === 'cancelled') {
+              await this.cancel(contractId, 'boot reconcile');
             }
+            this.audit.write(
+              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVED,
+              `contract_id=${contractId}`,
+              `status=${status}`,
+            );
           } catch (err) {
             this.audit.write(
               CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
@@ -1269,8 +1281,8 @@ export class ContractSystem {
     return checkAllSubtasksCompleted(this._persistenceCtx(), contractId, progress);
   }
 
-  private async moveToArchive(contractId: ContractId): Promise<void> {
-    return moveContractToArchive(this._lifecycleCtx(), contractId);
+  private async moveToArchive(contractId: ContractId, targetState: ArchiveState = 'completed'): Promise<void> {
+    return moveContractToArchive(this._lifecycleCtx(), contractId, targetState);
   }
 
   private async runScriptVerification(scriptFile: string, contractAbsDir: string, signal?: AbortSignal): Promise<VerificationResult> {

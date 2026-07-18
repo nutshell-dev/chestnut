@@ -341,7 +341,7 @@ describe('ContractSystem Acceptance Flow', () => {
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       // inbox 写完后 progress 必已落地；读哪条路径都行
-      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
+      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', 'completed', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
       let progress: any;
       try {
@@ -424,7 +424,7 @@ describe('ContractSystem Acceptance Flow', () => {
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       // inbox 写完后 progress 必已落地；读哪条路径都行
-      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
+      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', 'completed', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
       let progress: any;
       try {
@@ -570,7 +570,7 @@ describe('ContractSystem Acceptance Flow', () => {
       // Wait for background verification to finish (phase 779 Step A)
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
-      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
+      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', 'completed', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
       let progress: any;
       try {
@@ -669,7 +669,7 @@ describe('ContractSystem Acceptance Flow', () => {
       // Pre-set retry_count to 1 (simulating one previous failure)
       // This means this failure will push it to 2, triggering force-accept
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
+      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', 'completed', contractId, 'progress.json');
       const initialProgress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
       initialProgress.subtasks['task-1'].retry_count = 1;
       await fs.writeFile(activeProgressPath, JSON.stringify(initialProgress, null, 2));

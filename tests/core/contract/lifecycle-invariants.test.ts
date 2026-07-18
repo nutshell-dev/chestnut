@@ -72,7 +72,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
 
     await manager.cancel(contractId, 'test');
 
-    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', contractId, 'progress.json');
+    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json');
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBe('cancelled');
@@ -100,7 +100,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
       relativePath: 'corrupted/123_progress.json',
     });
 
-    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', contractId, 'progress.json');
+    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId, 'progress.json');
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBe('archive_corrupted');
@@ -436,7 +436,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
     expect(progress.status).toBe('archive_corrupted');
     expect(progress.checkpoint).toContain('archive_corrupted: progress_schema_invalid');
 
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
 
     // phase 1121 Step D: 新 contract_crashed notify 已删除
@@ -478,7 +478,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
     const progress = await manager.getProgress(contractId);
     expect(progress.status).toBe('archive_corrupted');
 
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
 
     abortSpy.mockRestore();

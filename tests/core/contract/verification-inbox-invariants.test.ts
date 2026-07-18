@@ -525,7 +525,7 @@ describe('Phase 961 verification invariants', () => {
     expect(progress?.status).toBe('cancelled');
 
     const contractDir = await (manager as any).contractDir(contractId);
-    expect(contractDir).toBe('contract/archive');
+    expect(contractDir).toBe('contract/archive/cancelled');
   });
 
   it('resets subtask even when audit emit throws', async () => {

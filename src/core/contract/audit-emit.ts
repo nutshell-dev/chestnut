@@ -939,6 +939,125 @@ export function emitContractArchiveReconcileSummary(
   );
 }
 
+// ─── ARCHIVE TARGET CONFLICT ────────────────────────────────────────────────
+// phase 1127 Step D: terminal writer refuses to overwrite an existing target entry
+export function emitContractArchiveTargetExists(
+  audit: AuditLog,
+  opts: {
+    contractId: string;
+    targetPath: string;
+    context: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveTargetExists')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_TARGET_EXISTS,
+    `contractId=${opts.contractId}`,
+    `targetPath=${opts.targetPath}`,
+    `context=${opts.context}`,
+  );
+}
+
+// ─── ARCHIVE LEGACY MIGRATION ─────────────────────────────────────────────────
+// phase 1127 Step E: classified legacy flat entry migrated to state subdirectory
+export function emitContractArchiveLegacyMigrated(
+  audit: AuditLog,
+  opts: {
+    clawId: ClawId;
+    contractId: string;
+    fromPath: string;
+    toPath: string;
+    evidence: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveLegacyMigrated')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_LEGACY_MIGRATED,
+    `clawId=${opts.clawId}`,
+    `contractId=${opts.contractId}`,
+    `from=${opts.fromPath}`,
+    `to=${opts.toPath}`,
+    `evidence=${opts.evidence}`,
+  );
+}
+
+export function emitContractArchiveLegacyMigrationConflict(
+  audit: AuditLog,
+  opts: {
+    clawId: ClawId;
+    contractId: string;
+    targetPath: string;
+    evidence: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveLegacyMigrationConflict')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_LEGACY_MIGRATION_CONFLICT,
+    `clawId=${opts.clawId}`,
+    `contractId=${opts.contractId}`,
+    `targetPath=${opts.targetPath}`,
+    `evidence=${opts.evidence}`,
+  );
+}
+
+export function emitContractArchiveLegacyMigrationSkipped(
+  audit: AuditLog,
+  opts: {
+    clawId: ClawId;
+    contractId: string;
+    reason: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveLegacyMigrationSkipped')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_LEGACY_MIGRATION_SKIPPED,
+    `clawId=${opts.clawId}`,
+    `contractId=${opts.contractId}`,
+    `reason=${opts.reason}`,
+  );
+}
+
+export function emitContractArchiveLegacyMigrationFailed(
+  audit: AuditLog,
+  opts: {
+    clawId: ClawId;
+    contractId: string;
+    context: string;
+    error: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveLegacyMigrationFailed')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_LEGACY_MIGRATION_FAILED,
+    `clawId=${opts.clawId}`,
+    `contractId=${opts.contractId}`,
+    `context=${opts.context}`,
+    `error=${opts.error}`,
+  );
+}
+
+export function emitContractArchiveLegacyMigrationSummary(
+  audit: AuditLog,
+  opts: {
+    clawId: ClawId;
+    scanned: number;
+    migrated: number;
+    conflicts: number;
+    skipped: number;
+    failed: number;
+  },
+): void {
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_LEGACY_MIGRATION_SUMMARY,
+    `clawId=${opts.clawId}`,
+    `scanned=${opts.scanned}`,
+    `migrated=${opts.migrated}`,
+    `conflicts=${opts.conflicts}`,
+    `skipped=${opts.skipped}`,
+    `failed=${opts.failed}`,
+  );
+}
+
 // ─── ARCHIVE_RECOVERY_PENDING_OBSERVED ────────────────────────────────────────
 // phase 197: archive_pending_recovery 系统内部状态、motion 无 actionable、归 audit 不投 inbox
 export function emitContractArchiveRecoveryPendingObserved(

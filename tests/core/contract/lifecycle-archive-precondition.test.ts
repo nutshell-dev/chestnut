@@ -105,44 +105,62 @@ describe('Phase 188 Step A: moveContractToArchive precondition', () => {
     );
   }
 
-  // 5 终态 → 通过
+  // phase 1127 Step D: moveContractToArchive requires explicit ArchiveState target.
+  // completed → completed/, cancelled → cancelled/, archive_corrupted → corrupted/.
+  // crashed / archive_pending_recovery have no current state directory and are rejected.
   it('allows archive when status=completed', async () => {
     const contractId = 'c-completed';
     await setupContractInDir('active', contractId, 'completed');
-    await moveContractToArchive(makeCtx(), contractId);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
+    await moveContractToArchive(makeCtx(), contractId, 'completed');
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
   });
 
   it('allows archive when status=cancelled', async () => {
     const contractId = 'c-cancelled';
     await setupContractInDir('active', contractId, 'cancelled');
-    await moveContractToArchive(makeCtx(), contractId);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
+    await moveContractToArchive(makeCtx(), contractId, 'cancelled');
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
   });
 
-  it('allows archive when status=crashed', async () => {
+  it('rejects archive when status=crashed', async () => {
     const contractId = 'c-crashed';
     await setupContractInDir('active', contractId, 'crashed');
-    await moveContractToArchive(makeCtx(), contractId);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
-    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow(ToolError);
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow('cannot be archived: status=crashed');
+
+    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(false);
+
+    const audit = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_PRECONDITION_VIOLATED);
+    expect(audit.length).toBeGreaterThanOrEqual(1);
+    expect(audit[0].args.some(a => a.includes('status=crashed'))).toBe(true);
   });
 
-  it('allows archive when status=archive_pending_recovery', async () => {
+  it('rejects archive when status=archive_pending_recovery', async () => {
     const contractId = 'c-recovery';
     await setupContractInDir('active', contractId, 'archive_pending_recovery');
-    await moveContractToArchive(makeCtx(), contractId);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
-    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow(ToolError);
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow('cannot be archived: status=archive_pending_recovery');
+
+    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(false);
+
+    const audit = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_PRECONDITION_VIOLATED);
+    expect(audit.length).toBeGreaterThanOrEqual(1);
+    expect(audit[0].args.some(a => a.includes('status=archive_pending_recovery'))).toBe(true);
   });
 
   it('allows archive when status=archive_corrupted', async () => {
     const contractId = 'c-corrupted';
     await setupContractInDir('active', contractId, 'archive_corrupted');
-    await moveContractToArchive(makeCtx(), contractId);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
+    await moveContractToArchive(makeCtx(), contractId, 'corrupted');
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
   });
 
@@ -150,12 +168,12 @@ describe('Phase 188 Step A: moveContractToArchive precondition', () => {
   it('rejects archive when status=pending + emits audit + dir stays', async () => {
     const contractId = 'c-pending';
     await setupContractInDir('active', contractId, 'pending');
-    await expect(moveContractToArchive(makeCtx(), contractId)).rejects.toThrow(ToolError);
-    await expect(moveContractToArchive(makeCtx(), contractId)).rejects.toThrow('cannot be archived: status=pending');
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow(ToolError);
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow('cannot be archived: status=pending');
 
     const activeDir = path.join(clawDir, 'contract', 'active', contractId);
     expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(false);
 
     const audit = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_PRECONDITION_VIOLATED);
@@ -166,12 +184,12 @@ describe('Phase 188 Step A: moveContractToArchive precondition', () => {
   it('rejects archive when status=running + emits audit + dir stays', async () => {
     const contractId = 'c-running';
     await setupContractInDir('active', contractId, 'running');
-    await expect(moveContractToArchive(makeCtx(), contractId)).rejects.toThrow(ToolError);
-    await expect(moveContractToArchive(makeCtx(), contractId)).rejects.toThrow('cannot be archived: status=running');
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow(ToolError);
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow('cannot be archived: status=running');
 
     const activeDir = path.join(clawDir, 'contract', 'active', contractId);
     expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(false);
 
     const audit = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_PRECONDITION_VIOLATED);
@@ -182,12 +200,12 @@ describe('Phase 188 Step A: moveContractToArchive precondition', () => {
   it('rejects archive when status=paused + emits audit + dir stays', async () => {
     const contractId = 'c-paused';
     await setupContractInDir('paused', contractId, 'paused');
-    await expect(moveContractToArchive(makeCtx(), contractId)).rejects.toThrow(ToolError);
-    await expect(moveContractToArchive(makeCtx(), contractId)).rejects.toThrow('cannot be archived: status=paused');
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow(ToolError);
+    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow('cannot be archived: status=paused');
 
     const pausedDir = path.join(clawDir, 'contract', 'paused', contractId);
     expect(await fs.stat(pausedDir).then(() => true).catch(() => false)).toBe(true);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(false);
 
     const audit = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_PRECONDITION_VIOLATED);

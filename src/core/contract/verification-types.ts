@@ -6,7 +6,7 @@
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId } from './types.js';
+import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId, ArchiveState } from './types.js';
 import { type LockContext } from './lock.js';
 import type { ContractId } from './types.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
@@ -45,7 +45,7 @@ export interface VerificationContractContext {
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
   saveProgress: (contractId: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
-  moveContractToArchive: (contractId: ContractId) => Promise<void>;
+  moveContractToArchive: (contractId: ContractId, targetState: ArchiveState) => Promise<void>;
   emitContractCompleted: (contractId: ContractId) => Promise<void>;
 }
 

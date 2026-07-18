@@ -3,10 +3,10 @@
  * Contract status transitions: cancel / archive / completion check (phase 1123 Step C)
  */
 
-import type { ContractId } from './types.js';
+import type { ContractId, ArchiveState } from './types.js';
 import type { Contract } from '../contract/types.js';
 import type { ProgressData } from './types.js';
-import { ARCHIVE_ALLOWED_STATUSES } from './types.js';
+import { ARCHIVE_STATES } from './types.js';
 import { PROGRESS_CURRENT_SCHEMA_VERSION } from './persistence.js';
 import { lockContract, releaseLock, type LockContext } from './lock.js';
 import { ToolError } from '../../foundation/tools/errors.js';
@@ -20,9 +20,11 @@ import {
   emitContractCorruptPartialFailed,
   emitContractNotifyFailed,
   emitContractArchivePreconditionViolated,
+  emitContractArchiveTargetExists,
 } from './audit-emit.js';
 
 import { type ArchiveDir } from './types.js';
+import { archiveStateContainerDir } from './locations.js';
 
 export interface LifecycleContext extends LockContext {
   activeDir: string;
@@ -44,11 +46,12 @@ export async function cancelContract(
   reason: string,
 ): Promise<void> {
   const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
-  if (dir === ctx.archiveDir) {
+  if (dir.startsWith(ctx.archiveDir)) {
     await releaseSource();
     throw new ToolError(`Cannot cancel contract "${contractId}": already archived`);
   }
-  await ctx.fs.ensureDir(ctx.archiveDir);
+  const targetDir = archiveStateContainerDir(ctx.archiveDir, 'cancelled');
+  await ctx.fs.ensureDir(targetDir);
 
   // phase 1152 G.5 (r127 G fork): canonical decision point = saveProgress(cancelled) BEFORE abort
   // 原因：crash 在 abort 后 saveProgress 前 → verifier 已死、status 还 'running' → boot reconcile 不识别 cancel
@@ -60,7 +63,8 @@ export async function cancelContract(
   //   3. abortContractVerifiers (best-effort, outer try/catch)
   //   4. fs.move source → archive
   //   5. releaseLock at TARGET
-  const targetLockPath = `${ctx.archiveDir}/${contractId}/progress.lock`;
+  const targetDirPath = `${targetDir}/${contractId}`;
+  const targetLockPath = `${targetDirPath}/progress.lock`;
   try {
     // (2) canonical decision: saveProgress first (durable cancel mark)
     const progress = await ctx.getProgress(contractId);
@@ -89,7 +93,15 @@ export async function cancelContract(
     }
 
     // (4) move whole dir
-    await ctx.fs.move(`${dir}/${contractId}`, `${ctx.archiveDir}/${contractId}`);
+    if (await ctx.fs.exists(targetDirPath)) {
+      emitContractArchiveTargetExists(ctx.audit, {
+        contractId,
+        targetPath: targetDirPath,
+        context: 'cancelContract',
+      });
+      throw new ToolError(`Cannot cancel contract "${contractId}": target already exists at ${targetDirPath}`);
+    }
+    await ctx.fs.move(`${dir}/${contractId}`, targetDirPath);
   } catch (err) {
     // phase 422 Step C (review medium audit-emit-implies-no-write): saveProgress
     // 已写 'cancelled' 到 source dir、fs.move 失败 → 半态 (source 含 cancelled
@@ -152,13 +164,15 @@ export async function markCorrupted(
     ? () => Promise.resolve(knownDir)
     : ctx.contractDir;
   const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, contractDirResolver);
-  if (dir === ctx.archiveDir) {
+  if (dir.startsWith(ctx.archiveDir)) {
     await releaseSource();
     throw new ToolError(`Cannot mark corrupted contract "${contractId}": already archived`);
   }
-  await ctx.fs.ensureDir(ctx.archiveDir);
+  const targetDir = archiveStateContainerDir(ctx.archiveDir, 'corrupted');
+  await ctx.fs.ensureDir(targetDir);
 
-  const targetLockPath = `${ctx.archiveDir}/${contractId}/progress.lock`;
+  const targetDirPath = `${targetDir}/${contractId}`;
+  const targetLockPath = `${targetDirPath}/progress.lock`;
   try {
     // (2) canonical decision: saveProgress first (durable archive_corrupted marker)
     let progress: ProgressData;
@@ -205,7 +219,15 @@ export async function markCorrupted(
     }
 
     // (4) move whole dir
-    await ctx.fs.move(`${dir}/${contractId}`, `${ctx.archiveDir}/${contractId}`);
+    if (await ctx.fs.exists(targetDirPath)) {
+      emitContractArchiveTargetExists(ctx.audit, {
+        contractId,
+        targetPath: targetDirPath,
+        context: 'markCorrupted',
+      });
+      throw new ToolError(`Cannot mark corrupted contract "${contractId}": target already exists at ${targetDirPath}`);
+    }
+    await ctx.fs.move(`${dir}/${contractId}`, targetDirPath);
   } catch (err) {
     // saveProgress 已写 'archive_corrupted' 到 source dir、fs.move 失败 → 半态。
     // emit audit 留痕、boot reconcile / 运维可追。
@@ -252,9 +274,14 @@ export async function isContractComplete(
 export async function moveContractToArchive(
   ctx: LifecycleContext,
   contractId: ContractId,
+  targetState: ArchiveState,
 ): Promise<void> {
+  if (!(ARCHIVE_STATES as ReadonlySet<string>).has(targetState)) {
+    throw new ToolError(`Invalid archive state "${targetState}"`);
+  }
+
   const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
-  if (dir === ctx.archiveDir) {
+  if (dir.startsWith(ctx.archiveDir)) {
     await releaseSource();
     return;
   }
@@ -265,8 +292,11 @@ export async function moveContractToArchive(
     await releaseSource();
     throw new ToolError(`Contract "${contractId}" progress unavailable: cannot archive`);
   }
-  // phase 351: cast string for typed Set runtime check (mirror phase 344 stripDerivableStatus pattern)
-  if (!(ARCHIVE_ALLOWED_STATUSES as ReadonlySet<string>).has(progress.status)) {
+  // phase 351 / 1127 Step D: cast string for typed Set runtime check.
+  // Only statuses with a current state subdirectory may use moveContractToArchive;
+  // crashed / archive_pending_recovery have no state directory and must not be guessed.
+  const DIRECT_ARCHIVE_STATUSES: ReadonlySet<string> = new Set(['completed', 'cancelled', 'archive_corrupted']);
+  if (!DIRECT_ARCHIVE_STATUSES.has(progress.status)) {
     emitContractArchivePreconditionViolated(
       ctx.audit,
       { contractId, status: progress.status, context: 'moveContractToArchive' },
@@ -277,8 +307,9 @@ export async function moveContractToArchive(
     );
   }
 
-  const dst = `${ctx.archiveDir}/${contractId}`;
-  await ctx.fs.ensureDir(ctx.archiveDir);
+  const targetDir = archiveStateContainerDir(ctx.archiveDir, targetState);
+  await ctx.fs.ensureDir(targetDir);
+  const dst = `${targetDir}/${contractId}`;
 
   // phase 860 (P0-B): acquire lock at SOURCE / move dir / release@TARGET
   // phase 871 (new.P1.5 r113 G fork): catch fs.move throw + 显式释放 source 防 orphan
@@ -286,6 +317,14 @@ export async function moveContractToArchive(
   // mirror phase 791 P0.16 template (cancel sister)
   const targetLockPath = `${dst}/progress.lock`;
   try {
+    if (await ctx.fs.exists(dst)) {
+      emitContractArchiveTargetExists(ctx.audit, {
+        contractId,
+        targetPath: dst,
+        context: 'moveContractToArchive',
+      });
+      throw new ToolError(`Cannot archive contract "${contractId}": target already exists at ${dst}`);
+    }
     await ctx.fs.move(`${dir}/${contractId}`, dst);
   } catch (err) {
     try { await releaseSource(); } catch (releaseErr) {

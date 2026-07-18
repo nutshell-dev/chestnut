@@ -272,8 +272,8 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     expect(progress.status).toBe('cancelled');
     expect(progress.checkpoint).toBe('cancelled: user cancelled');
 
-    // contract should be in archive dir
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    // contract should be in archive/cancelled dir
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
   });
 
@@ -298,7 +298,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     expect(progress.status).toBe('cancelled');
 
     // contract should still be moved to archive
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
 
     abortSpy.mockRestore();

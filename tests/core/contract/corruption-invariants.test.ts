@@ -81,8 +81,8 @@ describe('Phase 958 corruption isolation', () => {
     const result = await manager.getProgress(contractId);
     expect(result).toBeNull();
 
-    // Contract moved to archive = markCorrupted succeeded
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    // Contract moved to archive/corrupted = markCorrupted succeeded
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.stat(archiveContractDir)).resolves.toBeDefined();
 
     // Corrupt progress.json isolated under archive/corrupted/
@@ -125,7 +125,7 @@ describe('Phase 958 corruption isolation', () => {
     );
 
     // File moved to corrupted/ subdir
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     const corruptedDir = path.join(archiveContractDir, 'corrupted');
     const corruptedFiles = await fs.readdir(corruptedDir);
     expect(corruptedFiles.length).toBeGreaterThan(0);
@@ -232,7 +232,7 @@ describe('Phase 959 corruption isolation follow-up', () => {
 
     // Contract must remain in active (not archived) because markCorrupted was skipped.
     await expect(fs.stat(activeContractDir)).resolves.toBeDefined();
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.stat(archiveContractDir)).rejects.toThrow(/ENOENT/);
 
     // Isolation failure audit emitted with cannot-proceed context.

@@ -469,14 +469,16 @@ describe('archiveAndEmit partial recovery (phase 1371 sub-2)', () => {
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     const raw = await fs.readFile(progressPath, 'utf-8');
     const progress = JSON.parse(raw);
+    progress.subtasks.t1.status = 'completed';
+    progress.subtasks.t1.completed_at = new Date().toISOString();
     progress.status = 'archive_pending_recovery';
     await fs.writeFile(progressPath, JSON.stringify(progress));
 
     // init() should detect archive_pending_recovery and attempt recovery
     await manager.init();
 
-    // After init, contract should be archived (moved to archive dir)
-    const archiveProgressPath = path.join(clawDir, 'contract', 'archive', contractId, 'progress.json');
+    // After init, contract should be archived (moved to archive/completed dir)
+    const archiveProgressPath = path.join(clawDir, 'contract', 'archive', 'completed', contractId, 'progress.json');
     const archiveExists = await fs.access(archiveProgressPath).then(() => true).catch(() => false);
     expect(archiveExists).toBe(true);
 

@@ -138,7 +138,7 @@ describe('ContractSystem - lock retry (phase 1351 split + phase 1048)', () => {
     expect(await fs.access(lockPath).then(() => true).catch(() => false)).toBe(false);
     // claims dir created (cancel moves contract to archive)
     const activeClaimsDir = path.join(clawDir, 'contract', 'active', contractId, 'claims');
-    const archiveClaimsDir = path.join(clawDir, 'contract', 'archive', contractId, 'claims');
+    const archiveClaimsDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId, 'claims');
     const claimsCreated = await fs.access(activeClaimsDir).then(() => true).catch(() => false)
       || await fs.access(archiveClaimsDir).then(() => true).catch(() => false);
     expect(claimsCreated).toBe(true);
