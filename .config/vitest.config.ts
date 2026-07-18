@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 85 file (sync 2026-07-15 / phase 1029: -8 via async-task-system result-delivery + messaging DI; task-recovery-invariants kept for process-exec vi.mock)
+ * 数量: 82 file (sync 2026-07-18 / phase 1125 Step C: register claw-stop; prior 85 count stale)
  * Invariant test: tests/design/invariants.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -37,6 +37,7 @@ const VI_MOCK_FILES = [
   // phase 102 (SHA fb9764d0): LockContext + VerificationContext DI 替 vi.mock pattern。
   // 'tests/core/contract/lock-retry-jitter.test.ts',
   'tests/cli/claw-send-confinement.test.ts',
+  'tests/cli/claw-stop.test.ts',  // phase 1125 Step C: vi.mock clean-stop marker
   'tests/cli/commands/claw-health.test.ts',
   'tests/cli/commands/claw-list.test.ts',
   'tests/cli/commands/claw-stream.test.ts',
