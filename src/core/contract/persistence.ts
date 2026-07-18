@@ -165,8 +165,10 @@ export async function saveProgress(
   delete (progressToSave as Record<string, unknown>).contract_id;
   // phase 282 Step A: 对于可从 subtasks derive 的状态（completed/running/pending），
   // 落盘时不写 status（消除双源）。对于不可 derive 的生命周期状态
-  //（cancelled/crashed/paused/archive_pending_recovery），暂时保留以
+  //（cancelled/crashed/archive_pending_recovery），暂时保留以
   // 避免状态丢失（未来可迁移到独立持久化标记如 cancelled_at/crashed_at）。
+  // phase 1125 Step B: 'paused' 已从当前 lifecycle 移除；legacy paused 由独立 reader
+  //（findLegacyPausedContracts / listLegacyPausedContracts）承担，不再经 progress.json 状态机流转。
   // phase 342: stripDerivableStatus helper (ML#1 共用基础设施单源)
   stripDerivableStatus(progressToSave as Record<string, unknown>);
 

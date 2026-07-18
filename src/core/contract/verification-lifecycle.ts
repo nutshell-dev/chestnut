@@ -190,7 +190,7 @@ export async function completeSubtaskSync(
     }
 
     if (progress.status !== 'running') {
-      // paused / crashed / archive_pending_recovery / cancelled
+      // non-running persisted statuses: cancelled / crashed / archive_pending_recovery
       result = {
         passed: false,
         feedback: `Contract status is "${progress.status}", cannot complete subtask "${subtaskId}".`,

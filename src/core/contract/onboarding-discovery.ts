@@ -1,7 +1,7 @@
 /**
  * @module L4.ContractSystem.OnboardingDiscovery
  * 0-dep pure helper for CLI static phase (pre-init / no ContractSystem instance).
- * Sibling of discovery.ts ctx-injected loadActiveContract/loadPausedContract.
+ * Sibling of discovery.ts ctx-injected loadActiveContract.
  */
 import * as path from 'node:path';
 import type { FileSystem } from '../../foundation/fs/index.js';

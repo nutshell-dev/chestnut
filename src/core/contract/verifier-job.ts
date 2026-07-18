@@ -50,8 +50,10 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
   }
 
   // phase 1080: crash-recovery — skip verifier if contract was cancelled
-  // phase 324 C4: 扩展短路至所有 terminal / paused 生命周期状态。
-  //   - file status in {cancelled, crashed, paused, archive_pending_recovery}
+  // phase 324 C4: 扩展短路至所有 non-runnable persisted 生命周期状态。
+  // phase 1125 Step B: 'paused' 仅作为 legacy persisted 状态的 fail-closed guard 保留，
+  //   当前 lifecycle 已不再产生 paused contract。
+  //   - file status in {cancelled, crashed, paused, archive_pending_recovery, archive_corrupted}
   //     → 不烧 LLM token、立即返不通过
   //   - ENOENT → contract 已被 move 出 active/（archived 等）→ 同上短路
   //   - 仅"派生状态"（running / pending / completed，progress.json 不存 status 字段）才继续
@@ -59,7 +61,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
   // 不直走 getProgress：verifier-job 是底层 helper、不应回调 ContractSystem
   // 创建循环依赖；status 在 progress.json 的可观察字段已够辨识非派生生命周期。
   if (config.contractId) {
-    const TERMINAL_OR_PAUSED = new Set(['cancelled', 'crashed', 'paused', 'archive_pending_recovery', 'archive_corrupted']);
+    const NON_RUNNABLE_PERSISTED_STATUSES = new Set(['cancelled', 'crashed', 'paused', 'archive_pending_recovery', 'archive_corrupted']);
     const progressPath = path.join(
       CONTRACT_ACTIVE_DIR,
       config.contractId,
@@ -83,7 +85,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         return { passed: false, feedback: 'Contract progress.json schema invalid — verifier aborting' };
       }
       const progress = result.data;
-      if (typeof progress.status === 'string' && TERMINAL_OR_PAUSED.has(progress.status)) {
+      if (typeof progress.status === 'string' && NON_RUNNABLE_PERSISTED_STATUSES.has(progress.status)) {
         if (config.audit) {
           emitContractVerifierSkipped(
             config.audit,

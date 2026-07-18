@@ -279,7 +279,7 @@ contractCmd
 
 contractCmd
   .command('cancel')
-  .description('Cancel an active or paused contract (moves to archive with status=cancelled)')
+  .description('Cancel an active contract (legacy paused contracts are read-only)')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .requiredOption('--reason <text>', 'Cancel reason (recorded in progress checkpoint)')
   .option('--contract <id>', 'Contract ID (default: active contract)')

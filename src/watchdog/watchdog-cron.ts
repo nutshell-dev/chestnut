@@ -132,7 +132,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
     try {
       const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
 
-      // phase 1482: inactivity 仅对 ACTIVE contract 触发 / paused 本就该停（不算 inactivity / D 类 root cause fix）
+      // phase 1482: inactivity 仅对 ACTIVE contract 触发 / legacy paused 不参与当前 lifecycle（不算 inactivity / D 类 root cause fix）
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
 
       // phase 2 γ4: inactivity 仅对 daemon ALIVE 触发 / daemon dead 归 claw_crashed 覆盖（0 dedup 重叠）
@@ -187,7 +187,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
 // Detect claw process crashes (dead daemon with active contract) and notify motion.
 // phase 2 γ4 reframe:
 //   - Trigger 条件改：dead + activeContract + !notified（原 `(wasAlive‖everSpawned)` requirement 移除 / 覆盖 S7 从未 spawn）
-//   - paused contract 永不通知（与 phase 1482 inactivity-paused-skip 一致 / DP「不打扰」）
+//   - legacy paused contract 永不通知（与 phase 1482 inactivity-legacy-paused-skip 一致 / DP「不打扰」）
 //   - 业主 own CrashClass enum (active_unexpected / active_user_stopped) by clean-stop marker
 //   - extraFields 透传 crash_class + 上下文 to motion guidance composer
 export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): void {
@@ -236,7 +236,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
 
     if (!currentlyAlive) {
       // phase 2 γ4: 触发条件 = dead + activeContract + !notified（不再要求 transition / 覆盖 S7）
-      // paused contract 永不通知 (clawHasActiveContract 内部已 active-only)
+      // legacy paused contract 永不通知 (clawHasActiveContract 内部已 active-only)
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) {
         // phase 133: B1 silent skip 加 audit emit（DP「不丢弃静默」+ 三分判定每分支必 audit）
         audit.write(
