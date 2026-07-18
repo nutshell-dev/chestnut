@@ -133,6 +133,7 @@ const VI_MOCK_FILES = [
   'tests/daemon/startup-check-atomic-write.test.ts',
   'tests/foundation/anthropic-cache.test.ts',
   'tests/foundation/audit/fallback-periodic-reconcile.test.ts',
+  'tests/foundation/audit/reconcile-fallback-fsync.test.ts',
   'tests/foundation/audit/writer-fallback-origin.test.ts',
   'tests/foundation/audit/writer-fallback.test.ts',
   'tests/foundation/fs.test.ts',

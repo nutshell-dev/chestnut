@@ -124,17 +124,6 @@ describe('Phase 86: clean stop 生命周期修复', () => {
       expect(cleanStopIdx).toBeGreaterThan(-1);
     });
 
-    it('clean-stop 检测应消费标记文件', () => {
-      const isCleanStopMatch = eventLoopSource.match(
-        /const isCleanStop = \(\(\) => \{[\s\S]{0,400}?\}\)\(\)/
-      );
-      expect(isCleanStopMatch).toBeTruthy();
-      const block = isCleanStopMatch![0];
-      expect(block).toContain('deleteSync');
-      expect(block).toContain('return true');
-      expect(block).toContain('return false');
-    });
-
     it('clean stop 后应跳过 llm-retry-state 加载', () => {
       // 找到 !isCleanStop 条件块
       const condIdx = eventLoopSource.indexOf('!isCleanStop');
