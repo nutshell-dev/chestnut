@@ -63,4 +63,53 @@ describe('detectUncleanExit catch audit', () => {
 
     expect(audit.write).not.toHaveBeenCalled();
   });
+
+  it('seq= format: last line is daemon_stop → does NOT emit DAEMON_UNCLEAN_EXIT', () => {
+    const audit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
+    const content = '2026-07-18T10:00:00.000Z\tseq=42\tdaemon_stop\treason=SIGTERM\n';
+    const mockFs = {
+      existsSync: () => true,
+      statSync: () => ({ size: Buffer.byteLength(content) }),
+      readBytesSync: () => Buffer.from(content),
+    };
+
+    detectUncleanExit('/tmp/audit', audit as any, mockFs as any);
+
+    expect(audit.write).not.toHaveBeenCalledWith(
+      expect.stringMatching(/daemon_unclean_exit/),
+      expect.anything(),
+    );
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  it('seq= format: last line is other type → emits DAEMON_UNCLEAN_EXIT', () => {
+    const audit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
+    const content = '2026-07-18T10:00:00.000Z\tseq=7\tturn_end\tcaller=processTurn\n';
+    const mockFs = {
+      existsSync: () => true,
+      statSync: () => ({ size: Buffer.byteLength(content) }),
+      readBytesSync: () => Buffer.from(content),
+    };
+
+    detectUncleanExit('/tmp/audit', audit as any, mockFs as any);
+
+    expect(audit.write).toHaveBeenCalledWith(
+      'daemon_unclean_exit',
+      expect.stringMatching(/last_ts=/),
+    );
+  });
+
+  it('legacy format (no seq= col): last line is daemon_stop → does NOT emit DAEMON_UNCLEAN_EXIT', () => {
+    const audit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
+    const content = '2026-07-18T10:00:00.000Z\tdaemon_stop\treason=SIGTERM\n';
+    const mockFs = {
+      existsSync: () => true,
+      statSync: () => ({ size: Buffer.byteLength(content) }),
+      readBytesSync: () => Buffer.from(content),
+    };
+
+    detectUncleanExit('/tmp/audit', audit as any, mockFs as any);
+
+    expect(audit.write).not.toHaveBeenCalled();
+  });
 });

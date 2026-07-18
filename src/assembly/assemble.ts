@@ -45,7 +45,11 @@ export function detectUncleanExit(_auditDir: string, auditWriter: AuditLog, fs: 
     const buf = fs.readBytesSync(AUDIT_FILE, offset, stat.size);
     const chunk = buf.toString('utf-8');
       const lastLine = chunk.split('\n').filter(Boolean).at(-1) ?? '';
-      const type = lastLine.split('\t')[1];
+      const parts = lastLine.split('\t');
+      // phase 1124: 兼容 phase 1125 起的 seq=N col（mirror daemon/last-exit-summary.ts:71-75）
+      let typeIdx = 1;
+      if (parts[1]?.startsWith('seq=') && parts.length >= 3) typeIdx = 2;
+      const type = parts[typeIdx];
       if (
         type === 'daemon_stop' ||
         type === 'daemon_unclean_exit' ||
