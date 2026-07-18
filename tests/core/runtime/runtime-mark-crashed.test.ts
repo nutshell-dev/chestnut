@@ -92,9 +92,9 @@ describe('Runtime crash handling (phase 1121 Step B)', () => {
   ];
 
   for (const { Cls, args } of errClasses) {
-    it(`${Cls.name} with contract_id does NOT call markCrashed`, async () => {
+    it(`${Cls.name} with contract_id does NOT call markCorrupted`, async () => {
       const runtime = await makeCrashRuntime();
-      const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockResolvedValue(undefined);
+      const markSpy = vi.spyOn((runtime as any).contractManager, 'markCorrupted').mockResolvedValue(undefined);
 
       runtime.drainResult = {
         injected: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
@@ -118,7 +118,7 @@ describe('Runtime crash handling (phase 1121 Step B)', () => {
 
   it('contract_id 缺失 → audit-only (no Contract mutation)', async () => {
     const runtime = await makeCrashRuntime();
-    const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockResolvedValue(undefined);
+    const markSpy = vi.spyOn((runtime as any).contractManager, 'markCorrupted').mockResolvedValue(undefined);
     const auditWrites: string[][] = [];
     vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
       auditWrites.push([type, ...args]);

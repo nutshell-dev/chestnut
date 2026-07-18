@@ -22,7 +22,7 @@ import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 /**
  * Phase 958 — corruption isolation invariants
  *
- * 1. corrupt progress.json → markCrashed succeeds + file isolated
+ * 1. corrupt progress.json → markCorrupted succeeds + file isolated
  * 2. JSON.parse SyntaxError → enters isolation path
  * 3. same-millisecond isolation → unique backup filenames
  */
@@ -63,7 +63,7 @@ describe('Phase 958 corruption isolation', () => {
     });
   }
 
-  it('succeeds both markCrashed and isolation for corrupt progress.json', async () => {
+  it('succeeds both markCorrupted and isolation for corrupt progress.json', async () => {
     const mockAudit = makeMockAudit();
     const manager = makeManager(mockAudit);
 
@@ -81,7 +81,7 @@ describe('Phase 958 corruption isolation', () => {
     const result = await manager.getProgress(contractId);
     expect(result).toBeNull();
 
-    // Contract moved to archive = markCrashed succeeded
+    // Contract moved to archive = markCorrupted succeeded
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
     await expect(fs.stat(archiveContractDir)).resolves.toBeDefined();
 
@@ -91,7 +91,7 @@ describe('Phase 958 corruption isolation', () => {
     expect(corruptedFiles.length).toBeGreaterThan(0);
     expect(corruptedFiles[0]).toMatch(/^\d+_[a-zA-Z0-9-]+_progress\.json$/);
 
-    // No post-isolation markCrashed failure audit
+    // No post-isolation markCorrupted failure audit
     const isolationFailedCalls = mockAudit.write.mock.calls.filter(
       (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
     );
@@ -165,7 +165,7 @@ describe('Phase 958 corruption isolation', () => {
 /**
  * Phase 959 — corruption isolation follow-up
  *
- * 1. isolation failure → markCrashed is NOT called
+ * 1. isolation failure → markCorrupted is NOT called
  * 2. YAML syntax error → enters isolation path
  * 3. existing backup path → retry with new UUID instead of overwrite
  */
@@ -206,10 +206,10 @@ describe('Phase 959 corruption isolation follow-up', () => {
     });
   }
 
-  it('throws without calling markCrashed when isolation fails', async () => {
+  it('throws without calling markCorrupted when isolation fails', async () => {
     const mockAudit = makeMockAudit();
     const manager = makeManager(mockAudit);
-    const markCrashedSpy = vi.spyOn(manager as any, 'markCrashed');
+    const markCorruptedSpy = vi.spyOn(manager as any, 'markCorrupted');
     const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('move denied'));
 
     const contractId = await manager.create(makeContractYaml({
@@ -228,9 +228,9 @@ describe('Phase 959 corruption isolation follow-up', () => {
     );
 
     expect(moveSpy).toHaveBeenCalled();
-    expect(markCrashedSpy).not.toHaveBeenCalled();
+    expect(markCorruptedSpy).not.toHaveBeenCalled();
 
-    // Contract must remain in active (not archived) because markCrashed was skipped.
+    // Contract must remain in active (not archived) because markCorrupted was skipped.
     await expect(fs.stat(activeContractDir)).resolves.toBeDefined();
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
     await expect(fs.stat(archiveContractDir)).rejects.toThrow(/ENOENT/);
@@ -254,13 +254,13 @@ describe('Phase 959 corruption isolation follow-up', () => {
     await fs.writeFile(path.join(activeContractDir, 'contract.yaml'), '[not: valid yaml', 'utf-8');
 
     const mockAudit = makeMockAudit();
-    const markCrashed = vi.fn(async (_contractId: string, _cause: string) => {});
+    const markCorrupted = vi.fn(async (_contractId: string, _evidence: any) => {});
     const result = await loadContractYaml({
       fs: nodeFs,
       audit: mockAudit as any,
       contractDir: async () => 'contract/active',
       getProgress: async () => ({ contract_id: contractId, status: 'running', subtasks: {} }) as any,
-      markCrashed,
+      markCorrupted,
     }, contractId);
 
     expect(result).toBeNull();
@@ -281,8 +281,11 @@ describe('Phase 959 corruption isolation follow-up', () => {
     expect(corruptedFiles.length).toBeGreaterThan(0);
     expect(corruptedFiles[0]).toMatch(/^\d+_[a-zA-Z0-9-]+_contract\.yaml$/);
 
-    // markCrashed called with the YAML parse corruption cause.
-    expect(markCrashed).toHaveBeenCalledWith(contractId, 'system: yaml_parse_corruption_contract_yaml');
+    // markCorrupted called with the YAML parse corruption reason and relative evidence path.
+    expect(markCorrupted).toHaveBeenCalledWith(
+      contractId,
+      expect.objectContaining({ reason: 'yaml_parse_error', relativePath: expect.stringContaining('corrupted/') }),
+    );
   });
 
   it('retries with new UUID when backup path exists', async () => {

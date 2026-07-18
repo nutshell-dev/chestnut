@@ -97,7 +97,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       });
     }
 
-    it('phase 71: MaxStepsExceededError 通知 sender 经 markCrashed + 重抛错误', async () => {
+    it('phase 1121 Step B: MaxStepsExceededError 不再 markCrashed、仍重抛错误', async () => {
       const runtime = await makeTestRuntime();
       edgeRuntimes.push(runtime);
       await runtime.initialize();
@@ -120,13 +120,13 @@ describe('Runtime RetryOutboxInterrupt', () => {
       };
       runtime.reactError = new MaxStepsExceededError(10);
 
-      const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockResolvedValue(undefined);
+      const markSpy = vi.spyOn((runtime as any).contractManager, 'markCorrupted').mockResolvedValue(undefined);
 
       // 错误应被重抛
       await expect(runLegacyBatch(runtime)).rejects.toThrow(MaxStepsExceededError);
 
-      // phase 71: markCrashed 替代 writeErrorResponse
-      expect(markSpy).toHaveBeenCalledWith('c-1', 'system: maxstepsexceedederror');
+      // phase 1121 Step B: process failure 不再 mutate Contract
+      expect(markSpy).not.toHaveBeenCalled();
       markSpy.mockRestore();
     });
 

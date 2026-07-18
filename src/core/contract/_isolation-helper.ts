@@ -9,6 +9,8 @@
  *   4. fs.move 原文件 → backupPath
  *   5. emit CONTRACT_FILE_ISOLATED audit
  *
+ * phase 1121 Step C: 返回相对 Contract 根的 evidence reference，目录 move 后仍稳定解析。
+ *
  * 失败时返 null（move 失败 = 文件可能已被消费者删 / perm denied、不阻塞主流程）。
  */
 
@@ -32,11 +34,18 @@ interface IsolationArgs {
   reason: string;          // 'unknown_schema_version' | 'schema_invalid'
 }
 
+export interface IsolationResult {
+  /** Absolute path on this filesystem (useful for immediate fs operations). */
+  backupPath: string;
+  /** Path relative to the Contract root; stable after archive move. */
+  relativePath: string;
+}
+
 export async function isolateCorruptedFile(
   fs: FileSystem,
   audit: AuditLog,
   args: IsolationArgs,
-): Promise<{ backupPath: string } | null> {
+): Promise<IsolationResult | null> {
   const corruptedDir = path.join(args.contractDir, CORRUPTED_SUBDIR);
   try {
     await fs.ensureDir(corruptedDir);
@@ -46,7 +55,9 @@ export async function isolateCorruptedFile(
     // phase 959: never overwrite an existing backup; retry with fresh UUIDs.
     for (let attempt = 0; attempt < MAX_BACKUP_RETRIES; attempt++) {
       const uuid = newShortUuid();
-      const backupPath = path.join(corruptedDir, `${ts}_${uuid}_${args.filename}`);
+      const backupBasename = `${ts}_${uuid}_${args.filename}`;
+      const backupPath = path.join(corruptedDir, backupBasename);
+      const relativePath = path.join(CORRUPTED_SUBDIR, backupBasename);
       if (fs.existsSync(backupPath)) continue;
       try {
         await fs.move(srcPath, backupPath);
@@ -55,9 +66,9 @@ export async function isolateCorruptedFile(
           `contractId=${args.contractId}`,
           `filename=${args.filename}`,
           `reason=${args.reason}`,
-          `backupPath=${backupPath}`,
+          `backupPath=${relativePath}`,
         );
-        return { backupPath };
+        return { backupPath, relativePath };
       } catch (moveErr) {
         // move failed (race / perm denied). Retry on collision, otherwise audit + fail.
         if (attempt < MAX_BACKUP_RETRIES - 1) continue;
@@ -79,7 +90,7 @@ export async function isolateCorruptedFile(
     );
     return null;
   } catch (err) {
-    // 隔离失败（race / perm denied）→ audit + return null、不阻塞 markCrashed
+    // 隔离失败（race / perm denied）→ audit + return null、不阻塞 markCorrupted
     audit.write(
       CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
       `contractId=${args.contractId}`,

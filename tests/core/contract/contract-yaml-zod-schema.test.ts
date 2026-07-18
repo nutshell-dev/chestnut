@@ -30,7 +30,7 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 });
 
-function makeCtx(contractId: string, options: { markCrashed?: boolean } = {}) {
+function makeCtx(contractId: string, options: { markCorrupted?: boolean } = {}) {
   const { audit, events } = makeAudit();
   return {
     fs: nodeFs,
@@ -39,8 +39,8 @@ function makeCtx(contractId: string, options: { markCrashed?: boolean } = {}) {
     contractDir: async () => 'contract/active',
     getProgress: async () =>
       ({ contract_id: contractId, status: 'running', subtasks: {} }) as any,
-    markCrashed: options.markCrashed
-      ? vi.fn(async (_contractId: string, _cause: string) => {})
+    markCorrupted: options.markCorrupted
+      ? vi.fn(async (_contractId: string, _evidence: any) => {})
       : undefined,
   };
 }
@@ -91,7 +91,7 @@ describe('ContractYaml Zod schema (phase 311)', () => {
     ]);
   });
 
-  it('rejects unknown field with strict() + isolates file + emits audit + markCrashed', async () => {
+  it('rejects unknown field with strict() + isolates file + emits audit + markCorrupted', async () => {
     const contractId = 'unknown-field';
     const yamlContent = [
       'schema_version: 1',
@@ -104,12 +104,15 @@ describe('ContractYaml Zod schema (phase 311)', () => {
     ].join('\n');
 
     await writeContractYaml(contractId, yamlContent);
-    const ctx = makeCtx(contractId, { markCrashed: true });
+    const ctx = makeCtx(contractId, { markCorrupted: true });
     const result = await loadContractYaml(ctx, contractId);
 
     expect(result).toBeNull();
     expect(ctx.events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID)).toBe(true);
-    expect(ctx.markCrashed).toHaveBeenCalledWith(contractId, 'system: schema_corruption_contract_yaml');
+    expect(ctx.markCorrupted).toHaveBeenCalledWith(
+      contractId,
+      expect.objectContaining({ reason: 'yaml_schema_invalid', relativePath: expect.stringContaining('corrupted/') }),
+    );
     const corrupted = await listCorruptedFiles(contractId);
     expect(corrupted.length).toBe(1);
   });

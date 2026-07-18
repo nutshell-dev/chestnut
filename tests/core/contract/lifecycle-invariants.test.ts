@@ -80,9 +80,9 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
   });
 
-  it('resets in_progress subtasks when marking contract crashed (Phase 967)', async () => {
+  it('resets in_progress subtasks when marking contract corrupted (Phase 1121 Step C)', async () => {
     const contractId = await manager.create({
-      title: 'Crash Test',
+      title: 'Corrupt Test',
       goal: 'test',
       subtasks: [{ id: 'task-1', description: 'Task 1' }],
       verification: [],
@@ -95,12 +95,15 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     progress.subtasks['task-1'].verification_attempt_id = 'attempt-1';
     await fs.writeFile(progressPath, JSON.stringify(progress, null, 2));
 
-    await manager.markCrashed(contractId, 'test-crash');
+    await manager.markCorrupted(contractId, {
+      reason: 'progress_schema_invalid',
+      relativePath: 'corrupted/123_progress.json',
+    });
 
     const archivedProgressPath = path.join(clawDir, 'contract', 'archive', contractId, 'progress.json');
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
-    expect(archivedProgress.status).toBe('crashed');
+    expect(archivedProgress.status).toBe('archive_corrupted');
     expect(archivedProgress.subtasks['task-1'].status).toBe('todo');
     expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
   });
@@ -487,11 +490,11 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
   });
 });
 
-// ───── source: mark-crashed.test.ts ─────
+// ───── source: mark-corrupted.test.ts ─────
 /**
- * Phase 63 Step G: markCrashed unit tests
+ * Phase 1121 Step C: markCorrupted unit tests
  */
-describe('phase 63: markCrashed', () => {
+describe('phase 1121 Step C: markCorrupted', () => {
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
@@ -528,48 +531,50 @@ describe('phase 63: markCrashed', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('saveProgress(status="crashed") + move to archive + safeNotify', async () => {
+  it('saveProgress(status="archive_corrupted") + move to archive + no notify', async () => {
     const contractId = await manager.create(makeContractYaml({
-      title: 'Crash Test',
+      title: 'Corrupt Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
-    // create 会触发 contract_created notify、清掉只验 markCrashed 的
+    // create 会触发 contract_created notify、清掉只验 markCorrupted 的
     notifyCalls.length = 0;
 
-    await manager.markCrashed(contractId, 'system: maxstepsexceedederror');
+    await manager.markCorrupted(contractId, {
+      reason: 'progress_schema_invalid',
+      relativePath: 'corrupted/123_progress.json',
+    });
 
     const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('crashed');
-    expect(progress.checkpoint).toBe('crashed: system: maxstepsexceedederror');
+    expect(progress.status).toBe('archive_corrupted');
+    expect(progress.checkpoint).toContain('archive_corrupted: progress_schema_invalid');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
 
-    expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0].type).toBe('contract_crashed');
-    expect(notifyCalls[0].data).toMatchObject({
-      contractId,
-      cause: 'system: maxstepsexceedederror',
-    });
+    // phase 1121 Step D: 新 contract_crashed notify 已删除
+    expect(notifyCalls).toHaveLength(0);
   });
 
   it('throws ToolError if contract already in archive', async () => {
     const contractId = await manager.create(makeContractYaml({
-      title: 'Crash Already Archived',
+      title: 'Corrupt Already Archived',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
 
     await manager.cancel(contractId, 'pre-cancel');
-    await expect(manager.markCrashed(contractId, 'cause')).rejects.toThrow(ToolError);
+    await expect(manager.markCorrupted(contractId, {
+      reason: 'progress_schema_invalid',
+      relativePath: 'corrupted/123_progress.json',
+    })).rejects.toThrow(ToolError);
   });
 
   it('abortContractVerifiers failure does not break main flow', async () => {
     const contractId = await manager.create(makeContractYaml({
-      title: 'Crash Abort Throw',
+      title: 'Corrupt Abort Throw',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
@@ -579,10 +584,13 @@ describe('phase 63: markCrashed', () => {
       throw new Error('verifier abort boom');
     });
 
-    await expect(manager.markCrashed(contractId, 'cause')).resolves.toBeUndefined();
+    await expect(manager.markCorrupted(contractId, {
+      reason: 'progress_schema_invalid',
+      relativePath: 'corrupted/123_progress.json',
+    })).resolves.toBeUndefined();
 
     const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('crashed');
+    expect(progress.status).toBe('archive_corrupted');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
@@ -590,7 +598,7 @@ describe('phase 63: markCrashed', () => {
     abortSpy.mockRestore();
   });
 
-  it('emits CONTRACT_CRASHED audit', async () => {
+  it('emits CONTRACT_CORRUPTED audit', async () => {
     const auditWrites: string[][] = [];
     const audit = {
       write: (...args: string[]) => auditWrites.push(args),
@@ -611,15 +619,18 @@ describe('phase 63: markCrashed', () => {
     notifyClaw: vi.fn(),});
 
     const contractId = await localManager.create(makeContractYaml({
-      title: 'Crash Audit Test',
+      title: 'Corrupt Audit Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
 
-    await localManager.markCrashed(contractId, 'cause');
+    await localManager.markCorrupted(contractId, {
+      reason: 'progress_schema_invalid',
+      relativePath: 'corrupted/123_progress.json',
+    });
 
-    expect(auditWrites.some(a => a[0] === 'contract_crashed' && a.some(s => s.includes('contractId=' + contractId)))).toBe(true);
-    expect(auditWrites.some(a => a[0] === 'contract_crashed' && a.some(s => s.includes('cause=cause')))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'contract_corrupted' && a.some(s => s.includes('contractId=' + contractId)))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'contract_corrupted' && a.some(s => s.includes('reason=progress_schema_invalid')))).toBe(true);
   });
 });

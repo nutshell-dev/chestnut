@@ -496,6 +496,44 @@ export function emitContractCrashed(
   );
 }
 
+// ─── CORRUPTED (phase 1121 Step C) ──────────────────────────────────────────
+export function emitContractCorrupted(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    reason: string;
+    evidencePath: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCorrupted')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CORRUPTED,
+    `contractId=${opts.contractId}`,
+    `reason=${opts.reason}`,
+    `evidence_path=${opts.evidencePath}`,
+  );
+}
+
+// ─── CORRUPT_PARTIAL_FAILED (phase 1121 Step C) ─────────────────────────────
+export function emitContractCorruptPartialFailed(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    reason: string;
+    evidencePath: string;
+    error: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCorruptPartialFailed')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CORRUPT_PARTIAL_FAILED,
+    `contractId=${opts.contractId}`,
+    `reason=${opts.reason}`,
+    `evidence_path=${opts.evidencePath}`,
+    `error=${opts.error}`,
+  );
+}
+
 // ─── CANCELLED ──────────────────────────────────────────────────────────────
 export function emitContractCancelled(
   audit: AuditLog,
@@ -962,6 +1000,24 @@ export function emitContractCreatePolicyRejected(
     `policyName=${payload.policyName}`,
     `cause=${payload.cause}`,
     ...(payload.details !== undefined ? [`details=${JSON.stringify(payload.details)}`] : []),
+  );
+}
+
+// ─── LEGACY_CRASHED_OBSERVED (phase 1121 Step D) ────────────────────────────
+export function emitContractLegacyCrashedObserved(
+  audit: AuditLog,
+  opts: {
+    clawId: string;
+    contractId: string;
+    sourcePath: string;
+  },
+): void {
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_CRASHED_OBSERVED,
+    `clawId=${opts.clawId}`,
+    `contractId=${opts.contractId}`,
+    `source_path=${opts.sourcePath}`,
+    `status=legacy_crashed`,
   );
 }
 

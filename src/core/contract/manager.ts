@@ -81,11 +81,12 @@ import { ContractValidationError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
-  pauseContract, resumeContract, cancelContract, markCrashed,
+  pauseContract, resumeContract, cancelContract, markCorrupted,
   isContractComplete, moveContractToArchive,
   type LifecycleContext,
 } from './lifecycle.js';
 import type { NotifyClawFn } from './verification-types.js';
+import type { ContractCorruptionEvidence } from './types.js';
 import {
   runVerificationPipeline,
   runScriptVerification as runScriptVerificationFn,
@@ -399,7 +400,7 @@ export class ContractSystem {
       audit: this.audit,
       contractDir: (id) => this.contractDir(id),
       getProgress: (id) => this.getProgress(id),
-      markCrashed: (id, cause) => this.markCrashed(id, cause),
+      markCorrupted: (id, evidence) => this.markCorrupted(id, evidence),
     };
   }
 
@@ -423,6 +424,7 @@ export class ContractSystem {
       saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
+      markCorrupted: (id, evidence, knownDir) => this.markCorrupted(id, evidence, knownDir),
       // phase 438: lazy thunk、setOnNotify 后的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
       onNotify: (type, data) => this.onNotify?.(type, data),
     };
@@ -818,8 +820,12 @@ export class ContractSystem {
     this.auditorState.delete(contractId);
   }
 
-  async markCrashed(contractId: ContractId, cause: string, knownDir?: string): Promise<void> {
-    await markCrashed(this._lifecycleCtx(), contractId, cause, knownDir);
+  async markCorrupted(
+    contractId: ContractId,
+    evidence: ContractCorruptionEvidence,
+    knownDir?: string,
+  ): Promise<void> {
+    await markCorrupted(this._lifecycleCtx(), contractId, evidence, knownDir);
     // phase 398 Step D (review N9): 同 cancel。
     this.auditorState.delete(contractId);
   }
@@ -1158,7 +1164,10 @@ export class ContractSystem {
           );
           throw new Error(`Cannot isolate corrupt progress.json for ${contractId} — aborting to avoid recursive getProgress`);
         }
-        await this.markCrashed(contractId, 'system: json_parse_corruption_progress_json', dir);
+        await this.markCorrupted(contractId, {
+          reason: 'progress_json_parse_error',
+          relativePath: isolated.relativePath,
+        }, dir);
         return null;
       }
       throw parseErr;
@@ -1230,8 +1239,8 @@ export class ContractSystem {
         );
       }
       const isolationReason = isSchemaVersionIssue ? 'unknown_schema_version' : 'schema_invalid';
-      // phase 958: isolate corrupted progress.json first, then markCrashed with known dir.
-      // markCrashed internally re-resolves contractDir via progress.json existence;
+      // phase 958: isolate corrupted progress.json first, then markCorrupted with known dir.
+      // markCorrupted internally re-resolves contractDir via progress.json existence;
       // after isolation progress.json is gone, so pass the known dir to avoid orphan.
       const isolated = await isolateCorruptedFile(this.fs, this.audit, {
         contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
@@ -1246,7 +1255,13 @@ export class ContractSystem {
         );
         throw new Error(`Cannot isolate corrupt progress.json for ${contractId} — aborting to avoid recursive getProgress`);
       }
-      await this.markCrashed(contractId, 'system: schema_corruption_progress_json', dir);
+      const corruptionReason: ContractCorruptionEvidence['reason'] = isSchemaVersionIssue
+        ? 'progress_unknown_schema_version'
+        : 'progress_schema_invalid';
+      await this.markCorrupted(contractId, {
+        reason: corruptionReason,
+        relativePath: isolated.relativePath,
+      }, dir);
       return null;
     }
 

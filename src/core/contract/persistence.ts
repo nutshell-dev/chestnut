@@ -12,7 +12,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
-import type { ProgressData } from './types.js';
+import type { ProgressData, ContractCorruptionEvidence } from './types.js';
 import { stripDerivableStatus, ContractProgressInvariantViolatedError } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
@@ -39,7 +39,7 @@ export interface PersistenceContext {
   audit: AuditLog;
   contractDir: (contractId: ContractId) => Promise<string>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  markCrashed?: (contractId: ContractId, cause: string) => Promise<void>;
+  markCorrupted?: (contractId: ContractId, evidence: ContractCorruptionEvidence) => Promise<void>;
 }
 
 export async function loadContractYaml(
@@ -69,8 +69,11 @@ export async function loadContractYaml(
       contractId, contractDir: `${contractDir}/${contractId}`, filename: CONTRACT_YAML_FILE,
       reason: 'yaml_parse_error',
     });
-    if (isolated && ctx.markCrashed) {
-      await ctx.markCrashed(contractId, 'system: yaml_parse_corruption_contract_yaml');
+    if (isolated && ctx.markCorrupted) {
+      await ctx.markCorrupted(contractId, {
+        reason: 'yaml_parse_error',
+        relativePath: isolated.relativePath,
+      });
     }
     return null;
   }
@@ -92,8 +95,11 @@ export async function loadContractYaml(
       contractId, contractDir: `${contractDir}/${contractId}`, filename: CONTRACT_YAML_FILE,
       reason: 'schema_invalid',
     });
-    if (isolated && ctx.markCrashed) {
-      await ctx.markCrashed(contractId, 'system: schema_corruption_contract_yaml');
+    if (isolated && ctx.markCorrupted) {
+      await ctx.markCorrupted(contractId, {
+        reason: 'yaml_schema_invalid',
+        relativePath: isolated.relativePath,
+      });
     }
     return null;
   }

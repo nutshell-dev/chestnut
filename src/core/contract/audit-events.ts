@@ -52,6 +52,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   // progress、target dir 缺/半成。
   CANCEL_PARTIAL_FAILED: 'contract_cancel_partial_failed',
   CRASHED: 'contract_crashed',                  // phase 63 NEW
+  // phase 1121 Step C: deterministic persistent corruption lifecycle.
+  CORRUPTED: 'contract_corrupted',
+  CORRUPT_PARTIAL_FAILED: 'contract_corrupt_partial_failed',
   // phase 427 Step A (review medium audit-emit-implies-no-write、phase 422 follow-up):
   // markCrashed 半态留痕 — saveProgress 已写 'crashed' 但 fs.move 失败、source 含
   // crashed progress、target dir 缺/半成。与 CANCEL_PARTIAL_FAILED 对称。
@@ -154,6 +157,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_OBSERVER_STATE_INVARIANT_VIOLATED: 'contract_observer_state_invariant_violated',
   // phase 66 NEW (raw migration phase 272 Step C)
   MARK_CRASHED_GRACEFUL_FALLBACK: 'mark_crashed_graceful_fallback',
+  // phase 1121 Step D: legacy crashed contract observed in archive
+  CONTRACT_LEGACY_CRASHED_OBSERVED: 'contract_legacy_crashed_observed',
 } as const;
 
 /**
@@ -217,6 +222,8 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   verification_passed: 'audit',
   contract_cancelled: 'audit',
   contract_crashed: 'audit',
+  contract_corrupted: 'audit',
+  contract_corrupt_partial_failed: 'audit',
   contract_completed: 'audit',
   contract_paused: 'audit',
   contract_resumed: 'audit',
@@ -263,6 +270,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_legacy_status_field_ignored: 'audit',
   contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
+  contract_legacy_crashed_observed: 'audit',
   // phase 954: boot reconcile lifecycle move recovery events
   contract_multi_dir: 'audit',
   multi_active_contracts: 'audit',

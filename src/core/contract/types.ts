@@ -343,3 +343,23 @@ export interface CreateContractOptions {
   subagentTaskId?: string;
   clawDir?: string;
 }
+
+/**
+ * phase 1121 Step C: deterministic persistent corruption reasons.
+ * Only these reasons may write the corruption lifecycle transition.
+ */
+export type ContractCorruptionReason =
+  | 'yaml_parse_error'
+  | 'yaml_schema_invalid'
+  | 'progress_json_parse_error'
+  | 'progress_schema_invalid'
+  | 'progress_unknown_schema_version';
+
+/**
+ * phase 1121 Step C: stable evidence reference relative to the Contract root.
+ * The path remains valid after the Contract dir is moved into archive.
+ */
+export interface ContractCorruptionEvidence {
+  reason: ContractCorruptionReason;
+  relativePath: string;
+}

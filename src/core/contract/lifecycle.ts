@@ -12,12 +12,14 @@ import { lockContract, releaseLock, type LockContext } from './lock.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import type { ContractCorruptionEvidence } from './types.js';
 
 import {
   emitContractPaused,
   emitContractResumed,
   emitContractCancelled,
-  emitContractCrashed,
+  emitContractCorrupted,
+  emitContractCorruptPartialFailed,
   emitContractNotifyFailed,
   emitContractArchivePreconditionViolated,
 } from './audit-emit.js';
@@ -37,6 +39,11 @@ export interface LifecycleContext extends LockContext {
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
   /** phase 63: onNotify callback for contract terminal state alerts */
   onNotify?: (type: string, data: Record<string, unknown>) => void;
+  markCorrupted: (
+    contractId: ContractId,
+    evidence: ContractCorruptionEvidence,
+    knownDir?: string,
+  ) => Promise<void>;
 }
 
 export async function pauseContract(
@@ -224,10 +231,9 @@ export async function cancelContract(
   safeNotify(ctx, 'contract_cancelled', { contractId, reason });
 }
 
-// phase 63: safe notify wrapper for lifecycle functions
 function safeNotify(
   ctx: LifecycleContext,
-  type: 'contract_cancelled' | 'contract_crashed',
+  type: 'contract_cancelled',
   data: Record<string, unknown>,
 ): void {
   try {
@@ -238,18 +244,20 @@ function safeNotify(
 }
 
 /**
- * phase 63: ContractSystem 新增 markCrashed 入口
+ * phase 1121 Step C: ContractSystem 纯资源 corruption 入口
  *
- * 与 cancelContract 对称、但语义不同：
- * - cancelContract: 主动决策中止（user CLI / system 决定停）
- * - markCrashed:    被动崩（agent 物理推不动、Runtime catch 5 typed Error 触发）
+ * 前置条件：调用者已成功将损坏文件隔离到 Contract 内 corrupted/ 目录。
+ * 本函数只处理已确认的持久化损坏：写 archive_corrupted marker、abort verifier、
+ * move source → archive、emit audit。不发送业务 notify。
  *
- * 流程：lockContract / saveProgress(crashed) / abortContractVerifiers / fs.move source → archive / release / emit audit / safeNotify
+ * 与 cancelContract 对称但语义不同：
+ * - cancelContract: 主动决策中止
+ * - markCorrupted:  已确认的 Contract 持久化资源损坏
  */
-export async function markCrashed(
+export async function markCorrupted(
   ctx: LifecycleContext,
   contractId: ContractId,
-  cause: string,
+  evidence: ContractCorruptionEvidence,
   knownDir?: string,
 ): Promise<void> {
   const contractDirResolver = knownDir !== undefined
@@ -258,13 +266,13 @@ export async function markCrashed(
   const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, contractDirResolver);
   if (dir === ctx.archiveDir) {
     await releaseSource();
-    throw new ToolError(`Cannot mark crashed contract "${contractId}": already archived`);
+    throw new ToolError(`Cannot mark corrupted contract "${contractId}": already archived`);
   }
   await ctx.fs.ensureDir(ctx.archiveDir);
 
   const targetLockPath = `${ctx.archiveDir}/${contractId}/progress.lock`;
   try {
-    // (2) canonical decision: saveProgress first (durable crashed mark)
+    // (2) canonical decision: saveProgress first (durable archive_corrupted marker)
     let progress: ProgressData;
     try {
       const p = await ctx.getProgress(contractId);
@@ -273,21 +281,19 @@ export async function markCrashed(
       }
       progress = p;
     } catch (getProgressErr) {
-      // phase 66: progress.json 自身 schema corruption → fallback minimal progress
+      // progress.json 自身不可读 → 创建最小过渡 payload，保留 evidence 引用
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.MARK_CRASHED_GRACEFUL_FALLBACK,
-        // phase 575: col 命名 contract_id 统一 snake_case
-        // （与同文件 CANCEL_PARTIAL_FAILED + CRASH_PARTIAL_FAILED + phase 140 id-naming + snapshot.json schema 一致）
         `contract_id=${contractId}`,
         `reason=getProgress_failed`,
-        `cause=${cause}`,
+        `corruption_reason=${evidence.reason}`,
         `error=${formatErr(getProgressErr)}`,
       );
       progress = {
         schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
         contract_id: contractId,
-        status: 'crashed',
-        checkpoint: `crashed: ${cause}`,
+        status: 'archive_corrupted',
+        checkpoint: `archive_corrupted: ${evidence.reason} (${evidence.relativePath})`,
         subtasks: {},
       };
     }
@@ -299,36 +305,36 @@ export async function markCrashed(
         delete subtask.verification_attempt_id;
       }
     }
-    progress.status = 'crashed';
-    progress.checkpoint = `crashed: ${cause}`;
+    progress.status = 'archive_corrupted';
+    progress.checkpoint = `archive_corrupted: ${evidence.reason} (${evidence.relativePath})`;
     await ctx.saveProgress(contractId, progress, knownDir);
 
     // (3) abort verifier subagents (best-effort)
     try {
-      ctx.abortContractVerifiers(contractId, cause);
+      ctx.abortContractVerifiers(contractId, evidence.reason);
     } catch (abortErr) {
-      // silent: abort verifier best-effort, markCrashed main flow must not break
+      // silent: abort verifier best-effort, markCorrupted main flow must not break
     }
 
     // (4) move whole dir
     await ctx.fs.move(`${dir}/${contractId}`, `${ctx.archiveDir}/${contractId}`);
   } catch (err) {
-    // phase 427 Step A (review medium audit-emit-implies-no-write、phase 422 follow-up):
-    // saveProgress 已写 'crashed' 到 source dir、fs.move 失败 → 半态 (source 含 crashed
-    // progress、target dir 缺/半成)。emit audit 留痕、boot reconcile / 运维可追。
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.CRASH_PARTIAL_FAILED,
-      `contract_id=${contractId}`,
-      `cause=${cause}`,
-      `error=${formatErr(err)}`,
+    // saveProgress 已写 'archive_corrupted' 到 source dir、fs.move 失败 → 半态。
+    // emit audit 留痕、boot reconcile / 运维可追。
+    emitContractCorruptPartialFailed(
+      ctx.audit,
+      {
+        contractId,
+        reason: evidence.reason,
+        evidencePath: evidence.relativePath,
+        error: formatErr(err),
+      },
     );
     try { await releaseSource(); } catch (releaseErr) {
-      // phase 472 (review N3-L): observability — releaseSource 失败 audit emit
-      // phase 558: 加 context col
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
         `contract_id=${contractId}`,
-        `context=crash`,
+        `context=corrupt`,
         `error=${formatErr(releaseErr)}`,
       );
     }
@@ -337,8 +343,11 @@ export async function markCrashed(
     await releaseLock(ctx, targetLockPath, ownerToken);
   }
 
-  emitContractCrashed(ctx.audit, { contractId, cause });
-  safeNotify(ctx, 'contract_crashed', { contractId, cause });
+  emitContractCorrupted(ctx.audit, {
+    contractId,
+    reason: evidence.reason,
+    evidencePath: evidence.relativePath,
+  });
 }
 
 export async function isContractComplete(
