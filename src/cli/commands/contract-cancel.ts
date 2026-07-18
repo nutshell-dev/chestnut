@@ -1,5 +1,5 @@
 /**
- * Cancel an active or paused contract (moves to archive with status=cancelled).
+ * Cancel an active contract (moves to archive with status=cancelled).
  *
  * Thin CLI wrapper around ContractSystem.cancel — business logic (lock /
  * saveProgress / abort verifier / fs.move) lives in core/contract/lifecycle.ts.
