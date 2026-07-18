@@ -395,7 +395,7 @@ export class OutboxReader {
     emitOutboxDelivered(this.audit, {
       file: originalFilename,
       deliveredAt: Date.now(),
-    } as any);
+    });
   }
 
   /**

@@ -121,6 +121,32 @@ describe('OutboxReader.claimNext + markDone', () => {
     expect(auditEvents.some(e => String(e[0]).includes('outbox_delivered') && String(e).includes(`file=${filename}`))).toBe(true);
   });
 
+  it('markDone audit payload includes deliveredAt (phase 1128 P1-9)', async () => {
+    const t1 = '1717480000000';
+    const filename = `${t1}_normal_aaa.md`;
+    await fsAsync.writeFile(
+      path.join(pendingDir, filename),
+      encodeOutbox(makeMsg('hello', '2026-06-04T10:00:00Z')),
+    );
+
+    const claimed = await reader.claimNext(clawDir);
+    expect(claimed.status).toBe('claimed');
+    if (claimed.status !== 'claimed') throw new Error('unreachable');
+
+    const before = Date.now();
+    await reader.markDone(clawDir, claimed.claimPath, claimed.filename);
+    const after = Date.now();
+
+    const delivered = auditEvents.find(e => String(e[0]).includes('outbox_delivered'));
+    expect(delivered).toBeDefined();
+    const deliveredAtCol = delivered!.find(c => typeof c === 'string' && c.startsWith('deliveredAt='));
+    expect(deliveredAtCol).toBeDefined();
+    const deliveredAt = Number(String(deliveredAtCol).split('=')[1]);
+    expect(deliveredAt).toBeGreaterThanOrEqual(before);
+    expect(deliveredAt).toBeLessThanOrEqual(after);
+    expect(String(delivered)).toContain(`file=${filename}`);
+  });
+
   it('returns race_lost on race lost (file disappears before claim)', async () => {
     const fs = makeMockOutboxFs({
       move: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),

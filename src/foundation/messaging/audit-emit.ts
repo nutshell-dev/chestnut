@@ -156,9 +156,13 @@ export function emitInboxMisrouted(
 // ─── OUTBOX_DELIVERED ─────────────────────────────────────────────────────────
 export function emitOutboxDelivered(
   audit: AuditLog,
-  opts: { file: string },
+  opts: { file: string; deliveredAt?: number },
 ): void {
-  audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED, `file=${opts.file}`);
+  const cols: string[] = [`file=${opts.file}`];
+  if (opts.deliveredAt !== undefined) {
+    cols.push(`deliveredAt=${opts.deliveredAt}`);
+  }
+  audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED, ...cols);
 }
 
 // ─── INBOX_MOVE_FAILED ────────────────────────────────────────────────────────
