@@ -16,6 +16,7 @@ import type { ProgressData, ContractCorruptionEvidence } from './types.js';
 import { stripDerivableStatus, ContractProgressInvariantViolatedError } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
+import { listArchiveContractLocations } from './locations.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
@@ -242,10 +243,10 @@ export async function listArchiveContracts(opts: {
     const archiveDir = `${CLAWS_DIR}/${clawId}/${CONTRACT_ARCHIVE_DIR}`;
     if (!fs.existsSync(archiveDir)) continue;
 
-    for (const ce of fs.listSync(archiveDir, { includeDirs: true })) {
-      const contractId = ce.name;
-      const contractDir = `${archiveDir}/${contractId}`;
-      if (!fs.statSync(contractDir).isDirectory) continue;
+    const archiveEntries = listArchiveContractLocations({ fs, archiveDir });
+    for (const entry of archiveEntries) {
+      const contractId = entry.contractId;
+      const contractDir = entry.contractRoot;
 
       let archivedAt: string | undefined;
       try {

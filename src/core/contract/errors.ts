@@ -55,6 +55,23 @@ export class LockConflictError extends Error {
 }
 
 /**
+ * phase 1127 Step B: contract 出现在多个 current/legacy archive 位置时 fail-closed。
+ *
+ * 触发：resolveContractLocation 发现同一个 contract id 同时存在于 active、状态子目录或 legacy flat。
+ */
+export class ContractLocationAmbiguityError extends Error {
+  readonly name = 'ContractLocationAmbiguityError';
+  readonly contractId: string;
+  readonly locations: string[];
+
+  constructor(contractId: string, locations: string[]) {
+    super(`Contract "${contractId}" exists in multiple locations: ${locations.join(', ')}`);
+    this.contractId = contractId;
+    this.locations = locations;
+  }
+}
+
+/**
  * phase 67: contract create input validation typed Error
  *
  * 触发：ContractSystem.create() 内 6 类 yaml validation 失败。

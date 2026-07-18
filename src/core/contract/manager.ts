@@ -37,7 +37,6 @@ import {
   emitContractCancelled,
   emitContractCompletedHandlerFailed,
   emitContractArchiveStarted,
-  emitContractMultiDir,
   emitContractMoveArchiveFailed,
   emitContractUnexpectedAsyncThrow,
   emitContractRollbackFailed,
@@ -53,13 +52,14 @@ import {
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
+import { resolveContractLocation } from './locations.js';
 import { type ClawId } from '../../foundation/claw-identity/index.js';
 
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
 } from './types.js';
-import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, DERIVABLE_STATUSES, LIFECYCLE_PERSISTED_STATUSES } from './types.js';
+import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, DERIVABLE_STATUSES, LIFECYCLE_PERSISTED_STATUSES, ARCHIVE_STATES } from './types.js';
 import type { LifecyclePersistedStatus } from './types.js';
 import {
   lockContract,
@@ -367,21 +367,16 @@ export class ContractSystem {
   // ============================================================================
 
   private async contractDir(contractId: ContractId): Promise<string> {
-    const dirs: string[] = [];
-    // phase 1123 Step C: contract/paused/ is legacy-only and not a current writable location
-    for (const dir of [this.activeDir, this.archiveDir]) {
-      if (await this.fs.exists(`${dir}/${contractId}/progress.json`)) {
-        dirs.push(dir);
-      }
-    }
-    if (dirs.length === 0) throw new ToolError(`Contract "${contractId}" not found`);
-    if (dirs.length > 1) {
-      emitContractMultiDir(this.audit, { contractId, dirs });
-      throw new ToolError(
-        `Contract "${contractId}" exists in multiple directories: ${dirs.join(', ')}. Run contract reconciler.`,
-      );
-    }
-    return dirs[0];
+    // phase 1127 Step B: typed resolver covers active + three archive state dirs + legacy flat.
+    const loc = await resolveContractLocation({
+      fs: this.fs,
+      activeDir: this.activeDir,
+      archiveDir: this.archiveDir,
+      contractId,
+      audit: this.audit,
+    });
+    if (!loc) throw new ToolError(`Contract "${contractId}" not found`);
+    return loc.containerDir;
   }
 
   // ============================================================================
@@ -872,9 +867,11 @@ export class ContractSystem {
       }
       const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
 
-      // Phase 956: check uniqueness across current directories (active + archive)
+      // Phase 956: check uniqueness across current directories (active + archive states + legacy flat)
       // phase 1123 Step C: paused/ is legacy-only and must not block creation.
-      for (const dir of [this.activeDir, this.archiveDir]) {
+      // phase 1127 Step B: creation must not collide with any current archive state container or legacy flat entry.
+      const archiveStateDirs = [...ARCHIVE_STATES].map(state => `${this.archiveDir}/${state}`);
+      for (const dir of [this.activeDir, ...archiveStateDirs, this.archiveDir]) {
         if (await this.fs.exists(`${dir}/${contractId}`)) {
           throw new ContractValidationError('id', 'already_exists',
             `contract id "${contractId}" already exists in ${path.basename(dir)}`,

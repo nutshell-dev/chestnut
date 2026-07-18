@@ -79,7 +79,7 @@ describe('ContractSystem manager (phase 956)', () => {
       'utf-8',
     );
 
-    await expect(manager.getProgress(contractId)).rejects.toThrow(/multiple directories/);
+    await expect(manager.getProgress(contractId)).rejects.toThrow(/multiple locations|multiple directories/);
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR);
     expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR)).toBe(true);
   });
