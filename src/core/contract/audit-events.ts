@@ -145,6 +145,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED: 'contract_archive_active_state_detected',
   // Phase 230: contract create policy rejected
   CONTRACT_CREATE_POLICY_REJECTED: 'contract_create_policy_rejected',
+  // phase 1130 Step C: active capacity exhausted
+  CAPACITY_EXHAUSTED: 'contract_capacity_exhausted',
   // phase 233 Step A: saveProgress 入口 schema invariant 违例
   CONTRACT_PROGRESS_INVARIANT_VIOLATED: 'contract_progress_invariant_violated',
   // phase 282 Step A: legacy status field ignored on load
@@ -279,6 +281,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
   contract_create_policy_rejected: 'audit',
+  contract_capacity_exhausted: 'audit',
   contract_legacy_crashed_observed: 'audit',
   contract_legacy_paused_observed: 'audit',
   // phase 954: boot reconcile terminal move recovery events

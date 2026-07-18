@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatContractValidationError } from '../../../src/cli/commands/contract-helpers.js';
 import { handleCliError } from '../../../src/cli/errors.js';
-import { ContractValidationError } from '../../../src/core/contract/errors.js';
+import { ContractValidationError, ContractCapacityError } from '../../../src/core/contract/errors.js';
 
 describe('contract create graceful format (phase 67)', () => {
   beforeEach(() => {
@@ -55,6 +55,27 @@ describe('contract create graceful format (phase 67)', () => {
     const code = handleCliError(new Error('generic error'));
     expect(code).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith('Error:', 'generic error');
+    stderrSpy.mockRestore();
+  });
+
+  it('handleCliError for ContractCapacityError returns 1 with actionable guidance', () => {
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = new ContractCapacityError('new-id', ['existing-id']);
+
+    const code = handleCliError(err);
+
+    expect(code).toBe(1);
+    expect(stderrSpy).toHaveBeenCalledWith('[contract create] active capacity is full:');
+    expect(stderrSpy).toHaveBeenCalledWith('  requested: new-id');
+    expect(stderrSpy).toHaveBeenCalledWith('  active:    existing-id');
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Fix: wait for the active contract to complete'),
+    );
+
+    const stderrCalls = stderrSpy.mock.calls.map(c => c[0] as string);
+    const hasStack = stderrCalls.some(s => s.includes('at ') || s.includes('ContractCapacityError'));
+    expect(hasStack).toBe(false);
+
     stderrSpy.mockRestore();
   });
 });

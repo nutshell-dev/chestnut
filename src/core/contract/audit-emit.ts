@@ -1085,6 +1085,24 @@ export function emitContractCreatePolicyRejected(
   );
 }
 
+// ─── CAPACITY_EXHAUSTED (phase 1130 Step C) ─────────────────────────────────
+export function emitContractCapacityExhausted(
+  audit: AuditLog,
+  opts: {
+    requestedContractId: ContractId;
+    activeContractIds: readonly ContractId[];
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.requestedContractId, 'emitContractCapacityExhausted')) return;
+  const activeIds = [...opts.activeContractIds].sort();
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CAPACITY_EXHAUSTED,
+    `requested_contract_id=${opts.requestedContractId}`,
+    `active_contract_ids=${activeIds.join(',')}`,
+    `capacity=1`,
+  );
+}
+
 // ─── LEGACY_CRASHED_OBSERVED (phase 1121 Step D) ────────────────────────────
 export function emitContractLegacyCrashedObserved(
   audit: AuditLog,

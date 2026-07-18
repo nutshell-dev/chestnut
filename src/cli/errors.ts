@@ -21,7 +21,7 @@ export class CliError extends Error {
   }
 }
 
-import { ContractValidationError } from '../core/contract/index.js';
+import { ContractValidationError, ContractCapacityError } from '../core/contract/index.js';
 
 /**
  * Handle CLI errors uniformly
@@ -41,6 +41,14 @@ export function handleCliError(error: unknown): number {
     }
     console.error('');
     console.error('Fix: update the contract yaml according to the message above, then re-run chestnut contract create');
+    return 1;
+  }
+  if (error instanceof ContractCapacityError) {
+    console.error('[contract create] active capacity is full:');
+    console.error(`  requested: ${error.requestedContractId}`);
+    console.error(`  active:    ${error.activeContractIds.join(', ')}`);
+    console.error('');
+    console.error('Fix: wait for the active contract to complete, or run chestnut contract cancel --claw <claw-id> --contract <active-id> --reason "<reason>", then retry');
     return 1;
   }
   if (error instanceof CliError) {

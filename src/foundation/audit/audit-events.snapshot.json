@@ -297,6 +297,7 @@
       "contract_corrupt_partial_failed",
       "contract_release_source_failed",
       "contract_create_policy_rejected",
+      "contract_capacity_exhausted",
       "contract_created",
       "contract_dir_race_retry",
       "contract_dir_scan_failed",

@@ -3,6 +3,8 @@
  * phase 67: ContractSystem typed errors
  */
 
+import type { ContractId } from './types.js';
+
 /**
  * phase 957: 检测到多个 active contract 时 fail-closed。
  *
@@ -99,5 +101,24 @@ export class ContractValidationError extends Error {
     this.field = field;
     this.kind = kind;
     this.context = context;
+  }
+}
+
+/**
+ * phase 1130 Step C: active capacity exhausted typed error.
+ *
+ * Triggered by ContractSystem.create when a physical active contract directory
+ * already exists. Carries the requested id and all active ids (stable sorted).
+ */
+export class ContractCapacityError extends Error {
+  readonly name = 'ContractCapacityError';
+  readonly activeContractIds: ContractId[];
+
+  constructor(
+    readonly requestedContractId: ContractId,
+    activeContractIds: readonly ContractId[],
+  ) {
+    super(`Cannot create contract "${requestedContractId}": active capacity is full`);
+    this.activeContractIds = [...activeContractIds].sort();
   }
 }
