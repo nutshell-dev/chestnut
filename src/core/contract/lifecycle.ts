@@ -39,11 +39,6 @@ export interface LifecycleContext extends LockContext {
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
   /** phase 63: onNotify callback for contract terminal state alerts */
   onNotify?: (type: string, data: Record<string, unknown>) => void;
-  markCorrupted: (
-    contractId: ContractId,
-    evidence: ContractCorruptionEvidence,
-    knownDir?: string,
-  ) => Promise<void>;
 }
 
 export async function pauseContract(

@@ -424,7 +424,6 @@ export class ContractSystem {
       saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
-      markCorrupted: (id, evidence, knownDir) => this.markCorrupted(id, evidence, knownDir),
       // phase 438: lazy thunk、setOnNotify 后的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
       onNotify: (type, data) => this.onNotify?.(type, data),
     };
