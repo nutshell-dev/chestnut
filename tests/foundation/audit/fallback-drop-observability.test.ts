@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { tmpdir } from 'node:os';
 import * as nodeFs from 'node:fs';
+import * as nodeFsPromises from 'node:fs/promises';
+import { join } from 'node:path';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
 // Must mock before importing the module-under-test (hoisted by vitest)
@@ -29,6 +31,21 @@ function makeFailingFs(): FileSystem {
 
 describe('audit fallback FIFO drop observability (phase 1380)', () => {
   let exitListeners: Array<() => void>;
+  const dumpFiles: string[] = [];
+
+  async function writeDump(content: string): Promise<string> {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    const dumpDir = tmpdir();
+    let ts = Date.now();
+    let p = join(dumpDir, `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
+    while (nodeFs.existsSync(p)) {
+      ts++;
+      p = join(dumpDir, `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
+    }
+    await nodeFsPromises.writeFile(p, content);
+    dumpFiles.push(p);
+    return p;
+  }
 
   beforeEach(() => {
     _resetFallbackForTest();
@@ -40,7 +57,11 @@ describe('audit fallback FIFO drop observability (phase 1380)', () => {
     vi.mocked(nodeFs.writeFileSync).mockClear();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    for (const p of dumpFiles) {
+      try { await nodeFsPromises.unlink(p); } catch { /* silent: test cleanup */ }
+    }
+    dumpFiles.length = 0;
     vi.restoreAllMocks();
     vi.mocked(nodeFs.writeFileSync).mockClear();
   });
@@ -89,29 +110,20 @@ describe('audit fallback FIFO drop observability (phase 1380)', () => {
   });
 
   it('reconcileFallbackDumps emits audit_fallback_dropped row to live audit.tsv', async () => {
-    const dumpFileName = `chestnut-audit-fallback-123-456.tsv`;
     const dumpContent = [
       '# drop_count_since_last_dump=3 drop_count_total=8 first_drop_ts=1000 last_drop_ts=2000',
       '/test/a.tsv\t2026-05-18T10:00:00.000Z\tevt_a\tcol1',
       '/test/b.tsv\t2026-05-18T10:00:01.000Z\tevt_b\tcol2',
       '/test/a.tsv\t2026-05-18T10:00:02.000Z\tevt_a2\tcol3',
     ].join('\n') + '\n';
+    const dumpPath = await writeDump(dumpContent);
 
     const appended = new Map<string, string>();
-    let deletedPath: string | null = null;
     const mockFs: FileSystem = {
-      list: vi.fn(async (_path: string, _opts?: any) => {
-        return [{ name: dumpFileName, path: dumpFileName, isDirectory: false, isFile: true, size: dumpContent.length }];
-      }),
-      read: vi.fn(async (_path: string) => {
-        return dumpContent;
-      }),
       appendSync: vi.fn((origin: string, content: string) => {
         appended.set(origin, (appended.get(origin) || '') + content);
       }),
-      delete: vi.fn(async (path: string) => {
-        deletedPath = path;
-      }),
+      syncSync: vi.fn(),
     } as any;
 
     await reconcileFallbackDumps(mockFs);
@@ -130,8 +142,7 @@ describe('audit fallback FIFO drop observability (phase 1380)', () => {
     expect(bContent).toContain('audit_fallback_dropped');
     expect(bContent).toContain('drop_count=3');
 
-    expect(deletedPath).not.toBeNull();
-    expect(deletedPath).toContain(dumpFileName);
+    expect(nodeFs.existsSync(dumpPath)).toBe(false);
   });
 
   it('dropCountSinceLastDump resets after successful dump, total never resets', () => {

@@ -164,17 +164,20 @@ const FRONTMATTER_RE = /^# drop_count_since_last_dump=(\d+) drop_count_total=(\d
 export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
   const tmp = getFallbackDir();
   const pattern = /^chestnut-audit-fallback-\d+-\d+\.tsv$/;
-  let entries: { name: string }[];
+  // phase 1115 Step A: tmpdir 操作走 raw node:fs（与 dumpFallback 写路径同 boundary、phase 1214 ratify）——
+  // 注入 fs 是 clawDir-scoped、path guard 必拒 tmpdir；origin 回放（clawDir 内）仍走注入 fs。
+  let names: string[];
   try {
-    entries = await fs.list(tmp, { includeDirs: false });
-  } catch {
-    return; // tmpdir 不可访问 → skip
+    names = nodeFs.readdirSync(tmp);
+  } catch (listErr) {
+    console.error(`[AUDIT WARNING] reconcile fallback list failed: tmp=${tmp} reason=${formatErr(listErr)}`);
+    return;
   }
-  for (const entry of entries) {
-    if (!pattern.test(entry.name)) continue;
-    const dumpPath = `${tmp}/${entry.name}`;
+  for (const name of names) {
+    if (!pattern.test(name)) continue;
+    const dumpPath = `${tmp}/${name}`;
     try {
-      const content = await fs.read(dumpPath);
+      const content = nodeFs.readFileSync(dumpPath, 'utf8');
       const allLines = content.split('\n');
       let dropMeta: { since: number; total: number; first: number; last: number } | null = null;
       // phase 1380: detect optional frontmatter (旧文件首行不以 prefix 起、跳过)
@@ -221,7 +224,7 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
           console.error(`[AUDIT WARNING] reconcile fallback per-origin write failed: origin=${origin} reason=${formatErr(perOriginErr)}`);
         }
       }
-      await fs.delete(dumpPath);
+      nodeFs.unlinkSync(dumpPath);
     } catch (dumpErr) {
       // phase 426 Step A (review medium silent-catch): outer dump 解析失败 (corrupt /
       // PermissionError on read)；console.error 留痕、下轮 reconcile 重试。

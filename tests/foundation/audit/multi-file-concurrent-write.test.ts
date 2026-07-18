@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as actualFs from 'node:fs/promises';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
 // Must mock before importing the module-under-test (hoisted by vitest)
@@ -42,6 +43,21 @@ describe(
   () => {
     let tmpDir: string;
     let exitListeners: Array<() => void>;
+    const dumpFiles: string[] = [];
+
+    async function writeDump(lines: string[]): Promise<string> {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+      const dumpDir = tmpdir();
+      let ts = Date.now();
+      let p = join(dumpDir, `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
+      while (existsSync(p)) {
+        ts++;
+        p = join(dumpDir, `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
+      }
+      await actualFs.writeFile(p, lines.join('\n') + '\n');
+      dumpFiles.push(p);
+      return p;
+    }
 
     beforeEach(() => {
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -56,6 +72,10 @@ describe(
 
     afterEach(() => {
       rmSync(tmpDir, { recursive: true, force: true });
+      for (const p of dumpFiles) {
+        try { rmSync(p); } catch { /* silent: test cleanup */ }
+      }
+      dumpFiles.length = 0;
       vi.restoreAllMocks();
       vi.mocked(nodeFs.writeFileSync).mockClear();
       _resetFallbackForTest();
@@ -150,30 +170,18 @@ describe(
     });
 
     it('reconcile 按 origin 分桶回放各 file 独立', async () => {
+      const dumpPath = await writeDump([
+        `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:00.000Z\tseq=1\tdaemon_liveness_heartbeat\tjob=a`,
+        `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:01.000Z\tseq=2\tdaemon_liveness_heartbeat\tjob=b`,
+        `${join(tmpDir, 'audit.tsv')}\t2026-06-07T10:00:02.000Z\tseq=1\tturn_start\ttrace_id=t1`,
+      ]);
+
       const appended = new Map<string, string>();
       const synced: string[] = [];
       const mockFs: FileSystem = {
-        list: vi.fn(async () => [
-          {
-            name: 'chestnut-audit-fallback-123-456.tsv',
-            path: 'chestnut-audit-fallback-123-456.tsv',
-            isDirectory: false,
-            isFile: true,
-            size: 0,
-          },
-        ]),
-        read: vi.fn(async () => {
-          // synthetic dump: origin\tline\n format
-          return (
-            `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:00.000Z\tseq=1\tdaemon_liveness_heartbeat\tjob=a\n` +
-            `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:01.000Z\tseq=2\tdaemon_liveness_heartbeat\tjob=b\n` +
-            `${join(tmpDir, 'audit.tsv')}\t2026-06-07T10:00:02.000Z\tseq=1\tturn_start\ttrace_id=t1\n`
-          );
-        }),
         appendSync: vi.fn((origin: string, content: string) => {
           appended.set(origin, (appended.get(origin) || '') + content);
         }),
-        delete: vi.fn(async () => {}),
         syncSync: vi.fn((origin: string) => {
           synced.push(origin);
         }),
@@ -197,6 +205,8 @@ describe(
 
       expect(synced).toContain(join(tmpDir, 'tick.tsv'));
       expect(synced).toContain(join(tmpDir, 'audit.tsv'));
+
+      expect(existsSync(dumpPath)).toBe(false);
     });
 
     it('module-level fallback drop 计数器 cross-instance shared 但 dump frontmatter 正确', () => {
