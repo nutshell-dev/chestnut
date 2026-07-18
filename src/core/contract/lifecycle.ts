@@ -283,7 +283,7 @@ export async function markCorrupted(
     } catch (getProgressErr) {
       // progress.json 自身不可读 → 创建最小过渡 payload，保留 evidence 引用
       ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.MARK_CRASHED_GRACEFUL_FALLBACK,
+        CONTRACT_AUDIT_EVENTS.MARK_CORRUPTED_GRACEFUL_FALLBACK,
         `contract_id=${contractId}`,
         `reason=getProgress_failed`,
         `corruption_reason=${evidence.reason}`,

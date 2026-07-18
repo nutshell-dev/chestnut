@@ -6,7 +6,10 @@ import type { ClawTopology } from '../../../core/claw-topology/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
 import { scanArchivedContracts } from './event-collector.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
-import { emitContractArchiveRecoveryPendingObserved } from '../audit-emit.js';
+import {
+  emitContractArchiveRecoveryPendingObserved,
+  emitContractLegacyCrashedObserved,
+} from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
 
 /** phase 101: DI callback - caller (装配期) bind fs + chestnutRoot + MOTION_CLAW_ID + audit */
@@ -401,11 +404,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
   const completedEvents: string[] = [];
   const cancelledEvents: string[] = [];
-  const crashedEvents: string[] = [];
-  // recoveryEvents 数组删除（phase 197: 不再投 motion、改 emit audit）
+  // recoveryEvents / crashedEvents 删除（phase 197/1121: 不再投 motion、改 emit audit）
   const allProblemPairs: string[] = [];
   const cancellations: Array<{ source_claw: string; contract_id: string; reason: string }> = [];
-  const crashes: Array<{ source_claw: string; contract_id: string; cause: string }> = [];
 
   // phase 950: per-claw 复合游标水位；任一 claw 扫描不完整或失败 → 该 claw 水位不推进，其他 claw 独立推进。
   const nextClawWatermarks: Record<string, ClawWatermarkCursor> = { ...state.clawWatermarks };
@@ -417,7 +418,6 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   // phase 950: 本批次每 claw 每类事件的最大复合游标，用于成功后推进 per-claw per-status watermark。
   const batchCompletedCursors: Record<string, ClawWatermarkCursor> = {};
   const batchCancelledCursors: Record<string, ClawWatermarkCursor> = {};
-  const batchCrashedCursors: Record<string, ClawWatermarkCursor> = {};
 
   function isCursorGreater(a: ClawWatermarkCursor, b: ClawWatermarkCursor): boolean {
     if (a.archivedAt !== b.archivedAt) return a.archivedAt > b.archivedAt;
@@ -543,19 +543,12 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                 break;
               }
               case 'crashed': {
-                const statusCursor = state.crashedWatermarks[clawId];
-                if (shouldProcessEntry(entry, statusCursor)) {
-                  crashedEvents.push(entry.body);
-                  crashes.push({
-                    source_claw: clawId,
-                    contract_id: entry.contractId,
-                    cause: entry.cause ?? '(no cause given)',
-                  });
-                  const current = batchCrashedCursors[clawId];
-                  if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
-                    batchCrashedCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
-                  }
-                }
+                // phase 1121 Step D: historical status=crashed 只产生 legacy audit、不生成 motion 业务决策
+                emitContractLegacyCrashedObserved(motionAudit, {
+                  clawId: makeClawId(clawId),
+                  contractId: entry.contractId,
+                  sourcePath: path.join(location.clawDir, CONTRACT_ARCHIVE_DIR, entry.contractId),
+                });
                 break;
               }
               case 'archive_pending_recovery':
@@ -623,9 +616,8 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   // phase 950: per-claw per-status watermark 替代 boolean 标记。
   const nextCompletedWatermarks: Record<string, ClawWatermarkCursor> = { ...state.completedWatermarks };
   const nextCancelledWatermarks: Record<string, ClawWatermarkCursor> = { ...state.cancelledWatermarks };
-  const nextCrashedWatermarks: Record<string, ClawWatermarkCursor> = { ...state.crashedWatermarks };
 
-  // 分流投递 3 个独立 notifyMotion 调用（type 不同）
+  // 分流投递 2 个独立 notifyMotion 调用（type 不同）
   // phase 948/950: 逐类独立 try/catch；部分成功时推进成功类的 watermark，失败类下次重试。
   interface DeliveryFailure { type: string; error: unknown }
   const deliveryFailures: DeliveryFailure[] = [];
@@ -681,30 +673,6 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       }
     }
 
-    if (crashedEvents.length > 0) {
-      try {
-        await notifyMotion({
-          type: 'contract_crashed',
-          source: 'system',
-          priority: 'high',
-          body: crashedEvents.join('\n\n'),
-          extraFields: {
-            crashes: JSON.stringify(crashes),
-          },
-        });
-        for (const [clawId, cursor] of Object.entries(batchCrashedCursors)) {
-          nextCrashedWatermarks[clawId] = cursor;
-        }
-      } catch (err) {
-        motionAudit.write(
-          CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
-          'type=contract_crashed',
-          `reason=notify_failed`,
-          `error=${formatErr(err)}`,
-        );
-        deliveryFailures.push({ type: 'contract_crashed', error: err });
-      }
-    }
   }
 
   function statusWatermarksAdvanced(
@@ -722,12 +690,10 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
   const completedSuccess = completedEvents.length === 0 || statusWatermarksAdvanced(nextCompletedWatermarks, state.completedWatermarks);
   const cancelledSuccess = cancelledEvents.length === 0 || statusWatermarksAdvanced(nextCancelledWatermarks, state.cancelledWatermarks);
-  const crashedSuccess = crashedEvents.length === 0 || statusWatermarksAdvanced(nextCrashedWatermarks, state.crashedWatermarks);
-  const allDeliveriesSucceeded = completedSuccess && cancelledSuccess && crashedSuccess;
+  const allDeliveriesSucceeded = completedSuccess && cancelledSuccess;
   const anyDeliverySucceeded =
     (completedEvents.length > 0 && statusWatermarksAdvanced(nextCompletedWatermarks, state.completedWatermarks)) ||
-    (cancelledEvents.length > 0 && statusWatermarksAdvanced(nextCancelledWatermarks, state.cancelledWatermarks)) ||
-    (crashedEvents.length > 0 && statusWatermarksAdvanced(nextCrashedWatermarks, state.crashedWatermarks));
+    (cancelledEvents.length > 0 && statusWatermarksAdvanced(nextCancelledWatermarks, state.cancelledWatermarks));
 
   // phase 948/950: 只有全部投递成功（或 bootstrap 无投递 / 无事件）才推进 per-claw 水位；
   // 部分成功时保留旧 per-claw 水位，但已成功类别的 per-claw per-status watermark 会推进；
@@ -740,7 +706,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       bootstrapDone: true,
       completedWatermarks: nextCompletedWatermarks,
       cancelledWatermarks: nextCancelledWatermarks,
-      crashedWatermarks: nextCrashedWatermarks,
+      crashedWatermarks: state.crashedWatermarks,
       reportedCorrupted: state.reportedCorrupted,
       reportedActiveState: state.reportedActiveState,
     };

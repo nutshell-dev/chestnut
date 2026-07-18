@@ -2,10 +2,11 @@
  * @module L6.Assembly.Guidance
  * phase 1469: Composer registration aggregate.
  * phase 1476: 22 → 18 type reframe（移 5 outbox-routed type + 加 1 claw_outbox_summary real composer）.
- * phase 63 γ: 加 contract_cancelled + contract_crashed 2 real composer（→ 20 type）.
+ * phase 63 γ: 加 contract_cancelled real composer.
+ * phase 1121 Step D: 移除 contract_crashed composer（legacy crashed 只走 audit、不生成 motion 决策）。
  *
- * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 20 inbox type 显式 register 各 composer.
- * 当前结构：13 NO_GUIDANCE sentinel + 7 real composer（claw_outbox_summary by phase 1476 γ2 + contract_cancelled/crashed by phase 63 γ）.
+ * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 inbox type 显式 register 各 composer.
+ * 当前结构：13 NO_GUIDANCE sentinel + 6 real composer（claw_outbox_summary by phase 1476 γ2 + contract_cancelled by phase 63 γ）。
  *
  * DP「不静默」+ M#9 显式表达：每 sender type 必显式 register / 漏注由
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.
@@ -32,7 +33,6 @@ import { composer as contractCreated } from './contract-created.js';
 import { composer as contractResume } from './contract-resume.js';
 import { composer as contractAuditFeedback } from './contract-audit-feedback.js';
 import { composer as contractCancelled } from './contract-cancelled.js';
-import { composer as contractCrashed } from './contract-crashed.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
   registry.register('claw_crashed', clawCrashed);
@@ -56,5 +56,4 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('contract_resume', contractResume);
   registry.register('contract_audit_feedback', contractAuditFeedback);
   registry.register('contract_cancelled', contractCancelled);   // phase 63 γ NEW
-  registry.register('contract_crashed', contractCrashed);       // phase 63 γ NEW
 }

@@ -202,11 +202,11 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
     expect(opts.notifyMotion).not.toHaveBeenCalled();
   });
 
-  it('phase 63: 分流 3 个 notifyMotion 调用 by status', async () => {
+  it('phase 1121 Step D: completed/cancelled 投 motion、legacy crashed 只走 audit', async () => {
     const opts = makeOpts({ fs: makeFsMock('mixed') });
     await runContractObserver(opts);
 
-    expect(opts.notifyMotion).toHaveBeenCalledTimes(3);
+    expect(opts.notifyMotion).toHaveBeenCalledTimes(2);
     expect(opts.notifyMotion).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'contract_events', body: expect.stringContaining('c1') }),
     );
@@ -219,14 +219,17 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
         }),
       }),
     );
-    expect(opts.notifyMotion).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'contract_crashed',
-        body: expect.stringContaining('c3'),
-        extraFields: expect.objectContaining({
-          crashes: expect.stringContaining('c3'),
-        }),
-      }),
+    expect(opts.notifyMotion).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'contract_crashed' }),
+    );
+
+    // phase 1121 Step D: historical status=crashed 生成 legacy audit、不投 motion
+    expect(opts.motionAudit.write).toHaveBeenCalledWith(
+      'contract_legacy_crashed_observed',
+      'clawId=claw1',
+      'contractId=c3',
+      expect.stringContaining('source_path='),
+      'status=legacy_crashed',
     );
   });
 

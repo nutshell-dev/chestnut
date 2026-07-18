@@ -50,7 +50,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
     expect(entries[0].reason).toBe('user manual');
   });
 
-  it('crashed → [contract_crashed] + cause + status 字段', async () => {
+  it('crashed (legacy) → [contract_crashed] body + cause + status 字段（observer 侧只 audit、不投 motion）', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('crashed', 'crashed: system: maxstepsexceedederror');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);

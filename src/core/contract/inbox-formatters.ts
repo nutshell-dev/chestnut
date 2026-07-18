@@ -43,9 +43,6 @@ export const formatContractAuditFeedback: MessageFormatter = async ({ body, time
 export const formatContractCancelled: MessageFormatter = async ({ body, timestampSec }) =>
   `[system message${timestampSec}] ${body}`;
 
-export const formatContractCrashed: MessageFormatter = async ({ body, timestampSec }) =>
-  `[system message${timestampSec}] ${body}`;
-
 export function registerContractFormatters(registry: MessageFormatterRegistry): void {
   registry.register('contract_events', formatContractEvents);
   registry.register('verification_result', formatVerificationResult);
@@ -55,5 +52,4 @@ export function registerContractFormatters(registry: MessageFormatterRegistry): 
   registry.register('contract_resume', formatContractResume);
   registry.register('contract_audit_feedback', formatContractAuditFeedback);
   registry.register('contract_cancelled', formatContractCancelled);  // phase 63
-  registry.register('contract_crashed', formatContractCrashed);      // phase 63
 }

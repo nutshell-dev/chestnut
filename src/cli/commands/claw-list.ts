@@ -11,6 +11,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import { getLatestContractStats, CONTRACT_ACTIVE_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import type { ContractSubtaskStats } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
@@ -29,9 +30,6 @@ function formatField(value: FieldValue): string {
   return 'err';
 }
 
-function formatErr(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /**
  * List all Claws and their status

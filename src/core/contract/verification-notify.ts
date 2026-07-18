@@ -18,7 +18,7 @@ import {
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
-type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed' | 'contract_cancelled' | 'contract_crashed';
+type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed' | 'contract_cancelled';
 
 export function safeNotify(
   ctx: VerificationContext,

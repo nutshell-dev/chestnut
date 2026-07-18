@@ -118,6 +118,5 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   subagent_steps_invariant_violated: 'audit',
   subagent_artifact_cross_source_mismatch: 'audit',
   subagent_artifact_cross_source_skipped: 'audit',
-  mark_crashed_failed: 'audit',  // NEW (synced phase 272 Step E)
   partial_assistant_discarded: 'audit',  // phase 688 NEW
 } as const;

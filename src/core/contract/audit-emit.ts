@@ -483,19 +483,6 @@ export function emitContractPassed(
   );
 }
 
-// ─── CRASHED ────────────────────────────────────────────────────────────────
-export function emitContractCrashed(
-  audit: AuditLog,
-  fields: { contractId: ContractId; cause: string },
-): void {
-  if (!assertContractIdNonEmpty(audit, fields.contractId, 'emitContractCrashed')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CRASHED,
-    `contractId=${fields.contractId}`,
-    `cause=${fields.cause}`,
-  );
-}
-
 // ─── CORRUPTED (phase 1121 Step C) ──────────────────────────────────────────
 export function emitContractCorrupted(
   audit: AuditLog,
@@ -1012,6 +999,7 @@ export function emitContractLegacyCrashedObserved(
     sourcePath: string;
   },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractLegacyCrashedObserved')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_CRASHED_OBSERVED,
     `clawId=${opts.clawId}`,

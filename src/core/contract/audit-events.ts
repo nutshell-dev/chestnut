@@ -51,14 +51,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   // 半态留痕 — saveProgress 已写 'cancelled' 但 fs.move 失败、source 含 cancelled
   // progress、target dir 缺/半成。
   CANCEL_PARTIAL_FAILED: 'contract_cancel_partial_failed',
-  CRASHED: 'contract_crashed',                  // phase 63 NEW
   // phase 1121 Step C: deterministic persistent corruption lifecycle.
   CORRUPTED: 'contract_corrupted',
   CORRUPT_PARTIAL_FAILED: 'contract_corrupt_partial_failed',
-  // phase 427 Step A (review medium audit-emit-implies-no-write、phase 422 follow-up):
-  // markCrashed 半态留痕 — saveProgress 已写 'crashed' 但 fs.move 失败、source 含
-  // crashed progress、target dir 缺/半成。与 CANCEL_PARTIAL_FAILED 对称。
-  CRASH_PARTIAL_FAILED: 'contract_crash_partial_failed',
   // phase 472 (review N3-L): releaseSource catch 显式 audit、原"audit emit"注释承诺落地
   RELEASE_SOURCE_FAILED: 'contract_release_source_failed',
   COMPLETED: 'contract_completed',
@@ -155,8 +150,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 282 Step B: legacy contract_id field ignored on load
   CONTRACT_LEGACY_CONTRACT_ID_FIELD_IGNORED: 'contract_legacy_contract_id_field_ignored',
   CONTRACT_OBSERVER_STATE_INVARIANT_VIOLATED: 'contract_observer_state_invariant_violated',
-  // phase 66 NEW (raw migration phase 272 Step C)
-  MARK_CRASHED_GRACEFUL_FALLBACK: 'mark_crashed_graceful_fallback',
+  // phase 1121 Step C/D: deterministic persistent corruption graceful fallback
+  MARK_CORRUPTED_GRACEFUL_FALLBACK: 'mark_corrupted_graceful_fallback',
   // phase 1121 Step D: legacy crashed contract observed in archive
   CONTRACT_LEGACY_CRASHED_OBSERVED: 'contract_legacy_crashed_observed',
 } as const;
@@ -221,7 +216,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_unexpected_async_throw: 'audit',
   verification_passed: 'audit',
   contract_cancelled: 'audit',
-  contract_crashed: 'audit',
   contract_corrupted: 'audit',
   contract_corrupt_partial_failed: 'audit',
   contract_completed: 'audit',
@@ -251,7 +245,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_onboarding_progress_parse_failed: 'audit',
   contract_dir_race_retry: 'audit',
   contract_archive_partial_recovery_failed: 'audit',
-  mark_crashed_graceful_fallback: 'audit',
+  mark_corrupted_graceful_fallback: 'audit',
   contract_archive_recovered: 'audit',
   verification_pipeline_race_rejected: 'audit',
   contract_file_isolated: 'audit',
