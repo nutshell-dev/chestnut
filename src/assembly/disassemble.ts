@@ -23,7 +23,7 @@ export async function disassemble(instances: Instances, signal: string): Promise
   // 不抛 → caller try/catch 是 dead code (mirror phase 1032 cleanup.ts 模板)
   await processManager.markNotReady(resolveClawDaemonDir(makeClawId(clawId)));
 
-  // Step 1: gateway?.stop()（async；motion only；最前位置——切断对外推送 + cancel pending askUser）
+  // Step 2: gateway?.stop()（async；motion only；最前位置——切断对外推送 + cancel pending askUser）
   if (gateway) {
     try {
       await gateway.stop();

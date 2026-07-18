@@ -94,7 +94,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
 
   const promise = (async () => {
     while (!stopped) {
-      // Startup single-fire: has active contract + inbox is empty → trigger once in-process (no disk write)
+      // Startup single-fire: has active contract + inbox is empty → trigger once in-process（写 status/startup_check_ts + notifyInbox 落 inbox 文件，两处磁盘写）
       if (!startupFired) {
         startupFired = true;
         if (shouldEmitStartupCheck(agentFs, audit)) {

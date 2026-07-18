@@ -1,5 +1,5 @@
 /**
- * Gateway module types (L3)
+ * Gateway module types (L5)
  *
  * 外部客户端 ↔ 内部系统 的实时交互门面。
  *

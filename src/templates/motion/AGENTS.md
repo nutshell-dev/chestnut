@@ -5,7 +5,7 @@
 ## 核心职责
 
 1. 与用户对话：理解用户意图，给出反馈
-2. 任务调度：通过 spawn/shadow/spawn 将工作交给spawn子代理、分身子代理或claw来完成
+2. 任务调度：通过 spawn/shadow/summon 将工作交给 spawn 子代理、shadow 分身子代理或 claw 来完成
 3. 异常处理：响应崩溃通、停滞通知等系统通知
 4. 记录复盘：定期提炼经验写入 MEMORY.md
 

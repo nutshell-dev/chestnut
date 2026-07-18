@@ -35,14 +35,14 @@ export async function cleanupOrphanedTemp(
         cleaned.push(fullPath);
       } catch (err) {
         // FS_NOT_FOUND: concurrent unlink race / file already deleted / acceptable
-        // non-FS_NOT_FOUND (EACCES/EIO/ENOSPC): throw → caller .catch + audit (assemble.ts:478-480 CLEANUP_TEMP_FILES_FAILED)
+        // non-FS_NOT_FOUND (EACCES/EIO/ENOSPC): throw → caller .catch + audit (assemble.ts CLEANUP_TEMP_FILES_FAILED)
         if ((err as { code?: string })?.code === 'FS_NOT_FOUND') continue;
         throw err;
       }
     }
   } catch (err) {
     // FS_NOT_FOUND: first-run dir does not exist / acceptable
-    // non-FS_NOT_FOUND (EACCES/EIO/EBADF): throw → caller .catch + audit (assemble.ts:478-480)
+    // non-FS_NOT_FOUND (EACCES/EIO/EBADF): throw → caller .catch + audit (assemble.ts CLEANUP_TEMP_FILES_FAILED)
     if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return cleaned;
     throw err;
   }

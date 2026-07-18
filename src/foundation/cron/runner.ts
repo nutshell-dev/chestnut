@@ -98,7 +98,7 @@ export interface CronJobGlobalConfig<JobName extends string> {
 const CANCELLING_STUCK_TICKS = 10;
 
 /**
- * Cron 调度器、**stateless** 设计（D4 显式豁免、详 `design/modules/l5_cron.md §4`）。
+ * Cron 调度器、**stateless** 设计（D4 显式豁免、详 `design/modules/l2a_cron.md §4`）。
  *
  * 所有运行时状态（`lastRunKey`、`running`、`cancelling`、`cancellingTicks`、
  * `inflightPromises`、`_initialScanDone` 等）在**进程内存**、**0 磁盘 artifact**。

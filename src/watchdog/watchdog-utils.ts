@@ -125,7 +125,6 @@ function clawHasContractSub(
  * Assembly motion guidance composer type-only import 此 enum、按 class switch
  * 1 primary action（DP「相关」derive / 1 primary action per sub-state）.
  */
-// phase 552: type definition 迁 foundation/utils/claw-failure-classes (assembly type-only import 不再反向 import watchdog)
 export type { FailureClass } from './claw-failure-classes.js';
 import type { FailureClass } from './claw-failure-classes.js';
 
@@ -178,7 +177,6 @@ export function formatInactivityBody(opts: {
  * paused contract crash 不触发本 type（caller 应 guard `clawHasActiveContract`）.
  * Assembly motion guidance composer type-only import 此 enum、按 class switch.
  */
-// phase 552: type definition 迁 foundation/utils/claw-failure-classes
 export type { CrashClass } from './claw-failure-classes.js';
 import type { CrashClass } from './claw-failure-classes.js';
 
