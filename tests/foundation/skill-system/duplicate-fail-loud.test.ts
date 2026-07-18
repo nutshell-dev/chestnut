@@ -188,4 +188,53 @@ describe('phase 1267 D.2: SkillDuplicateError fail-loud in loadAll', () => {
     expect(dup.existingDir).toBe(dir1);
     expect(dup.attemptedDir).toBe(dir2);
   });
+
+  // phase 1128 P1-8: fire-and-forget _ensureLoaded() rejection must be observed
+  it('sync accessor with failing loadAll (duplicate skill) → no unhandled rejection, error observable via audit + console', async () => {
+    const skillsDir = '/skills';
+    const dir1 = '/skills/first';
+    const dir2 = '/skills/second';
+    const fs = mockFs(
+      {
+        [`${dir1}/SKILL.md`]: '---\nname: collide\n---\n',
+        [`${dir2}/SKILL.md`]: '---\nname: collide\n---\n',
+      },
+      [skillsDir, dir1, dir2],
+    );
+    const audit = mockAudit();
+    const sys = new SkillSystem(fs, skillsDir, audit);
+
+    const unhandledSpy = vi.fn();
+    process.on('unhandledRejection', unhandledSpy);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      // Intentionally not awaiting ensureLoaded: mimic cold-start sync accessor usage.
+      sys.listMeta();
+      // Yield to the microtask queue so the background _ensureLoaded() promise settles.
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(unhandledSpy).not.toHaveBeenCalled();
+
+      // console.error should receive the background load failure message (and possibly
+      // the maybeWarnUnloaded warning). Filter to the background-load message.
+      const bgLoadErrorCall = consoleSpy.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('background load failed'),
+      );
+      expect(bgLoadErrorCall).toBeDefined();
+      expect(String(bgLoadErrorCall![0])).toContain('Skill duplicate registration rejected');
+
+      const loadFailedCall = audit.calls.find(
+        c => c[0] === SKILL_AUDIT_EVENTS.LOAD_FAILED,
+      );
+      expect(loadFailedCall).toBeDefined();
+      expect(loadFailedCall!.slice(1).join(' ')).toContain('context=background_ensure_loaded');
+
+      // _loaded must remain false so the next accessor call can retry.
+      expect((sys as any)._loaded).toBe(false);
+    } finally {
+      process.off('unhandledRejection', unhandledSpy);
+      consoleSpy.mockRestore();
+    }
+  });
 });

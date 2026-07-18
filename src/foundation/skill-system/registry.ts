@@ -324,6 +324,17 @@ export class SkillSystem {
     return this._ensureLoaded();
   }
 
+  // phase 1128 P1-8: 统一三 sync accessor 的后台加载触发 + .catch 观测，
+  // 防止 fire-and-forget 的 _ensureLoaded() rejection → unhandledRejection 崩进程。
+  private _triggerBackgroundLoad(): void {
+    void this._ensureLoaded().catch((err) => {
+      console.error(`[SkillSystem WARNING] background load failed: ${formatErr(err)}`); // console: skill-system background load rejection observability (phase 1128 P1-8) — must expose to stderr to prevent unhandledRejection
+      this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
+        `context=background_ensure_loaded`,
+        `error=${formatErr(err)}`);
+    });
+  }
+
   // phase 432 Step A (review N6 partial): observability helper、不改 sync API 行为
   private maybeWarnUnloaded(op: string): void {
     if (!this._loaded && !this.unloadedWarnEmitted) {
@@ -343,7 +354,7 @@ export class SkillSystem {
    */
   getMeta(name: string): SkillMeta | undefined {
     this.maybeWarnUnloaded('getMeta');
-    void this._ensureLoaded();
+    this._triggerBackgroundLoad();
     return this.metaMap.get(name);
   }
 
@@ -352,7 +363,7 @@ export class SkillSystem {
    */
   listMeta(): SkillMeta[] {
     this.maybeWarnUnloaded('listMeta');
-    void this._ensureLoaded();
+    this._triggerBackgroundLoad();
     return Array.from(this.metaMap.values());
   }
 
@@ -380,7 +391,7 @@ export class SkillSystem {
    */
   formatForContext(): string {
     this.maybeWarnUnloaded('formatForContext');
-    void this._ensureLoaded();
+    this._triggerBackgroundLoad();
     const metas = this.listMeta();
     if (metas.length === 0) {
       return '## Available Skills\nNo skills loaded.\n';
