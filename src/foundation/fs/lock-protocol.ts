@@ -90,7 +90,7 @@ export async function tryAcquireClaim(
       try {
         const fc = JSON.parse(await ctx.fs.read(`${claimsDir}/${entry.name}`));
         fileStartTime = fc.startTime;
-      } catch { /* 读失败/JSON 损坏 → 无法判定，走 fail-closed 路径 */ }
+      } catch { /* silent: 读失败/JSON 损坏 → 无法判定，走 fail-closed 路径 */ }
 
       if (fileStartTime !== undefined && fileStartTime !== startTime) {
         // 不同进程实例（PID 复用）→ 旧残留，可安全删除
@@ -245,10 +245,10 @@ export function tryAcquireClaimSync(
       try {
         const fc = JSON.parse(ctx.fs.readSync(`${claimsDir}/${entry.name}`));
         fileStartTime = fc.startTime;
-      } catch { /* 读失败/JSON 损坏 → 无法判定，走 fail-closed 路径 */ }
+      } catch { /* silent: 读失败/JSON 损坏 → 无法判定，走 fail-closed 路径 */ }
 
       if (fileStartTime !== undefined && fileStartTime !== startTime) {
-        try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
+        try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent: stale recovery 并发竞争，文件可能已被其他 contender 删除 */ }
         ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED, `claim=${entry.name} reason=pid_reused`);
         continue;
       }
@@ -278,7 +278,7 @@ export function tryAcquireClaimSync(
 
     const isAliveFn = ctx.isAlive ?? isAlive;
     if (!isAliveFn(parsed.pid, parsed.startTime as ProcessStartTime | undefined)) {
-      try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
+      try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent: stale recovery 并发竞争，文件可能已被其他 contender 删除 */ }
       ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED, `claim=${entry.name}`);
       continue;
     }
@@ -295,13 +295,13 @@ export function tryAcquireClaimSync(
     const recheck = ctx.fs.listSync(claimsDir, { includeDirs: false });
     const recheckNames = recheck.map(e => e.name).filter(n => n.startsWith('claim.'));
     if (recheckNames.some(n => compareClaimNames(n, claimName) < 0)) {
-      try { ctx.fs.deleteSync(claimPath); } catch { /* silent */ }
+      try { ctx.fs.deleteSync(claimPath); } catch { /* silent: 落选者自删 best-effort，残留由后续 stale recovery 处理 */ }
       return null;
     }
     return ownerToken;
   }
 
-  try { ctx.fs.deleteSync(claimPath); } catch { /* silent */ }
+  try { ctx.fs.deleteSync(claimPath); } catch { /* silent: 落选者自删 best-effort，残留由后续 stale recovery 处理 */ }
   ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_ELECTION_LOST, `winner=${winner} own=${claimName}`);
   return null;
 }
@@ -334,7 +334,7 @@ export function releaseClaimSync(
         ctx.fs.deleteSync(`${claimsDir}/${entry.name}`);
         return true;
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return true;
+        if (isFileNotFound(err)) return true;
         ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_RELEASE_FAILED, `claim=${entry.name} reason=${String(err)}`);
         return false;
       }
