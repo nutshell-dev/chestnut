@@ -29,6 +29,11 @@ export const SUMMON_AUDIT_EVENTS = {
   SUMMON_GATE_NO_DECISION: 'summon_gate_no_decision',
   SUMMON_TARGET_CLAW_VIOLATION: 'summon_target_claw_violation',
   SUMMON_LEGACY_STATE_FILE_DETECTED: 'summon_legacy_state_file_detected',
+  /**
+   * phase 1129 P1-16: subagent audit.tsv 非 FNF 读失败。
+   * 与 NO_CONTRACT_CREATED 区分：audit 不可读时契约状态不确定、禁止盲目 mining 重试。
+   */
+  SUB_AUDIT_READ_FAILED: 'summon_sub_audit_read_failed',
 } as const;
 
 export function emitSummonDispatched(audit: AuditLog, opts: {

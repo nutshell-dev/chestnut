@@ -444,6 +444,32 @@ Content.
       expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
     });
 
+    it('phase1129 P1-16: subAudit read non-FNF failure → SUB_AUDIT_READ_FAILED + uncertain motion guidance', async () => {
+      const auditWriter = makeAuditWriter();
+      const readSpy = vi.spyOn(mockFs, 'read').mockRejectedValue(
+        Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+      );
+
+      const result = await summonContractExtractPostProcessor(
+        'Result text.',
+        { id: 'task-io-err', callerType: 'shadow_subagent' } as any,
+        false,
+        mockFs,
+        auditWriter as any,
+      );
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_sub_audit_read_failed',
+        'taskId=task-io-err',
+        expect.stringContaining('path=tasks/queues/results/task-io-err/audit.tsv'),
+        expect.stringContaining('error=[EACCES]'),
+      );
+      expect(result).toContain('[SUMMON_SHADOW_UNCERTAIN:audit_read_failed]');
+      expect(result).toContain('不要直接用 mining 重试');
+
+      readSpy.mockRestore();
+    });
+
     it('phase1466: malformed audit rows are skipped, valid rows still extracted', async () => {
       const auditWriter = makeAuditWriter();
       await writeSubAudit('task-mixed', [

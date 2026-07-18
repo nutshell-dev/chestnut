@@ -3,6 +3,7 @@ import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
+import { isFileNotFound } from '../../../foundation/fs/index.js';
 
 /**
  * post-processor 失败 audit 时附带的 raw output 最大字符数（diagnostic 截断 cap）.
@@ -33,6 +34,19 @@ export interface ContractCreatedEvidence {
 }
 
 /**
+ * phase 1129 P1-16: scanSubAuditForContracts 非 FNF 读失败时抛出的 typed error。
+ * 与 wrapFailureForMotion 的 0-evidence 语义区分：audit 可读性故障 ≠ 0 契约创建。
+ */
+export class SubAuditReadError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly cause: unknown,
+  ) {
+    super(`sub-audit read failed: ${path}`);
+  }
+}
+
+/**
  * 扫子代理 audit.tsv 提取所有 `Contract created: <id> for claw <name>` 凭证。
  * 系统真相驱动 / 不依赖 LLM 自报告。
  */
@@ -43,8 +57,10 @@ export async function scanSubAuditForContracts(
   let content: string;
   try {
     content = await fs.read(subAuditPath);
-  } catch {
-    return [];  // audit 不存在 / 读失败 → 0 evidence、按失败处理
+  } catch (err) {
+    if (isFileNotFound(err)) return [];  // audit 不存在 = 良性 0 evidence
+    // phase 1129 P1-16: 非 FNF 读失败 ≠「0 契约创建」——caller 需走 audit 读失败分支
+    throw new SubAuditReadError(subAuditPath, err);
   }
 
   const evidence: ContractCreatedEvidence[] = [];
@@ -61,6 +77,25 @@ export async function scanSubAuditForContracts(
     evidence.push({ contractId: m[1], targetClaw: m[2] });
   }
   return evidence;
+}
+
+function wrapAuditReadFailureForMotion(rawResult: string, subAuditPath: string): string {
+  const truncated = rawResult.length > RAW_OUTPUT_DIAGNOSTIC_MAX
+    ? rawResult.slice(0, RAW_OUTPUT_DIAGNOSTIC_MAX) + '\n... [truncated; 完整输出见 result.txt]'
+    : rawResult;
+  return [
+    `[SUMMON_SHADOW_UNCERTAIN:audit_read_failed]`,
+    ``,
+    `子代理 audit 读取失败（非「0 契约创建」）：契约状态不确定。`,
+    ``,
+    `**Motion 必须立即执行**：先 exec: chestnut contract list 核实契约是否已创建；`,
+    `未创建才可用 summon mining 模式重试。**不要直接用 mining 重试——契约可能已建、重试会重复创建。**`,
+    ``,
+    `失败路径：${subAuditPath}`,
+    ``,
+    `--- raw subagent output（diagnostic only、不是完成信号、不要转发） ---`,
+    truncated,
+  ].join('\n');
 }
 
 function wrapFailureForMotion(rawResult: string): string {
@@ -121,7 +156,21 @@ export const summonContractExtractPostProcessor: PostProcessor = async (
   if (isError) return result;  // 上游 error envelope 已 explicit、不再二次 wrap
 
   const subAuditPath = `tasks/queues/results/${task.id}/audit.tsv`;
-  const evidence = await scanSubAuditForContracts(fs, subAuditPath);
+  let evidence: ContractCreatedEvidence[];
+  try {
+    evidence = await scanSubAuditForContracts(fs, subAuditPath);
+  } catch (err) {
+    if (err instanceof SubAuditReadError) {
+      audit.write(
+        SUMMON_AUDIT_EVENTS.SUB_AUDIT_READ_FAILED,
+        `taskId=${task.id}`,
+        `path=${subAuditPath}`,
+        `error=${formatErr(err.cause)}`,
+      );
+      return wrapAuditReadFailureForMotion(result, subAuditPath);
+    }
+    throw err;
+  }
   const mode: 'mining' | 'shadow' = task.callerType === SUMMON_CALLER_TYPES.MINER ? 'mining' : 'shadow';
 
   if (evidence.length === 0) {
