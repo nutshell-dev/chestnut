@@ -69,7 +69,7 @@ export function buildOnboardingSubtasks(language: string): Array<{ id: string; d
     },
     {
       id: 'first-contract',
-      description: 'Help the user assign the first contract to their new Claw. Ask what they want to get done, then create the contract via dispatch: { "task": "为 <claw-name> 创建契约：<task description>" }',
+      description: 'Help the user assign the first contract to their new Claw. Ask what they want to get done, then create the contract via summon: { "goal": "为 <claw-name> 创建契约：<task description>" }',
     },
     {
       id: 'ready',

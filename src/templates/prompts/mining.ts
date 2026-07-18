@@ -44,8 +44,8 @@ exec: chestnut claw list --summary
 - **复用**：选择对话状态与本次任务相关的 claw
 - **新建**：现有 claw 专注于不同项目或任务域时
   \`\`\`
-  exec: chestnut claw create <name>
-  exec: chestnut claw daemon <name>
+  exec: chestnut claw <name> create
+  exec: chestnut claw <name> daemon
   exec: chestnut claw list --summary   ← 确认 daemon 已运行再继续
   \`\`\`
 - targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId
