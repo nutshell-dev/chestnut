@@ -25,7 +25,7 @@ import {
   REACT_CHAIN_MAX_ITERATIONS,
 } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js';
-import { dispatchError } from './error-handlers.js';
+import { dispatchError, isAgentLoopCrashError } from './error-handlers.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import { isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
@@ -105,7 +105,7 @@ export class EventLoop {
       let firstInjected = 0;
 
       while (!this.stopped) {
-        const { injected, sources, count, addressedHandles } = await this.runtime.drainInbox();
+        const { injected, sources, count, infos, addressedHandles } = await this.runtime.drainInbox();
         if (count === 0) break;
 
         if (chainIters === 0) {
@@ -146,8 +146,7 @@ export class EventLoop {
           }
           break;
         } else {
-          await this.runtime.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
-          await this._handleFailedTurn(result);
+          await this._handleFailedTurn(result, addressedHandles, infos);
           break;
         }
       }
@@ -181,7 +180,7 @@ export class EventLoop {
 
   private async _handleTurnResult(
     result: TurnResult,
-    _addressedHandles: InboxHandle[],
+    addressedHandles: InboxHandle[],
     _callbacks?: StreamCallbacks,
   ): Promise<void> {
     if (result.status === 'success') {
@@ -191,12 +190,23 @@ export class EventLoop {
     } else if (result.status === 'interrupted') {
       // graceful interrupt during retry: no ack/nack, continue
     } else {
-      await this._handleFailedTurn(result);
+      await this._handleFailedTurn(result, addressedHandles, []);
     }
   }
 
-  private async _handleFailedTurn(result: TurnResult): Promise<void> {
+  private async _handleFailedTurn(
+    result: TurnResult,
+    addressedHandles: InboxHandle[],
+    infos: Array<{ metadata?: Record<string, string> }>,
+  ): Promise<void> {
     if (result.status !== 'failed') return;
+    if (isAgentLoopCrashError(result.error)) {
+      // P0-2：确定性失败 → 升级 + ack（破热循环）；escalation 链 = markCrashed + FATAL audit
+      await this.runtime.markLoopCrashed(result.error, infos);
+      await this.runtime.ackHandles(addressedHandles, 'agent_loop_crash');
+    } else {
+      await this.runtime.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
+    }
     if (isContextExceededError(result.error) && this.llmRetryCount < LLM_MAX_RETRIES) {
       try {
         await this.runtime.reactiveTrim();

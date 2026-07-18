@@ -16,6 +16,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { LLMContextExceededError } from '../../../src/foundation/llm-orchestrator/index.js';
+import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { InboxHandle, InboxMessage } from '../../../src/foundation/messaging/types.js';
 
@@ -69,6 +70,89 @@ describe('EventLoop.run', () => {
       inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
     });
   }
+
+  it('MaxStepsExceededError 走 markLoopCrashed + ackHandles 破热循环', async () => {
+    const audit = createMockAudit();
+    const crashErr = new MaxStepsExceededError(10);
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: crashErr }));
+    const markLoopCrashed = vi.fn().mockResolvedValue(undefined);
+    const ackHandles = vi.fn().mockResolvedValue(undefined);
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [{ metadata: { contract_id: 'test-contract' } }],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles,
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      retryLastTurn: vi.fn().mockResolvedValue(makeTurnResult('success')),
+      markLoopCrashed,
+      abort: vi.fn(),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(markLoopCrashed).toHaveBeenCalledWith(
+      crashErr,
+      expect.arrayContaining([expect.objectContaining({ metadata: { contract_id: 'test-contract' } })]),
+    );
+    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'agent_loop_crash');
+    expect(nackHandles).not.toHaveBeenCalled();
+    const fatalEntries = audit.entries.filter(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('agent_loop_crash')),
+    );
+    expect(fatalEntries.length).toBeGreaterThan(0);
+  });
+
+  it('crash error 无 contract_id 时 markLoopCrashed 退化、仍 ackHandles', async () => {
+    const audit = createMockAudit();
+    const crashErr = new MaxStepsExceededError(10);
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: crashErr }));
+    const markLoopCrashed = vi.fn().mockResolvedValue(undefined);
+    const ackHandles = vi.fn().mockResolvedValue(undefined);
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles,
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      retryLastTurn: vi.fn().mockResolvedValue(makeTurnResult('success')),
+      markLoopCrashed,
+      abort: vi.fn(),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(markLoopCrashed).toHaveBeenCalledWith(crashErr, []);
+    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'agent_loop_crash');
+    expect(nackHandles).not.toHaveBeenCalled();
+  });
 
   it('context_exceeded 错误走 llmRetry + reactive trim，耗尽后 cooldown', async () => {
     vi.useFakeTimers();

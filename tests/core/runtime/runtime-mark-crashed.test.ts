@@ -50,6 +50,90 @@ class CrashTestRuntime extends Runtime {
   }
 }
 
+describe('Runtime.markLoopCrashed (phase 1116 Step A)', () => {
+  let testTempDir: string;
+  let testClawDir: string;
+  const runtimes: Runtime[] = [];
+
+  beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    testTempDir = path.join(tmpdir(), `chestnut-mark-loop-crashed-${randomUUID()}`);
+    testClawDir = path.join(testTempDir, 'claws', 'edge-claw');
+    await fs.mkdir(testClawDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    for (const r of runtimes.splice(0)) {
+      await r.stop().catch(() => { /* silent: shutdown */ });
+    }
+    await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  });
+
+  async function makeRuntime() {
+    const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'edge-claw' });
+    const runtime = new Runtime({
+      clawId: 'edge-claw',
+      clawDir: testClawDir,
+      llmConfig: createMockLLMConfig(),
+      dependencies: deps,
+    });
+    runtimes.push(runtime);
+    await runtime.initialize();
+    return runtime;
+  }
+
+  it('从 infos.metadata.contract_id 提取 contractId 并 markCrashed', async () => {
+    const runtime = await makeRuntime();
+    const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockResolvedValue(undefined);
+
+    const err = new MaxStepsExceededError(10);
+    const infos = [{ metadata: { contract_id: 'test-contract' } }];
+
+    await runtime.markLoopCrashed(err, infos);
+
+    expect(markSpy).toHaveBeenCalledWith('test-contract', 'system: maxstepsexceedederror');
+    markSpy.mockRestore();
+  });
+
+  it('LockContentionExhaustedError 优先使用 err.contractId', async () => {
+    const runtime = await makeRuntime();
+    const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockResolvedValue(undefined);
+
+    const err = new LockContentionExhaustedError('lock-test-id', 5);
+    const infos = [{ metadata: { contract_id: 'ignored-id' } }];
+
+    await runtime.markLoopCrashed(err, infos);
+
+    expect(markSpy).toHaveBeenCalledWith('lock-test-id', 'system: lockcontentionexhaustederror');
+    markSpy.mockRestore();
+  });
+
+  it('无 contractId 时直接返回、不调用 markCrashed', async () => {
+    const runtime = await makeRuntime();
+    const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockResolvedValue(undefined);
+
+    await runtime.markLoopCrashed(new MaxStepsExceededError(10), []);
+
+    expect(markSpy).not.toHaveBeenCalled();
+    markSpy.mockRestore();
+  });
+
+  it('markCrashed 失败 → 写 MARK_CRASHED_FAILED audit', async () => {
+    const runtime = await makeRuntime();
+    const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockRejectedValue(new Error('already archived'));
+    const auditWrites: string[][] = [];
+    vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
+      auditWrites.push([type, ...args]);
+    });
+
+    await runtime.markLoopCrashed(new MaxStepsExceededError(10), [{ metadata: { contract_id: 'test-contract' } }]);
+
+    expect(markSpy).toHaveBeenCalled();
+    expect(auditWrites.some(a => a[0] === 'mark_crashed_failed')).toBe(true);
+    markSpy.mockRestore();
+  });
+});
+
 describe('Runtime catch → markCrashed (phase 63)', () => {
   let testTempDir: string;
   let testClawDir: string;

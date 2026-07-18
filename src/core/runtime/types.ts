@@ -154,6 +154,7 @@ export interface IRuntimeDaemon {
   ): Promise<TurnResult>;
   processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult>;
   retryLastTurn(callbacks?: StreamCallbacks): Promise<TurnResult>;
+  markLoopCrashed(err: unknown, infos: Array<{ metadata?: Record<string, string> }>): Promise<void>;
   abort(): void;
 }
 

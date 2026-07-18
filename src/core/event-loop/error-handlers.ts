@@ -20,6 +20,13 @@ import {
 } from './constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
 import { LLMAllProvidersFailedError, isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
+import {
+  MaxStepsExceededError,
+  WallTimeExceededError,
+  ConsecutiveParseErrorsExceededError,
+  ConsecutiveMaxTokensToolUseError,
+} from '../agent-executor/errors.js';
+import { LockContentionExhaustedError } from '../contract/errors.js';
 
 /**
  * EventLoop catch 块状态、handler 可读写以驱动 retry 状态机
@@ -127,6 +134,33 @@ const contextExceededExhaustedHandler: ErrorHandler = {
   },
 };
 
+/**
+ * P0-2: 5 个确定性 typed Error 的统一 crash 分类源。
+ * 注意 LLMAllProvidersFailedError 不在此列（transient 类、由 llmRetryHandler backoff 处理）。
+ */
+export function isAgentLoopCrashError(err: unknown): boolean {
+  return err instanceof MaxStepsExceededError
+      || err instanceof WallTimeExceededError
+      || err instanceof ConsecutiveParseErrorsExceededError
+      || err instanceof ConsecutiveMaxTokensToolUseError
+      || err instanceof LockContentionExhaustedError;
+}
+
+const agentLoopCrashHandler: ErrorHandler = {
+  name: 'agent_loop_crash',
+  match: (err) => isAgentLoopCrashError(err),
+  handle: async (err, ctx) => {
+    ctx.llmRetry.count = 0;
+    ctx.llmRetry.delayMs = LLM_RETRY_INITIAL_DELAY_MS;
+    ctx.saveLlmRetryState();
+    ctx.audit.write(
+      EVENTLOOP_AUDIT_EVENTS.FATAL,
+      `reason=agent_loop_crash`,
+      `error=${formatErr(err)}`,
+    );
+  },
+};
+
 const fallbackHandler: ErrorHandler = {
   name: 'fatal_fallback',
   match: () => true,  // 兜底
@@ -153,6 +187,7 @@ export const ERROR_HANDLERS: ReadonlyArray<ErrorHandler> = [
   priorityInboxHandler,
   llmRetryHandler,
   contextExceededExhaustedHandler,
+  agentLoopCrashHandler,
   fallbackHandler,
 ];
 
