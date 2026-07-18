@@ -14,7 +14,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
-import { ARCHIVE_STATES, type ArchiveState, type ContractId } from './types.js';
+import { ARCHIVE_STATES, type ArchiveState, type ContractId, makeContractId } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { ContractLocationAmbiguityError } from './errors.js';
 
@@ -56,6 +56,26 @@ export function contractRoot(containerDir: string, contractId: ContractId): stri
 
 export function contractProgressPath(contractRoot: string): string {
   return `${contractRoot}/${PROGRESS_FILE}`;
+}
+
+/**
+ * phase 1130 Step B: enumerate physical contract directories under the active container.
+ *
+ * Returns every direct child directory as a ContractId, regardless of progress.json
+ * presence or validity. Non-directory entries are ignored. Missing activeDir is an
+ * explicit empty state. Other fs.list errors are thrown (not swallowed) so capacity
+ * checks fail-closed on I/O problems.
+ */
+export async function listPhysicalActiveContractIds(opts: {
+  fs: FileSystem;
+  activeDir: string;
+}): Promise<ContractId[]> {
+  if (!(await opts.fs.exists(opts.activeDir))) return [];
+  const entries = await opts.fs.list(opts.activeDir, { includeDirs: true });
+  return entries
+    .filter(entry => entry.isDirectory)
+    .map(entry => makeContractId(entry.name))
+    .sort();
 }
 
 export function isArchiveStateContainer(name: string): name is ArchiveState {
