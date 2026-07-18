@@ -127,12 +127,12 @@ describe('readOnboardingStatus happy path', () => {
 
   it('non-onboarding contract skip → 查下一 dir', () => {
     const fs = makeMockFs({
-      dirs: ['/motion/contract/active', '/motion/contract/paused'],
+      dirs: ['/motion/contract/active'],
       files: {
         '/motion/contract/active/c1/contract.yaml': 'title: "OtherTask"\n',
         '/motion/contract/active/c1/progress.json': JSON.stringify({ schema_version: 1, subtasks: {} }),
-        '/motion/contract/paused/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/paused/ob1/progress.json': JSON.stringify({ schema_version: 1,
+        '/motion/contract/active/ob1/contract.yaml': 'title: "Onboarding"\n',
+        '/motion/contract/active/ob1/progress.json': JSON.stringify({ schema_version: 1,
           subtasks: { step1: { status: 'pending' } },
         }),
       },
@@ -151,12 +151,12 @@ describe('readOnboardingStatus happy path', () => {
 describe('readOnboardingStatus reverse', () => {
   it('反向 1: title !== "Onboarding" 被误报 → 应 skip 到下一 dir', () => {
     const fs = makeMockFs({
-      dirs: ['/motion/contract/active', '/motion/contract/paused'],
+      dirs: ['/motion/contract/active'],
       files: {
         '/motion/contract/active/c1/contract.yaml': 'title: "OnboardingX"\n',
         '/motion/contract/active/c1/progress.json': JSON.stringify({ schema_version: 1, subtasks: {} }),
-        '/motion/contract/paused/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/paused/ob1/progress.json': JSON.stringify({ schema_version: 1, subtasks: {} }),
+        '/motion/contract/active/ob1/contract.yaml': 'title: "Onboarding"\n',
+        '/motion/contract/active/ob1/progress.json': JSON.stringify({ schema_version: 1, subtasks: {} }),
       },
     });
     const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });

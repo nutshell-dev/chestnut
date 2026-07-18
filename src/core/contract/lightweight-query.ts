@@ -15,6 +15,7 @@ import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import {
   CONTRACT_ACTIVE_DIR,
   CONTRACT_ARCHIVE_DIR,
+  CONTRACT_PAUSED_DIR,
   CONTRACT_YAML_FILE,
   PROGRESS_FILE,
 } from './dirs.js';
@@ -25,8 +26,15 @@ export interface ContractSummary {
   contractId: string;
   /** Title field from contract.yaml. Empty string if unreadable. */
   title: string;
-  /** Contract state. Currently only 'active'; paused enumeration TBD. */
+  /** Contract state. Currently only 'active'. */
   state: 'active';
+}
+
+/** Legacy paused contract reference for read-only observability (phase 1123 Step D). */
+export interface LegacyPausedContractRef {
+  contractId: string;
+  sourcePath: string;
+  state: 'legacy_paused';
 }
 
 /**
@@ -133,6 +141,36 @@ export function listActiveContracts(
     results.push({ contractId, title, state: 'active' });
   }
   return results.sort((a, b) => a.contractId.localeCompare(b.contractId));
+}
+
+/**
+ * Enumerate legacy paused contracts in contract/paused/ without interpreting them
+ * as current active contracts. Read-only: no state mutation.
+ */
+export function listLegacyPausedContracts(
+  fs: FileSystem,
+  clawDir: string,
+): LegacyPausedContractRef[] {
+  const pausedDir = path.join(clawDir, CONTRACT_PAUSED_DIR);
+  if (!fs.existsSync(pausedDir)) return [];
+  let entries: { name: string; isDirectory: boolean }[];
+  try {
+    entries = fs.listSync(pausedDir, { includeDirs: true });
+  } catch {
+    return [];
+  }
+  const results: LegacyPausedContractRef[] = [];
+  for (const e of entries) {
+    if (!e.isDirectory) continue;
+    const progressPath = path.join(pausedDir, e.name, PROGRESS_FILE);
+    if (!fs.existsSync(progressPath)) continue;
+    results.push({
+      contractId: e.name,
+      sourcePath: path.join(pausedDir, e.name),
+      state: 'legacy_paused',
+    });
+  }
+  return results;
 }
 
 /**

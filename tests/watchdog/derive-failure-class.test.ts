@@ -78,10 +78,10 @@ describe('phase 1482: clawHasActiveContract vs clawHasContract', () => {
     await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  it('only paused/ subdir → clawHasContract true / clawHasActiveContract false', async () => {
+  it('only paused/ subdir → both false (legacy paused is not current)', async () => {
     await fsAsync.mkdir(path.join(root, 'contract/paused/p1'), { recursive: true });
     const clawDir = root;
-    expect(clawHasContract(clawDir, fsFactory)).toBe(true);
+    expect(clawHasContract(clawDir, fsFactory)).toBe(false);
     expect(clawHasActiveContract(clawDir, fsFactory)).toBe(false);
   });
 

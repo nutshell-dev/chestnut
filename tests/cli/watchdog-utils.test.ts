@@ -42,9 +42,9 @@ describe('clawHasContract', () => {
     expect(clawHasContract(testDir, fsFactory)).toBe(true);
   });
 
-  it('returns true when contract/paused has a subdirectory', () => {
+  it('returns false when only contract/paused has a subdirectory (legacy, not current)', () => {
     fs.mkdirSync(path.join(testDir, 'contract', 'paused', 'contract-456'), { recursive: true });
-    expect(clawHasContract(testDir, fsFactory)).toBe(true);
+    expect(clawHasContract(testDir, fsFactory)).toBe(false);
   });
 
   it('returns false when contract/active exists but has no subdirectories (only files)', () => {
@@ -215,10 +215,10 @@ describe('gatherClawSnapshot', () => {
     expect(snap.contract).toBe('active:ctr-abc');
   });
 
-  it('contract=paused:<id> when paused dir has a subdirectory', () => {
+  it('contract=none when only paused dir has a subdirectory (legacy, not current)', () => {
     fs.mkdirSync(path.join(testDir, 'contract', 'paused', 'ctr-def'), { recursive: true });
     const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
-    expect(snap.contract).toBe('paused:ctr-def');
+    expect(snap.contract).toBe('none');
   });
 
   it('contract=none when no contract dirs exist', () => {

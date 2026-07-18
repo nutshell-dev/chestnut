@@ -12,7 +12,6 @@
  * Watchdog utility functions — extracted for testability
  */
 
-import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import { type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
@@ -73,41 +72,17 @@ export async function getClawActivityInfo(
   }
 }
 
-// Check if a claw has an active or paused contract.
-// 用于 crash detection — paused contract 的 claw crash motion 也需要知道（可能要 resume）.
-export function clawHasContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
-  return clawHasContractSub(clawDir, fsFactory, ['active', 'paused'], audit);
+// phase 1123 Step D: crash detection considers only ACTIVE contracts.
+// Legacy paused contracts are observed via ContractSystem.findLegacyPausedContracts, not here.
+export function clawHasContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, _audit?: AuditLog): boolean {
+  return clawHasActiveContract(clawDir, fsFactory);
 }
 
 // phase 1482: Check if a claw has an ACTIVE contract only.
 // 用于 inactivity timeout — paused 本就该停、不算 inactivity（root cause D 类 fix）.
-export function clawHasActiveContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
-  return clawHasContractSub(clawDir, fsFactory, ['active'], audit);
-}
-
-function clawHasContractSub(
-  clawDir: string,
-  fsFactory: (baseDir: string) => FileSystem,
-  subs: readonly string[],
-  audit?: AuditLog,
-): boolean {
+export function clawHasActiveContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, _audit?: AuditLog): boolean {
   const fs = fsFactory(clawDir);
-  if (subs.includes('active') && hasActiveContract(fs, '.')) return true;
-  if (!subs.includes('paused')) return false;
-  // paused fallback: legacy scan until paused API is available
-  try {
-    const entries = fs.listSync(path.join('contract', 'paused'), { includeDirs: true });
-    if (entries.some(e => e.isDirectory)) return true;
-  } catch (err) {
-    if (isFileNotFound(err)) return false; // legitimate: contract dir not created yet
-    audit?.write(
-      WATCHDOG_AUDIT_EVENTS.CLAW_HAS_CONTRACT_CHECK_FAILED,
-      `clawDir=${clawDir}`,
-      `sub=paused`,
-      `error=${formatErr(err)}`,
-    );
-  }
-  return false;
+  return hasActiveContract(fs, '.');
 }
 
 // ---- phase 1482: claw_inactivity FailureClass taxonomy + phase 2 reframe ----
@@ -174,7 +149,7 @@ export function formatInactivityBody(opts: {
  * - `active_unexpected`: active contract + daemon dead + 无 clean-stop marker → 重启 daemon
  * - `active_user_stopped`: active contract + daemon dead + 有 clean-stop marker (user/system 主动 stop) → motion 知情即可
  *
- * paused contract crash 不触发本 type（caller 应 guard `clawHasActiveContract`）.
+ * Legacy paused contracts are not considered crashes (caller must guard with clawHasActiveContract).
  * Assembly motion guidance composer type-only import 此 enum、按 class switch.
  */
 export type { CrashClass } from './claw-failure-classes.js';
@@ -220,7 +195,7 @@ export function formatCrashBody(opts: {
 
 export interface ClawSnapshot {
   status: 'running' | 'stopped';
-  contract: string;       // 'active:<id>' | 'paused:<id>' | 'none'
+  contract: string;       // 'active:<id>' | 'none'
   inboxPending: number;
   outboxPending: number;
   // NEW additive optional forensic context (phase 1207 gap B)
@@ -248,23 +223,9 @@ export function gatherClawSnapshot(
   const activeContracts = listActiveContracts(fs, '.');
   if (activeContracts.length > 0) {
     contract = `active:${activeContracts[0].contractId}`;
-  } else {
-    // paused fallback: legacy scan until paused API is available
-    try {
-      const entries = fs.listSync(path.join('contract', 'paused'), { includeDirs: true });
-      const dir = entries.find(e => e.isDirectory);
-      if (dir) contract = `paused:${dir.name}`;
-    } catch (err) {
-      if (!isFileNotFound(err)) {
-        audit?.write(
-          WATCHDOG_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
-          `claw=${clawId}`,
-          `sub=paused`,
-          `error=${formatErr(err)}`,
-        );
-      }
-    }
   }
+  // phase 1123 Step D: legacy paused contracts are not surfaced in the watchdog
+  // snapshot; they are observed via ContractSystem.findLegacyPausedContracts.
 
   // phase 858: lightweight query helpers now return Result; -1 marks I/O error
   const inboxResult = peekPendingCount(fs, '.');

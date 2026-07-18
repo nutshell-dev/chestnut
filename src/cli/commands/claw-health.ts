@@ -13,7 +13,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { hasActiveContract } from '../../core/contract/index.js';
+import { hasActiveContract, listLegacyPausedContracts } from '../../core/contract/index.js';
 import { peekPendingCount, listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
 
@@ -45,11 +45,14 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const outboxResult = listOutboxPendingSync(clawFs, '.');
   const outboxPending = outboxResult.ok ? outboxResult.value.length : -1;
 
-  // Check contract status
+  // Check contract status (current semantics: active only)
   let contractStatus = 'none';
   if (hasActiveContract(clawFs, '.')) {
     contractStatus = 'active';
   }
+
+  // phase 1123 Step D: surface legacy paused contracts as read-only diagnostics
+  const legacyPaused = listLegacyPausedContracts(clawFs, '.');
 
   // Last active time（统一使用 stream.jsonl 指标）
   let lastActive = '-';
@@ -66,7 +69,8 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
       status: isRunning ? 'running' : 'stopped',
       inbox_pending: inboxPending,
       outbox_pending: outboxPending,
-      contract: contractStatus as 'active' | 'paused' | 'none',
+      contract: contractStatus as 'active' | 'none',
+      legacy_paused: legacyPaused,
       last_active: lastActiveIso,
       as_of: new Date().toISOString(),
     };
@@ -80,6 +84,9 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   console.log(`inbox_pending: ${inboxPending}`);
   console.log(`outbox_pending: ${outboxPending}`);
   console.log(`contract: ${contractStatus}`);
+  if (legacyPaused.length > 0) {
+    console.log(`legacy_paused: ${legacyPaused.map(r => r.contractId).join(', ')} (read-only)`);
+  }
   console.log(`last_active: ${lastActive}`);
   console.log(`as_of: ${new Date().toISOString()}`);
 }

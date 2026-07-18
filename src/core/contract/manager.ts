@@ -48,6 +48,7 @@ import {
   emitContractCreatePolicyRejected,
   emitContractVerifierRegistered,
   emitContractVerifierUnregistered,
+  emitContractLegacyPausedObserved,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -188,6 +189,9 @@ export class ContractSystem {
 
   // Phase 230: contract create policy plug-in registry
   private createPolicies = new Map<string, ContractCreatePolicy>();
+
+  // phase 1123 Step D: deduplicate legacy paused audit events per ContractSystem instance
+  private _legacyPausedObserved = new Set<string>();
 
   private _registerVerifierController(contractId: ContractId, ctrl: AbortController, promise: Promise<unknown>): void {
     // Phase 968: audit FIRST so tracking never commits if audit fails
@@ -496,6 +500,34 @@ export class ContractSystem {
 
   async loadPaused(): Promise<Contract | null> {
     return loadPausedContract(this._discoveryCtx(), this.pausedDir);
+  }
+
+  /**
+   * phase 1123 Step D: read-only legacy paused detector.
+   * Scans contract/paused/ and returns tagged references without moving data.
+   * Emits a deduplicated audit event per legacy contract per instance.
+   */
+  async findLegacyPausedContracts(): Promise<Array<{ contractId: ContractId; sourcePath: string }>> {
+    const results: Array<{ contractId: ContractId; sourcePath: string }> = [];
+    if (!(await this.fs.exists(this.pausedDir))) return results;
+    const entries = await this.fs.list(this.pausedDir, { includeDirs: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory) continue;
+      const progressPath = `${this.pausedDir}/${entry.name}/progress.json`;
+      if (!(await this.fs.exists(progressPath))) continue;
+      const contractId = makeContractId(entry.name);
+      const sourcePath = `${this.pausedDir}/${entry.name}`;
+      results.push({ contractId, sourcePath });
+      if (!this._legacyPausedObserved.has(entry.name)) {
+        this._legacyPausedObserved.add(entry.name);
+        emitContractLegacyPausedObserved(this.audit, {
+          clawId: this.clawId,
+          contractId,
+          sourcePath,
+        });
+      }
+    }
+    return results;
   }
 
   /**

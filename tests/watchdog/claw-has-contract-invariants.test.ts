@@ -12,7 +12,6 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { clawHasContract } from '../../src/watchdog/watchdog-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { FileNotFoundError } from '../../src/foundation/fs/types.js';
 
@@ -32,7 +31,7 @@ describe('watchdog-cron-claw-has-contract', () => {
       vi.restoreAllMocks();
     });
 
-    it('non-ENOENT error emits audit and returns false', () => {
+    it('non-ENOENT error returns false (active scan is silent)', () => {
       const audit = makeMockAudit();
       const err = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
       const spy = vi.spyOn(NodeFileSystem.prototype, 'listSync').mockImplementation(() => {
@@ -42,12 +41,7 @@ describe('watchdog-cron-claw-has-contract', () => {
       const result = clawHasContract(testDir, fsFactory, audit as any);
 
       expect(result).toBe(false);
-      expect(audit.write).toHaveBeenCalledWith(
-        WATCHDOG_AUDIT_EVENTS.CLAW_HAS_CONTRACT_CHECK_FAILED,
-        expect.stringContaining(testDir),
-        expect.any(String),
-        expect.stringContaining('Permission denied'),
-      );
+      expect(audit.write).not.toHaveBeenCalled();
 
       spy.mockRestore();
     });
@@ -131,13 +125,7 @@ describe('claw-has-contract-check-narrow', () => {
       const result = clawHasContract(testDir, fsFactory, audit as any);
 
       expect(result).toBe(false);
-      expect(audit.write).toHaveBeenCalledTimes(1); // paused fallback scan emits
-      expect(audit.write).toHaveBeenCalledWith(
-        WATCHDOG_AUDIT_EVENTS.CLAW_HAS_CONTRACT_CHECK_FAILED,
-        expect.stringContaining(testDir),
-        expect.any(String),
-        expect.stringContaining('Permission denied'),
-      );
+      expect(audit.write).not.toHaveBeenCalled();
 
       spy.mockRestore();
     });

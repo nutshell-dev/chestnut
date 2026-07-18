@@ -189,11 +189,11 @@ describe('getOnboardingStatus', () => {
     }
   });
 
-  it('paused/ 中 Onboarding → in_progress', () => {
+  it('paused/ 中 Onboarding → not_in_progress (legacy, ignored)', () => {
     writeContract(tmpDir, 'paused', 'ob1', 'Onboarding', {
       language: { status: 'pending' },
     });
-    expect(getOnboardingStatus(tmpDir, { fsFactory }).state).toBe('in_progress');
+    expect(getOnboardingStatus(tmpDir, { fsFactory }).state).toBe('not_found');
   });
 
   it('progress.json 损坏 → 跳过该契约，返回 not_found', () => {

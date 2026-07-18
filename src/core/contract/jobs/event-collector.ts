@@ -30,7 +30,7 @@ function readContractMeta(
 interface FormattedEvent {
   body: string;
   hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback 或状态机断裂
-  status: ArchiveAllowedStatus | ActiveStatus;
+  status: ArchiveAllowedStatus | ActiveStatus | 'paused';
   reason?: string;
   cause?: string;
 }

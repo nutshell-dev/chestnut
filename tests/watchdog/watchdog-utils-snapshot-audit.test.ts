@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
-import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+
 
 const mockPm = { isAlive: vi.fn(() => true) };
 
@@ -55,7 +55,7 @@ describe('gatherClawSnapshot audit emit (phase 143)', () => {
     vi.clearAllMocks();
   });
 
-  it('反向 1: contract dir EACCES → emit CONTRACT_DIR_SCAN_FAILED', () => {
+  it('反向 1: contract dir EACCES → silent (active scan is best-effort)', () => {
     const fs = makeFs({
       contractDirError: Object.assign(new Error('Permission denied'), { code: 'EACCES' }),
     });
@@ -63,12 +63,7 @@ describe('gatherClawSnapshot audit emit (phase 143)', () => {
 
     gatherClawSnapshot('/claw-X', fsFactory, mockPm, 'claw-X', mockAudit as unknown as import('../../src/foundation/audit/index.js').AuditLog);
 
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      WATCHDOG_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
-      expect.stringContaining('claw=claw-X'),
-      expect.stringContaining('sub='),
-      expect.stringContaining('error='),
-    );
+    expect(mockAudit.write).not.toHaveBeenCalled();
   });
 
   it('反向 2: contract dir ENOENT → 0 audit（合法 skip）', () => {

@@ -51,7 +51,7 @@ export async function contractShowCommand(deps: { fsFactory: (baseDir: string) =
     );
   }
 
-  // 读 progress（active/paused/archive 均可）
+  // 读 progress（active/archive 当前语义；legacy paused 由 detector 单独展示）
   let progress: ProgressData | null = null;
   try {
     progress = await manager.getProgress(makeContractId(resolvedId));
@@ -60,6 +60,18 @@ export async function contractShowCommand(deps: { fsFactory: (baseDir: string) =
     // file missing = expected (注释原意「progress 文件缺失」)，其他错误 = real bug bubble
     if (!isFileNotFound(err)) {
       throw err;
+    }
+  }
+
+  // phase 1123 Step D: legacy paused contracts are observable but not current
+  if (!progress) {
+    const legacyPaused = await manager.findLegacyPausedContracts();
+    const legacy = legacyPaused.find(r => r.contractId === resolvedId);
+    if (legacy) {
+      console.log(`Contract: ${resolvedId}`);
+      console.log(`Status: legacy paused (read-only)`);
+      console.log(`Source: ${legacy.sourcePath}`);
+      return;
     }
   }
 

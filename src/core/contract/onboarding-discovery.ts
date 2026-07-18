@@ -9,7 +9,6 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import {
   CONTRACT_ACTIVE_DIR,
-  CONTRACT_PAUSED_DIR,
   CONTRACT_ARCHIVE_DIR,
   PROGRESS_FILE,
   CONTRACT_YAML_FILE,
@@ -41,7 +40,6 @@ export function readOnboardingStatus(
   const fs = deps.fsFactory(motionDir);
   const dirs: ReadonlyArray<readonly [string, OnboardingStatusKind | 'archive_complete']> = [
     [CONTRACT_ACTIVE_DIR, 'in_progress'],
-    [CONTRACT_PAUSED_DIR, 'in_progress'],
     [CONTRACT_ARCHIVE_DIR, 'archive_complete'],
   ];
   for (const [dir, kind] of dirs) {

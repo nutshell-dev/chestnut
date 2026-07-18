@@ -302,6 +302,7 @@
       "contract_file_isolation_failed",
       "contract_legacy_contract_id_field_ignored",
       "contract_legacy_crashed_observed",
+      "contract_legacy_paused_observed",
       "contract_legacy_status_field_ignored",
       "contract_lock_claim_legacy_format_migrated",
       "contract_lock_cleanup_failed",

@@ -1009,5 +1009,24 @@ export function emitContractLegacyCrashedObserved(
   );
 }
 
+// ─── LEGACY_PAUSED_OBSERVED (phase 1123 Step D) ─────────────────────────────
+export function emitContractLegacyPausedObserved(
+  audit: AuditLog,
+  opts: {
+    clawId: string;
+    contractId: string;
+    sourcePath: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractLegacyPausedObserved')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_PAUSED_OBSERVED,
+    `clawId=${opts.clawId}`,
+    `contractId=${opts.contractId}`,
+    `source_path=${opts.sourcePath}`,
+    `status=legacy_paused`,
+  );
+}
+
 // ─── Legacy helper: format error ──────────────────────────────────────────────
 export { formatErr };

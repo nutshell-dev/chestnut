@@ -154,6 +154,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   MARK_CORRUPTED_GRACEFUL_FALLBACK: 'mark_corrupted_graceful_fallback',
   // phase 1121 Step D: legacy crashed contract observed in archive
   CONTRACT_LEGACY_CRASHED_OBSERVED: 'contract_legacy_crashed_observed',
+  // phase 1123 Step D: legacy paused contract observed in live paused/ directory
+  CONTRACT_LEGACY_PAUSED_OBSERVED: 'contract_legacy_paused_observed',
 } as const;
 
 /**
@@ -265,6 +267,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
   contract_legacy_crashed_observed: 'audit',
+  contract_legacy_paused_observed: 'audit',
   // phase 954: boot reconcile lifecycle move recovery events
   contract_multi_dir: 'audit',
   multi_active_contracts: 'audit',
