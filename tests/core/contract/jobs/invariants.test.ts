@@ -78,9 +78,19 @@ describe('Phase 188 Step C: init integration — archive sweep on boot', () => {
   }
 
   async function readArchiveStatus(contractId: string): Promise<string> {
-    const raw = await fs.readFile(path.join(clawDir, 'contract', 'archive', contractId, 'progress.json'), 'utf-8');
-    const parsed = JSON.parse(raw);
-    return parsed.status;
+    const candidates = [
+      path.join(clawDir, 'contract', 'archive', 'corrupted', contractId, 'progress.json'),
+      path.join(clawDir, 'contract', 'archive', 'completed', contractId, 'progress.json'),
+      path.join(clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json'),
+      path.join(clawDir, 'contract', 'archive', contractId, 'progress.json'),
+    ];
+    for (const p of candidates) {
+      try {
+        const raw = await fs.readFile(p, 'utf-8');
+        return JSON.parse(raw).status;
+      } catch { /* continue */ }
+    }
+    throw new Error(`progress.json not found for ${contractId}`);
   }
 
   it('init sweeps archive: active entries flipped to archive_corrupted', async () => {
