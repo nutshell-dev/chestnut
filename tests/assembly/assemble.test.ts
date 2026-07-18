@@ -112,12 +112,17 @@ vi.mock('../../src/foundation/process-manager/agent-factory.js', () => ({
   createAgentProcessManager: vi.fn(() => mockProcessManager),
 }));
 
-vi.mock('../../src/core/runtime/index.js', () => {
+vi.mock('../../src/core/runtime/index.js', () => ({
+  Runtime: vi.fn(() => mockRuntime),
+  createRuntime: vi.fn(() => mockRuntime),
+  buildMotionSystemPrompt: vi.fn(() => Promise.resolve('')),
+}));
+
+vi.mock('../../src/core/heartbeat/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/heartbeat/index.js')>();
   const HeartbeatCtor = vi.fn(() => mockHeartbeat);
   return {
-    Runtime: vi.fn(() => mockRuntime),
-    createRuntime: vi.fn(() => mockRuntime),
-    buildMotionSystemPrompt: vi.fn(() => Promise.resolve('')),
+    ...actual,
     Heartbeat: HeartbeatCtor,
     createHeartbeat: vi.fn((...args: any[]) => new (HeartbeatCtor as any)(...args)),
   };
@@ -249,7 +254,8 @@ import { CronRunner } from '../../src/foundation/cron/runner.js';
 import { buildLLMConfig } from '../../src/assembly/config/config-load.js';
 import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createSnapshot } from '../../src/foundation/snapshot/index.js';
-import { createRuntime, Heartbeat } from '../../src/core/runtime/index.js';
+import { createRuntime } from '../../src/core/runtime/index.js';
+import { Heartbeat } from '../../src/core/heartbeat/index.js';
 import { createMemorySystem } from '../../src/core/memory/index.js';
 import { runContractObserver } from '../../src/core/contract/jobs/contract-observer.js';
 

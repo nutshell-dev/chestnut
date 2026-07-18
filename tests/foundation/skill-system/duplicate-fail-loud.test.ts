@@ -211,8 +211,9 @@ describe('phase 1267 D.2: SkillDuplicateError fail-loud in loadAll', () => {
     try {
       // Intentionally not awaiting ensureLoaded: mimic cold-start sync accessor usage.
       sys.listMeta();
-      // Yield to the microtask queue so the background _ensureLoaded() promise settles.
-      await new Promise((r) => setTimeout(r, 10));
+      // 等 fire-and-forget 后台加载 rejection 落地（异步边界、无事件可等）
+      const BACKGROUND_REJECTION_SETTLE_MS = 10;
+      await new Promise((r) => setTimeout(r, BACKGROUND_REJECTION_SETTLE_MS));
 
       expect(unhandledSpy).not.toHaveBeenCalled();
 

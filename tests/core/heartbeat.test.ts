@@ -10,7 +10,7 @@ import { makeChestnutRoot } from '../../src/core/claw-topology/claw-instance-pat
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Heartbeat } from '../../src/core/runtime/index.js';
+import { Heartbeat } from '../../src/core/heartbeat/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { createInboxReader } from '../../src/foundation/messaging/index.js';
