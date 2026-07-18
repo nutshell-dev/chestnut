@@ -24,4 +24,4 @@ export { createProcessManagerForCLI } from './factories.js';
 export { createAgentProcessManager } from './agent-factory.js';
 export type { PidReadResult } from './pid.js';
 export { STATUS_SUBDIR } from './paths.js';
-export { signalCleanStop } from './signal-clean-stop.js';
+export { signalCleanStop, clearCleanStop } from './signal-clean-stop.js';

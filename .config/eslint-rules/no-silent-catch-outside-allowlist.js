@@ -42,6 +42,10 @@ const ALLOWLIST_BASENAMES = new Set([
   // best-effort cleanup paths; cannot self-audit on failure — DP-2 fallback border).
   'writer.ts',
   'stop.ts',
+  // phase 1124: claw-stop failure-path clean-stop marker cleanup is by-design best-effort;
+  // cleanup failure does not affect correctness (CliError is still thrown) and any residual
+  // marker only causes a spurious ungraceful warning on the next boot.
+  'claw-stop.ts',
   'subagent-helpers.ts',
   'timeout-controller.ts',
   'watchdog-state.ts',

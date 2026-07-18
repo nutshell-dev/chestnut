@@ -837,6 +837,7 @@
       "outbox_sent"
     ],
     "foundation_process-manager_audit-events": [
+      "clean_stop_cleared",
       "clean_stop_signaled",
       "lock_acquired",
       "lock_legacy_migrated",

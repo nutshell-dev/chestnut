@@ -25,3 +25,17 @@ export async function signalCleanStop(
   await fs.writeAtomic(flagPath, '');
   audit?.write(PROCESS_MANAGER_AUDIT_EVENTS.CLEAN_STOP_SIGNALED, `daemon_dir=${daemonDir}`);
 }
+
+/**
+ * phase 1124: 清除 clean-stop marker（signalCleanStop 的 mirror API）。
+ * 用于 stop 失败路径，防止残留 marker 导致后续真崩溃被误判为 active_user_stopped。
+ */
+export async function clearCleanStop(
+  fs: FileSystem,
+  daemonDir: DaemonDir,
+  audit?: AuditLog,
+): Promise<void> {
+  const flagPath = path.join(daemonDir, 'clean-stop');
+  await fs.delete(flagPath);
+  audit?.write(PROCESS_MANAGER_AUDIT_EVENTS.CLEAN_STOP_CLEARED, `daemon_dir=${daemonDir}`);
+}

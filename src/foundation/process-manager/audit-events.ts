@@ -44,4 +44,5 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   READY_CHECK_PARSE_FAILED: 'process_ready_check_parse_failed',
   READY_CHECK_ISALIVE_THROW: 'process_ready_check_isalive_throw',
   CLEAN_STOP_SIGNALED: 'clean_stop_signaled',
+  CLEAN_STOP_CLEARED: 'clean_stop_cleared',
 } as const;

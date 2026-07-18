@@ -6,7 +6,7 @@
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
-import { createProcessManagerForCLI, signalCleanStop } from '../../foundation/process-manager/index.js';
+import { createProcessManagerForCLI, signalCleanStop, clearCleanStop } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -39,9 +39,9 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
   // phase 2 γ4 anchor 保: clean-stop marker BEFORE stop so watchdog can distinguish
   // intentional user stop from unexpected crash (CrashClass active_user_stopped vs active_unexpected).
   // phase 694: signalCleanStop 改 take daemonDir 直接、PM 不再持 chestnut 拓扑。
+  const chestnutRoot = makeChestnutRoot(getChestnutRoot());
+  const rootFs = deps.fsFactory(chestnutRoot);
   try {
-    const chestnutRoot = makeChestnutRoot(getChestnutRoot());
-    const rootFs = deps.fsFactory(chestnutRoot);
     await signalCleanStop(rootFs, daemonDir, audit);
   } catch (err) {
     audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=clean_stop_marker_failed`, `error=${String(err)}`);
@@ -53,6 +53,11 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
     console.log(`✓ Stopped Claw "${name}"`);
   } else {
     audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=failed`);
+    // phase 1124 P1-18: stop 失败 → 清残留 marker，防后续真崩溃被误判 active_user_stopped
+    // （γ4 anchor 不动：stopping 窗口内 marker 仍在；stop 成功路径 marker 保留）
+    try {
+      await clearCleanStop(rootFs, daemonDir, audit);
+    } catch { /* silent: marker 清理 best-effort，残留仅次启动 spurious ungraceful warn */ }
     throw new CliError(`Failed to stop Claw "${name}"`);
   }
 }
