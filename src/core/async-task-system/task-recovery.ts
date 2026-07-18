@@ -786,6 +786,18 @@ async function _moveToDeadLetter(
 async function _recoverWithoutResult(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
 ): Promise<number> {
+  // phase 1119 P1-15: terminalState 分流（mirror _recoverAlreadySent）——
+  // 已宣告终态的任务不得移回 pending 重执行。
+  const terminalState = ((task as unknown) as Record<string, unknown>).terminalState as string | undefined;
+  if (terminalState === 'failed') {
+    await _recoverToFailed(deps, filePath, task, 'terminal_state_failed', 'without_result_failed_move_failed');
+    return 0;
+  }
+  if (terminalState === 'done') {
+    await _recoverToDone(deps, filePath, task, 'terminal_state_done', 'without_result_done_move_failed');
+    return 0;
+  }
+
   const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
   let recovered = 1;
   await deps.fs.move(filePath, pendingPath)

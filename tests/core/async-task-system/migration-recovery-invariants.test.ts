@@ -1292,6 +1292,51 @@ describe('phase 1119', () => {
     });
   });
 
+  describe('subagent recovery terminalState routing', () => {
+    it('moves terminalState=failed task to failed/ without re-execution', async () => {
+      const task = makeSubAgentTask({ terminalState: 'failed' });
+      const taskFile = 'tasks/queues/running/task-1.json';
+
+      const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+      const { audit, events } = makeMockAudit();
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+      expect(mockSendResult).not.toHaveBeenCalled();
+      expect(mockSendFallbackError).not.toHaveBeenCalled();
+      expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
+      expect(await mockFs.exists(`tasks/queues/pending/${VALID_TASK_ID}.json`)).toBe(false);
+      expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.RECOVERED && e.some(c => typeof c === 'string' && c.includes('reason=terminal_state_failed')))).toBe(true);
+    });
+
+    it('moves terminalState=done task to done/ without re-execution', async () => {
+      const task = makeSubAgentTask({ terminalState: 'done' });
+      const taskFile = 'tasks/queues/running/task-1.json';
+
+      const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+      const { audit, events } = makeMockAudit();
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+      expect(mockSendResult).not.toHaveBeenCalled();
+      expect(mockSendFallbackError).not.toHaveBeenCalled();
+      expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
+      expect(await mockFs.exists(`tasks/queues/pending/${VALID_TASK_ID}.json`)).toBe(false);
+      expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.RECOVERED && e.some(c => typeof c === 'string' && c.includes('reason=terminal_state_done')))).toBe(true);
+    });
+
+    it('keeps task without terminalState in pending/ (existing behavior)', async () => {
+      const task = makeSubAgentTask();
+      const taskFile = 'tasks/queues/running/task-1.json';
+
+      const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+      const { audit, events } = makeMockAudit();
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+      expect(mockSendResult).not.toHaveBeenCalled();
+      expect(await mockFs.exists(`tasks/queues/pending/${VALID_TASK_ID}.json`)).toBe(true);
+      expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(false);
+      expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.RECOVERED && e.some(c => typeof c === 'string' && c.includes('to=pending')))).toBe(true);
+    });
+  });
 });
 
 
