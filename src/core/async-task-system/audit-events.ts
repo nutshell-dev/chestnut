@@ -44,6 +44,7 @@ export const TASK_AUDIT_EVENTS = {
   TASK_MIGRATED_COMPLETED: 'task_migrated_completed', // phase 770 Step A
   TASK_MIGRATED_PID_REUSED: 'task_migrated_pid_reused', // phase 770 Step A
   TASK_MIGRATED_TIMED_OUT: 'task_migrated_timed_out', // phase 777 Step A
+  MIGRATED_TRUNCATED_RESULT_DELIVERED: 'task_migrated_truncated_result_delivered', // phase 1119 Step A
   TASK_QUERY_FILE_CORRUPT: 'task_query_file_corrupt', // phase 844 Step B
   TASK_QUERY_RESULT_IO_ERROR: 'task_query_result_io_error', // phase 844 Step B
   SHORT_ID_INDEX_LOAD_FAILED: 'short_id_index_load_failed', // phase 854

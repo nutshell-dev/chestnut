@@ -206,6 +206,7 @@
       "task_migrated_pid_reused",
       "task_migrated_registered",
       "task_migrated_timed_out",
+      "task_migrated_truncated_result_delivered",
       "task_move_failed",
       "task_moved",
       "task_parse_failed",

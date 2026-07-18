@@ -304,6 +304,27 @@ describe('createAsyncExecWrapper', () => {
     }
   });
 
+  it('writes exit.json marker when migrated process exits cleanly', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
+
+    expect(result.success).toBe(true);
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const exitMarkerFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json');
+
+    await waitUntilGone(runningFile, 5000);
+
+    const exitMarker = JSON.parse(await fs.readFile(exitMarkerFile, 'utf-8'));
+    expect(typeof exitMarker.completedAt).toBe('string');
+  });
+
   it('should include post-migration output', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({

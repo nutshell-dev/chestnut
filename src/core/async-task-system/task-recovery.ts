@@ -17,6 +17,7 @@ import {
   emitRecoveryFailed,
   emitRecoveryDeadLetter,
 } from './audit-emit.js';
+import { TASK_AUDIT_EVENTS } from './audit-events.js';
 
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
@@ -250,6 +251,8 @@ export async function recoverMigratedToolTask(
   const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const pid = task.migratedPid!;
+  const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+  let killedByRecovery = false;
 
   // 1. Check whether the migrated process is still alive.
   let processAlive = isAlive(pid);
@@ -325,6 +328,7 @@ export async function recoverMigratedToolTask(
         }
       }
       processAlive = false; // fall through to result check
+      killedByRecovery = true; // phase 1119: recovery itself killed the process
     } else {
       // Still within deadline, leave in running — natural convergence:
       // process will exit or hit deadline on next startup recovery scan.
@@ -341,8 +345,8 @@ export async function recoverMigratedToolTask(
   }
 
   // 2. Process is dead — check whether the wrapper already wrote the result.
-  const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt`;
-  const sentMarkerPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt.sent`;
+  const resultPath = `${resultDir}/result.txt`;
+  const sentMarkerPath = `${resultDir}/result.txt.sent`;
 
   // 0. If a previous recovery already delivered the result, just move to done.
   let alreadySent = false;
@@ -407,7 +411,23 @@ export async function recoverMigratedToolTask(
       return 0;
     }
 
-    const sent = await sendToolResult(fs, auditWriter, task, resultContent, false, resultDeliveryDeps)
+    // phase 1119: determine whether the wrapper cleanly exited before daemon crash.
+    let deliveredContent = resultContent;
+    if (killedByRecovery) {
+      deliveredContent += '\n[Process killed by recovery: hard timeout exceeded]';
+    } else {
+      const exitMarkerExists = await fs.exists(`${resultDir}/exit.json`).catch(() => false);
+      if (!exitMarkerExists) {
+        deliveredContent += '\n[Recovery note: daemon restarted while process was still running — output may be truncated]';
+        auditWriter.write(
+          TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED,
+          `taskId=${task.id}`,
+          `pid=${pid}`,
+        );
+      }
+    }
+
+    const sent = await sendToolResult(fs, auditWriter, task, deliveredContent, false, resultDeliveryDeps)
       .then(() => true)
       .catch(() => false);
 

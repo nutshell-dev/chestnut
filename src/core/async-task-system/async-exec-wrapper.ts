@@ -365,6 +365,13 @@ export function createAsyncExecWrapper(
 
           await Promise.race([handle.promise, hardTimeout]);
 
+          // phase 1119: write a clean-exit marker so recovery can distinguish
+          // "process finished before daemon crash" from "output may be truncated".
+          fs.writeAtomicSync(
+            path.join(resultDir, 'exit.json'),
+            JSON.stringify({ completedAt: new Date().toISOString() }),
+          );
+
           await executeToolTask(
             task,
             () => Promise.resolve({ success: true, content: '' }),

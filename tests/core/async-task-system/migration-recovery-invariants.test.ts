@@ -10,7 +10,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex, PersistentShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
-import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../../src/core/async-task-system/dirs.js';
+import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../../src/core/async-task-system/dirs.js';
+import { ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from '../../../src/core/async-task-system/async-exec-wrapper.js';
+import * as processExecModule from '../../../src/foundation/process-exec/index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
 
@@ -1092,4 +1094,204 @@ describe('phase 902', () => {
     }
   });
 });
+
+/**
+ * Phase 1119: migrated exec truncation marker + subagent recovery terminalState routing.
+ */
+describe('phase 1119', () => {
+  const VALID_TASK_ID = '550e8400-e29b-41d4-a716-446655440000';
+  const VALID_TASK_SHORT_ID = '550e8400';
+
+  function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
+    const events: Array<[string, ...(string | number)[]]> = [];
+    const audit: AuditLog = {
+      write: (type: string, ...cols: (string | number)[]) => {
+        events.push([type, ...cols]);
+      },
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    };
+    return { audit, events };
+  }
+
+  function makeMigratedToolTask(extra: Record<string, unknown> = {}) {
+    return {
+      kind: 'tool' as const,
+      id: VALID_TASK_ID,
+      shortId: VALID_TASK_SHORT_ID,
+      toolName: 'read',
+      args: {},
+      parentClawDir: '/tmp',
+      parentClawId: 'parent',
+      createdAt: new Date(Date.now() - ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS - 1000).toISOString(),
+      isIdempotent: true,
+      maxRetries: 2,
+      retryCount: 0,
+      mode: 'migrated' as const,
+      migratedPid: 99999,
+      migratedStartTime: String(Date.now()),
+      ...extra,
+    };
+  }
+
+  function makeSubAgentTask(extra: Record<string, unknown> = {}) {
+    return {
+      kind: 'subagent' as const,
+      mode: 'standard' as const,
+      id: VALID_TASK_ID,
+      shortId: VALID_TASK_SHORT_ID,
+      intent: 'test',
+      timeoutMs: 1000,
+      maxSteps: 1,
+      parentClawId: 'parent',
+      createdAt: new Date().toISOString(),
+      ...extra,
+    };
+  }
+
+  function makeMockFs(
+    runningFiles: Array<{ name: string; path: string; content: string }>,
+    overrides?: {
+      exists?: (path: string, fileMap: Map<string, string>) => Promise<boolean> | boolean;
+      read?: (path: string, fileMap: Map<string, string>) => Promise<string>;
+      writeAtomic?: (path: string, content: string, fileMap: Map<string, string>) => Promise<void>;
+    },
+  ): FileSystem {
+    const fileMap = new Map<string, string>();
+    for (const f of runningFiles) fileMap.set(f.path, f.content);
+
+    return {
+      list: vi.fn().mockImplementation((dir: string) => {
+        if (dir === 'tasks/queues/running') {
+          return Promise.resolve(runningFiles.map((f) => ({ name: f.name, path: f.path })));
+        }
+        if (dir === 'tasks/queues/pending') return Promise.resolve([]);
+        if (dir === 'tasks/queues/failed') return Promise.resolve([]);
+        return Promise.resolve([]);
+      }),
+      read: vi.fn().mockImplementation((path: string) => {
+        if (overrides?.read) return overrides.read(path, fileMap);
+        const content = fileMap.get(path);
+        if (content === undefined) {
+          const err = new Error('ENOENT') as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          return Promise.reject(err);
+        }
+        return Promise.resolve(content);
+      }),
+      move: vi.fn().mockImplementation((from: string, to: string) => {
+        const content = fileMap.get(from);
+        fileMap.delete(from);
+        if (content !== undefined) fileMap.set(to, content);
+        return Promise.resolve(undefined);
+      }),
+      delete: vi.fn().mockImplementation((path: string) => {
+        fileMap.delete(path);
+        return Promise.resolve(undefined);
+      }),
+      writeAtomic: vi.fn().mockImplementation((path: string, content: string) => {
+        if (overrides?.writeAtomic) return overrides.writeAtomic(path, content, fileMap);
+        fileMap.set(path, content);
+        return Promise.resolve(undefined);
+      }),
+      ensureDir: vi.fn().mockResolvedValue(undefined),
+      exists: vi.fn().mockImplementation((path: string) => {
+        if (overrides?.exists) return overrides.exists(path, fileMap);
+        return Promise.resolve(fileMap.has(path));
+      }),
+    } as unknown as FileSystem;
+  }
+
+  function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
+    return { fs, auditWriter, sendResult: mockSendResult, sendFallbackError: mockSendFallbackError, sendToolResult: mockSendToolResult };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSendResult.mockResolvedValue(undefined);
+    mockSendFallbackError.mockResolvedValue(undefined);
+    mockSendToolResult.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('migrated exec recovery truncation marker', () => {
+    it('delivers content as-is when exit.json marker exists', async () => {
+      const task = makeMigratedToolTask();
+      const taskFile = 'tasks/queues/running/task-1.json';
+      const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
+      const exitMarkerPath = `tasks/queues/results/${VALID_TASK_ID}/exit.json`;
+
+      const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+      await mockFs.writeAtomic(resultPath, 'complete output');
+      await mockFs.writeAtomic(exitMarkerPath, JSON.stringify({ completedAt: new Date().toISOString() }));
+
+      vi.spyOn(processExecModule, 'isAlive').mockReturnValue(false);
+      vi.spyOn(processExecModule, 'getProcessStartTime').mockReturnValue(task.migratedStartTime);
+
+      const { audit, events } = makeMockAudit();
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+      expect(mockSendToolResult).toHaveBeenCalledTimes(1);
+      expect(mockSendToolResult.mock.calls[0][3]).toBe('complete output');
+      expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED)).toBe(false);
+      expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
+    });
+
+    it('delivers content with truncation note + audit when exit.json marker is missing', async () => {
+      const task = makeMigratedToolTask();
+      const taskFile = 'tasks/queues/running/task-1.json';
+      const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
+
+      const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+      await mockFs.writeAtomic(resultPath, 'partial output');
+
+      vi.spyOn(processExecModule, 'isAlive').mockReturnValue(false);
+      vi.spyOn(processExecModule, 'getProcessStartTime').mockReturnValue(task.migratedStartTime);
+
+      const { audit, events } = makeMockAudit();
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+      expect(mockSendToolResult).toHaveBeenCalledTimes(1);
+      const delivered = mockSendToolResult.mock.calls[0][3] as string;
+      expect(delivered).toContain('partial output');
+      expect(delivered).toContain('may be truncated');
+
+      expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED)).toBe(true);
+      expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
+    });
+
+    it('appends kill note when recovery itself kills the process for hard timeout', async () => {
+      const task = makeMigratedToolTask({ migratedPid: 99999 });
+      const taskFile = 'tasks/queues/running/task-1.json';
+      const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
+
+      const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+      await mockFs.writeAtomic(resultPath, 'partial output');
+
+      let aliveCalls = 0;
+      vi.spyOn(processExecModule, 'isAlive').mockImplementation(() => {
+        aliveCalls++;
+        return aliveCalls <= 1;
+      });
+      vi.spyOn(processExecModule, 'getProcessStartTime').mockReturnValue(task.migratedStartTime);
+
+      const { audit, events } = makeMockAudit();
+      await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+      expect(mockSendToolResult).toHaveBeenCalledTimes(1);
+      const delivered = mockSendToolResult.mock.calls[0][3] as string;
+      expect(delivered).toContain('partial output');
+      expect(delivered).toContain('[Process killed by recovery: hard timeout exceeded]');
+      expect(delivered).not.toContain('may be truncated');
+      expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED)).toBe(false);
+      expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
+    });
+  });
+
+});
+
 
