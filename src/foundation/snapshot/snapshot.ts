@@ -315,11 +315,7 @@ export class Snapshot {
     // Throttle: skip commits within COMMIT_THROTTLE_MS (phase 1051)
     const now = Date.now();
     if (now - this._lastCommitMs < COMMIT_THROTTLE_MS) {
-      // throttle skip counts as "not a failure" — reset counter
-      if (this.state.kind === 'degraded') {
-        this.state = onCommitSuccess();
-        await tryClearPersist(this.fs, this.dir, this.audit);
-      }
+      // throttle skip = 无 git 操作证据，degraded 状态保持（仅真实 git 成功才重置）
       return { ok: true as const, value: undefined };
     }
 
@@ -333,6 +329,7 @@ export class Snapshot {
       }
       if (!status.stdout) {
         this.state = onCommitSuccess();
+        await tryClearPersist(this.fs, this.dir, this.audit);
         return { ok: true as const, value: undefined };
       }
       await this.git(['add', '.']);

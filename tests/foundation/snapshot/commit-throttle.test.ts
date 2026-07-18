@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'path';
 import { Snapshot } from '../../../src/foundation/snapshot/snapshot.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import { makeMockAudit } from '../../helpers/audit.js';
@@ -85,5 +86,44 @@ describe('Snapshot commit throttle', () => {
     const r2 = await snapshot.commit('turn-b');
     expect(r2.ok).toBe(true);
     expect(mockExec).toHaveBeenCalledTimes(3);
+  });
+
+  it('P1-2: no-change commit clears persist when degraded', async () => {
+    const fs = makeMockFs();
+    const snapshot = new Snapshot('/tmp/agent', fs, mockAudit, [], undefined, mockExec);
+
+    // Seed degraded state (simulating persisted degraded from prior failure)
+    (snapshot as any).state = { kind: 'degraded', failures: 1, degradedAt: Date.now() };
+
+    vi.clearAllMocks();
+    mockExec.mockResolvedValueOnce({ output: '' }); // status: no changes
+
+    const r = await snapshot.commit('no-change');
+    expect(r.ok).toBe(true);
+
+    // No real git commit happened, but git status succeeded → clear persist
+    expect(fs.delete).toHaveBeenCalledTimes(1);
+    expect(fs.delete).toHaveBeenCalledWith(path.join('.git', '.snapshot-state.json'));
+    expect((snapshot as any).state.kind).toBe('ok');
+  });
+
+  it('P2: throttle-skip keeps degraded state and persist', async () => {
+    const fs = makeMockFs();
+    const snapshot = new Snapshot('/tmp/agent', fs, mockAudit, [], undefined, mockExec);
+
+    // Seed degraded state and recent commit timestamp → throttle skip
+    (snapshot as any).state = { kind: 'degraded', failures: 1, degradedAt: Date.now() };
+    (snapshot as any)._lastCommitMs = Date.now();
+
+    vi.clearAllMocks();
+
+    const r = await snapshot.commit('throttled');
+    expect(r.ok).toBe(true);
+
+    // Throttle skip = no git operation evidence → do not reset/clear
+    expect(mockExec).toHaveBeenCalledTimes(0);
+    expect(fs.delete).not.toHaveBeenCalled();
+    expect((snapshot as any).state.kind).toBe('degraded');
+    expect((snapshot as any).state.failures).toBe(1);
   });
 });
