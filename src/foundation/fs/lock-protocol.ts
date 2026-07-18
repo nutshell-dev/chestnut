@@ -10,7 +10,7 @@
  */
 
 import { newShortUuid } from '../node-utils/index.js';
-import { getProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
+import { isAlive, getProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { FileSystem } from './types.js';
 import { isFileNotFound } from './types.js';
@@ -79,7 +79,13 @@ export async function tryAcquireClaim(
     if (Number.isNaN(filePid)) continue;
 
     // 同 PID 的 claim：需用 startTime 区分同进程实例重入与 PID 复用残留
-    if (filePid === pid && !entry.name.endsWith(ownerToken)) {
+    if (filePid === pid) {
+      if (entry.name.endsWith(ownerToken)) {
+        // 自己的 claim：重入，参与选举
+        aliveClaims.push(entry.name);
+        continue;
+      }
+
       let fileStartTime: string | undefined;
       try {
         const fc = JSON.parse(await ctx.fs.read(`${claimsDir}/${entry.name}`));
@@ -118,7 +124,7 @@ export async function tryAcquireClaim(
       continue;
     }
 
-    const isAliveFn = ctx.isAlive ?? defaultIsAlive;
+    const isAliveFn = ctx.isAlive ?? isAlive;
     if (!isAliveFn(parsed.pid, parsed.startTime as ProcessStartTime | undefined)) {
       // 持有者已死 → 安全删除
       try { await ctx.fs.delete(`${claimsDir}/${entry.name}`); } catch { /* silent: stale recovery 并发竞争，文件可能已被其他 contender 删除 */ }
@@ -229,7 +235,12 @@ export function tryAcquireClaimSync(
     const filePid = parseInt(parts[2], 10);
     if (Number.isNaN(filePid)) continue;
 
-    if (filePid === pid && !entry.name.endsWith(ownerToken)) {
+    if (filePid === pid) {
+      if (entry.name.endsWith(ownerToken)) {
+        aliveClaims.push(entry.name);
+        continue;
+      }
+
       let fileStartTime: string | undefined;
       try {
         const fc = JSON.parse(ctx.fs.readSync(`${claimsDir}/${entry.name}`));
@@ -265,7 +276,7 @@ export function tryAcquireClaimSync(
       continue;
     }
 
-    const isAliveFn = ctx.isAlive ?? defaultIsAlive;
+    const isAliveFn = ctx.isAlive ?? isAlive;
     if (!isAliveFn(parsed.pid, parsed.startTime as ProcessStartTime | undefined)) {
       try { ctx.fs.deleteSync(`${claimsDir}/${entry.name}`); } catch { /* silent */ }
       ctx.audit?.write(LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED, `claim=${entry.name}`);
@@ -340,8 +351,4 @@ function compareClaimNames(a: string, b: string): number {
   const tokenA = a.split('.').slice(3).join('.');
   const tokenB = b.split('.').slice(3).join('.');
   return tokenA < tokenB ? -1 : tokenA > tokenB ? 1 : 0;
-}
-
-function defaultIsAlive(pid: number, _startTime?: ProcessStartTime): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
 }

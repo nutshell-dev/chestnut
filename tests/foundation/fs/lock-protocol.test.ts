@@ -13,7 +13,7 @@ import {
 } from '../../../src/foundation/fs/lock-protocol.js';
 import { LOCK_AUDIT_EVENTS } from '../../../src/foundation/fs/lock-audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import type { ProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime, type ProcessStartTime } from '../../../src/foundation/process-exec/index.js';
 
 interface MockAudit {
   events: Array<{ type: string; cols: (string | number)[] }>;
@@ -159,6 +159,55 @@ describe('lock-protocol', () => {
     expect(files[0].endsWith(token!)).toBe(true);
 
     expect(audit.events.some(e => e.type === LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED)).toBe(true);
+  });
+
+  it('default path (no ctx.isAlive) uses L1 isAlive: startTime mismatch → claim treated as stale', async () => {
+    const audit = makeMockAudit();
+    const ctx = makeCtx(tempDir, { audit });
+
+    const claimsDir = path.join(tempDir, 'lock', 'claims');
+    fs.mkdirSync(claimsDir, { recursive: true });
+    const staleToken = 'stale-token';
+    // 同 PID + 错 startTime：L1 isAlive 的 startTime 校验会识别为 PID 复用残留
+    fs.writeFileSync(
+      path.join(claimsDir, `claim.${Date.now() - 1000}.${process.pid}.${staleToken}`),
+      JSON.stringify({ pid: process.pid, timestamp: Date.now() - 1000, ownerToken: staleToken, startTime: 'wrong-start-time' }),
+      { flag: 'wx' },
+    );
+
+    const token = await tryAcquireClaim(ctx, 'lock');
+    expect(token).not.toBeNull();
+
+    const files = fs.readdirSync(claimsDir);
+    expect(files).toHaveLength(1);
+    expect(files[0].endsWith(token!)).toBe(true);
+    expect(
+      audit.events.some(
+        e => e.type === LOCK_AUDIT_EVENTS.CLAIM_STALE_RECOVERED
+          && e.cols.some(c => String(c).includes('pid_reused')),
+      ),
+    ).toBe(true);
+  });
+
+  it('default path (no ctx.isAlive): matching startTime → claim respected (no false stale)', async () => {
+    const audit = makeMockAudit();
+    const realStartTime = getProcessStartTime(process.pid);
+    const ctx = makeCtx(tempDir, { audit });
+
+    const claimsDir = path.join(tempDir, 'lock', 'claims');
+    fs.mkdirSync(claimsDir, { recursive: true });
+    const earlierToken = 'earlier-token';
+    fs.writeFileSync(
+      path.join(claimsDir, `claim.${Date.now() - 1000}.${process.pid}.${earlierToken}`),
+      JSON.stringify({ pid: process.pid, timestamp: Date.now() - 1000, ownerToken: earlierToken, startTime: realStartTime }),
+      { flag: 'wx' },
+    );
+
+    const result = await tryAcquireClaim(ctx, 'lock');
+
+    // startTime 匹配 → 视为同进程存活 claim → 当前 contender 落选
+    expect(result).toBeNull();
+    expect(fs.readdirSync(claimsDir).some(n => n.endsWith(earlierToken))).toBe(true);
   });
 
   it('release 只删除自己文件，不误删其他 contender', async () => {
