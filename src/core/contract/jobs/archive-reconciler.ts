@@ -7,7 +7,8 @@ import * as path from 'path';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { ACTIVE_STATUSES } from '../types.js';
-import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from '../dirs.js';
+import { PROGRESS_FILE } from '../dirs.js';
+import { listArchiveContractLocationsAsync, archiveContainerDir } from '../locations.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
 import {
   emitContractArchiveReconcileStale,
@@ -28,14 +29,17 @@ export async function reconcileArchiveStaleEntries(
   clawId: ClawId,
   clawDir: string,
 ): Promise<{ swept: number; failed: number; scanned: number }> {
-  const archiveDir = path.join(clawDir, CONTRACT_ARCHIVE_DIR);
+  const archiveDir = path.join(clawDir, archiveContainerDir());
   let swept = 0;
   let failed = 0;
   let scanned = 0;
 
-  let dirs;
+  // phase 1127 Step C: only scan legacy flat entries; current state subdirectories
+  // express the canonical terminal state and must not be rewritten by reconciler.
+  let entries;
   try {
-    dirs = await ctx.fs.list(archiveDir, { includeDirs: true });
+    entries = (await listArchiveContractLocationsAsync({ fs: ctx.fs, archiveDir }))
+      .filter(e => e.kind === 'legacy');
   } catch (err) {
     if (isFileNotFound(err)) return { swept: 0, failed: 0, scanned: 0 };
     emitContractArchiveReconcileFailed(ctx.audit, {
@@ -45,9 +49,9 @@ export async function reconcileArchiveStaleEntries(
     return { swept: 0, failed: 1, scanned: 0 };
   }
 
-  for (const d of dirs.filter(e => e.isDirectory)) {
+  for (const d of entries) {
     scanned++;
-    const progressPath = path.join(archiveDir, d.name, PROGRESS_FILE);
+    const progressPath = path.join(d.contractRoot, PROGRESS_FILE);
     try {
       const raw = await ctx.fs.read(progressPath);
       // phase 341 Zod SoT broaden (ML#9 优先编译器检查、复用 phase 332 loose schema、cluster N=10)
@@ -57,7 +61,7 @@ export async function reconcileArchiveStaleEntries(
         // phase 951: invalid progress.json in archive → archive-level corruption
         failed++;
         emitContractArchiveReconcileFailed(ctx.audit, {
-          clawId, contractId: d.name, context: 'schema_invalid',
+          clawId, contractId: d.contractId, context: 'schema_invalid',
           error: validation.error.message,
         });
         continue;
@@ -76,7 +80,7 @@ export async function reconcileArchiveStaleEntries(
       await ctx.fs.writeAtomic(progressPath, JSON.stringify(newPayload, null, 2));
 
       emitContractArchiveReconcileStale(ctx.audit, {
-        clawId, contractId: d.name, oldStatus, newStatus: 'archive_corrupted',
+        clawId, contractId: d.contractId, oldStatus, newStatus: 'archive_corrupted',
       });
       swept++;
     } catch (err) {
@@ -84,14 +88,14 @@ export async function reconcileArchiveStaleEntries(
         // phase 951: missing progress.json → incomplete archive
         failed++;
         emitContractArchiveReconcileFailed(ctx.audit, {
-          clawId, contractId: d.name, context: 'progress_missing',
+          clawId, contractId: d.contractId, context: 'progress_missing',
           error: 'progress.json missing in archive',
         });
         continue;
       }
       failed++;
       emitContractArchiveReconcileFailed(ctx.audit, {
-        clawId, contractId: d.name, context: 'read_or_flip',
+        clawId, contractId: d.contractId, context: 'read_or_flip',
         error: String(err),
       });
     }

@@ -14,11 +14,16 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import {
   CONTRACT_ACTIVE_DIR,
-  CONTRACT_ARCHIVE_DIR,
   CONTRACT_PAUSED_DIR,
   CONTRACT_YAML_FILE,
   PROGRESS_FILE,
 } from './dirs.js';
+import {
+  resolveContractLocationSync,
+  listArchiveContractLocations,
+  archiveContainerDir,
+} from './locations.js';
+import { makeContractId } from './types.js';
 
 /** Lightweight contract summary for enumeration (CLI list / health check scenarios). */
 export interface ContractSummary {
@@ -189,24 +194,27 @@ export interface ContractMetadata {
  */
 export function getContractMetadata(
   fs: FileSystem,
-  clawDir: string,
+  _clawDir: string,
   contractId: string,
 ): ContractMetadata | null {
-  const archivePath = path.join(clawDir, CONTRACT_ARCHIVE_DIR, contractId, PROGRESS_FILE);
-  const activePath = path.join(clawDir, CONTRACT_ACTIVE_DIR, contractId, PROGRESS_FILE);
-
-  for (const p of [archivePath, activePath]) {
-    if (!fs.existsSync(p)) continue;
-    try {
-      const raw: unknown = JSON.parse(fs.readSync(p));
-      if (typeof raw !== 'object' || raw === null) continue;
-      const data = raw as Record<string, unknown>;
-      const meta: ContractMetadata = {};
-      if (typeof data.started_at === 'string') meta.started_at = data.started_at;
-      if (typeof data.title === 'string') meta.title = data.title;
-      if (meta.started_at || meta.title) return meta;
-    } catch { /* silent: unreadable path — continue to next location */ }
-  }
+  // phase 1127 Step C: dual-topology resolve (active + current archive states + legacy flat).
+  const loc = resolveContractLocationSync({
+    fs,
+    activeDir: CONTRACT_ACTIVE_DIR,
+    archiveDir: archiveContainerDir(),
+    contractId: makeContractId(contractId),
+  });
+  if (!loc) return null;
+  const progressPath = path.join(loc.contractRoot, PROGRESS_FILE);
+  try {
+    const raw: unknown = JSON.parse(fs.readSync(progressPath));
+    if (typeof raw !== 'object' || raw === null) return null;
+    const data = raw as Record<string, unknown>;
+    const meta: ContractMetadata = {};
+    if (typeof data.started_at === 'string') meta.started_at = data.started_at;
+    if (typeof data.title === 'string') meta.title = data.title;
+    if (meta.started_at || meta.title) return meta;
+  } catch { /* silent: unreadable path */ }
   return null;
 }
 
@@ -218,18 +226,21 @@ export function getContractMetadata(
  */
 export function readContractYamlLightweight(
   fs: FileSystem,
-  clawDir: string,
+  _clawDir: string,
   contractId: string,
 ): string | null {
-  const archivePath = path.join(clawDir, CONTRACT_ARCHIVE_DIR, contractId, CONTRACT_YAML_FILE);
-  const activePath = path.join(clawDir, CONTRACT_ACTIVE_DIR, contractId, CONTRACT_YAML_FILE);
-
-  for (const p of [archivePath, activePath]) {
-    if (!fs.existsSync(p)) continue;
-    try {
-      return fs.readSync(p);
-    } catch { /* silent: unreadable path — continue to next location */ }
-  }
+  // phase 1127 Step C: dual-topology resolve (active + current archive states + legacy flat).
+  const loc = resolveContractLocationSync({
+    fs,
+    activeDir: CONTRACT_ACTIVE_DIR,
+    archiveDir: archiveContainerDir(),
+    contractId: makeContractId(contractId),
+  });
+  if (!loc) return null;
+  const yamlPath = path.join(loc.contractRoot, CONTRACT_YAML_FILE);
+  try {
+    return fs.readSync(yamlPath);
+  } catch { /* silent: unreadable path */ }
   return null;
 }
 
@@ -288,15 +299,14 @@ export function getLatestContractStats(
   }
 
   try {
-    const archiveDir = path.join(clawDir, CONTRACT_ARCHIVE_DIR);
-    if (!fs.existsSync(archiveDir)) return null;
+    const entries = listArchiveContractLocations({ fs, archiveDir: archiveContainerDir() });
+    if (entries.length === 0) return null;
 
-    const dirs = fs.listSync(archiveDir, { includeDirs: true }).filter(e => e.isDirectory);
     let latest: { path: string; title: string } | null = null;
     let latestMtime = 0;
 
-    for (const dir of dirs) {
-      const yamlPath = path.join(archiveDir, dir.name, CONTRACT_YAML_FILE);
+    for (const entry of entries) {
+      const yamlPath = path.join(entry.contractRoot, CONTRACT_YAML_FILE);
       if (!fs.existsSync(yamlPath)) continue;
       const stat = fs.statSync(yamlPath);
       if (stat.mtime.getTime() <= latestMtime) continue;
@@ -304,7 +314,7 @@ export function getLatestContractStats(
       const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
       if (!match) continue;
       latestMtime = stat.mtime.getTime();
-      latest = { path: path.join(archiveDir, dir.name), title: match[1] };
+      latest = { path: entry.contractRoot, title: match[1] };
     }
 
     if (!latest) return null;

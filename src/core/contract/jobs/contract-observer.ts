@@ -11,6 +11,7 @@ import {
   emitContractLegacyCrashedObserved,
 } from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
+import { ARCHIVE_STATES } from '../types.js';
 
 /** phase 101: DI callback - caller (装配期) bind fs + chestnutRoot + MOTION_CLAW_ID + audit */
 export type NotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
@@ -436,14 +437,18 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
     try {
       const location = clawTopology.resolve(makeClawId(clawId));
       if (location.kind !== 'local') continue;
-      // phase 948: 显式预检 archive dir 可读性；scanArchivedContracts 内部吞掉非 ENOENT 错误，
+      // phase 1127 Step C: 显式预检所有 archive 容器可读性；scanArchivedContracts 内部吞掉非 ENOENT 错误，
       // 这里重新探测，使扫描失败能被 catch、该 claw 水位不推进。
       const archiveDir = path.join(location.clawDir, CONTRACT_ARCHIVE_DIR);
+      const stateDirs = [...ARCHIVE_STATES].map(state => `${archiveDir}/${state}`);
+      const readableContainers = [archiveDir, ...stateDirs].filter(d => fs.existsSync(d));
       try {
-        fs.listSync(archiveDir, { includeDirs: true });
+        for (const d of readableContainers) {
+          fs.listSync(d, { includeDirs: true });
+        }
       } catch (err) {
         if (isFileNotFound(err)) {
-          // archive dir 不存在视为空扫描，不推进水位
+          // 容器在 existsSync 与 listSync 之间消失视为空扫描，不推进水位
           continue;
         }
         throw err;

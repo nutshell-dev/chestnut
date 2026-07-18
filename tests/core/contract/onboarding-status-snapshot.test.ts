@@ -32,6 +32,15 @@ function makeMockFs(structure: {
   const dirs = new Set(structure.dirs ?? []);
   const files = structure.files ?? {};
   const throwOn = new Set(structure.throwOn ?? []);
+  // phase 1127 Step C: ensure parent/contract dirs derived from file paths are marked directories,
+  // matching real fs semantics for consumers that filter listSync entries by isDirectory.
+  for (const p of [...Object.keys(files), ...(structure.dirs ?? [])]) {
+    let parent = path.dirname(p);
+    while (parent !== '/' && parent !== '.') {
+      dirs.add(parent);
+      parent = path.dirname(parent);
+    }
+  }
   return {
     existsSync: (p: string) => dirs.has(p) || p in files,
     readdirSync: (p: string) => {

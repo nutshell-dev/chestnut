@@ -259,9 +259,9 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
     const { audit, events } = makeAudit();
     let readCalls = 0;
     const fs = {
-      listSync: () => [
+      listSync: (p: string) => p.endsWith('contract/archive') ? [
         { name: '1234567890-contract1', isDirectory: true, isFile: false, size: 0, mtime: new Date(), path: '' },
-      ],
+      ] : [],
       readSync: () => {
         readCalls++;
         throw new FileNotFoundError('/tmp/claw/contract/archive/1234567890-contract1/progress.json');
@@ -279,9 +279,9 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
   it('progress.json readSync EACCES → emit PROGRESS_CORRUPTED 2 次 (archive + active)', async () => {
     const { audit, events } = makeAudit();
     const fs = {
-      listSync: () => [
+      listSync: (p: string) => p.endsWith('contract/archive') ? [
         { name: '1234567890-contract1', isDirectory: true, isFile: false, size: 0, mtime: new Date(), path: '' },
-      ],
+      ] : [],
       readSync: () => {
         const err = new Error('EACCES') as NodeJS.ErrnoException;
         err.code = 'EACCES';
@@ -300,9 +300,9 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
   it('progress.json invalid JSON → emit PROGRESS_CORRUPTED 2 次 (archive + active, phase 587 invariant)', async () => {
     const { audit, events } = makeAudit();
     const fs = {
-      listSync: () => [
+      listSync: (p: string) => p.endsWith('contract/archive') ? [
         { name: '1234567890-contract1', isDirectory: true, isFile: false, size: 0, mtime: new Date(), path: '' },
-      ],
+      ] : [],
       readSync: () => 'not-json-at-all',
       existsSync: () => true,
     } as unknown as FileSystem;

@@ -6,7 +6,8 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import type { ArchiveAllowedStatus, ActiveStatus, ContractStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
-import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
+import { PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
+import { listArchiveContractLocations, archiveContainerDir, type ArchiveListEntry } from '../locations.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
 
@@ -201,110 +202,15 @@ export async function scanArchivedContracts(
 ): Promise<ArchivedContractScanResult> {
   const entries: ArchivedContractEntry[] = [];
   let incomplete = false;
-  const archiveDir = path.join(clawDir, CONTRACT_ARCHIVE_DIR);
+  const archiveDir = path.join(clawDir, archiveContainerDir());
+
+  // phase 1127 Step C: fail-open on archive container list errors, but audit non-ENOENT failures.
   try {
-    const dirs = fs.listSync(archiveDir, { includeDirs: true })
-      .filter(e => e.isDirectory);
-    for (const d of dirs) {
-      const progressPath = path.join(archiveDir, d.name, PROGRESS_FILE);
-      try {
-        const raw = fs.readSync(progressPath);
-        // phase 332 Zod SoT loose schema (M#2 archive 业务语义 = historical preservation、
-        // 218/274 archive legacy file 不 strict-end reject、loose Zod schema_version.optional())
-        const rawParsed: unknown = JSON.parse(raw);
-        // strip legacy derive fields (contract_id) before safeParse、status field 保留 (archive 可含 non-derivable lifecycle)
-        const obj = rawParsed as Record<string, unknown>;
-        delete obj.contract_id;
-        const result = ContractProgressArchiveLooseSchema.safeParse(obj);
-        if (!result.success) {
-          incomplete = true;
-          const dedupKey = `${clawId}:${d.name}`;
-          if (!dedup?.corrupted.has(dedupKey)) {
-            audit?.write(
-              CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-              `clawId=${clawId}`,
-              `contract=${d.name}`,
-              `context=schema_validation_failed`,
-              `issues=${result.error.issues.map(i => i.message).join('; ')}`,
-            );
-            dedup?.corrupted.add(dedupKey);
-          }
-          continue;
-        }
-        const progress = {
-          ...result.data,
-          contract_id: d.name,
-          status: result.data.status ?? 'completed',
-        } as ProgressData;
-        let archivedAt = Object.values(progress.subtasks)
-          .reduce((max, s) => {
-            if (!s.completed_at) return max;
-            const ts = new Date(s.completed_at).getTime();
-            return ts > max ? ts : max;
-          }, 0);
-        // When no subtask has a completion timestamp, fall back to the progress.json mtime
-        // (the time the contract entered its terminal state and was archived).
-        if (archivedAt === 0) {
-          try {
-            const statResult = await stat(progressPath);
-            archivedAt = statResult.mtime.getTime();
-          } catch {
-            // silent: stat fallback — use collection time when progress.json mtime is unavailable
-            archivedAt = Date.now();
-          }
-        }
-        const meta = readContractMeta(fs, path.join(archiveDir, d.name));
-        const formatted = formatContractEvent(clawId, d.name, meta, progress);
-        if (formatted === null) continue;
-        if (formatted.status === 'pending' || formatted.status === 'running' || formatted.status === 'paused') {
-          const dedupKey = `${clawId}:${d.name}`;
-          if (!dedup?.activeState.has(dedupKey)) {
-            audit?.write(
-              CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-              `clawId=${clawId}`,
-              `contract=${d.name}`,
-              `status=${formatted.status}`,
-              `cause=${formatted.cause ?? 'active status in archive'}`,
-            );
-            dedup?.activeState.add(dedupKey);
-          }
-        }
-        entries.push({
-          contractId: d.name,
-          body: formatted.body,
-          hasFailure: formatted.hasFailure,
-          archivedAt,
-          status: formatted.status,
-          reason: formatted.reason,
-          cause: formatted.cause,
-        });
-      } catch (err) {
-        // phase 1154 r+ derive: ENOENT-equivalent = progress.json absent (archive 常态 + active 升级 race)、非 corruption 语义
-        // phase 587 ⚓ invariant: PROGRESS_CORRUPTED 仅用真 JSON.parse 失败 / schema_invalid 已独立 const
-        if (isFileNotFound(err)) {
-          continue; // silent skip absent / 不入 audit
-        }
-        incomplete = true;
-        const dedupKey = `${clawId}:${d.name}`;
-        if (!dedup?.corrupted.has(dedupKey)) {
-          audit?.write(
-            CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-            `clawId=${clawId}`,
-            `contract=${d.name}`,
-            `context=event_collector_archive`,
-            `error=${formatErr(err)}`,
-          );
-          dedup?.corrupted.add(dedupKey);
-        }
-        continue;
-      }
-    }
+    fs.listSync(archiveDir, { includeDirs: true });
   } catch (err) {
-    // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
     if (!isFileNotFound(err)) {
       incomplete = true;
       const code = (err as NodeJS.ErrnoException)?.code;
-      // phase 717: dir col 改为实际 archiveDir 路径、与 phase 696/697 同语义 listing-failed 形态对齐
       audit?.write(
         CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
         `dir=${archiveDir}`,
@@ -312,7 +218,100 @@ export async function scanArchivedContracts(
         `error=${formatErr(err)}`,
       );
     }
+    return { entries, incomplete };
   }
+
+  const locations: ArchiveListEntry[] = listArchiveContractLocations({ fs, archiveDir });
+
+  for (const loc of locations) {
+    const progressPath = path.join(loc.contractRoot, PROGRESS_FILE);
+    try {
+      const raw = fs.readSync(progressPath);
+      const rawParsed: unknown = JSON.parse(raw);
+      const obj = rawParsed as Record<string, unknown>;
+      delete obj.contract_id;
+      const result = ContractProgressArchiveLooseSchema.safeParse(obj);
+      if (!result.success) {
+        incomplete = true;
+        const dedupKey = `${clawId}:${loc.contractId}`;
+        if (!dedup?.corrupted.has(dedupKey)) {
+          audit?.write(
+            CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+            `clawId=${clawId}`,
+            `contract=${loc.contractId}`,
+            `context=schema_validation_failed`,
+            `issues=${result.error.issues.map(i => i.message).join('; ')}`,
+          );
+          dedup?.corrupted.add(dedupKey);
+        }
+        continue;
+      }
+      // phase 1127 Step C: current archive state comes from the directory path (SoT).
+      // Legacy flat entries continue to derive status from progress.json.
+      const progress = {
+        ...result.data,
+        contract_id: loc.contractId,
+        status: loc.state ?? result.data.status ?? 'completed',
+      } as ProgressData;
+      let archivedAt = Object.values(progress.subtasks)
+        .reduce((max, s) => {
+          if (!s.completed_at) return max;
+          const ts = new Date(s.completed_at).getTime();
+          return ts > max ? ts : max;
+        }, 0);
+      if (archivedAt === 0) {
+        try {
+          const statResult = await stat(progressPath);
+          archivedAt = statResult.mtime.getTime();
+        } catch {
+          archivedAt = Date.now();
+        }
+      }
+      const meta = readContractMeta(fs, loc.contractRoot);
+      const formatted = formatContractEvent(clawId, loc.contractId, meta, progress);
+      if (formatted === null) continue;
+      if (formatted.status === 'pending' || formatted.status === 'running' || formatted.status === 'paused') {
+        const dedupKey = `${clawId}:${loc.contractId}`;
+        if (!dedup?.activeState.has(dedupKey)) {
+          audit?.write(
+            CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+            `clawId=${clawId}`,
+            `contract=${loc.contractId}`,
+            `status=${formatted.status}`,
+            `cause=${formatted.cause ?? 'active status in archive'}`,
+          );
+          dedup?.activeState.add(dedupKey);
+        }
+      }
+      entries.push({
+        contractId: loc.contractId,
+        body: formatted.body,
+        hasFailure: formatted.hasFailure,
+        archivedAt,
+        status: formatted.status,
+        reason: formatted.reason,
+        cause: formatted.cause,
+      });
+    } catch (err) {
+      if (isFileNotFound(err)) {
+        continue;
+      }
+      incomplete = true;
+      const dedupKey = `${clawId}:${loc.contractId}`;
+      if (!dedup?.corrupted.has(dedupKey)) {
+        audit?.write(
+          CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+          `clawId=${clawId}`,
+          `contract=${loc.contractId}`,
+          `context=event_collector_archive`,
+          `error=${formatErr(err)}`,
+        );
+        dedup?.corrupted.add(dedupKey);
+      }
+      continue;
+    }
+  }
+
   return { entries, incomplete };
 }
 

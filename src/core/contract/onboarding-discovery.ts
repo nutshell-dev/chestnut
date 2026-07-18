@@ -9,10 +9,10 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import {
   CONTRACT_ACTIVE_DIR,
-  CONTRACT_ARCHIVE_DIR,
   PROGRESS_FILE,
   CONTRACT_YAML_FILE,
 } from './dirs.js';
+import { listArchiveContractLocations, archiveContainerDir } from './locations.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 export type OnboardingStatusKind = 'not_found' | 'in_progress' | 'complete';
@@ -38,17 +38,14 @@ export function readOnboardingStatus(
   deps: { fsFactory: (baseDir: string) => FileSystem; audit?: AuditLog },
 ): OnboardingStatus {
   const fs = deps.fsFactory(motionDir);
-  const dirs: ReadonlyArray<readonly [string, OnboardingStatusKind | 'archive_complete']> = [
-    [CONTRACT_ACTIVE_DIR, 'in_progress'],
-    [CONTRACT_ARCHIVE_DIR, 'archive_complete'],
-  ];
-  for (const [dir, kind] of dirs) {
-    if (!fs.existsSync(dir)) continue;
-    let entries: string[];
-    try { entries = fs.listSync(dir, { includeDirs: true }).map(e => e.name); } catch { /* silent: TOCTOU race or ENOENT during dir scan — skip to next dir */ continue; }
+  // phase 1127 Step C: scan active dir first, then current archive state dirs + legacy flat.
+  const archiveEntries = listArchiveContractLocations({ fs, archiveDir: archiveContainerDir() });
+  if (fs.existsSync(CONTRACT_ACTIVE_DIR)) {
+    let entries: string[] = [];
+    try { entries = fs.listSync(CONTRACT_ACTIVE_DIR, { includeDirs: true }).map(e => e.name); } catch { /* silent: TOCTOU race or ENOENT during dir scan */ }
     for (const contractId of entries) {
-      const contractYaml = path.join(dir, contractId, CONTRACT_YAML_FILE);
-      const progressJson = path.join(dir, contractId, PROGRESS_FILE);
+      const contractYaml = path.join(CONTRACT_ACTIVE_DIR, contractId, CONTRACT_YAML_FILE);
+      const progressJson = path.join(CONTRACT_ACTIVE_DIR, contractId, PROGRESS_FILE);
       if (!fs.existsSync(contractYaml) || !fs.existsSync(progressJson)) continue;
       let title = '';
       try {
@@ -66,17 +63,47 @@ export function readOnboardingStatus(
           `path=${progressJson}`,
           `error=${formatErr(err)}`,
         );
-        continue; // silent: progress.json read race or parse error — skip to next contract（forensics emit 上面）
+        continue;
       }
       const subtasks = progress.subtasks ?? {};
       const pending = Object.entries(subtasks)
         .filter(([, v]) => v.status !== 'completed')
         .map(([k]) => k);
-      if (kind === 'archive_complete' && pending.length === 0) {
-        return { state: 'complete' };
-      }
       return { state: 'in_progress', contractId, pending };
     }
   }
+
+  for (const entry of archiveEntries) {
+    const contractYaml = path.join(entry.contractRoot, CONTRACT_YAML_FILE);
+    const progressJson = path.join(entry.contractRoot, PROGRESS_FILE);
+    if (!fs.existsSync(contractYaml) || !fs.existsSync(progressJson)) continue;
+    let title = '';
+    try {
+      const yaml = fs.readSync(contractYaml);
+      const m = yaml.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+      title = m?.[1] ?? '';
+    } catch { /* silent: contract.yaml read race — skip to next contract */ continue; }
+    if (title !== 'Onboarding') continue;
+    let progress: ProgressShape;
+    try {
+      progress = JSON.parse(fs.readSync(progressJson)) as ProgressShape;
+    } catch (err) {
+      deps.audit?.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_ONBOARDING_PROGRESS_PARSE_FAILED,
+        `path=${progressJson}`,
+        `error=${formatErr(err)}`,
+      );
+      continue;
+    }
+    const subtasks = progress.subtasks ?? {};
+    const pending = Object.entries(subtasks)
+      .filter(([, v]) => v.status !== 'completed')
+      .map(([k]) => k);
+    if (pending.length === 0) {
+      return { state: 'complete' };
+    }
+    return { state: 'in_progress', contractId: entry.contractId, pending };
+  }
+
   return { state: 'not_found' };
 }

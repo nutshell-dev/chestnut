@@ -16,9 +16,9 @@ import {
   getLatestContractStats,
   listLegacyPausedContracts,
   CONTRACT_ACTIVE_DIR,
-  CONTRACT_ARCHIVE_DIR,
   CONTRACT_YAML_FILE,
 } from '../../core/contract/index.js';
+import { listArchiveContractLocations, archiveContainerDir } from '../../core/contract/locations.js';
 import type { ContractSubtaskStats, LegacyPausedContractRef } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
 import { getLastActiveMs } from './claw-shared.js';
@@ -124,17 +124,10 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
     }
 
     try {
-      let archiveEntries: Array<{ name: string; isDirectory: boolean }> = [];
-      try {
-        archiveEntries = clawFs.listSync(CONTRACT_ARCHIVE_DIR, { includeDirs: true });
-      } catch (err) {
-        if (isFileNotFound(err)) return { kind: 'missing' };
-        return { kind: 'error', reason: `archive contract scan failed: ${formatErr(err)}` };
-      }
-
+      // phase 1127 Step C: read across current archive state subdirs + legacy flat.
       let latest: { mtime: number; title: string } | null = null;
-      for (const entry of archiveEntries) {
-        const relYamlPath = path.join(CONTRACT_ARCHIVE_DIR, entry.name, CONTRACT_YAML_FILE);
+      for (const entry of listArchiveContractLocations({ fs: clawFs, archiveDir: archiveContainerDir() })) {
+        const relYamlPath = path.join(entry.contractRoot, CONTRACT_YAML_FILE);
         try {
           const stat = clawFs.statSync(relYamlPath);
           if (latest && stat.mtime.getTime() <= latest.mtime) continue;
