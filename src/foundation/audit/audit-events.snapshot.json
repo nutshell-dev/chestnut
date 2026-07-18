@@ -711,6 +711,7 @@
       "summon_no_dialog_context",
       "summon_rejected_shadow",
       "summon_state_read_failed",
+      "summon_sub_audit_read_failed",
       "summon_target_claw_violation",
       "summon_verify_false_violation",
       "summon_write_by_contract_failed"

@@ -88,7 +88,7 @@ function wrapAuditReadFailureForMotion(rawResult: string, subAuditPath: string):
     ``,
     `子代理 audit 读取失败（非「0 契约创建」）：契约状态不确定。`,
     ``,
-    `**Motion 必须立即执行**：先 exec: chestnut contract list 核实契约是否已创建；`,
+    `**Motion 必须立即执行**：先核实契约是否已创建（contract 查询确认）；`,
     `未创建才可用 summon mining 模式重试。**不要直接用 mining 重试——契约可能已建、重试会重复创建。**`,
     ``,
     `失败路径：${subAuditPath}`,
