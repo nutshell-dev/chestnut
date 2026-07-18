@@ -263,7 +263,7 @@ export async function scanArchivedContracts(
         try {
           const statResult = await stat(progressPath);
           archivedAt = statResult.mtime.getTime();
-        } catch {
+        } catch { // silent: stat 失败回落当前时间（archive mtime 不可得、best-effort 排序用途、不阻断事件收集）
           archivedAt = Date.now();
         }
       }

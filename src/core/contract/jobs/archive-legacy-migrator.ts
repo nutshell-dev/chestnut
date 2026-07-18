@@ -5,6 +5,7 @@
  */
 
 import * as path from 'path';
+import { formatErr } from '../../../foundation/node-utils/index.js';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { PROGRESS_FILE } from '../dirs.js';
@@ -91,7 +92,7 @@ export async function migrateLegacyArchiveEntries(
           emitContractArchiveLegacyMigrationSkipped(ctx.audit, {
             clawId,
             contractId: e.contractId,
-            reason: `schema_invalid:${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+            reason: `schema_invalid:${formatErr(parseErr)}`,
           });
           continue;
         }

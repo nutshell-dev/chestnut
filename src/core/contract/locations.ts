@@ -164,7 +164,7 @@ function listContainer(
   let entries: { name: string; isDirectory: boolean }[];
   try {
     entries = fs.listSync(containerDir, { includeDirs: true });
-  } catch {
+  } catch { // silent: containerDir 不存在/不可读 → 返回空列表（无 archive 即空集、caller 按空处理）
     return results;
   }
   for (const e of entries) {
