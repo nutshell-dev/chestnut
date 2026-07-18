@@ -113,7 +113,7 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
     });
 
     let gateway: import('../core/gateway/index.js').Gateway | undefined;
-    let heartbeat: import('../core/runtime/index.js').Heartbeat | undefined;
+    let heartbeat: import('../core/heartbeat/index.js').Heartbeat | undefined;
     let cronRunner: import('../foundation/cron/index.js').CronRunner | undefined;
     if (isMotion) {
       const motionAddons = await createMotionAddons({ core, business, runtime, config, streamWriter: streamWriter! });

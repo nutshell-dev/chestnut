@@ -11,7 +11,7 @@ import { AUDIT_FILE } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
-import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
+import { createHeartbeat, type Heartbeat } from '../core/heartbeat/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import { createCronRunner, type CronRunner } from '../foundation/cron/index.js';
 // phase 697 Step B: audit-size-monitor 迁 foundation/audit/jobs/ (audit module sister 归属)

@@ -17,7 +17,7 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
-import type { Heartbeat } from '../core/runtime/index.js';
+import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
 import { shouldEmitStartupCheck } from './startup-check.js';
 import {

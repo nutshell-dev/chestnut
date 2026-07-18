@@ -14,7 +14,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
-import { ARCHIVE_STATES, type ArchiveState, type ContractId, makeContractId } from './types.js';
+import { ARCHIVE_STATES, type ArchiveState, type ContractId } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { ContractLocationAmbiguityError } from './errors.js';
 

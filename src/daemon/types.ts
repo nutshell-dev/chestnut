@@ -3,7 +3,8 @@
  * Daemon-internal type definitions — decoupled from Assembly.
  */
 
-import type { Runtime, Heartbeat } from '../core/runtime/index.js';
+import type { Runtime } from '../core/runtime/index.js';
+import type { Heartbeat } from '../core/heartbeat/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';

@@ -43,7 +43,7 @@ export { Runtime, type RuntimeOptions } from './core/runtime/index.js';
 export type { FileSystem, FileEntry, FileSystemOptions } from './foundation/fs/index.js';
 export { NodeFileSystem } from './foundation/fs/index.js';
 
-export { Heartbeat, createHeartbeat } from './core/runtime/index.js';
+export { Heartbeat, createHeartbeat } from './core/heartbeat/index.js';
 
 export type { LLMOrchestrator } from './foundation/llm-orchestrator/index.js';
 export { LLMOrchestratorImpl } from './foundation/llm-orchestrator/index.js';
