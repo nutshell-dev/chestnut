@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createWatcher } from '../../../src/foundation/file-watcher/index.js';
+import { FALLBACK_CONSECUTIVE_FAIL_LIMIT } from '../../../src/foundation/file-watcher/watcher.js';
 import path from 'node:path';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -78,6 +79,82 @@ describe('fallback poller escalation (macOS only)', () => {
 
       // Stop watcher (clearInterval again is no-op-safe)
       await watcher.close();
+    },
+  );
+
+  // phase 1128 P1-5: async callback rejection must be observed and increment fail counter
+  it.skipIf(process.platform !== 'darwin')(
+    'fallback poller: async callback rejection is observed (no unhandled rejection) + increments consecutiveCallbackFails',
+    async () => {
+      const errors: Array<{ err: Error; context: string }> = [];
+      let callCount = 0;
+      let afterLimitResolve: (() => void) | null = null;
+      const afterLimitP = new Promise<void>((r) => { afterLimitResolve = r; });
+
+      const callback = vi.fn(async () => {
+        callCount++;
+        if (callCount >= FALLBACK_CONSECUTIVE_FAIL_LIMIT + 2 && afterLimitResolve) {
+          afterLimitResolve();
+          afterLimitResolve = null;
+        }
+        throw new Error('async forced callback failure');
+      });
+
+      let fallbackLimitResetResolve!: () => void;
+      const fallbackLimitResetP = new Promise<void>((r) => { fallbackLimitResetResolve = r; });
+
+      const watcher = createWatcher(testFile, callback, {
+        stability: 'immediate',
+        fallbackPollMs: FAST_POLL_MS,
+        onError: (err, context) => {
+          errors.push({ err, context });
+          if (context === 'fallback_limit_reset') fallbackLimitResetResolve();
+        },
+      });
+
+      await fallbackLimitResetP;
+      await afterLimitP;
+      await watcher.close();
+
+      const callbackErrors = errors.filter(e => e.context === 'callback');
+      expect(callbackErrors.length).toBeGreaterThanOrEqual(FALLBACK_CONSECUTIVE_FAIL_LIMIT);
+      expect(callbackErrors[0].err.message).toBe('async forced callback failure');
+
+      const fallbackLimitReset = errors.find(e => e.context === 'fallback_limit_reset');
+      expect(fallbackLimitReset, 'expected fallback_limit_reset context').toBeDefined();
+      expect(fallbackLimitReset!.err.message).toMatch(/callback failure limit reached/);
+    },
+  );
+
+  // phase 1128 P1-5: consecutive async failures must reach limit and trigger escalation
+  it.skipIf(process.platform !== 'darwin')(
+    'fallback poller: consecutive async failures reach limit → fallback_limit_reset onError',
+    async () => {
+      const errors: Array<{ err: Error; context: string }> = [];
+      let fallbackLimitResetResolve!: () => void;
+      const fallbackLimitResetP = new Promise<void>((r) => { fallbackLimitResetResolve = r; });
+
+      const callback = vi.fn(async () => {
+        throw new Error('consecutive async failure');
+      });
+
+      const watcher = createWatcher(testFile, callback, {
+        stability: 'immediate',
+        fallbackPollMs: FAST_POLL_MS,
+        onError: (err, context) => {
+          errors.push({ err, context });
+          if (context === 'fallback_limit_reset') fallbackLimitResetResolve();
+        },
+      });
+
+      await fallbackLimitResetP;
+      await watcher.close();
+
+      const callbackErrors = errors.filter(e => e.context === 'callback');
+      expect(callbackErrors.length).toBeGreaterThanOrEqual(FALLBACK_CONSECUTIVE_FAIL_LIMIT);
+      const fallbackLimitReset = errors.find(e => e.context === 'fallback_limit_reset');
+      expect(fallbackLimitReset).toBeDefined();
+      expect(fallbackLimitReset!.err.message).toMatch(/callback failure limit reached/);
     },
   );
 

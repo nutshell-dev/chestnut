@@ -234,10 +234,12 @@ export function createWatcher(
     const intervalMs = options?.fallbackPollMs ?? DEFAULT_FALLBACK_POLL_MS;
     let consecutiveCallbackFails = 0;
     fallbackTimer = setInterval(() => {
-      try {
-        callback({ type: 'change', path: absolutePath });
-        consecutiveCallbackFails = 0;
-      } catch (err) {
+      // phase 1128 P1-5: mirror 主事件路径的 Promise.resolve 包裹，同步/异步
+      // callback 失败统一经 onFail 处理，避免 async rejection → unhandledRejection。
+      // fallback poll 为异步 tick，因此等 async callback settle 后再重置计数，
+      // 保证连续 async 失败能正确触发 escalation（与主事件路径「不等 async」有
+      // 语义差异，但 fallback 路径需观测完整 callback 生命周期）。
+      const onFail = (err: unknown): void => {
         const e = err instanceof Error ? err : new Error(String(err));
         consecutiveCallbackFails++;
         try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
@@ -249,6 +251,18 @@ export function createWatcher(
           );
           try { options?.onError?.(disableErr, 'fallback_limit_reset'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
         }
+      };
+      const onSuccess = (): void => {
+        consecutiveCallbackFails = 0;
+      };
+      try {
+        void Promise.resolve(callback({ type: 'change', path: absolutePath })).then(
+          onSuccess,
+          onFail,
+        );
+      } catch (err) {
+        // silent: sync callback throw is routed to onFail which reports via options.onError('callback')
+        onFail(err);
       }
     }, intervalMs);
     fallbackTimer.unref?.();
