@@ -259,6 +259,114 @@ describe('EventLoop.run', () => {
     expect(String(chainEntry!.join('\t'))).toContain('chain_total=3');
   });
 
+  it('claw: per-claw clean-stop marker → skips retry-state load and consumes marker', async () => {
+    const audit = createMockAudit();
+    const clawAgentDir = path.join(agentDir, 'claws', 'c1');
+    require('fs').mkdirSync(clawAgentDir, { recursive: true });
+    require('fs').mkdirSync(path.join(clawAgentDir, 'status'), { recursive: true });
+    require('fs').writeFileSync(
+      path.join(clawAgentDir, 'status', 'llm-retry-state.json'),
+      JSON.stringify({ schema_version: 1, llmRetryCount: 7, llmRetryDelayMs: 1000, llmRetryPending: false }),
+    );
+    require('fs').writeFileSync(path.join(clawAgentDir, 'clean-stop'), String(Date.now()));
+
+    const eventLoop = new EventLoop({
+      runtime: { abort: vi.fn() } as unknown as Runtime,
+      fsFactory,
+      agentDir: clawAgentDir,
+      clawId: 'c1',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+
+    await eventLoop.initialize();
+
+    expect(require('fs').existsSync(path.join(clawAgentDir, 'clean-stop'))).toBe(false);
+    const loaded = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c).includes('legacy_pending_ignored')));
+    expect(loaded).toBeUndefined();
+  });
+
+  it('claw: global clean-stop marker at root → skips retry-state load and consumes marker', async () => {
+    const audit = createMockAudit();
+    const clawAgentDir = path.join(agentDir, 'claws', 'c1');
+    const rootDir = path.dirname(path.dirname(clawAgentDir));
+    require('fs').mkdirSync(clawAgentDir, { recursive: true });
+    require('fs').mkdirSync(path.join(clawAgentDir, 'status'), { recursive: true });
+    require('fs').writeFileSync(
+      path.join(clawAgentDir, 'status', 'llm-retry-state.json'),
+      JSON.stringify({ schema_version: 1, llmRetryCount: 7, llmRetryDelayMs: 1000, llmRetryPending: false }),
+    );
+    require('fs').writeFileSync(path.join(rootDir, 'clean-stop'), String(Date.now()));
+
+    const eventLoop = new EventLoop({
+      runtime: { abort: vi.fn() } as unknown as Runtime,
+      fsFactory,
+      agentDir: clawAgentDir,
+      clawId: 'c1',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+
+    await eventLoop.initialize();
+
+    expect(require('fs').existsSync(path.join(rootDir, 'clean-stop'))).toBe(false);
+    expect(require('fs').existsSync(path.join(clawAgentDir, 'clean-stop'))).toBe(false);
+    const loaded = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c).includes('legacy_pending_ignored')));
+    expect(loaded).toBeUndefined();
+  });
+
+  it('claw: no marker → loads retry-state', async () => {
+    const audit = createMockAudit();
+    const clawAgentDir = path.join(agentDir, 'claws', 'c1');
+    require('fs').mkdirSync(clawAgentDir, { recursive: true });
+    require('fs').mkdirSync(path.join(clawAgentDir, 'status'), { recursive: true });
+    require('fs').writeFileSync(
+      path.join(clawAgentDir, 'status', 'llm-retry-state.json'),
+      JSON.stringify({ schema_version: 1, llmRetryCount: 7, llmRetryDelayMs: 1000, llmRetryPending: true }),
+    );
+
+    const eventLoop = new EventLoop({
+      runtime: { abort: vi.fn() } as unknown as Runtime,
+      fsFactory,
+      agentDir: clawAgentDir,
+      clawId: 'c1',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+
+    await eventLoop.initialize();
+
+    const loaded = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c).includes('legacy_pending_ignored')));
+    expect(loaded).toBeDefined();
+  });
+
+  it('motion: global clean-stop marker → skips retry-state load and consumes marker', async () => {
+    const audit = createMockAudit();
+    const motionAgentDir = path.join(agentDir, 'motion');
+    require('fs').mkdirSync(motionAgentDir, { recursive: true });
+    require('fs').mkdirSync(path.join(motionAgentDir, 'status'), { recursive: true });
+    require('fs').writeFileSync(
+      path.join(motionAgentDir, 'status', 'llm-retry-state.json'),
+      JSON.stringify({ schema_version: 1, llmRetryCount: 3, llmRetryDelayMs: 500, llmRetryPending: false }),
+    );
+    require('fs').writeFileSync(path.join(agentDir, 'clean-stop'), String(Date.now()));
+
+    const eventLoop = new EventLoop({
+      runtime: { abort: vi.fn() } as unknown as Runtime,
+      fsFactory,
+      agentDir: motionAgentDir,
+      clawId: 'motion',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+
+    await eventLoop.initialize();
+
+    expect(require('fs').existsSync(path.join(agentDir, 'clean-stop'))).toBe(false);
+    const loaded = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c).includes('legacy_pending_ignored')));
+    expect(loaded).toBeUndefined();
+  });
+
   it('streamWriter 存在时 wrapped callbacks 透传给 processTurn', async () => {
     const audit = createMockAudit();
     const streamEvents: Array<{ type: string; [k: string]: unknown }> = [];

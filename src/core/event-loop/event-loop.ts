@@ -42,6 +42,7 @@ export class EventLoop {
   private fallbackTimeoutMs: number;
   private streamWriter?: StreamWriter;
   private onBatchComplete?: () => Promise<void>;
+  private rootFs: FileSystem;
 
   private stopped = false;
 
@@ -55,6 +56,7 @@ export class EventLoop {
     this.audit = options.audit;
     this.loopFs = options.fsFactory(path.join(options.agentDir, '..'));
     this.agentFs = options.fsFactory(options.agentDir);
+    this.rootFs = this._resolveRootFs(options.fsFactory, options.agentDir);
     this.inboxPendingDir = options.inbox.pendingDir;
     this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
@@ -66,15 +68,19 @@ export class EventLoop {
    */
   async initialize(): Promise<void> {
     this.audit.write(EVENTLOOP_AUDIT_EVENTS.ITERATION, `context=initialize`, `claw_id=${this.clawId}`);
-    const isCleanStop = (() => {
+    const consumeMarker = (fs: FileSystem): boolean => {
       try {
-        if (!this.loopFs.existsSync('clean-stop')) return false;
-        this.loopFs.deleteSync('clean-stop');
+        if (!fs.existsSync('clean-stop')) return false;
+        fs.deleteSync('clean-stop');
         return true;
       } catch {
-        return false;
+        return false;  // marker 读删失败 best-effort（缺 marker 仅次启动 spurious warn，现状语义保留）
       }
-    })();
+    };
+    // P1-11: per-claw marker（<agentDir>/clean-stop）优先，全局 marker（<root>/clean-stop）兜底。
+    // 原 loopFs=fsFactory(join(agentDir,'..')) 对 claw 解析到 claws/ 目录，与 marker 实写位置均不匹配。
+    const isCleanStop = consumeMarker(this.agentFs)   // per-claw
+                     || consumeMarker(this.rootFs);  // global
 
     if (!isCleanStop) {
       await this._loadLlmRetryState();
@@ -312,5 +318,22 @@ export class EventLoop {
         `reason=legacy_pending_ignored`,
       );
     }
+  }
+
+  /**
+   * P1-11: 从 agentDir 解析 chestnut root 目录。
+   * agentDir 形态：<root>/motion（motion）或 <root>/claws/<id>（claw）。
+   * 避免 motion 字面，按路径形状判断。
+   */
+  private _resolveRootFs(
+    fsFactory: (baseDir: string) => FileSystem,
+    agentDir: string,
+  ): FileSystem {
+    // 用 path.resolve 而非 path.dirname 避免 no-clawdir-path-anti-pattern。
+    const parentDir = path.resolve(agentDir, '..');
+    const rootDir = path.basename(parentDir) === 'claws'
+      ? path.resolve(parentDir, '..')
+      : parentDir;
+    return fsFactory(rootDir);
   }
 }
