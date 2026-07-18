@@ -59,9 +59,9 @@ describe('ContractSystem manager (phase 956)', () => {
     const { manager, events, emitter } = setupManager();
     const contractId = 'multi-dir-c1';
 
-    // Create progress.json in both active and paused directories
+    // Create progress.json in both active and archive directories
     await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId), { recursive: true });
-    await fs.mkdir(path.join(clawDir, 'contract', 'paused', contractId), { recursive: true });
+    await fs.mkdir(path.join(clawDir, 'contract', 'archive', contractId), { recursive: true });
     const progress = {
       schema_version: 1,
       subtasks: { 'task-1': { status: 'todo' } },
@@ -74,7 +74,7 @@ describe('ContractSystem manager (phase 956)', () => {
       'utf-8',
     );
     await fs.writeFile(
-      path.join(clawDir, 'contract', 'paused', contractId, 'progress.json'),
+      path.join(clawDir, 'contract', 'archive', contractId, 'progress.json'),
       JSON.stringify(progress),
       'utf-8',
     );
@@ -105,17 +105,6 @@ describe('ContractSystem manager (phase 956)', () => {
       expect(e.context?.contractId).toBe(contractId);
       expect(e.message).toContain('active');
     }
-  });
-
-  it('rejects create when contractId already exists in paused', async () => {
-    const manager = setupManager().manager;
-    const contractId = 'dup-paused-c1';
-
-    await fs.mkdir(path.join(clawDir, 'contract', 'paused', contractId), { recursive: true });
-
-    await expect(
-      manager.create(makeContractYaml({ id: contractId })),
-    ).rejects.toThrow(ContractValidationError);
   });
 
   it('resets in_progress subtasks during boot reconcile (Phase 966)', async () => {

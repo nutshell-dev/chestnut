@@ -8,13 +8,13 @@
  * - discovery.ts    / loadActive/Paused
  * - persistence.ts  / yaml + progress.json fs helpers
  * - verifier-job.ts / runContractVerifier
- * - lifecycle.ts    / pause/resume/cancel/isComplete/moveToArchive
+ * - lifecycle.ts    / cancel/markCorrupted/isComplete/moveToArchive
  * - verification.ts / completeSubtask + verification pipeline
  *
  * 本 class own:
  * - 装配（ctx 构造）
  * - public API method（thin delegate）
- * - private contractDir helper（路径解析跨 active/paused/archive）
+ * - private contractDir helper（路径解析跨 active/archive；paused 仅 legacy detector）
  * - getProgress（读 progress.json）
  * - create（contract 创建）
  * - setOnNotify + onContractCompleted + _emitContractCompleted（事件）
@@ -67,7 +67,7 @@ import {
   releaseLock,
   type LockContext,
 } from './lock.js';
-import { loadActiveContract, loadPausedContract, type DiscoveryContext } from './discovery.js';
+import { loadActiveContract, type DiscoveryContext } from './discovery.js';
 import {
   loadContractYaml as loadYaml, readContractYamlRaw as readYaml,
   loadContract as loadCt, saveProgress as saveProg,
@@ -82,7 +82,7 @@ import { ContractValidationError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
-  pauseContract, resumeContract, cancelContract, markCorrupted,
+  cancelContract, markCorrupted,
   isContractComplete, moveContractToArchive,
   type LifecycleContext,
 } from './lifecycle.js';
@@ -368,7 +368,8 @@ export class ContractSystem {
 
   private async contractDir(contractId: ContractId): Promise<string> {
     const dirs: string[] = [];
-    for (const dir of [this.activeDir, this.pausedDir, this.archiveDir]) {
+    // phase 1123 Step C: contract/paused/ is legacy-only and not a current writable location
+    for (const dir of [this.activeDir, this.archiveDir]) {
       if (await this.fs.exists(`${dir}/${contractId}/progress.json`)) {
         dirs.push(dir);
       }
@@ -420,7 +421,6 @@ export class ContractSystem {
     return {
       ...this._lockCtx(),
       activeDir: this.activeDir,
-      pausedDir: this.pausedDir,
       archiveDir: this.archiveDir,
       contractDir: (id) => this.contractDir(id),
       loadContract: (id) => this.loadContract(id),
@@ -498,10 +498,6 @@ export class ContractSystem {
     return loadActiveContract(this._discoveryCtx(), this.activeDir);
   }
 
-  async loadPaused(): Promise<Contract | null> {
-    return loadPausedContract(this._discoveryCtx(), this.pausedDir);
-  }
-
   /**
    * phase 1123 Step D: read-only legacy paused detector.
    * Scans contract/paused/ and returns tagged references without moving data.
@@ -535,19 +531,11 @@ export class ContractSystem {
    * phase 1285 InboxReader.init() 模板 mirror
    */
   async init(): Promise<void> {
-    const paused = await this.loadPaused();
-    if (paused) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
-        `paused_contract_id=${paused.id}`,
-        'recovered=true',
-      );
-    } else {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
-        'recovered=false',
-      );
-    }
+    // phase 1123 Step C: current semantics no longer include paused.
+    this.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+      'recovered=false',
+    );
 
     // phase 1371 sub-2: boot reconcile — scan active contracts for archive_pending_recovery
     let failedCount = 0;
@@ -707,12 +695,10 @@ export class ContractSystem {
       );
     }
 
-    // NEW phase 954: boot reconcile — recover lifecycle moves interrupted mid-flight
-    // (cancel/crash move failed leaves terminal status in active/; pause/resume move
-    // failed leaves status/dir mismatch). Best-effort; failures emit audit only.
+    // phase 954 / 1123 Step C: boot reconcile — recover terminal contracts stuck in active/.
+    // pause/resume current semantics are removed; legacy paused/ data is observed only.
     const TERMINAL_STATUSES = new Set(['cancelled', 'crashed', 'completed']);
     try {
-      // 1. terminal / paused contracts stuck in active/
       if (await this.fs.exists(this.activeDir)) {
         const activeEntries = await this.fs.list(this.activeDir, { includeDirs: true });
         for (const entry of activeEntries) {
@@ -742,55 +728,10 @@ export class ContractSystem {
                   `status=${progress.status}`,
                 );
               }
-            } else if (progress.status === 'paused') {
-              const contractId = makeContractId(progress.contract_id ?? entry.name);
-              await this.fs.ensureDir(this.pausedDir);
-              await this.fs.move(`${this.activeDir}/${contractId}`, `${this.pausedDir}/${contractId}`);
-              this.audit.write(
-                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_PAUSED_MOVED,
-                `contract_id=${contractId}`,
-                `from=active`,
-                `to=paused`,
-              );
             }
           } catch (err) {
             this.audit.write(
               CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
-              `contract_id=${entry.name}`,
-              `reason=${formatErr(err)}`,
-            );
-          }
-        }
-      }
-
-      // 2. running contracts stuck in paused/
-      if (await this.fs.exists(this.pausedDir)) {
-        const pausedEntries = await this.fs.list(this.pausedDir, { includeDirs: true });
-        for (const entry of pausedEntries) {
-          if (!entry.isDirectory) continue;
-          const progressPath = `${this.pausedDir}/${entry.name}/progress.json`;
-          if (!(await this.fs.exists(progressPath))) continue;
-          try {
-            const raw = await this.fs.read(progressPath);
-            const rawParsed: unknown = JSON.parse(raw);
-            const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
-            if (!validation.success) continue;
-            const progress = validation.data;
-
-            if (progress.status === 'running') {
-              const contractId = makeContractId(progress.contract_id ?? entry.name);
-              await this.fs.ensureDir(this.activeDir);
-              await this.fs.move(`${this.pausedDir}/${contractId}`, `${this.activeDir}/${contractId}`);
-              this.audit.write(
-                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVED,
-                `contract_id=${contractId}`,
-                `from=paused`,
-                `to=active`,
-              );
-            }
-          } catch (err) {
-            this.audit.write(
-              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVE_FAILED,
               `contract_id=${entry.name}`,
               `reason=${formatErr(err)}`,
             );
@@ -836,14 +777,6 @@ export class ContractSystem {
   }
 
   // Lifecycle
-  async pause(contractId: ContractId, checkpointNote: string): Promise<void> {
-    return pauseContract(this._lifecycleCtx(), contractId, checkpointNote);
-  }
-
-  async resume(contractId: ContractId): Promise<Contract> {
-    return resumeContract(this._lifecycleCtx(), contractId);
-  }
-
   async cancel(contractId: ContractId, reason: string): Promise<void> {
     await cancelContract(this._lifecycleCtx(), contractId, reason);
     // phase 398 Step D (review N9): 终态清 auditorState、防 unbounded growth +
@@ -939,8 +872,9 @@ export class ContractSystem {
       }
       const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
 
-      // Phase 956: check uniqueness across ALL three directories (active + paused + archive)
-      for (const dir of [this.activeDir, this.pausedDir, this.archiveDir]) {
+      // Phase 956: check uniqueness across current directories (active + archive)
+      // phase 1123 Step C: paused/ is legacy-only and must not block creation.
+      for (const dir of [this.activeDir, this.archiveDir]) {
         if (await this.fs.exists(`${dir}/${contractId}`)) {
           throw new ContractValidationError('id', 'already_exists',
             `contract id "${contractId}" already exists in ${path.basename(dir)}`,
@@ -1222,7 +1156,7 @@ export class ContractSystem {
     // ML#9 + DP「不静默」: unknown legacy string (非 derive 非 persist) 显式 emit audit + 忽略、不 fake-cast as LifecyclePersistedStatus
     if (typeof legacyStatus === 'string') {
       if ((LIFECYCLE_PERSISTED_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
-        // 保留不可 derive 的生命周期状态（cancelled/crashed/paused/archive_pending_recovery）
+        // 保留不可 derive 的生命周期状态（cancelled/crashed/archive_pending_recovery）
         preservedLifecycleStatus = legacyStatus as LifecyclePersistedStatus;
       } else if (!(DERIVABLE_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
         // unknown legacy string (非 derive 非 persist)、emit audit + 忽略

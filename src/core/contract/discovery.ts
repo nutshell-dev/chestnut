@@ -1,6 +1,6 @@
 /**
  * @module L4.ContractSystem.Discovery
- * Contract loading from active / paused dir
+ * Contract loading from active dir
  */
 
 import { type ContractId, makeContractId } from './types.js';
@@ -79,22 +79,6 @@ async function findContractsInDir(
   return valid;
 }
 
-async function findLatestContract(
-  ctx: DiscoveryContext,
-  dir: string,
-  auditContext: string,
-): Promise<LatestEntry | null> {
-  const valid = await findContractsInDir(ctx, dir, auditContext);
-  if (valid.length === 0) return null;
-  let latest = valid[0];
-  for (const entry of valid) {
-    if (entry.startedAt > latest.startedAt) {
-      latest = entry;
-    }
-  }
-  return latest;
-}
-
 export async function loadActiveContract(
   ctx: DiscoveryContext,
   activeDir: string,
@@ -135,12 +119,4 @@ export async function loadAllActiveContracts(
   return valid;
 }
 
-export async function loadPausedContract(
-  ctx: DiscoveryContext,
-  pausedDir: string,
-): Promise<Contract | null> {
-  const latest = await findLatestContract(ctx, pausedDir, 'ContractSystem.loadPaused');
-  if (!latest) return null;
-  // phase 324 C2: 同 loadActiveContract — 不覆盖 status，信任 progress 派生。
-  return ctx.loadContract(makeContractId(latest.name));
-}
+

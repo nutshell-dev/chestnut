@@ -499,7 +499,7 @@ describe('Phase 961 verification invariants', () => {
     expect(mismatchAudit).toBeDefined();
   });
 
-  it('does not archive paused contract after verification', async () => {
+  it('does not archive cancelled contract after stale verification result', async () => {
     const { audit, events, emitter } = makeAudit();
     const manager = makeManager(audit);
 
@@ -508,12 +508,12 @@ describe('Phase 961 verification invariants', () => {
       verification: [{ subtask_id: 't1', type: 'llm', prompt_file: 'verify.prompt' }],
     }));
 
-    let pauseDone = false;
+    let cancelDone = false;
     vi.spyOn(manager as any, 'runLLMVerification').mockImplementation(async () => {
-      // Pause the contract before returning the passing result.
-      if (!pauseDone) {
-        pauseDone = true;
-        await manager.pause(contractId, 'pause before archive');
+      // Cancel the contract before returning the passing result.
+      if (!cancelDone) {
+        cancelDone = true;
+        await manager.cancel(contractId, 'cancel before archive');
       }
       return { passed: true, feedback: 'ok' };
     });
@@ -522,10 +522,10 @@ describe('Phase 961 verification invariants', () => {
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
 
     const progress = await manager.getProgress(contractId);
-    expect(progress?.status).toBe('paused');
+    expect(progress?.status).toBe('cancelled');
 
     const contractDir = await (manager as any).contractDir(contractId);
-    expect(contractDir).toBe('contract/paused');
+    expect(contractDir).toBe('contract/archive');
   });
 
   it('resets subtask even when audit emit throws', async () => {

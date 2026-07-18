@@ -87,7 +87,7 @@ describe('ContractSystem - lock retry (phase 1351 split + phase 1048)', () => {
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
-    await expect(contendingManager.pause(contractId, 'checkpoint')).resolves.not.toThrow();
+    await expect(contendingManager.cancel(contractId, 'checkpoint')).resolves.not.toThrow();
     expect(lockRetrySleep).toHaveBeenCalledTimes(1);
   }, 2000);
 
@@ -117,7 +117,7 @@ describe('ContractSystem - lock retry (phase 1351 split + phase 1048)', () => {
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
-    await expect(contendingManager.pause(contractId, 'checkpoint'))
+    await expect(contendingManager.cancel(contractId, 'checkpoint'))
       .rejects.toThrow(LockContentionExhaustedError);
   }, 2000);
 
@@ -132,15 +132,15 @@ describe('ContractSystem - lock retry (phase 1351 split + phase 1048)', () => {
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
     await fs.writeFile(lockPath, JSON.stringify({ pid: DEAD_PID, time: Date.now(), ownerToken: 'legacy-token' }), 'utf-8');
 
-    await expect(manager.pause(contractId, 'checkpoint')).resolves.not.toThrow();
+    await expect(manager.cancel(contractId, 'checkpoint')).resolves.not.toThrow();
 
     // old lock migrated away
     expect(await fs.access(lockPath).then(() => true).catch(() => false)).toBe(false);
-    // claims dir created (pause may have moved it to paused)
+    // claims dir created (cancel moves contract to archive)
     const activeClaimsDir = path.join(clawDir, 'contract', 'active', contractId, 'claims');
-    const pausedClaimsDir = path.join(clawDir, 'contract', 'paused', contractId, 'claims');
+    const archiveClaimsDir = path.join(clawDir, 'contract', 'archive', contractId, 'claims');
     const claimsCreated = await fs.access(activeClaimsDir).then(() => true).catch(() => false)
-      || await fs.access(pausedClaimsDir).then(() => true).catch(() => false);
+      || await fs.access(archiveClaimsDir).then(() => true).catch(() => false);
     expect(claimsCreated).toBe(true);
   }, 2000);
 
@@ -155,7 +155,7 @@ describe('ContractSystem - lock retry (phase 1351 split + phase 1048)', () => {
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
     await fs.writeFile(lockPath, JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: 'legacy-token' }), 'utf-8');
 
-    await expect(manager.pause(contractId, 'checkpoint'))
+    await expect(manager.cancel(contractId, 'checkpoint'))
       .rejects.toThrow(LockConflictError);
   }, 2000);
 });

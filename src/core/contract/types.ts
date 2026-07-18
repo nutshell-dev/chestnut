@@ -39,7 +39,7 @@ export type LifecyclePersistedStatus = (typeof LIFECYCLE_PERSISTED_STATUSES_TUPL
 export const LIFECYCLE_PERSISTED_STATUSES: ReadonlySet<LifecyclePersistedStatus> = new Set(LIFECYCLE_PERSISTED_STATUSES_TUPLE);
 
 // 'pending' / 'running' / 'completed' = DerivableStatus (derive subset)
-// 'paused' / 'cancelled' / 'crashed' / 'archive_pending_recovery' = LifecyclePersistedStatus (persist subset)
+// 'cancelled' / 'crashed' / 'archive_pending_recovery' = LifecyclePersistedStatus (persist subset)
 export type ContractStatus = DerivableStatus | LifecyclePersistedStatus;
 
 // phase 362: SubtaskStatus 改 derive from tuple (ML#1 共用基础设施单源、mirror DerivableStatus pattern)
@@ -120,7 +120,7 @@ export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
  * - 空 subtasks → 'pending'
  * - 否则 → 'pending'
  *
- * 注意：'running' / 'paused' / 'cancelled' / 'crashed' / 'archive_pending_recovery'
+ * 注意：'running' / 'cancelled' / 'crashed' / 'archive_pending_recovery'
  * 等生命周期状态无法从 subtasks 单独 derive，仍由业务代码显式控制。
  */
 /**
@@ -129,7 +129,7 @@ export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
  *
  * Derivable status (phase 282 Step A design intent):
  * - 'pending'/'running'/'completed' 由 loader derive from subtasks、不持久化
- * - 'paused'/'cancelled'/'crashed'/'archive_pending_recovery' 不可 derive、持久化保留
+ * - 'cancelled'/'crashed'/'archive_pending_recovery' 不可 derive、持久化保留
  *
  * 与 ContractStatus (wide enum) 对称、derivable subset typed narrow。
  * phase 358: DERIVABLE_STATUSES_TUPLE 物理迁 status-tuples.ts (解 schemas/types circular dep)
@@ -175,14 +175,13 @@ export type ArchiveAllowedStatus = (typeof ARCHIVE_ALLOWED_STATUSES_TUPLE)[numbe
 export const ARCHIVE_ALLOWED_STATUSES: ReadonlySet<ArchiveAllowedStatus> = new Set(ARCHIVE_ALLOWED_STATUSES_TUPLE);
 
 /**
- * phase 351: ACTIVE_STATUSES tuple/type/Set 一以贯之 (mirror phase 347/348 pattern)。
- * 非终态契约的 3 status: pending + running (DerivableStatus 活动态) + paused (LifecyclePersistedStatus 暂停)。
+ * phase 351 / 1123 Step C: ACTIVE_STATUSES tuple/type/Set 一以贯之 (mirror phase 347/348 pattern)。
+ * 非终态契约的 status: pending + running (DerivableStatus 活动态)。
  * archive sweep 用、检测 archive 内仍含 ACTIVE status 的 stale entries。
  */
 export const ACTIVE_STATUSES_TUPLE = [
   'pending',                      // DerivableStatus
   'running',                      // DerivableStatus
-  'paused',                       // LifecyclePersistedStatus
 ] as const;
 
 export type ActiveStatus = (typeof ACTIVE_STATUSES_TUPLE)[number];

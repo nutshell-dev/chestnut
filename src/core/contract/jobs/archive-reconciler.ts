@@ -66,7 +66,9 @@ export async function reconcileArchiveStaleEntries(
       // phase 365: phase 358 ContractProgressArchiveLooseSchema status field z.enum(ALL_CONTRACT_STATUSES_TUPLE) 后已 typed、cast 删除
       const currentStatus = persisted.status;
       // phase 351: cast string for typed Set runtime check (mirror phase 344 pattern)
-      if (!currentStatus || !(ACTIVE_STATUSES as ReadonlySet<string>).has(currentStatus)) continue; // 终态跳过
+      // phase 1123 Step C: 'paused' is a legacy archive state and also needs normalization.
+      const staleStatuses: ReadonlySet<string> = new Set([...ACTIVE_STATUSES, 'paused']);
+      if (!currentStatus || !staleStatuses.has(currentStatus)) continue; // 终态跳过
 
       // phase 951: 翻 archive_corrupted (archive-level corruption marker)
       const oldStatus = currentStatus;

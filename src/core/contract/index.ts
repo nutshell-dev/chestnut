@@ -60,7 +60,6 @@ export { collectContractEvents } from './jobs/event-collector.js';
 export {
   CONTRACT_DIR,
   CONTRACT_ACTIVE_DIR,
-  CONTRACT_PAUSED_DIR,
   CONTRACT_ARCHIVE_DIR,
   PROGRESS_FILE,
   CONTRACT_YAML_FILE,

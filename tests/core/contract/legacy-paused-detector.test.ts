@@ -4,10 +4,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import * as os from 'os';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
+import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { listLegacyPausedContracts } from '../../../src/core/contract/lightweight-query.js';
 
@@ -17,18 +17,14 @@ describe('findLegacyPausedContracts', () => {
   let auditWrite: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
-    testDir = path.join(
-      os.tmpdir(),
-      `.test-legacy-paused-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
-    );
+    testDir = await createTempDir('legacy-paused-');
     clawDir = path.join(testDir, 'claws', 'test-claw');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent */ });
     await fs.mkdir(clawDir, { recursive: true });
     auditWrite = vi.fn();
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent */ });
+    await cleanupTempDir(testDir);
     vi.restoreAllMocks();
   });
 

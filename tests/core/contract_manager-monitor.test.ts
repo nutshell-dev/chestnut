@@ -69,24 +69,27 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
       );
     });
 
-    it('should log error to monitor when loadPaused finds corrupted progress.json', async () => {
+    it('should surface legacy paused contracts via findLegacyPausedContracts', async () => {
       const mockAudit = makeMockAudit();
       const monitorManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
-      const contractId = 'corrupt-paused-contract';
+      const contractId = 'legacy-paused-contract';
       const contractDir = path.join(clawDir, 'contract', 'paused', contractId);
       await fs.mkdir(contractDir, { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'progress.json'), '{ bad json ]');
+      await fs.writeFile(path.join(contractDir, 'progress.json'), JSON.stringify({ schema_version: 1, status: 'paused', subtasks: {} }));
 
-      const result = await monitorManager.loadPaused();
-      expect(result).toBeNull();
+      const result = await monitorManager.findLegacyPausedContracts();
+      expect(result).toHaveLength(1);
+      expect(result[0].contractId).toBe(contractId);
+      expect(result[0].sourcePath).toBe(`contract/paused/${contractId}`);
       expect(mockAudit.write).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-        expect.stringContaining('context=ContractSystem.loadPaused'),
-        expect.stringContaining('contractId=corrupt-paused-contract'),
-        expect.stringContaining('error='),
+        CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_PAUSED_OBSERVED,
+        'clawId=test-claw',
+        `contractId=${contractId}`,
+        'source_path=contract/paused/legacy-paused-contract',
+        'status=legacy_paused',
       );
     });
 

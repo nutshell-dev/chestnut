@@ -66,7 +66,18 @@ describe('ContractSystem.init() boot reconcile', () => {
     notifyClaw: vi.fn(),});
   }
 
-  it('emits CONTRACT_BOOT_RECONCILE recovered=true when paused contract exists', async () => {
+  it('emits CONTRACT_BOOT_RECONCILE recovered=false when no active contract needs recovery', async () => {
+    const manager = makeManager();
+    await manager.init();
+
+    const reconcileCall = auditWrite.mock.calls.find(
+      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+    );
+    expect(reconcileCall).toBeDefined();
+    expect(reconcileCall).toContainEqual('recovered=false');
+  });
+
+  it('leaves legacy paused/ directory untouched and observes it via findLegacyPausedContracts (phase 1123 Step C)', async () => {
     const pausedDir = path.join(clawDir, 'contract', 'paused', 'paused-contract');
     await fs.mkdir(pausedDir, { recursive: true });
     await fs.writeFile(
@@ -88,23 +99,17 @@ describe('ContractSystem.init() boot reconcile', () => {
     const manager = makeManager();
     await manager.init();
 
-    const reconcileCall = auditWrite.mock.calls.find(
-      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
-    );
-    expect(reconcileCall).toBeDefined();
-    expect(reconcileCall).toContainEqual('paused_contract_id=paused-contract');
-    expect(reconcileCall).toContainEqual('recovered=true');
-  });
+    // Legacy paused data must not be moved, resumed, or cancelled by boot reconcile.
+    expect(await fs.stat(pausedDir).then(() => true).catch(() => false)).toBe(true);
 
-  it('emits CONTRACT_BOOT_RECONCILE recovered=false when no paused contract', async () => {
-    const manager = makeManager();
-    await manager.init();
+    // Read-only detector surfaces the legacy entry.
+    const legacy = await manager.findLegacyPausedContracts();
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].contractId).toBe('paused-contract');
 
-    const reconcileCall = auditWrite.mock.calls.find(
-      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
-    );
-    expect(reconcileCall).toBeDefined();
-    expect(reconcileCall).toContainEqual('recovered=false');
+    // No recovery-style paused move audits are emitted.
+    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_PAUSED_MOVED)).toBe(false);
+    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVED)).toBe(false);
   });
 
   it('retries move for cancelled contract stuck in active/ (phase 954)', async () => {
@@ -139,68 +144,6 @@ describe('ContractSystem.init() boot reconcile', () => {
     const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled-contract');
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
     expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(false);
-  });
-
-  it('moves paused contract from active/ to paused/ (phase 954)', async () => {
-    const activeDir = path.join(clawDir, 'contract', 'active', 'paused-contract');
-    await fs.mkdir(activeDir, { recursive: true });
-    await fs.writeFile(
-      path.join(activeDir, 'progress.json'),
-      JSON.stringify({
-        schema_version: 1,
-        contract_id: 'paused-contract',
-        status: 'paused',
-        subtasks: { t1: { status: 'todo' } },
-        started_at: new Date().toISOString(),
-        checkpoint: null,
-      }),
-    );
-
-    const manager = makeManager();
-    await manager.init();
-
-    const movedAudit = auditWrite.mock.calls.find(
-      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_PAUSED_MOVED,
-    );
-    expect(movedAudit).toBeDefined();
-    expect(movedAudit).toContainEqual('contract_id=paused-contract');
-
-    const pausedDir = path.join(clawDir, 'contract', 'paused', 'paused-contract');
-    expect(await fs.stat(pausedDir).then(() => true).catch(() => false)).toBe(true);
-    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(false);
-  });
-
-  it('moves running contract from paused/ to active/ (phase 954)', async () => {
-    const pausedDir = path.join(clawDir, 'contract', 'paused', 'running-contract');
-    await fs.mkdir(pausedDir, { recursive: true });
-    await fs.writeFile(
-      path.join(pausedDir, 'progress.json'),
-      JSON.stringify({
-        schema_version: 1,
-        contract_id: 'running-contract',
-        status: 'running',
-        subtasks: { t1: { status: 'todo' } },
-        started_at: new Date().toISOString(),
-        checkpoint: null,
-      }),
-    );
-    await fs.writeFile(
-      path.join(pausedDir, 'contract.yaml'),
-      'schema_version: 1\nid: running-contract\ntitle: T\ngoal: G\nsubtasks:\n  - id: t1\n    description: D\n',
-    );
-
-    const manager = makeManager();
-    await manager.init();
-
-    const movedAudit = auditWrite.mock.calls.find(
-      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVED,
-    );
-    expect(movedAudit).toBeDefined();
-    expect(movedAudit).toContainEqual('contract_id=running-contract');
-
-    const activeDir = path.join(clawDir, 'contract', 'active', 'running-contract');
-    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
-    expect(await fs.stat(pausedDir).then(() => true).catch(() => false)).toBe(false);
   });
 });
 

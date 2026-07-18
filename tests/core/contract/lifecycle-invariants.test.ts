@@ -108,41 +108,6 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
   });
 
-  it('resets in_progress subtasks when resuming paused contract', async () => {
-    const contractId = 'resume-in-progress';
-    const pausedDir = path.join(clawDir, 'contract', 'paused', contractId);
-    await fs.mkdir(pausedDir, { recursive: true });
-
-    await fs.writeFile(
-      path.join(pausedDir, 'contract.yaml'),
-      yaml.dump(makeContractYaml({ id: contractId })),
-    );
-    await fs.writeFile(
-      path.join(pausedDir, 'progress.json'),
-      JSON.stringify({
-        schema_version: 1,
-        contract_id: contractId,
-        status: 'paused',
-        subtasks: {
-          'task-1': { status: 'in_progress', verification_attempt_id: 'old-attempt' },
-        },
-        started_at: new Date().toISOString(),
-        checkpoint: 'paused checkpoint',
-      }, null, 2),
-    );
-
-    await manager.resume(contractId);
-
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('running');
-    expect(progress.checkpoint).toBeNull();
-    expect(progress.subtasks['task-1'].status).toBe('todo');
-    expect(progress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
-
-    // Verify the contract has moved back to active/
-    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
-    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
-  });
 });
 
 // ───── source: lifecycle-race.test.ts ─────
@@ -188,36 +153,6 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await cleanupTempDir(tempDir);
-  });
-
-  it('pause race: concurrent completeSubtask + pause no deadlock no data loss (P0.16)', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Pause Race Test',
-      goal: 'Test',
-      subtasks: [
-        { id: 't1', description: 'T1' },
-        { id: 't2', description: 'T2' },
-      ],
-      verification: [],
-    }));
-
-    // 先完成一个子任务，确保数据存在
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
-
-    // 并发：同时 pause 和 completeSubtask
-    const [pauseResult] = await Promise.allSettled([
-      manager.pause(contractId, 'race-checkpoint'),
-      manager.completeSubtask({ contractId, subtaskId: 't2', evidence: 'done too' }),
-    ]);
-
-    // pause 应该成功（或在 lock 竞争下失败但不死锁）
-    expect(pauseResult.status).not.toBe('rejected');
-
-    // 最终 contract 应在 paused/（如果 pause 赢了）或 active/（如果 pause 没赢）
-    // 但关键是 status 和子任务数据没被损坏
-    const progress = await manager.getProgress(contractId);
-    // 子任务 t1 必须仍然是 completed
-    expect(progress.subtasks['t1'].status).toBe('completed');
   });
 
   it('cancel race: concurrent verification background + cancel no progress overwrite (P0.18)', async () => {
@@ -372,36 +307,7 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
     await cleanupTempDir(tempDir);
   });
 
-  // 反向 1: pauseContract fs.move throw → source lock released + throw propagated + LOCK_UNLINK_FAILED audit
-  it('pauseContract: fs.move throws → source lock released + throw propagated + LOCK_UNLINK_FAILED audit', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Pause Orphan Test',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
-
-    const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-
-    // Mock fs.move to throw EXDEV (cross-device) only for contract directory moves,
-    // not for lock release moves (progress.lock -> progress.lock.released-*).
-    const originalMove = nodeFs.move.bind(nodeFs);
-    const moveSpy = vi.spyOn(nodeFs, 'move').mockImplementation(async (fromPath: string, toPath: string) => {
-      if (path.basename(fromPath) === 'progress.lock' || String(toPath).includes('.released-')) {
-        return originalMove(fromPath, toPath);
-      }
-      throw Object.assign(new Error('EXDEV: cross-device link not permitted'), { code: 'EXDEV' });
-    });
-
-    await expect(manager.pause(contractId, 'orphan-test')).rejects.toThrow('EXDEV');
-
-    // source lock must be released (deleted)
-    await expect(fs.access(sourceLockPath)).rejects.toThrow();
-
-    moveSpy.mockRestore();
-  });
-
-  // 反向 2: cancelContract fs.move throw → source lock released + throw propagated
+  // 反向 1: cancelContract fs.move throw → source lock released + throw propagated
   it('cancelContract: fs.move throws → source lock released + throw propagated', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Cancel Orphan Test',
@@ -468,26 +374,6 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
     moveSpy.mockRestore();
   });
 
-  // 反向 4 (optional): happy path verify 0 regression — pause success → target lock released
-  it('happy path: pauseContract fs.move success → target lock released + 0 regression', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Pause Happy Path Test',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
-
-    const targetLockPath = path.join(clawDir, 'contract', 'paused', contractId, 'progress.lock');
-
-    await manager.pause(contractId, 'happy-path');
-
-    // After successful pause, contract should be in paused/
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('paused');
-
-    // target lock should NOT exist (releaseLock at target deletes it)
-    await expect(fs.access(targetLockPath)).rejects.toThrow();
-  });
 });
 
 // ───── source: mark-corrupted.test.ts ─────

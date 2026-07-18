@@ -19,10 +19,10 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 async function createContract(
   tempDir: string,
   contractId: string,
-  status: 'running' | 'paused' | 'completed' = 'running'
+  status: 'running' | 'completed' = 'running'
 ): Promise<void> {
-  // ContractSystem 现在使用 active/paused/archive 子目录
-  const subDir = status === 'completed' ? 'archive' : status === 'paused' ? 'paused' : 'active';
+  // ContractSystem 现在使用 active/archive 子目录；paused 是历史 legacy 状态，不再创建。
+  const subDir = status === 'completed' ? 'archive' : 'active';
   const contractDir = path.join(tempDir, 'contract', subDir, contractId);
   await fs.mkdir(contractDir, { recursive: true });
 
@@ -381,51 +381,6 @@ auth_level: auto
         evidence: 'Done',
       });
       expect(await manager.isComplete('contract-005')).toBe(true);
-    });
-
-    it('should pause contract', async () => {
-      await createContract(tempDir, 'contract-006', 'running');
-
-      const manager = new ContractSystem({
-        clawDir: tempDir,
-        clawId: 'test-claw',
-        fs: mockFs,
-        audit: mockAudit as any,
-        toolRegistry: createToolRegistry(),
-        fsFactory,
-    clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-      await manager.pause('contract-006', 'Checkpoint note');
-
-      const progress = await manager.getProgress('contract-006');
-      expect(progress.status).toBe('paused');
-      expect(progress.checkpoint).toBe('Checkpoint note');
-    });
-
-    it('should resume contract', async () => {
-      await createContract(tempDir, 'contract-007', 'paused');
-
-      // Set checkpoint
-      const progressPath = path.join(tempDir, 'contract', 'paused', 'contract-007', 'progress.json');
-      const progress = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
-      progress.checkpoint = 'Saved state';
-      await fs.writeFile(progressPath, JSON.stringify(progress));
-
-      const manager = new ContractSystem({
-        clawDir: tempDir,
-        clawId: 'test-claw',
-        fs: mockFs,
-        audit: mockAudit as any,
-        toolRegistry: createToolRegistry(),
-        fsFactory,
-    clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-      const resumed = await manager.resume('contract-007');
-
-      expect(resumed.status).toBe('running');
-      
-      const updatedProgress = await manager.getProgress('contract-007');
-      expect(updatedProgress.checkpoint).toBeNull();
     });
 
     it('writes CONTRACT_PROGRESS_CORRUPTED audit when loadActive finds corrupted progress.json', async () => {

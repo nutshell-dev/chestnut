@@ -121,8 +121,8 @@ export const ContractProgressArchiveLooseSchema = z.object({
   started_at: z.string().optional(),
   completed_at: z.string().optional(),
   checkpoint: z.union([z.string(), z.null()]).optional(),
-  // phase 358: z.enum(ALL_CONTRACT_STATUSES_TUPLE) narrow (M#9 优先编译器检查、phase 352 升档 B sister)
-  status: z.enum(ALL_CONTRACT_STATUSES_TUPLE).optional(),
+  // phase 1123 Step C: archive loose schema accepts current statuses plus legacy 'paused'.
+  status: z.enum([...ALL_CONTRACT_STATUSES_TUPLE, 'paused']).optional(),
   // phase 335: contract_id 在 archive/boot_reconcile 路径 legacy 可含 (derive 字段)、explicit typed access
   contract_id: z.string().optional(),
 }).passthrough();

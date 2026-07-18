@@ -1,6 +1,6 @@
 /**
  * @module L4.ContractSystem.Lifecycle
- * Contract status transitions: pause / resume / cancel / archive / completion check
+ * Contract status transitions: cancel / archive / completion check (phase 1123 Step C)
  */
 
 import type { ContractId } from './types.js';
@@ -15,8 +15,6 @@ import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ContractCorruptionEvidence } from './types.js';
 
 import {
-  emitContractPaused,
-  emitContractResumed,
   emitContractCancelled,
   emitContractCorrupted,
   emitContractCorruptPartialFailed,
@@ -28,7 +26,6 @@ import { type ArchiveDir } from './types.js';
 
 export interface LifecycleContext extends LockContext {
   activeDir: string;
-  pausedDir: string;
   archiveDir: ArchiveDir;
   contractDir: (contractId: ContractId) => Promise<string>;
   loadContract: (contractId: ContractId) => Promise<Contract>;
@@ -39,110 +36,6 @@ export interface LifecycleContext extends LockContext {
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
   /** phase 63: onNotify callback for contract terminal state alerts */
   onNotify?: (type: string, data: Record<string, unknown>) => void;
-}
-
-export async function pauseContract(
-  ctx: LifecycleContext,
-  contractId: ContractId,
-  checkpointNote: string,
-): Promise<void> {
-  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
-  if (dir !== ctx.activeDir) {
-    await releaseSource();
-    throw new ToolError(`Cannot pause contract "${contractId}": not in active/`);
-  }
-  await ctx.fs.ensureDir(ctx.pausedDir);
-
-  // phase 791 (P0.16): acquire lock at SOURCE, do status update, move, release at TARGET.
-  // phase 871 (new.P1.5 r113 G fork): catch fs.move throw + 显式释放 source 防 orphan
-  // phase 1162 (r128 D fork DD3): abort verifier before fs.move 防 mid-flight write race
-  // phase 1362 (r140): lockContract atomic wrapper covers contractDir→acquireLock TOCTOU race.
-  // 防 fs.move 跨边界 lock 失效 race（lock + 数据同 dir / dir move 时 lock 跟着移动）。
-  const targetLockPath = `${ctx.pausedDir}/${contractId}/progress.lock`;
-  try {
-    // status update in SOURCE dir before move (canonical decision crash-safe)
-    const progress = await ctx.getProgress(contractId);
-    if (!progress) {
-      throw new ToolError(`Cannot pause contract "${contractId}": progress unavailable (schema corruption)`);
-    }
-    progress.status = 'paused';
-    progress.checkpoint = checkpointNote;
-    await ctx.saveProgress(contractId, progress);
-
-    // phase 1162 r128 D fork DD3: abort verifier subagents (best-effort, no-blocking)
-    // verifier 走 phase 993 D.1 signal wire → catch → emit VERIFIER_FAILED reason='paused: <checkpoint>'
-    try {
-      ctx.abortContractVerifiers(contractId, `paused: ${checkpointNote}`);
-    } catch (abortErr) {
-      // 不破 pause 主流程；abortContractVerifiers 内已 try/catch + audit emit (mirror cancelContract)
-    }
-
-    // move whole dir (lock + progress.json) → target
-    await ctx.fs.move(`${ctx.activeDir}/${contractId}`, `${ctx.pausedDir}/${contractId}`);
-  } catch (err) {
-    // fs.move 抛 → source dir 仍含 lock + target dir 未创 → 显式释放 source 防 orphan
-    // per feedback_latent_defensive_fix (N=5 累) + feedback_audit_cluster_multi_phase_coordination
-    try { await releaseSource(); } catch { /* releaseLock 自身 audit emit + 不阻断 throw chain */ }
-    throw err;
-  } finally {
-    // release at TARGET (lock file moved with dir)
-    // 正常 path: target lock = source lock moved with dir → release target ✓
-    // exception path (catch 已执行): source 已 release / target 不存在 / releaseLock emit LOCK_UNLINK_FAILED audit
-    await releaseLock(ctx, targetLockPath, ownerToken);
-  }
-
-  emitContractPaused(ctx.audit, { contractId, checkpoint: checkpointNote });
-}
-
-export async function resumeContract(
-  ctx: LifecycleContext,
-  contractId: ContractId,
-): Promise<Contract> {
-  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
-  if (dir !== ctx.pausedDir) {
-    await releaseSource();
-    throw new ToolError(`Cannot resume contract "${contractId}": not in paused/`);
-  }
-
-  // phase 791 (P0.16): acquire lock at SOURCE, do status update, move, release at TARGET.
-  // phase 871 (new.P1.5 r113 G fork): catch fs.move throw + 显式释放 source 防 orphan
-  // phase 1362 (r140): lockContract atomic wrapper covers contractDir→acquireLock TOCTOU race.
-  const targetLockPath = `${ctx.activeDir}/${contractId}/progress.lock`;
-  try {
-    const progress = await ctx.getProgress(contractId);
-    if (!progress) {
-      throw new ToolError(`Cannot resume contract "${contractId}": progress unavailable (schema corruption)`);
-    }
-    // Phase 966: reset leftover in_progress subtasks so resume can re-submit.
-    for (const subtask of Object.values(progress.subtasks)) {
-      if (subtask.status === 'in_progress') {
-        subtask.status = 'todo';
-        delete subtask.verification_attempt_id;
-      }
-    }
-    progress.status = 'running';
-    progress.checkpoint = null;
-    await ctx.saveProgress(contractId, progress);
-
-    await ctx.fs.move(`${ctx.pausedDir}/${contractId}`, `${ctx.activeDir}/${contractId}`);
-  } catch (err) {
-    try { await releaseSource(); } catch (releaseErr) {
-      // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
-      // phase 558: 加 context col
-      ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
-        `contract_id=${contractId}`,
-        `context=resume`,
-        `error=${formatErr(releaseErr)}`,
-      );
-    }
-    throw err;
-  } finally {
-    await releaseLock(ctx, targetLockPath, ownerToken);
-  }
-
-  emitContractResumed(ctx.audit, { contractId });
-  return ctx.loadContract(contractId);
 }
 
 export async function cancelContract(
@@ -209,7 +102,7 @@ export async function cancelContract(
     );
     try { await releaseSource(); } catch (releaseErr) {
       // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
-      // phase 558: 加 context col 区分 4 lifecycle 路径（resume/cancel/crash/archive）
+      // phase 558: 加 context col 区分 lifecycle 路径（cancel/crash/archive）
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
         `contract_id=${contractId}`,
@@ -390,7 +283,7 @@ export async function moveContractToArchive(
   // phase 860 (P0-B): acquire lock at SOURCE / move dir / release@TARGET
   // phase 871 (new.P1.5 r113 G fork): catch fs.move throw + 显式释放 source 防 orphan
   // phase 1362 (r140): lockContract atomic wrapper covers contractDir→acquireLock TOCTOU race.
-  // mirror phase 791 P0.16 template (pause/resume/cancel sister)
+  // mirror phase 791 P0.16 template (cancel sister)
   const targetLockPath = `${dst}/progress.lock`;
   try {
     await ctx.fs.move(`${dir}/${contractId}`, dst);

@@ -69,11 +69,11 @@ describe('ContractSystem - Contract shape after field removal (Step 44)', () => 
   });
 
   it('SubTask 对象不含已删字段', async () => {
-    const contractId = await manager.create(minimalYaml);
-    await manager.pause(contractId, 'test');
-    const contract = await manager.resume(contractId);
+    await manager.create(minimalYaml);
+    const contract = await manager.loadActive();
+    expect(contract).not.toBeNull();
 
-    for (const subtask of contract.subtasks) {
+    for (const subtask of contract!.subtasks) {
       expect(subtask).not.toHaveProperty('assignee');
       expect(subtask).not.toHaveProperty('result');
       expect(subtask).not.toHaveProperty('error');
@@ -95,12 +95,12 @@ describe('ContractSystem - Contract shape after field removal (Step 44)', () => 
   });
 
   it('SubTask 必填字段完整', async () => {
-    const contractId = await manager.create(minimalYaml);
-    await manager.pause(contractId, 'test');
-    const contract = await manager.resume(contractId);
+    await manager.create(minimalYaml);
+    const contract = await manager.loadActive();
+    expect(contract).not.toBeNull();
 
-    expect(contract.subtasks).toHaveLength(2);
-    for (const subtask of contract.subtasks) {
+    expect(contract!.subtasks).toHaveLength(2);
+    for (const subtask of contract!.subtasks) {
       expect(typeof subtask.id).toBe('string');
       expect(typeof subtask.description).toBe('string');
       expect(['todo', 'in_progress', 'completed', 'failed']).toContain(subtask.status);

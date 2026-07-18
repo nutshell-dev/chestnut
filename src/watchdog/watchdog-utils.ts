@@ -214,7 +214,7 @@ export function gatherClawSnapshot(
   fsFactory: (baseDir: string) => FileSystem,
   pm: ProcessLiveness,
   clawId: string,
-  audit?: AuditLog,
+  _audit?: AuditLog,
 ): ClawSnapshot {
   const status = pm.isAlive(clawId) ? 'running' : 'stopped';
 

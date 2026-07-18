@@ -57,8 +57,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 472 (review N3-L): releaseSource catch 显式 audit、原"audit emit"注释承诺落地
   RELEASE_SOURCE_FAILED: 'contract_release_source_failed',
   COMPLETED: 'contract_completed',
-  PAUSED: 'contract_paused',
-  RESUMED: 'contract_resumed',
   // phase 569 const 化（verification.ts 7 处字面量收）
   SUBTASK_COMPLETED: 'subtask_completed',
   SUBTASK_FORCE_ACCEPTED: 'subtask_force_accepted', // ← NEW phase 1399: force-accept 路径审计
@@ -111,13 +109,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_MULTI_DIR: 'contract_multi_dir',
   // phase 956: multiple active contracts detected
   MULTI_ACTIVE_CONTRACTS: 'multi_active_contracts',
-  // NEW phase 954: boot reconcile lifecycle move recovery (cancel/crash/pause/resume)
+  // NEW phase 954: boot reconcile terminal move recovery (cancel/crash/completed)
   BOOT_RECONCILE_TERMINAL_MOVED: 'contract_boot_reconcile_terminal_moved',
   BOOT_RECONCILE_TERMINAL_MOVE_FAILED: 'contract_boot_reconcile_terminal_move_failed',
-  BOOT_RECONCILE_PAUSED_MOVED: 'contract_boot_reconcile_paused_moved',
-  BOOT_RECONCILE_PAUSED_MOVE_FAILED: 'contract_boot_reconcile_paused_move_failed',
-  BOOT_RECONCILE_RUNNING_MOVED: 'contract_boot_reconcile_running_moved',
-  BOOT_RECONCILE_RUNNING_MOVE_FAILED: 'contract_boot_reconcile_running_move_failed',
   // NEW phase 966: boot reconcile reset leftover in_progress subtasks
   BOOT_RECONCILE_IN_PROGRESS_RESET: 'contract_boot_reconcile_in_progress_reset',
   // NEW phase 968: boot reconcile per-contract in_progress reset isolation
@@ -221,8 +215,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_corrupted: 'audit',
   contract_corrupt_partial_failed: 'audit',
   contract_completed: 'audit',
-  contract_paused: 'audit',
-  contract_resumed: 'audit',
   subtask_completed: 'audit',
   subtask_force_accepted: 'audit',
   verification_failed: 'audit',
@@ -268,15 +260,11 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_observer_state_invariant_violated: 'audit',
   contract_legacy_crashed_observed: 'audit',
   contract_legacy_paused_observed: 'audit',
-  // phase 954: boot reconcile lifecycle move recovery events
+  // phase 954: boot reconcile terminal move recovery events
   contract_multi_dir: 'audit',
   multi_active_contracts: 'audit',
   contract_boot_reconcile_terminal_moved: 'audit',
   contract_boot_reconcile_terminal_move_failed: 'audit',
-  contract_boot_reconcile_paused_moved: 'audit',
-  contract_boot_reconcile_paused_move_failed: 'audit',
-  contract_boot_reconcile_running_moved: 'audit',
-  contract_boot_reconcile_running_move_failed: 'audit',
   contract_boot_reconcile_in_progress_reset: 'audit',
   contract_boot_reconcile_in_progress_reset_failed: 'audit',
 } as const;

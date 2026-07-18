@@ -72,22 +72,6 @@ describe('ContractSystem', () => {
     expect(progress.subtasks['task-1'].status).toBe('todo');
   });
 
-  it('should pause and resume contract', async () => {
-    const contractYaml = makeContractYaml();
-
-    const contractId = await manager.create(contractYaml);
-    
-    // Pause
-    await manager.pause(contractId, 'Test pause');
-    let progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('paused');
-
-    // Resume
-    await manager.resume(contractId);
-    progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('running');
-  });
-
   it('should cancel contract', async () => {
     const contractYaml = makeContractYaml();
 
@@ -99,36 +83,8 @@ describe('ContractSystem', () => {
   });
 
   // === 新增测试：状态转换验证 ===
-  
-  it('should throw when pausing non-running contract', async () => {
-    const contractYaml = makeContractYaml({
-      title: 'Test',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    });
 
-    const contractId = await manager.create(contractYaml);
-    await manager.pause(contractId, 'First pause');
-    
-    // 第二次 pause 应该抛错
-    await expect(manager.pause(contractId, 'Second pause')).rejects.toThrow('Cannot pause');
-  });
-
-  it('should throw when resuming non-paused contract', async () => {
-    const contractYaml = makeContractYaml({
-      title: 'Test',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    });
-
-    const contractId = await manager.create(contractYaml);
-    // running 状态不能 resume
-    await expect(manager.resume(contractId)).rejects.toThrow('Cannot resume');
-  });
-
-  it('should throw when cancelling already completed contract', async () => {
+  it('should throw when cancelling already cancelled contract', async () => {
     const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
@@ -294,9 +250,9 @@ describe('ContractSystem', () => {
       verification: [],
     }));
 
-    // cancel 后不应该能 pause
+    // cancel 后不应该再 cancel
     await manager.cancel(contractId, 'Cancelled');
-    await expect(manager.pause(contractId, 'Try pause')).rejects.toThrow('Cannot pause');
+    await expect(manager.cancel(contractId, 'Try cancel again')).rejects.toThrow('Cannot cancel');
   });
 
   // === 新增测试：损坏 progress.json 抛出 ToolError ===

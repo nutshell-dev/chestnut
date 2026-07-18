@@ -22,7 +22,6 @@ export const DERIVABLE_STATUSES_TUPLE = ['pending', 'running', 'completed'] as c
 export const SUBTASK_STATUSES_TUPLE = ['todo', 'in_progress', 'completed'] as const;
 
 export const LIFECYCLE_PERSISTED_STATUSES_TUPLE = [
-  'paused',                       // paused 子目录、用户主动暂停
   'cancelled',                    // archive 子目录、用户 CLI / system 主动停
   'crashed',                      // archive 子目录、agent 物理推不动 (phase 63)
   'archive_pending_recovery',     // archiveAndEmit partial recovery state (phase 1371 sub-2)

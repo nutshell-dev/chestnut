@@ -4,7 +4,7 @@ import * as yaml from 'js-yaml';
 import { isFileNotFound, stat, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
-import type { ArchiveAllowedStatus, ActiveStatus } from '../types.js';
+import type { ArchiveAllowedStatus, ActiveStatus, ContractStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
@@ -41,7 +41,8 @@ function formatContractEvent(
   meta: { title?: string; goal?: string },
   progress: ProgressData,
 ): FormattedEvent | null {
-  const status = progress.status;
+  // phase 1123 Step C: 'paused' is a legacy archive state-break value, not a current ContractStatus.
+  const status = progress.status as ContractStatus | 'paused';
   switch (status) {
     case 'completed':
       return formatCompleted(clawId, contractDirName, meta, progress);
@@ -168,7 +169,7 @@ export interface ArchivedContractEntry {
   /** archive 时间戳 ms epoch；优先 max(subtask.completed_at)，无完成 subtask 时 fallback 到 progress.json mtime */
   archivedAt: number;
   // phase 63 NEW
-  status: ArchiveAllowedStatus | ActiveStatus;     // entry 状态、observer 据此分流
+  status: ArchiveAllowedStatus | ActiveStatus | 'paused';     // entry 状态、observer 据此分流
   reason?: string;            // cancelled / state_machine_break 时填
   cause?: string;             // crashed / state_machine_break 时填
 }

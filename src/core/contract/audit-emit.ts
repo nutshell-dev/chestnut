@@ -549,30 +549,6 @@ export function emitContractCompleted(
   );
 }
 
-// ─── PAUSED ─────────────────────────────────────────────────────────────────
-export function emitContractPaused(
-  audit: AuditLog,
-  opts: { contractId: ContractId; checkpoint: string },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractPaused')) return;
-  // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.PAUSED,
-    `contractId=${opts.contractId}`,
-    `checkpoint=${opts.checkpoint}`,
-  );
-}
-
-// ─── RESUMED ────────────────────────────────────────────────────────────────
-export function emitContractResumed(
-  audit: AuditLog,
-  opts: { contractId: ContractId },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractResumed')) return;
-  // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
-  audit.write(CONTRACT_AUDIT_EVENTS.RESUMED, `contractId=${opts.contractId}`);
-}
-
 // ─── SUBTASK_COMPLETED (key-fix site: split ${contractId}/${subtaskId}) ─────
 export function emitContractSubtaskCompleted(
   audit: AuditLog,
