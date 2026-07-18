@@ -71,12 +71,11 @@ describe('EventLoop.run', () => {
     });
   }
 
-  it('MaxStepsExceededError 走 markLoopCrashed + ackHandles 破热循环', async () => {
+  it('MaxStepsExceededError 不再 mutate Contract、仍 ackHandles 破热循环', async () => {
     const audit = createMockAudit();
     const crashErr = new MaxStepsExceededError(10);
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: crashErr }));
-    const markLoopCrashed = vi.fn().mockResolvedValue(undefined);
     const ackHandles = vi.fn().mockResolvedValue(undefined);
     const nackHandles = vi.fn().mockResolvedValue(undefined);
 
@@ -96,17 +95,12 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      markLoopCrashed,
       abort: vi.fn(),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
     await eventLoop.run();
 
-    expect(markLoopCrashed).toHaveBeenCalledWith(
-      crashErr,
-      expect.arrayContaining([expect.objectContaining({ metadata: { contract_id: 'test-contract' } })]),
-    );
     expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'agent_loop_crash');
     expect(nackHandles).not.toHaveBeenCalled();
     const fatalEntries = audit.entries.filter(
@@ -115,12 +109,11 @@ describe('EventLoop.run', () => {
     expect(fatalEntries.length).toBeGreaterThan(0);
   });
 
-  it('crash error 无 contract_id 时 markLoopCrashed 退化、仍 ackHandles', async () => {
+  it('crash error 无 contract_id 时仍 ackHandles、不调用任何 Contract mutation', async () => {
     const audit = createMockAudit();
     const crashErr = new MaxStepsExceededError(10);
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: crashErr }));
-    const markLoopCrashed = vi.fn().mockResolvedValue(undefined);
     const ackHandles = vi.fn().mockResolvedValue(undefined);
     const nackHandles = vi.fn().mockResolvedValue(undefined);
 
@@ -140,14 +133,12 @@ describe('EventLoop.run', () => {
       ackHandles,
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      markLoopCrashed,
       abort: vi.fn(),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
     await eventLoop.run();
 
-    expect(markLoopCrashed).toHaveBeenCalledWith(crashErr, []);
     expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'agent_loop_crash');
     expect(nackHandles).not.toHaveBeenCalled();
   });
@@ -177,7 +168,6 @@ describe('EventLoop.run', () => {
       ackHandles: vi.fn().mockResolvedValue(undefined),
       nackHandles,
       reactiveTrim,
-      markLoopCrashed: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
     } as unknown as Runtime;
 

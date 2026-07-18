@@ -18,9 +18,8 @@ import {
 } from '../../src/core/agent-executor/errors.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LockContentionExhaustedError } from '../../src/core/contract/errors.js';
-import { makeContractId } from '../../src/core/contract/types.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
-import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
+import { RUNTIME_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
 import { formatErr } from '../../src/foundation/node-utils/index.js';
 import type { TurnResult } from '../../src/core/runtime/types.js';
 
@@ -97,41 +96,16 @@ export async function runLegacyBatch(
       err instanceof LockContentionExhaustedError;
 
     if (isAgentLoopCrash) {
-      for (const info of infos) {
-        const contractId = err instanceof LockContentionExhaustedError
-          ? err.contractId
-          : info.metadata?.contract_id;
-        if (contractId) {
-          try {
-            await contractManager.markCrashed(
-              makeContractId(String(contractId)),
-              `system: ${(err as Error).constructor.name.toLowerCase()}`,
-            );
-          } catch (markErr) {
-            const traceCol = `trace_id=${String(execContext?.trace_id ?? '')}`;
-            auditWriter.write(
-              REACT_LOOP_AUDIT_EVENTS.MARK_CRASHED_FAILED,
-              `contractId=${contractId}`,
-              `err=${(err as Error).constructor.name}`,
-              `markErr=${formatErr(markErr)}`,
-              traceCol,
-            );
-            auditWriter.write(
-              RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-              `path=mark_crashed_failed`,
-              `err=${(err as Error).constructor.name}`,
-              `reason=${formatErr(err)}`,
-              traceCol,
-            );
-          }
-        } else {
-          auditWriter.write(
-            RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-            `path=agent_loop_crash_no_contract`,
-            `err=${(err as Error).constructor.name}`,
-            `reason=${formatErr(err)}`,
-          );
-        }
+      // phase 1121 Step B: process failure 不再 mutate Contract；legacy helper 仅做 audit。
+      const hasContract = infos.some(i => i.metadata?.contract_id) ||
+        (err instanceof LockContentionExhaustedError && err.contractId);
+      if (!hasContract) {
+        auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
+          `path=agent_loop_crash_no_contract`,
+          `err=${(err as Error).constructor.name}`,
+          `reason=${formatErr(err)}`,
+        );
       }
     } else if (!(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal)) {
       auditWriter.write(

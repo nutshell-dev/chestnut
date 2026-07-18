@@ -103,7 +103,7 @@ export class EventLoop {
       let firstInjected = 0;
 
       while (!this.stopped) {
-        const { injected, sources, count, infos, addressedHandles } = await this.runtime.drainInbox();
+        const { injected, sources, count, addressedHandles } = await this.runtime.drainInbox();
         if (count === 0) break;
 
         if (chainIters === 0) {
@@ -144,7 +144,7 @@ export class EventLoop {
           }
           break;
         } else {
-          await this._handleFailedTurn(result, addressedHandles, infos);
+          await this._handleFailedTurn(result, addressedHandles);
           break;
         }
       }
@@ -179,12 +179,11 @@ export class EventLoop {
   private async _handleFailedTurn(
     result: TurnResult,
     addressedHandles: InboxHandle[],
-    infos: Array<{ metadata?: Record<string, string> }>,
   ): Promise<void> {
     if (result.status !== 'failed') return;
     if (isAgentLoopCrashError(result.error)) {
-      // P0-2：确定性失败 → 升级 + ack（破热循环）；escalation 链 = markCrashed + FATAL audit
-      await this.runtime.markLoopCrashed(result.error, infos);
+      // phase 1121 Step B: process failure 不再 mutate Contract；直接 ack 破热循环，
+      // 错误调度 / fatal audit 由 _dispatchError 负责。
       await this.runtime.ackHandles(addressedHandles, 'agent_loop_crash');
     } else {
       await this.runtime.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');

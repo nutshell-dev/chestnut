@@ -39,8 +39,6 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from '../context_manager/injector.js';
 import type { ContractSystem } from '../contract/index.js';
-import { LockContentionExhaustedError } from '../contract/errors.js';
-import { makeContractId } from '../contract/types.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
@@ -921,34 +919,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       return await this.processTurn(messages, systemPrompt, tools, callbacks, traceId);
     } finally {
       cleanup();
-    }
-  }
-
-  /**
-   * P0-2: 将确定性 agent-loop crash 错误升级到 ContractSystem.markCrashed。
-   * 由 EventLoop 在失败分支统一调用，替代 phase 783 误删的 runtime catch 内路由。
-   */
-  async markLoopCrashed(
-    err: unknown,
-    infos: Array<{ metadata?: Record<string, string> }>,
-  ): Promise<void> {
-    const contractId = err instanceof LockContentionExhaustedError
-      ? err.contractId
-      : infos.find(i => i.metadata?.contract_id)?.metadata?.contract_id;
-    if (!contractId) return;  // 无契约上下文 → 上层退化 nack
-    try {
-      await this.contractManager.markCrashed(
-        makeContractId(contractId),
-        `system: ${(err as Error).constructor.name.toLowerCase()}`,
-      );
-    } catch (markErr) {
-      this.auditWriter.write(
-        REACT_LOOP_AUDIT_EVENTS.MARK_CRASHED_FAILED,
-        `contractId=${contractId}`,
-        `err=${(err as Error).constructor.name}`,
-        `markErr=${formatErr(markErr)}`,
-        `trace_id=${String(this.execContext?.trace_id ?? '')}`,
-      );
     }
   }
 

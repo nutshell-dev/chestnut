@@ -104,7 +104,6 @@ export const REACT_LOOP_AUDIT_EVENTS = {
   TURN_ERROR: 'turn_error',
   LLM_CALL: 'llm_call',
   LLM_ERROR: 'llm_error',
-  MARK_CRASHED_FAILED: 'mark_crashed_failed',  // phase 63 NEW
 } as const;
 
 /**

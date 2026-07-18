@@ -24,8 +24,8 @@ export class MultipleActiveContractsError extends Error {
  *
  * 触发：高并发场景下、lockContract 自带 retry budget（LOCK_CONTRACT_MAX_RETRY 次）用尽。
  *
- * Runtime catch 加入 → 走 ContractSystem.markCrashed 复用 phase 63 contract_crashed 通道。
- * motion 收 inbox typed alert + composer 渲染（cause='system: lockcontentionexhaustederror'）。
+ * phase 1121 Step B: process failure 不再 mutate Contract；本 Error 作为 agent-loop
+ * crash 类型仍由 EventLoop ack / 错误调度 / fatal audit 处理，但不进入 Contract lifecycle。
  */
 export class LockContentionExhaustedError extends Error {
   readonly name = 'LockContentionExhaustedError';

@@ -129,7 +129,7 @@ export interface TurnResult {
  *
  * 消费者依赖只暴露所需子集：
  * - Assembly: lifecycle (initialize/stop/getters)
- * - Daemon-loop: 消息处理 (processTurn/processWithMessage/markLoopCrashed) + abort
+ * - Daemon-loop: 消息处理 (processTurn/processWithMessage) + abort
  * - CLI: 交互 (chat/abort)
  *
  * 4 个 diagnostic getter (getCurrentTraceId/SystemPrompt/Tools/Messages) 不入
@@ -153,7 +153,6 @@ export interface IRuntimeDaemon {
     callbacks?: StreamCallbacks,
   ): Promise<TurnResult>;
   processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult>;
-  markLoopCrashed(err: unknown, infos: Array<{ metadata?: Record<string, string> }>): Promise<void>;
   abort(): void;
 }
 
