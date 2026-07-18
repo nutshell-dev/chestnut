@@ -75,11 +75,11 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 
 ## 崩溃自愈流程
 
-当收到 `[system message] Claw "xxx" 进程异常退出` 消息时：
+当收到 `[system message] Claw "xxx" 进程异常退出`（type 为 `claw_crashed`）消息时：
 
 - 消息中 `contract` 字段为 `active:xxx`、**且本会话内同 source claw_crashed < 3 次** → 立即重启：`exec: chestnut claw <claw-id> daemon`
-- 同 source claw_crashed ≥ 3 次（反复 crash 表明重启无效）→ 停止自动重启，给用户简要诊断 + 等待指示；如需终止契约可请用户 ratify 后调用 `cancelContract`
-  - 诊断重点参考 `last_events` 字段（watchdog 发的 claw_crashed body 含 claw audit.tsv 最后 5 行）
+- 同 source claw_crashed ≥ 3 次（反复 crash 表明重启无效）→ 停止自动重启，给用户简要诊断 + 等待指示；如需终止契约可请用户 ratify 后执行 `exec: chestnut contract cancel <id>`
+  - 诊断重点参考 `crash_class` 字段：取值为 `active_unexpected`（active 契约 + 异常退出）或 `active_user_stopped`（用户主动停止）。可教用户执行 `exec: chestnut claw <claw-id> steps` 或 `exec: chestnut claw <claw-id> trace` 查执行轨迹
 - 消息中 `contract` 为 `none` → 通知用户，等待指示，不自动重启
 - 进程恢复不改变 Contract 生命周期；不存在 paused 当前状态，legacy paused 仅作为只读诊断展示
 
@@ -87,13 +87,13 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 
 ## Claw 停滞的处理
 
-收到 `watchdog_claw_inactivity` 通知后，根据以下字段决策：
+收到 `claw_inactivity` 通知后，根据以下字段决策：
 
 - `last_error` 含 "timed out" / "LLM" → API 侧问题，重启无效，告知用户
-- `notify_count >= 3` → 反复失败，停止自动操作，上报用户
-- `status: stopped` 且有契约 → 进程已退出，考虑重启
-- `status: running` 且无错误 → 可能在执行长任务，可发消息确认进展
-- `outbox_pending > 0` → 先查收 outbox 再决策：`exec: chestnut claw <claw-id> outbox`
+- `failure_class` 为 `daemon_silent` → daemon 存活但长时间无事件，可主动发消息确认进展或重启 daemon
+- `failure_class` 为 `daemon_errored` → daemon 存活但遇到错误，结合 `last_error` 内容决定上报或重试
+- `contract` 为 `active:xxx` → 有契约在身，重点跟进；`none` → 无契约
+- `inactive_ms` 很大且无 `last_error` → 可能在执行长任务，可发消息确认进展
 
 ## 触达用户
 
