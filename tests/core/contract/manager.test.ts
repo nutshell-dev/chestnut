@@ -13,7 +13,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { ContractValidationError } from '../../../src/core/contract/errors.js';
+import { ContractCapacityError, ContractValidationError } from '../../../src/core/contract/errors.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -84,8 +84,8 @@ describe('ContractSystem manager (phase 956)', () => {
     expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR)).toBe(true);
   });
 
-  it('rejects create when contractId already exists in active', async () => {
-    const manager = setupManager().manager;
+  it('rejects create when contractId already exists in active (capacity guard)', async () => {
+    const { manager } = setupManager();
     const contractId = 'dup-active-c1';
 
     // Simulate an existing active contract directory
@@ -93,17 +93,16 @@ describe('ContractSystem manager (phase 956)', () => {
 
     await expect(
       manager.create(makeContractYaml({ id: contractId })),
-    ).rejects.toThrow(ContractValidationError);
+    ).rejects.toThrow(ContractCapacityError);
 
     try {
       await manager.create(makeContractYaml({ id: contractId }));
     } catch (err) {
-      expect(err).toBeInstanceOf(ContractValidationError);
-      const e = err as ContractValidationError;
-      expect(e.field).toBe('id');
-      expect(e.kind).toBe('already_exists');
-      expect(e.context?.contractId).toBe(contractId);
-      expect(e.message).toContain('active');
+      expect(err).toBeInstanceOf(ContractCapacityError);
+      const e = err as ContractCapacityError;
+      expect(e.requestedContractId).toBe(contractId);
+      expect(e.activeContractIds).toContain(contractId);
+      expect(e.message).toContain('active capacity is full');
     }
   });
 
