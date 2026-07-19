@@ -783,38 +783,6 @@ export function emitContractObserverStateLoadFailed(
   );
 }
 
-// ─── ARCHIVE_PARTIAL_RECOVERY_FAILED ────────────────────────────────────────
-export function emitContractArchivePartialRecoveryFailed(
-  audit: AuditLog,
-  opts: {
-    contractId: ContractId;
-    context?: string;
-    message?: string;
-    error?: string;
-  },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchivePartialRecoveryFailed')) return;
-  const cols: string[] = [`contractId=${opts.contractId}`];
-  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
-  if (opts.message !== undefined) cols.push(`message=${opts.message}`);
-  if (opts.error !== undefined) cols.push(`error=${opts.error}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED, ...cols);
-}
-
-// ─── ARCHIVE_RECOVERED ────────────────────────────────────────────────────────
-export function emitContractArchiveRecovered(
-  audit: AuditLog,
-  opts: {
-    contractId: ContractId;
-    context?: string;
-  },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveRecovered')) return;
-  const cols: string[] = [`contractId=${opts.contractId}`];
-  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.ARCHIVE_RECOVERED, ...cols);
-}
-
 // ─── VERIFICATION_PIPELINE_RACE_REJECTED ─────────────────────────────────────
 export function emitContractVerificationPipelineRaceRejected(
   audit: AuditLog,
@@ -1043,20 +1011,6 @@ export function emitContractArchiveLegacyMigrationSummary(
     `conflicts=${opts.conflicts}`,
     `skipped=${opts.skipped}`,
     `failed=${opts.failed}`,
-  );
-}
-
-// ─── ARCHIVE_RECOVERY_PENDING_OBSERVED ────────────────────────────────────────
-// phase 197: archive_pending_recovery 系统内部状态、motion 无 actionable、归 audit 不投 inbox
-export function emitContractArchiveRecoveryPendingObserved(
-  audit: AuditLog,
-  args: { clawId: ClawId; contractId: string; context: string },
-): void {
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECOVERY_PENDING_OBSERVED,
-    `clawId=${args.clawId}`,
-    `contractId=${args.contractId}`,
-    `context=${args.context}`,
   );
 }
 

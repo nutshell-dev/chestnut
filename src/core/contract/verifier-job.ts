@@ -18,8 +18,8 @@ import {
   emitContractVerifierPassed,
   emitContractVerifierResultParseFailed,
 } from './audit-emit.js';
-import { z } from 'zod';
 import { CONTRACT_ACTIVE_DIR, PROGRESS_FILE } from './dirs.js';
+import { ContractProgressPersistedSchema } from './schemas.js';
 import * as path from 'path';
 import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
@@ -31,11 +31,6 @@ import { TASKS_SYNC_DIR } from '../async-task-system/dirs.js';
 import { callerTypeToProfile } from '../permissions/caller-types.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
-
-// phase 330: peek-pattern schema for crash-recovery cancelled-skip check (passthrough、允许其他字段)
-const LifecycleStatusPeekSchema = z.object({
-  status: z.string().optional(),
-}).passthrough();
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
   // phase 19 Step D: explicit runtime check replaces non-null assertion (LSP/M#4).
@@ -49,33 +44,18 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     );
   }
 
-  // phase 1080: crash-recovery — skip verifier if contract was cancelled
-  // phase 324 C4: 扩展短路至所有 non-runnable persisted 生命周期状态。
-  // phase 1125 Step B: 'paused' 仅作为 legacy persisted 状态的 fail-closed guard 保留，
-  //   当前 lifecycle 已不再产生 paused contract。
-  //   - file status in {cancelled, crashed, paused, archive_pending_recovery, archive_corrupted}
-  //     → 不烧 LLM token、立即返不通过
-  //   - ENOENT → contract 已被 move 出 active/（archived 等）→ 同上短路
-  //   - 仅"派生状态"（running / pending / completed，progress.json 不存 status 字段）才继续
-  //
-  // 不直走 getProgress：verifier-job 是底层 helper、不应回调 ContractSystem
-  // 创建循环依赖；status 在 progress.json 的可观察字段已够辨识非派生生命周期。
+  // Phase 1132 Step E: verifier preflight — active progress exists + strict schema.
+  // The only runnable contract is one still in active/ with a valid current schema.
+  // ENOENT => contract archived/moved => fail-closed.
+  // Schema invalid => don't burn LLM tokens on corrupt state.
+  // No lifecycle status literals are consulted; they are no longer persisted.
   if (config.contractId) {
-    const NON_RUNNABLE_PERSISTED_STATUSES = new Set(['cancelled', 'crashed', 'paused', 'archive_pending_recovery', 'archive_corrupted']);
-    const progressPath = path.join(
-      CONTRACT_ACTIVE_DIR,
-      config.contractId,
-      PROGRESS_FILE,
-    );
+    const progressPath = path.join(CONTRACT_ACTIVE_DIR, config.contractId, PROGRESS_FILE);
     try {
       const raw = await config.fs.read(progressPath);
-      // phase 330 Zod SoT broaden (ML#9 优先编译器检查、phase 326 升档 (C) sister):
-      // crash-recovery skip check uses peek-pattern (passthrough、仅 access status field、不强制 full schema)
       const rawParsed: unknown = JSON.parse(raw);
-      const result = LifecycleStatusPeekSchema.safeParse(rawParsed);
+      const result = ContractProgressPersistedSchema.safeParse(rawParsed);
       if (!result.success) {
-        // progress.json schema invalid → cannot determine contract state.
-        // Fail-closed: don't launch LLM verifier on potentially corrupt state.
         if (config.audit) {
           emitContractVerifierSkipped(config.audit, {
             contractId: config.contractId, agentId: config.agentId,
@@ -84,20 +64,8 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         }
         return { passed: false, feedback: 'Contract progress.json schema invalid — verifier aborting' };
       }
-      const progress = result.data;
-      if (typeof progress.status === 'string' && NON_RUNNABLE_PERSISTED_STATUSES.has(progress.status)) {
-        if (config.audit) {
-          emitContractVerifierSkipped(
-            config.audit,
-            { contractId: config.contractId, agentId: config.agentId, reason: `contract_${progress.status}` },
-          );
-        }
-        return { passed: false, feedback: `Contract was ${progress.status} before verifier started` };
-      }
     } catch (err) {
-      // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
       if (isFileNotFound(err)) {
-        // phase 324 C4: ENOENT → contract 已 archived / 已移走，verifier 没目的地了，短路。
         if (config.audit) {
           emitContractVerifierSkipped(
             config.audit,

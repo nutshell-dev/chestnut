@@ -61,22 +61,20 @@ describe('phase 63: formatContractEvent status 分支', () => {
     expect(entries[0].cause).toBe('system: maxstepsexceedederror');
   });
 
-  it('archive_pending_recovery → [contract_archive_pending_recovery]', async () => {
+  it('Step F: archive_pending_recovery legacy flat entry is skipped (no event)', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_pending_recovery');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].body).toMatch(/^\[contract_archive_pending_recovery\]/);
-    expect(entries[0].status).toBe('archive_pending_recovery');
+    expect(entries).toHaveLength(0);
   });
 
-  it('archive_corrupted → [contract_archive_corrupted] + failure marker', async () => {
+  it('Step F: archive_corrupted legacy flat entry maps to corrupted archive state', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_corrupted');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_archive_corrupted\]/);
-    expect(entries[0].status).toBe('archive_corrupted');
+    expect(entries[0].status).toBe('corrupted');
     expect(entries[0].hasFailure).toBe(true);
   });
 });

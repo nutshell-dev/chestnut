@@ -215,7 +215,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     expect(corruptedEvents[0].join(' ')).toContain('schema_validation_failed');
   });
 
-  it('active status in archive returns structured failure and emits collector audit', async () => {
+  it('Step F: active status in legacy flat archive is filtered out at collector level and audited', async () => {
     const { audit, events } = makeAudit();
     await makeContract('claws/worker-1', '1780-running', JSON.stringify({
       schema_version: 1,
@@ -227,11 +227,8 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
     const { entries } = await scanArchivedContracts(fs, clawDir, 'worker-1', audit);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].status).toBe('running');
-    expect(entries[0].hasFailure).toBe(true);
-    expect(entries[0].reason).toBe('state_machine_break');
-    expect(entries[0].cause).toContain('active status "running" in archive');
+    // Active-state entries never reach the observer; the collector audits them.
+    expect(entries).toHaveLength(0);
 
     const activeEvents = events.filter(
       e => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,

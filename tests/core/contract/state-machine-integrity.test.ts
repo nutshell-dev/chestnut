@@ -143,8 +143,6 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       expect(result).toEqual({ archived: false });
       const moveArchiveFails = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
       expect(moveArchiveFails.length).toBeGreaterThanOrEqual(1);
-      const partialRecoveryEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED);
-      expect(partialRecoveryEvents.length).toBe(0);
     });
   });
 

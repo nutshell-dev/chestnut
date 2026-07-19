@@ -7,7 +7,6 @@ import type { InboxMessageOptionsBase } from '../../../foundation/messaging/inde
 import { scanArchivedContracts } from './event-collector.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import {
-  emitContractArchiveRecoveryPendingObserved,
   emitContractLegacyCrashedObserved,
 } from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
@@ -556,36 +555,10 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                 });
                 break;
               }
-              case 'archive_pending_recovery':
-                // phase 197: 系统内部状态、motion 无 actionable、归 audit 不投 inbox
-                emitContractArchiveRecoveryPendingObserved(motionAudit, {
-                  clawId: makeClawId(clawId),
-                  contractId: entry.contractId,
-                  context: 'observer_scan',
-                });
+              case 'corrupted':
+                // Step F: corrupted archive state is terminal; no motion delivery.
                 break;
-              case 'archive_corrupted':
-                // phase 951: archive-level corruption marker — terminal, no motion delivery
-                motionAudit.write(
-                  CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-                  `claw=${clawId}`,
-                  `contract=${entry.contractId}`,
-                  `status=archive_corrupted`,
-                  `context=observer_skip_archive_corrupted`,
-                );
-                break;
-              case 'pending':
-              case 'running':
-              case 'paused':
-                // phase 949: active status in archive 已在 collector 层审计；observer 只跳过、不投 inbox
-                motionAudit.write(
-                  CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-                  `claw=${clawId}`,
-                  `contract=${entry.contractId}`,
-                  `status=${entry.status}`,
-                  `context=observer_skip_active_in_archive`,
-                );
-                break;
+
               default: {
                 const _exhaustive: never = entry.status;
                 return _exhaustive;

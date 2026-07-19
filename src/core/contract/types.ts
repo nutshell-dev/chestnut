@@ -24,23 +24,10 @@ import type { ClawId } from '../../foundation/claw-identity/index.js';
 // Contract domain types (canonical owner per interfaces/l4.md)
 // ============================================================================
 
-// phase 345: ContractStatus disjoint union recompose
-// derive subset (DerivableStatus) 见 deriveProgressStatus return type、由 loader derive from subtasks
-// persist subset (LifecyclePersistedStatus) 持久化保留、显式生命周期状态机
-// phase 358: status tuples 物理放 status-tuples.ts (解 schemas/types circular dep)、type derive 仍归 types.ts
-import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
-
-export type LifecyclePersistedStatus = (typeof LIFECYCLE_PERSISTED_STATUSES_TUPLE)[number];
-
-/**
- * phase 365: typed ReadonlySet<LifecyclePersistedStatus> derive (mirror phase 348 DERIVABLE pattern + phase 362 SUBTASK pattern)
- * 用于 manager.ts getProgress legacy status field LIFECYCLE membership check (替 unsafe cast)
- */
-export const LIFECYCLE_PERSISTED_STATUSES: ReadonlySet<LifecyclePersistedStatus> = new Set(LIFECYCLE_PERSISTED_STATUSES_TUPLE);
-
-// 'pending' / 'running' / 'completed' = DerivableStatus (derive subset)
-// 'cancelled' / 'crashed' / 'archive_pending_recovery' = LifecyclePersistedStatus (persist subset)
-export type ContractStatus = DerivableStatus | LifecyclePersistedStatus;
+// Step F: current lifecycle is path-derived (active / archive/<state>); the only
+// runtime aggregate status is DerivableStatus (pending/running/completed).
+// Legacy flat-archive literals are kept only in LEGACY_PROGRESS_STATUSES_TUPLE for
+// read-only historical parsing by the legacy adapter.
 
 // phase 362: SubtaskStatus 改 derive from tuple (ML#1 共用基础设施单源、mirror DerivableStatus pattern)
 // re-export tuple 保 backward compat 既有 import path
@@ -81,7 +68,7 @@ export interface Contract {
   id: string;
   title: string;
   description: string;
-  status: ContractStatus;
+  status: DerivableStatus;
   priority: Priority;
   creator: string;
   goal: string;
@@ -103,12 +90,11 @@ export type ContractYaml = ContractYamlValidated;
 export type ProgressDataPersisted = ContractProgressPersistedValidated;
 
 // Progress data structure（运行时 schema：derive fields 由 loader 注入）
-// phase 282: status/contract_id 是 derive 字段，落盘不写；内存对象仍保留字段以兼容现有代码。
-// phase 330: Omit<..., 'status'> 因 ProgressDataPersisted.status 是 non-derivable subset、
-// ProgressData.status 是全 ContractStatus enum (含 derivable + non-derivable)
+// Step F: progress.json no longer carries lifecycle status. The runtime aggregate
+// status is derived from subtasks and is strictly DerivableStatus.
 export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
   contract_id: ContractId;   // phase 282 Step B: derive from caller/dir
-  status: ContractStatus;    // phase 282 Step A: derive from subtasks
+  status: DerivableStatus;   // Step F: derive from subtasks
 }
 
 /**
@@ -120,8 +106,7 @@ export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
  * - 空 subtasks → 'pending'
  * - 否则 → 'pending'
  *
- * 注意：'running' / 'cancelled' / 'crashed' / 'archive_pending_recovery'
- * 等生命周期状态无法从 subtasks 单独 derive，仍由业务代码显式控制。
+ * 注意：当前 lifecycle 下 contract 的终端状态由目录位置表达，不再写入 progress.status。
  */
 /**
  * phase 344: derivable status subset type narrow (ML#9 优先编译器检查)。
@@ -129,9 +114,7 @@ export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
  *
  * Derivable status (phase 282 Step A design intent):
  * - 'pending'/'running'/'completed' 由 loader derive from subtasks、不持久化
- * - 'cancelled'/'crashed'/'archive_pending_recovery' 不可 derive、持久化保留
- *
- * 与 ContractStatus (wide enum) 对称、derivable subset typed narrow。
+ * - 终端状态（cancelled/corrupted/completed archive）由目录路径表达。
  * phase 358: DERIVABLE_STATUSES_TUPLE 物理迁 status-tuples.ts (解 schemas/types circular dep)
  * 自身 re-export 保 backward compat 既有 import path
  */
@@ -157,22 +140,6 @@ export function deriveProgressStatus(p: Pick<ProgressDataPersisted, 'subtasks'>)
  * phase 348: Set derive from tuple (ML#1 单源、3 literals 不再重复)。
  */
 export const DERIVABLE_STATUSES: ReadonlySet<DerivableStatus> = new Set(DERIVABLE_STATUSES_TUPLE);
-
-/**
- * phase 351: ARCHIVE_ALLOWED_STATUSES tuple/type/Set 一以贯之 (mirror phase 347/348 pattern)。
- * 终态契约可 archive 的 4 status: completed (derivable terminal) + 3 LifecyclePersistedStatus terminals。
- */
-export const ARCHIVE_ALLOWED_STATUSES_TUPLE = [
-  'completed',                    // DerivableStatus 终态
-  'cancelled',                    // LifecyclePersistedStatus
-  'crashed',                      // LifecyclePersistedStatus
-  'archive_pending_recovery',     // LifecyclePersistedStatus
-  'archive_corrupted',            // phase 951: archive-level corrupted marker (terminal)
-] as const;
-
-export type ArchiveAllowedStatus = (typeof ARCHIVE_ALLOWED_STATUSES_TUPLE)[number];
-
-export const ARCHIVE_ALLOWED_STATUSES: ReadonlySet<ArchiveAllowedStatus> = new Set(ARCHIVE_ALLOWED_STATUSES_TUPLE);
 
 /**
  * phase 1127 Step B: archive state subdirectories (current terminal locations).
@@ -203,21 +170,6 @@ export const ACTIVE_STATUSES_TUPLE = [
 export type ActiveStatus = (typeof ACTIVE_STATUSES_TUPLE)[number];
 
 export const ACTIVE_STATUSES: ReadonlySet<ActiveStatus> = new Set(ACTIVE_STATUSES_TUPLE);
-
-/**
- * phase 352: ALL_CONTRACT_STATUSES_TUPLE 合 2 base tuples (DERIVABLE + LIFECYCLE)、
- * cluster N=13 完整 status 体系单源 (ML#1 + ML#9 一以贯之)。
- *
- * ContractStatus = (typeof ALL_CONTRACT_STATUSES_TUPLE)[number] 等价 DerivableStatus | LifecyclePersistedStatus
- * (现 type 仍保 union 形态、便 deriveProgressStatus return narrow type 互兼容)。
- *
- * ALL_CONTRACT_STATUSES Set 提供 runtime check 基础设施 (e.g., 测试 exhaustive enumeration、status validation)。
- */
-// phase 358: ALL_CONTRACT_STATUSES_TUPLE 物理迁 status-tuples.ts、re-export 保 backward compat
-export { ALL_CONTRACT_STATUSES_TUPLE } from './status-tuples.js';
-import { ALL_CONTRACT_STATUSES_TUPLE } from './status-tuples.js';
-
-export const ALL_CONTRACT_STATUSES: ReadonlySet<ContractStatus> = new Set(ALL_CONTRACT_STATUSES_TUPLE);
 
 /**
  * phase 342: strip derivable status field before persist。

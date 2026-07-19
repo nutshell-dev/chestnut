@@ -112,7 +112,7 @@ describe('ContractSystem.init() boot reconcile', () => {
     expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVED)).toBe(false);
   });
 
-  it('retries move for cancelled contract stuck in active/ (phase 954)', async () => {
+  it('does not recover a cancelled contract from legacy progress.status (Step E derive-only)', async () => {
     const activeDir = path.join(clawDir, 'contract', 'active', 'cancelled-contract');
     await fs.mkdir(activeDir, { recursive: true });
     await fs.writeFile(
@@ -134,16 +134,9 @@ describe('ContractSystem.init() boot reconcile', () => {
     const manager = makeManager();
     await manager.init();
 
-    const movedAudit = auditWrite.mock.calls.find(
-      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVED,
-    );
-    expect(movedAudit).toBeDefined();
-    expect(movedAudit).toContainEqual('contract_id=cancelled-contract');
-    expect(movedAudit).toContainEqual('status=cancelled');
-
-    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', 'cancelled-contract');
-    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
-    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(false);
+    // Step E: boot reconcile ignores legacy progress.status; subtasks are not all
+    // completed, so the contract stays active.
+    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
   });
 });
 

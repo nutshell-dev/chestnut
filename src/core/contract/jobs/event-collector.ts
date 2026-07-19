@@ -4,11 +4,12 @@ import * as yaml from 'js-yaml';
 import { isFileNotFound, stat, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
-import type { ArchiveAllowedStatus, ActiveStatus, ContractStatus } from '../types.js';
+import type { ArchiveState } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { listArchiveContractLocations, archiveContainerDir, type ArchiveListEntry } from '../locations.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
+import { LEGACY_PROGRESS_STATUSES_TUPLE } from '../schemas.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
 
 function readContractMeta(
@@ -28,22 +29,58 @@ function readContractMeta(
   }
 }
 
+// Step F: observer processes current ArchiveState plus legacy 'crashed' audit-only entries.
+type ObservedArchiveStatus = ArchiveState | 'crashed';
+
 interface FormattedEvent {
   body: string;
-  hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback 或状态机断裂
-  status: ArchiveAllowedStatus | ActiveStatus | 'paused';
+  hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback
+  status: ObservedArchiveStatus;
   reason?: string;
   cause?: string;
 }
 
-function formatContractEvent(
+// Step F: current archive state comes from the directory path (SoT).
+function formatCurrentArchiveEvent(
   clawId: ClawId,
   contractDirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
+  state: ArchiveState,
 ): FormattedEvent | null {
-  // phase 1123 Step C: 'paused' is a legacy archive state-break value, not a current ContractStatus.
-  const status = progress.status as ContractStatus | 'paused';
+  switch (state) {
+    case 'completed':
+      return formatCompleted(clawId, contractDirName, meta, progress);
+    case 'cancelled':
+      return formatCancelled(clawId, contractDirName, meta, progress);
+    case 'corrupted':
+      return {
+        body: `[contract_archive_corrupted] claw=${clawId} contract=${contractDirName}`,
+        hasFailure: true,
+        status: 'corrupted',
+        reason: 'archive_corrupted',
+        cause: `Contract ${contractDirName} is in corrupted archive state`,
+      };
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+}
+
+// Step F: legacy flat-archive entries derive their status from progress.json.
+// The legacy adapter is read-only; it maps/audits historical literals but never
+// writes them back.
+function formatLegacyFlatArchiveEvent(
+  clawId: ClawId,
+  contractDirName: string,
+  meta: { title?: string; goal?: string },
+  progress: ProgressData,
+  audit: AuditLog,
+): FormattedEvent | null {
+  // Step F: progress.status is DerivableStatus at runtime type; legacy flat entries
+  // may carry any historical literal, so cast through the legacy vocabulary.
+  const status = progress.status as unknown as (typeof LEGACY_PROGRESS_STATUSES_TUPLE)[number];
   switch (status) {
     case 'completed':
       return formatCompleted(clawId, contractDirName, meta, progress);
@@ -51,33 +88,41 @@ function formatContractEvent(
       return formatCancelled(clawId, contractDirName, meta, progress);
     case 'crashed':
       return formatCrashed(clawId, contractDirName, meta, progress);
-    case 'archive_pending_recovery':
-      return formatPendingRecovery(clawId, contractDirName, meta, progress);
     case 'archive_corrupted':
-      // phase 951: archive-level corruption marker — terminal, no motion delivery
       return {
         body: `[contract_archive_corrupted] claw=${clawId} contract=${contractDirName}`,
         hasFailure: true,
-        status: 'archive_corrupted',
+        status: 'corrupted',
         reason: 'archive_corrupted',
         cause: `Contract ${contractDirName} is marked archive_corrupted`,
       };
+    case 'archive_pending_recovery':
+      // Step F: this was a transient current-lifecycle state; it is no longer
+      // produced and has no current archive destination. Read-only skip.
+      return null;
     case 'pending':
     case 'running':
     case 'paused':
-      // Active state in archive is a state-machine break.
+      // Active status in archive is a state-machine break.
       // Audit at collector level — the "upper layer" has no visibility into this.
-      return {
-        body: '',
-        hasFailure: true,
-        status,
-        reason: 'state_machine_break',
-        cause: `Contract ${contractDirName} has active status "${status}" in archive`,
-      };
+      audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+        `clawId=${clawId}`,
+        `contract=${contractDirName}`,
+        `status=${status}`,
+        `cause=active status in legacy flat archive`,
+      );
+      return null;
     default: {
-      // exhaustive check：未来加新 status 编译期失败
-      const _exhaustive: never = status;
-      return _exhaustive;
+      // Unknown legacy literal: best-effort audit as active-state break and skip.
+      audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+        `clawId=${clawId}`,
+        `contract=${contractDirName}`,
+        `status=${String(status)}`,
+        `cause=unknown status in legacy flat archive`,
+      );
+      return null;
     }
   }
 }
@@ -148,18 +193,6 @@ function formatCrashed(
   return { body: lines.join('\n'), hasFailure: true, status: 'crashed', cause };
 }
 
-function formatPendingRecovery(
-  clawId: ClawId,
-  dirName: string,
-  meta: { title?: string; goal?: string },
-  _progress: ProgressData,
-): FormattedEvent {
-  const lines: string[] = [`[contract_archive_pending_recovery] claw=${clawId} contract=${dirName}`];
-  if (meta.title) lines.push(`  title: ${meta.title}`);
-  lines.push(`  note: archive partial recovery state (phase 1371 sub-2)、boot reconcile 待处理`);
-  return { body: lines.join('\n'), hasFailure: true, status: 'archive_pending_recovery' };
-}
-
 /**
  * phase 37: 结构化 entry、含 contractId（caller 可作 dedup key）+ ms 时间戳（caller 可作 sinceTs filter）。
  */
@@ -169,10 +202,10 @@ export interface ArchivedContractEntry {
   hasFailure: boolean;
   /** archive 时间戳 ms epoch；优先 max(subtask.completed_at)，无完成 subtask 时 fallback 到 progress.json mtime */
   archivedAt: number;
-  // phase 63 NEW
-  status: ArchiveAllowedStatus | ActiveStatus | 'paused';     // entry 状态、observer 据此分流
-  reason?: string;            // cancelled / state_machine_break 时填
-  cause?: string;             // crashed / state_machine_break 时填
+  // Step F: observer processes current ArchiveState plus legacy 'crashed' audit-only entries.
+  status: ObservedArchiveStatus;
+  reason?: string;            // cancelled 时填
+  cause?: string;             // corrupted/crashed 时填
 }
 
 /**
@@ -246,12 +279,10 @@ export async function scanArchivedContracts(
         }
         continue;
       }
-      // phase 1127 Step C: current archive state comes from the directory path (SoT).
-      // Legacy flat entries continue to derive status from progress.json.
       const progress = {
         ...result.data,
         contract_id: loc.contractId,
-        status: loc.state ?? result.data.status ?? 'completed',
+        status: 'completed' as const,
       } as ProgressData;
       let archivedAt = Object.values(progress.subtasks)
         .reduce((max, s) => {
@@ -268,21 +299,15 @@ export async function scanArchivedContracts(
         }
       }
       const meta = readContractMeta(fs, loc.contractRoot);
-      const formatted = formatContractEvent(clawId, loc.contractId, meta, progress);
-      if (formatted === null) continue;
-      if (formatted.status === 'pending' || formatted.status === 'running' || formatted.status === 'paused') {
-        const dedupKey = `${clawId}:${loc.contractId}`;
-        if (!dedup?.activeState.has(dedupKey)) {
-          audit?.write(
-            CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-            `clawId=${clawId}`,
-            `contract=${loc.contractId}`,
-            `status=${formatted.status}`,
-            `cause=${formatted.cause ?? 'active status in archive'}`,
-          );
-          dedup?.activeState.add(dedupKey);
-        }
+      let formatted: FormattedEvent | null;
+      if (loc.kind === 'current' && loc.state) {
+        formatted = formatCurrentArchiveEvent(clawId, loc.contractId, meta, progress, loc.state);
+      } else {
+        // Step F: legacy flat archive — derive status from historical progress.json field.
+        (progress as unknown as Record<string, unknown>).status = result.data.status ?? 'completed';
+        formatted = formatLegacyFlatArchiveEvent(clawId, loc.contractId, meta, progress, audit);
       }
+      if (formatted === null) continue;
       entries.push({
         contractId: loc.contractId,
         body: formatted.body,
@@ -338,7 +363,9 @@ export async function collectContractEvents(
   const { entries } = await scanArchivedContracts(fs, clawDir, clawId, audit);
   const filtered = entries.filter(e => e.archivedAt > sinceTs);
   return {
-    events: filtered.map(e => e.body),
-    problemPairs: filtered.filter(e => e.hasFailure).map(e => `${clawId}:${e.contractId}`),
+    events: filtered.map(e => e.body).filter(b => b.length > 0),
+    problemPairs: filtered
+      .filter(e => e.hasFailure)
+      .map(e => `${clawId}:${e.contractId}`),
   };
 }

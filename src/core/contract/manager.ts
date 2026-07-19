@@ -58,7 +58,7 @@ import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
 } from './types.js';
-import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, ARCHIVE_STATES } from './types.js';
+import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import {
   lockContract,
   acquireLock,
@@ -525,112 +525,120 @@ export class ContractSystem {
    * phase 1285 InboxReader.init() 模板 mirror
    */
   async init(): Promise<void> {
-    // phase 1123 Step C: current semantics no longer include paused.
+    // Phase 1132 Step E: boot reconcile derives all state from active path + subtask facts.
     this.audit.write(
       CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
       'recovered=false',
     );
 
-    // phase 1371 sub-2: boot reconcile — scan active contracts for archive_pending_recovery
     let failedCount = 0;
     if (await this.fs.exists(this.activeDir)) {
-      const entries = await this.fs.list(this.activeDir, { includeDirs: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory) continue;
-        const progressPath = `${this.activeDir}/${entry.name}/progress.json`;
-        if (!(await this.fs.exists(progressPath))) continue;
+      const activeIds = await listPhysicalActiveContractIds({
+        fs: this.fs,
+        activeDir: this.activeDir,
+      });
+
+      for (const contractId of activeIds) {
         try {
-          const raw = await this.fs.read(progressPath);
-          // phase 335 Zod SoT (ML#9 优先编译器检查、phase 332 升档 (A) sister):
-          // boot_reconcile = legacy migration loop business semantic、复用 ContractProgressArchiveLooseSchema loose schema (passthrough subtasks 允许 legacy 'escalated' status)
-          const rawParsed: unknown = JSON.parse(raw);
-          const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
-          if (!validation.success) {
+          // Phase 1399: migrate legacy 'escalated' subtask status -> completed + force_accepted.
+          // Use the loose archive schema because strict active schema no longer recognises
+          // 'escalated'; after migration strict getProgress will succeed.
+          const activeProgressPath = `${this.activeDir}/${contractId}/progress.json`;
+          if (await this.fs.exists(activeProgressPath)) {
+            try {
+              const raw = await this.fs.read(activeProgressPath);
+              const loose = ContractProgressArchiveLooseSchema.safeParse(JSON.parse(raw));
+              if (loose.success && loose.data.subtasks) {
+                let migrated = false;
+                for (const [stId, st] of Object.entries(loose.data.subtasks)) {
+                  const stRecord = st as Record<string, unknown>;
+                  if (stRecord.status === 'escalated') {
+                    stRecord.status = 'completed';
+                    stRecord.force_accepted = true;
+                    delete stRecord.escalated_at;
+                    if (!stRecord.completed_at) stRecord.completed_at = new Date().toISOString();
+                    migrated = true;
+                    this.audit.write(
+                      CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ESCALATED,
+                      `contractId=${contractId}`,
+                      `subtaskId=${stId}`,
+                    );
+                  }
+                }
+                if (migrated) {
+                  await this.fs.writeAtomic(activeProgressPath, JSON.stringify(loose.data, null, 2));
+                }
+              }
+            } catch {
+              // silent: best-effort legacy migration; strict getProgress below will surface real corruption.
+            }
+          }
+
+          const progress = await this.getProgress(contractId);
+          if (!progress) {
             this.audit.write(
               CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_SCHEMA_FAILED,
-              `contract=${entry.name}`,
+              `contract=${contractId}`,
               'reason=schema_parse_failed',
             );
             failedCount++;
             continue;
           }
-          const progress = validation.data;
 
-          // NEW phase 1399: active dir 'escalated' 残留 migrate → completed + force_accepted
-          if (progress.subtasks) {
-            let mutated = false;
-            for (const [stId, st] of Object.entries(progress.subtasks)) {
-              if (st.status === 'escalated') {
-                st.status = 'completed';
-                st.force_accepted = true;
-                delete st.escalated_at;
-                if (!st.completed_at) st.completed_at = new Date().toISOString();
-                mutated = true;
-                this.audit.write(
-                  CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ESCALATED,
-                  `contractId=${progress.contract_id ?? entry.name}`,
-                  `subtaskId=${stId}`,
-                );
-              }
+          let mutated = false;
+          const resetIds: string[] = [];
+
+          // Phase 966 / 1132 Step E: reset leftover in_progress subtasks based on subtask fact
+          for (const [stId, subtask] of Object.entries(progress.subtasks)) {
+            if (subtask.status === 'in_progress') {
+              subtask.status = 'todo';
+              delete subtask.verification_attempt_id;
+              resetIds.push(stId);
+              mutated = true;
             }
-            if (mutated) {
-              // phase 319: 删 assertProgressShapeInvariants（load 端 ContractProgressPersistedSchema.safeParse 已守、boot reconcile 双 check 冗余）
-              // phase 338: align phase 282 Step A design intent (derivable status 不持久化、由 loader derive from subtasks)、strip derivable before writeAtomic
-              // phase 342: stripDerivableStatus helper (ML#1 共用基础设施单源、与 persistence.ts saveProgress 共用)
-              const persistedProgress: Record<string, unknown> = { ...progress };
-              stripDerivableStatus(persistedProgress);
-              await this.fs.writeAtomic(progressPath, JSON.stringify(persistedProgress, null, 2));
-              const allCompleted = Object.values(progress.subtasks).every(s => s.status === 'completed');
-              if (allCompleted && progress.status !== 'completed') {
-                // phase 338: status mutation in-memory only (downstream archiveAndEmit 用)、2nd writeAtomic 删 (redundant after strip)
-                progress.status = 'completed';
-                progress.completed_at = new Date().toISOString();
-                const contractId = makeContractId(progress.contract_id ?? entry.name);
-                // phase 1405: yaml load 失败时跳过 archive、显式 audit 留 forensics（避免 stuck-in-active 静默）
-                let contractYaml: Awaited<ReturnType<typeof this.loadContractYaml>> | null = null;
-                try {
-                  contractYaml = await this.loadContractYaml(contractId);
-                } catch (err) {
-                  this.audit.write(
-                    CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ARCHIVE_SKIPPED,
-                    `contractId=${contractId}`,
-                    `reason=yaml_load_failed`,
-                    `error=${formatErr(err)}`,
-                  );
-                }
-                if (contractYaml) {
-                  await archiveAndEmit(this._verificationCtx(), contractId, contractYaml, 'init.migrate_escalated');
-                }
+          }
+
+          if (mutated) {
+            // Phase 970: save progress FIRST so audit failures cannot block the reset.
+            await this.saveProgress(contractId, progress);
+            for (const stId of resetIds) {
+              try {
+                this.audit.write(
+                  CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
+                  `contract=${contractId}`,
+                  `subtask=${stId}`,
+                );
+              } catch {
+                // best-effort audit: leave stderr trace for diagnosis
+                process.stderr.write(`[contract] boot reconcile in_progress reset audit failed for ${contractId}/${stId}\n`);
               }
             }
           }
 
-          if (progress.status === 'archive_pending_recovery') {
-            const contractId = makeContractId(progress.contract_id ?? entry.name);
-            // phase 1127 Step D: recovery must first transition status to completed
-            // so the typed writer can move it into archive/completed/.
-            progress.status = 'completed';
-            progress.completed_at = new Date().toISOString();
-            const persistedProgress: Record<string, unknown> = { ...progress };
-            stripDerivableStatus(persistedProgress);
-            await this.fs.writeAtomic(progressPath, JSON.stringify(persistedProgress, null, 2));
-            const contractYaml = await this.loadContractYaml(contractId);
-            if (contractYaml) {
-              await archiveAndEmit(
-                this._verificationCtx(),
-                contractId,
-                contractYaml,
-                'ContractSystem.init.bootReconcile',
+          // Phase 1132 Step E: active all-subtasks-completed -> retry completed archive
+          if (deriveProgressStatus(progress) === 'completed') {
+            let contractYaml: Awaited<ReturnType<typeof this.loadContractYaml>> | null = null;
+            try {
+              contractYaml = await this.loadContractYaml(contractId);
+            } catch (err) {
+              this.audit.write(
+                CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ARCHIVE_SKIPPED,
+                `contractId=${contractId}`,
+                `reason=yaml_load_failed`,
+                `error=${formatErr(err)}`,
               );
+            }
+            if (contractYaml) {
+              await archiveAndEmit(this._verificationCtx(), contractId, contractYaml, 'init.completedActiveRetry');
             }
           }
         } catch (err) {
           this.audit.write(
             CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_SKIPPED,
-            `path=${progressPath}`,
+            `contract=${contractId}`,
             `error=${formatErr(err)}`,
           );
-          // silent: corrupted progress.json boot reconcile best-effort skip（forensics emit 上面）
+          failedCount++;
         }
       }
     }
@@ -639,116 +647,6 @@ export class ContractSystem {
       this.audit.write(
         CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
         `schema_failed_count=${failedCount}`,
-      );
-    }
-
-    // NEW phase 966: boot reconcile — reset leftover in_progress subtasks so submit can retry.
-    // Phase 968: per-contract try/catch isolation so one corrupt contract doesn't block others.
-    try {
-      if (await this.fs.exists(this.activeDir)) {
-        const activeEntries = await this.fs.list(this.activeDir, { includeDirs: true });
-        for (const entry of activeEntries) {
-          try {
-            if (!entry.isDirectory) continue;
-            const contractId = makeContractId(entry.name);
-            const progress = await this.getProgress(contractId);
-            if (!progress || progress.status !== 'running') continue;
-            let mutated = false;
-            const resetIds: string[] = [];
-            for (const [stId, subtask] of Object.entries(progress.subtasks)) {
-              if (subtask.status === 'in_progress') {
-                subtask.status = 'todo';
-                delete subtask.verification_attempt_id;
-                resetIds.push(stId);
-                mutated = true;
-              }
-            }
-            if (mutated) {
-              // Phase 970: save progress FIRST so audit failures cannot block the reset.
-              await this.saveProgress(contractId, progress);
-              for (const stId of resetIds) {
-                try {
-                  this.audit.write(
-                    CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
-                    `contract=${entry.name}`,
-                    `subtask=${stId}`,
-                  );
-                } catch {
-                  // best-effort audit: leave stderr trace for diagnosis
-                  process.stderr.write(`[contract] boot reconcile in_progress reset audit failed for ${entry.name}/${stId}\n`);
-                }
-              }
-            }
-          } catch (err) {
-            this.audit.write(
-              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET_FAILED,
-              `contract=${entry.name}`,
-              `reason=${formatErr(err)}`,
-            );
-          }
-        }
-      }
-    } catch (err) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
-        `context=in_progress_reset`,
-        `reason=${formatErr(err)}`,
-      );
-    }
-
-    // phase 954 / 1123 Step C: boot reconcile — recover terminal contracts stuck in active/.
-    // phase 1127 Step D: route to the canonical state subdirectory; crashed has no
-    // current archive state directory and is left in active/ for explicit handling.
-    const BOOT_RECONCILE_TERMINAL_STATUSES = new Set(['cancelled', 'completed']);
-    try {
-      if (await this.fs.exists(this.activeDir)) {
-        const activeEntries = await this.fs.list(this.activeDir, { includeDirs: true });
-        for (const entry of activeEntries) {
-          if (!entry.isDirectory) continue;
-          const progressPath = `${this.activeDir}/${entry.name}/progress.json`;
-          if (!(await this.fs.exists(progressPath))) continue;
-          try {
-            const raw = await this.fs.read(progressPath);
-            const rawParsed: unknown = JSON.parse(raw);
-            const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
-            if (!validation.success) continue;
-            const progress = validation.data;
-            const status = progress.status ?? '';
-
-            if (!BOOT_RECONCILE_TERMINAL_STATUSES.has(status)) continue;
-
-            const contractId = makeContractId(progress.contract_id ?? entry.name);
-            if (status === 'completed') {
-              const contractYaml = await this.loadContractYaml(contractId);
-              if (!contractYaml) continue;
-              await archiveAndEmit(
-                this._verificationCtx(),
-                contractId,
-                contractYaml,
-                'ContractSystem.init.bootReconcile.terminal',
-              );
-            } else if (status === 'cancelled') {
-              await this.cancel(contractId, 'boot reconcile');
-            }
-            this.audit.write(
-              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVED,
-              `contract_id=${contractId}`,
-              `status=${status}`,
-            );
-          } catch (err) {
-            this.audit.write(
-              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
-              `contract_id=${entry.name}`,
-              `reason=${formatErr(err)}`,
-            );
-          }
-        }
-      }
-    } catch (err) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
-        `context=lifecycle_recovery_outer`,
-        `reason=${formatErr(err)}`,
       );
     }
 

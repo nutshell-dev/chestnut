@@ -5,7 +5,7 @@
  *          'message' catch-all 拆解.
  *
  * 7 type 业主语义全归 ContractSystem：
- *   - 'contract_events'           contract-observer 事件聚合（completed / cancelled / crashed；archive_pending_recovery 归 audit 不投 inbox）
+ *   - 'contract_events'           contract-observer 事件聚合（completed / cancelled / corrupted；legacy crashed 仅 audit）
  *   - 'verification_result'       subtask 验证通过（含 force-accept）
  *   - 'verification_rejection'    subtask 验证拒绝
  *   - 'verification_error'        验证执行异常

@@ -233,19 +233,19 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
     );
   });
 
-  it('phase 197: archive_pending_recovery 不投 motion、emit audit', async () => {
+  it('Step F: legacy archive_pending_recovery is skipped silently (no motion, no observer audit)', async () => {
     const opts = makeOpts({ fs: makeFsMock('recovery') });
     await runContractObserver(opts);
 
     // 不投 motion inbox
     expect(opts.notifyMotion).not.toHaveBeenCalled();
 
-    // emit audit
-    expect(opts.motionAudit.write).toHaveBeenCalledWith(
+    // No current-lifecycle audit is emitted for this dead state.
+    expect(opts.motionAudit.write).not.toHaveBeenCalledWith(
       'contract_archive_recovery_pending_observed',
-      'clawId=claw1',
-      'contractId=c-recovery',
-      'context=observer_scan',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
     );
   });
 });

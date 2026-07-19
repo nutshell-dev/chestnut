@@ -180,7 +180,7 @@ describe('ContractSystem manager (phase 956)', () => {
     expect(c1Progress.subtasks['task-1'].status).toBe('todo');
     expect(c1Progress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
     expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET)).toBe(true);
-    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET_FAILED)).toBe(true);
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_SKIPPED)).toBe(true);
   });
 
   it('does not register controller when audit fails (Phase 968)', () => {

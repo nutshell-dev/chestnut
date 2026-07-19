@@ -10,7 +10,7 @@ export type {
   ContentBlock, Message, ToolDefinition, LLMResponse, JSONSchema7,
 } from './foundation/llm-provider/index.js';
 export type {
-  ContractStatus, SubtaskStatus, LastFailedFeedback,
+  DerivableStatus, SubtaskStatus, LastFailedFeedback,
   AcceptanceFailedNotification, SubTask, Contract,
 } from './core/contract/types.js';
 export type { InboxMessage, OutboxMessage, HeartbeatEntry, Priority } from './foundation/messaging/index.js';

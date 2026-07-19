@@ -12,8 +12,6 @@ import { z } from 'zod';
 import {
   DERIVABLE_STATUSES_TUPLE,
   DERIVABLE_STATUSES,
-  ALL_CONTRACT_STATUSES_TUPLE,
-  ALL_CONTRACT_STATUSES,
   SUBTASK_STATUSES_TUPLE,
   SUBTASK_STATUSES,
   deriveProgressStatus,
@@ -83,19 +81,7 @@ describe('phase 1132 Step B: status vocabulary boundary invariants', () => {
     });
   });
 
-  describe('Invariant 4: ALL_CONTRACT_STATUSES_TUPLE = DERIVABLE ∪ LIFECYCLE_PERSISTED (legacy scaffold)', () => {
-    it('All elements unique (disjoint base tuples)', () => {
-      expect(ALL_CONTRACT_STATUSES.size).toBe(ALL_CONTRACT_STATUSES_TUPLE.length);
-    });
-
-    it('contains all DERIVABLE members', () => {
-      for (const literal of DERIVABLE_STATUSES_TUPLE) {
-        expect(ALL_CONTRACT_STATUSES.has(literal)).toBe(true);
-      }
-    });
-  });
-
-  describe('Invariant 5: deriveProgressStatus return ⊆ DERIVABLE_STATUSES', () => {
+  describe('Invariant 4: deriveProgressStatus return ⊆ DERIVABLE_STATUSES', () => {
     it('empty subtasks → pending', () => {
       const result = deriveProgressStatus({ subtasks: {} });
       expect(DERIVABLE_STATUSES.has(result)).toBe(true);

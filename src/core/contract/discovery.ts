@@ -98,9 +98,8 @@ export async function loadActiveContract(
       contractIds,
     );
   }
-  // phase 324 C2: 不再覆盖 status——loadContract 已从 progress 派生（含 cancelled /
-  // crashed / archive_pending_recovery 等终态、boot race / mid-archive 残留时不再
-  // 谎报 running，下游 auditor / dialog injector / status service 不被毒化。
+  // Step F: status is strictly derived from subtasks (DerivableStatus). Terminal
+  // lifecycle states are committed by the directory path, not progress.status.
   return ctx.loadContract(makeContractId(valid[0].name));
 }
 

@@ -18,10 +18,6 @@
 
 import { z } from 'zod';
 
-// phase 358: LIFECYCLE_PERSISTED_STATUSES_TUPLE 物理迁 status-tuples.ts (解 schemas/types circular dep)
-// 自身 re-export 保 backward compat 既有 import path
-export { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
-
 // Step B: explicit legacy progress status vocabulary (historical flat archive input only).
 // Current writer / loader / runtime types must not treat these as current domain vocabulary.
 export const LEGACY_PROGRESS_STATUSES_TUPLE = [

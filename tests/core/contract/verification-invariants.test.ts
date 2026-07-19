@@ -442,10 +442,6 @@ describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
     const moveFailedEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
     expect(moveFailedEvents.length).toBeGreaterThanOrEqual(1);
 
-    // No partial recovery events
-    const partialRecoveryEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED);
-    expect(partialRecoveryEvents.length).toBe(0);
-
     // Contract stays active
     const activeExists = await fs.access(path.join(clawDir, 'contract', 'active', contractId)).then(() => true).catch(() => false);
     expect(activeExists).toBe(true);

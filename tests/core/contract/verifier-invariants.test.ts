@@ -166,7 +166,9 @@ describe('phase 1080: verifier-job cancel skip', () => {
     mockRunSubagentCancelSkip.mockReset();
   });
 
-  it('skips verifier when contract status is cancelled', async () => {
+  // Step E: verifier preflight uses strict active schema; persisted lifecycle
+  // status literals are rejected as schema-invalid, not as runnable state checks.
+  it('skips verifier when progress.json contains a persisted status literal', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       read: vi.fn().mockResolvedValue(JSON.stringify({ status: 'cancelled' })),
@@ -175,19 +177,17 @@ describe('phase 1080: verifier-job cancel skip', () => {
     const result = await runContractVerifier(makeConfig({ audit, fs: fs as unknown as VerifierConfig['fs'] }));
 
     expect(result.passed).toBe(false);
-    // phase 324 C4: feedback wording 改 `Contract was ${status} before verifier started`
-    expect(result.feedback).toBe('Contract was cancelled before verifier started');
+    expect(result.feedback).toBe('Contract progress.json schema invalid — verifier aborting');
     expect(mockRunSubagentCancelSkip).not.toHaveBeenCalled();
 
     const skippedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED);
     expect(skippedRow).toBeDefined();
     expect(skippedRow).toContain('agentId=verifier-test-contract-1');
-    expect(skippedRow).toContain('reason=contract_cancelled');
+    expect(skippedRow).toContain('reason=progress_schema_invalid');
   });
 
-  // phase 324 C4: 扩展短路至所有 terminal / paused 状态。
   it.each(['paused', 'crashed', 'archive_pending_recovery'] as const)(
-    'phase 324 C4: skips verifier when status is %s',
+    'Step E: persisted status %s is treated as schema invalid',
     async (status) => {
       const { audit, events } = makeAudit();
       const fs = {
@@ -197,19 +197,19 @@ describe('phase 1080: verifier-job cancel skip', () => {
       const result = await runContractVerifier(makeConfig({ audit, fs: fs as unknown as VerifierConfig['fs'] }));
 
       expect(result.passed).toBe(false);
-      expect(result.feedback).toBe(`Contract was ${status} before verifier started`);
+      expect(result.feedback).toBe('Contract progress.json schema invalid — verifier aborting');
       expect(mockRunSubagentCancelSkip).not.toHaveBeenCalled();
 
       const skippedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED);
       expect(skippedRow).toBeDefined();
-      expect(skippedRow).toContain(`reason=contract_${status}`);
+      expect(skippedRow).toContain('reason=progress_schema_invalid');
     },
   );
 
-  it('runs verifier normally when contract status is active', async () => {
+  it('runs verifier normally when active progress.json is valid current schema', async () => {
     const { audit, events } = makeAudit();
     const fs = {
-      read: vi.fn().mockResolvedValue(JSON.stringify({ status: 'active' })),
+      read: vi.fn().mockResolvedValue(JSON.stringify({ schema_version: 1, subtasks: { t1: { status: 'todo' } } })),
     };
     mockRunSubagentCancelSkip.mockResolvedValue({
       text: '',

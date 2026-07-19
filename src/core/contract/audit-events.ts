@@ -97,22 +97,14 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_ONBOARDING_PROGRESS_PARSE_FAILED: 'contract_onboarding_progress_parse_failed',
   // phase 1362 (r140): contractDir → acquireLock TOCTOU race retry audit trace
   CONTRACT_DIR_RACE_RETRY: 'contract_dir_race_retry',
-  // phase 1371 sub-2: archiveAndEmit partial recovery audit trace
-  ARCHIVE_PARTIAL_RECOVERY_FAILED: 'contract_archive_partial_recovery_failed',
-  ARCHIVE_RECOVERED: 'contract_archive_recovered',
   // phase 1371 sub-3: verification pipeline mutex race rejection audit trace
   VERIFICATION_PIPELINE_RACE_REJECTED: 'verification_pipeline_race_rejected',
   // phase 956: contract exists in multiple directories (active/paused/archive)
   CONTRACT_MULTI_DIR: 'contract_multi_dir',
   // phase 956: multiple active contracts detected
   MULTI_ACTIVE_CONTRACTS: 'multi_active_contracts',
-  // NEW phase 954: boot reconcile terminal move recovery (cancel/crash/completed)
-  BOOT_RECONCILE_TERMINAL_MOVED: 'contract_boot_reconcile_terminal_moved',
-  BOOT_RECONCILE_TERMINAL_MOVE_FAILED: 'contract_boot_reconcile_terminal_move_failed',
   // NEW phase 966: boot reconcile reset leftover in_progress subtasks
   BOOT_RECONCILE_IN_PROGRESS_RESET: 'contract_boot_reconcile_in_progress_reset',
-  // NEW phase 968: boot reconcile per-contract in_progress reset isolation
-  BOOT_RECONCILE_IN_PROGRESS_RESET_FAILED: 'contract_boot_reconcile_in_progress_reset_failed',
   // phase 66 NEW: schema corruption isolation
   CONTRACT_FILE_ISOLATED: 'contract_file_isolated',
   CONTRACT_FILE_ISOLATION_FAILED: 'contract_file_isolation_failed',
@@ -136,8 +128,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_ARCHIVE_LEGACY_MIGRATION_SKIPPED: 'contract_archive_legacy_migration_skipped',
   CONTRACT_ARCHIVE_LEGACY_MIGRATION_FAILED: 'contract_archive_legacy_migration_failed',
   CONTRACT_ARCHIVE_LEGACY_MIGRATION_SUMMARY: 'contract_archive_legacy_migration_summary',
-  // phase 197: archive_pending_recovery observer 扫到时归 audit、不投 motion inbox
-  CONTRACT_ARCHIVE_RECOVERY_PENDING_OBSERVED: 'contract_archive_recovery_pending_observed',
   // phase 949: event-collector 在 archive 目录发现 active status 状态机断裂
   CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED: 'contract_archive_active_state_detected',
   // Phase 230: contract create policy rejected
@@ -249,9 +239,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_boot_reconcile_schema_failed: 'audit',
   contract_onboarding_progress_parse_failed: 'audit',
   contract_dir_race_retry: 'audit',
-  contract_archive_partial_recovery_failed: 'audit',
   mark_corrupted_graceful_fallback: 'audit',
-  contract_archive_recovered: 'audit',
   verification_pipeline_race_rejected: 'audit',
   contract_file_isolated: 'audit',
   contract_file_isolation_failed: 'audit',
@@ -269,7 +257,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_archive_legacy_migration_skipped: 'audit',
   contract_archive_legacy_migration_failed: 'audit',
   contract_archive_legacy_migration_summary: 'audit',
-  contract_archive_recovery_pending_observed: 'audit',
   contract_archive_active_state_detected: 'audit',
   contract_progress_invariant_violated: 'audit',
   contract_legacy_status_field_ignored: 'audit',
@@ -279,11 +266,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_capacity_exhausted: 'audit',
   contract_legacy_crashed_observed: 'audit',
   contract_legacy_paused_observed: 'audit',
-  // phase 954: boot reconcile terminal move recovery events
   contract_multi_dir: 'audit',
   multi_active_contracts: 'audit',
-  contract_boot_reconcile_terminal_moved: 'audit',
-  contract_boot_reconcile_terminal_move_failed: 'audit',
   contract_boot_reconcile_in_progress_reset: 'audit',
-  contract_boot_reconcile_in_progress_reset_failed: 'audit',
 } as const;
