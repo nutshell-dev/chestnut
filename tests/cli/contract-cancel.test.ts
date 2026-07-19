@@ -82,7 +82,7 @@ describe('contractCancelCommand (phase 1471)', () => {
     await expect(fs.access(activePath)).rejects.toBeTruthy();
     const progressRaw = await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8');
     const progress = JSON.parse(progressRaw);
-    expect(progress.status).toBe('cancelled');
+    expect(progress.status).toBeUndefined();
     expect(progress.checkpoint).toContain('user requested abort');
 
     // CLI audit emit
@@ -115,7 +115,7 @@ describe('contractCancelCommand (phase 1471)', () => {
     const progress = JSON.parse(
       await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8'),
     );
-    expect(progress.status).toBe('cancelled');
+    expect(progress.status).toBeUndefined();
     expect(audit.write).toHaveBeenCalledWith(
       'cli_contract_cancel',
       `claw=${CLAW_ID}`,

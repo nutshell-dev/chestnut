@@ -6,6 +6,8 @@
  * - cancel-save-before-abort.test.ts
  * - cancel-signal-propagation.test.ts
  * - pause-abort-verifier.test.ts
+ *
+ * Phase 1132 Step D: cancel / markCorrupted 以目录 rename 为提交点；progress.json 不再写 lifecycle status。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -257,8 +259,8 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     });
   });
 
-  // 反向 1: happy path — cancelContract 后 progress.json status='cancelled' + contract 在 archive dir
-  it('happy path: cancel saves progress as cancelled then moves to archive', async () => {
+  // 反向 1: happy path — cancelContract 后 progress.json 不含 status，subtasks 重置，contract 在 archive dir
+  it('happy path: cancel resets subtasks then moves to archive', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Cancel Order Test',
       goal: 'Test',
@@ -268,13 +270,15 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
 
     await manager.cancel(contractId, 'user cancelled');
 
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('cancelled');
-    expect(progress.checkpoint).toBe('cancelled: user cancelled');
-
-    // contract should be in archive/cancelled dir
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
+
+    const archivedProgressPath = path.join(archiveContractDir, 'progress.json');
+    const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
+    const archivedProgress = JSON.parse(archivedRaw);
+    expect(archivedProgress.status).toBeUndefined();
+    expect(archivedProgress.subtasks['t1'].status).toBe('todo');
+    expect(archivedProgress.checkpoint).toBe('cancelled: user cancelled');
   });
 
   // 反向 2: abortContractVerifiers throws → catch 不阻断 → saveProgress 已 land + fs.move 仍执行
@@ -293,13 +297,15 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     // Should NOT throw — abort is best-effort wrapped in try/catch
     await expect(manager.cancel(contractId, 'test abort throw')).resolves.toBeUndefined();
 
-    // saveProgress must have landed before abort was called
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('cancelled');
-
     // contract should still be moved to archive
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
+
+    const archivedProgressPath = path.join(archiveContractDir, 'progress.json');
+    const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
+    const archivedProgress = JSON.parse(archivedRaw);
+    expect(archivedProgress.status).toBeUndefined();
+    expect(archivedProgress.subtasks['t1'].status).toBe('todo');
 
     abortSpy.mockRestore();
   });

@@ -25,6 +25,7 @@ import {
 
 import { type ArchiveDir } from './types.js';
 import { archiveStateContainerDir } from './locations.js';
+import * as path from 'path';
 
 export interface LifecycleContext extends LockContext {
   activeDir: string;
@@ -53,20 +54,17 @@ export async function cancelContract(
   const targetDir = archiveStateContainerDir(ctx.archiveDir, 'cancelled');
   await ctx.fs.ensureDir(targetDir);
 
-  // phase 1152 G.5 (r127 G fork): canonical decision point = saveProgress(cancelled) BEFORE abort
-  // 原因：crash 在 abort 后 saveProgress 前 → verifier 已死、status 还 'running' → boot reconcile 不识别 cancel
-  // saveProgress 提前：crash window 内 progress.json 已 cancelled、boot reconcile 自然识别
-  //
+  // Step D: directory rename is the lifecycle commit point.
   // op 顺序：
   //   1. lockContract atomic acquire at SOURCE (covers TOCTOU race, phase 1362 r140)
-  //   2. saveProgress(cancelled) 写 source dir progress.json (canonical decision)
-  //   3. abortContractVerifiers (best-effort, outer try/catch)
-  //   4. fs.move source → archive
+  //   2. saveProgress without lifecycle marker (subtask state + checkpoint reason only)
+  //   3. fs.move source → archive/cancelled (commit)
+  //   4. abortContractVerifiers post-commit (best-effort; late results rejected by active-path guard)
   //   5. releaseLock at TARGET
   const targetDirPath = `${targetDir}/${contractId}`;
   const targetLockPath = `${targetDirPath}/progress.lock`;
   try {
-    // (2) canonical decision: saveProgress first (durable cancel mark)
+    // (2) persist subtask reset + checkpoint reason; no lifecycle status marker
     const progress = await ctx.getProgress(contractId);
     if (!progress) {
       throw new ToolError(`Cannot cancel contract "${contractId}": progress unavailable (schema corruption)`);
@@ -79,20 +77,10 @@ export async function cancelContract(
         delete subtask.verification_attempt_id;
       }
     }
-    progress.status = 'cancelled';
     progress.checkpoint = `cancelled: ${reason}`;
     await ctx.saveProgress(contractId, progress);
 
-    // (3) abort verifier subagents (best-effort, no-blocking)
-    // crash here: progress.json 已 cancelled、boot reconcile 自然识别 / verifier 已被 abort 或自然死亡
-    try {
-      ctx.abortContractVerifiers(contractId, reason);
-    } catch (abortErr) {
-      // 不破 cancel 主流程；abortContractVerifiers 内已 try/catch + audit emit
-      // 此处仅 outer 保险（按 M#10 不合理停下、subordinate failure 不阻 superordinate flow）
-    }
-
-    // (4) move whole dir
+    // (3) move whole dir — this is the commit
     if (await ctx.fs.exists(targetDirPath)) {
       emitContractArchiveTargetExists(ctx.audit, {
         contractId,
@@ -102,6 +90,14 @@ export async function cancelContract(
       throw new ToolError(`Cannot cancel contract "${contractId}": target already exists at ${targetDirPath}`);
     }
     await ctx.fs.move(`${dir}/${contractId}`, targetDirPath);
+
+    // (4) abort verifier subagents post-commit (best-effort, no-blocking)
+    try {
+      ctx.abortContractVerifiers(contractId, reason);
+    } catch (abortErr) {
+      // 不破 cancel 主流程；abortContractVerifiers 内已 try/catch + audit emit
+      // 此处仅 outer 保险（按 M#10 不合理停下、subordinate failure 不阻 superordinate flow）
+    }
   } catch (err) {
     // phase 422 Step C (review medium audit-emit-implies-no-write): saveProgress
     // 已写 'cancelled' 到 source dir、fs.move 失败 → 半态 (source 含 cancelled
@@ -174,7 +170,8 @@ export async function markCorrupted(
   const targetDirPath = `${targetDir}/${contractId}`;
   const targetLockPath = `${targetDirPath}/progress.lock`;
   try {
-    // (2) canonical decision: saveProgress first (durable archive_corrupted marker)
+    // Step D: directory rename is the lifecycle commit point.
+    // (2) persist subtask reset + checkpoint reason; no lifecycle status marker
     let progress: ProgressData;
     try {
       const p = await ctx.getProgress(contractId);
@@ -194,7 +191,7 @@ export async function markCorrupted(
       progress = {
         schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
         contract_id: contractId,
-        status: 'archive_corrupted',
+        status: 'running',
         checkpoint: `archive_corrupted: ${evidence.reason} (${evidence.relativePath})`,
         subtasks: {},
       };
@@ -207,18 +204,10 @@ export async function markCorrupted(
         delete subtask.verification_attempt_id;
       }
     }
-    progress.status = 'archive_corrupted';
     progress.checkpoint = `archive_corrupted: ${evidence.reason} (${evidence.relativePath})`;
     await ctx.saveProgress(contractId, progress, knownDir);
 
-    // (3) abort verifier subagents (best-effort)
-    try {
-      ctx.abortContractVerifiers(contractId, evidence.reason);
-    } catch (abortErr) {
-      // silent: abort verifier best-effort, markCorrupted main flow must not break
-    }
-
-    // (4) move whole dir
+    // (3) move whole dir — this is the commit
     if (await ctx.fs.exists(targetDirPath)) {
       emitContractArchiveTargetExists(ctx.audit, {
         contractId,
@@ -228,6 +217,13 @@ export async function markCorrupted(
       throw new ToolError(`Cannot mark corrupted contract "${contractId}": target already exists at ${targetDirPath}`);
     }
     await ctx.fs.move(`${dir}/${contractId}`, targetDirPath);
+
+    // (4) abort verifier subagents post-commit (best-effort)
+    try {
+      ctx.abortContractVerifiers(contractId, evidence.reason);
+    } catch (abortErr) {
+      // silent: abort verifier best-effort, markCorrupted main flow must not break
+    }
   } catch (err) {
     // saveProgress 已写 'archive_corrupted' 到 source dir、fs.move 失败 → 半态。
     // emit audit 留痕、boot reconcile / 运维可追。
@@ -281,30 +277,41 @@ export async function moveContractToArchive(
   }
 
   const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
-  if (dir.startsWith(ctx.archiveDir)) {
+  const normalizedDir = path.normalize(dir);
+  const normalizedActive = path.normalize(ctx.activeDir);
+  const normalizedArchive = path.normalize(ctx.archiveDir);
+  const isActiveSource = normalizedDir === normalizedActive || normalizedDir.startsWith(`${normalizedActive}${path.sep}`);
+  const isArchiveSource = normalizedDir === normalizedArchive || normalizedDir.startsWith(`${normalizedArchive}${path.sep}`);
+  if (!isActiveSource && !isArchiveSource) {
+    await releaseSource();
+    throw new ToolError(`Cannot archive contract "${contractId}": source directory is not active`);
+  }
+  if (isArchiveSource) {
+    // Already archived — idempotent no-op.
     await releaseSource();
     return;
   }
 
-  // NEW phase 188 Step A: archive precondition / status 必须终态
-  const progress = await ctx.getProgress(contractId);
-  if (!progress) {
-    await releaseSource();
-    throw new ToolError(`Contract "${contractId}" progress unavailable: cannot archive`);
-  }
-  // phase 351 / 1127 Step D: cast string for typed Set runtime check.
-  // Only statuses with a current state subdirectory may use moveContractToArchive;
-  // crashed / archive_pending_recovery have no state directory and must not be guessed.
-  const DIRECT_ARCHIVE_STATUSES: ReadonlySet<string> = new Set(['completed', 'cancelled', 'archive_corrupted']);
-  if (!DIRECT_ARCHIVE_STATUSES.has(progress.status)) {
-    emitContractArchivePreconditionViolated(
-      ctx.audit,
-      { contractId, status: progress.status, context: 'moveContractToArchive' },
-    );
-    await releaseSource();
-    throw new ToolError(
-      `Contract "${contractId}" cannot be archived: status=${progress.status} (expected terminal)`,
-    );
+  // Step D: archive precondition is based on business facts, not progress.status.
+  // 'completed' requires all subtasks completed; 'cancelled'/'corrupted' are only
+  // reached through their dedicated lifecycle entry points.
+  if (targetState === 'completed') {
+    const progress = await ctx.getProgress(contractId);
+    if (!progress) {
+      await releaseSource();
+      throw new ToolError(`Contract "${contractId}" progress unavailable: cannot archive`);
+    }
+    const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
+    if (!allCompleted) {
+      emitContractArchivePreconditionViolated(
+        ctx.audit,
+        { contractId, status: progress.status, context: 'moveContractToArchive.completed' },
+      );
+      await releaseSource();
+      throw new ToolError(
+        `Contract "${contractId}" cannot be archived to completed: not all subtasks are completed`,
+      );
+    }
   }
 
   const targetDir = archiveStateContainerDir(ctx.archiveDir, targetState);

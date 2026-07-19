@@ -3,8 +3,10 @@
  * Lifecycle ops — archive + emit + subtask complete
  */
 
+import * as path from 'path';
 import type { VerificationContext } from './verification-types.js';
 import type { VerificationResult, SubtaskId, ProgressData } from './types.js';
+import { activeContainerDir } from './locations.js';
 import { safeNotify } from './verification-notify.js';
 import { formatValidIds } from './verification-format.js';
 import { ToolError } from '../../foundation/tools/errors.js';
@@ -21,7 +23,6 @@ import {
   emitContractProgressCorrupted,
   emitContractSubtaskDuplicateDone,
   emitContractSubtaskAlreadyCompleted,
-  emitContractArchivePartialRecoveryFailed,
 } from './audit-emit.js';
 
 export async function archiveAndEmit(
@@ -49,78 +50,14 @@ export async function archiveAndEmit(
   try {
     await ctx.moveContractToArchive(contractId, 'completed');
   } catch (err) {
-    // Move failed BEFORE commit point: attempt rollback for retry.
-    try {
-      await ctx.withProgressLock(contractId, async () => {
-        const progress = await ctx.getProgress(contractId);
-        if (!progress) {
-          throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-        }
-        if (progress.status === 'completed') {
-          progress.status = 'running';
-          await ctx.saveProgress(contractId, progress);
-        }
-      });
-    } catch (revertErr) {
-      // phase 1371 sub-2: rollback failure → explicit partial recovery state machine
-      // phase 337 M2 (review-2026-06-13): 不覆盖显式终态 cancelled/crashed。
-      // 若另一路径（如 cancelContract / markCrashed）在 archive 失败窗口里把 status
-      // 推到 cancelled/crashed，pending_recovery 不该重写显式终点。
-      // 'completed' 不在守集——它就是 archive 入口的合法起点（archive 失败 → 应 retry）。
-      const TERMINAL = new Set<string>(['cancelled', 'crashed']);
-      try {
-        let skipped: { reason: string; observedStatus: string } | null = null;
-        await ctx.withProgressLock(contractId, async () => {
-          const progress = await ctx.getProgress(contractId);
-          if (!progress) {
-            throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-          }
-          if (TERMINAL.has(progress.status)) {
-            skipped = { reason: 'terminal_status', observedStatus: progress.status };
-            return;
-          }
-          progress.status = 'archive_pending_recovery';
-          await ctx.saveProgress(contractId, progress);
-        });
-        if (skipped !== null) {
-          const s = skipped as { reason: string; observedStatus: string };
-          emitContractArchivePartialRecoveryFailed(
-            ctx.audit,
-            {
-              contractId,
-              context: `${contextLabel}.skippedPendingRecovery`,
-              message: `archive failed and rollback failed; refused to overwrite ${s.observedStatus} status with archive_pending_recovery`,
-              error: formatErr(revertErr),
-            },
-          );
-        } else {
-          emitContractArchivePartialRecoveryFailed(
-            ctx.audit,
-            {
-              contractId,
-              context: contextLabel,
-              message: 'archive failed and rollback to running also failed; set archive_pending_recovery for boot reconcile',
-              error: formatErr(revertErr),
-            },
-          );
-        }
-      } catch (stateErr) {
-        emitContractArchivePartialRecoveryFailed(
-          ctx.audit,
-          {
-            contractId,
-            context: `${contextLabel}.setPendingRecovery`,
-            message: 'archive failed, rollback failed, and setting archive_pending_recovery also failed',
-            error: formatErr(stateErr),
-          },
-        );
-      }
-    }
+    // Step D: move failed before lifecycle commit. Directory rename is the only
+    // commit point; failure leaves the contract in active/ for retry. No status
+    // rollback or pending-recovery marker is written.
     emitContractMoveArchiveFailed(
       ctx.audit,
       {
         context: contextLabel,
-        message: 'moveToArchive failed; progress.status reverted to running for retry',
+        message: 'move failed before lifecycle commit; remains active for retry',
         error: formatErr(err),
       },
     );
@@ -169,6 +106,15 @@ export async function archiveAndEmit(
   return { archived: true };
 }
 
+async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
+  try {
+    const container = await ctx.contractDir(contractId);
+    return path.normalize(container) === path.normalize(activeContainerDir());
+  } catch {
+    return false;
+  }
+}
+
 export async function completeSubtaskSync(
   ctx: VerificationContext,
   contractId: ContractId,
@@ -183,28 +129,24 @@ export async function completeSubtaskSync(
     throw new ToolError(`Contract "${contractId}" unloadable: contract.yaml schema corruption`);
   }
 
+  // Phase 1132 Step D: lifecycle guard based on physical active path.
+  if (!(await isContractActive(ctx, contractId))) {
+    emitContractVerificationResetFailed(
+      ctx.audit,
+      {
+        contractId,
+        subtaskId,
+        context: 'completeSubtaskSync',
+        message: 'contract is not active, cannot complete subtask',
+      },
+    );
+    return { passed: false, feedback: `Contract "${contractId}" is not active, cannot complete subtask "${subtaskId}".`, allCompleted: false };
+  }
+
   await ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
     if (!progress) {
       throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-    }
-
-    if (progress.status !== 'running') {
-      // non-running persisted statuses: cancelled / crashed / archive_pending_recovery
-      result = {
-        passed: false,
-        feedback: `Contract status is "${progress.status}", cannot complete subtask "${subtaskId}".`,
-      };
-      emitContractVerificationResetFailed(
-        ctx.audit,
-        {
-          contractId,
-          subtaskId,
-          context: 'completeSubtaskSync',
-          message: `contract status is "${progress.status}", cannot complete subtask`,
-        },
-      );
-      return;
     }
 
     if (!progress.subtasks[subtaskId]) {
@@ -246,7 +188,6 @@ export async function completeSubtaskSync(
 
     allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
     if (allCompleted) {
-      progress.status = 'completed';
       progress.completed_at = new Date().toISOString();
     }
 
@@ -272,11 +213,8 @@ export async function completeSubtaskSync(
   });
 
   if (allCompleted) {
-    const progressAfterLock = await ctx.getProgress(contractId);
-    if (!progressAfterLock) {
-      throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-    }
-    if (progressAfterLock.status === 'cancelled') {
+    // Phase 1132 Step D: contract may have been cancelled between lock release and now.
+    if (!(await isContractActive(ctx, contractId))) {
       emitContractCompleteOnCancelled(ctx.audit, { contractId, subtaskId });
       return { ...result, allCompleted: false };
     }

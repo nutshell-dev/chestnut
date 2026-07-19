@@ -1,8 +1,7 @@
 /**
  * Phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)
- * audit-2026-05-17 §C-3 closure
- *
- * 反向 9 项: 3 sub-fix × 3 case each
+ * Phase 1132 Step D 调整：目录 rename 是 lifecycle 唯一提交点；archive 失败时不 rollback status，
+ * 也不进入 archive_pending_recovery，仅 audit 并保持 active。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
@@ -49,7 +48,7 @@ function makeAcceptanceCtx(
     clawId: 'claw-test',
     audit,
     notifyClaw: vi.fn(),
-    contractDir: vi.fn(async (id: string) => `contract/active/${id}`),
+    contractDir: vi.fn(async (_id: string) => `contract/active`),
     loadContractYaml: vi.fn(async (id: string) => ({
       title: 'Test',
       goal: 'Test',
@@ -98,8 +97,8 @@ function makeAcceptanceCtx(
 }
 
 describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)', () => {
-  describe('α-1 archiveAndEmit failure reverts progress.status', () => {
-    it('archive fail → progress.status reverts from completed to running', async () => {
+  describe('α-1 archiveAndEmit failure does not revert progress.status', () => {
+    it('archive fail → no progress save, no status rollback, returns archived=false', async () => {
       const { ctx, events } = makeAcceptanceCtx({ moveToArchiveThrows: true });
       // setup: contract with status='completed'
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -108,23 +107,21 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         subtasks: { st1: { status: 'completed' } },
       });
 
-      await archiveAndEmit(ctx, 'c1', 'Test', 'test');
+      const result = await archiveAndEmit(ctx, 'c1', 'Test', 'test');
 
-      // verify saveProgress called with status='running'
-      const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
-      expect(saveCalls.length).toBeGreaterThanOrEqual(1);
-      const savedProgress = saveCalls[0][1] as ProgressData;
-      expect(savedProgress.status).toBe('running');
+      expect(result).toEqual({ archived: false });
+      // no saveProgress call after failed move
+      expect(ctx.saveProgress).not.toHaveBeenCalled();
 
-      // audit emit MOVE_ARCHIVE_FAILED with revert message
+      // audit emit MOVE_ARCHIVE_FAILED with retry message
       const moveArchiveFails = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
       expect(moveArchiveFails.length).toBeGreaterThanOrEqual(1);
       expect(moveArchiveFails.some(e =>
-        e.some(col => typeof col === 'string' && col.includes('reverted to running'))
+        e.some(col => typeof col === 'string' && col.includes('remains active for retry'))
       )).toBe(true);
     });
 
-    it('archive success → progress.status stays completed + contract_completed fires', async () => {
+    it('archive success → moveContractToArchive called + contract_completed fires', async () => {
       const { ctx, notifyCalls } = makeAcceptanceCtx({ moveToArchiveThrows: false });
       await archiveAndEmit(ctx, 'c2', 'Test', 'test');
 
@@ -132,7 +129,8 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       expect(notifyCalls).toContainEqual(expect.objectContaining({ type: 'contract_completed' }));
     });
 
-    it('revert itself fails → original archive error preserved + partial recovery audit (best-effort)', async () => {
+    it('archive fail + saveProgress fail → still returns archived=false and emits MOVE_ARCHIVE_FAILED', async () => {
+      // Phase 1132 Step D: no rollback, no archive_pending_recovery; failure is just audited.
       const { ctx, events } = makeAcceptanceCtx({ moveToArchiveThrows: true, saveProgressThrows: true });
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         contract_id: 'c3',
@@ -140,13 +138,13 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         subtasks: {},
       });
 
-      await archiveAndEmit(ctx, 'c3', 'Test', 'test');
+      const result = await archiveAndEmit(ctx, 'c3', 'Test', 'test');
 
-      // phase 1371 sub-2: revert failure now emits ARCHIVE_PARTIAL_RECOVERY_FAILED + sets archive_pending_recovery
+      expect(result).toEqual({ archived: false });
       const moveArchiveFails = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
       expect(moveArchiveFails.length).toBeGreaterThanOrEqual(1);
       const partialRecoveryEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED);
-      expect(partialRecoveryEvents.length).toBeGreaterThanOrEqual(1);
+      expect(partialRecoveryEvents.length).toBe(0);
     });
   });
 

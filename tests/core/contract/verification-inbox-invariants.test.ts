@@ -521,11 +521,15 @@ describe('Phase 961 verification invariants', () => {
     await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
 
-    const progress = await manager.getProgress(contractId);
-    expect(progress?.status).toBe('cancelled');
-
     const contractDir = await (manager as any).contractDir(contractId);
     expect(contractDir).toBe('contract/archive/cancelled');
+
+    // Phase 1132 Step D: lifecycle state is expressed by directory location;
+    // progress.json no longer persists a lifecycle status field.
+    const archiveProgressPath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json');
+    const archiveRaw = await fsp.readFile(archiveProgressPath, 'utf-8');
+    const archiveProgress = JSON.parse(archiveRaw);
+    expect(archiveProgress.status).toBeUndefined();
   });
 
   it('resets subtask even when audit emit throws', async () => {

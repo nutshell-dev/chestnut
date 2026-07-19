@@ -6,7 +6,9 @@
 import type { VerificationContext } from './verification-types.js';
 import type { ContractId } from './types.js';
 import type { SubtaskId } from './types.js';
+import * as path from 'path';
 import { formatErr } from '../../foundation/node-utils/index.js';
+import { activeContainerDir } from './locations.js';
 import { ToolError, ToolTimeoutError } from '../../foundation/tools/errors.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import type { LastFailedFeedback, AcceptanceFailedNotification } from './types.js';
@@ -141,6 +143,15 @@ export function notifyVerificationError(
  * Returns { archived } so caller (runVerificationInBackground catch) can do archiveAndEmit
  * outside the progress lock.
  */
+async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
+  try {
+    const container = await ctx.contractDir(contractId);
+    return path.normalize(container) === path.normalize(activeContainerDir());
+  } catch {
+    return false;
+  }
+}
+
 export async function handleVerificationErrorRetry(
   ctx: VerificationContext,
   contractId: ContractId,
@@ -151,22 +162,22 @@ export async function handleVerificationErrorRetry(
   let result: { archived?: boolean } = {};
   try {
     await ctx.withProgressLock(contractId, async () => {
-      const progress = await ctx.getProgress(contractId);
-      if (!progress) {
-        throw new ToolError(`Contract "${contractId}" unloadable: progress schema corruption`);
-      }
-      // Phase 968: lifecycle guard — don't mutate subtasks of non-running contracts
-      if (progress.status !== 'running') {
+      // Phase 1132 Step D: lifecycle guard based on active path.
+      if (!(await isContractActive(ctx, contractId))) {
         emitContractVerificationResetFailed(
           ctx.audit,
           {
             contractId,
             subtaskId,
             context: 'handleVerificationErrorRetry',
-            message: `contract status is "${progress.status}", expected "running"`,
+            message: 'contract no longer active, skip error retry reset',
           },
         );
         return;
+      }
+      const progress = await ctx.getProgress(contractId);
+      if (!progress) {
+        throw new ToolError(`Contract "${contractId}" unloadable: progress schema corruption`);
       }
       const subtask = progress.subtasks[subtaskId];
       if (subtask && subtask.status === 'in_progress') {
@@ -198,7 +209,6 @@ export async function handleVerificationErrorRetry(
           // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
           writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
           if (allCompleted) {
-            progress.status = 'completed';
             progress.completed_at = new Date().toISOString();
             await ctx.saveProgress(contractId, progress);
             // archiveAndEmit 由 caller（runVerificationInBackground catch）在 withProgressLock 外调用
@@ -235,8 +245,8 @@ export async function handleVerificationErrorRetry(
         const fbProgress = await ctx.getProgress(contractId);
         const fbSubtask = fbProgress?.subtasks[subtaskId];
         if (fbSubtask && fbSubtask.status === 'in_progress') {
-          // Phase 969: lifecycle guard — don't mutate subtasks of non-running contracts in fallback path
-          if (fbProgress!.status !== 'running') {
+          // Phase 969 / 1132 Step D: lifecycle guard based on active path, not persisted status.
+          if (!(await isContractActive(ctx, contractId))) {
             return;
           }
           fbSubtask.status = 'todo';

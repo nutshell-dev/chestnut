@@ -503,7 +503,9 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
       clawDir: '/tmp/claw',
       clawId: 'test-claw',
       notifyClaw: vi.fn(),
-      contractDir: vi.fn().mockResolvedValue('contract/active'),
+      contractDir: vi.fn()
+        .mockResolvedValueOnce('contract/active')
+        .mockResolvedValueOnce('contract/archive/cancelled'),
       loadContractYaml: vi.fn().mockResolvedValue({}),
       getProgress: vi
         .fn()

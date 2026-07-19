@@ -7,6 +7,10 @@
  * - verification-archive-partial-recovery.test.ts
  * - verification-notify.test.ts
  * - verification-sub-file-split.test.ts
+ *
+ * Phase 1132 Step D adjustments: directory rename is the lifecycle commit point;
+ * progress.json no longer persists lifecycle status; guards are based on active path
+ * + subtask facts instead of progress.status.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -114,7 +118,7 @@ describe('archiveAndEmit (phase 951)', () => {
     expect(ctx.onNotify).toHaveBeenCalled();
   });
 
-  it('returns archived false when moveContractToArchive fails (rollback + audit)', async () => {
+  it('returns archived false when moveContractToArchive fails (no rollback + audit)', async () => {
     const contractId = makeContractId('c-3');
     vi.mocked(ctx.moveContractToArchive).mockRejectedValue(new Error('disk full'));
 
@@ -122,6 +126,7 @@ describe('archiveAndEmit (phase 951)', () => {
 
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
     expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED)).toBe(true);
+    expect(ctx.saveProgress).not.toHaveBeenCalled();
   });
 });
 
@@ -229,7 +234,7 @@ describe('force-accept state transition valid (phase 1399)', () => {
       notifyClaw: vi.fn(),});
   }
 
-  it('max attempts reached → subtask.status completed + force_accepted + audit emit + recovery path executable', async () => {
+  it('max attempts reached → subtask.status completed + force_accepted + audit emit + archived', async () => {
     const { audit, events, emitter } = makeAudit();
     const manager = makeManager(audit);
 
@@ -257,14 +262,13 @@ describe('force-accept state transition valid (phase 1399)', () => {
     expect(lastForceAccepted.some((c: any) => String(c).includes('contractId=' + contractId))).toBe(true);
     expect(lastForceAccepted.some((c: any) => String(c).includes('subtaskId=t1'))).toBe(true);
 
-    // Verify progress shows completed + force_accepted status
-    const progress = await manager.getProgress(contractId);
-    expect(progress.subtasks['t1'].status).toBe('completed');
-    expect(progress.subtasks['t1'].force_accepted).toBe(true);
-
-    // Recovery path: contract is auto-completed after force-accept (archive via archiveAndEmit)
-    const progressAfter = await manager.getProgress(contractId);
-    expect(progressAfter.status).toBe('completed');
+    // Verify archived progress shows completed + force_accepted
+    const archiveProgressPath = path.join(clawDir, 'contract', 'archive', 'completed', contractId, 'progress.json');
+    const archiveRaw = await fs.readFile(archiveProgressPath, 'utf-8');
+    const archiveProgress = JSON.parse(archiveRaw);
+    expect(archiveProgress.status).toBeUndefined();
+    expect(archiveProgress.subtasks['t1'].status).toBe('completed');
+    expect(archiveProgress.subtasks['t1'].force_accepted).toBe(true);
   });
 });
 
@@ -326,7 +330,7 @@ describe('verification outcome observability (phase 1371 sub-4)', () => {
 
     expect(result.passed).toBe(false);
     expect(result.async).toBeUndefined();
-    expect(result.feedback).toContain('cancelled');
+    expect(result.feedback).toContain('not active');
     expect(runScriptSpy).not.toHaveBeenCalled();
 
     // No background done audit should be emitted
@@ -372,8 +376,10 @@ describe('verification outcome observability (phase 1371 sub-4)', () => {
 /**
  * @module tests/core/contract/verification-archive-partial-recovery
  * Phase 1371 sub-2: archiveAndEmit partial recovery reverse test
+ *
+ * Phase 1132 Step D: archive_pending_recovery and status rollback are removed.
  */
-describe('archiveAndEmit partial recovery (phase 1371 sub-2)', () => {
+describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
   let tmpDir: string;
   let clawDir: string;
   let nodeFs: NodeFileSystem;
@@ -382,7 +388,7 @@ describe('archiveAndEmit partial recovery (phase 1371 sub-2)', () => {
     tmpDir = path.join(
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
-      `.test-archive-partial-recovery-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
+      `.test-archive-failure-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     clawDir = path.join(tmpDir, 'claws', 'test-claw');
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
@@ -407,40 +413,23 @@ describe('archiveAndEmit partial recovery (phase 1371 sub-2)', () => {
       notifyClaw: vi.fn(),});
   }
 
-  it('archive fails + rollback fails → progress.status set to archive_pending_recovery + audit emit', async () => {
+  it('archive fails → no status rollback, contract stays active, MOVE_ARCHIVE_FAILED audit emitted', async () => {
     const { audit, events, emitter } = makeAudit();
     const manager = makeManager(audit);
 
-    // Create a contract that will be forced into archive failure
     const contractId = await manager.create(makeContractYaml({ subtasks: [{ id: 't1', description: 'd1' }] }));
 
-    // Spy moveToArchive to throw (simulating archive failure)
-    const moveSpy = vi.spyOn(manager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
-
-    // Mock saveProgress to throw on rollback (rollback failure)
-    // We intercept the second withProgressLock call (the revert) by mocking saveProgress
-    let saveProgressCallCount = 0;
-    const originalSaveProgress = (manager as any).saveProgress.bind(manager);
-    vi.spyOn(manager as any, 'saveProgress').mockImplementation(async (id: string, progress: any) => {
-      if (id === contractId && progress.status === 'running') {
-        saveProgressCallCount++;
-        if (saveProgressCallCount === 1) {
-          throw new Error('rollback save failed');
-        }
-      }
-      return originalSaveProgress(id, progress);
-    });
-
-    // Manually set contract to completed so archiveAndEmit tries to archive
+    // Mark subtask completed so archiveAndEmit will try to archive
     await (manager as any).withProgressLock(contractId, async () => {
       const progress = await manager.getProgress(contractId);
-      progress.status = 'completed';
       progress.subtasks['t1'].status = 'completed';
       progress.subtasks['t1'].completed_at = new Date().toISOString();
       await (manager as any).saveProgress(contractId, progress);
     });
 
-    // Call archiveAndEmit indirectly via the private _verificationCtx -> archiveAndEmit
+    // Spy moveToArchive to throw (simulating archive failure)
+    vi.spyOn(manager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
+
     await archiveAndEmit(
       (manager as any)._verificationCtx(),
       contractId,
@@ -448,43 +437,24 @@ describe('archiveAndEmit partial recovery (phase 1371 sub-2)', () => {
       'test-context',
     );
 
-    // Verify audit emit for partial recovery
-    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED);
+    // Verify audit emit for move failure
+    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
+    const moveFailedEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
+    expect(moveFailedEvents.length).toBeGreaterThanOrEqual(1);
+
+    // No partial recovery events
     const partialRecoveryEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED);
-    expect(partialRecoveryEvents.length).toBeGreaterThanOrEqual(1);
+    expect(partialRecoveryEvents.length).toBe(0);
 
-    // Verify progress.status is archive_pending_recovery
-    const progressAfter = await manager.getProgress(contractId);
-    expect(progressAfter.status).toBe('archive_pending_recovery');
+    // Contract stays active
+    const activeExists = await fs.access(path.join(clawDir, 'contract', 'active', contractId)).then(() => true).catch(() => false);
+    expect(activeExists).toBe(true);
 
-    moveSpy.mockRestore();
-  });
-
-  it('boot reconcile recovers archive_pending_recovery contracts', async () => {
-    const { audit, events } = makeAudit();
-    const manager = makeManager(audit);
-
-    // Create a contract and manually set status to archive_pending_recovery
-    const contractId = await manager.create(makeContractYaml({ subtasks: [{ id: 't1', description: 'd1' }] }));
+    // progress.json has no persisted status
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     const raw = await fs.readFile(progressPath, 'utf-8');
     const progress = JSON.parse(raw);
-    progress.subtasks.t1.status = 'completed';
-    progress.subtasks.t1.completed_at = new Date().toISOString();
-    progress.status = 'archive_pending_recovery';
-    await fs.writeFile(progressPath, JSON.stringify(progress));
-
-    // init() should detect archive_pending_recovery and attempt recovery
-    await manager.init();
-
-    // After init, contract should be archived (moved to archive/completed dir)
-    const archiveProgressPath = path.join(clawDir, 'contract', 'archive', 'completed', contractId, 'progress.json');
-    const archiveExists = await fs.access(archiveProgressPath).then(() => true).catch(() => false);
-    expect(archiveExists).toBe(true);
-
-    // Verify CONTRACT_COMPLETED audit was emitted
-    const completedEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.COMPLETED);
-    expect(completedEvents.length).toBeGreaterThanOrEqual(1);
+    expect(progress.status).toBeUndefined();
   });
 });
 
@@ -517,11 +487,10 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
     vi.restoreAllMocks();
   });
 
-  it('does not mutate subtask when contract is not running', async () => {
+  it('does not mutate subtask when contract is not active', async () => {
     const contractId = 'c1';
     const subtaskId = 'st1';
     const progress = {
-      status: 'paused',
       subtasks: {
         [subtaskId]: { status: 'in_progress', retry_count: 0 },
       },
@@ -532,6 +501,7 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       audit: audit as unknown as VerificationContext['audit'],
       saveProgress,
       getProgress: vi.fn().mockResolvedValue(progress),
+      contractDir: vi.fn().mockResolvedValue('contract/archive/cancelled'),
     });
 
     await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');
@@ -543,15 +513,14 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       expect.stringContaining(`contractId=${contractId}`),
       expect.stringContaining(`subtaskId=${subtaskId}`),
       expect.stringContaining('handleVerificationErrorRetry'),
-      expect.stringContaining('paused'),
+      expect.stringContaining('no longer active'),
     );
   });
 
-  it('still resets in_progress subtask to todo when contract is running', async () => {
+  it('still resets in_progress subtask to todo when contract is active', async () => {
     const contractId = 'c1';
     const subtaskId = 'st1';
     const progress = {
-      status: 'running',
       subtasks: {
         [subtaskId]: { status: 'in_progress', retry_count: 0 },
       },
@@ -560,6 +529,7 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
     const ctx = makeCtx({
       saveProgress,
       getProgress: vi.fn().mockResolvedValue(progress),
+      contractDir: vi.fn().mockResolvedValue('contract/active'),
     });
 
     await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');

@@ -6,6 +6,7 @@
 
 import * as path from 'path';
 import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
+import { activeContainerDir } from './locations.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
@@ -112,6 +113,15 @@ type ApplyOutcome =
   | { kind: 'missing_subtask' }
   | { kind: 'skipped' };
 
+async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
+  try {
+    const container = await ctx.contractDir(contractId);
+    return path.normalize(container) === path.normalize(activeContainerDir());
+  } catch {
+    return false;
+  }
+}
+
 async function applyVerificationOutcome(
   ctx: VerificationContext,
   contractId: ContractId,
@@ -125,20 +135,21 @@ async function applyVerificationOutcome(
   return ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
     if (!progress) {
+      // Phase 1132 Step D: contract may have been moved out of active (cancelled/completed/corrupted)
+      // between background start and outcome apply. Fail-closed only when still active.
+      if (!(await isContractActive(ctx, contractId))) {
+        emitContractVerificationResetFailed(
+          ctx.audit,
+          {
+            contractId,
+            subtaskId,
+            context: 'applyVerificationOutcome',
+            message: 'contract no longer active, skip verification outcome write',
+          },
+        );
+        return { kind: 'skipped' };
+      }
       throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-    }
-
-    if (progress.status === 'cancelled') {
-      emitContractVerificationResetFailed(
-        ctx.audit,
-        {
-          contractId,
-          subtaskId,
-          context: 'applyVerificationOutcome',
-          message: 'contract already cancelled, skip verification outcome write',
-        },
-      );
-      return { kind: 'cancelled' };
     }
 
     const subtask = progress.subtasks[subtaskId];
@@ -155,18 +166,6 @@ async function applyVerificationOutcome(
       return { kind: 'missing_subtask' };
     }
 
-    if (progress.status !== 'running') {
-      emitContractVerificationResetFailed(
-        ctx.audit,
-        {
-          contractId,
-          subtaskId,
-          context: 'applyVerificationOutcome',
-          message: `contract status is "${progress.status}", expected "running"`,
-        },
-      );
-      return { kind: 'skipped' };
-    }
     if (subtask.status !== 'in_progress') {
       emitContractVerificationResetFailed(
         ctx.audit,
@@ -203,7 +202,6 @@ async function applyVerificationOutcome(
 
       const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
       if (allCompleted) {
-        progress.status = 'completed';
         progress.completed_at = new Date().toISOString();
       }
       await ctx.saveProgress(contractId, progress);
@@ -249,7 +247,6 @@ async function applyVerificationOutcome(
 
       const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
       if (allCompleted) {
-        progress.status = 'completed';
         progress.completed_at = new Date().toISOString();
       }
       await ctx.saveProgress(contractId, progress);
@@ -312,6 +309,25 @@ export async function runVerificationPipeline(
   if (!contractYaml) {
     throw new ToolError(`Contract "${contractId}" unloadable: contract.yaml schema corruption`);
   }
+
+  // Phase 1132 Step D: lifecycle guard based on physical active path, not persisted status.
+  if (!(await isContractActive(ctx, contractId))) {
+    emitContractVerificationResetFailed(
+      ctx.audit,
+      {
+        contractId,
+        subtaskId,
+        context: 'runVerificationPipeline',
+        message: 'contract is not active, verification cannot start',
+      },
+    );
+    return {
+      passed: false,
+      feedback: `Contract "${contractId}" is not active, cannot start verification for subtask "${subtaskId}".`,
+      allCompleted: false,
+    };
+  }
+
   const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
   // phase 438: sync 路径（无 verificationConfig）保持原有"幂等守卫"语义 —
@@ -346,17 +362,9 @@ export async function runVerificationPipeline(
     if (!progress) {
       throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
     }
-    // Phase 968: lifecycle guard — only running contracts may start verification
-    if (progress.status !== 'running') {
-      lifecycleRejected = progress.status;
-      emitContractVerificationResetFailed(ctx.audit, {
-        contractId,
-        subtaskId,
-        context: 'runVerificationPipeline',
-        message: `contract status is "${progress.status}", expected "running"`,
-      });
-      return;
-    }
+    // Phase 968 / 1132 Step D: lifecycle guard based on subtask state + attempt id.
+    // Physical active-path guard already ran before acquiring the lock; subtask-level
+    // guards remain to reject duplicate or stale submissions.
     if (!progress.subtasks[subtaskId]) {
       throw new ToolError(`Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}`);
     }
@@ -492,11 +500,9 @@ export async function runVerificationInBackground(
     }
 
     if (!('kind' in outcome) && outcome.passed && outcome.allCompleted) {
-      const progressAfterLock = await ctx.getProgress(contractId);
-      if (!progressAfterLock) {
-        throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-      }
-      if (progressAfterLock.status === 'cancelled') {
+      // Phase 1132 Step D: archiveAndEmit is the lifecycle commit point. If the contract was
+      // cancelled while verification ran, the active path is gone and archiveAndEmit must not run.
+      if (!(await isContractActive(ctx, contractId))) {
         emitContractCompleteOnCancelled(
           ctx.audit,
           { contractId, subtaskId, context: 'runVerificationInBackground' },
@@ -515,8 +521,8 @@ export async function runVerificationInBackground(
       try {
         await ctx.withProgressLock(contractId, async () => {
           const progress = await ctx.getProgress(contractId);
-          // Phase 970: only reset subtasks for active contracts.
-          if (progress && progress.status === 'running') {
+          // Phase 970 / 1132 Step D: only reset subtasks for active contracts.
+          if (progress && (await isContractActive(ctx, contractId))) {
             const subtask = progress.subtasks[subtaskId];
             if (subtask && subtask.status === 'in_progress' &&
                 subtask.verification_attempt_id === attemptId) {
@@ -559,7 +565,7 @@ export async function runVerificationInBackground(
       // phase 1399: writeVerificationError 内防嵌套锁未调 archiveAndEmit，此处补调
       if (result.archived === false) {
         const progressAfterLock = await ctx.getProgress(contractId);
-        if (progressAfterLock && progressAfterLock.status === 'completed') {
+        if (progressAfterLock && (await isContractActive(ctx, contractId))) {
           await archiveAndEmit(ctx, contractId, contractYaml, 'ContractSystem.backgroundVerification.errorForceAccept');
         }
       }

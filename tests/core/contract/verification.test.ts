@@ -310,11 +310,11 @@ describe('runVerificationInBackground (Phase 965)', () => {
 });
 
 describe('runVerificationPipeline (Phase 968)', () => {
-  it('does not start background verification when contract status is not running (lifecycle guard)', async () => {
+  it('does not start background verification when contract is not active (lifecycle guard)', async () => {
     const contractId = 'c1';
     const subtaskId = 'st1';
     const progress = {
-      status: 'cancelled',
+      status: 'running',
       subtasks: {
         [subtaskId]: { status: 'todo' },
       },
@@ -325,6 +325,7 @@ describe('runVerificationPipeline (Phase 968)', () => {
       audit: audit as unknown as VerificationContext['audit'],
       saveProgress,
       getProgress: vi.fn().mockResolvedValue(progress),
+      contractDir: vi.fn().mockResolvedValue('contract/archive/cancelled'),
       loadContractYaml: vi.fn().mockResolvedValue({
         subtasks: [{ id: subtaskId, description: 'desc' }],
         verification: [{ subtask_id: subtaskId, type: 'script', script_file: 'check.sh' }],
@@ -339,7 +340,7 @@ describe('runVerificationPipeline (Phase 968)', () => {
 
     expect(result.passed).toBe(false);
     expect(result.async).toBeUndefined();
-    expect(result.feedback).toContain('cancelled');
+    expect(result.feedback).toContain('not active');
     expect(saveProgress).not.toHaveBeenCalled();
     expect(progress.subtasks[subtaskId].status).toBe('todo');
     expect(audit.write).toHaveBeenCalledWith(
@@ -347,7 +348,7 @@ describe('runVerificationPipeline (Phase 968)', () => {
       expect.stringContaining(`contractId=${contractId}`),
       expect.stringContaining(`subtaskId=${subtaskId}`),
       expect.stringContaining('runVerificationPipeline'),
-      expect.stringContaining('cancelled'),
+      expect.stringContaining('not active'),
     );
 
     // mutex 已释放：同 (contractId, subtaskId) 再次 acquire 成功

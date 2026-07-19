@@ -168,7 +168,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
         expect.stringContaining('context=ContractSystem._completeSubtaskSync'),
-        expect.stringContaining('message=moveToArchive failed; progress.status reverted to running for retry'),
+        expect.stringContaining('message=move failed before lifecycle commit; remains active for retry'),
         expect.stringContaining('error=disk full'),
       );
 

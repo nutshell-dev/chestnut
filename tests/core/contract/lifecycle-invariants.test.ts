@@ -6,6 +6,8 @@
  * - lifecycle-race.test.ts
  * - lifecycle-orphan-lock.test.ts
  * - mark-crashed.test.ts
+ *
+ * Phase 1132 Step D: lifecycle 终态由目录 rename 表达；progress.json 不再写 status。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
@@ -75,7 +77,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     const archivedProgressPath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json');
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
-    expect(archivedProgress.status).toBe('cancelled');
+    expect(archivedProgress.status).toBeUndefined();
     expect(archivedProgress.subtasks['task-1'].status).toBe('todo');
     expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
   });
@@ -103,7 +105,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     const archivedProgressPath = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId, 'progress.json');
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
-    expect(archivedProgress.status).toBe('archive_corrupted');
+    expect(archivedProgress.status).toBeUndefined();
     expect(archivedProgress.subtasks['task-1'].status).toBe('todo');
     expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
   });
@@ -175,10 +177,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     await fs.writeFile(
       path.join(contractDir, 'progress.json'),
       JSON.stringify({
-        // phase 319: 加 schema_version 以匹配 Zod SoT strict 要求（mirror phase 311 ContractYaml strict pattern）
         schema_version: 1,
-        contract_id: contractId,
-        status: 'running',
         subtasks: {
           [subtaskId]: { status: 'todo', retry_count: 0 },
         },
@@ -219,11 +218,17 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     // Immediately cancel while background is still running
     await testManager.cancel(contractId, 'user cancelled');
 
+    // Archive is the lifecycle commit point; contract should already be in archive/cancelled
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+
     verificationRelease!();
 
+    // Wait for any background cleanup to settle, then confirm archive stayed and no active dir resurrection
     await vi.waitUntil(async () => {
-      const progress = await testManager.getProgress(contractId);
-      return progress.status === 'cancelled';
+      const activeStillExists = await fs.stat(path.join(clawDir, 'contract', 'active', contractId)).then(() => true).catch(() => false);
+      const archiveStillExists = await fs.stat(archiveDir).then(() => true).catch(() => false);
+      return !activeStillExists && archiveStillExists;
     }, { timeout: 5000 });
   });
 
@@ -243,26 +248,33 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
     expect(result.passed).toBe(false);
-    expect(result.feedback).toContain('cancelled');
+    expect(result.feedback).toContain('not active');
     expect(result.allCompleted).toBe(false);
 
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('cancelled');
-    expect(progress.subtasks['t1'].status).toBe('todo');
+    // Cancelled contract lives in archive/cancelled
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
 
-    // phase 1221: predicate 精确 match context=completeSubtaskSync 防 multi-site emit 拿错位
-    // (verification.ts 6 site emit VERIFICATION_RESET_FAILED 不同 context 值、phase 1196 β 仅 type match 残留 race)
-    const isCompleteSubtaskSyncGuard = (c: { type: string; args: string[] }) =>
+    const archivedProgressPath = path.join(archiveDir, 'progress.json');
+    const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
+    const archivedProgress = JSON.parse(archivedRaw);
+    expect(archivedProgress.status).toBeUndefined();
+    expect(archivedProgress.subtasks['t1'].status).toBe('todo');
+
+    // Phase 1132 Step D: the lifecycle guard now lives in runVerificationPipeline
+    // (active-path check) rather than completeSubtaskSync. Wait for the corresponding
+    // VERIFICATION_RESET_FAILED audit emitted from that context.
+    const isPipelineGuard = (c: { type: string; args: string[] }) =>
       c.type === CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED &&
-      c.args.some(a => a.includes('context=completeSubtaskSync'));
+      c.args.some(a => a.includes('context=runVerificationPipeline'));
 
     await vi.waitUntil(
-      () => auditCalls.slice(beforeAudit).some(isCompleteSubtaskSyncGuard),
+      () => auditCalls.slice(beforeAudit).some(isPipelineGuard),
       { timeout: 2000, interval: 20 },
     );
-    const guardAudits = auditCalls.slice(beforeAudit).filter(isCompleteSubtaskSyncGuard);
+    const guardAudits = auditCalls.slice(beforeAudit).filter(isPipelineGuard);
     expect(guardAudits.length).toBeGreaterThanOrEqual(1);
-    expect(guardAudits[0].args.some(a => a.includes('context=completeSubtaskSync'))).toBe(true);
+    expect(guardAudits[0].args.some(a => a.includes('context=runVerificationPipeline'))).toBe(true);
   });
 });
 
@@ -376,7 +388,7 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
 
 });
 
-// ───── source: mark-corrupted.test.ts ─────
+// ───── source: mark-crashed.test.ts ─────
 /**
  * Phase 1121 Step C: markCorrupted unit tests
  */
@@ -417,7 +429,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('saveProgress(status="archive_corrupted") + move to archive + no notify', async () => {
+  it('saveProgress(no status) + move to corrupted archive + no notify', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Corrupt Test',
       goal: 'Test',
@@ -432,12 +444,14 @@ describe('phase 1121 Step C: markCorrupted', () => {
       relativePath: 'corrupted/123_progress.json',
     });
 
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('archive_corrupted');
-    expect(progress.checkpoint).toContain('archive_corrupted: progress_schema_invalid');
-
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
+
+    const archivedProgressPath = path.join(archiveContractDir, 'progress.json');
+    const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
+    const archivedProgress = JSON.parse(archivedRaw);
+    expect(archivedProgress.status).toBeUndefined();
+    expect(archivedProgress.checkpoint).toContain('archive_corrupted: progress_schema_invalid');
 
     // phase 1121 Step D: 新 contract_crashed notify 已删除
     expect(notifyCalls).toHaveLength(0);
@@ -475,11 +489,13 @@ describe('phase 1121 Step C: markCorrupted', () => {
       relativePath: 'corrupted/123_progress.json',
     })).resolves.toBeUndefined();
 
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('archive_corrupted');
-
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
+
+    const archivedProgressPath = path.join(archiveContractDir, 'progress.json');
+    const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
+    const archivedProgress = JSON.parse(archivedRaw);
+    expect(archivedProgress.status).toBeUndefined();
 
     abortSpy.mockRestore();
   });
