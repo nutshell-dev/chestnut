@@ -507,21 +507,19 @@ export async function runVerificationInBackground(
     // Phase 965: abort is not a verification failure — don't consume retry or write inbox.
     if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
       rejectVerification(err);
-      // Phase 966: reset subtask from in_progress → todo so next submit can retry.
+      // Phase 1136 Step D: persist abort as an interrupted attempt when the contract is still active.
       try {
-        await ctx.withProgressLock(contractId, async () => {
-          const progress = await ctx.getProgress(contractId);
-          // Phase 970 / 1132 Step D: only reset subtasks for active contracts.
-          if (progress && (await isContractActive(ctx, contractId))) {
-            const subtask = progress.subtasks[subtaskId];
-            if (subtask && subtask.status === 'in_progress' &&
-                subtask.verification_attempt_id === attemptId) {
-              subtask.status = 'todo';
-              delete subtask.verification_attempt_id;
-              await ctx.saveProgress(contractId, progress);
-            }
-          }
-        });
+        if (await isContractActive(ctx, contractId)) {
+          await ctx.transitionVerificationAttempt(
+            contractId,
+            subtaskId,
+            {
+              kind: 'interrupt',
+              attemptId,
+              at: new Date().toISOString(),
+            },
+          );
+        }
       } catch (cleanupErr) {
         // best-effort: audit but don't block
         process.stderr.write(`[verification] abort cleanup failed for ${contractId}/${subtaskId}: ${formatErr(cleanupErr)}\n`);

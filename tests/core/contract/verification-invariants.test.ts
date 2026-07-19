@@ -475,6 +475,9 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       }),
       checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
       toolRegistry: {} as VerificationContext['toolRegistry'],
+      isActiveContract: vi.fn().mockResolvedValue(true),
+      getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'skipped', reason: 'not configured' }),
       ...overrides,
     } as VerificationContext;
   }
@@ -497,7 +500,7 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       audit: audit as unknown as VerificationContext['audit'],
       saveProgress,
       getProgress: vi.fn().mockResolvedValue(progress),
-      contractDir: vi.fn().mockResolvedValue('contract/archive/cancelled'),
+      isActiveContract: vi.fn().mockResolvedValue(false),
     });
 
     await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');
@@ -521,18 +524,29 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
         [subtaskId]: { status: 'in_progress', retry_count: 0 },
       },
     };
-    const saveProgress = vi.fn().mockResolvedValue(undefined);
+    const updatedProgress = {
+      subtasks: {
+        [subtaskId]: { status: 'todo', retry_count: 1, last_failed_feedback: { feedback: 'crash', cause: 'programming_bug' } },
+      },
+    };
+    const transitionVerificationAttempt = vi.fn().mockResolvedValue({
+      kind: 'updated',
+      progress: updatedProgress,
+    });
     const ctx = makeCtx({
-      saveProgress,
       getProgress: vi.fn().mockResolvedValue(progress),
-      contractDir: vi.fn().mockResolvedValue('contract/active'),
+      transitionVerificationAttempt,
     });
 
     await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');
 
-    expect(saveProgress).toHaveBeenCalledTimes(1);
-    expect(progress.subtasks[subtaskId].status).toBe('todo');
-    expect(progress.subtasks[subtaskId].retry_count).toBe(1);
+    expect(transitionVerificationAttempt).toHaveBeenCalledWith(
+      contractId,
+      subtaskId,
+      expect.objectContaining({ kind: 'reject', cause: 'programming_bug', forceAccept: false }),
+    );
+    expect(updatedProgress.subtasks[subtaskId].status).toBe('todo');
+    expect(updatedProgress.subtasks[subtaskId].retry_count).toBe(1);
   });
 });
 

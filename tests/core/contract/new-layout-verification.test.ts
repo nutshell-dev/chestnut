@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import {
   applyVerificationAttemptTransition,
   transitionCurrentVerificationAttempt,
@@ -383,6 +384,58 @@ describe('transition state machine', () => {
     expect(result.record.attempts[0].status).toBe('rejected');
     expect(result.record.attempts[1].status).toBe('passed');
   });
+
+  it('rejects with programming_bug and timeout causes', () => {
+    for (const cause of ['programming_bug', 'subagent_timeout'] as const) {
+      const existing: SubtaskRuntimeRecord = {
+        ...makeTodoRecord('t1'),
+        status: 'verifying',
+        current_attempt_id: 'a1',
+        attempts: [{
+          id: 'a1',
+          status: 'running',
+          started_at: '2026-07-19T10:00:00Z',
+          evidence: 'ev',
+          artifacts: [],
+        }],
+      };
+      const result = applyVerificationAttemptTransition(existing, {
+        kind: 'reject',
+        attemptId: 'a1',
+        at: '2026-07-19T10:01:00Z',
+        feedback: 'bad',
+        cause,
+        forceAccept: false,
+      });
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.record.attempts[0].cause).toBe(cause);
+    }
+  });
+
+  it('interrupts without incrementing retry count', () => {
+    const existing: SubtaskRuntimeRecord = {
+      ...makeTodoRecord('t1'),
+      status: 'verifying',
+      current_attempt_id: 'a1',
+      attempts: [{
+        id: 'a1',
+        status: 'running',
+        started_at: '2026-07-19T10:00:00Z',
+        evidence: 'ev',
+        artifacts: [],
+      }],
+    };
+    const result = applyVerificationAttemptTransition(existing, {
+      kind: 'interrupt',
+      attemptId: 'a1',
+      at: '2026-07-19T10:01:00Z',
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.record.status).toBe('todo');
+    expect(result.record.attempts[0].status).toBe('interrupted');
+  });
 });
 
 describe('current repository', () => {
@@ -486,7 +539,7 @@ describe('current repository', () => {
 });
 
 function setupManager(clawDirOverride: string) {
-  const { audit } = makeAudit();
+  const { audit, events } = makeAudit();
   const manager = new ContractSystem({
     clawDir: clawDirOverride,
     clawId: 'test-claw',
@@ -496,7 +549,7 @@ function setupManager(clawDirOverride: string) {
     fsFactory,
     notifyClaw: vi.fn(),
   });
-  return { manager, audit };
+  return { manager, audit, events };
 }
 
 describe('verification gateway', () => {
@@ -667,5 +720,40 @@ describe('verification gateway legacy parity', () => {
       feedback: 'bad',
       cause: 'script_failed',
     });
+  });
+});
+
+describe('daemon restart interruption', () => {
+  it('boot reconcile interrupts verifying attempts with daemon_restart cause', async () => {
+    await writeCurrentLayout(makeContract(), {
+      t1: {
+        ...makeTodoRecord('t1'),
+        status: 'verifying',
+        current_attempt_id: 'a1',
+        attempts: [{
+          id: 'a1',
+          status: 'running',
+          started_at: '2026-07-19T10:00:00Z',
+          evidence: 'ev',
+          artifacts: [],
+        }],
+      },
+    });
+    const { manager, audit, events } = setupManager(clawDir);
+
+    await manager.init();
+
+    const resetEvent = events.find(
+      e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
+    );
+    expect(resetEvent).toBeDefined();
+    expect(resetEvent?.some(col => String(col).includes('cause=daemon_restart'))).toBe(true);
+
+    const filePath = path.join(clawDir, 'contract', 'active', 'current', 'subtasks', 't1.json');
+    const raw = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    expect(parsed.status).toBe('todo');
+    expect(parsed.attempts[0].status).toBe('interrupted');
+    expect(parsed.attempts[0].cause).toBe('daemon_restart');
   });
 });

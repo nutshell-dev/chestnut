@@ -246,17 +246,18 @@ describe('runVerificationInBackground (Phase 965)', () => {
     expect(unregisterController).toHaveBeenCalledTimes(1);
   });
 
-  it('resets subtask to todo on abort (Phase 966)', async () => {
-    const saveProgress = vi.fn().mockResolvedValue(undefined);
-    const getProgress = vi.fn().mockResolvedValue({
-      status: 'running',
-      subtasks: {
-        st1: { status: 'in_progress', verification_attempt_id: 'a1' },
+  it('resets subtask to todo on abort via interrupt transition (Phase 1136 Step D)', async () => {
+    const transitionVerificationAttempt = vi.fn().mockResolvedValue({
+      kind: 'updated',
+      progress: {
+        status: 'running',
+        subtasks: {
+          st1: { status: 'todo' },
+        },
       },
     });
     const ctx = makeCtx({
-      getProgress,
-      saveProgress,
+      transitionVerificationAttempt,
       runScriptVerification: vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')),
     });
     const contractYaml = {
@@ -273,10 +274,11 @@ describe('runVerificationInBackground (Phase 965)', () => {
       ),
     ).rejects.toThrow('aborted');
 
-    expect(saveProgress).toHaveBeenCalledTimes(1);
-    const savedProgress = saveProgress.mock.calls[0][1];
-    expect(savedProgress.subtasks.st1.status).toBe('todo');
-    expect(savedProgress.subtasks.st1.verification_attempt_id).toBeUndefined();
+    expect(transitionVerificationAttempt).toHaveBeenCalledWith(
+      'c1',
+      'st1',
+      expect.objectContaining({ kind: 'interrupt', attemptId: 'a1' }),
+    );
   });
 
   it('rejects late result when verification_attempt_id is missing (Phase 966 ABA guard)', async () => {

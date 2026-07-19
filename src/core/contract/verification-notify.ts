@@ -6,9 +6,7 @@
 import type { VerificationContext } from './verification-types.js';
 import type { ContractId } from './types.js';
 import type { SubtaskId } from './types.js';
-import * as path from 'path';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { activeContainerDir } from './locations.js';
 import { ToolError, ToolTimeoutError } from '../../foundation/tools/errors.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import type { LastFailedFeedback, AcceptanceFailedNotification } from './types.js';
@@ -144,12 +142,7 @@ export function notifyVerificationError(
  * outside the progress lock.
  */
 async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
-  try {
-    const container = await ctx.contractDir(contractId);
-    return path.normalize(container) === path.normalize(activeContainerDir());
-  } catch {
-    return false;
-  }
+  return ctx.isActiveContract(contractId);
 }
 
 export async function handleVerificationErrorRetry(
@@ -180,57 +173,80 @@ export async function handleVerificationErrorRetry(
         throw new ToolError(`Contract "${contractId}" unloadable: progress schema corruption`);
       }
       const subtask = progress.subtasks[subtaskId];
-      if (subtask && subtask.status === 'in_progress') {
-        subtask.status = 'todo';
-        subtask.retry_count = (subtask.retry_count || 0) + 1;
-        subtask.last_failed_feedback = { feedback: feedbackText, cause };
-
-        const contractYaml = await ctx.loadContractYaml(contractId);
-        if (!contractYaml) {
-          throw new ToolError(`Contract "${contractId}" unloadable: contract.yaml schema corruption`);
-        }
-        const maxAttempts = contractYaml.verification_attempts ?? DEFAULT_VERIFICATION_ATTEMPTS;
-
-        if (subtask.retry_count >= maxAttempts) {
-          // 强制接受：timeout/crash 路径达上限同样 force_accepted
-          subtask.status = 'completed';
-          subtask.completed_at = new Date().toISOString();
-          subtask.force_accepted = true;
-          const lastFeedback = subtask.last_failed_feedback?.feedback;
-          await ctx.saveProgress(contractId, progress);
-          emitSubtaskForceAccepted(ctx.audit, {
-            contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
-          });
-          safeNotify(ctx, 'subtask_completed', {
-            contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
-          });
-
-          const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-          // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
-          writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
-          if (allCompleted) {
-            progress.completed_at = new Date().toISOString();
-            await ctx.saveProgress(contractId, progress);
-            // archiveAndEmit 由 caller（runVerificationInBackground catch）在 withProgressLock 外调用
-            result = { archived: false };
-            return;
-          }
-          return;
-        }
-        await ctx.saveProgress(contractId, progress);
-        // phase 425: retry path saveProgress 完成 audit、tests 用此 event 等 state settle
-        emitContractSubtaskResetToTodo(ctx.audit, {
-          contractId, subtaskId, cause, retryCount: subtask.retry_count, maxAttempts,
-        });
-        safeNotify(ctx, 'verification_failed', {
-          contract_id: contractId,
-          subtask_id: subtaskId,
-          cause,
-          feedback: feedbackText,
-          retry_count: subtask.retry_count,
-          max_attempts: maxAttempts,
-        } satisfies AcceptanceFailedNotification);
+      if (!subtask || subtask.status !== 'in_progress') {
+        return;
       }
+
+      const contractYaml = await ctx.loadContractYaml(contractId);
+      if (!contractYaml) {
+        throw new ToolError(`Contract "${contractId}" unloadable: contract.yaml schema corruption`);
+      }
+      const maxAttempts = contractYaml.verification_attempts ?? DEFAULT_VERIFICATION_ATTEMPTS;
+      const priorRejected = subtask.retry_count ?? 0;
+      const forceAccept = priorRejected + 1 >= maxAttempts;
+
+      const transitionResult = await ctx.transitionVerificationAttempt(
+        contractId,
+        subtaskId,
+        {
+          kind: 'reject',
+          attemptId: subtask.verification_attempt_id!,
+          at: new Date().toISOString(),
+          feedback: feedbackText,
+          cause,
+          forceAccept,
+        },
+      );
+
+      if (transitionResult.kind !== 'updated') {
+        emitContractVerificationResetFailed(
+          ctx.audit,
+          {
+            contractId,
+            subtaskId,
+            context: 'handleVerificationErrorRetry',
+            message: transitionResult.kind === 'skipped' ? transitionResult.reason : 'attempt id mismatch',
+          },
+        );
+        return;
+      }
+
+      const updatedProgress = transitionResult.progress;
+      const updatedSubtask = updatedProgress.subtasks[subtaskId];
+      const retryCount = updatedSubtask?.retry_count ?? priorRejected + 1;
+
+      if (forceAccept) {
+        const lastFeedback = updatedSubtask?.last_failed_feedback?.feedback;
+        emitSubtaskForceAccepted(ctx.audit, {
+          contractId, subtaskId, retryCount, claw: ctx.clawId,
+        });
+        safeNotify(ctx, 'subtask_completed', {
+          contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
+        });
+
+        const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
+        // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
+        writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, retryCount, lastFeedback);
+        if (allCompleted) {
+          // archiveAndEmit 由 caller（runVerificationInBackground catch）在 withProgressLock 外调用
+          result = { archived: false };
+        }
+        return;
+      }
+
+      // retry_count < maxAttempts: 保留 retry 路径
+      // phase 425: retry path transition 完成 audit、tests 用此 event 等 state settle
+      emitContractSubtaskResetToTodo(ctx.audit, {
+        contractId, subtaskId, cause, retryCount, maxAttempts,
+      });
+      safeNotify(ctx, 'verification_failed', {
+        contract_id: contractId,
+        subtask_id: subtaskId,
+        cause,
+        feedback: feedbackText,
+        retry_count: retryCount,
+        max_attempts: maxAttempts,
+      } satisfies AcceptanceFailedNotification);
     });
   } catch (e) {
     emitContractVerificationResetFailed(

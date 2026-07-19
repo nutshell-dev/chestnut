@@ -672,11 +672,54 @@ export class ContractSystem {
     );
 
     let failedCount = 0;
+
+    // Phase 1136 Step D: current layout boot interruption. Any running verification
+    // attempts from a previous daemon lifetime are explicitly interrupted so the
+    // attempt history records the daemon restart cause.
+    const currentLayout = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
+    if (currentLayout) {
+      const bootAt = new Date().toISOString();
+      for (const st of currentLayout.contract.subtasks) {
+        const record = currentLayout.subtasks.get(st.id);
+        if (record?.status === 'verifying' && record.current_attempt_id) {
+          try {
+            const result = await transitionCurrentVerificationAttempt(
+              { fs: this.fs, audit: this.audit },
+              currentLayout.contract.id as ContractId,
+              st.id,
+              {
+                kind: 'interrupt',
+                attemptId: record.current_attempt_id,
+                at: bootAt,
+                cause: 'daemon_restart',
+              },
+            );
+            if (result.kind === 'updated') {
+              this.audit.write(
+                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
+                `contract=${currentLayout.contract.id}`,
+                `subtask=${st.id}`,
+                `cause=daemon_restart`,
+              );
+            }
+          } catch (err) {
+            failedCount++;
+            this.audit.write(
+              CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_SKIPPED,
+              `contract=${currentLayout.contract.id}`,
+              `subtask=${st.id}`,
+              `error=${formatErr(err)}`,
+            );
+          }
+        }
+      }
+    }
+
     if (await this.fs.exists(this.activeDir)) {
-      const activeIds = await listPhysicalActiveContractIds({
+      const activeIds = (await listPhysicalActiveContractIds({
         fs: this.fs,
         activeDir: this.activeDir,
-      });
+      })).filter(id => id !== ('current' as ContractId));
 
       for (const contractId of activeIds) {
         try {
