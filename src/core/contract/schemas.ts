@@ -21,7 +21,6 @@ import { z } from 'zod';
 // phase 358: LIFECYCLE_PERSISTED_STATUSES_TUPLE 物理迁 status-tuples.ts (解 schemas/types circular dep)
 // 自身 re-export 保 backward compat 既有 import path
 export { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
-import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
 
 // Step B: explicit legacy progress status vocabulary (historical flat archive input only).
 // Current writer / loader / runtime types must not treat these as current domain vocabulary.
@@ -102,10 +101,8 @@ export const ContractProgressPersistedSchema = z.object({
   started_at: z.string().optional(),
   completed_at: z.string().optional(),
   checkpoint: z.union([z.string(), z.null()]).optional(),
-  // phase 330: non-derivable lifecycle status preserved by persistence.ts (per phase 282 Step A design intent)
-  // derivable status (completed/running/pending) 不持久化 (由 loader derive from subtasks)
-  // phase 347: tuple derive (ML#1 单源 from types.ts LIFECYCLE_PERSISTED_STATUSES_TUPLE)
-  status: z.enum(LIFECYCLE_PERSISTED_STATUSES_TUPLE).optional(),
+  // Step C: current progress.json no longer carries lifecycle status. Status is derived from
+  // subtasks at load time; lifecycle state is committed by the directory path.
 }).strict();
 
 export type ContractProgressPersistedValidated = z.infer<typeof ContractProgressPersistedSchema>;

@@ -73,14 +73,21 @@ describe('ContractSystem', () => {
     expect(progress.subtasks['task-1'].status).toBe('todo');
   });
 
-  it('should cancel contract', async () => {
+  it('should cancel contract and move to archive/cancelled', async () => {
     const contractYaml = makeContractYaml();
 
     const contractId = await manager.create(contractYaml);
     await manager.cancel(contractId, 'Test cancel');
 
+    // Step C: lifecycle state is committed by directory path, not progress.status.
+    const archivePath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    await expect(fs.access(archivePath)).resolves.not.toThrow();
+    const activePath = path.join(clawDir, 'contract', 'active', contractId);
+    await expect(fs.access(activePath)).rejects.toThrow();
+
+    // progress.json no longer carries lifecycle status; derive from subtasks only.
     const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('cancelled');
+    expect(progress.subtasks['task-1'].status).toBe('todo');
   });
 
   // === 新增测试：状态转换验证 ===

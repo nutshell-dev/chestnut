@@ -13,7 +13,7 @@ import { ToolError } from '../../foundation/tools/errors.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
 import type { ProgressData, ContractCorruptionEvidence } from './types.js';
-import { stripDerivableStatus, ContractProgressInvariantViolatedError } from './types.js';
+import { stripProgressDerivedFields, ContractProgressInvariantViolatedError } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
 import { listArchiveContractLocations } from './locations.js';
@@ -162,16 +162,10 @@ export async function saveProgress(
   const progressPath = `${dir}/${contractId}/progress.json`;
   // phase 319: ProgressData.schema_version now z.literal(1) brand (Zod SoT)、显式 set 保 writer SoT
   const progressToSave = { ...progress, schema_version: PROGRESS_CURRENT_SCHEMA_VERSION };
-  // phase 282 Step B: 落盘时不写 contract_id（derive from caller-provided dir）
-  delete (progressToSave as Record<string, unknown>).contract_id;
-  // phase 282 Step A: 对于可从 subtasks derive 的状态（completed/running/pending），
-  // 落盘时不写 status（消除双源）。对于不可 derive 的生命周期状态
-  //（cancelled/crashed/archive_pending_recovery），暂时保留以
-  // 避免状态丢失（未来可迁移到独立持久化标记如 cancelled_at/crashed_at）。
-  // phase 1125 Step B: 'paused' 已从当前 lifecycle 移除；legacy paused 由独立 reader
-  //（findLegacyPausedContracts / listLegacyPausedContracts）承担，不再经 progress.json 状态机流转。
-  // phase 342: stripDerivableStatus helper (ML#1 共用基础设施单源)
-  stripDerivableStatus(progressToSave as Record<string, unknown>);
+  // Step C: current progress disk protocol removes all derive fields (contract_id + status).
+  // Lifecycle state is committed by the directory rename; progress.json only carries subtask,
+  // attempt, feedback, checkpoint and timing facts.
+  stripProgressDerivedFields(progressToSave as Record<string, unknown>);
 
   // phase 319: Zod SoT safeParse defensive (replace assertProgressShapeInvariants、ML#9 优先编译器检查)
   // phase 406 Step C (review N10): refuse to persist known-invalid shape — pre-N10

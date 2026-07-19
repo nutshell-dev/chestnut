@@ -374,7 +374,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
     expect(legacyCalls[0]).toContainEqual(expect.stringContaining('legacy_contract_id=legacy-id'));
   });
 
-  it('saveProgress does not write contract_id field', async () => {
+  it('saveProgress does not write contract_id or status fields', async () => {
     const mockAudit = makeMockAudit();
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const manager = new ContractSystem({
@@ -398,6 +398,48 @@ describe('contract_id derive (phase 282 Step B)', () => {
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     const saved = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
     expect(saved).not.toHaveProperty('contract_id');
+    expect(saved).not.toHaveProperty('status');
+  });
+
+  it('load ignores legacy status field and derives from subtasks', async () => {
+    const mockAudit = makeMockAudit();
+    const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    const manager = new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: nodeFs,
+      audit: mockAudit as any,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      clawsDir: '/tmp/test/claws',
+      notifyClaw: vi.fn(),
+    });
+
+    const contractId = await manager.create(makeContractYaml({
+      title: 'Test',
+      goal: 'Test',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+
+    // overwrite with legacy lifecycle status field
+    const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
+    await fs.writeFile(progressPath, JSON.stringify({
+      schema_version: 1,
+      status: 'cancelled',
+      subtasks: { t1: { status: 'todo' } },
+    }), 'utf-8');
+
+    const progress = await manager.getProgress(contractId);
+    expect(progress).not.toBeNull();
+    // status ignored and derived from subtasks
+    expect(progress!.status).toBe('running');
+
+    const legacyCalls = (mockAudit.write as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
+    );
+    expect(legacyCalls.length).toBeGreaterThanOrEqual(1);
+    expect(legacyCalls[0]).toContainEqual(expect.stringContaining('legacy_status=cancelled'));
   });
 });
 

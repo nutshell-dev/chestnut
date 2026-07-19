@@ -235,6 +235,16 @@ export function stripDerivableStatus(p: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Step C: current progress disk protocol removes all derive fields (contract_id + status)
+ * before persistence. Caller passes a shallow clone; in-place mutation is safe because
+ * the clone is owned by the writer.
+ */
+export function stripProgressDerivedFields(p: Record<string, unknown>): void {
+  delete p.contract_id;
+  delete p.status;
+}
+
 export interface VerificationResult {
   passed: boolean;
   feedback: string;

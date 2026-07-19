@@ -58,8 +58,7 @@ import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
 } from './types.js';
-import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, DERIVABLE_STATUSES, LIFECYCLE_PERSISTED_STATUSES, ARCHIVE_STATES } from './types.js';
-import type { LifecyclePersistedStatus } from './types.js';
+import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, ARCHIVE_STATES } from './types.js';
 import {
   lockContract,
   acquireLock,
@@ -1122,47 +1121,30 @@ export class ContractSystem {
       throw parseErr;
     }
 
-    // phase 319: legacy derive field handling (contract_id + status) before strict Zod parse
-    // (Zod .strict() would reject these legacy fields、需先 strip + emit audit observability for derive)
-    const legacyContractId = (rawParsed as Record<string, unknown>).contract_id;
+    // Step C: current progress.json no longer carries lifecycle status or contract_id.
+    // Both are derive fields: contract_id from caller/dir, status from subtasks.
+    const rawObj = rawParsed as Record<string, unknown>;
+    const legacyContractId = rawObj.contract_id;
     if (legacyContractId !== undefined) {
       this.audit.write(
         CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_CONTRACT_ID_FIELD_IGNORED,
         `contractId=${contractId}`,
         `legacy_contract_id=${String(legacyContractId)}`,
       );
-      delete (rawParsed as Record<string, unknown>).contract_id;
+      delete rawObj.contract_id;
     }
-    const legacyStatus = (rawParsed as Record<string, unknown>).status;
-    // phase 345: narrow type LifecyclePersistedStatus (disjoint subset、derive subset 由 derivedStatus 处理)
-    let preservedLifecycleStatus: LifecyclePersistedStatus | undefined;
-    // phase 365: explicit LIFECYCLE_PERSISTED_STATUSES membership check (replace unsafe cast)
-    // ML#9 + DP「不静默」: unknown legacy string (非 derive 非 persist) 显式 emit audit + 忽略、不 fake-cast as LifecyclePersistedStatus
-    if (typeof legacyStatus === 'string') {
-      if ((LIFECYCLE_PERSISTED_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
-        // 保留不可 derive 的生命周期状态（cancelled/crashed/archive_pending_recovery）
-        preservedLifecycleStatus = legacyStatus as LifecyclePersistedStatus;
-      } else if (!(DERIVABLE_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
-        // unknown legacy string (非 derive 非 persist)、emit audit + 忽略
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
-          `contractId=${contractId}`,
-          `legacy_status=${String(legacyStatus)}`,
-          `reason=unknown_lifecycle`,
-        );
-      } else {
-        // 可 derive 状态、legacy field 忽略 + emit audit
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
-          `contractId=${contractId}`,
-          `legacy_status=${String(legacyStatus)}`,
-        );
-      }
+    const observedStatus = rawObj.status;
+    if (observedStatus !== undefined) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
+        `contractId=${contractId}`,
+        `legacy_status=${String(observedStatus)}`,
+      );
+      delete rawObj.status;
     }
-    delete (rawParsed as Record<string, unknown>).status;
 
     // phase 319: Zod SoT safeParse (mirror phase 311 ContractYamlSchema pattern)
-    const result = ContractProgressPersistedSchema.safeParse(rawParsed);
+    const result = ContractProgressPersistedSchema.safeParse(rawObj);
     if (!result.success) {
       const firstIssue = result.error.issues[0];
       const isSchemaVersionIssue = firstIssue?.path[0] === 'schema_version';
@@ -1215,7 +1197,7 @@ export class ContractSystem {
     }
 
     // phase 282 Step A/B: derive status + contract_id from caller/dir/subtasks
-    const derivedStatus = preservedLifecycleStatus ?? deriveProgressStatus({ subtasks: result.data.subtasks });
+    const derivedStatus = deriveProgressStatus({ subtasks: result.data.subtasks });
     return {
       ...result.data,
       contract_id: contractId,

@@ -18,6 +18,7 @@ import {
   SUBTASK_STATUSES,
   deriveProgressStatus,
   stripDerivableStatus,
+  stripProgressDerivedFields,
   ARCHIVE_STATE_DIRS_TUPLE,
   ARCHIVE_STATES,
 } from '../../../src/core/contract/types.js';
@@ -233,7 +234,45 @@ describe('phase 1132 Step B: status vocabulary boundary invariants', () => {
     });
   });
 
-  describe('Invariant 9: SUBTASK_STATUSES ∩ DERIVABLE_STATUSES = {completed}', () => {
+  describe('Invariant 9: stripProgressDerivedFields removes contract_id and any status', () => {
+    it('removes contract_id', () => {
+      const obj: Record<string, unknown> = { contract_id: 'c1', subtasks: {} };
+      stripProgressDerivedFields(obj);
+      expect(obj.contract_id).toBeUndefined();
+    });
+
+    it('removes derivable status: completed', () => {
+      const obj: Record<string, unknown> = { status: 'completed', subtasks: {} };
+      stripProgressDerivedFields(obj);
+      expect(obj.status).toBeUndefined();
+    });
+
+    it('removes lifecycle status: cancelled', () => {
+      const obj: Record<string, unknown> = { status: 'cancelled', subtasks: {} };
+      stripProgressDerivedFields(obj);
+      expect(obj.status).toBeUndefined();
+    });
+
+    it('removes legacy status: paused', () => {
+      const obj: Record<string, unknown> = { status: 'paused', subtasks: {} };
+      stripProgressDerivedFields(obj);
+      expect(obj.status).toBeUndefined();
+    });
+
+    it('removes unknown status', () => {
+      const obj: Record<string, unknown> = { status: 'unknown_future_status', subtasks: {} };
+      stripProgressDerivedFields(obj);
+      expect(obj.status).toBeUndefined();
+    });
+
+    it('leaves subtasks intact', () => {
+      const obj: Record<string, unknown> = { status: 'running', subtasks: { t1: { status: 'todo' } } };
+      stripProgressDerivedFields(obj);
+      expect(obj.subtasks).toEqual({ t1: { status: 'todo' } });
+    });
+  });
+
+  describe('Invariant 10: SUBTASK_STATUSES ∩ DERIVABLE_STATUSES = {completed}', () => {
     it('only completed literal shared between SUBTASK and DERIVABLE', () => {
       const overlap = SUBTASK_STATUSES_TUPLE.filter(s =>
         (DERIVABLE_STATUSES as ReadonlySet<string>).has(s),
