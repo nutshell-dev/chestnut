@@ -84,7 +84,8 @@ import {
   isContractComplete, moveContractToArchive,
   type LifecycleContext,
 } from './lifecycle.js';
-import type { NotifyClawFn } from './verification-types.js';
+import type { NotifyClawFn, VerificationGatewayResult } from './verification-types.js';
+import type { VerificationAttemptTransition } from './verification-transition-types.js';
 import type { ContractCorruptionEvidence } from './types.js';
 import {
   runVerificationPipeline,
@@ -100,6 +101,7 @@ import {
   readCurrentContractLayout,
   projectCurrentRuntime,
   saveCurrentProgressAtomic,
+  transitionCurrentVerificationAttempt,
 } from './new-layout.js';
 import { VerificationMutex } from './verification-mutex.js';
 import { ContractAuditor } from './contract-auditor.js';
@@ -384,6 +386,131 @@ export class ContractSystem {
   }
 
   // ============================================================================
+  // Phase 1136 Step B: layout-neutral verification resource gateway
+  // ============================================================================
+
+  async isActiveContract(contractId: ContractId): Promise<boolean> {
+    const loc = await resolveActiveContractLocation({
+      fs: this.fs,
+      audit: this.audit,
+      activeDir: this.activeDir,
+      contractId,
+    });
+    return loc !== null;
+  }
+
+  async getContractRoot(contractId: ContractId): Promise<string> {
+    const activeLoc = await resolveActiveContractLocation({
+      fs: this.fs,
+      audit: this.audit,
+      activeDir: this.activeDir,
+      contractId,
+    });
+    if (activeLoc) {
+      return activeLoc.contractRoot;
+    }
+    const loc = await resolveContractLocation({
+      fs: this.fs,
+      activeDir: this.activeDir,
+      archiveDir: this.archiveDir,
+      contractId,
+      audit: this.audit,
+    });
+    if (!loc) throw new ToolError(`Contract "${contractId}" not found`);
+    return loc.contractRoot;
+  }
+
+  async transitionVerificationAttempt(
+    contractId: ContractId,
+    subtaskId: SubtaskId,
+    transition: VerificationAttemptTransition,
+  ): Promise<VerificationGatewayResult> {
+    const activeLoc = await resolveActiveContractLocation({
+      fs: this.fs,
+      audit: this.audit,
+      activeDir: this.activeDir,
+      contractId,
+    });
+
+    if (activeLoc?.layout === 'current') {
+      const result = await transitionCurrentVerificationAttempt(
+        { fs: this.fs, audit: this.audit },
+        contractId,
+        subtaskId,
+        transition,
+      );
+      if (result.kind !== 'updated') {
+        return result;
+      }
+      const layout = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
+      if (!layout) {
+        return { kind: 'skipped', reason: 'current layout disappeared after transition' };
+      }
+      return { kind: 'updated', progress: projectCurrentRuntime(layout).progress };
+    }
+
+    if (activeLoc?.layout === 'legacy') {
+      return this.transitionLegacyVerificationAttempt(contractId, subtaskId, transition);
+    }
+
+    return { kind: 'skipped', reason: `contract ${contractId} is not active` };
+  }
+
+  private async transitionLegacyVerificationAttempt(
+    contractId: ContractId,
+    subtaskId: SubtaskId,
+    transition: VerificationAttemptTransition,
+  ): Promise<VerificationGatewayResult> {
+    const progress = await this.getProgress(contractId);
+    if (!progress) {
+      return { kind: 'skipped', reason: `progress unavailable for ${contractId}` };
+    }
+
+    const subtask = progress.subtasks[subtaskId];
+    if (!subtask) {
+      return { kind: 'skipped', reason: `subtask ${subtaskId} missing from progress` };
+    }
+
+    if (transition.kind === 'start') {
+      if (subtask.status !== 'todo') {
+        return { kind: 'skipped', reason: `start requires todo, got ${subtask.status}` };
+      }
+      subtask.status = 'in_progress';
+      subtask.evidence = transition.evidence;
+      subtask.artifacts = transition.artifacts;
+      subtask.verification_attempt_id = transition.attemptId;
+    } else if (transition.kind === 'pass') {
+      if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
+        return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
+      }
+      subtask.status = 'completed';
+      subtask.completed_at = transition.at;
+    } else if (transition.kind === 'reject') {
+      if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
+        return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
+      }
+      subtask.retry_count = (subtask.retry_count || 0) + 1;
+      subtask.last_failed_feedback = { feedback: transition.feedback, cause: transition.cause };
+      if (transition.forceAccept) {
+        subtask.status = 'completed';
+        subtask.completed_at = transition.at;
+        subtask.force_accepted = true;
+      } else {
+        subtask.status = 'todo';
+      }
+    } else if (transition.kind === 'interrupt') {
+      if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
+        return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
+      }
+      subtask.status = 'todo';
+      delete subtask.verification_attempt_id;
+    }
+
+    await this.saveProgress(contractId, progress);
+    return { kind: 'updated', progress };
+  }
+
+  // ============================================================================
   // ctx 装配 helper
   // ============================================================================
 
@@ -448,6 +575,9 @@ export class ContractSystem {
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       moveContractToArchive: (id, targetState) => this.moveToArchive(id, targetState),
       emitContractCompleted: (id) => this._emitContractCompleted(id),
+      isActiveContract: (id) => this.isActiveContract(id),
+      getContractRoot: (id) => this.getContractRoot(id),
+      transitionVerificationAttempt: (id, stId, t) => this.transitionVerificationAttempt(id, stId, t),
       // phase 438: lazy thunk、同 _lifecycleCtx
       onNotify: (type, data) => this.onNotify?.(type, data),
       // Phase 965: propagate cancellation signal to verification execution

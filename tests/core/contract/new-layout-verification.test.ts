@@ -1,7 +1,7 @@
 /**
  * Phase 1136: verification attempt transition state machine and gateway tests.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -12,8 +12,12 @@ import {
   applyVerificationAttemptTransition,
   transitionCurrentVerificationAttempt,
 } from '../../../src/core/contract/new-layout.js';
+import { ContractSystem } from '../../../src/core/contract/manager.js';
+import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import type { PersistedContractYaml, SubtaskRuntimeRecord } from '../../../src/core/contract/types.js';
 import type { VerificationAttemptTransition } from '../../../src/core/contract/verification-transition-types.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 let tmpDir: string;
 let clawDir: string;
@@ -478,5 +482,190 @@ describe('current repository', () => {
 
     const after = await fs.readFile(t2Path, 'utf-8');
     expect(after).toBe(before);
+  });
+});
+
+function setupManager(clawDirOverride: string) {
+  const { audit } = makeAudit();
+  const manager = new ContractSystem({
+    clawDir: clawDirOverride,
+    clawId: 'test-claw',
+    fs: new NodeFileSystem({ baseDir: clawDirOverride }),
+    audit,
+    toolRegistry: createToolRegistry(),
+    fsFactory,
+    notifyClaw: vi.fn(),
+  });
+  return { manager, audit };
+}
+
+describe('verification gateway', () => {
+  it('recognizes current layout as active', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { manager } = setupManager(clawDir);
+
+    const active = await manager.isActiveContract('cid-1' as any);
+    expect(active).toBe(true);
+  });
+
+  it('returns false for non-existent contract', async () => {
+    const { manager } = setupManager(clawDir);
+    const active = await manager.isActiveContract('missing' as any);
+    expect(active).toBe(false);
+  });
+
+  it('returns current root without duplicated contract id', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { manager } = setupManager(clawDir);
+
+    const root = await manager.getContractRoot('cid-1' as any);
+    expect(root).toBe('contract/active/current');
+  });
+
+  it('commits transition through gateway and returns progress projection', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { manager } = setupManager(clawDir);
+
+    const result = await manager.transitionVerificationAttempt(
+      'cid-1' as any,
+      't1' as any,
+      {
+        kind: 'start',
+        attemptId: 'a1',
+        evidence: 'ev',
+        artifacts: ['art1'],
+        at: '2026-07-19T10:00:00Z',
+      },
+    );
+
+    expect(result.kind).toBe('updated');
+    if (result.kind !== 'updated') return;
+    expect(result.progress.subtasks.t1.status).toBe('in_progress');
+    expect(result.progress.subtasks.t1.verification_attempt_id).toBe('a1');
+  });
+
+  it('returns late when current attempt id mismatches', async () => {
+    await writeCurrentLayout(makeContract(), {
+      t1: {
+        ...makeTodoRecord('t1'),
+        status: 'verifying',
+        current_attempt_id: 'a1',
+        attempts: [{
+          id: 'a1',
+          status: 'running',
+          started_at: '2026-07-19T10:00:00Z',
+          evidence: 'ev',
+          artifacts: [],
+        }],
+      },
+    });
+    const { manager } = setupManager(clawDir);
+
+    const result = await manager.transitionVerificationAttempt(
+      'cid-1' as any,
+      't1' as any,
+      {
+        kind: 'pass',
+        attemptId: 'a0',
+        at: '2026-07-19T10:05:00Z',
+      },
+    );
+
+    expect(result.kind).toBe('skipped');
+  });
+
+  it('does not fallback to legacy when current is corrupted', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    // Corrupt current by removing yaml.
+    await fs.rm(path.join(clawDir, 'contract', 'active', 'current', 'contract.yaml'));
+    // Also create legacy active with same id.
+    const legacyRoot = path.join(clawDir, 'contract', 'active', 'cid-1');
+    await fs.mkdir(legacyRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(legacyRoot, 'progress.json'),
+      JSON.stringify({ schema_version: 1, subtasks: { t1: { status: 'todo' } } }),
+      'utf-8',
+    );
+    const { manager } = setupManager(clawDir);
+
+    await expect(manager.isActiveContract('cid-1' as any)).rejects.toThrow();
+  });
+});
+
+describe('verification gateway legacy parity', () => {
+  async function writeLegacyLayout(contractId: string) {
+    const root = path.join(clawDir, 'contract', 'active', contractId);
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(
+      path.join(root, 'contract.yaml'),
+      yaml.dump(makeContract()),
+      'utf-8',
+    );
+    await fs.writeFile(
+      path.join(root, 'progress.json'),
+      JSON.stringify({ schema_version: 1, subtasks: { t1: { status: 'todo' } } }),
+      'utf-8',
+    );
+  }
+
+  it('start transition projects same progress fields as current', async () => {
+    await writeLegacyLayout('cid-1');
+    const { manager } = setupManager(clawDir);
+
+    const result = await manager.transitionVerificationAttempt(
+      'cid-1' as any,
+      't1' as any,
+      {
+        kind: 'start',
+        attemptId: 'a1',
+        evidence: 'ev',
+        artifacts: ['art1'],
+        at: '2026-07-19T10:00:00Z',
+      },
+    );
+
+    expect(result.kind).toBe('updated');
+    if (result.kind !== 'updated') return;
+    expect(result.progress.subtasks.t1.status).toBe('in_progress');
+    expect(result.progress.subtasks.t1.verification_attempt_id).toBe('a1');
+    expect(result.progress.subtasks.t1.evidence).toBe('ev');
+  });
+
+  it('reject transition increments retry_count and resets to todo', async () => {
+    await writeLegacyLayout('cid-1');
+    const { manager } = setupManager(clawDir);
+    await manager.transitionVerificationAttempt(
+      'cid-1' as any,
+      't1' as any,
+      {
+        kind: 'start',
+        attemptId: 'a1',
+        evidence: 'ev',
+        artifacts: [],
+        at: '2026-07-19T10:00:00Z',
+      },
+    );
+
+    const result = await manager.transitionVerificationAttempt(
+      'cid-1' as any,
+      't1' as any,
+      {
+        kind: 'reject',
+        attemptId: 'a1',
+        at: '2026-07-19T10:01:00Z',
+        feedback: 'bad',
+        cause: 'script_failed',
+        forceAccept: false,
+      },
+    );
+
+    expect(result.kind).toBe('updated');
+    if (result.kind !== 'updated') return;
+    expect(result.progress.subtasks.t1.status).toBe('todo');
+    expect(result.progress.subtasks.t1.retry_count).toBe(1);
+    expect(result.progress.subtasks.t1.last_failed_feedback).toEqual({
+      feedback: 'bad',
+      cause: 'script_failed',
+    });
   });
 });

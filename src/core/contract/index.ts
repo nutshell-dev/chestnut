@@ -24,7 +24,13 @@ export {
 // phase 482: audit-events barrel re-export (CONTRACT_AUDIT_EVENTS for evolution-system; ID/file routing constants for assembly remain deep-imported per allowlist)
 export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 // phase 484: verification-types barrel re-export
-export type { NotifyClawFn } from './verification-types.js';
+export type { NotifyClawFn, VerificationGatewayResult } from './verification-types.js';
+
+// Phase 1136 Step B: verification attempt transition types
+export type {
+  VerificationAttemptTransition,
+  VerificationTransitionResult,
+} from './verification-transition-types.js';
 export { contractFootprint, type ContractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
 export { buildAuditorPrompt, type AuditorPromptInput } from './auditor-prompt.js';
 

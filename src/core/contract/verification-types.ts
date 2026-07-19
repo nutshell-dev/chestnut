@@ -12,6 +12,9 @@ import type { ContractId } from './types.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import type { VerificationMutex } from './verification-mutex.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
+import type {
+  VerificationAttemptTransition,
+} from './verification-transition-types.js';
 
 /**
  * phase 95: pre-bound notifyClaw — caller (Manager) binds fs + chestnutRoot + audit.
@@ -47,6 +50,25 @@ export interface VerificationContractContext {
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   moveContractToArchive: (contractId: ContractId, targetState: ArchiveState) => Promise<void>;
   emitContractCompleted: (contractId: ContractId) => Promise<void>;
+  /**
+   * Phase 1136 Step B: layout-neutral active check. Returns true iff the
+   * contract resides in an active location (current slot or legacy active dir).
+   */
+  isActiveContract: (contractId: ContractId) => Promise<boolean>;
+  /**
+   * Phase 1136 Step B: layout-neutral contract root resolution. Returns the
+   * contract root directory relative to clawDir for verifier execution.
+   */
+  getContractRoot: (contractId: ContractId) => Promise<string>;
+  /**
+   * Phase 1136 Step B: typed attempt transition. Manager dispatches to the
+   * current repository or an equivalent legacy progress mutation.
+   */
+  transitionVerificationAttempt: (
+    contractId: ContractId,
+    subtaskId: SubtaskId,
+    transition: VerificationAttemptTransition,
+  ) => Promise<VerificationGatewayResult>;
 }
 
 export interface VerificationExecutionContext {
@@ -77,3 +99,13 @@ export type VerificationContext =
   & VerificationLockContext
   & VerificationContractContext
   & VerificationExecutionContext;
+
+/**
+ * Phase 1136 Step B: result of a layout-neutral verification attempt transition.
+ * The gateway returns the updated progress projection so callers can compute
+ * allCompleted, retry_count and emit notifications without reading disk paths.
+ */
+export type VerificationGatewayResult =
+  | { kind: 'updated'; progress: ProgressData }
+  | { kind: 'skipped'; reason: string }
+  | { kind: 'late'; expectedAttemptId: string; actualAttemptId?: string };
