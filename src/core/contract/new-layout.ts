@@ -89,7 +89,7 @@ function emitLayoutCorrupted(
     CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED,
     `root=${root}`,
     `cause=${cause}`,
-    detail ? `detail=${audit.preview(detail)}` : '',
+    detail ? `detail=${typeof audit.preview === 'function' ? audit.preview(detail) : detail}` : '',
   );
 }
 
@@ -308,6 +308,9 @@ export async function readCurrentContractLayout(
   deps: { fs: FileSystem; audit: AuditLog },
 ): Promise<CurrentContractLayout | null> {
   const root = getContractActiveCurrentRoot();
+  // Phase 1135: an empty current slot must not emit a corruption audit event.
+  if (!(await deps.fs.exists(root))) return null;
+
   try {
     const { contract, subtasks } = await readContractLayoutAtRoot(deps, root);
     return {
@@ -318,8 +321,8 @@ export async function readCurrentContractLayout(
     };
   } catch (err) {
     if (err instanceof ContractLayoutCorruptedError && err.context.cause === 'yaml_missing') {
-      // Current slot simply does not exist yet — this is a typed null, not corruption.
-      return null;
+      // Current slot exists but has no yaml — this is corruption (empty directory).
+      throw err;
     }
     throw err;
   }
@@ -653,7 +656,7 @@ export async function writeCurrentSubtaskRecord(
       `root=${layout.root}`,
       `cause=subtask_readback_schema_invalid`,
       `subtaskId=${subtaskId}`,
-      `detail=${deps.audit.preview(detail)}`,
+      `detail=${typeof deps.audit.preview === 'function' ? deps.audit.preview(detail) : detail}`,
     );
     throw new ContractLayoutCorruptedError(
       `subtask ${subtaskId} readback schema invalid at ${layout.root}: ${detail}`,
@@ -750,7 +753,7 @@ export async function prepareContractStaging(
       CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID,
       `creationId=${creationId}`,
       `reason=schema_invalid`,
-      `detail=${deps.audit.preview(detail)}`,
+      `detail=${typeof deps.audit.preview === 'function' ? deps.audit.preview(detail) : detail}`,
     );
     throw new ContractStagingCorruptedError(
       `invalid persisted contract yaml for creation ${creationId}: ${detail}`,

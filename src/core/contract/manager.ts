@@ -51,7 +51,7 @@ import {
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
-import { resolveContractLocation, listPhysicalActiveContractIds } from './locations.js';
+import { resolveContractLocation, resolveActiveContractLocation, listPhysicalActiveContractIds } from './locations.js';
 import { type ClawId } from '../../foundation/claw-identity/index.js';
 
 import type {
@@ -96,6 +96,11 @@ import {
 import { archiveAndEmit } from './verification-lifecycle.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
+import {
+  readCurrentContractLayout,
+  projectCurrentRuntime,
+  saveCurrentProgressAtomic,
+} from './new-layout.js';
 import { VerificationMutex } from './verification-mutex.js';
 import { ContractAuditor } from './contract-auditor.js';
 
@@ -489,6 +494,11 @@ export class ContractSystem {
 
   // Discovery
   async loadActive(): Promise<Contract | null> {
+    // Phase 1135 Step D: route active load through the layout boundary.
+    const current = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
+    if (current) {
+      return projectCurrentRuntime(current).contract;
+    }
     return loadActiveContract(this._discoveryCtx(), this.activeDir);
   }
 
@@ -965,14 +975,32 @@ export class ContractSystem {
   }
 
   /**
-   * 读 contract progress.json。
+   * 读 contract progress。
    *
-   * TOCTOU mitigation: `contractDir` + `fs.read` 跨步骤间、archive move
-   * (verification-lifecycle.ts:34 `moveContractToArchive` 在 withProgressLock
-   * 外执行) 可能将文件从 active dir 移到 archive dir。捕 `FileNotFoundError`
-   * 重探 contractDir 一次。第二次仍 FileNotFoundError 则真不存在、暴露给 caller。
+   * Phase 1135 Step D: route active access through the layout boundary first.
+   * - current layout → projection from YAML + subtask files (no progress.json)
+   * - legacy active → existing progress.json path
+   * - archive → existing resolveContractLocation path
+   *
+   * TOCTOU mitigation: legacy/archive path uses `contractDir` + `fs.read`; archive move
+   * may race, so FileNotFoundError triggers one re-resolve.
    */
   async getProgress(contractId: ContractId): Promise<ProgressData | null> {
+    const activeLoc = await resolveActiveContractLocation({
+      fs: this.fs,
+      audit: this.audit,
+      activeDir: this.activeDir,
+      contractId,
+    });
+    if (activeLoc?.layout === 'current') {
+      const layout = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
+      if (!layout) return null;
+      return projectCurrentRuntime(layout).progress;
+    }
+    return this._getProgressLegacyOrArchive(contractId);
+  }
+
+  private async _getProgressLegacyOrArchive(contractId: ContractId): Promise<ProgressData | null> {
     let dir: string;
     let content: string;
     try {
@@ -1117,6 +1145,11 @@ export class ContractSystem {
   }
 
   private async loadContractYaml(contractId: ContractId): Promise<ContractYaml | null> {
+    // Phase 1135 Step D: current layout YAML is read directly from the fixed slot.
+    const current = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
+    if (current && current.contract.id === contractId) {
+      return current.contract;
+    }
     return loadYaml(this._persistenceCtx(), contractId);
   }
 
@@ -1129,10 +1162,27 @@ export class ContractSystem {
   }
 
   private async saveProgress(contractId: ContractId, progress: ProgressData, knownDir?: string): Promise<void> {
+    // Phase 1135 Step D: route current layout writes through the atomic subtask boundary.
+    if (knownDir === undefined) {
+      const activeLoc = await resolveActiveContractLocation({
+        fs: this.fs,
+        audit: this.audit,
+        activeDir: this.activeDir,
+        contractId,
+      });
+      if (activeLoc?.layout === 'current') {
+        return saveCurrentProgressAtomic({ fs: this.fs, audit: this.audit }, contractId, progress);
+      }
+    }
     return saveProg(this._persistenceCtx(), contractId, progress, knownDir);
   }
 
   private async checkAllCompleted(contractId: ContractId, progress: ProgressData): Promise<boolean> {
+    // Phase 1135 Step D: current layout subtask list comes from the YAML in the fixed slot.
+    const current = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
+    if (current && current.contract.id === contractId) {
+      return current.contract.subtasks.every(st => progress.subtasks[st.id]?.status === 'completed');
+    }
     return checkAllSubtasksCompleted(this._persistenceCtx(), contractId, progress);
   }
 

@@ -20,6 +20,11 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { ContractCapacityError } from '../../src/core/contract/errors.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
+import {
+  prepareContractStaging,
+  commitContractStaging,
+  readCurrentContractLayout,
+} from '../../src/core/contract/new-layout.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
@@ -390,4 +395,70 @@ describe('ContractSystem', () => {
     });
   });
 
+  describe('current layout integration', () => {
+    it('reads and updates a current-layout fixture via manager runtime boundary', async () => {
+      const currentYaml = {
+        ...makeContractYaml({
+          subtasks: [
+            { id: 't1', description: 'T1' },
+            { id: 't2', description: 'T2' },
+          ],
+          verification: [],
+        }),
+        id: 'cid-current',
+      };
+
+      const staging = await prepareContractStaging(
+        { fs: nodeFs, audit: makeMockAudit() },
+        { creationId: 'create-1', contract: currentYaml as any },
+      );
+      await commitContractStaging({ fs: nodeFs, audit: makeMockAudit() }, staging);
+
+      const active = await manager.loadActive();
+      expect(active).not.toBeNull();
+      expect(active!.id).toBe('cid-current');
+      expect(active!.subtasks.map(st => st.id)).toEqual(['t1', 't2']);
+
+      const progress = await manager.getProgress('cid-current' as any);
+      expect(progress).not.toBeNull();
+      expect(progress!.contract_id).toBe('cid-current');
+      expect(progress!.subtasks.t1.status).toBe('todo');
+      expect(progress!.subtasks.t2.status).toBe('todo');
+
+      // Single subtask update through the atomic current boundary.
+      const updated = { ...progress! };
+      updated.subtasks = { ...updated.subtasks };
+      updated.subtasks.t1 = {
+        ...updated.subtasks.t1,
+        status: 'completed',
+        completed_at: '2026-07-19T10:05:00Z',
+        evidence: 'done',
+      };
+
+      // @ts-expect-error - saveProgress is private
+      await manager.saveProgress('cid-current' as any, updated);
+
+      const after = await manager.getProgress('cid-current' as any);
+      expect(after!.subtasks.t1.status).toBe('completed');
+      expect(after!.subtasks.t2.status).toBe('todo');
+
+      const layout = await readCurrentContractLayout({ fs: nodeFs, audit: makeMockAudit() });
+      expect(layout!.subtasks.get('t1')?.status).toBe('completed');
+      expect(layout!.subtasks.get('t2')?.status).toBe('todo');
+    });
+
+    it('manager.create still writes legacy active layout', async () => {
+      const contractId = await manager.create(makeContractYaml({
+        title: 'Legacy Writer',
+        goal: 'Legacy',
+        subtasks: [{ id: 't1', description: 'T1' }],
+        verification: [],
+      }));
+
+      const legacyPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
+      await expect(fs.access(legacyPath)).resolves.not.toThrow();
+      const currentPath = path.join(clawDir, 'contract', 'active', 'current');
+      await expect(fs.access(currentPath)).rejects.toThrow();
+    });
+  });
 });
