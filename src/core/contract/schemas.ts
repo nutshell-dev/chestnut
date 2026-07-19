@@ -21,7 +21,20 @@ import { z } from 'zod';
 // phase 358: LIFECYCLE_PERSISTED_STATUSES_TUPLE 物理迁 status-tuples.ts (解 schemas/types circular dep)
 // 自身 re-export 保 backward compat 既有 import path
 export { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
-import { LIFECYCLE_PERSISTED_STATUSES_TUPLE, ALL_CONTRACT_STATUSES_TUPLE } from './status-tuples.js';
+import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
+
+// Step B: explicit legacy progress status vocabulary (historical flat archive input only).
+// Current writer / loader / runtime types must not treat these as current domain vocabulary.
+export const LEGACY_PROGRESS_STATUSES_TUPLE = [
+  'pending',
+  'running',
+  'completed',
+  'cancelled',
+  'paused',
+  'crashed',
+  'archive_pending_recovery',
+  'archive_corrupted',
+] as const;
 
 const SubTaskSchema = z.object({
   id: z.string(),
@@ -121,8 +134,8 @@ export const ContractProgressArchiveLooseSchema = z.object({
   started_at: z.string().optional(),
   completed_at: z.string().optional(),
   checkpoint: z.union([z.string(), z.null()]).optional(),
-  // phase 1123 Step C: archive loose schema accepts current statuses plus legacy 'paused'.
-  status: z.enum([...ALL_CONTRACT_STATUSES_TUPLE, 'paused']).optional(),
+  // Step B: archive loose schema uses the explicit legacy vocabulary only.
+  status: z.enum(LEGACY_PROGRESS_STATUSES_TUPLE).optional(),
   // phase 335: contract_id 在 archive/boot_reconcile 路径 legacy 可含 (derive 字段)、explicit typed access
   contract_id: z.string().optional(),
 }).passthrough();

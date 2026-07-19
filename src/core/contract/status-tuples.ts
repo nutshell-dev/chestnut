@@ -21,11 +21,15 @@ export const DERIVABLE_STATUSES_TUPLE = ['pending', 'running', 'completed'] as c
  */
 export const SUBTASK_STATUSES_TUPLE = ['todo', 'in_progress', 'completed'] as const;
 
+// Step B: LIFECYCLE_PERSISTED_STATUSES_TUPLE / ALL_CONTRACT_STATUSES_TUPLE are legacy-only
+// scaffolding. They remain exported during Steps B–E for compile compatibility;
+// Step F removes them. Current lifecycle state is derived from the directory path
+// (active / archive/<state>); progress.json no longer carries lifecycle status.
 export const LIFECYCLE_PERSISTED_STATUSES_TUPLE = [
-  'cancelled',                    // archive 子目录、用户 CLI / system 主动停
-  'crashed',                      // archive 子目录、agent 物理推不动 (phase 63)
-  'archive_pending_recovery',     // archiveAndEmit partial recovery state (phase 1371 sub-2)
-  'archive_corrupted',            // phase 951: archive-level corrupted marker (terminal)
+  'cancelled',                    // legacy archive 子目录 / 历史 flat archive 输入
+  'crashed',                      // legacy archive 子目录 / 历史 flat archive 输入
+  'archive_pending_recovery',     // legacy archiveAndEmit partial recovery state
+  'archive_corrupted',            // legacy archive-level corrupted marker
 ] as const;
 
 export const ALL_CONTRACT_STATUSES_TUPLE = [

@@ -1,16 +1,10 @@
 /**
- * Phase 360: status tuples / types / Sets runtime invariant tests
+ * Phase 1132 Step B: status tuples / types / Sets runtime invariant tests
  *
- * cluster N=15 status type system 圆满收口 (phase 282 → 311 → 319 → 330 → 332 →
- * 335 → 338 → 341 → 342 → 344 → 345 → 347 → 348 → 351 → 352 → 356 → 358) 之
- * runtime anti-regression 守护。
- *
- * 5 invariants:
- * 1. DERIVABLE_STATUSES_TUPLE 与 DERIVABLE_STATUSES Set 一致 (Set member + size)
- * 2. LIFECYCLE_PERSISTED_STATUSES_TUPLE 与 LifecyclePersistedStatus type 一致 (z.enum parse all + reject unknown)
- * 3. ALL_CONTRACT_STATUSES_TUPLE = DERIVABLE ∪ LIFECYCLE_PERSISTED (length sum + disjoint)
- * 4. deriveProgressStatus return ⊆ DERIVABLE_STATUSES (mock progress 多 input)
- * 5. stripDerivableStatus 对称 (derivable → strip / non-derivable → preserve)
+ * Current lifecycle is path-derived (active / archive/<state>); progress.json
+ * status is legacy-only. This file guards the disjoint vocabulary boundary
+ * between derivable progress aggregate, archive state directories, and the
+ * legacy flat-archive status vocabulary.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -24,10 +18,12 @@ import {
   SUBTASK_STATUSES,
   deriveProgressStatus,
   stripDerivableStatus,
+  ARCHIVE_STATE_DIRS_TUPLE,
+  ARCHIVE_STATES,
 } from '../../../src/core/contract/types.js';
-import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from '../../../src/core/contract/schemas.js';
+import { LEGACY_PROGRESS_STATUSES_TUPLE } from '../../../src/core/contract/schemas.js';
 
-describe('phase 360: status tuples / types / Sets runtime invariants', () => {
+describe('phase 1132 Step B: status vocabulary boundary invariants', () => {
   describe('Invariant 1: DERIVABLE_STATUSES_TUPLE ↔ DERIVABLE_STATUSES Set', () => {
     it('every tuple element ∈ Set', () => {
       for (const literal of DERIVABLE_STATUSES_TUPLE) {
@@ -44,34 +40,49 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
     });
   });
 
-  describe('Invariant 2: LIFECYCLE_PERSISTED_STATUSES_TUPLE ↔ LifecyclePersistedStatus type', () => {
-    const PersistedSchema = z.enum(LIFECYCLE_PERSISTED_STATUSES_TUPLE);
+  describe('Invariant 2: LEGACY_PROGRESS_STATUSES_TUPLE accepts historical flat-archive values', () => {
+    const LegacySchema = z.enum(LEGACY_PROGRESS_STATUSES_TUPLE);
 
-    it('z.enum.parse accepts all tuple members', () => {
-      for (const literal of LIFECYCLE_PERSISTED_STATUSES_TUPLE) {
-        expect(() => PersistedSchema.parse(literal)).not.toThrow();
+    it('z.enum.parse accepts all legacy literals', () => {
+      for (const literal of LEGACY_PROGRESS_STATUSES_TUPLE) {
+        expect(() => LegacySchema.parse(literal)).not.toThrow();
       }
     });
 
     it('z.enum.parse rejects unknown literal', () => {
-      expect(() => PersistedSchema.parse('unknown_status')).toThrow();
-      expect(() => PersistedSchema.parse('pending')).toThrow();  // derivable, not persisted
-      expect(() => PersistedSchema.parse('running')).toThrow();
-      expect(() => PersistedSchema.parse('completed')).toThrow();
+      expect(() => LegacySchema.parse('unknown_status')).toThrow();
     });
 
-    it('tuple has exactly 4 literals (cancelled/crashed/archive_pending_recovery/archive_corrupted)', () => {
-      expect(LIFECYCLE_PERSISTED_STATUSES_TUPLE.length).toBe(4);
+    it('legacy tuple has exactly 8 literals (derivable + lifecycle + paused)', () => {
+      expect(LEGACY_PROGRESS_STATUSES_TUPLE.length).toBe(8);
+    });
+
+    it('legacy tuple contains paused/crashed/archive_pending_recovery/archive_corrupted', () => {
+      const set = new Set(LEGACY_PROGRESS_STATUSES_TUPLE);
+      expect(set.has('paused')).toBe(true);
+      expect(set.has('crashed')).toBe(true);
+      expect(set.has('archive_pending_recovery')).toBe(true);
+      expect(set.has('archive_corrupted')).toBe(true);
     });
   });
 
-  describe('Invariant 3: ALL_CONTRACT_STATUSES_TUPLE = DERIVABLE ∪ LIFECYCLE_PERSISTED', () => {
-    it('tuple.length === DERIVABLE.length + LIFECYCLE_PERSISTED.length', () => {
-      expect(ALL_CONTRACT_STATUSES_TUPLE.length).toBe(
-        DERIVABLE_STATUSES_TUPLE.length + LIFECYCLE_PERSISTED_STATUSES_TUPLE.length,
-      );
+  describe('Invariant 3: ARCHIVE_STATE_DIRS_TUPLE ↔ ARCHIVE_STATES Set', () => {
+    it('every tuple element ∈ Set', () => {
+      for (const literal of ARCHIVE_STATE_DIRS_TUPLE) {
+        expect(ARCHIVE_STATES.has(literal)).toBe(true);
+      }
     });
 
+    it('Set.size === tuple.length (no duplicates)', () => {
+      expect(ARCHIVE_STATES.size).toBe(ARCHIVE_STATE_DIRS_TUPLE.length);
+    });
+
+    it('archive state dirs are completed/cancelled/corrupted', () => {
+      expect(ARCHIVE_STATE_DIRS_TUPLE).toEqual(['completed', 'cancelled', 'corrupted']);
+    });
+  });
+
+  describe('Invariant 4: ALL_CONTRACT_STATUSES_TUPLE = DERIVABLE ∪ LIFECYCLE_PERSISTED (legacy scaffold)', () => {
     it('All elements unique (disjoint base tuples)', () => {
       expect(ALL_CONTRACT_STATUSES.size).toBe(ALL_CONTRACT_STATUSES_TUPLE.length);
     });
@@ -81,22 +92,9 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
         expect(ALL_CONTRACT_STATUSES.has(literal)).toBe(true);
       }
     });
-
-    it('contains all LIFECYCLE_PERSISTED members', () => {
-      for (const literal of LIFECYCLE_PERSISTED_STATUSES_TUPLE) {
-        expect(ALL_CONTRACT_STATUSES.has(literal)).toBe(true);
-      }
-    });
-
-    it('disjoint: no DERIVABLE member ∈ LIFECYCLE_PERSISTED', () => {
-      const persistedSet = new Set<string>(LIFECYCLE_PERSISTED_STATUSES_TUPLE);
-      for (const literal of DERIVABLE_STATUSES_TUPLE) {
-        expect(persistedSet.has(literal)).toBe(false);
-      }
-    });
   });
 
-  describe('Invariant 4: deriveProgressStatus return ⊆ DERIVABLE_STATUSES', () => {
+  describe('Invariant 5: deriveProgressStatus return ⊆ DERIVABLE_STATUSES', () => {
     it('empty subtasks → pending', () => {
       const result = deriveProgressStatus({ subtasks: {} });
       expect(DERIVABLE_STATUSES.has(result)).toBe(true);
@@ -146,7 +144,7 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
     });
   });
 
-  describe('Invariant 5: stripDerivableStatus 对称 (derivable→strip / non-derivable→preserve)', () => {
+  describe('Invariant 6: stripDerivableStatus 对称 (derivable→strip / non-derivable→preserve)', () => {
     it('strips derivable: pending', () => {
       const obj: Record<string, unknown> = { status: 'pending', subtasks: {} };
       stripDerivableStatus(obj);
@@ -202,8 +200,7 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
     });
   });
 
-  // phase 362: SubtaskStatus invariants (mirror DerivableStatus pattern)
-  describe('Invariant 6: SUBTASK_STATUSES_TUPLE ↔ SUBTASK_STATUSES Set', () => {
+  describe('Invariant 7: SUBTASK_STATUSES_TUPLE ↔ SUBTASK_STATUSES Set', () => {
     it('every tuple element ∈ Set', () => {
       for (const literal of SUBTASK_STATUSES_TUPLE) {
         expect(SUBTASK_STATUSES.has(literal)).toBe(true);
@@ -219,7 +216,7 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
     });
   });
 
-  describe('Invariant 7: SUBTASK_STATUSES z.enum 接受 all + reject unknown', () => {
+  describe('Invariant 8: SUBTASK_STATUSES z.enum 接受 all + reject unknown', () => {
     const SubtaskEnum = z.enum(SUBTASK_STATUSES_TUPLE);
 
     it('z.enum.parse accepts all tuple members', () => {
@@ -236,26 +233,20 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
     });
   });
 
-  describe('Invariant 8: SUBTASK_STATUSES ∩ ALL_CONTRACT_STATUSES = {completed}', () => {
-    it('only completed literal shared between SUBTASK and ALL_CONTRACT', () => {
+  describe('Invariant 9: SUBTASK_STATUSES ∩ DERIVABLE_STATUSES = {completed}', () => {
+    it('only completed literal shared between SUBTASK and DERIVABLE', () => {
       const overlap = SUBTASK_STATUSES_TUPLE.filter(s =>
-        (ALL_CONTRACT_STATUSES as ReadonlySet<string>).has(s),
+        (DERIVABLE_STATUSES as ReadonlySet<string>).has(s),
       );
       expect(overlap).toEqual(['completed']);
     });
 
-    it('todo not in ContractStatus', () => {
-      expect((ALL_CONTRACT_STATUSES as ReadonlySet<string>).has('todo')).toBe(false);
+    it('todo not in DerivableStatus', () => {
+      expect((DERIVABLE_STATUSES as ReadonlySet<string>).has('todo')).toBe(false);
     });
 
-    it('in_progress not in ContractStatus', () => {
-      expect((ALL_CONTRACT_STATUSES as ReadonlySet<string>).has('in_progress')).toBe(false);
-    });
-  });
-
-  describe('Invariant 9: tuple length 3 (anti-regression count guard)', () => {
-    it('SUBTASK_STATUSES_TUPLE has exactly 3 literals', () => {
-      expect(SUBTASK_STATUSES_TUPLE.length).toBe(3);
+    it('in_progress not in DerivableStatus', () => {
+      expect((DERIVABLE_STATUSES as ReadonlySet<string>).has('in_progress')).toBe(false);
     });
   });
 });
