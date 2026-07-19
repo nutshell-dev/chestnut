@@ -23,7 +23,7 @@ import {
   PersistedContractYamlSchema,
   SubtaskRuntimeRecordSchema,
 } from './schemas.js';
-import type { PersistedContractYaml, SubtaskRuntimeRecord } from './types.js';
+import type { PersistedContractYaml, SubtaskRuntimeRecord, Contract, ProgressData, SubtaskStatus, DerivableStatus } from './types.js';
 import {
   ContractLayoutCorruptedError,
   ActiveContractSlotOccupiedError,
@@ -356,6 +356,158 @@ export function deriveSubtaskRetrySummary(
       cause: last.cause,
     },
   };
+}
+
+// ============================================================================
+// Phase 1135 Step B: current layout runtime projection
+// ============================================================================
+
+export interface CurrentContractRuntimeView {
+  contract: Contract;
+  progress: ProgressData;
+}
+
+function mapSubtaskRuntimeStatusToProgress(status: SubtaskRuntimeRecord['status']): SubtaskStatus {
+  switch (status) {
+    case 'todo':
+      return 'todo';
+    case 'verifying':
+      return 'in_progress';
+    case 'completed':
+      return 'completed';
+    default:
+      // Runtime status is schema-validated; this branch is defensive.
+      return 'todo';
+  }
+}
+
+function mapContractAggregateToDerivable(aggregate: ContractAggregateStatus): DerivableStatus {
+  return aggregate;
+}
+
+function toLastFailedCause(cause?: SubtaskRuntimeRecord['attempts'][number]['cause']): NonNullable<ProgressData['subtasks'][string]['last_failed_feedback']>['cause'] {
+  if (
+    cause === 'llm_rejected' ||
+    cause === 'programming_bug' ||
+    cause === 'subagent_timeout' ||
+    cause === 'script_failed'
+  ) {
+    return cause;
+  }
+  // 'daemon_restart' and undefined are not part of the legacy feedback vocabulary;
+  // map to a generic rejection cause rather than inventing a new persisted value.
+  return 'llm_rejected';
+}
+
+function deriveSubtaskProgress(record: SubtaskRuntimeRecord): ProgressData['subtasks'][string] {
+  const rejected = record.attempts.filter(a => a.status === 'rejected');
+  const lastRejected = rejected.length > 0
+    ? rejected.reduce((latest, a) =>
+        (a.finished_at ?? '') >= (latest.finished_at ?? '') ? a : latest,
+      )
+    : undefined;
+
+  return {
+    status: mapSubtaskRuntimeStatusToProgress(record.status),
+    completed_at: record.completed_at,
+    evidence: record.evidence,
+    artifacts: record.artifacts,
+    force_accepted: record.force_accepted,
+    retry_count: rejected.length,
+    last_failed_feedback: lastRejected
+      ? {
+          feedback: lastRejected.feedback ?? '',
+          cause: toLastFailedCause(lastRejected.cause),
+        }
+      : undefined,
+    verification_attempt_id: record.status === 'verifying' ? record.current_attempt_id : undefined,
+  };
+}
+
+function earliestAttemptStartedAt(record: SubtaskRuntimeRecord): string | undefined {
+  if (record.attempts.length === 0) return undefined;
+  return record.attempts
+    .map(a => a.started_at)
+    .sort()[0];
+}
+
+function latestActivityTimestamp(record: SubtaskRuntimeRecord): string | undefined {
+  const times: string[] = [];
+  for (const a of record.attempts) {
+    if (a.finished_at) times.push(a.finished_at);
+    times.push(a.started_at);
+  }
+  if (record.completed_at) times.push(record.completed_at);
+  if (times.length === 0) return undefined;
+  return times.sort()[times.length - 1];
+}
+
+/**
+ * Project a strict `CurrentContractLayout` into the existing runtime view
+ * (`Contract` + `ProgressData`) consumed by manager callers.
+ *
+ * All fields are derived from the YAML, subtask files, or the aggregate; no
+ * progress.json is read and no new persistent fields are invented.
+ */
+export function projectCurrentRuntime(layout: CurrentContractLayout): CurrentContractRuntimeView {
+  const progressStatus = mapContractAggregateToDerivable(layout.aggregate);
+
+  const subtasks: ProgressData['subtasks'] = {};
+  for (const st of layout.contract.subtasks) {
+    const record = layout.subtasks.get(st.id);
+    if (!record) {
+      // Strict reader already guarantees every yaml subtask has a record.
+      throw new ContractLayoutCorruptedError(
+        `subtask record missing for ${st.id} during projection`,
+        { root: layout.root, cause: 'projection_missing_subtask_record', subtaskId: st.id },
+      );
+    }
+    subtasks[st.id] = deriveSubtaskProgress(record);
+  }
+
+  const progress: ProgressData = {
+    schema_version: 1,
+    contract_id: layout.contract.id as any,
+    status: progressStatus,
+    subtasks,
+    checkpoint: undefined,
+  };
+
+  const contractSubtasks: Contract['subtasks'] = layout.contract.subtasks.map(st => {
+    const record = layout.subtasks.get(st.id)!;
+    const createdAt = earliestAttemptStartedAt(record);
+    const updatedAt = latestActivityTimestamp(record);
+    return {
+      id: st.id,
+      description: st.description,
+      status: subtasks[st.id].status,
+      created_at: createdAt ?? '',
+      updated_at: updatedAt ?? '',
+      completed_at: record.completed_at,
+    };
+  });
+
+  const earliestSubtaskCreated = contractSubtasks
+    .map(st => st.created_at)
+    .filter((t): t is string => t.length > 0)
+    .sort()[0];
+
+  const contract: Contract = {
+    id: layout.contract.id,
+    title: layout.contract.title,
+    description: layout.contract.goal,
+    status: progressStatus,
+    priority: 'normal',
+    creator: 'system',
+    goal: layout.contract.goal,
+    subtasks: contractSubtasks,
+    auth_level: layout.contract.auth_level ?? 'auto',
+    created_at: earliestSubtaskCreated ?? '',
+    updated_at: earliestSubtaskCreated ?? '',
+    completed_at: progressStatus === 'completed' ? earliestSubtaskCreated ?? '' : undefined,
+  };
+
+  return { contract, progress };
 }
 
 // ============================================================================

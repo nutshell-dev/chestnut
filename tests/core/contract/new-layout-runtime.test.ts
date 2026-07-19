@@ -13,6 +13,10 @@ import {
   resolveActiveContractLocation,
   type ActiveContractLocation,
 } from '../../../src/core/contract/locations.js';
+import {
+  readCurrentContractLayout,
+  projectCurrentRuntime,
+} from '../../../src/core/contract/new-layout.js';
 import { ContractLayoutCorruptedError } from '../../../src/core/contract/errors.js';
 import type { PersistedContractYaml, SubtaskRuntimeRecord } from '../../../src/core/contract/types.js';
 
@@ -175,5 +179,153 @@ describe('active location', () => {
 
     expect(result?.layout).toBe('current');
     expect(result?.contractRoot).toBe('contract/active/current');
+  });
+});
+
+
+describe('runtime projection', () => {
+  it('projects todo subtasks and pending aggregate', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+    expect(layout).not.toBeNull();
+
+    const view = projectCurrentRuntime(layout!);
+
+    expect(view.contract.id).toBe('cid-1');
+    expect(view.contract.title).toBe('Test Contract');
+    expect(view.contract.status).toBe('pending');
+    expect(view.progress.contract_id).toBe('cid-1');
+    expect(view.progress.status).toBe('pending');
+    expect(view.progress.subtasks.t1.status).toBe('todo');
+  });
+
+  it('maps verifying subtask to in_progress and exposes attempt id', async () => {
+    await writeCurrentLayout(makeContract(), {
+      t1: {
+        schema_version: 1,
+        subtask_id: 't1',
+        status: 'verifying',
+        current_attempt_id: 'a1',
+        attempts: [
+          {
+            id: 'a1',
+            status: 'running',
+            started_at: '2026-07-19T10:00:00Z',
+            evidence: 'ev',
+            artifacts: [],
+          },
+        ],
+      },
+    });
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+
+    const view = projectCurrentRuntime(layout!);
+
+    expect(view.contract.status).toBe('running');
+    expect(view.progress.subtasks.t1.status).toBe('in_progress');
+    expect(view.progress.subtasks.t1.verification_attempt_id).toBe('a1');
+  });
+
+  it('maps completed subtask with evidence and artifacts', async () => {
+    await writeCurrentLayout(makeContract(), {
+      t1: {
+        schema_version: 1,
+        subtask_id: 't1',
+        status: 'completed',
+        attempts: [
+          {
+            id: 'a1',
+            status: 'passed',
+            started_at: '2026-07-19T10:00:00Z',
+            finished_at: '2026-07-19T10:05:00Z',
+            evidence: 'done',
+            artifacts: ['art1'],
+          },
+        ],
+        completed_at: '2026-07-19T10:05:00Z',
+        evidence: 'done',
+        artifacts: ['art1'],
+      },
+    });
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+
+    const view = projectCurrentRuntime(layout!);
+
+    expect(view.contract.status).toBe('completed');
+    expect(view.progress.subtasks.t1.status).toBe('completed');
+    expect(view.progress.subtasks.t1.completed_at).toBe('2026-07-19T10:05:00Z');
+    expect(view.progress.subtasks.t1.evidence).toBe('done');
+    expect(view.progress.subtasks.t1.artifacts).toEqual(['art1']);
+  });
+
+  it('derives retry_count and last_failed_feedback from rejected attempts', async () => {
+    await writeCurrentLayout(makeContract(), {
+      t1: {
+        schema_version: 1,
+        subtask_id: 't1',
+        status: 'todo',
+        attempts: [
+          {
+            id: 'a1',
+            status: 'rejected',
+            started_at: '2026-07-19T10:00:00Z',
+            finished_at: '2026-07-19T10:01:00Z',
+            evidence: 'bad',
+            artifacts: [],
+            feedback: 'too vague',
+            cause: 'llm_rejected',
+          },
+          {
+            id: 'a2',
+            status: 'rejected',
+            started_at: '2026-07-19T10:02:00Z',
+            finished_at: '2026-07-19T10:03:00Z',
+            evidence: 'bad',
+            artifacts: [],
+            feedback: 'still vague',
+            cause: 'llm_rejected',
+          },
+        ],
+      },
+    });
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+
+    const view = projectCurrentRuntime(layout!);
+
+    expect(view.progress.subtasks.t1.retry_count).toBe(2);
+    expect(view.progress.subtasks.t1.last_failed_feedback).toEqual({
+      feedback: 'still vague',
+      cause: 'llm_rejected',
+    });
+  });
+
+  it('does not read progress.json', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    // Intentionally do not write progress.json.
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+
+    const view = projectCurrentRuntime(layout!);
+
+    expect(view.contract.id).toBe('cid-1');
+    expect(view.progress.subtasks.t1.status).toBe('todo');
+  });
+
+  it('produces deterministic fields for the same disk state', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit: audit1 } = makeAudit();
+    const { audit: audit2 } = makeAudit();
+    const layout1 = await readCurrentContractLayout({ fs: nodeFs, audit: audit1 });
+    const layout2 = await readCurrentContractLayout({ fs: nodeFs, audit: audit2 });
+
+    const view1 = projectCurrentRuntime(layout1!);
+    const view2 = projectCurrentRuntime(layout2!);
+
+    expect(view1.contract).toEqual(view2.contract);
+    expect(view1.progress).toEqual(view2.progress);
   });
 });

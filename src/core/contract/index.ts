@@ -69,6 +69,7 @@ export {
   readCurrentContractLayout,
   deriveContractAggregate,
   deriveSubtaskRetrySummary,
+  projectCurrentRuntime,
   prepareContractStaging,
   commitContractStaging,
   cleanupAbandonedContractStaging,
@@ -76,6 +77,7 @@ export {
   type ContractAggregateStatus,
   type SubtaskRetrySummary,
   type PreparedStaging,
+  type CurrentContractRuntimeView,
 } from './new-layout.js';
 
 export {
