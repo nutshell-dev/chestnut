@@ -36,6 +36,9 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     runScriptVerification: vi.fn(),
     runLLMVerification: vi.fn(),
     runVerifierWithCancel: vi.fn(),
+    isActiveContract: vi.fn().mockResolvedValue(true),
+    getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+    transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'skipped', reason: 'not configured' }),
     ...overrides,
   } as VerificationContext;
 }
@@ -278,6 +281,10 @@ describe('runVerificationInBackground (Phase 965)', () => {
 
   it('rejects late result when verification_attempt_id is missing (Phase 966 ABA guard)', async () => {
     const saveProgress = vi.fn().mockResolvedValue(undefined);
+    const transitionVerificationAttempt = vi.fn().mockResolvedValue({
+      kind: 'skipped',
+      reason: 'attempt id mismatch',
+    });
     const progress = {
       status: 'running',
       subtasks: {
@@ -288,6 +295,7 @@ describe('runVerificationInBackground (Phase 965)', () => {
     const ctx = makeCtx({
       getProgress,
       saveProgress,
+      transitionVerificationAttempt,
       runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: '' }),
     });
     const contractYaml = {
@@ -304,6 +312,7 @@ describe('runVerificationInBackground (Phase 965)', () => {
 
     // Skipped outcome must not mutate subtask to completed or call saveProgress.
     expect(saveProgress).not.toHaveBeenCalled();
+    expect(transitionVerificationAttempt).not.toHaveBeenCalled();
     expect(progress.subtasks.st1.status).toBe('in_progress');
     expect(progress.subtasks.st1.verification_attempt_id).toBeUndefined();
   });
@@ -325,7 +334,7 @@ describe('runVerificationPipeline (Phase 968)', () => {
       audit: audit as unknown as VerificationContext['audit'],
       saveProgress,
       getProgress: vi.fn().mockResolvedValue(progress),
-      contractDir: vi.fn().mockResolvedValue('contract/archive/cancelled'),
+      isActiveContract: vi.fn().mockResolvedValue(false),
       loadContractYaml: vi.fn().mockResolvedValue({
         subtasks: [{ id: subtaskId, description: 'desc' }],
         verification: [{ subtask_id: subtaskId, type: 'script', script_file: 'check.sh' }],
@@ -356,13 +365,9 @@ describe('runVerificationPipeline (Phase 968)', () => {
   });
 });
 
-describe('applyVerificationOutcome audit ordering (Phase 968)', () => {
-  it('saves progress before emitting subtask completion audit', async () => {
+describe('applyVerificationOutcome transition audit ordering (Phase 1136 Step C)', () => {
+  it('commits transition before emitting subtask completion audit', async () => {
     const calls: string[] = [];
-    const saveProgress = vi.fn().mockImplementation(() => {
-      calls.push('save');
-      return Promise.resolve(undefined);
-    });
     const mockAudit = makeMockAudit();
     const audit: VerificationContext['audit'] = {
       ...mockAudit,
@@ -376,9 +381,19 @@ describe('applyVerificationOutcome audit ordering (Phase 968)', () => {
         st1: { status: 'in_progress', verification_attempt_id: 'a1' },
       },
     };
+    const updatedProgress = {
+      status: 'running',
+      subtasks: {
+        st1: { status: 'completed', completed_at: '2026-07-19T10:05:00Z', verification_attempt_id: 'a1' },
+      },
+    };
+    const transitionVerificationAttempt = vi.fn().mockImplementation(() => {
+      calls.push('transition');
+      return Promise.resolve({ kind: 'updated', progress: updatedProgress });
+    });
     const ctx = makeCtx({
       audit,
-      saveProgress,
+      transitionVerificationAttempt,
       getProgress: vi.fn().mockResolvedValue(progress),
       checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
       registerController: vi.fn(),
@@ -397,11 +412,11 @@ describe('applyVerificationOutcome audit ordering (Phase 968)', () => {
       verificationConfig,
     );
 
-    expect(progress.subtasks.st1.status).toBe('completed');
-    expect(calls).toContain('save');
+    expect(transitionVerificationAttempt).toHaveBeenCalled();
+    expect(calls).toContain('transition');
     expect(calls).toContain(`audit:${CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED}`);
     expect(calls).toContain(`audit:${CONTRACT_AUDIT_EVENTS.PASSED}`);
-    expect(calls.indexOf('save')).toBeLessThan(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED}`));
-    expect(calls.indexOf('save')).toBeLessThan(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.PASSED}`));
+    expect(calls.indexOf('transition')).toBeLessThan(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED}`));
+    expect(calls.indexOf('transition')).toBeLessThan(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.PASSED}`));
   });
 });

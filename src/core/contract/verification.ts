@@ -6,7 +6,6 @@
 
 import * as path from 'path';
 import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
-import { activeContainerDir } from './locations.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
@@ -30,7 +29,7 @@ import {
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
 // phase 1465: verification mutex 改 ContractSystem 实例、经 ctx.verificationMutex 访问 (M#3 + Tier 1 真治)
 import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';
-import { formatRejectionFeedback, formatValidIds } from './verification-format.js';
+import { formatRejectionFeedback } from './verification-format.js';
 import type { VerificationContext } from './verification-types.js';
 import type { ContractId } from './types.js';
 
@@ -114,12 +113,7 @@ type ApplyOutcome =
   | { kind: 'skipped' };
 
 async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
-  try {
-    const container = await ctx.contractDir(contractId);
-    return path.normalize(container) === path.normalize(activeContainerDir());
-  } catch {
-    return false;
-  }
+  return ctx.isActiveContract(contractId);
 }
 
 async function applyVerificationOutcome(
@@ -133,22 +127,22 @@ async function applyVerificationOutcome(
   attemptId: string,
 ): Promise<ApplyOutcome> {
   return ctx.withProgressLock(contractId, async () => {
+    // Phase 1136 Step C: lifecycle guard based on physical active path.
+    if (!(await isContractActive(ctx, contractId))) {
+      emitContractVerificationResetFailed(
+        ctx.audit,
+        {
+          contractId,
+          subtaskId,
+          context: 'applyVerificationOutcome',
+          message: 'contract no longer active, skip verification outcome write',
+        },
+      );
+      return { kind: 'skipped' };
+    }
+
     const progress = await ctx.getProgress(contractId);
     if (!progress) {
-      // Phase 1132 Step D: contract may have been moved out of active (cancelled/completed/corrupted)
-      // between background start and outcome apply. Fail-closed only when still active.
-      if (!(await isContractActive(ctx, contractId))) {
-        emitContractVerificationResetFailed(
-          ctx.audit,
-          {
-            contractId,
-            subtaskId,
-            context: 'applyVerificationOutcome',
-            message: 'contract no longer active, skip verification outcome write',
-          },
-        );
-        return { kind: 'skipped' };
-      }
       throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
     }
 
@@ -166,19 +160,6 @@ async function applyVerificationOutcome(
       return { kind: 'missing_subtask' };
     }
 
-    if (subtask.status !== 'in_progress') {
-      emitContractVerificationResetFailed(
-        ctx.audit,
-        {
-          contractId,
-          subtaskId,
-          context: 'applyVerificationOutcome',
-          message: `subtask status is "${subtask.status}", expected "in_progress"`,
-        },
-      );
-      return { kind: 'skipped' };
-    }
-
     // Phase 961 / 966: ABA guard — reject result from a previous/missing verification attempt.
     if (subtask.verification_attempt_id !== attemptId) {
       emitContractVerificationResetFailed(
@@ -193,19 +174,24 @@ async function applyVerificationOutcome(
       return { kind: 'skipped' };
     }
 
+    const at = new Date().toISOString();
+
     if (result.passed) {
-      subtask.status = 'completed';
-      subtask.completed_at = new Date().toISOString();
+      const transitionResult = await ctx.transitionVerificationAttempt(
+        contractId,
+        subtaskId,
+        { kind: 'pass', attemptId, at },
+      );
+      if (transitionResult.kind !== 'updated') {
+        return { kind: 'skipped' };
+      }
+      const updatedProgress = transitionResult.progress;
+      const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
       safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
       const subtaskTotal = contractYaml.subtasks.length;
-      const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
+      const completedCount = Object.values(updatedProgress.subtasks).filter(s => s.status === 'completed').length;
 
-      const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-      if (allCompleted) {
-        progress.completed_at = new Date().toISOString();
-      }
-      await ctx.saveProgress(contractId, progress);
-      // Phase 968: emit completion audit AFTER saveProgress commits
+      // Phase 968: emit completion audit AFTER transition commits
       emitContractSubtaskCompleted(
         ctx.audit,
         {
@@ -221,13 +207,10 @@ async function applyVerificationOutcome(
       return { allCompleted, passed: true };
     }
 
-    subtask.retry_count = (subtask.retry_count || 0) + 1;
     const failureCause = verificationConfig.type === 'script' ? 'script_failed' : 'llm_rejected';
-    subtask.last_failed_feedback = {
-      feedback: result.feedback,
-      cause: failureCause,
-    };
     const maxAttempts = contractYaml.verification_attempts ?? DEFAULT_VERIFICATION_ATTEMPTS;
+    const priorRejected = subtask.retry_count ?? 0;
+    const forceAccept = priorRejected + 1 >= maxAttempts;
 
     emitContractVerificationFailed(
       ctx.audit,
@@ -235,47 +218,57 @@ async function applyVerificationOutcome(
       { contractId, subtaskId, feedback: ctx.audit.message(result.feedback) },
     );
 
-    if (subtask.retry_count >= maxAttempts) {
-      // 强制接受：试光次数当 completed 推进、保留 last_failed_feedback + force_accepted 标记
-      subtask.status = 'completed';
-      subtask.completed_at = new Date().toISOString();
-      subtask.force_accepted = true;
-      const lastFeedback = subtask.last_failed_feedback?.feedback;
+    const transitionResult = await ctx.transitionVerificationAttempt(
+      contractId,
+      subtaskId,
+      {
+        kind: 'reject',
+        attemptId,
+        at,
+        feedback: result.feedback,
+        cause: failureCause,
+        forceAccept,
+      },
+    );
+    if (transitionResult.kind !== 'updated') {
+      return { kind: 'skipped' };
+    }
+
+    const updatedProgress = transitionResult.progress;
+    const updatedSubtask = updatedProgress.subtasks[subtaskId];
+    const retryCount = updatedSubtask?.retry_count ?? priorRejected + 1;
+    const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
+
+    if (forceAccept) {
+      const lastFeedback = updatedSubtask?.last_failed_feedback?.feedback;
       safeNotify(ctx, 'subtask_completed', {
         contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
       });
 
-      const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-      if (allCompleted) {
-        progress.completed_at = new Date().toISOString();
-      }
-      await ctx.saveProgress(contractId, progress);
-      // Phase 968: emit force-accept audit AFTER saveProgress commits
+      // Phase 968: emit force-accept audit AFTER transition commits
       emitSubtaskForceAccepted(ctx.audit, {
-        contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
+        contractId, subtaskId, retryCount, claw: ctx.clawId,
       });
 
       // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
-      writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
+      writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, retryCount, lastFeedback);
 
       // archiveAndEmit 由 runVerificationInBackground 在 withProgressLock 外调用（防嵌套锁）
       return { allCompleted, passed: true };
     }
 
     // retry_count < maxAttempts: 保留 retry 路径
-    subtask.status = 'todo';
     safeNotify(ctx, 'verification_failed', {
       contract_id: contractId,
       subtask_id: subtaskId,
       cause: failureCause,
       feedback: result.feedback,
-      retry_count: subtask.retry_count,
+      retry_count: retryCount,
       max_attempts: maxAttempts,
     } satisfies AcceptanceFailedNotification);
-    await ctx.saveProgress(contractId, progress);
-    // phase 425: retry path saveProgress 完成 audit、tests 用此 event 等 state settle
+    // phase 425: retry path transition 完成 audit、tests 用此 event 等 state settle
     emitContractSubtaskResetToTodo(ctx.audit, {
-      contractId, subtaskId, cause: failureCause, retryCount: subtask.retry_count, maxAttempts,
+      contractId, subtaskId, cause: failureCause, retryCount, maxAttempts,
     });
 
     const verificationFile = verificationConfig.type === 'script'
@@ -287,13 +280,13 @@ async function applyVerificationOutcome(
           subtaskDesc,
           result.structured.reason,
           result.structured.issues || [],
-          subtask.retry_count,
+          retryCount,
           maxAttempts,
           verificationConfig.type,
           verificationFile,
         )
       : result.feedback;
-    writeVerificationInbox(ctx, contractId, subtaskId, 'rejected', false, formattedFeedback, subtask.retry_count);
+    writeVerificationInbox(ctx, contractId, subtaskId, 'rejected', false, formattedFeedback, retryCount);
 
     return { allCompleted: false, passed: false };
   });
@@ -311,7 +304,7 @@ export async function runVerificationPipeline(
   }
 
   // Phase 1132 Step D: lifecycle guard based on physical active path, not persisted status.
-  if (!(await isContractActive(ctx, contractId))) {
+  if (!(await ctx.isActiveContract(contractId))) {
     emitContractVerificationResetFailed(
       ctx.audit,
       {
@@ -355,43 +348,40 @@ export async function runVerificationPipeline(
     }
 
   const attemptId = newUuid();
-  let lifecycleRejected: string | null = null;
+  const startedAt = new Date().toISOString();
 
   await ctx.withProgressLock(contractId, async () => {
-    const progress = await ctx.getProgress(contractId);
-    if (!progress) {
-      throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
+    // Phase 1136 Step C: start is expressed as a typed attempt transition.
+    // The gateway enforces subtask membership and status guards.
+    const startResult = await ctx.transitionVerificationAttempt(
+      contractId,
+      subtaskId,
+      {
+        kind: 'start',
+        attemptId,
+        evidence,
+        artifacts: artifacts ?? [],
+        at: startedAt,
+      },
+    );
+    if (startResult.kind !== 'updated') {
+      emitContractVerificationResetFailed(
+        ctx.audit,
+        {
+          contractId,
+          subtaskId,
+          context: 'runVerificationPipeline',
+          message: startResult.kind === 'skipped' ? startResult.reason : 'start transition skipped',
+        },
+      );
+      throw new ToolError(
+        startResult.kind === 'skipped'
+          ? `Cannot start verification for subtask "${subtaskId}": ${startResult.reason}`
+          : `Cannot start verification for subtask "${subtaskId}": attempt id mismatch`,
+      );
     }
-    // Phase 968 / 1132 Step D: lifecycle guard based on subtask state + attempt id.
-    // Physical active-path guard already ran before acquiring the lock; subtask-level
-    // guards remain to reject duplicate or stale submissions.
-    if (!progress.subtasks[subtaskId]) {
-      throw new ToolError(`Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}`);
-    }
-    const currentStatus = progress.subtasks[subtaskId].status;
-    if (currentStatus === 'in_progress') {
-      throw new ToolError(`Subtask "${subtaskId}" verification is already in progress — duplicate submit_subtask call ignored.`);
-    }
-    if (currentStatus === 'completed') {
-      throw new ToolError(`Subtask "${subtaskId}" is already completed.`);
-    }
-    progress.subtasks[subtaskId] = {
-      ...progress.subtasks[subtaskId],
-      status: 'in_progress',
-      evidence,
-      artifacts,
-      verification_attempt_id: attemptId,
-    };
-    await ctx.saveProgress(contractId, progress);
     emitContractVerificationStarted(ctx.audit, { contractId, subtaskId });
   });
-
-  if (lifecycleRejected) {
-    return {
-      passed: false,
-      feedback: `Contract status is "${lifecycleRejected}", cannot start verification for subtask "${subtaskId}".`,
-    };
-  }
 
   // phase 337 M1 / review-2026-06-13: mutex hold must span the background
   // work lifetime, not just the in-progress mark commit. Earlier early-release
@@ -458,7 +448,7 @@ export async function runVerificationInBackground(
   try {
     const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
     const subtaskDesc = subtaskDef?.description || subtaskId;
-    const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
+    const contractAbsDir = path.join(ctx.clawDir, await ctx.getContractRoot(contractId));
 
     const ctxWithSignal = { ...ctx, signal: controller.signal };
     runVerificationByType(

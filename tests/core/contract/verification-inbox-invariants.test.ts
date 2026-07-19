@@ -475,6 +475,9 @@ describe('Phase 961 verification invariants', () => {
       verificationMutex: { acquire: vi.fn(() => true), release: vi.fn() } as unknown as VerificationContext['verificationMutex'],
       runVerifierWithCancel: vi.fn(),
       onNotify: vi.fn(),
+      isActiveContract: vi.fn().mockResolvedValue(true),
+      getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'skipped', reason: 'not configured' }),
     } as unknown as VerificationContext;
 
     const contractYaml = makeContractYaml({
