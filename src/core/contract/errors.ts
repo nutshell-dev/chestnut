@@ -122,3 +122,49 @@ export class ContractCapacityError extends Error {
     this.activeContractIds = [...activeContractIds].sort();
   }
 }
+
+/**
+ * Phase 1134 Step C: new-layout active/current slot is corrupted or inconsistent.
+ */
+export class ContractLayoutCorruptedError extends Error {
+  readonly name = 'ContractLayoutCorruptedError';
+
+  constructor(
+    message: string,
+    public readonly context: { root: string; cause: string; [key: string]: unknown },
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Phase 1134 Step D: concurrent commit lost the race for the fixed active/current slot.
+ */
+export class ActiveContractSlotOccupiedError extends Error {
+  readonly name = 'ActiveContractSlotOccupiedError';
+
+  constructor(
+    public readonly currentPath: string,
+    public readonly attemptedCreationId: string,
+    public readonly causeError?: unknown,
+  ) {
+    super(
+      `active contract slot already occupied at "${currentPath}" ` +
+      `(attempted creationId=${attemptedCreationId})`,
+    );
+  }
+}
+
+/**
+ * Phase 1134 Step D: staging directory could not be prepared or read back cleanly.
+ */
+export class ContractStagingCorruptedError extends Error {
+  readonly name = 'ContractStagingCorruptedError';
+
+  constructor(
+    message: string,
+    public readonly context: { creationId: string; root: string; cause: string; [key: string]: unknown },
+  ) {
+    super(message);
+  }
+}

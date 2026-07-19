@@ -44,6 +44,46 @@ export {
 // Phase 724: expose runtime Zod schema so CLI YAML validation uses the same source of truth
 export { ContractYamlSchema } from './schemas.js';
 
+// Phase 1134: new active/current layout primitives (not wired to legacy writers yet)
+export {
+  CONTRACT_STAGING_DIR,
+  CONTRACT_ACTIVE_CURRENT_DIR,
+  CONTRACT_SUBTASKS_DIR,
+} from './dirs.js';
+
+export {
+  type PersistedContractYaml,
+  type SubtaskRuntimeRecord,
+  type VerificationAttemptRecord,
+  type SubtaskRuntimeStatus,
+  type VerificationAttemptStatus,
+} from './types.js';
+
+export {
+  PersistedContractYamlSchema,
+  SubtaskRuntimeRecordSchema,
+  VerificationAttemptRecordSchema,
+} from './schemas.js';
+
+export {
+  readCurrentContractLayout,
+  deriveContractAggregate,
+  deriveSubtaskRetrySummary,
+  prepareContractStaging,
+  commitContractStaging,
+  cleanupAbandonedContractStaging,
+  type CurrentContractLayout,
+  type ContractAggregateStatus,
+  type SubtaskRetrySummary,
+  type PreparedStaging,
+} from './new-layout.js';
+
+export {
+  ContractLayoutCorruptedError,
+  ActiveContractSlotOccupiedError,
+  ContractStagingCorruptedError,
+} from './errors.js';
+
 export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submit-subtask.js';
 
 // phase 744 + 752: lightweight read-only query helpers (0-instance-dep)
