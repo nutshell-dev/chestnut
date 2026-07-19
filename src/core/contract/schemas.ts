@@ -69,7 +69,12 @@ const LastFailedFeedbackSchema = z.object({
 }).strict();
 
 // phase 362: SUBTASK_STATUSES_TUPLE 复用 (ML#1 单源 from status-tuples.ts)
-import { SUBTASK_STATUSES_TUPLE } from './status-tuples.js';
+// Phase 1134: new-layout runtime/attempt tuples
+import {
+  SUBTASK_STATUSES_TUPLE,
+  SUBTASK_RUNTIME_STATUSES_TUPLE,
+  VERIFICATION_ATTEMPT_STATUSES_TUPLE,
+} from './status-tuples.js';
 
 const SubtaskProgressSchema = z.object({
   // phase 362: tuple derive (mirror phase 347 LIFECYCLE pattern)
@@ -102,6 +107,106 @@ export const ContractProgressPersistedSchema = z.object({
 }).strict();
 
 export type ContractProgressPersistedValidated = z.infer<typeof ContractProgressPersistedSchema>;
+
+// Phase 1134: new active/current layout schemas (strict, fail-closed)
+
+/**
+ * Persisted contract.yaml in the new layout: id is required after creation.
+ * The create-input schema (ContractYamlSchema) continues to allow optional id.
+ */
+export const PersistedContractYamlSchema = ContractYamlSchema.extend({
+  id: z.string().min(1),
+}).strict();
+
+export const VerificationAttemptRecordSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(VERIFICATION_ATTEMPT_STATUSES_TUPLE),
+  started_at: z.string().min(1),
+  finished_at: z.string().min(1).optional(),
+  evidence: z.string(),
+  artifacts: z.array(z.string()),
+  feedback: z.string().optional(),
+  cause: z.enum([
+    'llm_rejected',
+    'programming_bug',
+    'subagent_timeout',
+    'script_failed',
+    'daemon_restart',
+  ]).optional(),
+}).strict().superRefine((attempt, ctx) => {
+  if (attempt.status !== 'running' && attempt.finished_at === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['finished_at'],
+      message: 'terminal attempt requires finished_at',
+    });
+  }
+  if (attempt.status === 'running' && attempt.finished_at !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['finished_at'],
+      message: 'running attempt forbids finished_at',
+    });
+  }
+});
+
+export const SubtaskRuntimeRecordSchema = z.object({
+  schema_version: z.literal(1),
+  subtask_id: z.string().min(1),
+  status: z.enum(SUBTASK_RUNTIME_STATUSES_TUPLE),
+  current_attempt_id: z.string().min(1).optional(),
+  attempts: z.array(VerificationAttemptRecordSchema),
+  completed_at: z.string().min(1).optional(),
+  evidence: z.string().optional(),
+  artifacts: z.array(z.string()).optional(),
+  force_accepted: z.boolean().optional(),
+}).strict().superRefine((record, ctx) => {
+  const ids = record.attempts.map(a => a.id);
+  if (new Set(ids).size !== ids.length) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['attempts'],
+      message: 'attempt ids must be unique',
+    });
+  }
+  const running = record.attempts.filter(a => a.status === 'running');
+  if (record.status === 'verifying') {
+    if (running.length !== 1 || running[0]?.id !== record.current_attempt_id) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['current_attempt_id'],
+        message: 'verifying must reference exactly one running attempt',
+      });
+    }
+  } else if (record.current_attempt_id !== undefined || running.length !== 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['current_attempt_id'],
+      message: 'non-verifying record cannot have a running attempt',
+    });
+  }
+  if (record.status === 'completed' && record.completed_at === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['completed_at'],
+      message: 'completed record requires completed_at',
+    });
+  }
+  if (record.status !== 'completed' && record.completed_at !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['completed_at'],
+      message: 'non-completed record forbids completed_at',
+    });
+  }
+  if (record.force_accepted === true && record.status !== 'completed') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['force_accepted'],
+      message: 'force_accepted only allowed for completed',
+    });
+  }
+});
 
 // phase 332: archive reader loose schema for historical preservation
 // M#2 archive 业务语义 = historical preservation (218/274 archive file legacy schema_version-missing + 多 legacy 字段 shape)、
