@@ -1309,6 +1309,24 @@ export class ContractSystem {
   // ============================================================================
 
   private async withProgressLock<T>(contractId: ContractId, fn: () => Promise<T>): Promise<T> {
+    // Phase 1136 Step E: current layout uses a single fixed slot lock; legacy active
+    // contracts continue to use the per-directory lock protocol.
+    const activeLoc = await resolveActiveContractLocation({
+      fs: this.fs,
+      audit: this.audit,
+      activeDir: this.activeDir,
+      contractId,
+    });
+    if (activeLoc?.layout === 'current') {
+      const lockPath = `${activeLoc.contractRoot}/progress.lock`;
+      const ownerToken = await acquireLock(this._lockCtx(), lockPath);
+      try {
+        return await fn();
+      } finally {
+        await releaseLock(this._lockCtx(), lockPath, ownerToken);
+      }
+    }
+
     const { release } = await lockContract(this._lockCtx(), contractId, (id) => this.contractDir(id));
     try {
       return await fn();

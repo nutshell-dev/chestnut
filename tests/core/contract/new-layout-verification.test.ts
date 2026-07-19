@@ -7,11 +7,12 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeAudit } from '../../helpers/audit.js';
+import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import {
   applyVerificationAttemptTransition,
   transitionCurrentVerificationAttempt,
+  readCurrentContractLayout,
 } from '../../../src/core/contract/new-layout.js';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
@@ -491,6 +492,50 @@ describe('current repository', () => {
     expect(after).toBe(before);
   });
 
+  it('returns late and writes nothing when attempt id mismatches (ABA guard)', async () => {
+    await writeCurrentLayout(makeContract(), {
+      t1: {
+        ...makeTodoRecord('t1'),
+        status: 'verifying',
+        current_attempt_id: 'a2',
+        attempts: [{
+          id: 'a1',
+          status: 'rejected',
+          started_at: '2026-07-19T10:00:00Z',
+          finished_at: '2026-07-19T10:01:00Z',
+          evidence: 'ev',
+          artifacts: [],
+          feedback: 'bad',
+          cause: 'llm_rejected',
+        }, {
+          id: 'a2',
+          status: 'running',
+          started_at: '2026-07-19T10:02:00Z',
+          evidence: 'ev',
+          artifacts: [],
+        }],
+      },
+    });
+    const filePath = path.join(clawDir, 'contract', 'active', 'current', 'subtasks', 't1.json');
+    const before = await fs.readFile(filePath, 'utf-8');
+    const { audit } = makeAudit();
+
+    const result = await transitionCurrentVerificationAttempt(
+      { fs: nodeFs, audit },
+      'cid-1' as any,
+      't1',
+      {
+        kind: 'pass',
+        attemptId: 'a1',
+        at: '2026-07-19T10:05:00Z',
+      },
+    );
+
+    expect(result.kind).toBe('skipped');
+    const after = await fs.readFile(filePath, 'utf-8');
+    expect(after).toBe(before);
+  });
+
   it('skips transition when contract id mismatches', async () => {
     await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
     const { audit } = makeAudit();
@@ -511,7 +556,7 @@ describe('current repository', () => {
     ).rejects.toThrow('contract id mismatch');
   });
 
-  it('only modifies the target subtask file', async () => {
+  it('only modifies the target subtask file on start', async () => {
     await writeCurrentLayout(
       makeContract([{ id: 't1', description: 'D1' }, { id: 't2', description: 'D2' }]),
       { t1: makeTodoRecord('t1'), t2: makeTodoRecord('t2') },
@@ -536,10 +581,48 @@ describe('current repository', () => {
     const after = await fs.readFile(t2Path, 'utf-8');
     expect(after).toBe(before);
   });
+
+  it('only modifies the target subtask file on pass', async () => {
+    await writeCurrentLayout(
+      makeContract([{ id: 't1', description: 'D1' }, { id: 't2', description: 'D2' }]),
+      {
+        t1: {
+          ...makeTodoRecord('t1'),
+          status: 'verifying',
+          current_attempt_id: 'a1',
+          attempts: [{
+            id: 'a1',
+            status: 'running',
+            started_at: '2026-07-19T10:00:00Z',
+            evidence: 'ev',
+            artifacts: [],
+          }],
+        },
+        t2: makeTodoRecord('t2'),
+      },
+    );
+    const t2Path = path.join(clawDir, 'contract', 'active', 'current', 'subtasks', 't2.json');
+    const before = await fs.readFile(t2Path, 'utf-8');
+    const { audit } = makeAudit();
+
+    await transitionCurrentVerificationAttempt(
+      { fs: nodeFs, audit },
+      'cid-1' as any,
+      't1',
+      {
+        kind: 'pass',
+        attemptId: 'a1',
+        at: '2026-07-19T10:05:00Z',
+      },
+    );
+
+    const after = await fs.readFile(t2Path, 'utf-8');
+    expect(after).toBe(before);
+  });
 });
 
 function setupManager(clawDirOverride: string) {
-  const { audit, events } = makeAudit();
+  const { audit, events, emitter } = makeAudit();
   const manager = new ContractSystem({
     clawDir: clawDirOverride,
     clawId: 'test-claw',
@@ -549,7 +632,7 @@ function setupManager(clawDirOverride: string) {
     fsFactory,
     notifyClaw: vi.fn(),
   });
-  return { manager, audit, events };
+  return { manager, audit, events, emitter };
 }
 
 describe('verification gateway', () => {
@@ -755,5 +838,132 @@ describe('daemon restart interruption', () => {
     expect(parsed.status).toBe('todo');
     expect(parsed.attempts[0].status).toBe('interrupted');
     expect(parsed.attempts[0].cause).toBe('daemon_restart');
+  });
+});
+
+describe('current verification end to end', () => {
+  async function writeCurrentContractWithVerification(
+    contract: PersistedContractYaml,
+    records: Record<string, SubtaskRuntimeRecord>,
+    scripts: Record<string, string>,
+  ) {
+    const root = path.join(clawDir, 'contract', 'active', 'current');
+    const subtasksDir = path.join(root, 'subtasks');
+    const verificationDir = path.join(root, 'verification');
+    await fs.mkdir(subtasksDir, { recursive: true });
+    await fs.mkdir(verificationDir, { recursive: true });
+    await fs.writeFile(path.join(root, 'contract.yaml'), yaml.dump(contract), 'utf-8');
+    for (const [id, record] of Object.entries(records)) {
+      await fs.writeFile(path.join(subtasksDir, `${id}.json`), JSON.stringify(record), 'utf-8');
+    }
+    for (const [name, content] of Object.entries(scripts)) {
+      const scriptPath = path.join(verificationDir, name);
+      await fs.writeFile(scriptPath, content, 'utf-8');
+      await fs.chmod(scriptPath, 0o755);
+    }
+  }
+
+  it('start leaves running attempt and uses contract/active/current root', async () => {
+    const contract = {
+      ...makeContract(),
+      verification: [{ subtask_id: 't1', type: 'script' as const, script_file: 'verification/t1.sh' }],
+    };
+    await writeCurrentContractWithVerification(
+      contract,
+      { t1: makeTodoRecord('t1') },
+      { 't1.sh': '#!/bin/sh\nexit 0\n' },
+    );
+    const { manager, events, emitter } = setupManager(clawDir);
+
+    const result = await manager.completeSubtask({
+      contractId: 'cid-1' as any,
+      subtaskId: 't1' as any,
+      evidence: 'ev',
+    });
+
+    expect(result.async).toBe(true);
+    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED);
+
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit: makeAudit().audit });
+    expect(layout).not.toBeNull();
+    const record = layout!.subtasks.get('t1')!;
+    expect(record.status).toBe('completed');
+    expect(record.attempts[0].status).toBe('passed');
+    expect(record.attempts[0].evidence).toBe('ev');
+  });
+
+  it('reject preserves first attempt history for second start', async () => {
+    const contract = {
+      ...makeContract(),
+      verification_attempts: 2,
+      verification: [{ subtask_id: 't1', type: 'script' as const, script_file: 'verification/t1.sh' }],
+    };
+    await writeCurrentContractWithVerification(
+      contract,
+      { t1: makeTodoRecord('t1') },
+      { 't1.sh': '#!/bin/sh\nexit 1\necho fail\n' },
+    );
+    const { manager, events, emitter } = setupManager(clawDir);
+
+    // First attempt fails and resets to todo.
+    let result = await manager.completeSubtask({
+      contractId: 'cid-1' as any,
+      subtaskId: 't1' as any,
+      evidence: 'ev1',
+    });
+    expect(result.async).toBe(true);
+    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
+
+    let layout = await readCurrentContractLayout({ fs: nodeFs, audit: makeAudit().audit });
+    let record = layout!.subtasks.get('t1')!;
+    expect(record.status).toBe('todo');
+    expect(record.attempts).toHaveLength(1);
+    expect(record.attempts[0].status).toBe('rejected');
+
+    // Second attempt passes (swap script to success).
+    const scriptPath = path.join(clawDir, 'contract', 'active', 'current', 'verification', 't1.sh');
+    await fs.writeFile(scriptPath, '#!/bin/sh\nexit 0\n', 'utf-8');
+    result = await manager.completeSubtask({
+      contractId: 'cid-1' as any,
+      subtaskId: 't1' as any,
+      evidence: 'ev2',
+    });
+    expect(result.async).toBe(true);
+    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED);
+
+    layout = await readCurrentContractLayout({ fs: nodeFs, audit: makeAudit().audit });
+    record = layout!.subtasks.get('t1')!;
+    expect(record.status).toBe('completed');
+    expect(record.attempts).toHaveLength(2);
+    expect(record.attempts[0].status).toBe('rejected');
+    expect(record.attempts[1].status).toBe('passed');
+  });
+
+  it('force-accepts after max attempts and preserves rejected attempt', async () => {
+    const contract = {
+      ...makeContract(),
+      verification_attempts: 1,
+      verification: [{ subtask_id: 't1', type: 'script' as const, script_file: 'verification/t1.sh' }],
+    };
+    await writeCurrentContractWithVerification(
+      contract,
+      { t1: makeTodoRecord('t1') },
+      { 't1.sh': '#!/bin/sh\nexit 1\n' },
+    );
+    const { manager, events, emitter } = setupManager(clawDir);
+
+    const result = await manager.completeSubtask({
+      contractId: 'cid-1' as any,
+      subtaskId: 't1' as any,
+      evidence: 'ev',
+    });
+    expect(result.async).toBe(true);
+    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED);
+
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit: makeAudit().audit });
+    const record = layout!.subtasks.get('t1')!;
+    expect(record.status).toBe('completed');
+    expect(record.force_accepted).toBe(true);
+    expect(record.attempts[0].status).toBe('rejected');
   });
 });
