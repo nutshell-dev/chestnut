@@ -23,6 +23,11 @@ import {
   PersistedContractYamlSchema,
   SubtaskRuntimeRecordSchema,
 } from './schemas.js';
+import type {
+  VerificationAttemptTransition,
+  TransitionApplicationResult,
+  VerificationTransitionResult,
+} from './verification-transition-types.js';
 import type { PersistedContractYaml, SubtaskRuntimeRecord, Contract, ProgressData, SubtaskStatus, DerivableStatus, ContractId } from './types.js';
 import { ContractProgressInvariantViolatedError } from './types.js';
 import {
@@ -339,6 +344,163 @@ export function deriveContractAggregate(
     if (record.status !== 'completed') allCompleted = false;
   }
   return allCompleted ? 'completed' : 'pending';
+}
+
+// ============================================================================
+// Phase 1136 Step A: verification attempt transition state machine
+// ============================================================================
+
+function cloneRecord(record: SubtaskRuntimeRecord): SubtaskRuntimeRecord {
+  return JSON.parse(JSON.stringify(record));
+}
+
+function findRunningAttempt(
+  record: SubtaskRuntimeRecord,
+  attemptId: string,
+): { index: number; attempt: SubtaskRuntimeRecord['attempts'][number] } | undefined {
+  const index = record.attempts.findIndex(a => a.id === attemptId);
+  if (index === -1) return undefined;
+  const attempt = record.attempts[index];
+  if (attempt.status !== 'running') return undefined;
+  return { index, attempt };
+}
+
+export function applyVerificationAttemptTransition(
+  existing: SubtaskRuntimeRecord,
+  transition: VerificationAttemptTransition,
+): TransitionApplicationResult {
+  const record = cloneRecord(existing);
+
+  switch (transition.kind) {
+    case 'start': {
+      if (record.status !== 'todo') {
+        return { success: false, reason: `start requires subtask status "todo", got "${record.status}"` };
+      }
+      if (record.attempts.some(a => a.id === transition.attemptId)) {
+        return { success: false, reason: `attempt id ${transition.attemptId} already exists` };
+      }
+      record.attempts.push({
+        id: transition.attemptId,
+        status: 'running',
+        started_at: transition.at,
+        evidence: transition.evidence,
+        artifacts: transition.artifacts,
+      });
+      record.status = 'verifying';
+      record.current_attempt_id = transition.attemptId;
+      record.evidence = transition.evidence;
+      record.artifacts = transition.artifacts;
+      return { success: true, record };
+    }
+    case 'pass': {
+      if (record.status !== 'verifying') {
+        return { success: false, reason: `pass requires subtask status "verifying", got "${record.status}"` };
+      }
+      if (record.current_attempt_id !== transition.attemptId) {
+        return { success: false, reason: `expected attempt ${record.current_attempt_id}, got ${transition.attemptId}` };
+      }
+      const found = findRunningAttempt(record, transition.attemptId);
+      if (!found) {
+        return { success: false, reason: `no running attempt ${transition.attemptId} to pass` };
+      }
+      found.attempt.status = 'passed';
+      found.attempt.finished_at = transition.at;
+      record.status = 'completed';
+      record.completed_at = transition.at;
+      delete record.current_attempt_id;
+      return { success: true, record };
+    }
+    case 'reject': {
+      if (record.status !== 'verifying') {
+        return { success: false, reason: `reject requires subtask status "verifying", got "${record.status}"` };
+      }
+      if (record.current_attempt_id !== transition.attemptId) {
+        return { success: false, reason: `expected attempt ${record.current_attempt_id}, got ${transition.attemptId}` };
+      }
+      const found = findRunningAttempt(record, transition.attemptId);
+      if (!found) {
+        return { success: false, reason: `no running attempt ${transition.attemptId} to reject` };
+      }
+      found.attempt.status = 'rejected';
+      found.attempt.finished_at = transition.at;
+      found.attempt.feedback = transition.feedback;
+      found.attempt.cause = transition.cause;
+      if (transition.forceAccept) {
+        record.status = 'completed';
+        record.completed_at = transition.at;
+        record.force_accepted = true;
+      } else {
+        record.status = 'todo';
+        delete record.completed_at;
+      }
+      delete record.current_attempt_id;
+      return { success: true, record };
+    }
+    case 'interrupt': {
+      if (record.status !== 'verifying') {
+        return { success: false, reason: `interrupt requires subtask status "verifying", got "${record.status}"` };
+      }
+      if (record.current_attempt_id !== transition.attemptId) {
+        return { success: false, reason: `expected attempt ${record.current_attempt_id}, got ${transition.attemptId}` };
+      }
+      const found = findRunningAttempt(record, transition.attemptId);
+      if (!found) {
+        return { success: false, reason: `no running attempt ${transition.attemptId} to interrupt` };
+      }
+      found.attempt.status = 'interrupted';
+      found.attempt.finished_at = transition.at;
+      if (transition.cause !== undefined) {
+        found.attempt.cause = transition.cause;
+      }
+      if (transition.feedback !== undefined) {
+        found.attempt.feedback = transition.feedback;
+      }
+      record.status = 'todo';
+      delete record.completed_at;
+      delete record.current_attempt_id;
+      return { success: true, record };
+    }
+    default: {
+      // Exhaustiveness guard; unreachable if the union is complete.
+      return { success: false, reason: 'unknown transition kind' };
+    }
+  }
+}
+
+/**
+ * Apply a typed verification attempt transition to a single subtask in the
+ * active/current layout and persist it atomically.
+ *
+ * Returns:
+ * - 'updated' with the new record when the transition commits.
+ * - 'skipped' when the transition is illegal (wrong status, duplicate id, etc.).
+ * - 'late' when the attempt id does not match the current running attempt.
+ */
+export async function transitionCurrentVerificationAttempt(
+  deps: { fs: FileSystem; audit: AuditLog },
+  contractId: ContractId,
+  subtaskId: string,
+  transition: VerificationAttemptTransition,
+): Promise<VerificationTransitionResult> {
+  const layout = await readCurrentContractLayout(deps);
+  assertCurrentLayoutMatches(layout, contractId);
+
+  if (!layout.contract.subtasks.some(st => st.id === subtaskId)) {
+    return { kind: 'skipped', reason: `subtask ${subtaskId} is not defined in contract.yaml` };
+  }
+
+  const existing = layout.subtasks.get(subtaskId);
+  if (!existing) {
+    return { kind: 'skipped', reason: `subtask record ${subtaskId} is missing` };
+  }
+
+  const applied = applyVerificationAttemptTransition(existing, transition);
+  if (!applied.success) {
+    return { kind: 'skipped', reason: applied.reason };
+  }
+
+  await writeCurrentSubtaskRecord(deps, { contractId, subtaskId, record: applied.record });
+  return { kind: 'updated', record: applied.record, prior: existing };
 }
 
 export function deriveSubtaskRetrySummary(
