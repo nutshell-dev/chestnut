@@ -212,12 +212,6 @@ async function applyVerificationOutcome(
     const priorRejected = subtask.retry_count ?? 0;
     const forceAccept = priorRejected + 1 >= maxAttempts;
 
-    emitContractVerificationFailed(
-      ctx.audit,
-      // phase 217: 末端单次 .message 截、producer (verifier-job) 已不自截
-      { contractId, subtaskId, feedback: ctx.audit.message(result.feedback) },
-    );
-
     const transitionResult = await ctx.transitionVerificationAttempt(
       contractId,
       subtaskId,
@@ -233,6 +227,13 @@ async function applyVerificationOutcome(
     if (transitionResult.kind !== 'updated') {
       return { kind: 'skipped' };
     }
+
+    // Phase 1142: verification_failed Audit must only be written after the reject transition commits.
+    emitContractVerificationFailed(
+      ctx.audit,
+      // phase 217: 末端单次 .message 截、producer (verifier-job) 已不自截
+      { contractId, subtaskId, feedback: ctx.audit.message(result.feedback) },
+    );
 
     const updatedProgress = transitionResult.progress;
     const updatedSubtask = updatedProgress.subtasks[subtaskId];

@@ -422,3 +422,179 @@ describe('applyVerificationOutcome transition audit ordering (Phase 1136 Step C)
     expect(calls.indexOf('transition')).toBeLessThan(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.PASSED}`));
   });
 });
+
+
+describe('applyVerificationOutcome reject transition audit ordering (Phase 1142)', () => {
+  function makeAuditWithCalls(calls: string[]) {
+    const mockAudit = makeMockAudit();
+    return {
+      audit: {
+        ...mockAudit,
+        write: vi.fn((type: string, ..._cols: (string | number)[]) => {
+          calls.push(`audit:${type}`);
+        }) as unknown as VerificationContext['audit']['write'],
+      } as VerificationContext['audit'],
+      mockAudit,
+    };
+  }
+
+  const startProgress = {
+    status: 'running',
+    subtasks: {
+      st1: { status: 'in_progress', verification_attempt_id: 'a1' },
+    },
+  };
+
+  const retryProgress = {
+    status: 'running',
+    subtasks: {
+      st1: { status: 'todo', retry_count: 1, verification_attempt_id: 'a1' },
+    },
+  };
+
+  it('emits verification_failed only after reject transition commits', async () => {
+    const calls: string[] = [];
+    const { audit } = makeAuditWithCalls(calls);
+
+    const transitionVerificationAttempt = vi.fn().mockImplementation((_, __, args) => {
+      if (args.kind === 'start') {
+        calls.push('transition:start:resolved');
+        return Promise.resolve({ kind: 'updated', progress: startProgress });
+      }
+      calls.push('transition:reject:resolved');
+      return Promise.resolve({ kind: 'updated', progress: retryProgress });
+    });
+
+    const ctx = makeCtx({
+      audit,
+      transitionVerificationAttempt,
+      getProgress: vi.fn().mockResolvedValue(startProgress),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
+      registerController: vi.fn(),
+      unregisterController: vi.fn(),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: false, feedback: 'bad' }),
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+      verification_attempts: 3,
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    const verificationFailedEvents = calls.filter(c => c === `audit:${CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED}`);
+    expect(verificationFailedEvents).toHaveLength(1);
+    expect(calls).toContain(`audit:${CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO}`);
+    expect(calls.indexOf('transition:reject:resolved')).toBeLessThan(
+      calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED}`),
+    );
+    expect(calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED}`)).toBeLessThan(
+      calls.indexOf(`audit:${CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO}`),
+    );
+  });
+
+  it('does not emit verification_failed when reject transition is skipped', async () => {
+    const calls: string[] = [];
+    const { audit } = makeAuditWithCalls(calls);
+
+    const transitionVerificationAttempt = vi.fn().mockImplementation((_, __, args) => {
+      if (args.kind === 'start') {
+        return Promise.resolve({ kind: 'updated', progress: startProgress });
+      }
+      return Promise.resolve({ kind: 'skipped', reason: 'attempt id mismatch' });
+    });
+
+    const ctx = makeCtx({
+      audit,
+      transitionVerificationAttempt,
+      getProgress: vi.fn().mockResolvedValue(startProgress),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
+      registerController: vi.fn(),
+      unregisterController: vi.fn(),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: false, feedback: 'bad' }),
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    const verificationFailedEvents = calls.filter(c => c === `audit:${CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED}`);
+    expect(verificationFailedEvents).toHaveLength(0);
+  });
+
+  it('does not emit verification_failed when reject transition throws', async () => {
+    const calls: string[] = [];
+    const { audit } = makeAuditWithCalls(calls);
+
+    let rejectCalls = 0;
+    const transitionVerificationAttempt = vi.fn().mockImplementation((_, __, args) => {
+      if (args.kind === 'start') {
+        return Promise.resolve({ kind: 'updated', progress: startProgress });
+      }
+      rejectCalls++;
+      if (rejectCalls === 1) {
+        throw Object.assign(new Error('write failed: ENOSPC'), { code: 'ENOSPC' });
+      }
+      return Promise.resolve({ kind: 'updated', progress: retryProgress });
+    });
+
+    const notifyClaw = vi.fn();
+    const ctx = makeCtx({
+      audit,
+      transitionVerificationAttempt,
+      getProgress: vi.fn().mockResolvedValue(startProgress),
+      loadContractYaml: vi.fn().mockResolvedValue({
+        subtasks: [{ id: 'st1', description: 'desc' }],
+        verification_attempts: 3,
+      }),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
+      registerController: vi.fn(),
+      unregisterController: vi.fn(),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: false, feedback: 'bad' }),
+      notifyClaw,
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+      verification_attempts: 3,
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    // Public promise resolves because runVerificationInBackground catches non-abort errors
+    // and routes them through writeVerificationError; the original error is preserved in the inbox.
+    await expect(
+      runVerificationInBackground(
+        ctx,
+        { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+        contractYaml,
+        verificationConfig,
+      ),
+    ).resolves.toBeUndefined();
+
+    const verificationFailedEvents = calls.filter(c => c === `audit:${CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED}`);
+    expect(verificationFailedEvents).toHaveLength(0);
+    expect(transitionVerificationAttempt).toHaveBeenCalledWith(
+      'c1',
+      'st1',
+      expect.objectContaining({ kind: 'reject' }),
+    );
+    expect(notifyClaw).toHaveBeenCalledWith(
+      ctx.clawId,
+      expect.objectContaining({
+        type: 'verification_error',
+        body: expect.stringContaining('ENOSPC'),
+      }),
+    );
+  });
+});
