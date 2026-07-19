@@ -80,12 +80,6 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         `active_contract_ids=${contract1}`,
         'capacity=1',
       );
-
-      // no archive started / replacement mutation
-      const startedCalls = mockAudit.write.mock.calls.filter(
-        (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
-      );
-      expect(startedCalls).toHaveLength(0);
     });
 
     it('writes CONTRACT_ROLLBACK_FAILED audit when contract dir rollback fails', async () => {

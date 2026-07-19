@@ -221,18 +221,6 @@ export function emitContractProgressCorrupted(
   audit.write(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED, ...cols);
 }
 
-// ─── ARCHIVE_STARTED ────────────────────────────────────────────────────────
-export function emitContractArchiveStarted(
-  audit: AuditLog,
-  opts: { old: string; new: string },
-): void {
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
-    `old=${opts.old}`,
-    `new=${opts.new}`,
-  );
-}
-
 // ─── ROLLBACK_FAILED ────────────────────────────────────────────────────────
 export function emitContractRollbackFailed(
   audit: AuditLog,

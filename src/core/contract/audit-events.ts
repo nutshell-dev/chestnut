@@ -24,7 +24,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   // NEW phase 164: listArchiveContracts progress.json non-ENOENT silent catch audit emit (playbook §1)
   ARCHIVE_PROGRESS_READ_FAILED: 'contract_archive_progress_read_failed',
   PROGRESS_CORRUPTED: 'contract_progress_corrupted',
-  ARCHIVE_STARTED: 'contract_archive_started',
   ROLLBACK_FAILED: 'contract_rollback_failed',
   ROLLBACK_INCOMPLETE: 'contract_rollback_incomplete',
   CREATED: 'contract_created',
@@ -62,8 +61,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   SUBTASK_FORCE_ACCEPTED: 'subtask_force_accepted', // ← NEW phase 1399: force-accept 路径审计
   // ← NEW phase 425: handleVerificationErrorRetry 内 retry path saveProgress 后 audit、补 verification 缺口
   SUBTASK_RESET_TO_TODO: 'contract_subtask_reset_to_todo',
-  // phase 324 H6: 旧 contract 被新 contract 替换时、未完成 subtask 被 force-complete 的审计
-  SUBTASK_FORCE_COMPLETED_REPLACED: 'subtask_force_completed_replaced',
   VERIFICATION_FAILED: 'verification_failed',
   VERIFICATION_TIMEOUT: 'verification_timeout',
   // phase 993 D.2 (r121 J fork audit-2026-05-17 NEW.P1 D.2): verifier catch audit emit (timeout/other)
@@ -201,7 +198,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_auditor_load_active_failed: 'audit',
   contract_archive_progress_read_failed: 'audit',
   contract_progress_corrupted: 'audit',
-  contract_archive_started: 'audit',
   contract_rollback_failed: 'audit',
   contract_rollback_incomplete: 'audit',
   contract_created: 'audit',
@@ -230,7 +226,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_completed: 'audit',
   subtask_completed: 'audit',
   subtask_force_accepted: 'audit',
-  subtask_force_completed_replaced: 'audit',
   verification_failed: 'audit',
   verification_timeout: 'audit',
   contract_verifier_failed: 'audit',
