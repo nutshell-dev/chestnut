@@ -14,6 +14,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
+import { ContractCapacityError } from '../../src/core/contract/errors.js';
 
 let testDir: string;
 let clawDir: string;
@@ -47,7 +48,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
   });
 
   describe('phase230 audit events', () => {
-    it('writes CONTRACT_ARCHIVE_STARTED audit when auto-archiving existing contract', async () => {
+    it('writes CAPACITY_EXHAUSTED audit and leaves active unchanged on second create', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({
         clawDir,
@@ -66,18 +67,25 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         verification: [],
       }));
 
-      const contract2 = await testManager.create(makeContractYaml({
+      await expect(testManager.create(makeContractYaml({
         title: 'Second',
         goal: 'Second',
         subtasks: [{ id: 't2', description: 'T2' }],
         verification: [],
-      }));
+      }))).rejects.toBeInstanceOf(ContractCapacityError);
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
-        `old=${contract1}`,
-        `new=${contract2}`,
+        CONTRACT_AUDIT_EVENTS.CAPACITY_EXHAUSTED,
+        expect.stringContaining('requested_contract_id='),
+        `active_contract_ids=${contract1}`,
+        'capacity=1',
       );
+
+      // no archive started / replacement mutation
+      const startedCalls = mockAudit.write.mock.calls.filter(
+        (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
+      );
+      expect(startedCalls).toHaveLength(0);
     });
 
     it('writes CONTRACT_ROLLBACK_FAILED audit when contract dir rollback fails', async () => {

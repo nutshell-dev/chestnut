@@ -36,8 +36,6 @@ import type { ToolRegistry } from '../../foundation/tools/index.js';
 import {
   emitContractCancelled,
   emitContractCompletedHandlerFailed,
-  emitContractArchiveStarted,
-  emitContractMoveArchiveFailed,
   emitContractUnexpectedAsyncThrow,
   emitContractRollbackFailed,
   emitContractRollbackIncomplete,
@@ -48,11 +46,12 @@ import {
   emitContractVerifierRegistered,
   emitContractVerifierUnregistered,
   emitContractLegacyPausedObserved,
+  emitContractCapacityExhausted,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
-import { resolveContractLocation } from './locations.js';
+import { resolveContractLocation, listPhysicalActiveContractIds } from './locations.js';
 import { type ClawId } from '../../foundation/claw-identity/index.js';
 
 import type {
@@ -78,7 +77,7 @@ import {
 import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } from './schemas.js';
 import { type ContractId, makeContractId } from './types.js';
 import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
-import { ContractValidationError } from './errors.js';
+import { ContractValidationError, ContractCapacityError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, type ArchiveState, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
@@ -898,6 +897,19 @@ export class ContractSystem {
       }
       const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
 
+      // phase 1130 Step D: enforce single active contract capacity.
+      const activeIds = await listPhysicalActiveContractIds({
+        fs: this.fs,
+        activeDir: this.activeDir,
+      });
+      if (activeIds.length > 0) {
+        emitContractCapacityExhausted(this.audit, {
+          requestedContractId: contractId,
+          activeContractIds: activeIds,
+        });
+        throw new ContractCapacityError(contractId, activeIds);
+      }
+
       // Phase 956: check uniqueness across current directories (active + archive states + legacy flat)
       // phase 1123 Step C: paused/ is legacy-only and must not block creation.
       // phase 1127 Step B: creation must not collide with any current archive state container or legacy flat entry.
@@ -941,62 +953,6 @@ export class ContractSystem {
             { subtaskId: a.subtask_id });
         }
         seenSubtaskIds.add(a.subtask_id);
-      }
-
-      const existing = await this.loadActive();
-      if (existing && existing.id !== contractId) {
-        emitContractArchiveStarted(
-          this.audit,
-          { old: existing.id, new: contractId },
-        );
-        try {
-          // phase 188 Step A: archive precondition requires terminal status
-          // phase 282 Step A: status derive from subtasks → flip old contract subtasks
-          // to completed before archiving (create replaces old contract)
-          // phase 324 H6: 标 force_accepted + last_failed_feedback + audit 一条
-          // SUBTASK_FORCE_COMPLETED_REPLACED，让下游（evolution / retro）能区分
-          // 被替换的 abandoned subtask 与真实完成的 subtask。
-          const existingId = makeContractId(existing.id);
-          await this.withProgressLock(existingId, async () => {
-            const progress = await this.getProgress(existingId);
-            if (progress && !['completed', 'cancelled', 'crashed', 'archive_pending_recovery'].includes(progress.status)) {
-              for (const [subtaskId, st] of Object.entries(progress.subtasks)) {
-                if (st.status !== 'completed') {
-                  st.status = 'completed';
-                  st.force_accepted = true;   // phase 324 H6: 区分 abandoned vs 真完成
-                  // 不设 last_failed_feedback：本路径无 verification failure；
-                  // 替换原因走 SUBTASK_FORCE_COMPLETED_REPLACED audit、是 SoT。
-                  if (!st.completed_at) st.completed_at = new Date().toISOString();
-                  this.audit.write(
-                    CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_COMPLETED_REPLACED,
-                    `contractId=${existingId}`,
-                    `subtaskId=${subtaskId}`,
-                    `new_contract_id=${contractId}`,
-                    `reason=replaced_by_new_contract`,
-                  );
-                }
-              }
-              await this.saveProgress(existingId, progress);
-            }
-          });
-          await this.moveToArchive(existingId);
-        } catch (err) {
-          emitContractMoveArchiveFailed(
-            this.audit,
-            {
-              old: existing.id,
-              new: contractId,
-              reason: formatErr(err),
-            },
-          );
-          // phase 1038 α-7: throw instead of swallow — state machine invariant「1 active contract per claw」
-          // 不可 create new contract while previous archive failed (导致 multi-active state)
-          throw new ToolError(
-            `Cannot create contract "${contractId}": previous active contract "${existing.id}" archive failed. ` +
-            `Manual intervention required: check archive/ dir + retry create. Original error: ${formatErr(err)}`,
-            { cause: err }
-          );
-        }
       }
 
       await this.fs.ensureDir(`${this.activeDir}/${contractId}`);

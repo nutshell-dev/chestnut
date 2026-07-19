@@ -18,6 +18,7 @@ import * as path from 'path';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
+import { ContractCapacityError } from '../../src/core/contract/errors.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
@@ -99,40 +100,42 @@ describe('ContractSystem', () => {
     await expect(manager.cancel(contractId, 'Cancel again')).rejects.toThrow('Cannot cancel');
   });
 
-  // === 新增测试：loadActive 返回最新的 running 契约 ===
-  
-  it('should loadActive return latest running contract by started_at', async () => {
-    // 创建第一个契约
+  // === Phase 1130: capacity=1 create rejection ===
+
+  it('should reject second create while active exists and leave active untouched', async () => {
     const contract1 = await manager.create(makeContractYaml({
       title: 'First',
       goal: 'First',
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
-    
-    // 稍微等待确保时间戳不同
-    vi.useFakeTimers();
-    await vi.advanceTimersByTimeAsync(50);
-    vi.useRealTimers();
-    
-    // 创建第二个契约（会自动归档第一个）
-    const contract2 = await manager.create(makeContractYaml({
+
+    const activePath = path.join(clawDir, 'contract', 'active', contract1);
+    const yamlBefore = await fs.readFile(path.join(activePath, 'contract.yaml'), 'utf-8');
+    const progressBefore = await fs.readFile(path.join(activePath, 'progress.json'), 'utf-8');
+    const onCompleted = vi.fn();
+    manager.onContractCompleted(onCompleted);
+
+    await expect(manager.create(makeContractYaml({
       title: 'Second',
       goal: 'Second',
       subtasks: [{ id: 't2', description: 'T2' }],
       verification: [],
-    }));
+    }))).rejects.toBeInstanceOf(ContractCapacityError);
 
-    // loadActive 应该返回最新的（第二个），第一个已被归档
-    const active = await manager.loadActive();
-    expect(active?.id).toBe(contract2);
-    
-    // 验证第一个已被归档
-    const progress1 = await manager.getProgress(contract1);
-    expect(progress1.status).toBe('completed'); // phase 188: auto-archive flips to completed before archive
+    // active contract unchanged byte-for-byte
+    expect(await fs.readFile(path.join(activePath, 'contract.yaml'), 'utf-8')).toBe(yamlBefore);
+    expect(await fs.readFile(path.join(activePath, 'progress.json'), 'utf-8')).toBe(progressBefore);
+
+    // no replacement archive
+    const archivePath = path.join(clawDir, 'contract', 'archive', 'completed', contract1);
+    await expect(fs.access(archivePath)).rejects.toThrow();
+
+    // no completed callback
+    expect(onCompleted).not.toHaveBeenCalled();
   });
 
-  it('should create() auto-archive existing running contract', async () => {
+  it('should allow new create after active is cancelled', async () => {
     const contract1 = await manager.create(makeContractYaml({
       title: 'First',
       goal: 'First',
@@ -140,7 +143,8 @@ describe('ContractSystem', () => {
       verification: [],
     }));
 
-    // 创建第二个，第一个应该被归档（不是暂停）
+    await manager.cancel(contract1, 'release capacity');
+
     const contract2 = await manager.create(makeContractYaml({
       title: 'Second',
       goal: 'Second',
@@ -148,17 +152,11 @@ describe('ContractSystem', () => {
       verification: [],
     }));
 
-    // 第一个被归档（phase 188: auto-archive flips to completed before archive）
-    const progress1 = await manager.getProgress(contract1);
-    expect(progress1.status).toBe('completed');
-    
-    // 第二个是当前的 active
-    const progress2 = await manager.getProgress(contract2);
-    expect(progress2.status).toBe('running');
-    
-    // loadActive 只返回第二个
     const active = await manager.loadActive();
     expect(active?.id).toBe(contract2);
+
+    const progress2 = await manager.getProgress(contract2);
+    expect(progress2.status).toBe('running');
   });
 
   // === 新增测试：completeSubtask 覆盖 ===
