@@ -511,7 +511,7 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
         .fn()
         .mockResolvedValueOnce({
           status: 'running',
-          subtasks: { t1: { status: 'in_progress' } },
+          subtasks: { t1: { status: 'in_progress', verification_attempt_id: 'attempt-c2' } },
         })
         .mockResolvedValueOnce({
           status: 'cancelled',
@@ -524,6 +524,19 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
       runLLMVerification: vi.fn().mockResolvedValue({ passed: true }),
       withProgressLock: vi.fn().mockImplementation((_, fn) => fn()),
       toolRegistry: { getForProfile: vi.fn().mockReturnValue([]) } as any,
+      isActiveContract: vi
+        .fn()
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false),
+      getContractRoot: vi.fn().mockResolvedValue('contract/active/c1'),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({
+        kind: 'updated',
+        record: {},
+        progress: {
+          status: 'cancelled',
+          subtasks: { t1: { status: 'completed' } },
+        },
+      }),
     };
 
     const contractYaml: ContractYaml = {
@@ -535,7 +548,7 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
 
     await runVerificationInBackground(
       ctx as any,
-      { contractId: 'c1', subtaskId: 't1', evidence: 'evidence' },
+      { contractId: 'c1', subtaskId: 't1', evidence: 'evidence', attemptId: 'attempt-c2' },
       contractYaml,
       { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
     );

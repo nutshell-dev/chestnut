@@ -91,9 +91,36 @@ function makeAcceptanceCtx(
       removeDir: vi.fn(async () => {}),
       ensureDir: vi.fn(async () => {}),
     } as unknown as VerificationContext['fs'],
+    isActiveContract: vi.fn(async () => true),
+    getContractRoot: vi.fn(async (_id: string) => `contract/active/${_id}`),
+    transitionVerificationAttempt: vi.fn(async (contractId: string, subtaskId: string, transition: any) => {
+      const current = storedProgress[contractId] ?? {
+        contract_id: contractId,
+        status: 'running',
+        subtasks: {},
+      };
+      const sub = current.subtasks[subtaskId] ?? { status: 'in_progress', retry_count: 0 };
+      if (transition.kind === 'reject') {
+        const retryCount = (sub.retry_count ?? 0) + 1;
+        const updatedSub = {
+          ...sub,
+          status: transition.forceAccept ? ('completed' as const) : ('todo' as const),
+          retry_count: retryCount,
+          ...(transition.forceAccept ? { force_accepted: true } : {}),
+          ...(transition.forceAccept ? {} : { last_failed_feedback: { feedback: transition.feedback, cause: transition.cause, at: transition.at } }),
+        };
+        const updatedProgress = {
+          ...current,
+          subtasks: { ...current.subtasks, [subtaskId]: updatedSub },
+        };
+        storedProgress[contractId] = updatedProgress;
+        return { kind: 'updated', record: {} as any, progress: updatedProgress };
+      }
+      return { kind: 'updated', record: {} as any, progress: current };
+    }),
   };
 
-  return { ctx, events, notifyCalls };
+  return { ctx, events, notifyCalls, storedProgress };
 }
 
 describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)', () => {
@@ -148,22 +175,22 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
 
   describe('α-4 writeVerificationError reset path force-accept check', () => {
     it('reset path retry_count >= maxAttempts → force_accepted + SUBTASK_FORCE_ACCEPTED audit', async () => {
-      const { ctx, events } = makeAcceptanceCtx({ maxAttempts: 3 });
+      const { ctx, events, storedProgress } = makeAcceptanceCtx({ maxAttempts: 3 });
       // setup: subtask with retry_count=2 + in_progress
-      (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      storedProgress.c1 = {
         contract_id: 'c1',
         status: 'running',
         subtasks: {
           st1: { status: 'in_progress', retry_count: 2 },
         },
-      });
+      };
 
       await writeVerificationError(ctx, 'c1', 'st1', new Error('test'));
 
-      const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
-      expect(saveCalls.length).toBeGreaterThanOrEqual(1);
-      const savedProgress = saveCalls[0][1] as ProgressData;
-      expect(savedProgress.subtasks['st1'].force_accepted).toBe(true);
+      const txCalls = (ctx.transitionVerificationAttempt as ReturnType<typeof vi.fn>).mock.calls;
+      expect(txCalls.length).toBeGreaterThanOrEqual(1);
+      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', forceAccept: true });
+      expect(storedProgress.c1.subtasks['st1'].force_accepted).toBe(true);
 
       expect(events).toContainEqual(expect.arrayContaining([
         CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
@@ -175,34 +202,34 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
     });
 
     it('reset path retry_count < maxAttempts → force_accepted unset', async () => {
-      const { ctx } = makeAcceptanceCtx({ maxAttempts: 3 });
+      const { ctx, storedProgress } = makeAcceptanceCtx({ maxAttempts: 3 });
       // setup: subtask with retry_count=0 + in_progress
-      (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      storedProgress.c2 = {
         contract_id: 'c2',
         status: 'running',
         subtasks: {
           st1: { status: 'in_progress', retry_count: 0 },
         },
-      });
+      };
 
       await writeVerificationError(ctx, 'c2', 'st1', new Error('test'));
 
-      const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
-      expect(saveCalls.length).toBeGreaterThanOrEqual(1);
-      const savedProgress = saveCalls[0][1] as ProgressData;
-      expect(savedProgress.subtasks['st1'].force_accepted).toBeUndefined();
+      const txCalls = (ctx.transitionVerificationAttempt as ReturnType<typeof vi.fn>).mock.calls;
+      expect(txCalls.length).toBeGreaterThanOrEqual(1);
+      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', forceAccept: false });
+      expect(storedProgress.c2.subtasks['st1'].force_accepted).toBeUndefined();
     });
 
     it('reset path with no verification_attempts config → uses default maxAttempts=3', async () => {
-      const { ctx, events } = makeAcceptanceCtx({ /* no maxAttempts override */ });
+      const { ctx, events, storedProgress } = makeAcceptanceCtx({ /* no maxAttempts override */ });
       // setup: subtask with retry_count=3 (default maxAttempts=3) → should force-accept
-      (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      storedProgress.c3 = {
         contract_id: 'c3',
         status: 'running',
         subtasks: {
           st1: { status: 'in_progress', retry_count: 3 },
         },
-      });
+      };
       // loadContractYaml returns no escalation config
       (ctx.loadContractYaml as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         title: 'Test',
@@ -212,10 +239,10 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
 
       await writeVerificationError(ctx, 'c3', 'st1', new Error('test'));
 
-      const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
-      expect(saveCalls.length).toBeGreaterThanOrEqual(1);
-      const savedProgress = saveCalls[0][1] as ProgressData;
-      expect(savedProgress.subtasks['st1'].force_accepted).toBe(true);
+      const txCalls = (ctx.transitionVerificationAttempt as ReturnType<typeof vi.fn>).mock.calls;
+      expect(txCalls.length).toBeGreaterThanOrEqual(1);
+      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', forceAccept: true });
+      expect(storedProgress.c3.subtasks['st1'].force_accepted).toBe(true);
 
       expect(events).toContainEqual(expect.arrayContaining([
         CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
