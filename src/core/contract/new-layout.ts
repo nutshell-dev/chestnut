@@ -494,6 +494,20 @@ export async function transitionCurrentVerificationAttempt(
     return { kind: 'skipped', reason: `subtask record ${subtaskId} is missing` };
   }
 
+  const isTerminal = transition.kind !== 'start';
+  if (
+    isTerminal &&
+    existing.status === 'verifying' &&
+    existing.current_attempt_id !== undefined &&
+    existing.current_attempt_id !== transition.attemptId
+  ) {
+    return {
+      kind: 'late',
+      expectedAttemptId: existing.current_attempt_id,
+      actualAttemptId: transition.attemptId,
+    };
+  }
+
   const applied = applyVerificationAttemptTransition(existing, transition);
   if (!applied.success) {
     return { kind: 'skipped', reason: applied.reason };

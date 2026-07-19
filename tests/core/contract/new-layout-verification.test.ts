@@ -492,7 +492,7 @@ describe('current repository', () => {
     expect(after).toBe(before);
   });
 
-  it('returns late and writes nothing when attempt id mismatches (ABA guard)', async () => {
+  it('returns late and writes nothing when terminal attempt id mismatches (ABA guard)', async () => {
     await writeCurrentLayout(makeContract(), {
       t1: {
         ...makeTodoRecord('t1'),
@@ -529,6 +529,77 @@ describe('current repository', () => {
         attemptId: 'a1',
         at: '2026-07-19T10:05:00Z',
       },
+    );
+
+    expect(result.kind).toBe('late');
+    if (result.kind !== 'late') return;
+    expect(result.expectedAttemptId).toBe('a2');
+    expect(result.actualAttemptId).toBe('a1');
+    const after = await fs.readFile(filePath, 'utf-8');
+    expect(after).toBe(before);
+  });
+
+  it.each([
+    { kind: 'reject', feedback: 'bad', cause: 'llm_rejected', forceAccept: false },
+    { kind: 'interrupt' },
+  ] as const)('returns late for terminal $kind when current attempt id mismatches', async (transition) => {
+    await writeCurrentLayout(makeContract(), {
+      t1: {
+        ...makeTodoRecord('t1'),
+        status: 'verifying',
+        current_attempt_id: 'a2',
+        attempts: [{
+          id: 'a1',
+          status: 'rejected',
+          started_at: '2026-07-19T10:00:00Z',
+          finished_at: '2026-07-19T10:01:00Z',
+          evidence: 'ev',
+          artifacts: [],
+          feedback: 'bad',
+          cause: 'llm_rejected',
+        }, {
+          id: 'a2',
+          status: 'running',
+          started_at: '2026-07-19T10:02:00Z',
+          evidence: 'ev',
+          artifacts: [],
+        }],
+      },
+    });
+    const filePath = path.join(clawDir, 'contract', 'active', 'current', 'subtasks', 't1.json');
+    const before = await fs.readFile(filePath, 'utf-8');
+    const { audit } = makeAudit();
+
+    const result = await transitionCurrentVerificationAttempt(
+      { fs: nodeFs, audit },
+      'cid-1' as any,
+      't1',
+      {
+        ...transition,
+        attemptId: 'a1',
+        at: '2026-07-19T10:05:00Z',
+      } as VerificationAttemptTransition,
+    );
+
+    expect(result.kind).toBe('late');
+    if (result.kind !== 'late') return;
+    expect(result.expectedAttemptId).toBe('a2');
+    expect(result.actualAttemptId).toBe('a1');
+    const after = await fs.readFile(filePath, 'utf-8');
+    expect(after).toBe(before);
+  });
+
+  it('skips terminal transition when subtask status is not verifying (no late)', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const filePath = path.join(clawDir, 'contract', 'active', 'current', 'subtasks', 't1.json');
+    const before = await fs.readFile(filePath, 'utf-8');
+    const { audit } = makeAudit();
+
+    const result = await transitionCurrentVerificationAttempt(
+      { fs: nodeFs, audit },
+      'cid-1' as any,
+      't1',
+      { kind: 'pass', attemptId: 'a0', at: '2026-07-19T10:05:00Z' },
     );
 
     expect(result.kind).toBe('skipped');
@@ -680,7 +751,7 @@ describe('verification gateway', () => {
     expect(result.progress.subtasks.t1.verification_attempt_id).toBe('a1');
   });
 
-  it('returns late when current attempt id mismatches', async () => {
+  it('returns late when current attempt id mismatches through gateway', async () => {
     await writeCurrentLayout(makeContract(), {
       t1: {
         ...makeTodoRecord('t1'),
@@ -707,7 +778,10 @@ describe('verification gateway', () => {
       },
     );
 
-    expect(result.kind).toBe('skipped');
+    expect(result.kind).toBe('late');
+    if (result.kind !== 'late') return;
+    expect(result.expectedAttemptId).toBe('a1');
+    expect(result.actualAttemptId).toBe('a0');
   });
 
   it('does not fallback to legacy when current is corrupted', async () => {
@@ -803,6 +877,34 @@ describe('verification gateway legacy parity', () => {
       feedback: 'bad',
       cause: 'script_failed',
     });
+  });
+
+  it('keeps skipped for legacy attempt id mismatch', async () => {
+    await writeLegacyLayout('cid-1');
+    const { manager } = setupManager(clawDir);
+    await manager.transitionVerificationAttempt(
+      'cid-1' as any,
+      't1' as any,
+      {
+        kind: 'start',
+        attemptId: 'a2',
+        evidence: 'ev',
+        artifacts: [],
+        at: '2026-07-19T10:00:00Z',
+      },
+    );
+
+    const result = await manager.transitionVerificationAttempt(
+      'cid-1' as any,
+      't1' as any,
+      {
+        kind: 'pass',
+        attemptId: 'a1',
+        at: '2026-07-19T10:01:00Z',
+      },
+    );
+
+    expect(result.kind).toBe('skipped');
   });
 });
 

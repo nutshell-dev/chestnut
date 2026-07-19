@@ -281,7 +281,7 @@ describe('runVerificationInBackground (Phase 965)', () => {
     );
   });
 
-  it('rejects late result when verification_attempt_id is missing (Phase 966 ABA guard)', async () => {
+  it('lets gateway classify missing verification_attempt_id as skipped (Phase 1143)', async () => {
     const saveProgress = vi.fn().mockResolvedValue(undefined);
     const transitionVerificationAttempt = vi.fn().mockResolvedValue({
       kind: 'skipped',
@@ -312,11 +312,61 @@ describe('runVerificationInBackground (Phase 965)', () => {
       verificationConfig,
     );
 
-    // Skipped outcome must not mutate subtask to completed or call saveProgress.
+    // The stale/missing attempt guard is now in the gateway; orchestrator no longer short-circuits.
+    expect(transitionVerificationAttempt).toHaveBeenCalled();
     expect(saveProgress).not.toHaveBeenCalled();
-    expect(transitionVerificationAttempt).not.toHaveBeenCalled();
     expect(progress.subtasks.st1.status).toBe('in_progress');
     expect(progress.subtasks.st1.verification_attempt_id).toBeUndefined();
+  });
+
+  it('records background done as late and skips side effects on attempt mismatch', async () => {
+    const mockAudit = makeMockAudit();
+    const transitionVerificationAttempt = vi.fn().mockResolvedValue({
+      kind: 'late',
+      expectedAttemptId: 'attempt-B',
+      actualAttemptId: 'attempt-A',
+    });
+    const ctx = makeCtx({
+      audit: mockAudit as unknown as VerificationContext['audit'],
+      transitionVerificationAttempt,
+      getProgress: vi.fn().mockResolvedValue({
+        status: 'running',
+        subtasks: {
+          st1: { status: 'in_progress', verification_attempt_id: 'attempt-B' },
+        },
+      }),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(true),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: '' }),
+      moveContractToArchive: vi.fn(),
+      emitContractCompleted: vi.fn(),
+    });
+    const contractYaml = {
+      subtasks: [{ id: 'st1', description: 'desc' }],
+    } as any;
+    const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'attempt-A' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    const doneCalls = vi.mocked(mockAudit.write).mock.calls.filter(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
+    );
+    expect(doneCalls).toHaveLength(1);
+    expect(doneCalls[0].some(col => String(col).includes('result=late'))).toBe(true);
+
+    expect(vi.mocked(mockAudit.write).mock.calls.some(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.PASSED || c[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED,
+    )).toBe(false);
+    expect(vi.mocked(mockAudit.write).mock.calls.some(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED,
+    )).toBe(false);
+    expect(ctx.moveContractToArchive).not.toHaveBeenCalled();
+    expect(ctx.emitContractCompleted).not.toHaveBeenCalled();
+    expect(ctx.notifyClaw).not.toHaveBeenCalled();
   });
 });
 

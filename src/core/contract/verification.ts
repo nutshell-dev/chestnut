@@ -110,7 +110,8 @@ type ApplyOutcome =
   | { allCompleted: boolean; passed: boolean }
   | { kind: 'cancelled' }
   | { kind: 'missing_subtask' }
-  | { kind: 'skipped' };
+  | { kind: 'skipped' }
+  | { kind: 'late' };
 
 async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
   return ctx.isActiveContract(contractId);
@@ -160,20 +161,6 @@ async function applyVerificationOutcome(
       return { kind: 'missing_subtask' };
     }
 
-    // Phase 961 / 966: ABA guard — reject result from a previous/missing verification attempt.
-    if (subtask.verification_attempt_id !== attemptId) {
-      emitContractVerificationResetFailed(
-        ctx.audit,
-        {
-          contractId,
-          subtaskId,
-          context: 'attempt_id_mismatch',
-          message: `expected ${attemptId}, got ${subtask.verification_attempt_id}`,
-        },
-      );
-      return { kind: 'skipped' };
-    }
-
     const at = new Date().toISOString();
 
     if (result.passed) {
@@ -182,6 +169,9 @@ async function applyVerificationOutcome(
         subtaskId,
         { kind: 'pass', attemptId, at },
       );
+      if (transitionResult.kind === 'late') {
+        return { kind: 'late' };
+      }
       if (transitionResult.kind !== 'updated') {
         return { kind: 'skipped' };
       }
@@ -224,6 +214,9 @@ async function applyVerificationOutcome(
         forceAccept,
       },
     );
+    if (transitionResult.kind === 'late') {
+      return { kind: 'late' };
+    }
     if (transitionResult.kind !== 'updated') {
       return { kind: 'skipped' };
     }
@@ -429,7 +422,7 @@ export async function runVerificationInBackground(
   const { contractId, subtaskId, evidence, artifacts = [], attemptId } = params;
 
   const controller = new AbortController();
-  let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' | 'skipped' = 'error';
+  let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' | 'skipped' | 'late' = 'error';
   let cancelReason: string | undefined;
   let missingSubtaskId: string | undefined;
 
@@ -485,6 +478,8 @@ export async function runVerificationInBackground(
         missingSubtaskId = subtaskId;
       } else if (outcome.kind === 'skipped') {
         outcomeKind = 'skipped';
+      } else if (outcome.kind === 'late') {
+        outcomeKind = 'late';
       }
     } else {
       outcomeKind = outcome.passed ? 'passed' : 'failed';

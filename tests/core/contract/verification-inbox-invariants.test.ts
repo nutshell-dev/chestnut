@@ -446,7 +446,7 @@ describe('Phase 961 verification invariants', () => {
     });
   }
 
-  it('rejects late result with mismatched verification_attempt_id', async () => {
+  it('classifies mismatched verification_attempt_id as late with zero side effects', async () => {
     const mockAudit = makeMockAudit();
     const moveToArchiveSpy = vi.fn().mockResolvedValue(undefined);
     const emitContractCompletedSpy = vi.fn().mockResolvedValue(undefined);
@@ -477,7 +477,7 @@ describe('Phase 961 verification invariants', () => {
       onNotify: vi.fn(),
       isActiveContract: vi.fn().mockResolvedValue(true),
       getContractRoot: vi.fn().mockResolvedValue('contract/active'),
-      transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'skipped', reason: 'not configured' }),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'late', expectedAttemptId: 'attempt-B', actualAttemptId: 'attempt-A' }),
     } as unknown as VerificationContext;
 
     const contractYaml = makeContractYaml({
@@ -492,14 +492,24 @@ describe('Phase 961 verification invariants', () => {
       { subtask_id: 't1', type: 'llm', prompt_file: 'verify.prompt' },
     );
 
-    // Stale attemptId A does not match current attemptId B; outcome is skipped and no archive happens.
+    // Stale attemptId A does not match current attemptId B; outcome is late and no archive happens.
     expect(moveToArchiveSpy).not.toHaveBeenCalled();
     expect(emitContractCompletedSpy).not.toHaveBeenCalled();
 
-    const mismatchAudit = vi.mocked(mockAudit.write).mock.calls.find(
-      c => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED && c.some(col => String(col).includes('context=attempt_id_mismatch')),
+    const doneAudit = vi.mocked(mockAudit.write).mock.calls.find(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
     );
-    expect(mismatchAudit).toBeDefined();
+    expect(doneAudit).toBeDefined();
+    expect(doneAudit?.some(col => String(col).includes('result=late'))).toBe(true);
+
+    expect(vi.mocked(mockAudit.write).mock.calls.some(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED,
+    )).toBe(false);
+    expect(vi.mocked(mockAudit.write).mock.calls.some(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.PASSED || c[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED,
+    )).toBe(false);
+
+    expect(ctx.notifyClaw).not.toHaveBeenCalled();
   });
 
   it('does not archive cancelled contract after stale verification result', async () => {
