@@ -16,7 +16,10 @@ import {
 import {
   readCurrentContractLayout,
   projectCurrentRuntime,
+  writeCurrentSubtaskRecord,
+  saveCurrentProgressAtomic,
 } from '../../../src/core/contract/new-layout.js';
+import { ContractProgressInvariantViolatedError } from '../../../src/core/contract/types.js';
 import { ContractLayoutCorruptedError } from '../../../src/core/contract/errors.js';
 import type { PersistedContractYaml, SubtaskRuntimeRecord } from '../../../src/core/contract/types.js';
 
@@ -327,5 +330,242 @@ describe('runtime projection', () => {
 
     expect(view1.contract).toEqual(view2.contract);
     expect(view1.progress).toEqual(view2.progress);
+  });
+});
+
+
+describe('subtask write', () => {
+  it('writes a single subtask record and verifies readback', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+
+    await writeCurrentSubtaskRecord(
+      { fs: nodeFs, audit },
+      {
+        contractId: 'cid-1' as any,
+        subtaskId: 't1',
+        record: {
+          schema_version: 1,
+          subtask_id: 't1',
+          status: 'completed',
+          attempts: [
+            {
+              id: 'a1',
+              status: 'passed',
+              started_at: '2026-07-19T10:00:00Z',
+              finished_at: '2026-07-19T10:05:00Z',
+              evidence: 'done',
+              artifacts: ['art1'],
+            },
+          ],
+          completed_at: '2026-07-19T10:05:00Z',
+          evidence: 'done',
+          artifacts: ['art1'],
+        },
+      },
+    );
+
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+    expect(layout!.subtasks.get('t1')?.status).toBe('completed');
+    expect(layout!.subtasks.get('t1')?.completed_at).toBe('2026-07-19T10:05:00Z');
+  });
+
+  it('writing t1 does not change t2 bytes', async () => {
+    const t2Record = makeTodoRecord('t2');
+    await writeCurrentLayout(
+      makeContract([{ id: 't1', description: 'D1' }, { id: 't2', description: 'D2' }]),
+      { t1: makeTodoRecord('t1'), t2: t2Record },
+    );
+    const t2Path = path.join(clawDir, 'contract', 'active', 'current', 'subtasks', 't2.json');
+    const before = await fs.readFile(t2Path, 'utf-8');
+    const { audit } = makeAudit();
+
+    await writeCurrentSubtaskRecord(
+      { fs: nodeFs, audit },
+      {
+        contractId: 'cid-1' as any,
+        subtaskId: 't1',
+        record: {
+          schema_version: 1,
+          subtask_id: 't1',
+          status: 'completed',
+          attempts: [
+            {
+              id: 'a1',
+              status: 'passed',
+              started_at: '2026-07-19T10:00:00Z',
+              finished_at: '2026-07-19T10:05:00Z',
+              evidence: 'done',
+              artifacts: [],
+            },
+          ],
+          completed_at: '2026-07-19T10:05:00Z',
+          evidence: 'done',
+        },
+      },
+    );
+
+    const after = await fs.readFile(t2Path, 'utf-8');
+    expect(after).toBe(before);
+  });
+
+  it('rejects unknown subtask and writes nothing', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const t1Path = path.join(clawDir, 'contract', 'active', 'current', 'subtasks', 't1.json');
+    const before = await fs.readFile(t1Path, 'utf-8');
+    const { audit } = makeAudit();
+
+    await expect(
+      writeCurrentSubtaskRecord(
+        { fs: nodeFs, audit },
+        {
+          contractId: 'cid-1' as any,
+          subtaskId: 'unknown',
+          record: makeTodoRecord('unknown'),
+        },
+      ),
+    ).rejects.toBeInstanceOf(ContractProgressInvariantViolatedError);
+
+    const after = await fs.readFile(t1Path, 'utf-8');
+    expect(after).toBe(before);
+  });
+
+  it('rejects record subtask_id mismatch', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+
+    await expect(
+      writeCurrentSubtaskRecord(
+        { fs: nodeFs, audit },
+        {
+          contractId: 'cid-1' as any,
+          subtaskId: 't1',
+          record: { ...makeTodoRecord('t1'), subtask_id: 't1-wrong' },
+        },
+      ),
+    ).rejects.toBeInstanceOf(ContractProgressInvariantViolatedError);
+  });
+
+  it('concurrent writes to different subtasks both retain', async () => {
+    await writeCurrentLayout(
+      makeContract([{ id: 't1', description: 'D1' }, { id: 't2', description: 'D2' }]),
+      { t1: makeTodoRecord('t1'), t2: makeTodoRecord('t2') },
+    );
+    const { audit } = makeAudit();
+
+    await Promise.all([
+      writeCurrentSubtaskRecord(
+        { fs: nodeFs, audit },
+        {
+          contractId: 'cid-1' as any,
+          subtaskId: 't1',
+          record: {
+            schema_version: 1,
+            subtask_id: 't1',
+            status: 'completed',
+            attempts: [
+              {
+                id: 'a1',
+                status: 'passed',
+                started_at: '2026-07-19T10:00:00Z',
+                finished_at: '2026-07-19T10:05:00Z',
+                evidence: 't1 done',
+                artifacts: [],
+              },
+            ],
+            completed_at: '2026-07-19T10:05:00Z',
+            evidence: 't1 done',
+          },
+        },
+      ),
+      writeCurrentSubtaskRecord(
+        { fs: nodeFs, audit },
+        {
+          contractId: 'cid-1' as any,
+          subtaskId: 't2',
+          record: {
+            schema_version: 1,
+            subtask_id: 't2',
+            status: 'verifying',
+            current_attempt_id: 'a2',
+            attempts: [
+              {
+                id: 'a2',
+                status: 'running',
+                started_at: '2026-07-19T10:06:00Z',
+                evidence: 't2 ev',
+                artifacts: [],
+              },
+            ],
+            evidence: 't2 ev',
+          },
+        },
+      ),
+    ]);
+
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+    expect(layout!.subtasks.get('t1')?.status).toBe('completed');
+    expect(layout!.subtasks.get('t2')?.status).toBe('verifying');
+  });
+
+  it('adapter is no-op when progress is unchanged', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+    const view = projectCurrentRuntime(layout!);
+
+    await saveCurrentProgressAtomic({ fs: nodeFs, audit: makeAudit().audit }, 'cid-1' as any, view.progress);
+
+    const after = await readCurrentContractLayout({ fs: nodeFs, audit: makeAudit().audit });
+    expect(after!.subtasks.get('t1')?.status).toBe('todo');
+  });
+
+  it('adapter writes exactly one allowed subtask change', async () => {
+    await writeCurrentLayout(
+      makeContract([{ id: 't1', description: 'D1' }, { id: 't2', description: 'D2' }]),
+      { t1: makeTodoRecord('t1'), t2: makeTodoRecord('t2') },
+    );
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+    const view = projectCurrentRuntime(layout!);
+    view.progress.subtasks.t1.status = 'completed';
+    view.progress.subtasks.t1.completed_at = '2026-07-19T10:05:00Z';
+    view.progress.subtasks.t1.evidence = 'done';
+
+    await saveCurrentProgressAtomic({ fs: nodeFs, audit: makeAudit().audit }, 'cid-1' as any, view.progress);
+
+    const after = await readCurrentContractLayout({ fs: nodeFs, audit: makeAudit().audit });
+    expect(after!.subtasks.get('t1')?.status).toBe('completed');
+    expect(after!.subtasks.get('t2')?.status).toBe('todo');
+  });
+
+  it('adapter rejects multiple subtask changes', async () => {
+    await writeCurrentLayout(
+      makeContract([{ id: 't1', description: 'D1' }, { id: 't2', description: 'D2' }]),
+      { t1: makeTodoRecord('t1'), t2: makeTodoRecord('t2') },
+    );
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+    const view = projectCurrentRuntime(layout!);
+    view.progress.subtasks.t1.status = 'completed';
+    view.progress.subtasks.t1.completed_at = '2026-07-19T10:05:00Z';
+    view.progress.subtasks.t2.status = 'completed';
+    view.progress.subtasks.t2.completed_at = '2026-07-19T10:05:00Z';
+
+    await expect(
+      saveCurrentProgressAtomic({ fs: nodeFs, audit: makeAudit().audit }, 'cid-1' as any, view.progress),
+    ).rejects.toBeInstanceOf(ContractProgressInvariantViolatedError);
+  });
+
+  it('adapter rejects changes to derived fields like retry_count', async () => {
+    await writeCurrentLayout(makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+    const layout = await readCurrentContractLayout({ fs: nodeFs, audit });
+    const view = projectCurrentRuntime(layout!);
+    view.progress.subtasks.t1.retry_count = 5;
+
+    await expect(
+      saveCurrentProgressAtomic({ fs: nodeFs, audit: makeAudit().audit }, 'cid-1' as any, view.progress),
+    ).rejects.toBeInstanceOf(ContractProgressInvariantViolatedError);
   });
 });

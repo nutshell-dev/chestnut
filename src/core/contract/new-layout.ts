@@ -23,7 +23,8 @@ import {
   PersistedContractYamlSchema,
   SubtaskRuntimeRecordSchema,
 } from './schemas.js';
-import type { PersistedContractYaml, SubtaskRuntimeRecord, Contract, ProgressData, SubtaskStatus, DerivableStatus } from './types.js';
+import type { PersistedContractYaml, SubtaskRuntimeRecord, Contract, ProgressData, SubtaskStatus, DerivableStatus, ContractId } from './types.js';
+import { ContractProgressInvariantViolatedError } from './types.js';
 import {
   ContractLayoutCorruptedError,
   ActiveContractSlotOccupiedError,
@@ -508,6 +509,227 @@ export function projectCurrentRuntime(layout: CurrentContractLayout): CurrentCon
   };
 
   return { contract, progress };
+}
+
+// ============================================================================
+// Phase 1135 Step C: atomic current subtask persistence boundary
+// ============================================================================
+
+const ALLOWED_SUBTASK_PROGRESS_FIELDS = new Set([
+  'status',
+  'completed_at',
+  'evidence',
+  'artifacts',
+  'force_accepted',
+  'verification_attempt_id',
+]);
+
+function mapSubtaskProgressStatusToRuntime(
+  status: ProgressData['subtasks'][string]['status'],
+): SubtaskRuntimeRecord['status'] {
+  switch (status) {
+    case 'todo':
+      return 'todo';
+    case 'in_progress':
+      return 'verifying';
+    case 'completed':
+      return 'completed';
+    default:
+      return 'todo';
+  }
+}
+
+function buildRuntimeRecordFromProgress(
+  existing: SubtaskRuntimeRecord,
+  input: ProgressData['subtasks'][string],
+  subtaskId: string,
+): SubtaskRuntimeRecord {
+  const newStatus = mapSubtaskProgressStatusToRuntime(input.status);
+  const record: SubtaskRuntimeRecord = {
+    schema_version: 1,
+    subtask_id: subtaskId,
+    status: newStatus,
+    attempts: existing.attempts,
+    completed_at: input.completed_at,
+    evidence: input.evidence,
+    artifacts: input.artifacts,
+    force_accepted: input.force_accepted,
+  };
+  if (newStatus === 'verifying') {
+    record.current_attempt_id = input.verification_attempt_id;
+  }
+  return record;
+}
+
+function assertCurrentLayoutMatches(
+  layout: CurrentContractLayout | null,
+  contractId: ContractId,
+): asserts layout is CurrentContractLayout {
+  if (!layout) {
+    throw new ContractLayoutCorruptedError(
+      `active/current slot is empty; cannot write subtask for ${contractId}`,
+      { root: getContractActiveCurrentRoot(), cause: 'yaml_missing', contractId },
+    );
+  }
+  if (layout.contract.id !== contractId) {
+    throw new ContractLayoutCorruptedError(
+      `active/current contract id mismatch: expected ${contractId}, got ${layout.contract.id}`,
+      { root: layout.root, cause: 'yaml_id_mismatch', expectedId: contractId, actualId: layout.contract.id },
+    );
+  }
+}
+
+/**
+ * Write a single subtask runtime record to `active/current/subtasks/<id>.json`.
+ *
+ * Validates the current layout (YAML id, subtask membership, record id) and
+ * performs an atomic write + readback verification.
+ */
+export async function writeCurrentSubtaskRecord(
+  deps: { fs: FileSystem; audit: AuditLog },
+  input: { contractId: ContractId; subtaskId: string; record: SubtaskRuntimeRecord },
+): Promise<void> {
+  const { contractId, subtaskId, record } = input;
+  const layout = await readCurrentContractLayout(deps);
+  assertCurrentLayoutMatches(layout, contractId);
+
+  if (!layout.contract.subtasks.some(st => st.id === subtaskId)) {
+    throw new ContractProgressInvariantViolatedError(
+      `subtask ${subtaskId} is not defined in contract.yaml`,
+      { contractId, issuePath: subtaskId },
+    );
+  }
+
+  if (record.subtask_id !== subtaskId) {
+    throw new ContractProgressInvariantViolatedError(
+      `subtask record id mismatch: expected ${subtaskId}, got ${record.subtask_id}`,
+      { contractId, issuePath: 'subtask_id' },
+    );
+  }
+
+  const filePath = path.join(getContractSubtasksDir(layout.root), `${subtaskId}.json`);
+  await deps.fs.writeAtomic(filePath, JSON.stringify(record, null, 2));
+
+  // Readback verification.
+  let raw: string;
+  try {
+    raw = await deps.fs.read(filePath);
+  } catch (err) {
+    deps.audit.write(
+      CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED,
+      `root=${layout.root}`,
+      `cause=subtask_readback_failed`,
+      `subtaskId=${subtaskId}`,
+      `error=${formatErr(err)}`,
+    );
+    throw new ContractLayoutCorruptedError(
+      `subtask ${subtaskId} readback failed after write at ${layout.root}`,
+      { root: layout.root, cause: 'subtask_readback_failed', subtaskId, underlying: err },
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    deps.audit.write(
+      CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED,
+      `root=${layout.root}`,
+      `cause=subtask_readback_parse_error`,
+      `subtaskId=${subtaskId}`,
+      `error=${formatErr(err)}`,
+    );
+    throw new ContractLayoutCorruptedError(
+      `subtask ${subtaskId} readback parse error at ${layout.root}`,
+      { root: layout.root, cause: 'subtask_readback_parse_error', subtaskId, underlying: err },
+    );
+  }
+
+  const validated = SubtaskRuntimeRecordSchema.safeParse(parsed);
+  if (!validated.success) {
+    const detail = validated.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+    deps.audit.write(
+      CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED,
+      `root=${layout.root}`,
+      `cause=subtask_readback_schema_invalid`,
+      `subtaskId=${subtaskId}`,
+      `detail=${deps.audit.preview(detail)}`,
+    );
+    throw new ContractLayoutCorruptedError(
+      `subtask ${subtaskId} readback schema invalid at ${layout.root}: ${detail}`,
+      { root: layout.root, cause: 'subtask_readback_schema_invalid', subtaskId, issues: validated.error.issues },
+    );
+  }
+}
+
+/**
+ * Adapter for callers that still pass a whole `ProgressData`.
+ *
+ * Compares the caller's input against the current disk snapshot and only
+ * allows a single subtask to change, and only via the allowed progress fields.
+ * Does not loop-rewrite every subtask file.
+ */
+export async function saveCurrentProgressAtomic(
+  deps: { fs: FileSystem; audit: AuditLog },
+  contractId: ContractId,
+  progress: ProgressData,
+): Promise<void> {
+  const layout = await readCurrentContractLayout(deps);
+  assertCurrentLayoutMatches(layout, contractId);
+
+  const snapshot = projectCurrentRuntime(layout).progress;
+
+  if (progress.contract_id !== contractId) {
+    throw new ContractProgressInvariantViolatedError(
+      `contract_id in progress does not match current contract ${contractId}`,
+      { contractId, issuePath: 'contract_id' },
+    );
+  }
+
+  const changedSubtaskIds = Object.keys(progress.subtasks).filter(id => {
+    const a = JSON.stringify(progress.subtasks[id]);
+    const b = JSON.stringify(snapshot.subtasks[id]);
+    return a !== b;
+  });
+
+  if (changedSubtaskIds.length === 0) {
+    return;
+  }
+
+  if (changedSubtaskIds.length > 1) {
+    throw new ContractProgressInvariantViolatedError(
+      `current layout only supports single-subtask writes; ${changedSubtaskIds.length} subtasks changed`,
+      { contractId, issuePath: changedSubtaskIds.join(',') },
+    );
+  }
+
+  const subtaskId = changedSubtaskIds[0];
+  const inputSubtask = progress.subtasks[subtaskId];
+  const snapshotSubtask = snapshot.subtasks[subtaskId];
+
+  for (const key of Object.keys(inputSubtask)) {
+    if (ALLOWED_SUBTASK_PROGRESS_FIELDS.has(key)) continue;
+    const inputValue = (inputSubtask as Record<string, unknown>)[key];
+    const snapshotValue = (snapshotSubtask as Record<string, unknown>)[key];
+    if (JSON.stringify(inputValue) !== JSON.stringify(snapshotValue)) {
+      throw new ContractProgressInvariantViolatedError(
+        `field '${key}' is not allowed to change for current subtask ${subtaskId}`,
+        { contractId, issuePath: `${subtaskId}.${key}` },
+      );
+    }
+  }
+
+  const existingRecord = layout.subtasks.get(subtaskId);
+  if (!existingRecord) {
+    // Strict reader guarantees this cannot happen.
+    throw new ContractLayoutCorruptedError(
+      `subtask record missing for ${subtaskId} during save`,
+      { root: layout.root, cause: 'projection_missing_subtask_record', subtaskId },
+    );
+  }
+
+  const updatedRecord = buildRuntimeRecordFromProgress(existingRecord, inputSubtask, subtaskId);
+  await writeCurrentSubtaskRecord(deps, { contractId, subtaskId, record: updatedRecord });
 }
 
 // ============================================================================
