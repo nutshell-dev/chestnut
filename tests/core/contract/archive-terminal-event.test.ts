@@ -83,7 +83,7 @@ describe('matchArchiveTerminalRecord', () => {
     expect(result.kind).toBe('no-match');
   });
 
-  it('returns invalid when contractId and contract_id conflict', () => {
+  it('returns invalid when contractId and contract_id conflict and target matches one side', () => {
     const r = record({
       type: CONTRACT_AUDIT_EVENTS.COMPLETED,
       cols: ['contractId=cid-1', 'contract_id=cid-2'],
@@ -92,6 +92,26 @@ describe('matchArchiveTerminalRecord', () => {
     expect(result.kind).toBe('invalid');
     if (result.kind !== 'invalid') return;
     expect(result.reason).toBe('id_conflict');
+  });
+
+  it('returns invalid when conflict matches snake side but not camel side', () => {
+    const r = record({
+      type: CONTRACT_AUDIT_EVENTS.COMPLETED,
+      cols: ['contractId=cid-2', 'contract_id=cid-1'],
+    });
+    const result = matchArchiveTerminalRecord(r, { contractId, state: 'completed' });
+    expect(result.kind).toBe('invalid');
+    if (result.kind !== 'invalid') return;
+    expect(result.reason).toBe('id_conflict');
+  });
+
+  it('returns no-match when conflicting ids are both unrelated to target', () => {
+    const r = record({
+      type: CONTRACT_AUDIT_EVENTS.COMPLETED,
+      cols: ['contractId=cid-2', 'contract_id=cid-3'],
+    });
+    const result = matchArchiveTerminalRecord(r, { contractId, state: 'completed' });
+    expect(result.kind).toBe('no-match');
   });
 
   it('does not substring-match xcontractId or similar fake keys', () => {

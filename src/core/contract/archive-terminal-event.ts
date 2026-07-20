@@ -66,7 +66,13 @@ export function matchArchiveTerminalRecord(
   const snakeId = parseExactCol(record.cols, 'contract_id');
 
   if (camelId !== undefined && snakeId !== undefined && camelId !== snakeId) {
-    return { kind: 'invalid', reason: 'id_conflict' };
+    // Phase 1146 Step D: per-claw audit is shared across contracts. A conflict
+    // between two other contracts must not invalidate the target contract's
+    // terminal time.
+    const relevant = camelId === expected.contractId || snakeId === expected.contractId;
+    return relevant
+      ? { kind: 'invalid', reason: 'id_conflict' }
+      : { kind: 'no-match' };
   }
 
   const matchedId = camelId ?? snakeId;

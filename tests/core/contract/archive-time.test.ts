@@ -287,4 +287,23 @@ describe('resolveArchiveTime', () => {
     expect(result.issues[0].code).toBe('audit_read_failed');
     expect(result.issues[0].cause).toBe(error);
   });
+
+  it('ignores id conflicts belonging to other contracts (Step D isolation)', async () => {
+    await writeAudit([
+      terminalRow('completed', 1),
+      `2026-07-19T10:00:00.000Z\tseq=2\t${CONTRACT_AUDIT_EVENTS.COMPLETED}\tcontractId=cid-2\tcontract_id=cid-3`,
+    ]);
+
+    const result = await resolveArchiveTime({
+      fs: nodeFs,
+      auditPath: auditPath(),
+      location: currentLocation('completed'),
+      contractId,
+    });
+
+    expect(result.time.kind).toBe('known');
+    if (result.time.kind !== 'known') return;
+    expect(result.time.recordedAt).toBe('2026-07-19T10:00:00.000Z');
+    expect(result.issues).toHaveLength(0);
+  });
 });
