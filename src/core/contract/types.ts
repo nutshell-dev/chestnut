@@ -378,6 +378,32 @@ export interface ArchiveReadIssue {
   cause?: unknown;
 }
 
+// ============================================================================
+// Phase 1146 Step B: archive terminal time resolution
+// ============================================================================
+
+export type ArchiveTimeUnknownReason =
+  | 'legacy_state_unresolved'
+  | 'audit_file_missing'
+  | 'terminal_event_unavailable'
+  | 'ambiguous_terminal_records'
+  | 'invalid_terminal_record'
+  | 'audit_read_failed';
+
+export type ArchiveTime =
+  | { kind: 'known'; recordedAt: string; epochMs: number; source: 'terminal_audit' }
+  | { kind: 'unknown'; reason: ArchiveTimeUnknownReason };
+
+export type ArchiveQueryIssueCode = ArchiveTimeUnknownReason | 'claw_list_failed' | 'archive_list_failed';
+
+export interface ArchiveQueryIssue {
+  code: ArchiveQueryIssueCode;
+  clawId?: ClawId;
+  contractId?: ContractId;
+  detail?: string;
+  cause?: unknown;
+}
+
 /**
  * phase 1121 Step C: deterministic persistent corruption reasons.
  * Only these reasons may write the corruption lifecycle transition.
