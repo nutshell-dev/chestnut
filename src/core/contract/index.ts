@@ -132,6 +132,18 @@ export {
 export { listArchiveContracts } from './persistence.js';
 export type { ArchiveContractRef } from './types.js';
 
+// Phase 1146 Step C: structured cross-claw archive time query
+export { queryArchiveContracts } from './archive-query.js';
+export type {
+  ArchiveTime,
+  ArchiveTimeUnknownReason,
+  ArchiveQueryIssue,
+  ArchiveQueryIssueCode,
+  ArchiveQueryFilter,
+  ArchiveQueryEntry,
+  ArchiveQueryResult,
+} from './types.js';
+
 export {
   readOnboardingStatus,
   type OnboardingStatus,

@@ -404,6 +404,25 @@ export interface ArchiveQueryIssue {
   cause?: unknown;
 }
 
+export interface ArchiveQueryFilter {
+  sinceMs?: number;
+  untilMs?: number;
+}
+
+export interface ArchiveQueryEntry {
+  clawId: ClawId;
+  contractId: ContractId;
+  state: ArchiveState | 'legacy-unresolved';
+  contractDir: string;
+  archiveTime: ArchiveTime;
+}
+
+export interface ArchiveQueryResult {
+  entries: ArchiveQueryEntry[];
+  issues: ArchiveQueryIssue[];
+  incomplete: boolean;
+}
+
 /**
  * phase 1121 Step C: deterministic persistent corruption reasons.
  * Only these reasons may write the corruption lifecycle transition.
