@@ -511,31 +511,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   tui.start();
 
-  // 终端窗口焦点门控：未聚焦时清除 editor 反色光标，避免多 pane 同时常驻
-  // DECSET 1004：进入焦点收 ESC[I、离开收 ESC[O（tmux 需 `set -g focus-events on`）
-  process.stdout.write('\x1b[?1004h');
-  const focusListener = (data: string) => {
-    if (!data.includes('\x1b[I') && !data.includes('\x1b[O')) return {};
-    let rest = data;
-    let lastEvent: 'in' | 'out' | null = null;
-    while (true) {
-      const i = rest.indexOf('\x1b[I');
-      const o = rest.indexOf('\x1b[O');
-      if (i < 0 && o < 0) break;
-      if (i >= 0 && (o < 0 || i < o)) {
-        lastEvent = 'in';
-        rest = rest.slice(0, i) + rest.slice(i + 3);
-      } else {
-        lastEvent = 'out';
-        rest = rest.slice(0, o) + rest.slice(o + 3);
-      }
-    }
-    if (lastEvent === 'in') tui.setFocus(editor);
-    else if (lastEvent === 'out') tui.setFocus(null);
-    tui.requestRender();
-    return rest.length === 0 ? { consume: true } : { data: rest };
-  };
-  tui.addInputListener(focusListener);
+  // Phase 1148 Step B: 关闭 terminal focus-events 以隔离 Apple Terminal buffer corruption。
+  // 不再写 DECSET 1004、不再消费 ESC[I/O、不再随窗口焦点切换 editor/null focus。
+  // 初始 editor focus 保留，键盘输入与提交能力不变。
 
   // clawsDir rescan + refreshAllClawStatus 由上方 clawScanInterval 2s polling 驱动（phase 742）
 
@@ -570,7 +548,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         .filter((p): p is Promise<void> => p !== undefined)
     );
     taskWatchMap.clear();
-    process.stdout.write('\x1b[?1004l');
+    // Phase 1148 Step B: focus-events 已禁用，cleanup 不再写 DECSET 1004 disable。
     tui.stop();
     await terminal.drainInput();
     process.stdin.pause();

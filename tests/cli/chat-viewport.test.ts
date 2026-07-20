@@ -342,4 +342,39 @@ describe('chat-viewport Phase 72', () => {
       expect(calls.filter(c => c[0] === 'start')).toHaveLength(1);
     });
   });
+
+  // ==========================================================================
+  // Phase 1148 Step B: 关闭 terminal focus-events 单变量隔离
+  // ==========================================================================
+  describe('Phase 1148 Step B: focus-events disabled', () => {
+    const viewportOnly = fs.readFileSync(viewportPath, 'utf-8');
+
+    it('不应写 DECSET 1004 enable/disable 序列', () => {
+      expect(viewportOnly).not.toContain("\\x1b[?1004h");
+      expect(viewportOnly).not.toContain("\\x1b[?1004l");
+    });
+
+    it('不应消费 ESC[I / ESC[O 的 focus listener', () => {
+      expect(viewportOnly).not.toContain("\\x1b[I");
+      expect(viewportOnly).not.toContain("\\x1b[O");
+    });
+
+    it('不应再注册 focusListener', () => {
+      expect(viewportOnly).not.toContain('focusListener');
+    });
+
+    it('启动装配路径仍保留初始 setFocus(editor)', () => {
+      const assemblyEnd = viewportOnly.indexOf('tui.start();');
+      expect(assemblyEnd).toBeGreaterThan(-1);
+      const assemblyBlock = viewportOnly.slice(0, assemblyEnd);
+      expect(assemblyBlock).toContain('tui.setFocus(editor)');
+    });
+
+    it('cleanup 块不再写 DECSET 1004 disable', () => {
+      const cleanupStart = viewportOnly.indexOf('await exitPromise;');
+      expect(cleanupStart).toBeGreaterThan(-1);
+      const cleanupBlock = viewportOnly.slice(cleanupStart);
+      expect(cleanupBlock).not.toContain("\\x1b[?1004l");
+    });
+  });
 });
