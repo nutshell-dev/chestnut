@@ -22,28 +22,41 @@ import { STREAM_FILE } from '../../foundation/stream/index.js';
 
 export interface ClawPanelDeps {
   attachedClawBar: { setText(text: string): void };
+  requestRender?: () => void;
 }
 
 export function createClawPanel(deps: ClawPanelDeps) {
   let updateClawPanelScheduled = false;
+  let lastMaterializedText: string | null = null;
 
-  const _renderClawPanel = (clawTrackMap: Map<string, ClawTrack>) => {
+  const _computeText = (clawTrackMap: Map<string, ClawTrack>): string => {
     if (clawTrackMap.size === 0) {
-      deps.attachedClawBar.setText('');
-      return;
+      return '';
     }
     const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
     const lines: string[] = [];
     for (const [id, t] of clawTrackMap) {
       lines.push(buildClawLine(id, t, cols));
     }
-    deps.attachedClawBar.setText(lines.join('\n'));
+    return lines.join('\n');
   };
 
+  const _renderClawPanel = (clawTrackMap: Map<string, ClawTrack>) => {
+    const text = _computeText(clawTrackMap);
+    if (text === lastMaterializedText) return;
+    lastMaterializedText = text;
+    deps.attachedClawBar.setText(text);
+    deps.requestRender?.();
+  };
+
+  // startup 专用：同步计算并 setText，更新 lastMaterializedText；不 requestRender
   const materializeNow = (clawTrackMap: Map<string, ClawTrack>) => {
-    _renderClawPanel(clawTrackMap);
+    lastMaterializedText = _computeText(clawTrackMap);
+    deps.attachedClawBar.setText(lastMaterializedText);
   };
 
+  // runtime debounced：nextTick 计算最终文本；若 === last 则 return；
+  // 否则 setText、更新 last、requestRender
   const updateClawPanel = (clawTrackMap: Map<string, ClawTrack>) => {
     if (updateClawPanelScheduled) return;
     updateClawPanelScheduled = true;
@@ -110,9 +123,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           }
         }
       }
-      if (deps.clawTrackMap.size > 0) {
-        deps.updateClawPanel(deps.clawTrackMap);
-      }
+      deps.updateClawPanel(deps.clawTrackMap);
     } catch (err) {
       const msg = formatErr(err);
       try {

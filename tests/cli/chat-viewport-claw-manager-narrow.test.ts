@@ -73,7 +73,6 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       clawTopology: makeMockTopology('/tmp/claws'),
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
-      requestRender: vi.fn(),
     });
 
     await manager.refreshAllClawStatus();
@@ -99,7 +98,6 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       clawTopology: makeMockTopology('/tmp/claws'),
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
-      requestRender: vi.fn(),
     });
 
     await manager.refreshAllClawStatus();
@@ -126,7 +124,6 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       clawTopology: topologyThrowEacces,
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
-      requestRender: vi.fn(),
     });
 
     await manager.refreshAllClawStatus();

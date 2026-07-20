@@ -197,7 +197,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, audit: options.audit, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
   const clawTrackMap = new Map<string, ClawTrack>();
 
-  const clawPanel = createClawPanel({ attachedClawBar });
+  const clawPanel = createClawPanel({ attachedClawBar, requestRender: () => tui.requestRender() });
 
   // Display 使用 mutable holder pattern 让后续赋值的 mainUI 可被 display 读取
   const mainUIHolder: { ref?: MainTurnUIController } = {};
@@ -321,7 +321,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const clawManager = createClawManager({
     fs: clawsFs, pm, audit: options.audit, isMotion, clawTopology, clawTrackMap,
     updateClawPanel: clawPanel.updateClawPanel,
-    requestRender: () => tui.requestRender(),
   });
 
   // 周期性 rescan clawsDir — 检测新 claw 创建 + 已存在 claw 内 contract 创建
@@ -333,10 +332,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   //       phase 738 加 recursive: true → phase 739 因 EMFILE 退回 → phase 742 反向回归 polling
   let clawScanInterval: NodeJS.Timeout | null = null;
   const scheduleClawPanelUpdate = (): void => {
-    if (clawTrackMap.size > 0) {
-      clawPanel.updateClawPanel(clawTrackMap);
-      tui.requestRender();
-    }
+    clawPanel.updateClawPanel(clawTrackMap);
   };
   let rescanClawsDirFn: (() => Promise<void>) | null = null;
   if (isMotion && clawsDir) {

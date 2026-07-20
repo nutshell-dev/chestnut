@@ -24,7 +24,6 @@ export interface ClawManagerDeps {
   clawTopology: ClawTopology;
   clawTrackMap: Map<string, ClawTrack>;
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
-  requestRender: () => void;
 }
 
 export interface ClawManager {
@@ -58,7 +57,7 @@ const appendCappedBuffer = (track: ClawTrack, delta: string) => {
 };
 
 export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
-  const { fs, pm, audit, isMotion, clawTopology, clawTrackMap, updateClawPanel, requestRender } = deps;
+  const { fs, pm, audit, isMotion, clawTopology, clawTrackMap, updateClawPanel } = deps;
   const clawWatchers = new Map<string, Watcher>();
   const clawWatcherVersions = new Map<string, number>();
 
@@ -181,7 +180,6 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
           }
         }
         updateClawPanel(clawTrackMap);
-        requestRender();
       }
     } catch {
       // silent: stream file ENOENT / IO error — polling retries next interval, claw not yet running OR file not yet created

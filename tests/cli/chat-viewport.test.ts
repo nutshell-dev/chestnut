@@ -376,6 +376,45 @@ describe('chat-viewport Phase 72', () => {
     });
   });
 
+  // ==========================================================================
+  // Phase 1150 Step C: changed-only clawBar render
+  // ==========================================================================
+  describe('Phase 1150 Step C: changed-only clawBar render', () => {
+    const viewportOnly = fs.readFileSync(viewportPath, 'utf-8');
+    const panelOnly = fs.readFileSync(clawPanelPath, 'utf-8');
+
+    it('createClawPanel 注入 requestRender 回调', () => {
+      expect(viewportOnly).toContain('createClawPanel({ attachedClawBar, requestRender: () => tui.requestRender() })');
+    });
+
+    it('scheduleClawPanelUpdate 无条件调用 updateClawPanel 且不直接 requestRender', () => {
+      const scheduleMatch = viewportOnly.match(/const scheduleClawPanelUpdate = \(\): void => \{[\s\S]{0,200}?\};/);
+      expect(scheduleMatch).toBeTruthy();
+      const body = scheduleMatch![0];
+      expect(body).toContain('clawPanel.updateClawPanel(clawTrackMap)');
+      expect(body).not.toContain('tui.requestRender()');
+      expect(body).not.toContain('clawTrackMap.size > 0');
+    });
+
+    it('clawPanel 内部比较最终文本并在变化时 requestRender', () => {
+      expect(panelOnly).toContain('text === lastMaterializedText');
+      expect(panelOnly).toContain('deps.requestRender?.()');
+    });
+
+    it('2 秒 interval、refreshAll、rescan 保持完整', () => {
+      expect(viewportOnly).toContain('clawManager.refreshAllClawStatus();');
+      expect(viewportOnly).toContain('void rescanClawsDirFn?.();');
+      expect(viewportOnly).toContain('scheduleClawPanelUpdate();');
+      expect(viewportOnly).toContain(', 2000);');
+    });
+
+    it('30 秒 status timer 与 stream 路径未改', () => {
+      expect(viewportOnly).toContain('STATUS_BAR_REFRESH_MS = 30_000');
+      expect(viewportOnly).toContain('statusBarRefreshInterval = setInterval(');
+      expect(viewportOnly).toContain('streamReader.start(recentTurnOffset)');
+    });
+  });
+
   describe('Phase 1148 Step B: focus-events disabled', () => {
     const viewportOnly = fs.readFileSync(viewportPath, 'utf-8');
 
