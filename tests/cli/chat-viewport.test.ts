@@ -346,6 +346,36 @@ describe('chat-viewport Phase 72', () => {
   // ==========================================================================
   // Phase 1148 Step B: 关闭 terminal focus-events 单变量隔离
   // ==========================================================================
+  // ==========================================================================
+  // Phase 1150 Step B: startup clawBar materialization
+  // ==========================================================================
+  describe('Phase 1150 Step B: startup clawBar materialization', () => {
+    const viewportOnly = fs.readFileSync(viewportPath, 'utf-8');
+
+    it('initial rescan 后同步调用 clawPanel.materializeNow', () => {
+      const rescanEnd = viewportOnly.indexOf('await rescanClawsDirFn();');
+      expect(rescanEnd).toBeGreaterThan(-1);
+      const afterRescan = viewportOnly.slice(rescanEnd, rescanEnd + 400);
+      expect(afterRescan).toContain('clawPanel.materializeNow(clawTrackMap);');
+    });
+
+    it('materializeNow 调用位于 tui.start() 之前', () => {
+      const materializeIdx = viewportOnly.indexOf('clawPanel.materializeNow(clawTrackMap);');
+      const startIdx = viewportOnly.indexOf('tui.start();');
+      expect(materializeIdx).toBeGreaterThan(-1);
+      expect(startIdx).toBeGreaterThan(-1);
+      expect(materializeIdx).toBeLessThan(startIdx);
+    });
+
+    it('保留 2 秒 clawScanInterval 与 cleanup', () => {
+      expect(viewportOnly).toContain('clawScanInterval = setInterval(');
+      expect(viewportOnly).toContain(', 2000);');
+      const cleanupStart = viewportOnly.indexOf('await exitPromise;');
+      const cleanupBlock = viewportOnly.slice(cleanupStart);
+      expect(cleanupBlock).toContain('if (clawScanInterval) clearInterval(clawScanInterval);');
+    });
+  });
+
   describe('Phase 1148 Step B: focus-events disabled', () => {
     const viewportOnly = fs.readFileSync(viewportPath, 'utf-8');
 

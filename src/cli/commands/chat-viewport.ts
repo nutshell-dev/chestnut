@@ -348,6 +348,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     // initial 同步
     clawManager.refreshAllClawStatus();
     await rescanClawsDirFn();
+    // Step B: 同步 materialize 首帧，保证 tui.start() 前 clawBar 文本已写入
+    clawPanel.materializeNow(clawTrackMap);
     clawScanInterval = setInterval(() => {
       clawManager.refreshAllClawStatus();
       void rescanClawsDirFn?.();

@@ -40,6 +40,10 @@ export function createClawPanel(deps: ClawPanelDeps) {
     deps.attachedClawBar.setText(lines.join('\n'));
   };
 
+  const materializeNow = (clawTrackMap: Map<string, ClawTrack>) => {
+    _renderClawPanel(clawTrackMap);
+  };
+
   const updateClawPanel = (clawTrackMap: Map<string, ClawTrack>) => {
     if (updateClawPanelScheduled) return;
     updateClawPanelScheduled = true;
@@ -49,7 +53,7 @@ export function createClawPanel(deps: ClawPanelDeps) {
     });
   };
 
-  return { _renderClawPanel, updateClawPanel };
+  return { _renderClawPanel, materializeNow, updateClawPanel };
 }
 
 export interface RescanClawsDirDeps {
