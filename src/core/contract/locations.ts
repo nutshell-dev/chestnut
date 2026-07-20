@@ -21,15 +21,10 @@ import { readCurrentContractLayout, getContractActiveCurrentRoot } from './new-l
 
 export type ContractLocationKind = 'active' | 'archived-current' | 'archived-legacy';
 
-export interface ContractLocation {
-  kind: ContractLocationKind;
-  /** Current archive state; only set when kind === 'archived-current'. */
-  state?: ArchiveState;
-  /** Parent directory (relative to clawDir), e.g. contract/active or contract/archive/completed. */
-  containerDir: string;
-  /** Full contract root directory (containerDir + contractId). */
-  contractRoot: string;
-}
+export type ContractLocation =
+  | { kind: 'active'; containerDir: string; contractRoot: string }
+  | { kind: 'archived-current'; state: ArchiveState; containerDir: string; contractRoot: string }
+  | { kind: 'archived-legacy'; containerDir: string; contractRoot: string };
 
 export interface ArchiveListEntry {
   contractId: string;

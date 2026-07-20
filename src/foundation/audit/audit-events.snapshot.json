@@ -259,6 +259,7 @@
     ],
     "core_contract_audit-events": [
       "contract_archive_active_state_detected",
+      "contract_archive_payload_read_issue",
       "contract_archive_precondition_violated",
       "contract_archive_progress_read_failed",
       "contract_archive_reconcile_failed",

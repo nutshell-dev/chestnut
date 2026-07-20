@@ -15,10 +15,11 @@ import * as fs from 'fs/promises';
 import * as fsNative from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
-import { ContractCapacityError } from '../../src/core/contract/errors.js';
+import { ContractCapacityError, ContractArchiveReadError } from '../../src/core/contract/errors.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import {
   prepareContractStaging,
@@ -459,6 +460,86 @@ describe('ContractSystem', () => {
       await expect(fs.access(legacyPath)).resolves.not.toThrow();
       const currentPath = path.join(clawDir, 'contract', 'active', 'current');
       await expect(fs.access(currentPath)).rejects.toThrow();
+    });
+  });
+
+  // === Phase 1145 Step C: archive getProgress routing ===
+
+  describe('archive getProgress routing', () => {
+    it('reads current-format archive from a manually constructed fixture', async () => {
+      const root = path.join(clawDir, 'contract', 'archive', 'completed', 'cid-current-archive');
+      const subtasksDir = path.join(root, 'subtasks');
+      await fs.mkdir(subtasksDir, { recursive: true });
+      const contractYaml = {
+        schema_version: 1,
+        id: 'cid-current-archive',
+        title: 'Current Archive',
+        goal: 'Test',
+        subtasks: [{ id: 't1', description: 'T1' }],
+      };
+      await fs.writeFile(path.join(root, 'contract.yaml'), yaml.dump(contractYaml), 'utf-8');
+      const record = {
+        schema_version: 1,
+        subtask_id: 't1',
+        status: 'completed',
+        attempts: [],
+        completed_at: '2026-07-19T10:05:00Z',
+      };
+      await fs.writeFile(path.join(subtasksDir, 't1.json'), JSON.stringify(record), 'utf-8');
+
+      const archived = await manager.getProgress('cid-current-archive' as any);
+      expect(archived).not.toBeNull();
+      expect(archived!.contract_id).toBe('cid-current-archive');
+      expect(archived!.subtasks.t1.status).toBe('completed');
+    });
+
+    it('reads legacy-format archive after cancel', async () => {
+      const contractId = await manager.create(makeContractYaml({
+        title: 'Legacy Archive Reader',
+        goal: 'Test',
+        subtasks: [{ id: 't1', description: 'T1' }],
+        verification: [],
+      }));
+      await manager.cancel(contractId, 'archive reader test');
+
+      const progress = await manager.getProgress(contractId);
+      expect(progress).not.toBeNull();
+      expect(progress!.contract_id).toBe(contractId);
+      expect(progress!.subtasks.t1.status).toBe('todo');
+    });
+
+    it('propagates archive reader issue as ContractArchiveReadError', async () => {
+      const root = path.join(clawDir, 'contract', 'archive', 'completed', 'cid-current-issue');
+      const subtasksDir = path.join(root, 'subtasks');
+      await fs.mkdir(subtasksDir, { recursive: true });
+      const contractYaml = {
+        schema_version: 1,
+        id: 'cid-current-issue',
+        title: 'Current Archive Issue',
+        goal: 'Test',
+        subtasks: [{ id: 't1', description: 'T1' }],
+      };
+      await fs.writeFile(path.join(root, 'contract.yaml'), yaml.dump(contractYaml), 'utf-8');
+      await fs.writeFile(path.join(subtasksDir, 't1.json'), 'not json', 'utf-8');
+
+      await expect(manager.getProgress('cid-current-issue' as any)).rejects.toBeInstanceOf(ContractArchiveReadError);
+    });
+
+    it('still isolates and marks corrupted for legacy active progress.json corruption', async () => {
+      const contractId = await manager.create(makeContractYaml({
+        title: 'Legacy Active Corrupt',
+        goal: 'Test',
+        subtasks: [{ id: 't1', description: 'T1' }],
+        verification: [],
+      }));
+      const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
+      await fs.writeFile(progressPath, '{ broken json', 'utf-8');
+
+      const result = await manager.getProgress(contractId);
+      expect(result).toBeNull();
+
+      const corruptedDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
+      await expect(fs.stat(corruptedDir)).resolves.toBeDefined();
     });
   });
 });

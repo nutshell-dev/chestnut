@@ -367,6 +367,112 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
 
 
 /**
+ * Phase 1145 Step C: archive getProgress pure-read invariants
+ */
+describe('archive getProgress pure-read invariants', () => {
+  let tempDir: string;
+  let clawDir: string;
+  let manager: ContractSystem;
+  let nodeFs: NodeFileSystem;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+    clawDir = path.join(tempDir, 'claws', 'test-claw');
+    await fsArchiveRace.mkdir(clawDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    manager = new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: nodeFs,
+      audit: { write: () => {} } as any,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      lockMaxRetries: 3,
+      lockRetryDelayMs: 10,
+      clawsDir: '/tmp/test/claws',
+      notifyClaw: vi.fn(),
+    });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanupTempDir(tempDir);
+  });
+
+  it('reads completed legacy archive without mutation', async () => {
+    const contractId = await manager.create(makeContractYaml({
+      title: 'Completed Archive',
+      goal: 'Test',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+    await (manager as any).withProgressLock(contractId, async () => {
+      const progress = await manager.getProgress(contractId);
+      progress.subtasks.t1.status = 'completed';
+      progress.subtasks.t1.completed_at = new Date().toISOString();
+      await (manager as any).saveProgress(contractId, progress);
+    });
+    await (manager as any).moveToArchive(contractId);
+
+    const archiveRoot = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
+    const before = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
+
+    const progress = await manager.getProgress(contractId);
+    expect(progress).not.toBeNull();
+    expect(progress.contract_id).toBe(contractId);
+    expect(progress.subtasks.t1.status).toBe('completed');
+
+    const after = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
+    expect(after).toBe(before);
+  });
+
+  it('reads cancelled legacy archive without mutation', async () => {
+    const contractId = await manager.create(makeContractYaml({
+      title: 'Cancelled Archive',
+      goal: 'Test',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+    await manager.cancel(contractId, 'invariant test');
+
+    const archiveRoot = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    const before = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
+
+    const progress = await manager.getProgress(contractId);
+    expect(progress).not.toBeNull();
+    expect(progress.contract_id).toBe(contractId);
+
+    const after = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
+    expect(after).toBe(before);
+  });
+
+  it('reads corrupted legacy archive without additional mutation', async () => {
+    const contractId = await manager.create(makeContractYaml({
+      title: 'Corrupted Archive',
+      goal: 'Test',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+    const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
+    await fs.writeFile(progressPath, '{ broken json', 'utf-8');
+
+    // First getProgress isolates + markCorrupted (legacy active mutation path).
+    await manager.getProgress(contractId);
+
+    const archiveRoot = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
+    await expect(fs.access(archiveRoot)).resolves.not.toThrow();
+
+    // Second getProgress is pure read via archive reader; it must not mutate the archive.
+    const before = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
+    const progress = await manager.getProgress(contractId);
+    expect(progress).not.toBeNull();
+    expect(progress!.contract_id).toBe(contractId);
+    const after = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
+    expect(after).toBe(before);
+  });
+});
+
+/**
  * releaseLock no-overwrite invariant (phase 1037 legacy + phase 1048 per-contender)
  */
 describe('releaseLock no-overwrite invariant', () => {

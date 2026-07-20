@@ -78,8 +78,10 @@ function makeIssue(
 function mapLegacySubtaskStatus(status: string | undefined): SubtaskStatus | null {
   switch (status) {
     case 'pending':
+    case 'todo':
       return 'todo';
     case 'running':
+    case 'in_progress':
       return 'in_progress';
     case 'completed':
       return 'completed';
@@ -172,6 +174,7 @@ async function readLegacyArchivePayload(
   try {
     content = await deps.fs.read(yamlPath);
   } catch (err) {
+    // silent: read errors are mapped to typed ArchiveReadIssue and returned to caller.
     if (isFileNotFound(err)) {
       return { kind: 'issue', issue: makeIssue('yaml_missing', contractId, root, `path=${yamlPath}`) };
     }
@@ -210,6 +213,7 @@ async function readLegacyArchivePayload(
   try {
     progressRaw = await deps.fs.read(progressPath);
   } catch (err) {
+    // silent: read errors are mapped to typed ArchiveReadIssue and returned to caller.
     if (isFileNotFound(err)) {
       return {
         kind: 'issue',

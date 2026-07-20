@@ -76,7 +76,7 @@ import {
 import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } from './schemas.js';
 import { type ContractId, makeContractId } from './types.js';
 import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
-import { ContractValidationError, ContractCapacityError } from './errors.js';
+import { ContractValidationError, ContractCapacityError, ContractArchiveReadError, ContractLocationAmbiguityError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, type ArchiveState, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
@@ -103,6 +103,7 @@ import {
   saveCurrentProgressAtomic,
   transitionCurrentVerificationAttempt,
 } from './new-layout.js';
+import { readArchivePayload } from './archive-reader.js';
 import { VerificationMutex } from './verification-mutex.js';
 import { ContractAuditor } from './contract-auditor.js';
 
@@ -1150,13 +1151,14 @@ export class ContractSystem {
   /**
    * 读 contract progress。
    *
-   * Phase 1135 Step D: route active access through the layout boundary first.
+   * Phase 1135 Step D / Phase 1145 Step C: route active access through the layout
+   * boundary first.
    * - current layout → projection from YAML + subtask files (no progress.json)
-   * - legacy active → existing progress.json path
-   * - archive → existing resolveContractLocation path
+   * - legacy active → existing mutable progress.json path
+   * - archive → readArchivePayload (current/legacy dual-format)
    *
-   * TOCTOU mitigation: legacy/archive path uses `contractDir` + `fs.read`; archive move
-   * may race, so FileNotFoundError triggers one re-resolve.
+   * TOCTOU mitigation: active→archive race is handled by one re-resolve back to
+   * the top-level dispatcher.
    */
   async getProgress(contractId: ContractId): Promise<ProgressData | null> {
     const activeLoc = await resolveActiveContractLocation({
@@ -1170,22 +1172,64 @@ export class ContractSystem {
       if (!layout) return null;
       return projectCurrentRuntime(layout).progress;
     }
-    return this._getProgressLegacyOrArchive(contractId);
+    if (activeLoc?.layout === 'legacy') {
+      // Phase 956 regression guard: legacy active must not simultaneously exist in archive.
+      const archiveLoc = await resolveContractLocation({
+        fs: this.fs,
+        activeDir: this.activeDir,
+        archiveDir: this.archiveDir,
+        contractId,
+        audit: this.audit,
+      });
+      if (archiveLoc && archiveLoc.kind !== 'active') {
+        const locations = [activeLoc.contractRoot, archiveLoc.contractRoot];
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR,
+          `contractId=${contractId}`,
+          `dirs=${locations.join(',')}`,
+          `context=getProgress`,
+        );
+        throw new ContractLocationAmbiguityError(contractId, locations);
+      }
+      return this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
+    }
+
+    const loc = await resolveContractLocation({
+      fs: this.fs,
+      activeDir: this.activeDir,
+      archiveDir: this.archiveDir,
+      contractId,
+      audit: this.audit,
+    });
+    if (!loc) return null;
+    if (loc.kind === 'active') {
+      // TOCTOU: contract became active after the first resolve; retry once from top.
+      return this.getProgress(contractId);
+    }
+
+    const result = await readArchivePayload({
+      fs: this.fs,
+      audit: this.audit,
+      location: loc,
+      contractId,
+    });
+    if (result.kind === 'found') return result.view.progress;
+    throw new ContractArchiveReadError(
+      `failed to read archive payload for ${contractId}: ${result.issue.code}`,
+      result.issue,
+    );
   }
 
-  private async _getProgressLegacyOrArchive(contractId: ContractId): Promise<ProgressData | null> {
-    let dir: string;
+  private async _getLegacyActiveProgress(contractId: ContractId, contractRoot: string): Promise<ProgressData | null> {
+    const progressPath = `${contractRoot}/${PROGRESS_FILE}`;
     let content: string;
     try {
-      dir = await this.contractDir(contractId);
-      content = await this.fs.read(`${dir}/${contractId}/progress.json`);
+      content = await this.fs.read(progressPath);
     } catch (err) {
       if (!isFileNotFound(err)) throw err;
-      // race retry: contractDir + fs.read 再走一遍，archive 已稳定
-      dir = await this.contractDir(contractId);
-      content = await this.fs.read(`${dir}/${contractId}/progress.json`);
+      // Legacy active progress.json should exist; one race retry for TOCTOU.
+      content = await this.fs.read(progressPath);
     }
-    const progressPath = `${dir}/${contractId}/progress.json`;
     let rawParsed: unknown;
     try {
       rawParsed = JSON.parse(content);
@@ -1199,7 +1243,7 @@ export class ContractSystem {
           `error=${formatErr(parseErr)}`,
         );
         const isolated = await isolateCorruptedFile(this.fs, this.audit, {
-          contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
+          contractId, contractDir: contractRoot, filename: PROGRESS_FILE,
           reason: 'json_parse_error',
         });
         if (!isolated) {
@@ -1214,7 +1258,7 @@ export class ContractSystem {
         await this.markCorrupted(contractId, {
           reason: 'progress_json_parse_error',
           relativePath: isolated.relativePath,
-        }, dir);
+        }, path.dirname(contractRoot));
         return null;
       }
       throw parseErr;
@@ -1273,7 +1317,7 @@ export class ContractSystem {
       // markCorrupted internally re-resolves contractDir via progress.json existence;
       // after isolation progress.json is gone, so pass the known dir to avoid orphan.
       const isolated = await isolateCorruptedFile(this.fs, this.audit, {
-        contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
+        contractId, contractDir: contractRoot, filename: PROGRESS_FILE,
         reason: isolationReason,
       });
       if (!isolated) {
@@ -1291,7 +1335,7 @@ export class ContractSystem {
       await this.markCorrupted(contractId, {
         reason: corruptionReason,
         relativePath: isolated.relativePath,
-      }, dir);
+      }, path.dirname(contractRoot));
       return null;
     }
 
