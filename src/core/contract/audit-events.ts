@@ -150,6 +150,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_LEGACY_CRASHED_OBSERVED: 'contract_legacy_crashed_observed',
   // phase 1123 Step D: legacy paused contract observed in live paused/ directory
   CONTRACT_LEGACY_PAUSED_OBSERVED: 'contract_legacy_paused_observed',
+  // Phase 1145 Step B: archive payload reader encountered a typed issue
+  ARCHIVE_PAYLOAD_READ_ISSUE: 'contract_archive_payload_read_issue',
 } as const;
 
 /**
@@ -271,6 +273,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_capacity_exhausted: 'audit',
   contract_legacy_crashed_observed: 'audit',
   contract_legacy_paused_observed: 'audit',
+  contract_archive_payload_read_issue: 'audit',
   contract_multi_dir: 'audit',
   multi_active_contracts: 'audit',
   contract_boot_reconcile_in_progress_reset: 'audit',

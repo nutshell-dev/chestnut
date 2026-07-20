@@ -90,7 +90,16 @@ export {
   ContractLayoutCorruptedError,
   ActiveContractSlotOccupiedError,
   ContractStagingCorruptedError,
+  ContractArchiveReadError,
 } from './errors.js';
+
+export {
+  readArchivePayload,
+  type ArchivePayloadReadResult,
+  type ArchivePayloadView,
+  type ArchiveReadIssue,
+  type ArchiveReadIssueCode,
+} from './archive-reader.js';
 
 export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submit-subtask.js';
 

@@ -3,7 +3,7 @@
  * phase 67: ContractSystem typed errors
  */
 
-import type { ContractId } from './types.js';
+import type { ContractId, ArchiveReadIssue } from './types.js';
 
 /**
  * phase 957: 检测到多个 active contract 时 fail-closed。
@@ -132,6 +132,20 @@ export class ContractLayoutCorruptedError extends Error {
   constructor(
     message: string,
     public readonly context: { root: string; cause: string; [key: string]: unknown },
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Phase 1145 Step B: archive payload reader encountered a typed issue.
+ */
+export class ContractArchiveReadError extends Error {
+  readonly name = 'ContractArchiveReadError';
+
+  constructor(
+    message: string,
+    public readonly issue: ArchiveReadIssue,
   ) {
     super(message);
   }

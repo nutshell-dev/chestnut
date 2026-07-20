@@ -339,6 +339,45 @@ export interface CreateContractOptions {
   clawDir?: string;
 }
 
+// ============================================================================
+// Phase 1145 Step B: archive payload reader types
+// ============================================================================
+
+export type ArchivePayloadLayout = 'current' | 'legacy';
+
+export type ArchivePayloadState = ArchiveState | 'legacy-unresolved';
+
+export interface ArchivePayloadView {
+  contractId: ContractId;
+  state: ArchivePayloadState;
+  root: string;
+  layout: ArchivePayloadLayout;
+  contract: PersistedContractYaml;
+  progress: ProgressData;
+}
+
+export type ArchiveReadIssueCode =
+  | 'ambiguous_layout'
+  | 'missing_payload'
+  | 'entry_disappeared'
+  | 'yaml_missing'
+  | 'yaml_parse_error'
+  | 'yaml_schema_invalid'
+  | 'yaml_id_mismatch'
+  | 'layout_corrupted'
+  | 'progress_parse_error'
+  | 'progress_schema_invalid'
+  | 'progress_projection_failed'
+  | 'io_error';
+
+export interface ArchiveReadIssue {
+  code: ArchiveReadIssueCode;
+  contractId: ContractId;
+  root: string;
+  detail?: string;
+  cause?: unknown;
+}
+
 /**
  * phase 1121 Step C: deterministic persistent corruption reasons.
  * Only these reasons may write the corruption lifecycle transition.
