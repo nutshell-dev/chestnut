@@ -11,6 +11,7 @@ import { makeAudit } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import {
   readCurrentContractLayout,
+  readStrictContractLayoutAtRoot,
   deriveContractAggregate,
   deriveSubtaskRetrySummary,
 } from '../../../src/core/contract/new-layout.js';
@@ -223,6 +224,53 @@ describe('readCurrentContractLayout', () => {
     const { audit } = makeAudit();
 
     await expect(readCurrentContractLayout({ fs: nodeFs, audit })).rejects.toBeInstanceOf(ContractLayoutCorruptedError);
+  });
+});
+
+describe('readStrictContractLayoutAtRoot', () => {
+  it('reads arbitrary root with expected contract id', async () => {
+    const contract = makeContract();
+    const root = path.join(clawDir, 'contract', 'archive', 'completed', 'cid-1');
+    const subtasksDir = path.join(root, 'subtasks');
+    await fs.mkdir(subtasksDir, { recursive: true });
+    await fs.writeFile(path.join(root, 'contract.yaml'), yaml.dump(contract), 'utf-8');
+    await fs.writeFile(path.join(subtasksDir, 't1.json'), JSON.stringify(makeTodoRecord('t1')), 'utf-8');
+    const { audit, events } = makeAudit();
+
+    const result = await readStrictContractLayoutAtRoot({ fs: nodeFs, audit }, root, 'cid-1');
+
+    expect(result.root).toBe(root);
+    expect(result.contract.id).toBe('cid-1');
+    expect(result.subtasks.has('t1')).toBe(true);
+    expect(result.aggregate).toBe('pending');
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED)).toBe(false);
+  });
+
+  it('reads arbitrary root without expected contract id', async () => {
+    const contract = makeContract();
+    const root = path.join(clawDir, 'contract', 'archive', 'completed', 'cid-1');
+    const subtasksDir = path.join(root, 'subtasks');
+    await fs.mkdir(subtasksDir, { recursive: true });
+    await fs.writeFile(path.join(root, 'contract.yaml'), yaml.dump(contract), 'utf-8');
+    await fs.writeFile(path.join(subtasksDir, 't1.json'), JSON.stringify(makeTodoRecord('t1')), 'utf-8');
+    const { audit } = makeAudit();
+
+    const result = await readStrictContractLayoutAtRoot({ fs: nodeFs, audit }, root);
+
+    expect(result.contract.id).toBe('cid-1');
+  });
+
+  it('throws layout corruption when contract id mismatches expected', async () => {
+    const contract = makeContract();
+    const root = path.join(clawDir, 'contract', 'archive', 'completed', 'cid-1');
+    const subtasksDir = path.join(root, 'subtasks');
+    await fs.mkdir(subtasksDir, { recursive: true });
+    await fs.writeFile(path.join(root, 'contract.yaml'), yaml.dump(contract), 'utf-8');
+    await fs.writeFile(path.join(subtasksDir, 't1.json'), JSON.stringify(makeTodoRecord('t1')), 'utf-8');
+    const { audit, events } = makeAudit();
+
+    await expect(readStrictContractLayoutAtRoot({ fs: nodeFs, audit }, root, 'cid-expected')).rejects.toBeInstanceOf(ContractLayoutCorruptedError);
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED && e.some(c => String(c).includes('yaml_id_mismatch')))).toBe(true);
   });
 });
 

@@ -102,16 +102,11 @@ function emitLayoutCorrupted(
 // Shared strict layout reader (used by current slot and staging readback)
 // ============================================================================
 
-interface ReadLayoutResult {
-  contract: PersistedContractYaml;
-  subtasks: Map<string, SubtaskRuntimeRecord>;
-}
-
-async function readContractLayoutAtRoot(
+export async function readStrictContractLayoutAtRoot(
   deps: { fs: FileSystem; audit: AuditLog },
   root: string,
-  expectedContract?: PersistedContractYaml,
-): Promise<ReadLayoutResult> {
+  expectedContractId?: ContractId,
+): Promise<CurrentContractLayout> {
   const yamlPath = getContractYamlPath(root);
   let content: string;
   try {
@@ -150,16 +145,16 @@ async function readContractLayoutAtRoot(
   }
   const contract = parsed.data;
 
-  if (expectedContract && contract.id !== expectedContract.id) {
+  if (expectedContractId !== undefined && contract.id !== expectedContractId) {
     emitLayoutCorrupted(
       deps.audit,
       root,
       'yaml_id_mismatch',
-      `expected=${expectedContract.id} actual=${contract.id}`,
+      `expected=${expectedContractId} actual=${contract.id}`,
     );
     throw new ContractLayoutCorruptedError(
-      `contract.yaml id mismatch at ${root}: expected ${expectedContract.id}, got ${contract.id}`,
-      { root, cause: 'yaml_id_mismatch', expectedId: expectedContract.id, actualId: contract.id },
+      `contract.yaml id mismatch at ${root}: expected ${expectedContractId}, got ${contract.id}`,
+      { root, cause: 'yaml_id_mismatch', expectedId: expectedContractId, actualId: contract.id },
     );
   }
 
@@ -302,7 +297,12 @@ async function readContractLayoutAtRoot(
     }
   }
 
-  return { contract, subtasks };
+  return {
+    root,
+    contract,
+    subtasks,
+    aggregate: deriveContractAggregate(subtasks),
+  };
 }
 
 // ============================================================================
@@ -316,21 +316,7 @@ export async function readCurrentContractLayout(
   // Phase 1135: an empty current slot must not emit a corruption audit event.
   if (!(await deps.fs.exists(root))) return null;
 
-  try {
-    const { contract, subtasks } = await readContractLayoutAtRoot(deps, root);
-    return {
-      root,
-      contract,
-      subtasks,
-      aggregate: deriveContractAggregate(subtasks),
-    };
-  } catch (err) {
-    if (err instanceof ContractLayoutCorruptedError && err.context.cause === 'yaml_missing') {
-      // Current slot exists but has no yaml — this is corruption (empty directory).
-      throw err;
-    }
-    throw err;
-  }
+  return readStrictContractLayoutAtRoot(deps, root);
 }
 
 export function deriveContractAggregate(
@@ -964,7 +950,7 @@ export async function prepareContractStaging(
     }
 
     // Readback verification against the contract we intended to write.
-    await readContractLayoutAtRoot(deps, root, contract);
+    await readStrictContractLayoutAtRoot(deps, root, contract.id as ContractId);
     prepared = true;
   } catch (err) {
     const cleanupErrors: string[] = [];

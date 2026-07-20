@@ -178,20 +178,20 @@ export async function resolveContractLocation(opts: {
   const candidates: ContractLocation[] = [];
 
   const activeRoot = contractRoot(activeDir, contractId);
-  if (await fs.exists(contractProgressPath(activeRoot))) {
+  if (await fs.exists(activeRoot)) {
     candidates.push({ kind: 'active', containerDir: activeDir, contractRoot: activeRoot });
   }
 
   for (const state of ARCHIVE_STATES) {
     const container = archiveStateContainerDir(archiveDir, state);
     const root = contractRoot(container, contractId);
-    if (await fs.exists(contractProgressPath(root))) {
+    if (await fs.exists(root)) {
       candidates.push({ kind: 'archived-current', state, containerDir: container, contractRoot: root });
     }
   }
 
   const legacyRoot = contractRoot(archiveDir, contractId);
-  if (await fs.exists(contractProgressPath(legacyRoot))) {
+  if (await fs.exists(legacyRoot)) {
     candidates.push({ kind: 'archived-legacy', containerDir: archiveDir, contractRoot: legacyRoot });
   }
 
@@ -218,20 +218,20 @@ export function resolveContractLocationSync(opts: {
   const candidates: ContractLocation[] = [];
 
   const activeRoot = contractRoot(activeDir, contractId);
-  if (fs.existsSync(contractProgressPath(activeRoot))) {
+  if (fs.existsSync(activeRoot)) {
     candidates.push({ kind: 'active', containerDir: activeDir, contractRoot: activeRoot });
   }
 
   for (const state of ARCHIVE_STATES) {
     const container = archiveStateContainerDir(archiveDir, state);
     const root = contractRoot(container, contractId);
-    if (fs.existsSync(contractProgressPath(root))) {
+    if (fs.existsSync(root)) {
       candidates.push({ kind: 'archived-current', state, containerDir: container, contractRoot: root });
     }
   }
 
   const legacyRoot = contractRoot(archiveDir, contractId);
-  if (fs.existsSync(contractProgressPath(legacyRoot))) {
+  if (fs.existsSync(legacyRoot)) {
     candidates.push({ kind: 'archived-legacy', containerDir: archiveDir, contractRoot: legacyRoot });
   }
 
