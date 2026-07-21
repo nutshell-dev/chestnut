@@ -15,8 +15,21 @@ export {
 export {
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_TARGET_RATIO,
+  REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from './constants.js';
+export {
+  trimV2,
+  buildReactiveTrimPolicy,
+  buildProactiveTrimPolicy,
+  type TrimV2Options,
+  type TrimV2Result,
+  type TrimCandidateOutcome,
+  type ContextTrimOutcome,
+  type TrimPolicy,
+  type AuditWriter,
+} from './trim-v2.js';
+export { ContextTrimExhaustedError } from './errors.js';
 
 // phase 685: ContextInjector 合并自 core/dialog 成为 ContextManager 子模块（physical merge）、
 // 但 barrel 不 re-export — 走 barrel 会拉 injector → contract barrel → ... → step-executor →

@@ -66,6 +66,34 @@ function classifyErrno(err: unknown): 'ENOSPC' | 'EACCES' | 'EIO' | 'EMFILE' | '
   return 'OTHER';
 }
 
+function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+function extractTaskDedupKey(message: InboxMessage): { key?: string; shortTaskId?: string; fullTaskId?: string } {
+  try {
+    const parsed = JSON.parse(message.content);
+    if (typeof parsed.taskId === 'string') {
+      return { key: parsed.taskId, shortTaskId: parsed.taskId };
+    }
+    if (typeof parsed.fullTaskId === 'string') {
+      return { key: parsed.fullTaskId, fullTaskId: parsed.fullTaskId };
+    }
+  } catch {
+    // silent: non-JSON inbox content has no taskId — dedupe skipped by design
+  }
+  return {};
+}
+
+function compareInboxEntries(a: InboxEntry, b: InboxEntry): number {
+  const pa = PRIORITY_VALUES[a.message.priority] ?? PRIORITY_VALUES.normal;
+  const pb = PRIORITY_VALUES[b.message.priority] ?? PRIORITY_VALUES.normal;
+  if (pa !== pb) return pb - pa;
+  const ta = new Date(a.message.timestamp).getTime() || 0;
+  const tb = new Date(b.message.timestamp).getTime() || 0;
+  return ta - tb;
+}
+
 // phase 196: inbox 状态机状态空间单源、扫描语义决策编入 switch。
 // 未来加新态（如 'archived'）必触 INBOX_LOCATIONS 扩 + 编译期 assertNever
 // catch missing case、自动暴露所有 helper（如本 findByExtraMeta）需做语义决策的点。
@@ -85,6 +113,23 @@ export interface DrainInboxResult {
   entries: InboxEntry[];
   transientErrors: number;  // files kept in pending for retry (InboxReadError)
   permanentErrors: number;  // files moved to failed/
+}
+
+export type PendingViewIssue =
+  | { kind: 'transient_read'; filePath: string; error: InboxReadError }
+  | { kind: 'malformed'; filePath: string; error: Error }
+  | { kind: 'duplicate'; filePath: string; duplicateOf: string; shortTaskId?: string; fullTaskId?: string; contractId?: string };
+
+export interface PendingView {
+  entries: InboxEntry[];
+  issues: PendingViewIssue[];
+}
+
+export class PendingViewError extends Error {
+  constructor(readonly view: PendingView) {
+    super(`Pending view incomplete: ${view.issues.length} issue(s)`);
+    this.name = 'PendingViewError';
+  }
 }
 
 export class InboxReader {
@@ -442,36 +487,32 @@ export class InboxReader {
   }
 
   /**
-   * Read all pending messages, sort by priority (desc) then timestamp (asc).
-   *
-   * Side effects (phase 427 Step C, review N12 — replaces earlier self-contradictory
-   * "non-consuming read" claim):
-   * - Malformed files are moved to failed/ via markFailed (consumed for that file).
-   * - Duplicate-taskId files are moved to done/ via markDone (deduped consumed).
-   * - Successful entries remain in pending/ — caller decides via markDone/markFailed.
-   *
-   * Legacy path; Runtime should prefer drainAndDeliver().
+   * Phase 1153 Step C: shared pending read view — list, decode, sort, identify duplicates.
+   * No side effects (no move/ack/nack). Malformed/transient issues are reported in
+   * the view; callers decide whether to fail-closed (peek) or apply consumptive handling
+   * (drain).
    */
-  async drainInbox(): Promise<DrainInboxResult> {
-    let entries: { name: string }[] = [];
+  private async _readPendingView(opts?: { emitObservability?: boolean }): Promise<PendingView> {
+    let files: { name: string }[] = [];
     try {
-      entries = await this.fs.list(this.pendingDir, { includeDirs: false });
+      files = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err) {
-      if (isFileNotFound(err)) return { entries: [], transientErrors: 0, permanentErrors: 0 };
+      if (isFileNotFound(err)) return { entries: [], issues: [] };
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.pendingDir,
+        op: 'peek',
         errorCode: classifyErrno(err),
         reason,
       });
       throw new InboxListFailed(this.pendingDir, err);
     }
 
-    let transientErrors = 0;
-    let permanentErrors = 0;
-    const results: InboxEntry[] = [];
-    const seenTaskIds = new Set<string>();
-    for (const entry of entries) {
+    const decoded: InboxEntry[] = [];
+    const issues: PendingViewIssue[] = [];
+    const firstPathByTaskId = new Map<string, string>();
+
+    for (const entry of files) {
       if (!entry.name.endsWith('.md')) continue;
       if (entry.name.startsWith('.tmp_')) continue;  // phase 1021: defense-in-depth — never drain temp files
       const filePath = path.join(this.pendingDir, entry.name);
@@ -484,95 +525,129 @@ export class InboxReader {
           throw new InboxReadError(`I/O error reading inbox file: ${formatErr(readErr)}`, readErr);
         }
         const message = decodeInbox(content);
-        if (message.extraMeta?.__original_priority !== undefined) {
-          emitInboxPriorityUnknown(this.audit, {
-            file: entry.name,
-            original: message.extraMeta.__original_priority,
-            fallback: message.priority,
-          });
-        }
-        if (message.extraMeta?.__legacy_claw_id !== undefined) {
-          emitInboxLegacyClawIdField(this.audit, {
-            file: entry.name,
-            clawId: makeClawId(message.extraMeta.__legacy_claw_id),
-          });
+        if (opts?.emitObservability !== false) {
+          if (message.extraMeta?.__original_priority !== undefined) {
+            emitInboxPriorityUnknown(this.audit, {
+              file: entry.name,
+              original: message.extraMeta.__original_priority,
+              fallback: message.priority,
+            });
+          }
+          if (message.extraMeta?.__legacy_claw_id !== undefined) {
+            emitInboxLegacyClawIdField(this.audit, {
+              file: entry.name,
+              clawId: makeClawId(message.extraMeta.__legacy_claw_id),
+            });
+          }
         }
 
-        let shortTaskId: string | undefined;
-        let fullTaskId: string | undefined;
-        try {
-          const parsed = JSON.parse(message.content);
-          if (typeof parsed.taskId === 'string') {
-            shortTaskId = parsed.taskId;
-          }
-          if (typeof parsed.fullTaskId === 'string') {
-            fullTaskId = parsed.fullTaskId;
-          }
-        } catch {
-          // silent: non-JSON content — skip dedupe
-        }
-
-        // phase 849: dedup by shortId (agent-facing); emit both keys for audit.
-        const dedupKey = shortTaskId ?? fullTaskId;
-        if (dedupKey && seenTaskIds.has(dedupKey)) {
-          emitInboxDeduped(this.audit, {
-            file: entry.name,
+        const { key, shortTaskId, fullTaskId } = extractTaskDedupKey(message);
+        const duplicateOf = key ? firstPathByTaskId.get(key) : undefined;
+        if (duplicateOf) {
+          issues.push({
+            kind: 'duplicate',
+            filePath,
+            duplicateOf,
             shortTaskId,
             fullTaskId,
             contractId: message.metadata?.contract_id,
           });
-          try {
-            await this.markDone(filePath);
-          } catch (e) {
-            if (!isFileNotFound(e)) {
-              // phase 578: 加 file forensic col
-              emitInboxMarkDoneFailed(this.audit, { file: entry.name, reason: (e as Error).message });
-            }
-          }
-          continue;
+        } else {
+          if (key) firstPathByTaskId.set(key, filePath);
+          decoded.push({ message, filePath });
         }
-        if (dedupKey) {
-          seenTaskIds.add(dedupKey);
-        }
-
-        results.push({ message, filePath });
       } catch (err) {
-        // Phase 992: InboxReadError (transient read fault) stays in pending for retry.
-        // ENOENT or decode/validation errors are permanent and move to failed.
         if (err instanceof InboxReadError) {
-          transientErrors++;
-          emitInboxFailed(this.audit, {
-            file: entry.name,
-            errorCode: classifyErrno(err.causeErr),
-            reason: `transient IO error — kept in pending: ${formatErr(err)}`,
-          });
-          continue;
-        }
-        const reason = formatErr(err);
-        emitInboxFailed(this.audit, {
-          file: entry.name,
-          errorCode: classifyErrno(err),
-          reason,
-        });
-        try {
-          await this.markFailed(filePath);
-          permanentErrors++;
-        } catch (moveErr) {
-          throw moveErr;
+          issues.push({ kind: 'transient_read', filePath, error: err });
+        } else {
+          issues.push({ kind: 'malformed', filePath, error: toError(err) });
         }
       }
     }
 
-    results.sort((a, b) => {
-      const pa = PRIORITY_VALUES[a.message.priority] ?? PRIORITY_VALUES.normal;
-      const pb = PRIORITY_VALUES[b.message.priority] ?? PRIORITY_VALUES.normal;
-      if (pa !== pb) return pb - pa;
-      const ta = new Date(a.message.timestamp).getTime() || 0;
-      const tb = new Date(b.message.timestamp).getTime() || 0;
-      return ta - tb;
-    });
+    decoded.sort(compareInboxEntries);
+    return { entries: decoded, issues };
+  }
 
-    return { entries: results, transientErrors, permanentErrors };
+  /**
+   * Phase 1153 Step C: non-consuming pending view for context-gate fingerprinting.
+   * Duplicate entries are acceptable (they yield a unique semantic view). Any
+   * I/O or parse failure is typed and fail-closed — never silently returned as empty.
+   */
+  async peekPending(): Promise<PendingView> {
+    const view = await this._readPendingView({ emitObservability: false });
+    if (view.issues.some(i => i.kind !== 'duplicate')) {
+      throw new PendingViewError(view);
+    }
+    return view;
+  }
+
+  /**
+   * Read all pending messages, sort by priority (desc) then timestamp (asc).
+   *
+   * Side effects (phase 427 Step C, review N12 — replaces earlier self-contradictory
+   * "non-consuming read" claim):
+   * - Malformed files are moved to failed/ via markFailed (consumed for that file).
+   * - Duplicate-taskId files are moved to done/ via markDone (deduped consumed).
+   * - Successful entries remain in pending/ — caller decides via markDone/markFailed.
+   *
+   * Legacy path; Runtime should prefer drainAndDeliver().
+   */
+  async drainInbox(): Promise<DrainInboxResult> {
+    const view = await this._readPendingView();
+    await this._applyPendingIssues(view.issues);
+    return this._toDrainResult(view);
+  }
+
+  private async _applyPendingIssues(issues: PendingViewIssue[]): Promise<void> {
+    for (const issue of issues) {
+      if (issue.kind === 'duplicate') {
+        const fileName = path.basename(issue.filePath);
+        emitInboxDeduped(this.audit, {
+          file: fileName,
+          shortTaskId: issue.shortTaskId,
+          fullTaskId: issue.fullTaskId,
+          contractId: issue.contractId,
+        });
+        try {
+          await this.markDone(issue.filePath);
+        } catch (e) {
+          if (!isFileNotFound(e)) {
+            // phase 578: 加 file forensic col
+            emitInboxMarkDoneFailed(this.audit, { file: fileName, reason: (e as Error).message });
+          }
+        }
+      } else if (issue.kind === 'malformed') {
+        const fileName = path.basename(issue.filePath);
+        const reason = formatErr(issue.error);
+        emitInboxFailed(this.audit, {
+          file: fileName,
+          errorCode: classifyErrno(issue.error),
+          reason,
+        });
+        try {
+          await this.markFailed(issue.filePath);
+        } catch (moveErr) {
+          throw moveErr;
+        }
+      } else {
+        // Phase 992: InboxReadError (transient read fault) stays in pending for retry.
+        const fileName = path.basename(issue.filePath);
+        emitInboxFailed(this.audit, {
+          file: fileName,
+          errorCode: classifyErrno(issue.error.causeErr),
+          reason: `transient IO error — kept in pending: ${formatErr(issue.error)}`,
+        });
+      }
+    }
+  }
+
+  private _toDrainResult(view: PendingView): DrainInboxResult {
+    return {
+      entries: view.entries,
+      transientErrors: view.issues.filter(i => i.kind === 'transient_read').length,
+      permanentErrors: view.issues.filter(i => i.kind === 'malformed').length,
+    };
   }
 
   /**

@@ -16,12 +16,15 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 
 /**
  * Wait for a new file to appear in the inbox directory, or until timeout.
+ * Respects an optional AbortSignal so EventLoop.abort() can break the wait
+ * without waiting for the full timeout.
  */
 export function waitForInbox(
   fs: FileSystem,
   audit: AuditLog,
   inboxPendingDir: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise(resolve => {
     let watcher: Watcher | null = null;
@@ -46,6 +49,7 @@ export function waitForInbox(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       try {
         await watcher?.close();
       } catch (err) {
@@ -60,6 +64,8 @@ export function waitForInbox(
         resolve();
       }
     };
+
+    const onAbort = (): void => { void settleAndClose(); };
 
     // 4. Filtered resolve: only on genuinely new files
     const tryDone = () => {
@@ -76,6 +82,12 @@ export function waitForInbox(
         void settleAndClose();
       }
     }, timeoutMs);
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      void settleAndClose();
+      return;
+    }
 
     try {
       fs.ensureDirSync(inboxPendingDir);
@@ -107,9 +119,7 @@ export function waitForInbox(
         `reason=${formatErr(err)}`,
       );
       if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        resolve();
+        void settleAndClose();
       }
     }
   });

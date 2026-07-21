@@ -19,7 +19,7 @@ import {
   LLM_RETRY_MAX_DELAY_MS,
 } from './constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
-import { LLMAllProvidersFailedError, isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
   WallTimeExceededError,
@@ -99,7 +99,7 @@ const priorityInboxHandler: ErrorHandler = {
 const llmRetryHandler: ErrorHandler = {
   name: 'llm_retry',
   match: (err, ctx) =>
-    (err instanceof LLMAllProvidersFailedError || isContextExceededError(err)) &&
+    err instanceof LLMAllProvidersFailedError &&
     ctx.llmRetry.count < LLM_MAX_RETRIES,
   handle: async (err, ctx) => {
     ctx.llmRetry.count++;
@@ -113,22 +113,6 @@ const llmRetryHandler: ErrorHandler = {
     await new Promise(resolve => setTimeout(resolve, ctx.llmRetry.delayMs));
     ctx.llmRetry.delayMs = Math.min(ctx.llmRetry.delayMs * 2, LLM_RETRY_MAX_DELAY_MS);
     ctx.saveLlmRetryState();
-  },
-};
-
-const contextExceededExhaustedHandler: ErrorHandler = {
-  name: 'context_exceeded_exhausted',
-  match: (err) => isContextExceededError(err),
-  handle: async (_err, ctx) => {
-    ctx.llmRetry.count = 0;
-    ctx.llmRetry.delayMs = LLM_RETRY_INITIAL_DELAY_MS;
-    ctx.saveLlmRetryState();
-    ctx.audit.write(
-      EVENTLOOP_AUDIT_EVENTS.COOLDOWN,
-      `reason=context_exceeded_exhausted`,
-      `cooldown_ms=${LLM_RETRY_MAX_DELAY_MS}`,
-    );
-    await new Promise(resolve => setTimeout(resolve, LLM_RETRY_MAX_DELAY_MS));
   },
 };
 
@@ -184,7 +168,6 @@ export const ERROR_HANDLERS: ReadonlyArray<ErrorHandler> = [
   userInterruptHandler,
   priorityInboxHandler,
   llmRetryHandler,
-  contextExceededExhaustedHandler,
   agentLoopCrashHandler,
   fallbackHandler,
 ];

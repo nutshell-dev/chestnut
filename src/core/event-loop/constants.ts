@@ -24,6 +24,9 @@ export const LLM_RETRY_MAX_DELAY_MS = 300_000;
 /** LLM retry state 持久化文件名 */
 export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;
 
+/** Phase 1153: context-blocked state 持久化文件名 */
+export const CONTEXT_BLOCKED_STATE_FILE = 'context-blocked-state.json' as const;
+
 /**
  * ReAct chain 单 tick 内 batch 最大轮数 / 防 runaway 安全闸.
  * 达 cap 时 emit LOOP_ITERATION_TYPES.CHAIN_LIMITED audit / chain 强制结束本 tick.

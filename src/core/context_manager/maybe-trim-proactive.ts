@@ -10,15 +10,15 @@ import {
   estimateMessagesTokens,
   estimateToolsTokens,
 } from '../../foundation/llm-provider/token-estimator.js';
-import { trimAndPersist, type TrimAndPersistResult } from './trim-and-persist.js';
+import { trimAndPersist } from './trim-and-persist.js';
+import type { ContextTrimOutcome } from './trim-v2.js';
 import {
   CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
-  CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from './constants.js';
-import { ContextTrimExhaustedError } from './errors.js';
-import { CONTEXT_TRIM_EXHAUSTED } from './audit-events.js';
+import { buildProactiveTrimPolicy } from './trim-v2.js';
+
 import type { AuditWriter } from './trim-v2.js';
 
 export interface MaybeTrimProactiveInputs {
@@ -51,7 +51,7 @@ export interface MaybeTrimProactiveInputs {
  */
 export async function maybeTrimProactive(
   inputs: MaybeTrimProactiveInputs,
-): Promise<TrimAndPersistResult | null> {
+): Promise<ContextTrimOutcome | null> {
   const now = inputs.now ?? Date.now();
 
   // 1. 首次不触发
@@ -60,8 +60,9 @@ export async function maybeTrimProactive(
   // 2. 缓存未失效不触发
   if (now - inputs.lastLLMCallAt <= CACHE_TTL_MS) return null;
 
-  // 3. 算 targetMessagesTokens（同 trimAndPersist 内部公式）
-  const targetMessagesTokens = Math.floor(inputs.contextWindow * CONTEXT_TRIM_TARGET_RATIO)
+  // 3. 算消息历史上限（proactive target 为完整 prompt 上限；减去 fixed 得消息上限）
+  const proactivePolicy = buildProactiveTrimPolicy(inputs.contextWindow);
+  const targetMessagesTokens = proactivePolicy.targetCompleteTokens
     - estimateTextTokens(inputs.systemPrompt)
     - estimateToolsTokens(inputs.toolsForLLM);
 
@@ -70,29 +71,18 @@ export async function maybeTrimProactive(
   if (estimatedTokens < targetMessagesTokens) return null;
 
   // 5. 触发顺手裁
-  try {
-    return await trimAndPersist({
-      messages: inputs.messages,
-      systemPrompt: inputs.systemPrompt,
-      toolsForLLM: inputs.toolsForLLM,
-      contextWindow: inputs.contextWindow,
-      recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-      targetRatio: CONTEXT_TRIM_TARGET_RATIO,
-      previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-      filterSubtypes: inputs.filterSubtypes,
-      dialogStore: inputs.dialogStore,
-      audit: inputs.audit,
-      triggerKind: 'proactive_cache_idle',
-      now,
-    });
-  } catch (err) {
-    if (err instanceof ContextTrimExhaustedError) {
-      inputs.audit.write(CONTEXT_TRIM_EXHAUSTED,
-        `trigger=proactive`,
-        `reason=${err.message}`,
-      );
-      return null;
-    }
-    throw err;
-  }
+  return await trimAndPersist({
+    messages: inputs.messages,
+    systemPrompt: inputs.systemPrompt,
+    toolsForLLM: inputs.toolsForLLM,
+    contextWindow: inputs.contextWindow,
+    recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+    previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+    filterSubtypes: inputs.filterSubtypes,
+    dialogStore: inputs.dialogStore,
+    audit: inputs.audit,
+    triggerKind: 'proactive_cache_idle',
+    policy: buildProactiveTrimPolicy(inputs.contextWindow),
+    now,
+  });
 }

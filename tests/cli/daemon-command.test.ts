@@ -115,6 +115,11 @@ vi.mock('fs', async () => {
     readFileSync: vi.fn((path: string) => {
       if (path.endsWith('AGENTS.md')) return 'test-prompt-content';
       if (path.endsWith('pid')) return String(process.pid);
+      if (path.endsWith('context-blocked-state.json')) {
+        const err = new Error(`ENOENT: no such file or directory, open '${path}'`);
+        (err as NodeJS.ErrnoException).code = 'ENOENT';
+        throw err;
+      }
       throw new Error(`unexpected readFileSync: ${path}`);
     }),
     unlinkSync: vi.fn(),

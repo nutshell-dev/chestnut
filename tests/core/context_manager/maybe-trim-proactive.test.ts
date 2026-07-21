@@ -45,7 +45,7 @@ describe('maybeTrimProactive', () => {
   it('1. 首次不触发（lastLLMCallAt = 0）', async () => {
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const result = await maybeTrimProactive(makeInputs({ lastLLMCallAt: 0 }));
     expect(result).toBeNull();
     expect(spy).not.toHaveBeenCalled();
@@ -54,7 +54,7 @@ describe('maybeTrimProactive', () => {
   it('2. 缓存仍有效（idle ≤ CACHE_TTL_MS）不触发', async () => {
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const result = await maybeTrimProactive(
       makeInputs({ lastLLMCallAt: NOW - CACHE_TTL_MS + 1 }),
     );
@@ -65,7 +65,7 @@ describe('maybeTrimProactive', () => {
   it('3. idle 恰等于 CACHE_TTL_MS 不触发', async () => {
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const result = await maybeTrimProactive(makeInputs({ lastLLMCallAt: NOW - CACHE_TTL_MS }));
     expect(result).toBeNull();
     expect(spy).not.toHaveBeenCalled();
@@ -77,7 +77,7 @@ describe('maybeTrimProactive', () => {
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(1_499); // target = 1500
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const result = await maybeTrimProactive(makeInputs({ contextWindow: 2_000 }));
     expect(result).toBeNull();
     expect(spy).not.toHaveBeenCalled();
@@ -89,7 +89,7 @@ describe('maybeTrimProactive', () => {
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const result = await maybeTrimProactive(makeInputs({ contextWindow: 2_000 }));
     expect(result).not.toBeNull();
     expect(spy).toHaveBeenCalledTimes(1);
@@ -101,7 +101,7 @@ describe('maybeTrimProactive', () => {
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     await maybeTrimProactive(makeInputs({ contextWindow: 2_000 }));
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({ triggerKind: 'proactive_cache_idle' }),
@@ -114,7 +114,7 @@ describe('maybeTrimProactive', () => {
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const customNow = NOW + 123_456;
     await maybeTrimProactive(
       makeInputs({
@@ -126,7 +126,7 @@ describe('maybeTrimProactive', () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ now: customNow }));
   });
 
-  it('8. trimAndPersist throw ContextTrimExhaustedError 上抛', async () => {
+  it('8. trimAndPersist throw 上抛', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
@@ -141,7 +141,7 @@ describe('maybeTrimProactive', () => {
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(1_500); // target = 1500
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const result = await maybeTrimProactive(makeInputs({ contextWindow: 2_000 }));
     expect(result).not.toBeNull();
     expect(spy).toHaveBeenCalledTimes(1);
@@ -153,9 +153,24 @@ describe('maybeTrimProactive', () => {
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ newMessages: [], archived: true, estimatedTokensAfter: 0 });
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
     const filterSubtypes = new Set(['subtypeA']);
     await maybeTrimProactive(makeInputs({ contextWindow: 2_000, filterSubtypes }));
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ filterSubtypes }));
+  });
+
+  it('11. proactive policy 透传', async () => {
+    vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
+    const spy = vi
+      .spyOn(trimAndPersistModule, 'trimAndPersist')
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
+    await maybeTrimProactive(makeInputs({ contextWindow: 2_000 }));
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policy: expect.objectContaining({ kind: 'proactive', targetCompleteTokens: 1_500 }),
+      }),
+    );
   });
 });

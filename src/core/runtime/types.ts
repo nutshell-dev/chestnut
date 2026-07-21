@@ -24,6 +24,7 @@ import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { ContextManagerRuntimeConfig } from '../step-executor/index.js';
 import type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { InboxMessage } from '../../foundation/messaging/index.js';
 
 
 
@@ -145,6 +146,11 @@ export interface IRuntimeLifecycle {
   getAuditWriter(): AuditLog;
 }
 
+export interface PendingTurnFacts {
+  addressed: InboxMessage[];
+  controls: InboxMessage[];
+}
+
 export interface IRuntimeDaemon {
   processTurn(
     messages: Message[],
@@ -154,6 +160,8 @@ export interface IRuntimeDaemon {
   ): Promise<TurnResult>;
   processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult>;
   abort(): void;
+  peekPendingTurnFacts(): Promise<PendingTurnFacts>;
+  computeTurnRequestFingerprint(): Promise<string>;
 }
 
 

@@ -17,6 +17,21 @@ export interface LoopErrorContext {
   saveLlmRetryState: () => void;
 }
 
+export interface ContextBlockedState {
+  version: 1;
+  reason: 'no_progress' | 'policy_conflict';
+  requestFingerprint: string;
+  before: number;
+  after: number;
+  blockedAt: string;
+}
+
+export type ContextGateDecision =
+  | { kind: 'open'; fingerprint: string }
+  | { kind: 'released'; previous: ContextBlockedState; fingerprint: string }
+  | { kind: 'blocked'; state: ContextBlockedState }
+  | { kind: 'indeterminate'; error: import('../../foundation/messaging/index.js').PendingViewError };
+
 export interface EventLoopOptions {
   runtime: Runtime;
   fsFactory: (baseDir: string) => FileSystem;

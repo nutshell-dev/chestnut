@@ -96,6 +96,8 @@ describe('EventLoop.run', () => {
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -134,6 +136,8 @@ describe('EventLoop.run', () => {
       nackHandles,
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -143,14 +147,20 @@ describe('EventLoop.run', () => {
     expect(nackHandles).not.toHaveBeenCalled();
   });
 
-  it('context_exceeded 错误走 nack + 退避 + re-drain 全新 turn，耗尽后 cooldown', async () => {
+  it('context_exceeded + trim progress 进入 retry 退避，不进入 cooldown 清零周期', async () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
     const ctxErr = new LLMContextExceededError('test-provider', 400, 'context length exceeded');
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: ctxErr }));
-    const reactiveTrim = vi.fn().mockResolvedValue(undefined);
     const nackHandles = vi.fn().mockResolvedValue(undefined);
+    const reactiveTrim = vi.fn().mockResolvedValue({
+      status: 'progress',
+      before: 1000,
+      after: 900,
+      newMessages: [],
+      archived: true,
+    });
 
     const runtime = {
       drainInbox: vi.fn().mockResolvedValue({
@@ -169,38 +179,83 @@ describe('EventLoop.run', () => {
       nackHandles,
       reactiveTrim,
       abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
 
-    // 第 1 轮：processTurn 失败 → nack + reactive trim + llmRetry
-    const run1 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(20);
-    await run1;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(reactiveTrim).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-
-    // 后续 3 轮 retry（LLM_MAX_RETRIES=3），每次 drain 重投同一消息
     for (let i = 0; i < 3; i++) {
       const run = eventLoop.run();
       await vi.advanceTimersByTimeAsync(100);
       await run;
     }
 
-    expect(processTurn).toHaveBeenCalledTimes(4);
+    expect(processTurn).toHaveBeenCalledTimes(3);
     expect(reactiveTrim).toHaveBeenCalledTimes(3);
-    expect(nackHandles).toHaveBeenCalledTimes(4);
+    expect(nackHandles).toHaveBeenCalledTimes(3);
 
     const retryEntries = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY);
     expect(retryEntries.length).toBe(3);
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN).length).toBe(0);
+  });
 
-    const cooldownEntries = audit.entries.filter(
-      e => e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN &&
-        e.some(c => String(c).includes('context_exceeded_exhausted')),
-    );
-    expect(cooldownEntries.length).toBeGreaterThan(0);
+  it('context_exceeded + trim no_progress 进入 blocked gate，后续 tick 不再 drain/ack/nack', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const ctxErr = new LLMContextExceededError('test-provider', 400, 'context length exceeded');
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: ctxErr }));
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+    const reactiveTrim = vi.fn().mockResolvedValue({
+      status: 'no_progress',
+      before: 1000,
+      after: 1000,
+      reason: 'already_within_target',
+      newMessages: [],
+      archived: false,
+    });
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles,
+      reactiveTrim,
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    const run1 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run1;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(reactiveTrim).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(true);
+
+    // 后续 tick：gate blocked，不会 drain/ack/nack/processTurn
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(1);
   });
 
   it('chain reaction 触发 eventloop_iteration type=chain', async () => {
@@ -238,6 +293,8 @@ describe('EventLoop.run', () => {
       nackHandles: vi.fn().mockResolvedValue(undefined),
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -384,6 +441,8 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       getCurrentTraceId: vi.fn().mockReturnValue(undefined),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
     } as unknown as Runtime;
 
     const eventLoop = new EventLoop({

@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { randomHex } from '../../foundation/node-utils/index.js';
+import { randomHex, sha256Hex } from '../../foundation/node-utils/index.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
@@ -46,16 +46,18 @@ import {
   type IRuntimeLifecycle,
   type IRuntimeDaemon,
   type TurnResult,
+  type PendingTurnFacts,
 } from './types.js';
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import {
   maybeTrimProactive,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
-  CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
+  REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+  buildReactiveTrimPolicy,
+  type ContextTrimOutcome,
 } from '../context_manager/index.js';
 import { trimAndPersist } from '../context_manager/trim-and-persist.js';
-import { ContextTrimExhaustedError } from '../context_manager/errors.js';
 
 
 import { formatTimeAgo } from './utils.js';
@@ -70,6 +72,21 @@ function auditError(
   ...extras: string[]
 ): void {
   audit.write(event, ...extras, `reason=${formatErr(err)}`);
+}
+
+function canonicalize(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(item => canonicalize(item ?? null));
+  const source = value as Record<string, unknown>;
+  const target: Record<string, unknown> = {};
+  for (const key of Object.keys(source).sort()) {
+    if (source[key] !== undefined) target[key] = canonicalize(source[key]);
+  }
+  return target;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
 }
 
 // phase 1406: extractLastTurn 迁出 → foundation/dialog-store/regime-switch.ts（per M#2 业务归属）
@@ -1028,6 +1045,57 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     return session.messages;
   }
 
+  /**
+   * Phase 1153 Step C: read a stable, non-consuming view of pending inbox facts.
+   * Controls (reload_llm_config) are included in the fingerprint because they can
+   * change provider configuration and therefore must unblock a gated claw.
+   */
+  async peekPendingTurnFacts(): Promise<PendingTurnFacts> {
+    if (!this.inboxReader) {
+      throw new Error('Runtime not initialized: inboxReader unavailable');
+    }
+    const view = await this.inboxReader.peekPending();
+    const controls = view.entries
+      .filter(e => e.message.type === RELOAD_LLM_CONFIG_MESSAGE_TYPE)
+      .map(e => e.message);
+    const addressed = view.entries
+      .filter(e => e.message.type !== RELOAD_LLM_CONFIG_MESSAGE_TYPE)
+      .filter(e => !e.message.to || e.message.to === this.options.clawId)
+      .map(e => e.message);
+    return { addressed, controls };
+  }
+
+  /**
+   * Phase 1153 Step C: canonical SHA-256 fingerprint of the request that would be
+   * sent to the LLM if drain/processing proceeded now. Any material change to
+   * session, system prompt, tools, pending addressed messages, controls, provider,
+   * or trim policy changes the fingerprint and releases a blocked state.
+   */
+  async computeTurnRequestFingerprint(): Promise<string> {
+    const providerInfo = this.llm.getProviderInfo?.();
+    const primary = this.options.llmConfig.primary;
+    const facts = {
+      version: 1,
+      sessionMessages: await this.getMessages(),
+      systemPrompt: await this.getSystemPrompt(),
+      tools: this.getToolsForLLM(),
+      pending: await this.peekPendingTurnFacts(),
+      provider: {
+        name: providerInfo?.name ?? primary.name,
+        model: providerInfo?.model ?? primary.model,
+        contextWindow: resolveContextWindow(providerInfo?.model ?? primary.model),
+        explicitMaxTokens: primary.maxTokens ?? 0,
+      },
+      trimPolicy: {
+        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+        retentionFloorRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+        filterSubtypes: [...(this.contextManagerConfig?.filterSubtypes ?? new Set<string>())].sort(),
+        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+      },
+    };
+    return sha256Hex(canonicalJson(facts));
+  }
+
   /** Proactive context trim before a turn; returns the (possibly trimmed) messages. */
   async proactiveTrimIfNeeded(
     messages: Message[],
@@ -1052,10 +1120,17 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     return trimResult ? trimResult.newMessages : messages;
   }
 
-  /** Reactive context trim for the current session (in-place). */
-  async reactiveTrim(): Promise<void> {
+  /** Reactive context trim for the current session; returns stable outcome for EventLoop routing. */
+  async reactiveTrim(): Promise<ContextTrimOutcome> {
     if (!this.contextManagerConfig || !this.sessionManager) {
-      return;
+      return {
+        status: 'no_progress',
+        before: 0,
+        after: 0,
+        reason: 'already_within_target',
+        newMessages: [],
+        archived: false,
+      };
     }
     const loadResult = await this.sessionManager.load();
     if (loadResult.source === 'io_error') {
@@ -1070,32 +1145,32 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       `provider=${providerInfo?.name ?? 'unknown'}`,
       `trace_id=${String(this.execContext?.trace_id ?? '')}`,
     );
-    try {
-      await trimAndPersist({
-        messages: session.messages,
-        systemPrompt: session.systemPrompt,
-        toolsForLLM: tools,
+    const outcome = await trimAndPersist({
+      messages: session.messages,
+      systemPrompt: session.systemPrompt,
+      toolsForLLM: tools,
+      contextWindow,
+      recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+      previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+      filterSubtypes: this.contextManagerConfig.filterSubtypes,
+      dialogStore: this.sessionManager,
+      audit: this.auditWriter,
+      triggerKind: 'reactive_overflow',
+      policy: buildReactiveTrimPolicy({
         contextWindow,
-        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-        targetRatio: CONTEXT_TRIM_TARGET_RATIO,
-        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-        filterSubtypes: this.contextManagerConfig.filterSubtypes,
-        dialogStore: this.sessionManager,
-        audit: this.auditWriter,
-        triggerKind: 'reactive_overflow',
-      });
-    } catch (trimErr) {
+        explicitMaxTokens: this.options.llmConfig.primary.maxTokens,
+      }),
+    });
+    if (outcome.status === 'no_progress' || outcome.status === 'policy_conflict') {
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_EXHAUSTED,
         `provider=${providerInfo?.name ?? 'unknown'}`,
         `trace_id=${String(this.execContext?.trace_id ?? '')}`,
-        `error=${formatErr(trimErr)}`,
+        `status=${outcome.status}`,
+        `reason=${outcome.reason}`,
       );
-      if (trimErr instanceof ContextTrimExhaustedError) {
-        return; // trim 裁不动不是错误，剩余交给 LLM 处理
-      }
-      throw trimErr;
     }
+    return outcome;
   }
 
   private async ensureDirectories(_clawDir: string): Promise<void> {

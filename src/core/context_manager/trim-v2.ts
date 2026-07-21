@@ -1,36 +1,90 @@
 /**
  * @module L4.ContextManager.TrimV2
- * 新裁剪算法、phase 440 实施 phase 421 ratify 的 P1/P1b/P2/P3/P4 + 不动 8 件硬约束。
+ * 新裁剪算法、phase 440 实施 phase 421 ratify 的 P1/P1b/P2/P3/P4 + reactive P5。
  */
 
 import type { Message, ContentBlock } from '../../foundation/llm-provider/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/token-estimator.js';
-import { ContextTrimExhaustedError } from './errors.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
-  CONTEXT_TRIM_EXHAUSTED,
 } from './audit-events.js';
+import {
+  CONTEXT_TRIM_TARGET_RATIO,
+  REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+} from './constants.js';
 
 export type AuditWriter = { write(event: string, ...details: string[]): void };
+
+export type TrimCandidateOutcome =
+  | {
+      status: 'target_reached' | 'progress';
+      before: number;
+      after: number;
+      newMessages: Message[];
+    }
+  | {
+      status: 'no_progress';
+      before: number;
+      after: number;
+      reason: 'already_within_target' | 'transform_did_not_reduce';
+      newMessages: Message[];
+    }
+  | {
+      status: 'policy_conflict';
+      before: number;
+      after: number;
+      floor: number;
+      ceiling: number;
+      reason: 'empty_legal_interval' | 'atomic_turn_boundary' | 'fixed_context_exceeds_ceiling';
+      newMessages: Message[];
+    };
+
+export type ContextTrimOutcome =
+  | (Extract<TrimCandidateOutcome, { status: 'target_reached' | 'progress' }> & {
+      archived: true;
+    })
+  | (Extract<TrimCandidateOutcome, { status: 'no_progress' | 'policy_conflict' }> & {
+      archived: false;
+    });
+
+export type TrimPolicy =
+  | { kind: 'proactive'; targetCompleteTokens: number }
+  | {
+      kind: 'reactive';
+      completeFloorTokens: number;
+      completeCeilingTokens: number;
+    };
 
 export interface TrimV2Options {
   recentWindowMs: number;
   previewBytes: number;
   filterSubtypes: ReadonlySet<string>;
-  targetMessagesTokens: number;
+  fixedTokens: number;
+  policy: TrimPolicy;
   now: number;
   audit?: AuditWriter;
 }
 
 export interface TrimV2Result {
-  newMessages: Message[];
+  outcome: TrimCandidateOutcome;
+  droppedMessages: Message[];
+  metrics: {
+    droppedSystemMessages: number;
+    collapsedToolResults: number;
+    collapsedToolUseFields: number;
+    supersededRedundantResults: number;
+    summaryMessageInjected: boolean;
+  };
+}
+
+interface P14Candidate {
+  messages: Message[];
   droppedSystemMessages: number;
   collapsedToolResults: number;
   collapsedToolUseFields: number;
   supersededRedundantResults: number;
   summaryMessageInjected: boolean;
-  estimatedTokensAfter: number;
 }
 
 interface SubtypeStat {
@@ -43,42 +97,235 @@ interface ToolStat {
   byTool: Record<string, number>;
 }
 
+/** 构造 reactive 裁剪策略：完整 prompt 必须落在 [floor, ceiling]。 */
+export function buildReactiveTrimPolicy(input: {
+  contextWindow: number;
+  explicitMaxTokens: number | undefined;
+}): Extract<TrimPolicy, { kind: 'reactive' }> {
+  const reserveOutputTokens = input.explicitMaxTokens ?? 0;
+  return {
+    kind: 'reactive',
+    completeFloorTokens: Math.floor(
+      input.contextWindow * REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+    ),
+    completeCeilingTokens: input.contextWindow - reserveOutputTokens,
+  };
+}
+
+/** 构造 proactive 顺手裁策略：消息历史目标上限。 */
+export function buildProactiveTrimPolicy(contextWindow: number): Extract<TrimPolicy, { kind: 'proactive' }> {
+  return {
+    kind: 'proactive',
+    targetCompleteTokens: Math.floor(contextWindow * CONTEXT_TRIM_TARGET_RATIO),
+  };
+}
+
 /**
- * 新裁剪算法、phase 440 实施 phase 421 ratify 的 P1/P1b/P2/P3/P4 + 不动 8 件硬约束。
+ * 新裁剪算法、phase 440 实施 phase 421 ratify 的 P1/P1b/P2/P3/P4 + reactive P5。
  *
  * pure function、不涉持久化（archive + save 由 trimAndPersist orchestration 承担）。
  *
  * 输入：messages（含 metadata）+ options。
- * 输出：newMessages 内存引用、可被 caller 替换自身 messages 引用。
- *
- * 失败：裁后仍超 targetMessagesTokens → throw ContextTrimExhaustedError。
+ * 输出：discriminated outcome + dropped messages + metrics。
  */
 export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV2Result {
-  const beforeTokens = estimateMessagesTokens(messages);
+  const before = opts.fixedTokens + estimateMessagesTokens(messages);
 
-  opts.audit?.write(CONTEXT_TRIM_STARTED, `before=${beforeTokens}`, `target=${opts.targetMessagesTokens}`);
+  const targetLabel =
+    opts.policy.kind === 'proactive'
+      ? `target=${opts.policy.targetCompleteTokens}`
+      : `floor=${opts.policy.completeFloorTokens},ceiling=${opts.policy.completeCeilingTokens}`;
+  opts.audit?.write(CONTEXT_TRIM_STARTED, `before=${before}`, `fixed=${opts.fixedTokens}`, targetLabel);
 
-  if (beforeTokens <= opts.targetMessagesTokens) {
-    return {
-      newMessages: [...messages],
-      droppedSystemMessages: 0,
-      collapsedToolResults: 0,
-      collapsedToolUseFields: 0,
-      supersededRedundantResults: 0,
-      summaryMessageInjected: false,
-      estimatedTokensAfter: beforeTokens,
-    };
+  const p14 = applyOlderMessageTransforms(messages, opts);
+  const p14After = opts.fixedTokens + estimateMessagesTokens(p14.messages);
+
+  let result: TrimV2Result;
+
+  if (opts.policy.kind === 'proactive') {
+    const status = p14After >= before
+      ? 'no_progress'
+      : p14After <= opts.policy.targetCompleteTokens
+        ? 'target_reached'
+        : 'progress';
+    result = makeTrimResult(status, before, p14After, p14, opts.policy);
+  } else {
+    // reactive: P1-P4 先算；只要仍超 ceiling 就进入 P5，不因 P1-P4 summary 增加而提前 no_progress
+    if (opts.policy.completeFloorTokens > opts.policy.completeCeilingTokens) {
+      result = makePolicyConflict(
+        p14,
+        before,
+        p14After,
+        opts.policy,
+        'empty_legal_interval',
+      );
+    } else if (p14After <= opts.policy.completeCeilingTokens) {
+      const status = p14After < before ? 'target_reached' : 'no_progress';
+      result = makeTrimResult(status, before, p14After, p14, opts.policy);
+    } else {
+      result = trimRecentCompleteTurns(p14, before, opts);
+    }
   }
 
+  // Emit COMPLETED audit for successful trims; EXHAUSTED audit for no-progress is optional.
+  if (result.outcome.status === 'target_reached' || result.outcome.status === 'progress') {
+    opts.audit?.write(
+      CONTEXT_TRIM_COMPLETED,
+      `before=${before}`,
+      `after=${result.outcome.after}`,
+      `status=${result.outcome.status}`,
+      `system_msgs_dropped=${result.metrics.droppedSystemMessages}`,
+      `tool_results_collapsed=${result.metrics.collapsedToolResults}`,
+      `tool_use_fields_collapsed=${result.metrics.collapsedToolUseFields}`,
+      `redundant_results_superseded=${result.metrics.supersededRedundantResults}`,
+      `summary_message_injected=${result.metrics.summaryMessageInjected ? 1 : 0}`,
+    );
+  }
+
+  return result;
+}
+
+function makeTrimResult(
+  status: 'target_reached' | 'progress' | 'no_progress',
+  before: number,
+  after: number,
+  p14: P14Candidate,
+  policy: TrimPolicy,
+): TrimV2Result {
+  const outcome: TrimCandidateOutcome =
+    status === 'no_progress'
+      ? {
+          status,
+          before,
+          after,
+          reason:
+            policy.kind === 'proactive' && after <= policy.targetCompleteTokens
+              ? 'already_within_target'
+              : 'transform_did_not_reduce',
+          newMessages: p14.messages,
+        }
+      : {
+          status,
+          before,
+          after,
+          newMessages: p14.messages,
+        };
+  return {
+    outcome,
+    droppedMessages: [],
+    metrics: {
+      droppedSystemMessages: p14.droppedSystemMessages,
+      collapsedToolResults: p14.collapsedToolResults,
+      collapsedToolUseFields: p14.collapsedToolUseFields,
+      supersededRedundantResults: p14.supersededRedundantResults,
+      summaryMessageInjected: p14.summaryMessageInjected,
+    },
+  };
+}
+
+function makePolicyConflict(
+  p14: P14Candidate,
+  before: number,
+  after: number,
+  policy: Extract<TrimPolicy, { kind: 'reactive' }>,
+  reason: 'empty_legal_interval' | 'atomic_turn_boundary' | 'fixed_context_exceeds_ceiling',
+): TrimV2Result {
+  return {
+    outcome: {
+      status: 'policy_conflict',
+      before,
+      after,
+      floor: policy.completeFloorTokens,
+      ceiling: policy.completeCeilingTokens,
+      reason,
+      newMessages: p14.messages,
+    },
+    droppedMessages: [],
+    metrics: {
+      droppedSystemMessages: p14.droppedSystemMessages,
+      collapsedToolResults: p14.collapsedToolResults,
+      collapsedToolUseFields: p14.collapsedToolUseFields,
+      supersededRedundantResults: p14.supersededRedundantResults,
+      summaryMessageInjected: p14.summaryMessageInjected,
+    },
+  };
+}
+
+interface MessageSegment {
+  start: number;
+  endExclusive: number;
+}
+
+function completeTurnSegments(messages: readonly Message[]): MessageSegment[] {
+  const starts: number[] = [0];
+  for (let i = 1; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'user' && m.origin === 'user') {
+      starts.push(i);
+    }
+  }
+  return starts.map((start, i) => ({
+    start,
+    endExclusive: starts[i + 1] ?? messages.length,
+  }));
+}
+
+function trimRecentCompleteTurns(
+  p14: P14Candidate,
+  before: number,
+  opts: TrimV2Options,
+): TrimV2Result {
+  if (opts.policy.kind !== 'reactive') {
+    throw new Error('trimRecentCompleteTurns requires reactive policy');
+  }
+
+  const segments = completeTurnSegments(p14.messages);
+  let best: { messages: Message[]; after: number; cut: number } | undefined;
+
+  for (let cut = 1; cut < segments.length; cut++) {
+    const candidate = p14.messages.slice(segments[cut].start);
+    const after = opts.fixedTokens + estimateMessagesTokens(candidate);
+    if (after < opts.policy.completeFloorTokens) continue;
+    if (after > opts.policy.completeCeilingTokens) continue;
+    if (!best || after > best.after) {
+      best = { messages: candidate, after, cut };
+    }
+  }
+
+  if (!best) {
+    const fixedExceeds = opts.fixedTokens > opts.policy.completeCeilingTokens;
+    return makePolicyConflict(
+      p14,
+      before,
+      opts.fixedTokens + estimateMessagesTokens(p14.messages),
+      opts.policy,
+      fixedExceeds ? 'fixed_context_exceeds_ceiling' : 'atomic_turn_boundary',
+    );
+  }
+
+  return {
+    outcome: {
+      status: 'target_reached',
+      before,
+      after: best.after,
+      newMessages: best.messages,
+    },
+    droppedMessages: p14.messages.slice(0, segments[best.cut].start),
+    metrics: {
+      droppedSystemMessages: p14.droppedSystemMessages,
+      collapsedToolResults: p14.collapsedToolResults,
+      collapsedToolUseFields: p14.collapsedToolUseFields,
+      supersededRedundantResults: p14.supersededRedundantResults,
+      summaryMessageInjected: p14.summaryMessageInjected,
+    },
+  };
+}
+
+function applyOlderMessageTransforms(
+  messages: readonly Message[],
+  opts: TrimV2Options,
+): P14Candidate {
   // 1. 算 24h 边界
-  //    anchor = max(addedAt) ?? opts.now（latest 活动时刻）
-  //    threshold = anchor - recentWindowMs
-  //
-  //    rationale (phase 757)：
-  //    - 频繁用户：latest_addedAt ≈ now、threshold ≈ now - 24h、行为同现行
-  //    - 几天没用回来：anchor = latest_addedAt（上次活动时刻）、threshold = 上次活动 - 24h
-  //      → 上次会话尾部 24h 完整保、用户回来连贯（DP6 不增加智能体负担）
-  //    - 无 addedAt（phase 436 之前老 dialog 升级前）→ 视为 24h 外可裁、archive 兜底（DP1 信息不丢）
   let latestAddedAtMs = 0;
   for (const m of messages) {
     if (m.addedAt !== undefined) {
@@ -95,7 +342,6 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
   for (let i = 0; i < messages.length; i++) {
     const addedAt = messages[i].addedAt;
     if (addedAt === undefined) {
-      // phase 757 改：无 addedAt 视为 24h 外可裁（不向后兼容、archive 兜底）
       olderIdx.push(i);
     } else {
       const ts = new Date(addedAt).getTime();
@@ -125,7 +371,7 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
   let collapsedToolUseFields = 0;
   let supersededRedundantResults = 0;
 
-  // P2 重复检测：scan 所有 tool_result、按 (tool_name + input hash) 分组、保最新、其余标 superseded
+  // P2 重复检测
   const supersededIds = new Set<string>();
   {
     const groups = new Map<string, string[]>();
@@ -217,41 +463,13 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
     newMessages.push(messages[idx]);
   }
 
-  // 6. 估算裁后 tokens、若仍超 → throw
-  const afterTokens = estimateMessagesTokens(newMessages);
-
-  if (afterTokens > opts.targetMessagesTokens) {
-    opts.audit?.write(
-      CONTEXT_TRIM_EXHAUSTED,
-      `before=${beforeTokens}`,
-      `after=${afterTokens}`,
-      `target=${opts.targetMessagesTokens}`,
-    );
-    throw new ContextTrimExhaustedError(
-      `Trim v2 exhausted: ${afterTokens} > ${opts.targetMessagesTokens}`,
-    );
-  }
-
-  // 7. emit COMPLETED audit（含 metrics）
-  opts.audit?.write(
-    CONTEXT_TRIM_COMPLETED,
-    `before=${beforeTokens}`,
-    `after=${afterTokens}`,
-    `system_msgs_dropped=${droppedSystemMessages}`,
-    `tool_results_collapsed=${collapsedToolResults}`,
-    `tool_use_fields_collapsed=${collapsedToolUseFields}`,
-    `redundant_results_superseded=${supersededRedundantResults}`,
-    `summary_message_injected=${summaryInjected ? 1 : 0}`,
-  );
-
   return {
-    newMessages,
+    messages: newMessages,
     droppedSystemMessages,
     collapsedToolResults,
     collapsedToolUseFields,
     supersededRedundantResults,
     summaryMessageInjected: summaryInjected,
-    estimatedTokensAfter: afterTokens,
   };
 }
 
@@ -447,3 +665,4 @@ function stableHash(obj: unknown): string {
   };
   return JSON.stringify(sortedKeys(obj));
 }
+

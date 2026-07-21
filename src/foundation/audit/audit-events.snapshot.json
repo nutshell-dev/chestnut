@@ -712,6 +712,10 @@
       "summon_write_by_contract_failed"
     ],
     "core_event-loop_audit-events": [
+      "eventloop_context_blocked",
+      "eventloop_context_blocked_gate",
+      "eventloop_context_blocked_peek_failed",
+      "eventloop_context_blocked_released",
       "eventloop_cooldown",
       "eventloop_fatal",
       "eventloop_iteration",

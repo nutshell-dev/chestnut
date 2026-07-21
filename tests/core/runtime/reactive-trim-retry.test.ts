@@ -22,10 +22,18 @@ import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig() {
   return {
-    provider: 'anthropic' as const,
-    model: 'claude-3-opus-20240229',
-    apiKey: 'test-key',
-    baseUrl: 'https://test.example.com',
+    primary: {
+      name: 'mock',
+      apiKey: 'test-key',
+      model: 'claude-3-opus-20240229',
+      maxTokens: 1024,
+      temperature: 0.7,
+      timeoutMs: 30_000,
+      apiFormat: 'anthropic' as const,
+    },
+    maxAttempts: 1,
+    retryDelayMs: 100,
+    events: { emit: () => {} },
   };
 }
 
@@ -88,9 +96,11 @@ describe('runtime reactive trim+retry path', () => {
   it('catches LLMContextExceededError → trim → retry succeeds', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached',
+      before: 1000,
+      after: 100,
       newMessages: [{ role: 'user', content: 'trimmed' } as Message],
       archived: true,
-      estimatedTokensAfter: 100,
     } as any);
 
     let runReactCalls = 0;
@@ -117,9 +127,11 @@ describe('runtime reactive trim+retry path', () => {
   it('throws after MAX_REACTIVE_TRIM_RETRIES exhausted', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached',
+      before: 1000,
+      after: 100,
       newMessages: [{ role: 'user', content: 'trimmed' } as Message],
       archived: true,
-      estimatedTokensAfter: 100,
     } as any);
 
     let runReactCalls = 0;
@@ -142,9 +154,12 @@ describe('runtime reactive trim+retry path', () => {
   it('non-context-exceeded errors NOT triggering retry', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'no_progress',
+      before: 1000,
+      after: 1000,
+      reason: 'already_within_target',
       newMessages: [],
       archived: false,
-      estimatedTokensAfter: 0,
     } as any);
 
     let runReactCalls = 0;
@@ -167,9 +182,11 @@ describe('runtime reactive trim+retry path', () => {
   it('SDK-path context-exceeded by message regex still triggers retry', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const trimSpy = vi.spyOn(trimAndPersistModule, 'trimAndPersist').mockResolvedValue({
+      status: 'target_reached',
+      before: 1000,
+      after: 100,
       newMessages: [{ role: 'user', content: 'trimmed' } as Message],
       archived: true,
-      estimatedTokensAfter: 100,
     } as any);
 
     let runReactCalls = 0;

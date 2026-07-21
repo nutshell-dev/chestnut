@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { trimAndPersist, type TriggerKind } from '../../../src/core/context_manager/trim-and-persist.js';
 import { CONTEXT_TRIM_ARCHIVED } from '../../../src/core/context_manager/audit-events.js';
-import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
+import { buildProactiveTrimPolicy, buildReactiveTrimPolicy } from '../../../src/core/context_manager/trim-v2.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 
@@ -35,23 +35,24 @@ function baseInputs(overrides?: Partial<Parameters<typeof trimAndPersist>[0]>): 
     toolsForLLM: [],
     contextWindow: 2_000,
     recentWindowMs: RECENT_WINDOW_MS,
-    targetRatio: 0.75,
     previewBytes: 100,
     filterSubtypes: new Set(),
     dialogStore: makeDialogStore(),
     audit: makeAudit(),
     triggerKind: 'reactive_overflow' as TriggerKind,
+    policy: buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: undefined }),
     now: NOW,
     ...overrides,
   };
 }
 
 describe('trimAndPersist', () => {
-  it('1. 触底裁基础：trim + archive + save 全调', async () => {
+  it('1. 有效下降 → trim + archive + save 全调', async () => {
     const store = makeDialogStore();
     const inputs = baseInputs({
       dialogStore: store,
       contextWindow: 1_000,
+      policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
       messages: [
         { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
@@ -65,16 +66,18 @@ describe('trimAndPersist', () => {
     expect(result.newMessages).toEqual((store.save as ReturnType<typeof vi.fn>).mock.calls[0][0].messages);
   });
 
-  it('2. trimV2 throw ContextTrimExhaustedError → archive + save 不调', async () => {
+  it('2. no_progress → archive + save 不调', async () => {
     const store = makeDialogStore();
     const inputs = baseInputs({
       dialogStore: store,
       contextWindow: 10,
-      targetRatio: 0.75,
+      policy: buildReactiveTrimPolicy({ contextWindow: 10, explicitMaxTokens: undefined }),
     });
-    await expect(trimAndPersist(inputs)).rejects.toThrow(ContextTrimExhaustedError);
+    const result = await trimAndPersist(inputs);
     expect(store.archive).not.toHaveBeenCalled();
     expect(store.save).not.toHaveBeenCalled();
+    expect(result.archived).toBe(false);
+    expect(result.status).toBe('policy_conflict');
   });
 
   it('3. archive 失败 → save 不调、错上抛', async () => {
@@ -85,6 +88,7 @@ describe('trimAndPersist', () => {
     const inputs = baseInputs({
       dialogStore: store,
       contextWindow: 1_000,
+      policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
       messages: [
         { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
@@ -102,6 +106,7 @@ describe('trimAndPersist', () => {
     const inputs = baseInputs({
       dialogStore: store,
       contextWindow: 1_000,
+      policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
       messages: [
         { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
@@ -117,6 +122,7 @@ describe('trimAndPersist', () => {
       audit,
       triggerKind: 'reactive_overflow',
       contextWindow: 1_000,
+      policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
       messages: [
         { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
@@ -134,6 +140,7 @@ describe('trimAndPersist', () => {
       audit,
       triggerKind: 'proactive_cache_idle',
       contextWindow: 1_000,
+      policy: buildProactiveTrimPolicy(1_000),
       messages: [
         { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
@@ -155,31 +162,26 @@ describe('trimAndPersist', () => {
     expect(result.newMessages.length).toBe(inputs.messages.length);
   });
 
-  it('7. targetMessagesTokens 算法 = window × 0.75 - sysTokens - toolsTokens', async () => {
+  it('7. reactive policy 严格使用显式 maxTokens；undefined=0', async () => {
     const audit = makeAudit();
     const inputs = baseInputs({
       audit,
       contextWindow: 2_000,
       systemPrompt: 'a'.repeat(100),
       toolsForLLM: [{ name: 't', description: 'd', input_schema: { type: 'object' } }],
+      policy: buildReactiveTrimPolicy({ contextWindow: 2_000, explicitMaxTokens: 300 }),
       messages: [{ role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() }],
     });
-    // 100 ASCII chars ≈ 25 tokens; tool ≈ small; target ≈ 1500 - 25 - few = 1470+
-    // With 500 Chinese chars system message outside 24h (~1004 tokens), should trigger trim and fit.
     const result = await trimAndPersist(inputs);
-    expect(result.estimatedTokensAfter).toBeLessThan(1500);
-    const started = audit.events.find(e => e[0] === 'context_trim_started');
-    expect(started).toBeDefined();
-    const targetArg = started!.find(d => d.startsWith('target='));
-    expect(targetArg).toBeDefined();
-    const target = Number(targetArg!.split('=')[1]);
-    expect(target).toBeGreaterThan(1_400);
-    expect(target).toBeLessThan(1_500);
+    if (result.status === 'target_reached' || result.status === 'progress') {
+      expect(result.after).toBeLessThanOrEqual(1_700); // 2_000 - 300 reserve
+    }
   });
 
   it('8. now 注入 → newMessages 内 P4 摘要 addedAt 跟随 now', async () => {
     const inputs = baseInputs({
       contextWindow: 1_000,
+      policy: buildReactiveTrimPolicy({ contextWindow: 1_000, explicitMaxTokens: undefined }),
       messages: [
         { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },

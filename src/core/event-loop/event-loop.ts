@@ -21,7 +21,9 @@ import {
   INBOX_FALLBACK_TIMEOUT_MS_DEFAULT,
   LLM_MAX_RETRIES,
   LLM_RETRY_INITIAL_DELAY_MS,
+  LLM_RETRY_MAX_DELAY_MS,
   LLM_RETRY_STATE_FILE,
+  CONTEXT_BLOCKED_STATE_FILE,
   REACT_CHAIN_MAX_ITERATIONS,
 } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js';
@@ -30,7 +32,8 @@ import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import { isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
-import type { EventLoopOptions } from './types.js';
+import { PendingViewError } from '../../foundation/messaging/index.js';
+import type { ContextBlockedState, ContextGateDecision, EventLoopOptions } from './types.js';
 
 export class EventLoop {
   private runtime: Runtime;
@@ -50,6 +53,10 @@ export class EventLoop {
   private llmRetryCount = 0;
   private llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
 
+  // Phase 1153 Step C: context-exceeded blocked state
+  private contextBlocked?: ContextBlockedState;
+  private waitAbortController?: AbortController;
+
   constructor(options: EventLoopOptions) {
     this.runtime = options.runtime;
     this.clawId = options.clawId;
@@ -64,10 +71,12 @@ export class EventLoop {
   }
 
   /**
-   * 启动时恢复（崩溃重启继续退避；clean stop 后跳过，保持默认值）。
+   * 启动时恢复：先加载/校验 context-blocked state（事实阻断不随 clean-stop 消失），
+   * 再加载 LLM retry state（clean stop 后跳过，保持默认值）。
    */
   async initialize(): Promise<void> {
     this.audit.write(EVENTLOOP_AUDIT_EVENTS.ITERATION, `context=initialize`, `claw_id=${this.clawId}`);
+    await this._loadContextBlockedState();
     const consumeMarker = (fs: FileSystem): boolean => {
       try {
         if (!fs.existsSync('clean-stop')) return false;
@@ -88,83 +97,47 @@ export class EventLoop {
   }
 
   /**
-   * 执行一轮事件循环：消费 inbox / 重试 / 等待消息。
+   * 执行一轮事件循环：调用前 gate → 消费 inbox / 重试 / 等待消息。
+   *
+   * Phase 1153 Step C: 只有 fingerprint 变化或从未 blocked 时才进入 drain+chain；
+   * no_progress/policy_conflict 会持久化 blocked state，后续 tick 在 drain 前 fail-closed。
    */
   async run(): Promise<void> {
     this.stopped = false;
-    const wrappedCallbacks = this.streamWriter
-      ? createStreamCallbacks(this.streamWriter, this.runtime)
-      : undefined;
+    this.waitAbortController = new AbortController();
 
     try {
-      // drain and process, with internal chaining
-      let chainIters = 0;
-      let chainTotal = 0;
-      let firstInjected = 0;
-
-      while (!this.stopped) {
-        const { injected, sources, count, addressedHandles } = await this.runtime.drainInbox();
-        if (count === 0) break;
-
-        if (chainIters === 0) {
-          firstInjected = count;
-        }
-        chainTotal += count;
-        chainIters++;
-
-        const systemPrompt = await this.runtime.getSystemPrompt();
-        const tools = this.runtime.getToolsForLLM();
-        const sessionMessages = await this.runtime.getMessages();
-        let messages = [...sessionMessages, ...injected];
-        messages = await this.runtime.proactiveTrimIfNeeded(messages, systemPrompt, tools);
-
-        wrappedCallbacks?.onTurnStart?.(sources);
-        const result = await this.runtime.processTurn(messages, systemPrompt, tools, wrappedCallbacks);
-
-        if (result.status === 'success') {
-          await this.runtime.ackHandles(addressedHandles, 'normal_turn_end');
-          this._resetLlmRetryState();
-          this._saveLlmRetryState();
-
-          if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {
-            this.audit.write(
-              EVENTLOOP_AUDIT_EVENTS.ITERATION,
-              `type=${LOOP_ITERATION_TYPES.chain_limited}`,
-              `injected=${firstInjected}`,
-              `chain_total=${chainTotal}`,
-            );
-            break;
-          }
-          // continue chain loop
-        } else if (result.status === 'interrupted') {
-          if (result.cause === 'idle_timeout') {
-            await this.runtime.nackHandles(addressedHandles, result.cause, 'graceful_interrupt');
-          } else {
-            await this.runtime.ackHandles(addressedHandles, 'graceful_interrupt');
-          }
-          break;
-        } else {
-          await this._handleFailedTurn(result, addressedHandles);
-          break;
-        }
+      const gate = await this._checkContextGate();
+      if (gate.kind === 'blocked' || gate.kind === 'indeterminate') {
+        this.audit.write(
+          gate.kind === 'blocked'
+            ? EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE
+            : EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_PEEK_FAILED,
+          `fingerprint=${this.contextBlocked?.requestFingerprint ?? ''}`,
+        );
+        await waitForInbox(
+          this.loopFs,
+          this.audit,
+          this.inboxPendingDir,
+          this.fallbackTimeoutMs,
+          this.waitAbortController.signal,
+        );
+        return;
+      }
+      if (gate.kind === 'released') {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED,
+          `old=${gate.previous.requestFingerprint}`,
+          `new=${gate.fingerprint}`,
+        );
       }
 
-      if (chainIters > 0) {
-        if (chainIters < REACT_CHAIN_MAX_ITERATIONS) {
-          this.audit.write(
-            EVENTLOOP_AUDIT_EVENTS.ITERATION,
-            `type=${LOOP_ITERATION_TYPES.chain}`,
-            `injected=${firstInjected}`,
-            `chain_total=${chainTotal}`,
-          );
-        }
-        await this.onBatchComplete?.();
-      } else {
-        await waitForInbox(this.loopFs, this.audit, this.inboxPendingDir, this.fallbackTimeoutMs);
-      }
+      await this._runOpenChain(gate.fingerprint);
     } catch (err) {
       // EventLoop-level unexpected error
       await this._dispatchError(err);
+    } finally {
+      this.waitAbortController = undefined;
     }
   }
 
@@ -173,12 +146,14 @@ export class EventLoop {
    */
   abort(): void {
     this.stopped = true;
+    this.waitAbortController?.abort();
     this.runtime.abort();
   }
 
   private async _handleFailedTurn(
     result: TurnResult,
     addressedHandles: InboxHandle[],
+    failedRequestFingerprint: string,
   ): Promise<void> {
     if (result.status !== 'failed') return;
     if (isAgentLoopCrashError(result.error)) {
@@ -188,14 +163,221 @@ export class EventLoop {
     } else {
       await this.runtime.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
     }
-    if (isContextExceededError(result.error) && this.llmRetryCount < LLM_MAX_RETRIES) {
-      try {
-        await this.runtime.reactiveTrim();
-      } catch {
-        // silent: reactive trim is best-effort; dispatchError below will emit cooldown/retry audit
-      }
+    if (isContextExceededError(result.error)) {
+      await this._handleContextExceeded(result.error, failedRequestFingerprint);
+      return;
     }
     await this._dispatchError(result.error);
+  }
+
+  /**
+   * Phase 1153 Step C: route reactive trim outcome.
+   * - target_reached/progress (and actually persisted) → bounded retry with backoff.
+   * - no_progress/policy_conflict → blocked state; retry state reset; no cooldown loop.
+   */
+  private async _handleContextExceeded(
+    error: unknown,
+    failedRequestFingerprint: string,
+  ): Promise<void> {
+    const outcome = await this.runtime.reactiveTrim();
+    switch (outcome.status) {
+      case 'target_reached':
+      case 'progress':
+        if (!outcome.archived || outcome.after >= outcome.before) {
+          throw new Error(`invalid persisted trim outcome: ${outcome.status}`);
+        }
+        await this._scheduleLlmRetry(error);
+        return;
+      case 'no_progress':
+      case 'policy_conflict':
+        this.contextBlocked = {
+          version: 1,
+          reason: outcome.status,
+          requestFingerprint: failedRequestFingerprint,
+          before: outcome.before,
+          after: outcome.after,
+          blockedAt: new Date().toISOString(),
+        };
+        this._saveContextBlockedState();
+        this._resetLlmRetryState();
+        this._saveLlmRetryState();
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED,
+          `reason=${outcome.status}`,
+          `fingerprint=${failedRequestFingerprint}`,
+        );
+        return;
+      default: {
+        const exhaustive: never = outcome;
+        throw new Error(`Unhandled trim outcome: ${JSON.stringify(exhaustive)}`);
+      }
+    }
+  }
+
+  private async _scheduleLlmRetry(error: unknown): Promise<void> {
+    this.llmRetryCount++;
+    this.audit.write(
+      EVENTLOOP_AUDIT_EVENTS.LLM_RETRY,
+      `attempt=${this.llmRetryCount}`,
+      `max=${LLM_MAX_RETRIES}`,
+      `delay_ms=${this.llmRetryDelayMs}`,
+      `error=${(error as Error).message}`,
+    );
+    await this._sleep(this.llmRetryDelayMs, this.waitAbortController?.signal);
+    this.llmRetryDelayMs = Math.min(this.llmRetryDelayMs * 2, LLM_RETRY_MAX_DELAY_MS);
+    this._saveLlmRetryState();
+  }
+
+  private _sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise(resolve => {
+      if (signal?.aborted) {
+        resolve();
+        return;
+      }
+      const timer = setTimeout(resolve, ms);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+  }
+
+  /**
+   * Phase 1153 Step C: pre-drain gate.
+   * - No blocked state → open with current fingerprint.
+   * - Blocked fingerprint unchanged → blocked (fail-closed, wait for inbox).
+   * - Blocked fingerprint changed → released (clear state, proceed once).
+   * - Peek failure → indeterminate (fail-closed, wait for inbox).
+   */
+  private async _checkContextGate(): Promise<ContextGateDecision> {
+    if (!this.contextBlocked) {
+      return { kind: 'open', fingerprint: await this.runtime.computeTurnRequestFingerprint() };
+    }
+    try {
+      const fingerprint = await this.runtime.computeTurnRequestFingerprint();
+      if (fingerprint === this.contextBlocked.requestFingerprint) {
+        return { kind: 'blocked', state: this.contextBlocked };
+      }
+      const previous = this.contextBlocked;
+      this._clearContextBlockedState();
+      return { kind: 'released', previous, fingerprint };
+    } catch (error) {
+      if (error instanceof PendingViewError) {
+        return { kind: 'indeterminate', error };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Phase 1153 Step C: open-chain execution with per-iteration gate.
+   * Each chain iteration recomputes the gate and binds the fingerprint to that
+   * turn's failure handling; the run-entry fingerprint is never reused across turns.
+   */
+  private async _runOpenChain(entryFingerprint: string): Promise<void> {
+    const wrappedCallbacks = this.streamWriter
+      ? createStreamCallbacks(this.streamWriter, this.runtime)
+      : undefined;
+
+    let chainIters = 0;
+    let chainTotal = 0;
+    let firstInjected = 0;
+    let turnFingerprint = entryFingerprint;
+
+    while (!this.stopped) {
+      if (chainIters > 0) {
+        const gate = await this._checkContextGate();
+        if (gate.kind === 'blocked' || gate.kind === 'indeterminate') {
+          this.audit.write(
+            gate.kind === 'blocked'
+              ? EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE
+              : EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_PEEK_FAILED,
+            `fingerprint=${this.contextBlocked?.requestFingerprint ?? ''}`,
+          );
+          await waitForInbox(
+            this.loopFs,
+            this.audit,
+            this.inboxPendingDir,
+            this.fallbackTimeoutMs,
+            this.waitAbortController?.signal,
+          );
+          return;
+        }
+        if (gate.kind === 'released') {
+          this.audit.write(
+            EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED,
+            `old=${gate.previous.requestFingerprint}`,
+            `new=${gate.fingerprint}`,
+          );
+        }
+        turnFingerprint = gate.fingerprint;
+      }
+
+      const { injected, sources, count, addressedHandles } = await this.runtime.drainInbox();
+      if (count === 0) break;
+
+      if (chainIters === 0) {
+        firstInjected = count;
+      }
+      chainTotal += count;
+      chainIters++;
+
+      const systemPrompt = await this.runtime.getSystemPrompt();
+      const tools = this.runtime.getToolsForLLM();
+      const sessionMessages = await this.runtime.getMessages();
+      let messages = [...sessionMessages, ...injected];
+      messages = await this.runtime.proactiveTrimIfNeeded(messages, systemPrompt, tools);
+
+      wrappedCallbacks?.onTurnStart?.(sources);
+      const result = await this.runtime.processTurn(messages, systemPrompt, tools, wrappedCallbacks);
+
+      if (result.status === 'success') {
+        await this.runtime.ackHandles(addressedHandles, 'normal_turn_end');
+        this._resetLlmRetryState();
+        this._saveLlmRetryState();
+
+        if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {
+          this.audit.write(
+            EVENTLOOP_AUDIT_EVENTS.ITERATION,
+            `type=${LOOP_ITERATION_TYPES.chain_limited}`,
+            `injected=${firstInjected}`,
+            `chain_total=${chainTotal}`,
+          );
+          break;
+        }
+        // continue chain loop
+      } else if (result.status === 'interrupted') {
+        if (result.cause === 'idle_timeout') {
+          await this.runtime.nackHandles(addressedHandles, result.cause, 'graceful_interrupt');
+        } else {
+          await this.runtime.ackHandles(addressedHandles, 'graceful_interrupt');
+        }
+        break;
+      } else {
+        await this._handleFailedTurn(result, addressedHandles, turnFingerprint);
+        break;
+      }
+    }
+
+    if (chainIters > 0) {
+      if (chainIters < REACT_CHAIN_MAX_ITERATIONS) {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.ITERATION,
+          `type=${LOOP_ITERATION_TYPES.chain}`,
+          `injected=${firstInjected}`,
+          `chain_total=${chainTotal}`,
+        );
+      }
+      await this.onBatchComplete?.();
+    } else {
+      await waitForInbox(
+        this.loopFs,
+        this.audit,
+        this.inboxPendingDir,
+        this.fallbackTimeoutMs,
+        this.waitAbortController?.signal,
+      );
+    }
   }
 
   private async _dispatchError(err: unknown): Promise<void> {
@@ -316,6 +498,100 @@ export class EventLoop {
         `context=loadLlmRetryState`,
         `reason=legacy_pending_ignored`,
       );
+    }
+  }
+
+  /**
+   * Phase 1153 Step C: load and validate context-blocked state.
+   * Invalid schema/version/reason/fingerprint → audit fatal and fail-closed (throw).
+   */
+  private async _loadContextBlockedState(): Promise<void> {
+    let raw: string | undefined;
+    try {
+      raw = this.agentFs.readSync(path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE));
+    } catch (e) {
+      if (!isFileNotFound(e)) {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.FATAL,
+          `context=loadContextBlockedState`,
+          `reason=read_failed`,
+          `error=${formatErr(e)}`,
+        );
+        throw new Error(`Failed to load context blocked state: ${formatErr(e)}`);
+      }
+      raw = undefined;
+    }
+
+    if (raw === undefined) return;
+
+    let saved: unknown;
+    try {
+      saved = JSON.parse(raw);
+    } catch (e) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=loadContextBlockedState`,
+        `reason=parse_failed`,
+        `error=${formatErr(e)}`,
+      );
+      throw new Error(`Failed to parse context blocked state: ${formatErr(e)}`);
+    }
+
+    if (!this._isValidContextBlockedState(saved)) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=loadContextBlockedState`,
+        `reason=schema_invalid`,
+        `actual=${JSON.stringify(saved)}`,
+      );
+      throw new Error('Invalid context blocked state schema');
+    }
+
+    this.contextBlocked = saved;
+    this._resetLlmRetryState();
+    this._saveLlmRetryState();
+  }
+
+  private _isValidContextBlockedState(saved: unknown): saved is ContextBlockedState {
+    if (typeof saved !== 'object' || saved === null) return false;
+    const s = saved as Record<string, unknown>;
+    if (s.version !== 1) return false;
+    if (s.reason !== 'no_progress' && s.reason !== 'policy_conflict') return false;
+    if (typeof s.requestFingerprint !== 'string' || s.requestFingerprint.length === 0) return false;
+    if (typeof s.before !== 'number' || typeof s.after !== 'number') return false;
+    if (typeof s.blockedAt !== 'string') return false;
+    return true;
+  }
+
+  private _saveContextBlockedState(): void {
+    if (!this.contextBlocked) return;
+    try {
+      this.agentFs.ensureDirSync(STATUS_SUBDIR);
+      this.agentFs.writeAtomicSync(
+        path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE),
+        JSON.stringify(this.contextBlocked),
+      );
+    } catch (e) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=saveContextBlockedState`,
+        `reason=${(e as Error).message}`,
+      );
+    }
+  }
+
+  private _clearContextBlockedState(): void {
+    this.contextBlocked = undefined;
+    try {
+      this.agentFs.deleteSync(path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE));
+    } catch (e) {
+      if (!isFileNotFound(e)) {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.FATAL,
+          `context=clearContextBlockedState`,
+          `reason=${(e as Error).message}`,
+        );
+      }
     }
   }
 

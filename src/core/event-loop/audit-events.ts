@@ -7,6 +7,14 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   COOLDOWN: 'eventloop_cooldown',
   /** 调度层异常 */
   FATAL: 'eventloop_fatal',
+  /** Phase 1153: context trim 无进展，进入 blocked 状态 */
+  CONTEXT_BLOCKED: 'eventloop_context_blocked',
+  /** Phase 1153: pre-drain gate 阻止本次 tick（same fingerprint） */
+  CONTEXT_BLOCKED_GATE: 'eventloop_context_blocked_gate',
+  /** Phase 1153: peek pending 失败导致 gate 无法判定 */
+  CONTEXT_BLOCKED_PEEK_FAILED: 'eventloop_context_blocked_peek_failed',
+  /** Phase 1153: blocked 状态因事实变化解除 */
+  CONTEXT_BLOCKED_RELEASED: 'eventloop_context_blocked_released',
 } as const;
 
 export const LOOP_ITERATION_TYPES = {

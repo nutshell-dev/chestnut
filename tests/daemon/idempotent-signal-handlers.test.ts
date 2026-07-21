@@ -50,12 +50,20 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
     selfRemovePid: vi.fn().mockResolvedValue(undefined),
   })),
   makeDaemonDir: (s: string) => s,
+  STATUS_SUBDIR: 'status',
   LockConflictError: class LockConflictError extends Error {},
 }));
 
 const mockFs = {
   list: vi.fn().mockResolvedValue([]),
-  readSync: vi.fn().mockReturnValue('test-agents-md'),
+  readSync: vi.fn((p: string) => {
+    if (p.includes('context-blocked-state.json')) {
+      const err = new Error('ENOENT') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    }
+    return 'test-agents-md';
+  }),
   delete: vi.fn().mockResolvedValue(undefined),
   resolve: vi.fn((...parts: string[]) => parts.join('/')),
   existsSync: vi.fn().mockReturnValue(false),
