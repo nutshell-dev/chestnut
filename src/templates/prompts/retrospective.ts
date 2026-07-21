@@ -30,9 +30,6 @@ ${contractYaml}
 
 你运行在 motion 进程里。目标 claw（${clawId}）的文件不在你的工作目录下。
 
-- **read 工具**：读取目标 claw 的文件时，必须带 \`claw\` 参数：\`{ "path": "clawspace/xxx.md", "claw": "${clawId}" }\`
-- **exec 工具**：同样运行在 motion 进程里，不能用来访问其他 claw 的文件系统（ls、cat 等路径均指向 motion 自己的目录）
-
 ---
 
 ## 复盘步骤
@@ -40,7 +37,7 @@ ${contractYaml}
 ### 第一步：读取执行结果
 
 \`\`\`
-chestnut contract show --claw ${clawId} --contract ${contractId}
+exec: { "command": "chestnut contract show --claw ${clawId} --contract ${contractId}" }
 \`\`\`
 
 查看各 subtask 的最终状态、重试次数、失败原因、验收 evidence。
@@ -48,14 +45,14 @@ chestnut contract show --claw ${clawId} --contract ${contractId}
 ### 第二步：还原工作过程
 
 \`\`\`
-chestnut claw ${clawId} trace --contract ${contractId}
+exec: { "command": "chestnut claw ${clawId} trace --contract ${contractId}" }
 \`\`\`
 
 阅读 claw 的完整工作过程（多轮执行，步骤统一编号 #1, #2, ...），包含每步工具调用的结果摘要。
 如某步骤摘要不够，需要看完整输入/输出时：
 
 \`\`\`
-chestnut claw ${clawId} trace --contract ${contractId} --step <n>
+exec: { "command": "chestnut claw ${clawId} trace --contract ${contractId} --step <n>" }
 \`\`\`
 
 ### 第三步：评估执行质量
@@ -74,7 +71,7 @@ ${skillsSummary}
 ` : ''}
 如果本次执行中发现了值得复用的工作模式，用 write 工具写入 dispatch-skill。
 
-**输出目录**：\`clawspace/dispatch-skills/<skill-name>/\`
+**输出目录**：\`dispatch-skills/<skill-name>/\`
 
 如果现有 dispatch-skills 中已有类似的，可以直接更新那个 skill；如果没有，则新建一个。
 如果总结出多点内容，可以写进多个 skill，或者写在同一个 skill 的不同部分。
@@ -125,5 +122,5 @@ description: |
 格式：3-6 行，包含：
 - 执行结果（通过/失败，重试情况）
 - 关键发现（执行质量、交付物质量、根因）
-- 是否写入了新 skill（若有，说明名称和内容方向）`.trim();
+- 是否新建或优化了 skill（若有，说明名称和内容方向）`.trim();
 }
