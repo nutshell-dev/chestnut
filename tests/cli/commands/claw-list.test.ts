@@ -243,4 +243,43 @@ describe('claw-list', () => {
     expect(parsed.running_count).toBe(1);
     expect(typeof parsed.as_of).toBe('string');
   });
+
+  // phase 1151: claw list must ignore regular files in claws/ container and use topology enumeration
+  it('ignores regular files in claws/ and only lists directory claws', async () => {
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      isAlive: vi.fn().mockReturnValue(false),
+      readPid: vi.fn().mockResolvedValue({ status: 'missing' }),
+    } as any);
+
+    vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
+      const sp = String(p);
+      if (sp.includes('.DS_Store/config.yaml')) {
+        const err = Object.assign(new Error(`ENOTDIR: not a directory, access '${sp}'`), { code: 'ENOTDIR' });
+        throw err;
+      }
+      if (sp.endsWith('config.yaml')) return true;
+      if (sp.includes('contract/active') || sp.includes('contract/paused')) return false;
+      return true;
+    });
+
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
+      const sp = String(p);
+      if (sp.endsWith('claws')) {
+        return [
+          { name: 'claw-a', isDirectory: () => true, isFile: () => false },
+          { name: '.DS_Store', isDirectory: () => false, isFile: () => true },
+        ] as any;
+      }
+      if (sp.endsWith('outbox/pending')) return [] as any;
+      if (sp.includes('contract')) return [] as any;
+      throw new Error(`Unexpected readdirSync: ${sp}`);
+    });
+
+    await expect(listCommand({ fsFactory })).resolves.not.toThrow();
+
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toMatch(/claw-a/);
+    expect(output).not.toMatch(/\.DS_Store/);
+    expect(output).toMatch(/Total: 1 claw/);
+  });
 });

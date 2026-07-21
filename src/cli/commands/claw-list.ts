@@ -4,7 +4,10 @@
  */
 
 import * as path from 'path';
-import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
+import {
+  enumerateClaws,
+  resolveClawDaemonDir,
+} from '../../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../../assembly/config/config-load.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -169,7 +172,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
     baseDirFs.ensureDirSync(clawsDirName);
   }
   const clawsDirFs = deps.fsFactory(clawsDir);
-  const entries = clawsDirFs.listSync('.', { includeDirs: true }).map(e => e.name);
+  const entries = enumerateClaws(clawsDirFs, '.');
   const claws: ClawEntry[] = [];
   const diagnostics: { claw: string; field: string; reason: string }[] = [];
 
