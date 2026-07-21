@@ -12,12 +12,17 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
 import { waitForInbox } from '../../src/core/event-loop/inbox-watcher.js';
+import { EventLoop } from '../../src/core/event-loop/index.js';
+import { EVENTLOOP_AUDIT_EVENTS } from '../../src/core/event-loop/audit-events.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
-import type { EventLoop } from '../../src/core/event-loop/index.js';
+import type { Runtime, TurnResult } from '../../src/core/runtime/index.js';
 import type { Watcher, WatchEvent } from '../../src/foundation/file-watcher/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
+import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/index.js';
+import type { Message, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
+import type { InboxHandle, InboxMessage } from '../../src/foundation/messaging/types.js';
 
 
 
@@ -198,6 +203,83 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       await promise;
 
       expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('daemon 连续 blocked outer ticks 不会重复 drain/ack/nack/LLM', async () => {
+      const audit = createMockAudit();
+      const ctxErr = new LLMContextExceededError('test-provider', 400, 'context length exceeded');
+      const processTurn = vi.fn().mockResolvedValue({ status: 'failed', error: ctxErr } as TurnResult);
+      const nackHandles = vi.fn().mockResolvedValue(undefined);
+      const ackHandles = vi.fn().mockResolvedValue(undefined);
+      const reactiveTrim = vi.fn().mockResolvedValue({
+        status: 'no_progress',
+        before: 1000,
+        after: 1000,
+        reason: 'already_within_target',
+        newMessages: [],
+        archived: false,
+      });
+
+      let drainCall = 0;
+      const runtime = {
+        drainInbox: vi.fn().mockImplementation(async () => {
+          drainCall++;
+          if (drainCall === 1) {
+            return {
+              injected: [{ role: 'user', content: 'hi' } as Message],
+              sources: [{ text: 'hi', type: 'user_chat' }],
+              count: 1,
+              infos: [] as InboxMessage[],
+              addressedHandles: ['handle-1'],
+            };
+          }
+          return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
+        }),
+        getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+        getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+        getMessages: vi.fn().mockResolvedValue([] as Message[]),
+        proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+        processTurn,
+        ackHandles,
+        nackHandles,
+        reactiveTrim,
+        abort: vi.fn(),
+        computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+        peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      } as unknown as Runtime;
+
+      const eventLoop = new EventLoop({
+        runtime: runtime as Runtime,
+        fsFactory,
+        agentDir,
+        clawId: 'test-claw',
+        audit,
+        inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 30 },
+      });
+      const fakeWatcher = createFakeWatcher();
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test daemon]',
+        audit,
+        createWatcher: () => fakeWatcher,
+      });
+
+      // 等 daemon 跑至少 2 个 blocked ticks（fallback 30ms + overhead）
+      await new Promise(r => setTimeout(r, 250));
+      stop();
+      await promise;
+
+      expect(processTurn).toHaveBeenCalledTimes(1);
+      expect(runtime.drainInbox).toHaveBeenCalledTimes(1);
+      expect(nackHandles).toHaveBeenCalledTimes(1);
+      expect(ackHandles).not.toHaveBeenCalled();
+      expect(
+        audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length,
+      ).toBeGreaterThanOrEqual(2);
     });
   });
 });

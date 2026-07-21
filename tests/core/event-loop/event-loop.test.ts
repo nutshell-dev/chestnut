@@ -12,7 +12,9 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from '../../../src/core/event-loop/audit-events.js';
+import { LLM_MAX_RETRIES, LLM_RETRY_INITIAL_DELAY_MS } from '../../../src/core/event-loop/constants.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { LLMContextExceededError } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -69,6 +71,96 @@ describe('EventLoop.run', () => {
       audit: audit ?? createMockAudit(),
       inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
     });
+  }
+
+  function makeEventLoopWithFsOverrides(
+    runtime: Partial<Runtime>,
+    audit: AuditLog,
+    overrides: Partial<FileSystem>,
+  ): EventLoop {
+    const baseAgentFs = new NodeFileSystem({ baseDir: agentDir });
+    const agentFs = new Proxy(baseAgentFs, {
+      get(target, prop) {
+        if (prop in overrides) {
+          return (overrides as Record<string | symbol, unknown>)[prop];
+        }
+        const value = (target as Record<string | symbol, unknown>)[prop];
+        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as FileSystem;
+
+    const wrappedFsFactory = (dir: string) =>
+      path.resolve(dir) === path.resolve(agentDir) ? agentFs : fsFactory(dir);
+
+    return new EventLoop({
+      runtime: runtime as Runtime,
+      fsFactory: wrappedFsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+  }
+
+  function seedRetryState(count: number, delayMs = LLM_RETRY_INITIAL_DELAY_MS): void {
+    const statusDir = path.join(agentDir, 'status');
+    require('fs').mkdirSync(statusDir, { recursive: true });
+    require('fs').writeFileSync(
+      path.join(statusDir, 'llm-retry-state.json'),
+      JSON.stringify({ schema_version: 1, llmRetryCount: count, llmRetryDelayMs: delayMs, llmRetryPending: false }),
+    );
+  }
+
+  function seedBlockedState(state: Record<string, unknown>): void {
+    const statusDir = path.join(agentDir, 'status');
+    require('fs').mkdirSync(statusDir, { recursive: true });
+    require('fs').writeFileSync(
+      path.join(statusDir, 'context-blocked-state.json'),
+      JSON.stringify(state),
+    );
+  }
+
+  function readBlockedState(): Record<string, unknown> | undefined {
+    const p = path.join(agentDir, 'status', 'context-blocked-state.json');
+    if (!require('fs').existsSync(p)) return undefined;
+    return JSON.parse(require('fs').readFileSync(p, 'utf-8'));
+  }
+
+  function makeContextExceededRuntime(audit: AuditLog, reactiveTrimResult?: unknown) {
+    const ctxErr = new LLMContextExceededError('test-provider', 400, 'context length exceeded');
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: ctxErr }));
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+    const reactiveTrim = vi.fn().mockResolvedValue(reactiveTrimResult ?? {
+      status: 'no_progress',
+      before: 1000,
+      after: 1000,
+      reason: 'already_within_target',
+      newMessages: [],
+      archived: false,
+    });
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles,
+      reactiveTrim,
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    return { runtime, processTurn, nackHandles, reactiveTrim };
   }
 
   it('MaxStepsExceededError 不再 mutate Contract、仍 ackHandles 破热循环', async () => {
@@ -460,5 +552,223 @@ describe('EventLoop.run', () => {
     expect(streamEvents.length).toBeGreaterThanOrEqual(2);
     expect(streamEvents.some(e => e.type === 'turn_start')).toBe(true);
     expect(streamEvents.some(e => e.type === 'turn_end')).toBe(true);
+  });
+
+  it('blocked state write failure keeps in-memory gate and throws to fatal dispatch', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn, nackHandles } = makeContextExceededRuntime(audit);
+
+    const eventLoop = makeEventLoopWithFsOverrides(runtime, audit, {
+      writeAtomicSync: vi.fn(() => {
+        throw new Error('ENOSPC');
+      }),
+    });
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(false);
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('saveContextBlockedState')),
+    )).toBe(true);
+
+    // 后续 tick 因内存 gate 仍阻断，不 drain 不调 LLM
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocked state delete failure does not release or drain', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    seedBlockedState({
+      version: 1,
+      reason: 'no_progress',
+      requestFingerprint: 'old-fp',
+      before: 1000,
+      after: 1000,
+      blockedAt: new Date().toISOString(),
+    });
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn: vi.fn().mockResolvedValue(makeTurnResult('success')),
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles: vi.fn().mockResolvedValue(undefined),
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('changed-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoopWithFsOverrides(runtime, audit, {
+      deleteSync: vi.fn(() => {
+        throw new Error('EACCES');
+      }),
+    });
+    await eventLoop.initialize();
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(runtime.drainInbox).not.toHaveBeenCalled();
+    expect(runtime.processTurn).not.toHaveBeenCalled();
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED)).toBe(false);
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('clearContextBlockedState')),
+    )).toBe(true);
+  });
+
+  it('blocked delete ENOENT releases and emits released audit once', async () => {
+    const audit = createMockAudit();
+    seedBlockedState({
+      version: 1,
+      reason: 'no_progress',
+      requestFingerprint: 'old-fp',
+      before: 1000,
+      after: 1000,
+      blockedAt: new Date().toISOString(),
+    });
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
+    let drainCall = 0;
+    const runtime = {
+      drainInbox: vi.fn().mockImplementation(async () => {
+        drainCall++;
+        if (drainCall === 1) {
+          return {
+            injected: [{ role: 'user', content: 'hi' } as Message],
+            sources: [{ text: 'hi', type: 'user_chat' }],
+            count: 1,
+            infos: [] as InboxMessage[],
+            addressedHandles: ['handle-1'],
+          };
+        }
+        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles: vi.fn().mockResolvedValue(undefined),
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('changed-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = new EventLoop({
+      runtime: runtime as Runtime,
+      fsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+    await eventLoop.initialize();
+
+    // 模拟状态文件在 initialize 之后、run 之前被外部清理；_clearContextBlockedState 应视为已删除成功
+    require('fs').unlinkSync(path.join(agentDir, 'status', 'context-blocked-state.json'));
+
+    await eventLoop.run();
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED).length).toBe(1);
+  });
+
+  it('retry limit blocks current failed request before another trim', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    seedRetryState(LLM_MAX_RETRIES);
+    const { runtime, processTurn, reactiveTrim } = makeContextExceededRuntime(audit);
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(reactiveTrim).not.toHaveBeenCalled();
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    const blocked = readBlockedState();
+    expect(blocked).toBeDefined();
+    expect(blocked!.reason).toBe('retry_exhausted');
+    expect(blocked!.attempts).toBe(LLM_MAX_RETRIES);
+    expect(blocked!.maxAttempts).toBe(LLM_MAX_RETRIES);
+  });
+
+  it('restarts recover retry_exhausted blocked state and time does not release it', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    seedBlockedState({
+      version: 1,
+      reason: 'retry_exhausted',
+      requestFingerprint: 'stable-fp',
+      attempts: LLM_MAX_RETRIES,
+      maxAttempts: LLM_MAX_RETRIES,
+      blockedAt: new Date().toISOString(),
+    });
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles: vi.fn().mockResolvedValue(undefined),
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('stable-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    // 300s 推进不会解除 blocked
+    const run1 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await run1;
+
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(1);
+
+    // 再次 run 仍 blocked
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await run2;
+
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(2);
   });
 });

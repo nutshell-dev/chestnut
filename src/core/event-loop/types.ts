@@ -17,14 +17,28 @@ export interface LoopErrorContext {
   saveLlmRetryState: () => void;
 }
 
-export interface ContextBlockedState {
+export type ContextBlockedReason =
+  | 'no_progress'
+  | 'policy_conflict'
+  | 'retry_exhausted';
+
+interface ContextBlockedBase {
   version: 1;
-  reason: 'no_progress' | 'policy_conflict';
   requestFingerprint: string;
-  before: number;
-  after: number;
   blockedAt: string;
 }
+
+export type ContextBlockedState =
+  | (ContextBlockedBase & {
+      reason: 'no_progress' | 'policy_conflict';
+      before: number;
+      after: number;
+    })
+  | (ContextBlockedBase & {
+      reason: 'retry_exhausted';
+      attempts: number;
+      maxAttempts: number;
+    });
 
 export type ContextGateDecision =
   | { kind: 'open'; fingerprint: string }

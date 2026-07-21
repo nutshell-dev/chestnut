@@ -171,7 +171,8 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1153 Step C: route reactive trim outcome.
+   * Phase 1153 Step D: route reactive trim outcome with bounded retry.
+   * - If retry budget already exhausted, block the current failed request before another trim.
    * - target_reached/progress (and actually persisted) → bounded retry with backoff.
    * - no_progress/policy_conflict → blocked state; retry state reset; no cooldown loop.
    */
@@ -179,6 +180,20 @@ export class EventLoop {
     error: unknown,
     failedRequestFingerprint: string,
   ): Promise<void> {
+    if (this.llmRetryCount >= LLM_MAX_RETRIES) {
+      this._enterContextBlocked({
+        version: 1,
+        reason: 'retry_exhausted',
+        requestFingerprint: failedRequestFingerprint,
+        attempts: this.llmRetryCount,
+        maxAttempts: LLM_MAX_RETRIES,
+        blockedAt: new Date().toISOString(),
+      });
+      this._resetLlmRetryState();
+      this._saveLlmRetryState();
+      return;
+    }
+
     const outcome = await this.runtime.reactiveTrim();
     switch (outcome.status) {
       case 'target_reached':
@@ -190,22 +205,16 @@ export class EventLoop {
         return;
       case 'no_progress':
       case 'policy_conflict':
-        this.contextBlocked = {
+        this._enterContextBlocked({
           version: 1,
           reason: outcome.status,
           requestFingerprint: failedRequestFingerprint,
           before: outcome.before,
           after: outcome.after,
           blockedAt: new Date().toISOString(),
-        };
-        this._saveContextBlockedState();
+        });
         this._resetLlmRetryState();
         this._saveLlmRetryState();
-        this.audit.write(
-          EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED,
-          `reason=${outcome.status}`,
-          `fingerprint=${failedRequestFingerprint}`,
-        );
         return;
       default: {
         const exhaustive: never = outcome;
@@ -258,8 +267,7 @@ export class EventLoop {
       if (fingerprint === this.contextBlocked.requestFingerprint) {
         return { kind: 'blocked', state: this.contextBlocked };
       }
-      const previous = this.contextBlocked;
-      this._clearContextBlockedState();
+      const previous = this._clearContextBlockedState();
       return { kind: 'released', previous, fingerprint };
     } catch (error) {
       if (error instanceof PendingViewError) {
@@ -556,43 +564,77 @@ export class EventLoop {
     if (typeof saved !== 'object' || saved === null) return false;
     const s = saved as Record<string, unknown>;
     if (s.version !== 1) return false;
-    if (s.reason !== 'no_progress' && s.reason !== 'policy_conflict') return false;
     if (typeof s.requestFingerprint !== 'string' || s.requestFingerprint.length === 0) return false;
-    if (typeof s.before !== 'number' || typeof s.after !== 'number') return false;
     if (typeof s.blockedAt !== 'string') return false;
-    return true;
+
+    if (s.reason === 'no_progress' || s.reason === 'policy_conflict') {
+      if (typeof s.before !== 'number' || typeof s.after !== 'number') return false;
+      return true;
+    }
+
+    if (s.reason === 'retry_exhausted') {
+      if (typeof s.attempts !== 'number' || typeof s.maxAttempts !== 'number') return false;
+      return true;
+    }
+
+    return false;
   }
 
-  private _saveContextBlockedState(): void {
-    if (!this.contextBlocked) return;
+  /**
+   * Phase 1153 Step D: enter blocked state atomically.
+   * Memory is set first (fail-closed for current process), then persisted.
+   * Only emit CONTEXT_BLOCKED after atomic write succeeds; otherwise keep the
+   * in-memory gate and throw so the caller cannot report success.
+   */
+  private _enterContextBlocked(state: ContextBlockedState): void {
+    this.contextBlocked = state;
     try {
       this.agentFs.ensureDirSync(STATUS_SUBDIR);
       this.agentFs.writeAtomicSync(
         path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE),
-        JSON.stringify(this.contextBlocked),
+        JSON.stringify(state),
       );
-    } catch (e) {
+    } catch (error) {
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.FATAL,
         `context=saveContextBlockedState`,
-        `reason=${(e as Error).message}`,
+        `reason=${formatErr(error)}`,
       );
+      throw error;
     }
+    this.audit.write(
+      EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED,
+      `reason=${state.reason}`,
+      `fingerprint=${state.requestFingerprint}`,
+    );
   }
 
-  private _clearContextBlockedState(): void {
-    this.contextBlocked = undefined;
+  /**
+   * Phase 1153 Step D: clear persisted blocked state before clearing memory.
+   * Returns the previous state. Throws on non-ENOENT deletion errors so the
+   * caller cannot report released while the persisted gate remains.
+   */
+  private _clearContextBlockedState(): ContextBlockedState {
+    const previous = this.contextBlocked;
+    if (!previous) {
+      throw new Error('context blocked state is not set');
+    }
+
     try {
       this.agentFs.deleteSync(path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE));
-    } catch (e) {
-      if (!isFileNotFound(e)) {
+    } catch (error) {
+      if (!isFileNotFound(error)) {
         this.audit.write(
           EVENTLOOP_AUDIT_EVENTS.FATAL,
           `context=clearContextBlockedState`,
-          `reason=${(e as Error).message}`,
+          `reason=${formatErr(error)}`,
         );
+        throw error;
       }
     }
+
+    this.contextBlocked = undefined;
+    return previous;
   }
 
   /**
