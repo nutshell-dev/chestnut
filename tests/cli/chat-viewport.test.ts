@@ -446,4 +446,46 @@ describe('chat-viewport Phase 72', () => {
       expect(cleanupBlock).not.toContain("\\x1b[?1004l");
     });
   });
+
+  describe('Phase 1155 Step C: scrollback-preserving terminal adapter wiring', () => {
+    const viewportOnly = fs.readFileSync(viewportPath, 'utf-8');
+
+    it('应导入 createScrollbackPreservingTerminal', () => {
+      expect(viewportOnly).toContain(
+        "import { createScrollbackPreservingTerminal } from './chat-viewport-terminal.js';",
+      );
+    });
+
+    it('应先构造 observability 再构造 adapter，避免 onSuppress 闭包 TDZ', () => {
+      const obsIdx = viewportOnly.indexOf('createViewportObservability({ audit: options.audit })');
+      const rawIdx = viewportOnly.indexOf('new ProcessTerminal()');
+      expect(obsIdx).toBeGreaterThan(-1);
+      expect(rawIdx).toBeGreaterThan(-1);
+      expect(obsIdx).toBeLessThan(rawIdx);
+    });
+
+    it('TUI 应接收 adapter 包装后的 terminal，而非裸 ProcessTerminal', () => {
+      expect(viewportOnly).toMatch(
+        /const\s+terminal\s*=\s*createScrollbackPreservingTerminal\(\{[\s\S]*?\}\);\s*const\s+tui\s*=\s*new\s+TUI\(terminal\);/,
+      );
+    });
+
+    it('不应出现 new TUI(new ProcessTerminal()) 或 new TUI(rawTerminal)', () => {
+      expect(viewportOnly).not.toContain('new TUI(new ProcessTerminal()');
+      expect(viewportOnly).not.toContain('new TUI(rawTerminal');
+    });
+
+    it('onSuppress 应委托到 observability.recordScrollbackClearSuppressed', () => {
+      expect(viewportOnly).toContain(
+        'onSuppress: (count) => observability.recordScrollbackClearSuppressed(count)',
+      );
+    });
+
+    it('cleanup 仍通过 wrapper 调用 drainInput', () => {
+      const cleanupStart = viewportOnly.indexOf('await exitPromise;');
+      expect(cleanupStart).toBeGreaterThan(-1);
+      const cleanupBlock = viewportOnly.slice(cleanupStart);
+      expect(cleanupBlock).toContain('await terminal.drainInput()');
+    });
+  });
 });

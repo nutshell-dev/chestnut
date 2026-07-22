@@ -187,4 +187,51 @@ describe('chat-viewport-observability', () => {
     expect(normalRow).toContain('elapsed_ms=50');
     expect(normalRow.some((c) => typeof c === 'string' && c === 'orphan=1')).toBe(false);
   });
+
+  it('recordScrollbackClearSuppressed 按数量阈值聚合', () => {
+    const { log, observability } = makeDeps();
+    for (let i = 0; i < VIEWPORT_OBS_CONFIG.SCROLLBACK_CLEAR_BATCH_SIZE; i++) {
+      observability.recordScrollbackClearSuppressed(1);
+    }
+    expect(log).toHaveLength(1);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.SCROLLBACK_CLEAR_SUPPRESSED);
+    expect(log[0][1]).toBe(`count=${VIEWPORT_OBS_CONFIG.SCROLLBACK_CLEAR_BATCH_SIZE}`);
+    expect(log[0][2]).toMatch(/^window_ms=\d+$/);
+  });
+
+  it('recordScrollbackClearSuppressed 按时间阈值聚合', () => {
+    const { log, observability, advance } = makeDeps();
+    observability.recordScrollbackClearSuppressed(2);
+    advance(VIEWPORT_OBS_CONFIG.SCROLLBACK_CLEAR_FLUSH_MS - 1);
+    observability.recordScrollbackClearSuppressed(3);
+    expect(log).toHaveLength(0);
+
+    advance(2);
+    observability.recordScrollbackClearSuppressed(1);
+    expect(log).toHaveLength(1);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.SCROLLBACK_CLEAR_SUPPRESSED);
+    expect(log[0][1]).toBe('count=6');
+    expect(log[0][2]).toMatch(/^window_ms=\d+$/);
+  });
+
+  it('recordShutdown 先 flush scrollback_clear 再写 SHUTDOWN', () => {
+    const { log, observability } = makeDeps();
+    observability.recordScrollbackClearSuppressed(5);
+    expect(log).toHaveLength(0);
+
+    observability.recordShutdown('user_quit');
+    expect(log).toHaveLength(2);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.SCROLLBACK_CLEAR_SUPPRESSED);
+    expect(log[0][1]).toBe('count=5');
+    expect(log[1][0]).toBe(VIEWPORT_AUDIT_EVENTS.SHUTDOWN);
+  });
+
+  it('dispose 兜底 flush scrollback_clear', () => {
+    const { log, observability } = makeDeps();
+    observability.recordScrollbackClearSuppressed(7);
+    observability.dispose();
+    expect(log).toHaveLength(1);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.SCROLLBACK_CLEAR_SUPPRESSED);
+    expect(log[0][1]).toBe('count=7');
+  });
 });

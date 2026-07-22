@@ -22,6 +22,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
+import { createScrollbackPreservingTerminal } from './chat-viewport-terminal.js';
 import { CLAWS_DIR, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -130,7 +131,17 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   }));
 
   const streamPath = path.join(options.agentDir, STREAM_FILE);
-  const terminal = new ProcessTerminal();
+
+  // Phase 1155 Step C: observability 必须先于 terminal adapter 构造，
+  // 避免 onSuppress 闭包捕获未初始化的引用。
+  const observability = createViewportObservability({ audit: options.audit });
+
+  // Phase 1155 Step C: viewport Terminal 适配器，过滤 CSI 3J 以保留 scrollback。
+  const rawTerminal = new ProcessTerminal();
+  const terminal = createScrollbackPreservingTerminal({
+    inner: rawTerminal,
+    onSuppress: (count) => observability.recordScrollbackClearSuppressed(count),
+  });
   const tui = new TUI(terminal);
 
   // Editor 主题 — chat-viewport 不用 autocomplete，全部 identity 函数
@@ -154,8 +165,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // --- 命令注册表 ---
   const commandRegistry = new Map<string, ViewportCommand>();
   const registerCmd = (cmd: ViewportCommand) => commandRegistry.set(cmd.name, cmd);
-
-  const observability = createViewportObservability({ audit: options.audit });
 
   // 提前声明 — 防 TDZ
   let mainUI: MainTurnUIController;

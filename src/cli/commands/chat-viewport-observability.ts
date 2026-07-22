@@ -15,6 +15,8 @@ export const VIEWPORT_OBS_CONFIG = {
   INGEST_FLUSH_MS: 1000,
   RENDER_BATCH_SIZE: 20,
   RENDER_FLUSH_MS: 500,
+  SCROLLBACK_CLEAR_BATCH_SIZE: 50,
+  SCROLLBACK_CLEAR_FLUSH_MS: 1000,
 } as const;
 
 interface Deps {
@@ -36,10 +38,16 @@ interface RenderBatch {
   firstTs: number;
 }
 
+interface ScrollbackClearBatch {
+  count: number;
+  firstTs: number;
+}
+
 export function createViewportObservability(deps: Deps) {
   const now = deps.clock ?? (() => performance.now());
   let ingest: IngestBatch | null = null;
   let render: RenderBatch | null = null;
+  let scrollbackClear: ScrollbackClearBatch | null = null;
   let spinnerStartTs: number | null = null;
 
   const flushIngest = () => {
@@ -63,6 +71,16 @@ export function createViewportObservability(deps: Deps) {
       `suffix_lines=${render.lastSuffixLines}`,
     );
     render = null;
+  };
+
+  const flushScrollbackClear = () => {
+    if (!scrollbackClear) return;
+    deps.audit.write(
+      VIEWPORT_AUDIT_EVENTS.SCROLLBACK_CLEAR_SUPPRESSED,
+      `count=${scrollbackClear.count}`,
+      `window_ms=${now() - scrollbackClear.firstTs}`,
+    );
+    scrollbackClear = null;
   };
 
   const recordEvent = (eventType: string) => {
@@ -135,23 +153,38 @@ export function createViewportObservability(deps: Deps) {
     }
   };
 
+  const recordScrollbackClearSuppressed = (count: number) => {
+    const t = now();
+    if (!scrollbackClear) scrollbackClear = { count: 0, firstTs: t };
+    scrollbackClear.count += count;
+    if (
+      scrollbackClear.count >= VIEWPORT_OBS_CONFIG.SCROLLBACK_CLEAR_BATCH_SIZE ||
+      t - scrollbackClear.firstTs >= VIEWPORT_OBS_CONFIG.SCROLLBACK_CLEAR_FLUSH_MS
+    ) {
+      flushScrollbackClear();
+    }
+  };
+
   const recordShutdown = (
     reason: 'daemon_dead' | 'user_quit' | 'stream_end',
   ) => {
     flushIngest();
     flushRender();
+    flushScrollbackClear();
     deps.audit.write(VIEWPORT_AUDIT_EVENTS.SHUTDOWN, `reason=${reason}`);
   };
 
   const dispose = () => {
     flushIngest();
     flushRender();
+    flushScrollbackClear();
   };
 
   return {
     recordEvent,
     recordRender,
     recordSpinner,
+    recordScrollbackClearSuppressed,
     recordShutdown,
     dispose,
   };
