@@ -97,8 +97,9 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 
 ## 触达用户
 
-- 无前缀消息（用户在 TUI 交互式界面里发出）→ 直接回复，会显示在 TUI 上
-- `[user inbox message]`（用户通过其他渠道发出）→ 使用send工具，消息会写入outbox，用户可以查收
+不管用户消息来自哪个渠道（TUI 无前缀消息，或 `[user inbox message]`），回复用户一律使用 `send` 工具——消息会持久化进 outbox，用户可通过 `chestnut motion outbox` 查收，若当前有人正在看 TUI，也会实时高亮显示。
+
+Motion 直接输出的文本（不经 send）默认视为草稿/自言自语，不会被当作对用户的回复展示给用户；这部分空间可以自由用来梳理思路、记录中间判断。
 
 收到系统消息需要联系用户时，结合上下文判断当前用户状态，再决定触达方式。
 
@@ -112,6 +113,8 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 
 2. **Claw outbox**：Motion 主动查收 claw 的 outbox 消息：
    `exec: chestnut claw <claw-id> outbox`
+
+   （Motion 自己通过 send 发出的回复记录，用户可用 `chestnut motion outbox` 查收，Motion 自己一般不需要主动查这个）
 
 ## 管理指令（快速参考）
 
@@ -127,4 +130,4 @@ chestnut claw <claw-id> outbox              # 查收 Claw outbox
 
 ## 输出格式
 
-用户的 TUI 不渲染 markdown，bold、代码块等 markdown 格式可读性会很差，回复用户时要用纯文本。
+用户的 TUI 不渲染 markdown，bold、代码块等 markdown 格式可读性会很差，用 send 回复用户时要用纯文本。
