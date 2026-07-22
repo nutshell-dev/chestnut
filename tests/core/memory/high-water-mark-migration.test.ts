@@ -110,6 +110,8 @@ describe('random-dream legacy schema migration (phase 925)', () => {
 
     expect(state.completedContractIds).toEqual(['c1', 'c2']);
     expect(state.pendingLateSettle).toEqual([]);
+    expect(state.pendingNotifications).toEqual([]);
+    expect(state.schema_version).toBe(2);
 
     expect(audit.write).toHaveBeenCalledTimes(1);
     const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -138,6 +140,8 @@ describe('random-dream legacy schema migration (phase 925)', () => {
     expect(state.completedContractIds).toEqual(['c1']);
     expect(state.pendingLateSettle).toHaveLength(2);
     expect(state.pendingLateSettle?.[0].taskId).toBe('t1');
+    expect(state.pendingNotifications).toEqual([]);
+    expect(state.schema_version).toBe(2);
     expect(audit.write).toHaveBeenCalledTimes(1);
     expect((audit.write as ReturnType<typeof vi.fn>).mock.calls[0][0])
       .toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
@@ -154,6 +158,8 @@ describe('random-dream legacy schema migration (phase 925)', () => {
     const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual([]);
+    expect(state.pendingNotifications).toEqual([]);
+    expect(state.schema_version).toBe(2);
     expect(audit.write).toHaveBeenCalledTimes(1);
     expect((audit.write as ReturnType<typeof vi.fn>).mock.calls[0][0])
       .toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
@@ -170,6 +176,8 @@ describe('random-dream legacy schema migration (phase 925)', () => {
     const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual(['c1']);
+    expect(state.pendingNotifications).toEqual([]);
+    expect(state.schema_version).toBe(2);
     expect(audit.write).not.toHaveBeenCalled();
   });
 
@@ -180,6 +188,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
     const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual([]);
+    expect(state.schema_version).toBe(2);
     expect(audit.write).not.toHaveBeenCalled();
   });
 
@@ -192,6 +201,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
     const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual([]);
+    expect(state.schema_version).toBe(2);
     const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR);
   });

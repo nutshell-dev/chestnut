@@ -321,6 +321,81 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
         )).toBe(true);
       });
     });
+
+    describe('pendingNotifications', () => {
+      it('undefined → 0 emit', () => {
+        const audit = makeMockAudit();
+        assertDreamStateShape({ completedContractIds: [] }, audit, 'random_dream_save');
+        expect(audit.write).not.toHaveBeenCalled();
+      });
+
+      it('合法 entry 数组 → 0 emit', () => {
+        const audit = makeMockAudit();
+        assertDreamStateShape({
+          completedContractIds: [],
+          pendingNotifications: [{
+            deliveryId: 'random-dream:task-1',
+            taskId: 'task-1',
+            outputPath: 'memory/dream-outputs/task-1.txt',
+            outputCount: 1,
+            completedContractIds: ['c1'],
+            createdAt: 1717000000000,
+          }],
+        }, audit, 'random_dream_save');
+        expect(audit.write).not.toHaveBeenCalled();
+      });
+
+      it('非数组 → emit kind=random_pendingNotifications_not_array', () => {
+        const audit = makeMockAudit();
+        assertDreamStateShape({ completedContractIds: [], pendingNotifications: 'nope' }, audit, 'random_dream_save');
+        const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
+        expect(calls.some(c =>
+          c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
+          c[1]?.includes('random_pendingNotifications_not_array')
+        )).toBe(true);
+      });
+
+      it('entry outputCount 负数 → emit kind=random_pendingNotifications_entry_invalid + idx', () => {
+        const audit = makeMockAudit();
+        assertDreamStateShape({
+          completedContractIds: [],
+          pendingNotifications: [{
+            deliveryId: 'random-dream:task-1',
+            taskId: 'task-1',
+            outputPath: 'memory/dream-outputs/task-1.txt',
+            outputCount: -1,
+            completedContractIds: ['c1'],
+            createdAt: 1717000000000,
+          }],
+        }, audit, 'random_dream_save');
+        const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
+        expect(calls.some(c =>
+          c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
+          c[1]?.includes('random_pendingNotifications_entry_invalid') &&
+          c.some((s: unknown) => typeof s === 'string' && s.includes('idx=0'))
+        )).toBe(true);
+      });
+
+      it('entry completedContractIds 含非 string → emit', () => {
+        const audit = makeMockAudit();
+        assertDreamStateShape({
+          completedContractIds: [],
+          pendingNotifications: [{
+            deliveryId: 'random-dream:task-1',
+            taskId: 'task-1',
+            outputPath: 'memory/dream-outputs/task-1.txt',
+            outputCount: 1,
+            completedContractIds: ['c1', 42 as unknown as string],
+            createdAt: 1717000000000,
+          }],
+        }, audit, 'random_dream_save');
+        const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
+        expect(calls.some(c =>
+          c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
+          c[1]?.includes('random_pendingNotifications_entry_invalid')
+        )).toBe(true);
+      });
+    });
   });
 
   describe('saveDreamState 集成', () => {

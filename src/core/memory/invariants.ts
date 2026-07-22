@@ -124,4 +124,44 @@ function checkRandomDream(s: Record<string, unknown>, audit: AuditLog): void {
       }
     }
   }
+
+  // pendingNotifications?: PendingRandomDreamNotification[]（phase 1159 Step B）
+  if (s.pendingNotifications !== undefined) {
+    if (!Array.isArray(s.pendingNotifications)) {
+      audit.write(
+        MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
+        `kind=random_pendingNotifications_not_array`, `source=random_dream_save`,
+        `actual=${typeof s.pendingNotifications}`,
+      );
+    } else {
+      for (let i = 0; i < s.pendingNotifications.length; i++) {
+        const e = s.pendingNotifications[i];
+        if (typeof e !== 'object' || e === null) {
+          audit.write(
+            MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
+            `kind=random_pendingNotifications_entry_invalid`, `source=random_dream_save`,
+            `idx=${i}`,
+          );
+          continue;
+        }
+        const n = e as Record<string, unknown>;
+        if (typeof n.deliveryId !== 'string'
+            || typeof n.taskId !== 'string'
+            || typeof n.outputPath !== 'string'
+            || typeof n.outputCount !== 'number'
+            || !Number.isFinite(n.outputCount)
+            || n.outputCount < 0
+            || typeof n.createdAt !== 'number'
+            || !Number.isFinite(n.createdAt)
+            || !Array.isArray(n.completedContractIds)
+            || !(n.completedContractIds as unknown[]).every(id => typeof id === 'string')) {
+          audit.write(
+            MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
+            `kind=random_pendingNotifications_entry_invalid`, `source=random_dream_save`,
+            `idx=${i}`,
+          );
+        }
+      }
+    }
+  }
 }

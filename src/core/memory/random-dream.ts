@@ -94,13 +94,25 @@ interface PendingLateSettleEntry {
 
 /**
  * phase 548: 加 schema_version（与 phase 547 deep-dream 同模式 / sister 一致性）。
+ * phase 1159 Step B: 升级到 v2，支持 pendingNotifications durable outbox。
  */
-const RANDOM_DREAM_STATE_CURRENT_VERSION = 1;
+const RANDOM_DREAM_STATE_CURRENT_VERSION = 2;
+
+interface PendingRandomDreamNotification {
+  deliveryId: string;
+  taskId: TaskId;
+  outputPath: string;
+  outputCount: number;
+  completedContractIds: ContractId[];
+  createdAt: number;
+  lateSettleFullTaskId?: FullTaskId;
+}
 
 interface RandomDreamState {
-  schema_version?: number;                       // phase 548: 显式 schema 版本（缺即视 v1）
-  completedContractIds: ContractId[];            // phase 925: per-contract 完成集合
-  pendingLateSettle?: PendingLateSettleEntry[];  // NEW phase 170, optional for backward compat
+  schema_version?: number;                              // phase 548: 显式 schema 版本（缺即视 v1）
+  completedContractIds: ContractId[];                   // phase 925: per-contract 完成集合
+  pendingLateSettle?: PendingLateSettleEntry[];         // NEW phase 170, optional for backward compat
+  pendingNotifications?: PendingRandomDreamNotification[]; // phase 1159 Step B: durable notification outbox
 }
 
 interface RandomDreamLoadResult {
@@ -122,6 +134,55 @@ function isValidPendingEntry(e: unknown): e is PendingLateSettleEntry {
   if (!r.contractIds.every((id: unknown) => typeof id === 'string')) return false;
   if (r.fullTaskId !== undefined && typeof r.fullTaskId !== 'string') return false;
   return true;
+}
+
+function isValidPendingNotification(e: unknown): e is PendingRandomDreamNotification {
+  if (typeof e !== 'object' || e === null) return false;
+  const r = e as Record<string, unknown>;
+  if (typeof r.deliveryId !== 'string') return false;
+  if (typeof r.taskId !== 'string') return false;
+  if (typeof r.outputPath !== 'string') return false;
+  if (typeof r.outputCount !== 'number' || !Number.isFinite(r.outputCount) || r.outputCount < 0) return false;
+  if (!Array.isArray(r.completedContractIds)) return false;
+  if (!r.completedContractIds.every((id: unknown) => typeof id === 'string')) return false;
+  if (typeof r.createdAt !== 'number' || !Number.isFinite(r.createdAt)) return false;
+  if (r.lateSettleFullTaskId !== undefined && typeof r.lateSettleFullTaskId !== 'string') return false;
+  return true;
+}
+
+function normalizeState(r: Record<string, unknown>, audit: AuditLog): RandomDreamState {
+  const pendingLateSettle = Array.isArray(r.pendingLateSettle)
+    ? r.pendingLateSettle.filter(isValidPendingEntry)
+    : [];
+  if (Array.isArray(r.pendingLateSettle) && pendingLateSettle.length !== r.pendingLateSettle.length) {
+    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+      `site=load_state`,
+      `reason=pending_late_settle_entry_invalid_filtered`,
+      `before=${r.pendingLateSettle.length}`,
+      `after=${pendingLateSettle.length}`,
+    );
+  }
+
+  const pendingNotifications = Array.isArray(r.pendingNotifications)
+    ? r.pendingNotifications.filter(isValidPendingNotification)
+    : [];
+  if (Array.isArray(r.pendingNotifications) && pendingNotifications.length !== r.pendingNotifications.length) {
+    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+      `site=load_state`,
+      `reason=pending_notifications_entry_invalid_filtered`,
+      `before=${r.pendingNotifications.length}`,
+      `after=${pendingNotifications.length}`,
+    );
+  }
+
+  return {
+    schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION,
+    completedContractIds: Array.isArray(r.completedContractIds)
+      ? r.completedContractIds.filter((v): v is ContractId => typeof v === 'string')
+      : [],
+    pendingLateSettle,
+    pendingNotifications,
+  };
 }
 
 function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamLoadResult {
@@ -158,17 +219,15 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamLoadR
         `legacy_field=${legacyField}`,
         `legacy_count=${Array.isArray(r.processedContractIds) ? r.processedContractIds.length : 0}`,
       );
-      const pending = Array.isArray(r.pendingLateSettle)
-        ? r.pendingLateSettle.filter(isValidPendingEntry)
-        : [];
+      const normalized = normalizeState(r, audit);
       // phase 925: best-effort seed completedContractIds from legacy processedContractIds
       const completed: ContractId[] = Array.isArray(r.processedContractIds)
         ? r.processedContractIds.filter((id): id is ContractId => typeof id === 'string')
         : [];
-      return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: completed, pendingLateSettle: pending } };
+      return { state: { ...normalized, completedContractIds: completed } };
     }
 
-    return { state: r as unknown as RandomDreamState };
+    return { state: normalizeState(r, audit) };
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {
@@ -195,8 +254,8 @@ function saveRandomDreamState(
   auditRandomDreamCrossSource(state, audit);
 
   try {
-    // phase 548: 总写 schema_version
-    const stateToSave = { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, ...state };
+    // phase 548 / phase 1159 Step B: 总写 schema_version；确保当前版本最终生效
+    const stateToSave = { ...state, schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION };
     fs.writeAtomicSync(
       RANDOM_DREAM_STATE_FILE,
       JSON.stringify(stateToSave, null, 2)
