@@ -13,7 +13,7 @@ import type { ContractId } from '../contract/types.js';
 import { type TaskId, type FullTaskId, type ShortTaskId, type ShortIdIndex, makeShortTaskId } from '../async-task-system/types.js';
 import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
-import { notifyInbox, INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
+import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../foundation/messaging/index.js';
 
 /**
  * Default pulse interval（ms）for waitForTaskResult polling.
@@ -530,6 +530,101 @@ function extractDreamOutputs(log: string): DreamExtractionResult {
   return { outputs, contractIds };
 }
 
+// ─── durable completion notification outbox ──────────────────
+
+const DELIVERY_META_KEY = 'delivery_id';
+const DONE_DEDUP_WINDOW_MS = Number.POSITIVE_INFINITY;
+
+function makeDeliveryId(taskId: TaskId, fullTaskId?: FullTaskId): string {
+  return `random-dream:${fullTaskId ?? taskId}`;
+}
+
+interface BuildPendingNotificationParams {
+  taskId: TaskId;
+  fullTaskId?: FullTaskId;
+  outputPath: string;
+  outputCount: number;
+  completedContractIds: ContractId[];
+}
+
+function buildPendingNotification(params: BuildPendingNotificationParams): PendingRandomDreamNotification {
+  return {
+    deliveryId: makeDeliveryId(params.taskId, params.fullTaskId),
+    taskId: params.taskId,
+    outputPath: params.outputPath,
+    outputCount: params.outputCount,
+    completedContractIds: [...new Set(params.completedContractIds)],
+    createdAt: Date.now(),
+    ...(params.fullTaskId ? { lateSettleFullTaskId: params.fullTaskId } : {}),
+  };
+}
+
+function toCompletionMessage(item: PendingRandomDreamNotification): InboxMessageOptionsBase {
+  return {
+    type: 'random_dream_completed',
+    source: 'random-dream',
+    priority: 'normal',
+    body: `Dream outputs persisted: ${item.outputCount} contracts. See ${item.outputPath}`,
+    metadata: {
+      dreamId: item.taskId,
+      outputCount: String(item.outputCount),
+      path: item.outputPath,
+      ...(item.lateSettleFullTaskId ? { lateSettleFullTaskId: item.lateSettleFullTaskId } : {}),
+    },
+    extraFields: { [DELIVERY_META_KEY]: item.deliveryId },
+  };
+}
+
+function stageCompletedDream(
+  state: RandomDreamState,
+  pendingTaskId: TaskId,
+  item: PendingRandomDreamNotification,
+): RandomDreamState {
+  return {
+    ...state,
+    pendingLateSettle: (state.pendingLateSettle ?? [])
+      .filter(entry => entry.taskId !== pendingTaskId),
+    completedContractIds: [...new Set([
+      ...state.completedContractIds, ...item.completedContractIds,
+    ])],
+    pendingNotifications: [
+      ...(state.pendingNotifications ?? []).filter(
+        old => old.deliveryId !== item.deliveryId,
+      ),
+      item,
+    ],
+  };
+}
+
+async function flushPendingNotifications(
+  opts: RandomDreamOptions,
+  state: RandomDreamState,
+): Promise<RandomDreamState> {
+  const reader = new InboxReader(
+    INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR,
+    opts.motionFs, opts.audit,
+  );
+  let current = state;
+  for (const item of current.pendingNotifications ?? []) {
+    const existing = await reader.findByExtraMeta(
+      DELIVERY_META_KEY,
+      item.deliveryId,
+      { includeDoneWithinMs: DONE_DEDUP_WINDOW_MS },
+    );
+    if (!existing) {
+      await opts.notifyMotion(toCompletionMessage(item));
+    }
+    current = {
+      ...current,
+      pendingNotifications: current.pendingNotifications?.filter(
+        candidate => candidate.deliveryId !== item.deliveryId,
+      ),
+    };
+    saveRandomDreamState(opts.fs, current, opts.audit);
+  }
+  return current;
+}
+
 // ─── sweep late-settle pending ───────────────────────────────
 
 async function sweepLateSettlePending(
@@ -540,7 +635,8 @@ async function sweepLateSettlePending(
   if (pending.length === 0) return state;
 
   const now = Date.now();
-  const remaining: PendingLateSettleEntry[] = [];
+  let current = state;
+  let dropped = false;
 
   for (const entry of pending) {
     const lateFullId = entry.fullTaskId
@@ -569,31 +665,24 @@ async function sweepLateSettlePending(
           `bytes=${dreamOutput.length}`,
         );
 
-        // phase 927: notify motion self-inbox so daemon picks it up
-        notifyInbox(
-          opts.motionFs,
-          {
-            inboxDir: INBOX_PENDING_DIR,
-            type: 'random_dream_completed',
-            source: 'random-dream',
-            priority: 'normal',
-            body: `Dream outputs persisted: ${outputs.length} contracts. See ${dreamOutputPath}`,
-            metadata: {
-              dreamId: entry.taskId,
-              outputCount: String(outputs.length),
-              ...(lateFullId ? { lateSettleFullTaskId: lateFullId } : {}),
-              path: dreamOutputPath,
-            },
-          },
-          opts.audit,
-        );
-
-        // phase 925: mark covered contracts as completed
-        for (const cid of contractIds) {
-          if (!state.completedContractIds.includes(cid as ContractId)) {
-            state.completedContractIds.push(cid as ContractId);
-          }
-        }
+        // phase 1159 Step D: durable delivery — stage outbox + send + confirm
+        const notification = buildPendingNotification({
+          taskId: entry.taskId,
+          fullTaskId: lateFullId,
+          outputPath: dreamOutputPath,
+          outputCount: outputs.length,
+          completedContractIds: contractIds as ContractId[],
+        });
+        current = stageCompletedDream(current, entry.taskId, notification);
+        saveRandomDreamState(opts.fs, current, opts.audit);
+        current = await flushPendingNotifications(opts, current);
+      } else {
+        // settled but no output — drop entry
+        current = {
+          ...current,
+          pendingLateSettle: current.pendingLateSettle?.filter(p => p.taskId !== entry.taskId),
+        };
+        dropped = true;
       }
 
       opts.audit.write(
@@ -613,19 +702,21 @@ async function sweepLateSettlePending(
         `age_ms=${now - entry.scheduledAt}`,
         `grace_ms=${LATE_SETTLE_GRACE_MS}`,
       );
+      current = {
+        ...current,
+        pendingLateSettle: current.pendingLateSettle?.filter(p => p.taskId !== entry.taskId),
+      };
+      dropped = true;
       continue;  // entry drop
     }
 
     // still pending、保
-    remaining.push(entry);
   }
 
-  const updatedState: RandomDreamState = {
-    completedContractIds: state.completedContractIds,
-    pendingLateSettle: remaining,
-  };
-  saveRandomDreamState(opts.fs, updatedState, opts.audit);
-  return updatedState;
+  if (dropped) {
+    saveRandomDreamState(opts.fs, current, opts.audit);
+  }
+  return current;
 }
 
 // ─── 主函数 ──────────────────────────────────────────────────
@@ -646,6 +737,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     return;
   }
   let state = loaded.state;
+  state = await flushPendingNotifications(opts, state);   // phase 1159 Step D: recover prior crash
   state = await sweepLateSettlePending(opts, state);   // NEW phase 170
   const weightedContracts = await discoverWeightedContracts(opts.fs, state, opts.audit, opts.getContractProgress);
 
@@ -742,26 +834,15 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     `bytes=${dreamOutput.length}`,
   );
 
-  // phase 927: notify motion self-inbox so daemon picks it up
-  notifyInbox(
-    opts.motionFs,
-    {
-      inboxDir: INBOX_PENDING_DIR,
-      type: 'random_dream_completed',
-      source: 'random-dream',
-      priority: 'normal',
-      body: `Dream outputs persisted: ${outputs.length} contracts. See ${dreamOutputPath}`,
-      metadata: {
-        dreamId: taskId,
-        outputCount: String(outputs.length),
-        path: dreamOutputPath,
-      },
-    },
-    opts.audit,
-  );
-
-  // phase 925: commit state — remove pending entry + append completed contract IDs
-  state.pendingLateSettle = state.pendingLateSettle?.filter(p => p.taskId !== taskId);
-  state.completedContractIds = [...new Set([...state.completedContractIds, ...newlyCompletedIds])];
+  // phase 1159 Step D: durable delivery — stage outbox, commit state, then flush
+  const notification = buildPendingNotification({
+    taskId,
+    fullTaskId,
+    outputPath: dreamOutputPath,
+    outputCount: outputs.length,
+    completedContractIds: newlyCompletedIds,
+  });
+  state = stageCompletedDream(state, taskId, notification);
   saveRandomDreamState(opts.fs, state, opts.audit);
+  state = await flushPendingNotifications(opts, state);
 }

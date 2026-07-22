@@ -510,14 +510,14 @@ describe('random-dream-phase926', () => {
         const audit = makeMockAudit();
 
         const result = __test_loadRandomDreamState(fs, audit);
-        expect(result.state).toEqual({ schema_version: 1, completedContractIds: [] });
+        expect(result.state).toEqual({ schema_version: 2, completedContractIds: [] });
         expect(result.blocked).toEqual({ reason: 'future_schema', version: 99 });
         expect(audit.write).toHaveBeenCalledTimes(1);
         const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
         expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION);
         expect(call).toEqual(expect.arrayContaining([
           expect.stringMatching(/^version=99$/),
-          expect.stringMatching(/^current=1$/),
+          expect.stringMatching(/^current=2$/),
           expect.stringMatching(/^reason=cannot_migrate_future_version$/),
         ]));
         // No write occurred — future-version file is preserved on disk.
