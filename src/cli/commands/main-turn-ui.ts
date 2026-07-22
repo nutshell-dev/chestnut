@@ -224,16 +224,16 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
       deps.updateDisplay();   // NEW: mirror non-empty branch line 224 / 双 branch 对称 invariant
       return;
     }
-    const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
+    const prefix = '⏺ ';
     const indent = '  ';
     const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
     const formatted = content
       .split('\n')
-      .map((line, i) => (i === 0 ? dotPrefix : indent) + line)
+      .map((line, i) => (i === 0 ? prefix : indent) + line)
       .join('\n');
     streamingBuffer = '';
     preview = '';
-    deps.appendOutput('', formatted, true, indent);
+    deps.appendOutput('\x1b[2m', formatted, true, indent);
     deps.updateDisplay();
   };
 
@@ -245,7 +245,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
   const flushThinking = () => {
     guardWrite('flushThinking');
     if (!thinkingBuffer) return;
-    const prefix = '⏺ ';
+    const prefix = '⏺ [thinking] ';
     const indent = ' '.repeat(stringWidth(prefix));
     const content = deps.trimOutputNewlines ? thinkingBuffer.trim() : thinkingBuffer;
     const formatted = content
