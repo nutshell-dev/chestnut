@@ -41,7 +41,6 @@ describe('provider adapters reject malformed Unicode before fetch', () => {
     const adapter = new OpenAIAdapter({ ...BASE_CONFIG, apiFormat: 'openai' });
 
     await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _ of adapter.stream({ messages: BAD_MESSAGES })) { /* noop */ }
     }).rejects.toThrow(LLMInvalidRequestError);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -62,7 +61,6 @@ describe('provider adapters reject malformed Unicode before fetch', () => {
     const adapter = new GeminiAdapter({ ...BASE_CONFIG, apiFormat: 'gemini' });
 
     await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _ of adapter.stream({ messages: BAD_MESSAGES })) { /* noop */ }
     }).rejects.toThrow(LLMInvalidRequestError);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -83,7 +81,6 @@ describe('provider adapters reject malformed Unicode before fetch', () => {
     const adapter = new CustomAnthropicAdapter({ ...BASE_CONFIG, apiFormat: 'anthropic' });
 
     await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _ of adapter.stream({ messages: BAD_MESSAGES })) { /* noop */ }
     }).rejects.toThrow(LLMInvalidRequestError);
     expect(fetchMock).not.toHaveBeenCalled();

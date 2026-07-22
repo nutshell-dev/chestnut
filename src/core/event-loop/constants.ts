@@ -24,8 +24,11 @@ export const LLM_RETRY_MAX_DELAY_MS = 300_000;
 /** LLM retry state 持久化文件名 */
 export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;
 
-/** Phase 1153: context-blocked state 持久化文件名 */
-export const CONTEXT_BLOCKED_STATE_FILE = 'context-blocked-state.json' as const;
+/** Phase 1154: LLM-request blocked state 持久化文件名 */
+export const LLM_REQUEST_BLOCKED_STATE_FILE = 'llm-request-blocked-state.json' as const;
+
+/** Phase 1153 legacy context-blocked state 文件名（仅用于迁移）。 */
+export const LEGACY_CONTEXT_BLOCKED_STATE_FILE = 'context-blocked-state.json' as const;
 
 /**
  * ReAct chain 单 tick 内 batch 最大轮数 / 防 runaway 安全闸.

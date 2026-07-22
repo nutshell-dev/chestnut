@@ -57,7 +57,7 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
 const mockFs = {
   list: vi.fn().mockResolvedValue([]),
   readSync: vi.fn((p: string) => {
-    if (p.includes('context-blocked-state.json')) {
+    if (p.includes('llm-request-blocked-state.json') || p.includes('context-blocked-state.json')) {
       const err = new Error('ENOENT') as NodeJS.ErrnoException;
       err.code = 'ENOENT';
       throw err;

@@ -19,7 +19,7 @@ import {
   LLM_RETRY_MAX_DELAY_MS,
 } from './constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
-import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError, classifyLLMError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
   WallTimeExceededError,
@@ -100,7 +100,8 @@ const llmRetryHandler: ErrorHandler = {
   name: 'llm_retry',
   match: (err, ctx) =>
     err instanceof LLMAllProvidersFailedError &&
-    ctx.llmRetry.count < LLM_MAX_RETRIES,
+    ctx.llmRetry.count < LLM_MAX_RETRIES &&
+    classifyLLMError(err) === 'transient',
   handle: async (err, ctx) => {
     ctx.llmRetry.count++;
     ctx.audit.write(
@@ -118,7 +119,8 @@ const llmRetryHandler: ErrorHandler = {
 
 /**
  * P0-2: 5 个确定性 typed Error 的统一 crash 分类源。
- * 注意 LLMAllProvidersFailedError 不在此列（transient 类、由 llmRetryHandler backoff 处理）。
+ * 注意 LLMAllProvidersFailedError 由 llmRetryHandler 按 nested 分类决定是否 backoff；
+ * 仅 nested 分类为 transient 时才重试，permanent/invalid_request 不进 retry。
  */
 export function isAgentLoopCrashError(err: unknown): boolean {
   return err instanceof MaxStepsExceededError
@@ -153,7 +155,7 @@ const fallbackHandler: ErrorHandler = {
     ctx.saveLlmRetryState();
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.FATAL,
-      `reason=${isLLMMaxRetry ? 'max_retries_exhausted' : 'non_llm_error'}`,
+      `reason=${isLLMMaxRetry ? 'llm_all_providers_failed' : 'non_llm_error'}`,
       `error=${formatErr(err)}`,
     );
     // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 drainInbox + processTurn，

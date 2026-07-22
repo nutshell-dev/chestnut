@@ -17,33 +17,38 @@ export interface LoopErrorContext {
   saveLlmRetryState: () => void;
 }
 
-export type ContextBlockedReason =
+export type LLMRequestBlockedReason =
   | 'no_progress'
   | 'policy_conflict'
-  | 'retry_exhausted';
+  | 'retry_exhausted'
+  | 'invalid_request';
 
-interface ContextBlockedBase {
-  version: 1;
+interface LLMRequestBlockedBase {
+  version: 2;
   requestFingerprint: string;
   blockedAt: string;
 }
 
-export type ContextBlockedState =
-  | (ContextBlockedBase & {
+export type LLMRequestBlockedState =
+  | (LLMRequestBlockedBase & {
       reason: 'no_progress' | 'policy_conflict';
       before: number;
       after: number;
     })
-  | (ContextBlockedBase & {
+  | (LLMRequestBlockedBase & {
       reason: 'retry_exhausted';
       attempts: number;
       maxAttempts: number;
+    })
+  | (LLMRequestBlockedBase & {
+      reason: 'invalid_request';
+      errorCode: 'LLM_INVALID_REQUEST';
     });
 
-export type ContextGateDecision =
+export type LLMRequestGateDecision =
   | { kind: 'open'; fingerprint: string }
-  | { kind: 'released'; previous: ContextBlockedState; fingerprint: string }
-  | { kind: 'blocked'; state: ContextBlockedState }
+  | { kind: 'released'; previous: LLMRequestBlockedState; fingerprint: string }
+  | { kind: 'blocked'; state: LLMRequestBlockedState }
   | { kind: 'indeterminate'; error: import('../../foundation/messaging/index.js').PendingViewError };
 
 export interface EventLoopOptions {

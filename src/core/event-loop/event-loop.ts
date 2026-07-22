@@ -23,17 +23,22 @@ import {
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_MAX_DELAY_MS,
   LLM_RETRY_STATE_FILE,
-  CONTEXT_BLOCKED_STATE_FILE,
+  LLM_REQUEST_BLOCKED_STATE_FILE,
+  LEGACY_CONTEXT_BLOCKED_STATE_FILE,
   REACT_CHAIN_MAX_ITERATIONS,
 } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js';
 import { dispatchError, isAgentLoopCrashError } from './error-handlers.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
-import { isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
+import {
+  isContextExceededError,
+  LLMInvalidRequestError,
+  LLMAllProvidersFailedError,
+} from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
-import type { ContextBlockedState, ContextGateDecision, EventLoopOptions } from './types.js';
+import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions } from './types.js';
 
 export class EventLoop {
   private runtime: Runtime;
@@ -53,8 +58,8 @@ export class EventLoop {
   private llmRetryCount = 0;
   private llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
 
-  // Phase 1153 Step C: context-exceeded blocked state
-  private contextBlocked?: ContextBlockedState;
+  // Phase 1154 Step E: LLM-request blocked state (generalized from context-only gate)
+  private llmRequestBlocked?: LLMRequestBlockedState;
   private waitAbortController?: AbortController;
 
   constructor(options: EventLoopOptions) {
@@ -71,12 +76,12 @@ export class EventLoop {
   }
 
   /**
-   * 启动时恢复：先加载/校验 context-blocked state（事实阻断不随 clean-stop 消失），
+   * 启动时恢复：先加载/校验 LLM-request blocked state（事实阻断不随 clean-stop 消失），
    * 再加载 LLM retry state（clean stop 后跳过，保持默认值）。
    */
   async initialize(): Promise<void> {
     this.audit.write(EVENTLOOP_AUDIT_EVENTS.ITERATION, `context=initialize`, `claw_id=${this.clawId}`);
-    await this._loadContextBlockedState();
+    await this._loadLlmRequestBlockedState();
     const consumeMarker = (fs: FileSystem): boolean => {
       try {
         if (!fs.existsSync('clean-stop')) return false;
@@ -99,21 +104,21 @@ export class EventLoop {
   /**
    * 执行一轮事件循环：调用前 gate → 消费 inbox / 重试 / 等待消息。
    *
-   * Phase 1153 Step C: 只有 fingerprint 变化或从未 blocked 时才进入 drain+chain；
-   * no_progress/policy_conflict 会持久化 blocked state，后续 tick 在 drain 前 fail-closed。
+   * Phase 1154 Step E: 只有 fingerprint 变化或从未 blocked 时才进入 drain+chain；
+   * no_progress/policy_conflict/invalid_request 会持久化 blocked state，后续 tick 在 drain 前 fail-closed。
    */
   async run(): Promise<void> {
     this.stopped = false;
     this.waitAbortController = new AbortController();
 
     try {
-      const gate = await this._checkContextGate();
+      const gate = await this._checkLlmRequestGate();
       if (gate.kind === 'blocked' || gate.kind === 'indeterminate') {
         this.audit.write(
           gate.kind === 'blocked'
             ? EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE
             : EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_PEEK_FAILED,
-          `fingerprint=${this.contextBlocked?.requestFingerprint ?? ''}`,
+          `fingerprint=${this.llmRequestBlocked?.requestFingerprint ?? ''}`,
         );
         await waitForInbox(
           this.loopFs,
@@ -167,7 +172,34 @@ export class EventLoop {
       await this._handleContextExceeded(result.error, failedRequestFingerprint);
       return;
     }
+    if (this._isDeterministicInvalidRequest(result.error)) {
+      this._enterLlmRequestBlocked({
+        version: 2,
+        reason: 'invalid_request',
+        requestFingerprint: failedRequestFingerprint,
+        errorCode: 'LLM_INVALID_REQUEST',
+        blockedAt: new Date().toISOString(),
+      });
+      this._resetLlmRetryState();
+      this._saveLlmRetryState();
+      return;
+    }
     await this._dispatchError(result.error);
+  }
+
+  /**
+   * Phase 1154 Step E: deterministic invalid-request detection.
+   * Only true invalid-request errors (or all-provider failures whose every nested
+   * failure is an invalid request) are persisted in the request gate. Mixed or
+   * non-invalid-request permanent errors fall through to the normal dispatch path.
+   */
+  private _isDeterministicInvalidRequest(error: unknown): boolean {
+    if (error instanceof LLMInvalidRequestError) return true;
+    return (
+      error instanceof LLMAllProvidersFailedError
+      && error.failures.length > 0
+      && error.failures.every(f => f.error instanceof LLMInvalidRequestError)
+    );
   }
 
   /**
@@ -181,8 +213,8 @@ export class EventLoop {
     failedRequestFingerprint: string,
   ): Promise<void> {
     if (this.llmRetryCount >= LLM_MAX_RETRIES) {
-      this._enterContextBlocked({
-        version: 1,
+      this._enterLlmRequestBlocked({
+        version: 2,
         reason: 'retry_exhausted',
         requestFingerprint: failedRequestFingerprint,
         attempts: this.llmRetryCount,
@@ -205,8 +237,8 @@ export class EventLoop {
         return;
       case 'no_progress':
       case 'policy_conflict':
-        this._enterContextBlocked({
-          version: 1,
+        this._enterLlmRequestBlocked({
+          version: 2,
           reason: outcome.status,
           requestFingerprint: failedRequestFingerprint,
           before: outcome.before,
@@ -258,16 +290,16 @@ export class EventLoop {
    * - Blocked fingerprint changed → released (clear state, proceed once).
    * - Peek failure → indeterminate (fail-closed, wait for inbox).
    */
-  private async _checkContextGate(): Promise<ContextGateDecision> {
-    if (!this.contextBlocked) {
+  private async _checkLlmRequestGate(): Promise<LLMRequestGateDecision> {
+    if (!this.llmRequestBlocked) {
       return { kind: 'open', fingerprint: await this.runtime.computeTurnRequestFingerprint() };
     }
     try {
       const fingerprint = await this.runtime.computeTurnRequestFingerprint();
-      if (fingerprint === this.contextBlocked.requestFingerprint) {
-        return { kind: 'blocked', state: this.contextBlocked };
+      if (fingerprint === this.llmRequestBlocked.requestFingerprint) {
+        return { kind: 'blocked', state: this.llmRequestBlocked };
       }
-      const previous = this._clearContextBlockedState();
+      const previous = this._clearLlmRequestBlockedState();
       return { kind: 'released', previous, fingerprint };
     } catch (error) {
       if (error instanceof PendingViewError) {
@@ -294,13 +326,13 @@ export class EventLoop {
 
     while (!this.stopped) {
       if (chainIters > 0) {
-        const gate = await this._checkContextGate();
+        const gate = await this._checkLlmRequestGate();
         if (gate.kind === 'blocked' || gate.kind === 'indeterminate') {
           this.audit.write(
             gate.kind === 'blocked'
               ? EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE
               : EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_PEEK_FAILED,
-            `fingerprint=${this.contextBlocked?.requestFingerprint ?? ''}`,
+            `fingerprint=${this.llmRequestBlocked?.requestFingerprint ?? ''}`,
           );
           await waitForInbox(
             this.loopFs,
@@ -510,24 +542,52 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1153 Step C: load and validate context-blocked state.
+   * Phase 1154 Step E: load and validate LLM-request blocked state.
+   * - Prefer v2 file (`llm-request-blocked-state.json`).
+   * - Fall back to legacy v1 file (`context-blocked-state.json`) and migrate in-memory
+   *   + atomically write v2 + delete legacy.
    * Invalid schema/version/reason/fingerprint → audit fatal and fail-closed (throw).
    */
-  private async _loadContextBlockedState(): Promise<void> {
+  private async _loadLlmRequestBlockedState(): Promise<void> {
+    let source: 'v2' | 'legacy' | undefined;
     let raw: string | undefined;
+
+    // 1. Try v2 file.
     try {
-      raw = this.agentFs.readSync(path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE));
+      raw = this.agentFs.readSync(path.join(STATUS_SUBDIR, LLM_REQUEST_BLOCKED_STATE_FILE));
+      source = 'v2';
     } catch (e) {
       if (!isFileNotFound(e)) {
         this.audit.write(
           EVENTLOOP_AUDIT_EVENTS.FATAL,
-          `context=loadContextBlockedState`,
+          `context=loadLlmRequestBlockedState`,
           `reason=read_failed`,
+          `file=v2`,
           `error=${formatErr(e)}`,
         );
-        throw new Error(`Failed to load context blocked state: ${formatErr(e)}`);
+        throw new Error(`Failed to load LLM request blocked state: ${formatErr(e)}`);
       }
       raw = undefined;
+    }
+
+    // 2. Try legacy v1 file.
+    if (raw === undefined) {
+      try {
+        raw = this.agentFs.readSync(path.join(STATUS_SUBDIR, LEGACY_CONTEXT_BLOCKED_STATE_FILE));
+        source = 'legacy';
+      } catch (e) {
+        if (!isFileNotFound(e)) {
+          this.audit.write(
+            EVENTLOOP_AUDIT_EVENTS.FATAL,
+            `context=loadLlmRequestBlockedState`,
+            `reason=read_failed`,
+            `file=legacy`,
+            `error=${formatErr(e)}`,
+          );
+          throw new Error(`Failed to load legacy context blocked state: ${formatErr(e)}`);
+        }
+        raw = undefined;
+      }
     }
 
     if (raw === undefined) return;
@@ -538,29 +598,100 @@ export class EventLoop {
     } catch (e) {
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=loadContextBlockedState`,
+        `context=loadLlmRequestBlockedState`,
         `reason=parse_failed`,
+        `file=${source}`,
         `error=${formatErr(e)}`,
       );
-      throw new Error(`Failed to parse context blocked state: ${formatErr(e)}`);
+      throw new Error(`Failed to parse LLM request blocked state: ${formatErr(e)}`);
     }
 
-    if (!this._isValidContextBlockedState(saved)) {
+    if (source === 'legacy') {
+      if (!this._isValidLegacyContextBlockedState(saved)) {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.FATAL,
+          `context=loadLlmRequestBlockedState`,
+          `reason=schema_invalid`,
+          `file=legacy`,
+          `actual=${JSON.stringify(saved)}`,
+        );
+        throw new Error('Invalid legacy context blocked state schema');
+      }
+      saved = this._migrateLegacyContextBlockedState(saved);
+      // Atomic migration: write v2 before deleting legacy. If write fails we throw
+      // and keep legacy intact. If delete fails (non-ENOENT) we still fail-closed
+      // because the in-memory gate is now authoritative and the v2 file exists.
+      this.agentFs.ensureDirSync(STATUS_SUBDIR);
+      this.agentFs.writeAtomicSync(
+        path.join(STATUS_SUBDIR, LLM_REQUEST_BLOCKED_STATE_FILE),
+        JSON.stringify(saved),
+      );
+      try {
+        this.agentFs.deleteSync(path.join(STATUS_SUBDIR, LEGACY_CONTEXT_BLOCKED_STATE_FILE));
+      } catch (error) {
+        if (!isFileNotFound(error)) {
+          this.audit.write(
+            EVENTLOOP_AUDIT_EVENTS.FATAL,
+            `context=migrateLlmRequestBlockedState`,
+            `reason=legacy_delete_failed`,
+            `error=${formatErr(error)}`,
+          );
+          throw new Error(`Failed to delete legacy context blocked state: ${formatErr(error)}`);
+        }
+      }
+    }
+
+    if (!this._isValidLlmRequestBlockedState(saved)) {
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=loadContextBlockedState`,
+        `context=loadLlmRequestBlockedState`,
         `reason=schema_invalid`,
+        `file=${source ?? 'v2'}`,
         `actual=${JSON.stringify(saved)}`,
       );
-      throw new Error('Invalid context blocked state schema');
+      throw new Error('Invalid LLM request blocked state schema');
     }
 
-    this.contextBlocked = saved;
+    this.llmRequestBlocked = saved;
     this._resetLlmRetryState();
     this._saveLlmRetryState();
   }
 
-  private _isValidContextBlockedState(saved: unknown): saved is ContextBlockedState {
+  private _isValidLlmRequestBlockedState(saved: unknown): saved is LLMRequestBlockedState {
+    if (typeof saved !== 'object' || saved === null) return false;
+    const s = saved as Record<string, unknown>;
+    if (s.version !== 2) return false;
+    if (typeof s.requestFingerprint !== 'string' || s.requestFingerprint.length === 0) return false;
+    if (typeof s.blockedAt !== 'string') return false;
+
+    if (s.reason === 'no_progress' || s.reason === 'policy_conflict') {
+      if (typeof s.before !== 'number' || typeof s.after !== 'number') return false;
+      return true;
+    }
+
+    if (s.reason === 'retry_exhausted') {
+      if (typeof s.attempts !== 'number' || typeof s.maxAttempts !== 'number') return false;
+      return true;
+    }
+
+    if (s.reason === 'invalid_request') {
+      if (s.errorCode !== 'LLM_INVALID_REQUEST') return false;
+      return true;
+    }
+
+    return false;
+  }
+
+  private _isValidLegacyContextBlockedState(saved: unknown): saved is {
+    version: 1;
+    reason: 'no_progress' | 'policy_conflict' | 'retry_exhausted';
+    requestFingerprint: string;
+    blockedAt: string;
+    before?: number;
+    after?: number;
+    attempts?: number;
+    maxAttempts?: number;
+  } {
     if (typeof saved !== 'object' || saved === null) return false;
     const s = saved as Record<string, unknown>;
     if (s.version !== 1) return false;
@@ -580,24 +711,52 @@ export class EventLoop {
     return false;
   }
 
+  private _migrateLegacyContextBlockedState(
+    legacy: {
+      version: 1;
+      reason: 'no_progress' | 'policy_conflict' | 'retry_exhausted';
+      requestFingerprint: string;
+      blockedAt: string;
+      before?: number;
+      after?: number;
+      attempts?: number;
+      maxAttempts?: number;
+    },
+  ): LLMRequestBlockedState {
+    const base = {
+      version: 2 as const,
+      requestFingerprint: legacy.requestFingerprint,
+      blockedAt: legacy.blockedAt,
+    };
+    if (legacy.reason === 'no_progress' || legacy.reason === 'policy_conflict') {
+      return { ...base, reason: legacy.reason, before: legacy.before ?? 0, after: legacy.after ?? 0 };
+    }
+    return {
+      ...base,
+      reason: 'retry_exhausted',
+      attempts: legacy.attempts ?? 0,
+      maxAttempts: legacy.maxAttempts ?? LLM_MAX_RETRIES,
+    };
+  }
+
   /**
-   * Phase 1153 Step D: enter blocked state atomically.
+   * Phase 1154 Step E: enter LLM-request blocked state atomically.
    * Memory is set first (fail-closed for current process), then persisted.
    * Only emit CONTEXT_BLOCKED after atomic write succeeds; otherwise keep the
    * in-memory gate and throw so the caller cannot report success.
    */
-  private _enterContextBlocked(state: ContextBlockedState): void {
-    this.contextBlocked = state;
+  private _enterLlmRequestBlocked(state: LLMRequestBlockedState): void {
+    this.llmRequestBlocked = state;
     try {
       this.agentFs.ensureDirSync(STATUS_SUBDIR);
       this.agentFs.writeAtomicSync(
-        path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE),
+        path.join(STATUS_SUBDIR, LLM_REQUEST_BLOCKED_STATE_FILE),
         JSON.stringify(state),
       );
     } catch (error) {
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.FATAL,
-        `context=saveContextBlockedState`,
+        `context=saveLlmRequestBlockedState`,
         `reason=${formatErr(error)}`,
       );
       throw error;
@@ -610,30 +769,30 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1153 Step D: clear persisted blocked state before clearing memory.
+   * Phase 1154 Step E: clear persisted blocked state before clearing memory.
    * Returns the previous state. Throws on non-ENOENT deletion errors so the
    * caller cannot report released while the persisted gate remains.
    */
-  private _clearContextBlockedState(): ContextBlockedState {
-    const previous = this.contextBlocked;
+  private _clearLlmRequestBlockedState(): LLMRequestBlockedState {
+    const previous = this.llmRequestBlocked;
     if (!previous) {
-      throw new Error('context blocked state is not set');
+      throw new Error('LLM request blocked state is not set');
     }
 
     try {
-      this.agentFs.deleteSync(path.join(STATUS_SUBDIR, CONTEXT_BLOCKED_STATE_FILE));
+      this.agentFs.deleteSync(path.join(STATUS_SUBDIR, LLM_REQUEST_BLOCKED_STATE_FILE));
     } catch (error) {
       if (!isFileNotFound(error)) {
         this.audit.write(
           EVENTLOOP_AUDIT_EVENTS.FATAL,
-          `context=clearContextBlockedState`,
+          `context=clearLlmRequestBlockedState`,
           `reason=${formatErr(error)}`,
         );
         throw error;
       }
     }
 
-    this.contextBlocked = undefined;
+    this.llmRequestBlocked = undefined;
     return previous;
   }
 
