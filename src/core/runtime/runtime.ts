@@ -846,8 +846,30 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   }
 
   /**
+   * Phase 1158 Step B: 安全 rollback，保留 original 与 recovery error 双因果。
+   */
+  private async _rollbackFailedTurn(original: unknown): Promise<TurnResult> {
+    try {
+      await this.sessionManager.rollbackTurn(formatErr(original));
+      return { status: 'failed', error: original };
+    } catch (rollbackError) {
+      return {
+        status: 'failed',
+        error: new AggregateError(
+          [original, rollbackError],
+          'Turn failed and dialog rollback also failed',
+          { cause: original },
+        ),
+      };
+    }
+  }
+
+  /**
    * Execute a single ReAct turn for the given messages.
    * Orchestration-free: callers decide drain/trim/ack/nack/retry policy.
+   *
+   * Phase 1158 Step B: transaction 全路径（begin/save/react/commit/rollback）
+   * 失败均 resolve 为 TurnResult，不再因 transaction error reject。
    */
   async processTurn(
     messages: Message[],
@@ -866,18 +888,18 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       // phase 722: 加 caller col 区分 processTurn caller 路径
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=processTurn`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-      await this.sessionManager.beginTurn();
-      await this.sessionManager.save({
-        systemPrompt,
-        messages,
-        toolsForLLM,
-        trace_id: this.currentTraceId,
-      });
-
-      // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
-      this.llm.resetLastSuccessProvider?.();
-
       try {
+        await this.sessionManager.beginTurn();
+        await this.sessionManager.save({
+          systemPrompt,
+          messages,
+          toolsForLLM,
+          trace_id: this.currentTraceId,
+        });
+
+        // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
+        this.llm.resetLastSuccessProvider?.();
+
         await this._runReact(messages, systemPrompt, toolsForLLM, callbacks);
 
         callbacks?.onTurnEnd?.();
@@ -886,20 +908,24 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=processTurn`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
         await this.sessionManager.commitTurn();
         return { status: 'success' };
-      } catch (err) {
-        handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
-        if (err instanceof PriorityInboxInterrupt
-            || err instanceof UserInterrupt
-            || err instanceof IdleTimeoutSignal) {
-          const cause = err instanceof PriorityInboxInterrupt ? 'priority_inbox'
-                       : err instanceof UserInterrupt          ? 'user_interrupt'
+      } catch (error) {
+        handleTurnInterrupt(error, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
+        if (error instanceof PriorityInboxInterrupt
+            || error instanceof UserInterrupt
+            || error instanceof IdleTimeoutSignal) {
+          const cause = error instanceof PriorityInboxInterrupt ? 'priority_inbox'
+                       : error instanceof UserInterrupt          ? 'user_interrupt'
                        :                                         'idle_timeout';
-          await this.sessionManager.commitTurn(cause);
-          return { status: 'interrupted', error: err, cause };
-        } else {
-          await this.sessionManager.rollbackTurn(formatErr(err));
-          return { status: 'failed', error: err };
+          try {
+            await this.sessionManager.commitTurn(cause);
+            return { status: 'interrupted', error, cause };
+          } catch (commitError) {
+            return this._rollbackFailedTurn(
+              new AggregateError([error, commitError], 'Interrupted turn commit failed', { cause: error }),
+            );
+          }
         }
+        return this._rollbackFailedTurn(error);
       }
     } finally {
       cleanup();
