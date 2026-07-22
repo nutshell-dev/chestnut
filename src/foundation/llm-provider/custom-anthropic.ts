@@ -26,6 +26,7 @@ import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper.js';
 import { parseAnthropicSSEStream } from './custom-anthropic-sse-parser.js';
 import { parseAnthropicResponse, type AnthropicResponse } from './custom-anthropic-response-parser.js';
+import { serializeProviderRequest } from './request-unicode.js';
 
 /**
  * Custom Anthropic adapter for third-party providers
@@ -118,7 +119,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
       const response = await fetch(`${this.baseUrl}/v1/messages`, {
         method: 'POST',
         headers: this.authHeaders,
-        body: JSON.stringify(body),
+        body: serializeProviderRequest(this.name, body),
         signal: abortHandle.signal,
       });
 
@@ -141,7 +142,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             const retryResponse = await fetch(`${this.baseUrl}/v1/messages`, {
               method: 'POST',
               headers: this.authHeaders,
-              body: JSON.stringify(retryBody),
+              body: serializeProviderRequest(this.name, retryBody),
               signal: abortHandle.signal,
             });
             if (retryResponse.ok) {
@@ -202,7 +203,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
       const response = await fetch(`${this.baseUrl}/v1/messages`, {
         method: 'POST',
         headers: this.authHeaders,
-        body: JSON.stringify({ ...body, stream: true }),
+        body: serializeProviderRequest(this.name, { ...body, stream: true }),
         signal: abortHandle.signal,
       });
 
@@ -225,7 +226,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             const retryResponse = await fetch(`${this.baseUrl}/v1/messages`, {
               method: 'POST',
               headers: this.authHeaders,
-              body: JSON.stringify({ ...retryBody, stream: true }),
+              body: serializeProviderRequest(this.name, { ...retryBody, stream: true }),
               signal: abortHandle.signal,
             });
             if (retryResponse.ok) {

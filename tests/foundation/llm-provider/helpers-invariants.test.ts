@@ -5,6 +5,7 @@ import {
   throwHttpErrorResponse,
 } from '../../../src/foundation/llm-provider/_helpers.js';
 import { LLMContextExceededError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMInvalidRequestError } from '../../../src/foundation/llm-provider/request-unicode.js';
 
 describe('throwHttpErrorResponse', () => {
   it('throws LLMRateLimitError on 429 with retry-after seconds', async () => {
@@ -156,7 +157,7 @@ describe('throwHttpErrorResponse 400 context-exceeded', () => {
       });
   });
 
-  it('throws generic LLMError on 400 NOT matching context patterns', async () => {
+  it('throws generic LLMError on 400 NOT matching context or JSON parse patterns', async () => {
     const response = new Response(
       '{"error":{"message":"invalid_request: missing field model"}}',
       { status: 400 },
@@ -171,6 +172,12 @@ describe('throwHttpErrorResponse 400 context-exceeded', () => {
         new Response('{"error":{"message":"invalid_request: missing field model"}}', { status: 400 })
       )
     ).rejects.not.toBeInstanceOf(LLMContextExceededError);
+    // 不应是 LLMInvalidRequestError
+    await expect(
+      throwHttpErrorResponse('test-provider', 'test-model',
+        new Response('{"error":{"message":"invalid_request: missing field model"}}', { status: 400 })
+      )
+    ).rejects.not.toBeInstanceOf(LLMInvalidRequestError);
   });
 
   it('LLMContextExceededError exposes provider/status/providerMessage', async () => {

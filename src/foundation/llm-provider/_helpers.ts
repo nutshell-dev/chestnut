@@ -5,6 +5,7 @@
 const HTTP_SERVER_ERROR_STATUS_MIN = 500;
 
 import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError } from './errors.js';
+import { LLMInvalidRequestError } from './request-unicode.js';
 
 /**
  * 400 context-exceeded message 字面族（phase 690）：
@@ -12,6 +13,8 @@ import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMCo
  * - Anthropic: "prompt is too long: X tokens > Y maximum" / "input length and `max_tokens` exceed context limit"
  * - Gemini:    "input token count" + "exceeds the maximum"
  */
+const REQUEST_BODY_PARSE_RE = /failed to parse the request body as json|invalid json request body/i;
+
 const CONTEXT_EXCEEDED_PATTERNS: RegExp[] = [
   /maximum context length/i,
   /context.{0,30}(exceeded|exceed)/i,
@@ -81,6 +84,11 @@ export async function throwHttpErrorResponse(
   // phase 690: 400 context-exceeded → 类型化错、Runtime 反应式 trim+retry 路径处理
   if (status === 400 && isContextExceededMessage(resolvedErrorText)) {
     throw new LLMContextExceededError(provider, status, resolvedErrorText);
+  }
+
+  // Phase 1154: deterministic provider-side JSON parse rejection → permanent invalid request
+  if (status === 400 && REQUEST_BODY_PARSE_RE.test(resolvedErrorText)) {
+    throw new LLMInvalidRequestError(provider, 'provider_json_parse_rejected');
   }
 
   if (status >= HTTP_SERVER_ERROR_STATUS_MIN) {

@@ -26,6 +26,7 @@ import { formatGeminiMessages } from './gemini-message-formatter.js';
 import { parseGeminiSSEStream } from './gemini-sse-parser.js';
 import { parseGeminiResponse, type GeminiResponse } from './gemini-response-parser.js';
 import { sanitizeForLLMCall } from './sanitize.js';
+import { serializeProviderRequest } from './request-unicode.js';
 
 type HarmCategory =
   | 'HARM_CATEGORY_HARASSMENT'
@@ -99,7 +100,7 @@ export class GeminiAdapter implements ProviderAdapter {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.config.apiKey, ...this.config.extraHeaders },
-          body: JSON.stringify(body),
+          body: serializeProviderRequest(this.name, body),
           signal: abortHandle.signal,
         }
       );
@@ -133,7 +134,7 @@ export class GeminiAdapter implements ProviderAdapter {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.config.apiKey, ...this.config.extraHeaders },
-          body: JSON.stringify(body),
+          body: serializeProviderRequest(this.name, body),
           signal: abortHandle.signal,
         }
       );

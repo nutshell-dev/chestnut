@@ -7,7 +7,8 @@ import {
   LLMTimeoutError,
   LLMNetworkError,
 } from '../../../src/foundation/llm-provider/errors.js';
-import { classifyLLMError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMInvalidRequestError } from '../../../src/foundation/llm-provider/request-unicode.js';
+import { classifyLLMError, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 
 describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
   it('quota keyword in plain Error → permanent', () => {
@@ -44,6 +45,34 @@ describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
 
   it('base LLMError → transient', () => {
     expect(classifyLLMError(new LLMError('something'))).toBe('transient');
+  });
+
+  it('LLMInvalidRequestError → permanent', () => {
+    expect(classifyLLMError(new LLMInvalidRequestError('openai', 'invalid_unicode'))).toBe('permanent');
+  });
+
+  it('LLMAllProvidersFailedError with all invalid_request → permanent', () => {
+    const err = new LLMAllProvidersFailedError([
+      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'invalid_unicode') },
+      { provider: 'anthropic', error: new LLMInvalidRequestError('anthropic', 'invalid_unicode') },
+    ]);
+    expect(classifyLLMError(err)).toBe('permanent');
+  });
+
+  it('LLMAllProvidersFailedError mixed permanent+transient → transient', () => {
+    const err = new LLMAllProvidersFailedError([
+      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'invalid_unicode') },
+      { provider: 'anthropic', error: new LLMNetworkError('anthropic', new Error('timeout')) },
+    ]);
+    expect(classifyLLMError(err)).toBe('transient');
+  });
+
+  it('LLMAllProvidersFailedError all rate_limit → rate_limit', () => {
+    const err = new LLMAllProvidersFailedError([
+      { provider: 'openai', error: new LLMRateLimitError('openai') },
+      { provider: 'anthropic', error: new LLMRateLimitError('anthropic') },
+    ]);
+    expect(classifyLLMError(err)).toBe('rate_limit');
   });
 
   it('unrecognized plain Error → unknown', () => {

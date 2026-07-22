@@ -30,6 +30,7 @@ import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropi
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
 import { assertContentBlocks } from './_block-guards.js';
+import { serializeProviderRequest } from './request-unicode.js';
 
 type AnthropicSDKModule = typeof import('@anthropic-ai/sdk');
 let anthropicSDKPromise: Promise<AnthropicSDKModule> | undefined;
@@ -186,6 +187,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
    */
   async call(options: LLMCallOptions): Promise<LLMResponse> {
     const body = this.buildRequestBody(options);
+    serializeProviderRequest(this.name, body);
     const requestOptions: Anthropic.RequestOptions = {
       ...this.buildRequestOptions(),
       timeout: options.timeoutMs ?? this.config.timeoutMs,
@@ -279,6 +281,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
    */
   async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
     const body = this.buildRequestBody(options);
+    serializeProviderRequest(this.name, body);
     const requestOptions: Anthropic.RequestOptions = {
       ...this.buildRequestOptions(),
       timeout: options.timeoutMs ?? this.config.timeoutMs,

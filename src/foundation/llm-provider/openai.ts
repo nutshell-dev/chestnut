@@ -30,6 +30,7 @@ import { formatMessages, formatTools } from './openai-message-formatter.js';
 import { parseSSEStream } from './openai-sse-parser.js';
 import { parseResponse } from './openai-response-parser.js';
 import { sanitizeForLLMCall } from './sanitize.js';
+import { serializeProviderRequest } from './request-unicode.js';
 
 /**
  * OpenAI API request body
@@ -144,7 +145,7 @@ export class OpenAIAdapter implements ProviderAdapter {
           'Authorization': `Bearer ${this.config.apiKey}`,
           ...this.config.extraHeaders,
         },
-        body: JSON.stringify(body),
+        body: serializeProviderRequest(this.name, body),
         signal: abortHandle.signal,
       });
 
@@ -210,7 +211,7 @@ export class OpenAIAdapter implements ProviderAdapter {
           'Authorization': `Bearer ${this.config.apiKey}`,
           ...this.config.extraHeaders,
         },
-        body: JSON.stringify(body),
+        body: serializeProviderRequest(this.name, body),
         signal: abortHandle.signal,
       });
 

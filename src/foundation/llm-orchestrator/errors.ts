@@ -21,8 +21,10 @@ import {
   LLMContextExceededError,
   LLMOutputBudgetExceededError,
 } from '../llm-provider/errors.js';
+import { LLMInvalidRequestError } from '../llm-provider/request-unicode.js';
 
 export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from '../llm-provider/errors.js';
+export { LLMInvalidRequestError } from '../llm-provider/request-unicode.js';
 
 export type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
 
@@ -59,13 +61,22 @@ export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' |
 export function classifyLLMError(err: unknown): LLMErrorClass {
   // phase 690: context_exceeded 必须先于 LLMError 通用判定（subclass 关系）
   if (err instanceof LLMContextExceededError || err instanceof LLMOutputBudgetExceededError) return 'context_exceeded';
+  if (err instanceof LLMAllProvidersFailedError) {
+    const classes = err.failures.map(failure => classifyLLMError(failure.error));
+    if (classes.length > 0 && classes.every(c => c === 'permanent')) return 'permanent';
+    if (classes.some(c => c === 'transient')) return 'transient';
+    if (classes.some(c => c === 'rate_limit')) return 'rate_limit';
+    if (classes.some(c => c === 'context_exceeded')) return 'context_exceeded';
+    if (classes.some(c => c === 'abort')) return 'abort';
+    return 'unknown';
+  }
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
     if (msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
       return 'permanent';
     }
   }
-  if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError) return 'permanent';
+  if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError || err instanceof LLMInvalidRequestError) return 'permanent';
   if (err instanceof LLMRateLimitError) return 'rate_limit';
   if (err instanceof LLMNetworkError || err instanceof LLMTimeoutError) return 'transient';
   if (isAbortError(err)) return 'abort';

@@ -22,7 +22,8 @@ export type LLMErrorCode =
   | 'LLM_CONTEXT_EXCEEDED'
   | 'LLM_OUTPUT_BUDGET_EXCEEDED'
   | 'LLM_CIRCUIT_BREAKER_OPEN'
-  | 'LLM_STREAM_ABORTED';
+  | 'LLM_STREAM_ABORTED'
+  | 'LLM_INVALID_REQUEST';
 
 export class LLMError extends Error {
   readonly code: LLMErrorCode = 'LLM_CALL_FAILED';
