@@ -15,6 +15,8 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   CONTEXT_BLOCKED_PEEK_FAILED: 'eventloop_context_blocked_peek_failed',
   /** Phase 1154: request blocked 状态因 fingerprint 变化解除 */
   CONTEXT_BLOCKED_RELEASED: 'eventloop_context_blocked_released',
+  /** Phase 1158: post-drain pipeline 异常后 nack 恢复并审计 */
+  POST_DRAIN_FAILURE_RECOVERED: 'eventloop_post_drain_failure_recovered',
 } as const;
 
 export const LOOP_ITERATION_TYPES = {

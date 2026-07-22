@@ -14,6 +14,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { Runtime, TurnResult } from '../runtime/index.js';
+import type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
@@ -37,6 +38,7 @@ import {
   LLMAllProvidersFailedError,
 } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
+import type { Message } from '../../foundation/llm-provider/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions } from './types.js';
 
@@ -310,9 +312,88 @@ export class EventLoop {
   }
 
   /**
+   * Phase 1158 Step C: drain 后单批处理的 disposition guard。
+   * 从 handles 取得到 ack/nack 完成之间，任何 unexpected error 均选择一次 nack
+   * 并记录 recovery audit，再进入既有错误调度。
+   */
+  private async _processDrainedBatch(args: {
+    injected: Message[];
+    sources: Array<{ text: string; type: string }>;
+    addressedHandles: InboxHandle[];
+    turnFingerprint: string;
+    wrappedCallbacks?: StreamCallbacks;
+  }): Promise<'continue' | 'break'> {
+    type PostDrainStage =
+      | 'system_prompt'
+      | 'session_messages'
+      | 'proactive_trim'
+      | 'turn_start_callback'
+      | 'process_turn'
+      | 'turn_result';
+
+    let dispositionSelected = false;
+    let stage: PostDrainStage = 'system_prompt';
+    try {
+      const systemPrompt = await this.runtime.getSystemPrompt();
+      const tools = this.runtime.getToolsForLLM();
+      stage = 'session_messages';
+      const sessionMessages = await this.runtime.getMessages();
+      stage = 'proactive_trim';
+      const messages = await this.runtime.proactiveTrimIfNeeded(
+        [...sessionMessages, ...args.injected], systemPrompt, tools,
+      );
+      stage = 'turn_start_callback';
+      args.wrappedCallbacks?.onTurnStart?.(args.sources);
+      stage = 'process_turn';
+      const result = await this.runtime.processTurn(messages, systemPrompt, tools, args.wrappedCallbacks);
+      stage = 'turn_result';
+
+      if (result.status === 'success') {
+        dispositionSelected = true;
+        await this.runtime.ackHandles(args.addressedHandles, 'normal_turn_end');
+        this._resetLlmRetryState();
+        this._saveLlmRetryState();
+        return 'continue';
+      }
+      if (result.status === 'interrupted') {
+        dispositionSelected = true;
+        if (result.cause === 'idle_timeout') {
+          await this.runtime.nackHandles(args.addressedHandles, result.cause, 'graceful_interrupt');
+        } else {
+          await this.runtime.ackHandles(args.addressedHandles, 'graceful_interrupt');
+        }
+        return 'break';
+      }
+      dispositionSelected = true;
+      await this._handleFailedTurn(result, args.addressedHandles, args.turnFingerprint);
+      return 'break';
+    } catch (error) {
+      if (!dispositionSelected) {
+        dispositionSelected = true;
+        await this.runtime.nackHandles(
+          args.addressedHandles,
+          formatErr(error),
+          'post_drain_failure',
+        );
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED,
+          `stage=${stage}`,
+          `handles=${args.addressedHandles.length}`,
+          `error=${formatErr(error)}`,
+        );
+      }
+      await this._dispatchError(error);
+      return 'break';
+    }
+  }
+
+  /**
    * Phase 1153 Step C: open-chain execution with per-iteration gate.
    * Each chain iteration recomputes the gate and binds the fingerprint to that
    * turn's failure handling; the run-entry fingerprint is never reused across turns.
+   *
+   * Phase 1158 Step C: post-drain pipeline 移入 _processDrainedBatch，由 disposition
+   * flag 保证任何 unexpected error 只选择一次 ack/nack。
    */
   private async _runOpenChain(entryFingerprint: string): Promise<void> {
     const wrappedCallbacks = this.streamWriter
@@ -362,39 +443,22 @@ export class EventLoop {
       chainTotal += count;
       chainIters++;
 
-      const systemPrompt = await this.runtime.getSystemPrompt();
-      const tools = this.runtime.getToolsForLLM();
-      const sessionMessages = await this.runtime.getMessages();
-      let messages = [...sessionMessages, ...injected];
-      messages = await this.runtime.proactiveTrimIfNeeded(messages, systemPrompt, tools);
+      const action = await this._processDrainedBatch({
+        injected,
+        sources,
+        addressedHandles,
+        turnFingerprint,
+        wrappedCallbacks,
+      });
+      if (action === 'break') break;
 
-      wrappedCallbacks?.onTurnStart?.(sources);
-      const result = await this.runtime.processTurn(messages, systemPrompt, tools, wrappedCallbacks);
-
-      if (result.status === 'success') {
-        await this.runtime.ackHandles(addressedHandles, 'normal_turn_end');
-        this._resetLlmRetryState();
-        this._saveLlmRetryState();
-
-        if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {
-          this.audit.write(
-            EVENTLOOP_AUDIT_EVENTS.ITERATION,
-            `type=${LOOP_ITERATION_TYPES.chain_limited}`,
-            `injected=${firstInjected}`,
-            `chain_total=${chainTotal}`,
-          );
-          break;
-        }
-        // continue chain loop
-      } else if (result.status === 'interrupted') {
-        if (result.cause === 'idle_timeout') {
-          await this.runtime.nackHandles(addressedHandles, result.cause, 'graceful_interrupt');
-        } else {
-          await this.runtime.ackHandles(addressedHandles, 'graceful_interrupt');
-        }
-        break;
-      } else {
-        await this._handleFailedTurn(result, addressedHandles, turnFingerprint);
+      if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.ITERATION,
+          `type=${LOOP_ITERATION_TYPES.chain_limited}`,
+          `injected=${firstInjected}`,
+          `chain_total=${chainTotal}`,
+        );
         break;
       }
     }

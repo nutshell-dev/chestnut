@@ -970,4 +970,179 @@ describe('EventLoop.run', () => {
     expect(blocked).toMatchObject({ version: 2, reason: 'no_progress', requestFingerprint: 'legacy-fp' });
     expect(require('fs').existsSync(path.join(agentDir, 'status', 'context-blocked-state.json'))).toBe(false);
   });
+
+  function makePostDrainRuntime(
+    overrides: Partial<{
+      getSystemPrompt: () => Promise<string>;
+      getMessages: () => Promise<Message[]>;
+      proactiveTrimIfNeeded: (messages: Message[]) => Promise<Message[]>;
+      processTurn: () => Promise<TurnResult>;
+      onTurnStartError: boolean;
+    }>,
+  ) {
+    const ackHandles = vi.fn().mockResolvedValue(undefined);
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+    const processTurn = vi.fn().mockImplementation(overrides.processTurn ?? (async () => makeTurnResult('success')));
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: overrides.getSystemPrompt ?? vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: overrides.getMessages ?? vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: overrides.proactiveTrimIfNeeded ?? vi.fn().mockImplementation((m: Message[]) => Promise.resolve(m)),
+      processTurn,
+      ackHandles,
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    return { runtime, ackHandles, nackHandles, processTurn };
+  }
+
+  it('post-drain: getSystemPrompt reject -> nack once with stage=system_prompt, processTurn=0', async () => {
+    const audit = createMockAudit();
+    const systemPromptError = new Error('system prompt failed');
+    const { runtime, nackHandles, processTurn } = makePostDrainRuntime({
+      getSystemPrompt: () => Promise.reject(systemPromptError),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'system prompt failed', 'post_drain_failure');
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED && e.some(c => String(c).includes('stage=system_prompt')),
+    )).toBe(true);
+  });
+
+  it('post-drain: getMessages reject -> nack once with stage=session_messages', async () => {
+    const audit = createMockAudit();
+    const messagesError = new Error('messages failed');
+    const { runtime, nackHandles, processTurn } = makePostDrainRuntime({
+      getMessages: () => Promise.reject(messagesError),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'messages failed', 'post_drain_failure');
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED && e.some(c => String(c).includes('stage=session_messages')),
+    )).toBe(true);
+  });
+
+  it('post-drain: proactiveTrimIfNeeded reject -> nack once with stage=proactive_trim', async () => {
+    const audit = createMockAudit();
+    const trimError = new Error('proactive trim failed');
+    const { runtime, nackHandles, processTurn } = makePostDrainRuntime({
+      proactiveTrimIfNeeded: () => Promise.reject(trimError),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'proactive trim failed', 'post_drain_failure');
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED && e.some(c => String(c).includes('stage=proactive_trim')),
+    )).toBe(true);
+  });
+
+  it('post-drain: onTurnStart throw -> nack once with stage=turn_start_callback', async () => {
+    const audit = createMockAudit();
+    const { runtime, nackHandles, processTurn } = makePostDrainRuntime({});
+    // streamWriter 存在时 wrappedCallbacks.onTurnStart 会调用 runtime.getCurrentTraceId；
+    // 未提供则抛出，模拟 turn_start_callback 阶段异常。
+    const eventLoop = new EventLoop({
+      runtime: runtime as Runtime,
+      fsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      streamWriter: { write: vi.fn() },
+    });
+    await eventLoop.run();
+
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], expect.stringContaining('getCurrentTraceId'), 'post_drain_failure');
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED && e.some(c => String(c).includes('stage=turn_start_callback')),
+    )).toBe(true);
+  });
+
+  it('post-drain: processTurn reject -> nack once with stage=process_turn', async () => {
+    const audit = createMockAudit();
+    const turnError = new Error('process turn failed');
+    const { runtime, nackHandles } = makePostDrainRuntime({
+      processTurn: () => Promise.reject(turnError),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'process turn failed', 'post_drain_failure');
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED && e.some(c => String(c).includes('stage=process_turn')),
+    )).toBe(true);
+  });
+
+  it('post-drain: resolved failed TurnResult -> nack once with rollback path, no recovery audit', async () => {
+    const audit = createMockAudit();
+    const turnError = new Error('turn failed');
+    const { runtime, nackHandles } = makePostDrainRuntime({
+      processTurn: () => Promise.resolve(makeTurnResult('failed', { error: turnError })),
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'turn failed', 'rollback');
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED)).toBe(false);
+  });
+
+  it('post-drain: success -> ack once, nack=0', async () => {
+    const audit = createMockAudit();
+    const { runtime, ackHandles, nackHandles, processTurn } = makePostDrainRuntime({});
+
+    let drainCall = 0;
+    (runtime as any).drainInbox = vi.fn().mockImplementation(async () => {
+      drainCall++;
+      if (drainCall === 1) {
+        return {
+          injected: [{ role: 'user', content: 'hi' } as Message],
+          sources: [{ text: 'hi', type: 'user_chat' }],
+          count: 1,
+          infos: [] as InboxMessage[],
+          addressedHandles: ['handle-1'],
+        };
+      }
+      return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(ackHandles).toHaveBeenCalledTimes(1);
+    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
+    expect(nackHandles).not.toHaveBeenCalled();
+  });
 });

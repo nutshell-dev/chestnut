@@ -720,7 +720,8 @@
       "eventloop_cooldown",
       "eventloop_fatal",
       "eventloop_iteration",
-      "eventloop_llm_retry"
+      "eventloop_llm_retry",
+      "eventloop_post_drain_failure_recovered"
     ],
     "daemon_audit-events": [
       "contract_cancelled",
