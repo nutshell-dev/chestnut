@@ -23,6 +23,7 @@ import {
   initCommand as motionInitCommand,
   chatCommand as motionChatCommand,
   stopCommand as motionStopCommand,
+  motionOutboxCommand,
 } from './commands/motion.js';
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
@@ -172,6 +173,17 @@ motionCmd
   .action(withCliErrorHandling(async () => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     await motionStopCommand({ fsFactory }, { audit });
+  }));
+
+// motion outbox
+motionCmd
+  .command('outbox')
+  .description("Drain Motion's outbox (send tool messages)")
+  .option('--limit <n>', 'Maximum messages to drain (default: 1)', '1')
+  .action(withCliErrorHandling(async (options: { limit: string }) => {
+    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    const limit = parseIntOption(options.limit, '--limit must be a non-negative integer');
+    await motionOutboxCommand({ fsFactory }, { limit }, { audit });
   }));
 
 // motion steps

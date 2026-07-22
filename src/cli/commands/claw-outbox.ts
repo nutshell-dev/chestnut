@@ -11,27 +11,20 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { OutboxReader } from '../../foundation/messaging/index.js';
 
-export async function outboxCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
-  name: string,
-  options?: { limit?: number },
-  opts?: { audit?: AuditLog },
-): Promise<void> {
-  const audit = opts?.audit;
-  // Outbox drain is a pure filesystem operation — we don't require config.yaml.
-  // Motion's outbox scanner reports any claw dir containing pending/*.md, so the
-  // CLI must be able to drain the same set, including orphan claws that have
-  // outbox files but no config (e.g. abandoned or half-created claws).
-  const clawDir = getClawDir(name);
-  const clawFs = deps.fsFactory(clawDir);
-  if (!clawFs.existsSync('.')) {
-    throw new CliError(
-      `Claw directory not found: ${clawDir}. ` +
-      `Expected at {CHESTNUT_ROOT}/.chestnut/claws/<name>/.`
-    );
-  }
+export interface OutboxDrainOptions {
+  limit?: number;
+}
 
-  const outboxReader = new OutboxReader(clawFs, audit ?? { write: () => {} } as unknown as AuditLog);
+/**
+ * Shared outbox drain routine: init → claim → markDone → count remaining.
+ * Caller is responsible for directory existence checks and audit lifecycle events.
+ */
+export async function drainOutbox(
+  fs: FileSystem,
+  audit: AuditLog,
+  options: OutboxDrainOptions = {},
+): Promise<{ drained: string[]; remaining: number }> {
+  const outboxReader = new OutboxReader(fs, audit);
 
   // Reconcile orphaned processing files back to pending before draining.
   await outboxReader.init('.');
@@ -46,15 +39,11 @@ export async function outboxCommand(
   }
 
   if (initialFiles.length === 0) {
-    audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_DONE, `claw=${name}`, `count=0`);
-    console.log('outbox is empty');
-    return;
+    return { drained: [], remaining: 0 };
   }
 
   // Limit number of messages read (default 1)
-  const limit = options?.limit ?? 1;
-
-  audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${limit}`);
+  const limit = options.limit ?? 1;
 
   // Read and output
   const MAX_RACE_RETRIES = 10;
@@ -92,15 +81,51 @@ export async function outboxCommand(
     remaining = Math.max(0, initialFiles.length - results.length);
   }
 
-  // Output
-  for (const content of results) {
+  return { drained: results, remaining };
+}
+
+/**
+ * Print drained outbox messages in the shared CLI format.
+ */
+export function printOutboxResults(drained: string[], remaining: number): void {
+  if (drained.length === 0) {
+    console.log('outbox is empty');
+    return;
+  }
+
+  for (const content of drained) {
     console.log(content);
     console.log('---');
   }
 
-  audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_DONE, `claw=${name}`, `count=${results.length}`, `remaining=${remaining}`);
-
   if (remaining > 0) {
     console.log(`(${remaining} more unread message(s))`);
   }
+}
+
+export async function outboxCommand(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  name: string,
+  options?: OutboxDrainOptions,
+  opts?: { audit?: AuditLog },
+): Promise<void> {
+  const audit = opts?.audit;
+  // Outbox drain is a pure filesystem operation — we don't require config.yaml.
+  // Motion's outbox scanner reports any claw dir containing pending/*.md, so the
+  // CLI must be able to drain the same set, including orphan claws that have
+  // outbox files but no config (e.g. abandoned or half-created claws).
+  const clawDir = getClawDir(name);
+  const clawFs = deps.fsFactory(clawDir);
+  if (!clawFs.existsSync('.')) {
+    throw new CliError(
+      `Claw directory not found: ${clawDir}. ` +
+      `Expected at {CHESTNUT_ROOT}/.chestnut/claws/<name>/.`
+    );
+  }
+
+  audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${options?.limit ?? 1}`);
+  const { drained, remaining } = await drainOutbox(clawFs, audit ?? { write: () => {} } as unknown as AuditLog, options);
+  audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_DONE, `claw=${name}`, `count=${drained.length}`, `remaining=${remaining}`);
+
+  printOutboxResults(drained, remaining);
 }

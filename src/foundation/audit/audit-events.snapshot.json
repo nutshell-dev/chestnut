@@ -61,6 +61,8 @@
       "cli_init_probe_skipped",
       "cli_init_probe_succeeded",
       "cli_motion_init",
+      "cli_motion_outbox_drain_done",
+      "cli_motion_outbox_drain_start",
       "cli_motion_stop",
       "cli_skill_install"
     ],

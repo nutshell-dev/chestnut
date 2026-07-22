@@ -18,6 +18,7 @@ import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { runChatViewport } from './chat-viewport.js';
+import { drainOutbox, printOutboxResults, type OutboxDrainOptions } from './claw-outbox.js';
 import { CliError } from '../errors.js';
 import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -228,6 +229,35 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     trimOutputNewlines: globalConfig.viewport.trim_output_newlines,
     userInputInlineMaxChars: globalConfig.viewport.user_input_inline_max_chars,
   });
+}
+
+/**
+ * motion outbox - drain Motion's own outbox (messages written by motion's send tool)
+ */
+export async function motionOutboxCommand(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  options: OutboxDrainOptions = {},
+  extraDeps?: { audit?: AuditLog },
+): Promise<void> {
+  const audit = extraDeps?.audit;
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
+  const motionFs = deps.fsFactory(motionDir);
+  if (!motionFs.existsSync('.')) {
+    throw new CliError(
+      `Motion directory not found: ${motionDir}. ` +
+      `Run \`chestnut motion init\` first.`
+    );
+  }
+
+  audit?.write(CLI_AUDIT_EVENTS.MOTION_OUTBOX_DRAIN_START, `limit=${options.limit ?? 1}`);
+  const { drained, remaining } = await drainOutbox(
+    motionFs,
+    audit ?? { write: () => {} } as unknown as AuditLog,
+    options,
+  );
+  audit?.write(CLI_AUDIT_EVENTS.MOTION_OUTBOX_DRAIN_DONE, `count=${drained.length}`, `remaining=${remaining}`);
+
+  printOutboxResults(drained, remaining);
 }
 
 /**
