@@ -22,7 +22,7 @@ describe('MemorySystem', () => {
     llmConfig: { providers: [] } as any,
     maxCompressionTokens: 100,
     clawFsFactory: vi.fn(),
-    notifyMotion: vi.fn(),
+    notifyMotion: vi.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(() => {

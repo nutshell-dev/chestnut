@@ -195,8 +195,8 @@ export async function createMotionAddons(
           maxCompressionTokens: globalConfig.cron.jobs.dream_trigger.max_compression_tokens,
           clawFsFactory: fsFactory,
           getContractProgress: clawContractBridge.getContractProgress,
-          // phase 92: DI callback for random-dream notify motion inbox
-          notifyMotion: (msg) => routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          // phase 92 / phase 1159 Step C: DI callback for random-dream notify motion inbox (fail-loud async)
+          notifyMotion: (msg) => routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
         });
       } catch (e) {
         auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=memory_system`, `phase=construct`, `reason=${formatErr(e)}`);

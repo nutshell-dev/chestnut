@@ -17,7 +17,7 @@ import { promises as fs } from 'fs';
 import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memory/random-dream.js';
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
+import { routeNotifyClawAsync } from '../../../src/core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -47,7 +47,7 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
     fs,
     motionFs: new NodeFileSystem({ baseDir: motionDir }),
     audit: mockAudit as any,
-    notifyMotion: (msg) => routeNotifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, mockAudit as any),
+    notifyMotion: (msg) => routeNotifyClawAsync(fs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, mockAudit as any),
   };
 }
 
@@ -163,6 +163,7 @@ describe('random-dream late-settle (phase 170)', () => {
           taskId,
           scheduledAt: now - 3600_000,
           expectedTimeoutAt: now - 60_000,
+          contractIds: [],
         }],
       }),
       'utf-8'
@@ -218,6 +219,7 @@ describe('random-dream late-settle (phase 170)', () => {
           taskId: 'p-1',
           scheduledAt: now - 3 * 24 * 60 * 60_000, // 3 天前
           expectedTimeoutAt: now - 3 * 24 * 60 * 60_000 + 3600_000,
+          contractIds: [],
         }],
       }),
       'utf-8'
@@ -257,6 +259,7 @@ describe('random-dream late-settle (phase 170)', () => {
           taskId: 'a-1',
           scheduledAt: now - 8 * 24 * 60 * 60_000, // 8 天前
           expectedTimeoutAt: now - 8 * 24 * 60 * 60_000 + 3600_000,
+          contractIds: [],
         }],
       }),
       'utf-8'
@@ -324,6 +327,7 @@ describe('random-dream late-settle (phase 170)', () => {
           taskId,
           scheduledAt: now - 3600_000,
           expectedTimeoutAt: now - 60_000,
+          contractIds: [],
         }],
       }),
       'utf-8'
@@ -350,6 +354,7 @@ describe('random-dream late-settle (phase 170)', () => {
           taskId,
           scheduledAt: now - 3600_000,
           expectedTimeoutAt: now - 60_000,
+          contractIds: [],
         }],
       }),
       'utf-8'

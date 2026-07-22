@@ -49,8 +49,8 @@ const LATE_SETTLE_GRACE_MS = 7 * 24 * 60 * 60_000;
 
 // ─── 类型定义 ────────────────────────────────────────────────
 
-/** phase 92: DI callback - caller (L6 装配期) bind chestnutRoot + MOTION_CLAW_ID + notifyClaw + fs + audit */
-export type RandomDreamNotifyMotionFn = (message: InboxMessageOptionsBase) => void;
+/** phase 92 / phase 1159 Step C: DI callback - caller (L6 装配期) bind chestnutRoot + MOTION_CLAW_ID + notifyClaw + fs + audit */
+export type RandomDreamNotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
 
 export interface RandomDreamOptions {
   motionDir: string;
