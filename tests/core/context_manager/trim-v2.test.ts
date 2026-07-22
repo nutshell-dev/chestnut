@@ -7,6 +7,7 @@ import {
   buildReactiveTrimPolicy,
 } from '../../../src/core/context_manager/trim-v2.js';
 import { estimateMessagesTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
+import { assertWellFormedUnicode } from '../../../src/foundation/node-utils/utf8.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 
 const NOW = 1_700_000_000_000; // 2023-11-14T22:13:20.000Z
@@ -78,7 +79,7 @@ describe('trimV2', () => {
       makeSystemMsg('[system message] 未读 1 ' + '测'.repeat(500), 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - 1),
       makeSystemMsg('[system message] 未读 2 ' + '测'.repeat(500), 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - 2),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     expect(result.outcome.newMessages).toHaveLength(2);
     expect(result.metrics.droppedSystemMessages).toBe(2);
     expect(result.metrics.summaryMessageInjected).toBe(true);
@@ -102,7 +103,7 @@ describe('trimV2', () => {
         addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
       },
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     expect(result.metrics.collapsedToolResults).toBe(1);
     // newMessages: [assistant tool_use (unchanged), user tool_result (collapsed), summary, anchor]
     const tr = (result.outcome.newMessages[1].content as [{ type: 'tool_result'; content: string }])[0];
@@ -124,7 +125,7 @@ describe('trimV2', () => {
         addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
       },
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     expect(result.metrics.collapsedToolUseFields).toBe(1);
     // newMessages: [assistant tool_use (collapsed), summary, anchor]
     const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
@@ -191,7 +192,7 @@ describe('trimV2', () => {
         timesTrimmed: 1,
       },
     };
-    const result = trimV2(withAnchor([preTrimmed]), baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const result = trimV2(withAnchor([preTrimmed]), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     // newMessages: [preTrimmed (collapsed + trimmed metadata accumulated), summary, anchor]
     const trimmed = result.outcome.newMessages[0].trimmed!;
     expect(trimmed.trimmedAt).toBe(preTrimmed.trimmed!.trimmedAt);
@@ -204,7 +205,7 @@ describe('trimV2', () => {
     const justOlder = makeSystemMsg('[system message] ' + '测'.repeat(500), 'task_result', threshold - 1);
     const justNewer = makeTextMsg('newer', { addedAt: new Date(threshold + 1).toISOString() });
     // 加 NOW anchor 让 latest_addedAt = NOW、threshold = NOW - RW 同测试预期
-    const result = trimV2(withAnchor([justOlder, justNewer]), baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const result = trimV2(withAnchor([justOlder, justNewer]), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     // newMessages: [collapsed older, summary, newer, anchor]
     expect(result.outcome.newMessages).toHaveLength(4);
     expect(result.outcome.newMessages[1].systemSubtype).toBe('context_trim_summary');
@@ -228,7 +229,7 @@ describe('trimV2', () => {
     for (let i = 0; i < 140; i++) {
       messages.push(makeSystemMsg(`summary ${i} ${'x'.repeat(200)}`, 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - i));
     }
-    const result = trimV2(withAnchor(messages), baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const result = trimV2(withAnchor(messages), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     expect(result.metrics.droppedSystemMessages).toBe(140);
     // newMessages: [summary, anchor]
     expect(result.outcome.newMessages).toHaveLength(2);
@@ -239,7 +240,7 @@ describe('trimV2', () => {
     const messages: Message[] = withAnchor([
       makeSystemMsg('[system message] ' + '测'.repeat(500), 'task_result', NOW - RECENT_WINDOW_MS - 1),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(1_000) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     expect(result.metrics.droppedSystemMessages).toBe(0);
     // newMessages: [collapsed system message, summary, anchor]
     expect(result.outcome.newMessages).toHaveLength(3);
@@ -424,5 +425,106 @@ describe('trimV2', () => {
     const result = trimV2(messages, baseOpts({ fixedTokens: 1_100, policy }));
     expect(result.outcome.status).toBe('policy_conflict');
     expect(result.outcome.reason).toBe('fixed_context_exceeds_ceiling');
+  });
+});
+
+
+// ─── phase 1154 新增：UTF-8 安全预览边界 ───
+
+function makeToolResultDialog(content: string): Message[] {
+  return withAnchor([
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'call_utf8', name: 'read', input: { path: '/x' } }],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString(),
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'call_utf8', content }],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+    },
+  ]);
+}
+
+function getToolResultContent(messages: Message[]): string {
+  const msg = messages.find(m => Array.isArray(m.content) && m.content[0]?.type === 'tool_result');
+  return ((msg?.content as [{ type: 'tool_result'; content: string }])?.[0]?.content) ?? '';
+}
+
+describe('trimV2 UTF-8 preview safety', () => {
+  it('tool_result 在 100-byte 边界遇 emoji 不切 surrogate pair', () => {
+    const content = `${'a'.repeat(PREVIEW_BYTES)}😀${'tail'.repeat(200)}`;
+    const result = trimV2(makeToolResultDialog(content), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const trimmed = getToolResultContent(result.outcome.newMessages);
+
+    expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
+    expect(Buffer.byteLength(trimmed, 'utf8')).toBeLessThanOrEqual(PREVIEW_BYTES + 100); // prefix + suffix overhead
+    expect(trimmed.startsWith('a'.repeat(PREVIEW_BYTES))).toBe(true);
+    expect(trimmed).not.toContain('😀');
+    expect(trimmed).toContain('<...>');
+  });
+
+  it('system message 带 ] 前缀时在 100-byte 边界遇 emoji 不切 surrogate pair', () => {
+    // structural prefix "[system message]" consumes 16 bytes; restBody budget is 100 bytes.
+    const restBodyBeforeEmoji = ' '.repeat(PREVIEW_BYTES - 1);
+    const messages: Message[] = withAnchor([
+      makeSystemMsg('[system message]' + restBodyBeforeEmoji + '😀' + 'tail'.repeat(200), 'task_result', NOW - RECENT_WINDOW_MS - 1),
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const trimmed = result.outcome.newMessages[0].content as string;
+
+    expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
+    expect(trimmed).toContain('[system message]');
+    expect(trimmed).not.toContain('😀');
+  });
+
+  it('system message 无 ] 前缀时在 100-byte 边界遇 emoji 不切 surrogate pair', () => {
+    const messages: Message[] = withAnchor([
+      makeSystemMsg('a'.repeat(PREVIEW_BYTES) + '😀' + 'tail'.repeat(200), 'task_result', NOW - RECENT_WINDOW_MS - 1),
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const trimmed = result.outcome.newMessages[0].content as string;
+
+    expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
+    expect(trimmed.startsWith('a'.repeat(PREVIEW_BYTES))).toBe(true);
+    expect(trimmed).not.toContain('😀');
+  });
+
+  it('tool_use 长 string 入参在 100-byte 边界遇 emoji 不切 surrogate pair', () => {
+    const messages: Message[] = withAnchor([
+      {
+        role: 'assistant',
+        content: [{
+          type: 'tool_use',
+          id: 'call_utf8_input',
+          name: 'write',
+          input: { path: '/x', content: `${'a'.repeat(PREVIEW_BYTES)}😀${'tail'.repeat(200)}` },
+        }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
+    const trimmed = tu.input.content as string;
+
+    expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
+    expect(trimmed.startsWith('a'.repeat(PREVIEW_BYTES))).toBe(true);
+    expect(trimmed).not.toContain('😀');
+    expect(trimmed).toContain('<...>');
+  });
+
+  it('CJK system message preview 字符数变少但 byte budget 合规', () => {
+    // '测' = 3 bytes；100 bytes 最多 33 个字符
+    const content = '测'.repeat(300);
+    const messages: Message[] = withAnchor([
+      makeSystemMsg(content, 'task_result', NOW - RECENT_WINDOW_MS - 1),
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const trimmed = result.outcome.newMessages[0].content as string;
+
+    expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
+    expect(Buffer.byteLength(trimmed, 'utf8')).toBeLessThanOrEqual(PREVIEW_BYTES + 90); // prefix + suffix overhead
+    expect(trimmed.startsWith('测'.repeat(33))).toBe(true);
+    expect(trimmed).toContain('<...>');
   });
 });

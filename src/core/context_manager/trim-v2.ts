@@ -5,6 +5,7 @@
 
 import type { Message, ContentBlock } from '../../foundation/llm-provider/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/token-estimator.js';
+import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
@@ -488,7 +489,7 @@ function collapseSystemMessage(msg: Message, previewBytes: number, nowMs: number
   const prefix = body.slice(0, closeBracketIdx + 1);
   const restBody = body.slice(closeBracketIdx + 1);
 
-  const preview = restBody.slice(0, previewBytes);
+  const preview = truncateUtf8Prefix(restBody, previewBytes);
   const collapsed = `${prefix}${preview}<...>[context-trim: ${byteLength(restBody)} bytes elided. Inspect dialog archive for original.]`;
 
   if (byteLength(collapsed) >= originalBytes) return null;
@@ -507,7 +508,7 @@ function collapseStringContent(
   originalBytes: number,
   nowMs: number,
 ): Message | null {
-  const preview = body.slice(0, previewBytes);
+  const preview = truncateUtf8Prefix(body, previewBytes);
   const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. Inspect dialog archive for original.]`;
   if (byteLength(collapsed) >= originalBytes) return null;
   return {
@@ -537,7 +538,7 @@ function collapseToolResults(
     }
     const c = tr.content;
     const originalBytes = byteLength(c);
-    const preview = c.slice(0, previewBytes);
+    const preview = truncateUtf8Prefix(c, previewBytes);
     const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. tool_use_id=${tr.tool_use_id}. Inspect dialog archive for original.]`;
     if (byteLength(collapsed) >= originalBytes) return block;
     collapsedCount++;
@@ -577,7 +578,7 @@ function collapseAssistantToolUseInputs(
         continue;
       }
       const originalBytes = byteLength(v);
-      const preview = v.slice(0, previewBytes);
+      const preview = truncateUtf8Prefix(v, previewBytes);
       const collapsed = `${preview}<...>[truncated: ${originalBytes} bytes]`;
       if (byteLength(collapsed) >= originalBytes) {
         newInput[k] = v;
