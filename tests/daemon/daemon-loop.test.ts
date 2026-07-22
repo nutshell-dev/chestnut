@@ -268,8 +268,10 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         createWatcher: () => fakeWatcher,
       });
 
-      // 等 daemon 跑至少 2 个 blocked ticks（fallback 30ms + overhead）
-      await new Promise(r => setTimeout(r, 250));
+      // 等 daemon 跑至少 2 个 blocked ticks；250ms 包含 fallback 30ms × 至少 2 ticks
+      // 的调度 overhead，只用于观测窗口，不作为产品行为契约。
+      const BLOCKED_TICK_OBSERVATION_MS = 250;
+      await new Promise(r => setTimeout(r, BLOCKED_TICK_OBSERVATION_MS));
       stop();
       await promise;
 
