@@ -41,7 +41,16 @@ export class StreamWriter implements StreamLog {
           const content = this.fs.readSync(STREAM_FILE);
           const lastNewline = content.lastIndexOf('\n');
           if (lastNewline !== -1 && lastNewline < content.length - 1) {
-            this.fs.writeAtomicSync(STREAM_FILE, content.substring(0, lastNewline + 1));
+            const retained = content.substring(0, lastNewline + 1);
+            const dropped = content.substring(lastNewline + 1);
+            this.fs.writeAtomicSync(STREAM_FILE, retained);
+            this.audit.write(
+              STREAM_AUDIT_EVENTS.TRUNCATION_REPAIRED,
+              `path=${STREAM_FILE}`,
+              `retained_bytes=${Buffer.byteLength(retained, 'utf-8')}`,
+              `dropped_bytes=${Buffer.byteLength(dropped, 'utf-8')}`,
+              `dropped_preview=${this.audit.preview(dropped)}`,
+            );
           }
         } catch (err) {
           // phase 591: 加 path forensic col

@@ -950,6 +950,7 @@
       "stream_reader_watcher_callback_failed",
       "stream_reader_watcher_failed",
       "stream_reader_watcher_reset",
+      "stream_truncation_repaired",
       "stream_truncation_repair_failed",
       "stream_write_after_close",
       "stream_writer_open_created_empty",

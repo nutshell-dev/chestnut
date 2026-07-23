@@ -21,6 +21,7 @@ export const STREAM_AUDIT_EVENTS = {
   READER_WATCHER_RESET: 'stream_reader_watcher_reset',
   READER_CORRUPT: 'stream_reader_corrupt',
   TRUNCATION_REPAIR_FAILED: 'stream_truncation_repair_failed',
+  TRUNCATION_REPAIRED: 'stream_truncation_repaired',
 } as const;
 
 
@@ -46,4 +47,5 @@ export const STREAM_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   stream_reader_watcher_reset: 'audit',
   stream_reader_corrupt: 'audit',
   stream_truncation_repair_failed: 'audit',
+  stream_truncation_repaired: 'audit',
 } as const;
