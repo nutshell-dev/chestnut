@@ -48,6 +48,24 @@ interface DreamStateData {
   currentSessionRetryCount?: number;     // Phase 1200: current.json 损坏重试计数器
 }
 
+// Phase 1161: discriminated load result so callers can stop before discovery/LLM/output/save.
+type DeepDreamStateLoadResult =
+  | { status: 'ready'; state: DreamStateData }
+  | { status: 'blocked'; reason: 'future_schema'; version: number };
+
+function defaultDreamState(): DreamStateData {
+  return {
+    schema_version: DEEP_DREAM_STATE_CURRENT_VERSION,
+    lastProcessedDeepDreamAt: 0,
+    currentSessionDreamedDate: '',
+    currentSessionRetryCount: 0,
+  };
+}
+
+function ready(state: DreamStateData): DeepDreamStateLoadResult {
+  return { status: 'ready', state };
+}
+
 export interface DeepDreamOptions {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
@@ -97,11 +115,11 @@ function serializeSession(messages: Message[]): string {
 
 const DEEP_DREAM_STATE_FILE = '.deep-dream-state.json';
 
-function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): DreamStateData {
+function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): DeepDreamStateLoadResult {
   try {
     const raw = JSON.parse(clawFs.readSync(DEEP_DREAM_STATE_FILE)) as Record<string, unknown>;
 
-    // phase 926: reject future schema versions (keep file, return default)
+    // phase 926 + 1161: reject future schema versions (keep file, block this claw)
     const version = typeof raw.schema_version === 'number' ? raw.schema_version : 0;
     if (version > DEEP_DREAM_STATE_CURRENT_VERSION) {
       audit.write(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION,
@@ -110,7 +128,7 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
         `clawId=${clawId}`,
         `reason=cannot_migrate_future_version`,
       );
-      return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '', currentSessionRetryCount: 0 };
+      return { status: 'blocked', reason: 'future_schema', version };
     }
 
     // phase 280: legacy schema migration (option 2 silent reset + audit emit)
@@ -121,15 +139,15 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
         `legacy_field=processedArchives`,
         `legacy_count=${Array.isArray(raw.processedArchives) ? raw.processedArchives.length : 0}`,
       );
-      return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '', currentSessionRetryCount: 0 };
+      return ready(defaultDreamState());
     }
 
     // phase 547: 缺 schema_version 视 v1（兼容旧 state 文件、未触发 migration audit）
-    return raw as unknown as DreamStateData;
+    return ready(raw as unknown as DreamStateData);
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {
-      return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' };
+      return ready(defaultDreamState());
     }
     // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
     audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
@@ -137,7 +155,7 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
       `clawId=${clawId}`,
       `reason=${formatErr(err)}`,
     );
-    return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' };
+    return ready(defaultDreamState());
   }
 }
 
@@ -248,7 +266,18 @@ type ProcessResult =
 
 async function prepareDeepDreamRun(ctx: DreamRunContext): Promise<DreamRunPlan | null> {
   const today = new Date().toLocaleDateString('sv');
-  const state = loadDreamState(ctx.clawFs, ctx.audit, ctx.clawId);
+  const loaded = loadDreamState(ctx.clawFs, ctx.audit, ctx.clawId);
+  if (loaded.status === 'blocked') {
+    ctx.audit.write(
+      MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB,
+      'step=blocked',
+      `clawId=${ctx.clawId}`,
+      `reason=${loaded.reason}`,
+      `version=${loaded.version}`,
+    );
+    return null;
+  }
+  const state = loaded.state;
   const dialogStore = new DialogStore(ctx.clawFs, DIALOG_DIR, ctx.audit, CURRENT_DIALOG_FILE, ctx.clawId);
   const sessionFiles = await discoverUnprocessed(dialogStore, state, today);
   if (sessionFiles.length === 0) {
@@ -464,6 +493,8 @@ export const __test_saveDreamState = saveDreamState;
 /** @internal test-only export (phase 1467) */
 export const __test_DEEP_DREAM_STATE_FILE = DEEP_DREAM_STATE_FILE;
 export type { DreamStateData as __test_DreamStateData };
+/** @internal test-only export (phase 1161) */
+export type { DeepDreamStateLoadResult as __test_DeepDreamStateLoadResult };
 
 // Phase 921: test-only exports for transient waterline behavior.
 /** @internal test-only export (phase 921) */

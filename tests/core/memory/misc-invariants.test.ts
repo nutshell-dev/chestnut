@@ -43,7 +43,7 @@ describe('deep-dream-phase926', () => {
 
   describe('deep-dream phase926 invariants', () => {
     describe('loadDreamState future version guard', () => {
-      it('returns default state for future schema_version and keeps file on disk', () => {
+      it('returns blocked for future schema_version and keeps file on disk', () => {
         const fs = makeMockFs(() => JSON.stringify({
           schema_version: 99,
           lastProcessedDeepDreamAt: 12345,
@@ -51,13 +51,12 @@ describe('deep-dream-phase926', () => {
         }));
         const audit = makeMockAudit();
 
-        const state = __test_loadDreamState(fs, audit, clawId);
-        expect(state).toEqual({
-          schema_version: 1,
-          lastProcessedDeepDreamAt: 0,
-          currentSessionDreamedDate: '',
-          currentSessionRetryCount: 0,
-        });
+        const result = __test_loadDreamState(fs, audit, clawId);
+        expect(result.status).toBe('blocked');
+        if (result.status === 'blocked') {
+          expect(result.reason).toBe('future_schema');
+          expect(result.version).toBe(99);
+        }
         expect(audit.write).toHaveBeenCalledTimes(1);
         const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
         expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION);

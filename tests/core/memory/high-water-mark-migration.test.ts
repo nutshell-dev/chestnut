@@ -39,7 +39,9 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
       }),
     });
 
-    const state = __test_loadDreamState(fs, audit, 'test-claw');
+    const result = __test_loadDreamState(fs, audit, 'test-claw');
+    expect(result.status).toBe('ready');
+    const { state } = result;
 
     expect(state.lastProcessedDeepDreamAt).toBe(0);
     expect(state.currentSessionDreamedDate).toBe('');
@@ -64,7 +66,9 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
       }),
     });
 
-    const state = __test_loadDreamState(fs, audit, 'test-claw');
+    const result = __test_loadDreamState(fs, audit, 'test-claw');
+    expect(result.status).toBe('ready');
+    const { state } = result;
 
     expect(state.lastProcessedDeepDreamAt).toBe(1717000000000);
     expect(state.currentSessionDreamedDate).toBe('2026-05-30');
@@ -75,7 +79,9 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({});
 
-    const state = __test_loadDreamState(fs, audit, 'test-claw');
+    const result = __test_loadDreamState(fs, audit, 'test-claw');
+    expect(result.status).toBe('ready');
+    const { state } = result;
 
     expect(state.lastProcessedDeepDreamAt).toBe(0);
     expect(state.currentSessionDreamedDate).toBe('');
@@ -88,7 +94,9 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
       [__test_DEEP_DREAM_STATE_FILE]: 'not-json',
     });
 
-    const state = __test_loadDreamState(fs, audit, 'test-claw');
+    const result = __test_loadDreamState(fs, audit, 'test-claw');
+    expect(result.status).toBe('ready');
+    const { state } = result;
 
     expect(state.lastProcessedDeepDreamAt).toBe(0);
     expect(state.currentSessionDreamedDate).toBe('');

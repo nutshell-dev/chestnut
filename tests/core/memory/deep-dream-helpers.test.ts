@@ -25,6 +25,12 @@ import type { Message, ContentBlock } from '../../../src/foundation/llm-provider
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 
 const clawId = 'test-claw';
+const defaultState = {
+  schema_version: 1,
+  lastProcessedDeepDreamAt: 0,
+  currentSessionDreamedDate: '',
+  currentSessionRetryCount: 0,
+};
 
 describe('deep-dream pure helpers (phase 1467)', () => {
   describe('estimateTokens', () => {
@@ -149,19 +155,20 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       return { readSync: vi.fn(readImpl) } as any;
     }
 
-    it('FileNotFoundError returns silent default state (no audit)', () => {
+    it('FileNotFoundError returns ready default state (no audit)', () => {
       const fs = makeMockFs(() => {
         throw new FileNotFoundError('.deep-dream-state.json');
       });
       const audit = makeMockAudit();
 
-      const state = __test_loadDreamState(fs, audit, clawId);
-      // phase 547: schema_version=1 默认填入 default state
-      expect(state).toEqual({ schema_version: 1, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
+      const result = __test_loadDreamState(fs, audit, clawId);
+      expect(result.status).toBe('ready');
+      if (result.status !== 'ready') throw new Error('expected ready');
+      expect(result.state).toEqual(defaultState);
       expect(audit.write).not.toHaveBeenCalled();
     });
 
-    it('valid JSON returns parsed state', () => {
+    it('valid JSON returns ready parsed state', () => {
       const stored: __test_DreamStateData = {
         lastProcessedDeepDreamAt: 1717000000000,
         currentSessionDreamedDate: '2026-05-30',
@@ -169,17 +176,47 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       const fs = makeMockFs(() => JSON.stringify(stored));
       const audit = makeMockAudit();
 
-      const state = __test_loadDreamState(fs, audit, clawId);
-      expect(state).toEqual(stored);
+      const result = __test_loadDreamState(fs, audit, clawId);
+      expect(result.status).toBe('ready');
+      if (result.status !== 'ready') throw new Error('expected ready');
+      expect(result.state).toEqual(stored);
       expect(audit.write).not.toHaveBeenCalled();
     });
 
-    it('corrupt JSON emits DEEP_DREAM_ERROR audit + returns default', () => {
+    it('future schema_version returns blocked result', () => {
+      const fs = makeMockFs(() => JSON.stringify({
+        schema_version: 99,
+        lastProcessedDeepDreamAt: 12345,
+        currentSessionDreamedDate: '2026-01-01',
+      }));
+      const audit = makeMockAudit();
+
+      const result = __test_loadDreamState(fs, audit, clawId);
+      expect(result.status).toBe('blocked');
+      if (result.status !== 'blocked') throw new Error('expected blocked');
+      expect(result.reason).toBe('future_schema');
+      expect(result.version).toBe(99);
+      expect(audit.write).toHaveBeenCalledTimes(1);
+      const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION);
+      expect(call).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^version=99$/),
+        expect.stringMatching(/^current=1$/),
+        expect.stringMatching(/^clawId=test-claw$/),
+        expect.stringMatching(/^reason=cannot_migrate_future_version$/),
+      ]));
+      // No write occurred — future-version file is preserved on disk.
+      expect(fs.writeAtomicSync).toBeUndefined();
+    });
+
+    it('corrupt JSON emits DEEP_DREAM_ERROR audit + returns ready default', () => {
       const fs = makeMockFs(() => '{ corrupt');
       const audit = makeMockAudit();
 
-      const state = __test_loadDreamState(fs, audit, clawId);
-      expect(state).toEqual({ schema_version: 1, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
+      const result = __test_loadDreamState(fs, audit, clawId);
+      expect(result.status).toBe('ready');
+      if (result.status !== 'ready') throw new Error('expected ready');
+      expect(result.state).toEqual(defaultState);
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
@@ -189,14 +226,16 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       ]));
     });
 
-    it('non-ENOENT IO error (EACCES) emits audit + returns default', () => {
+    it('non-ENOENT IO error (EACCES) emits audit + returns ready default', () => {
       const fs = makeMockFs(() => {
         throw new Error('EACCES: permission denied');
       });
       const audit = makeMockAudit();
 
-      const state = __test_loadDreamState(fs, audit, clawId);
-      expect(state).toEqual({ schema_version: 1, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
+      const result = __test_loadDreamState(fs, audit, clawId);
+      expect(result.status).toBe('ready');
+      if (result.status !== 'ready') throw new Error('expected ready');
+      expect(result.state).toEqual(defaultState);
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
