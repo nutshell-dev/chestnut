@@ -124,8 +124,6 @@ export async function createMotionAddons(
           ts: Date.now(),
           type: 'user_reply',
           content: args.content as string,
-          msgType: args.type as string,
-          priority: (args.priority as string) ?? 'normal',
         });
       }
       return result;
