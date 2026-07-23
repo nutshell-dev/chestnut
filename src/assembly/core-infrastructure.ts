@@ -11,8 +11,10 @@ import { reconcileFallbackDumps } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
 import { createLLMOrchestrator, type LLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
-import { createLLMAuditSink } from './llm-audit-sink.js';
+import { createLLMEventSink } from './llm-event-sink.js';
 import { buildLLMConfig } from './config/config-load.js';
+import { createStreamWriter } from '../foundation/stream/index.js';
+import type { StreamWriter } from '../foundation/stream/index.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';
@@ -55,6 +57,7 @@ export interface CoreInfraOutput {
   skillRegistry: SkillSystem;
   contractManager: ContractSystem;
   outboxWriter: OutboxWriter;
+  streamWriter: StreamWriter;
   isMotion: boolean;
   chestnutRoot: string;
   clawDir: string;
@@ -171,6 +174,18 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     const toolTimeoutMs = globalConfig.tool_timeout_ms;
     const idleTimeoutMs = globalConfig.motion.llm_idle_timeout_ms;
 
+    // --- L2b StreamWriter: construct early (no open) so LLMOrchestrator events can fan out ---
+    let streamWriter: StreamWriter;
+    try {
+      streamWriter = createStreamWriter(systemFs, auditWriter, {
+        maxFiles: globalConfig.stream.retention.max_files,
+        maxDays: globalConfig.stream.retention.max_days,
+      });
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=stream_writer`, `phase=construct`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: StreamWriter construct failed: ${formatErr(e)}`, { cause: e });
+    }
+
     let llm: LLMOrchestrator;
     try {
       const auditLog = auditWriter;
@@ -178,7 +193,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         ...llmConfig,
         primary: { ...llmConfig.primary, auditLog },
         fallbacks: llmConfig.fallbacks?.map((fb) => ({ ...fb, auditLog })),
-        events: createLLMAuditSink(auditWriter),
+        events: createLLMEventSink(auditWriter, streamWriter),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -292,6 +307,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       skillRegistry,
       contractManager,
       outboxWriter,
+      streamWriter,
       isMotion,
       chestnutRoot,
       clawDir,

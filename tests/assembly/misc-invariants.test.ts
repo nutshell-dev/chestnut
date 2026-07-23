@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import type { ToolPermissions } from '../../src/foundation/tools/types.js';
-import { createLLMAuditSink } from '../../src/assembly/llm-audit-sink.js';
+import { createLLMEventSink } from '../../src/assembly/llm-event-sink.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import * as fsNative from 'fs';
 import * as path from 'path';
@@ -50,20 +50,24 @@ describe('tool-context-resolution', () => {
   });
 });
 
-describe('llm-audit-sink', () => {
+describe('llm-event-sink', () => {
   /**
-   * LLM audit sink tests
+   * LLM composite event sink tests
    *
-   * Tests: createLLMAuditSink — audit.write throw 时的 console.error fallback + isolation 保
-   * 历史：phase604 NEW
+   * Tests: createLLMEventSink — audit.write throw 时的 console.error fallback + isolation 保
+   * 历史：phase604 NEW (llm-audit-sink) → phase1176 Step B 升档为 composite sink
    */
 
-  describe('createLLMAuditSink critical fallback (phase 604 / B.llm-audit-sink-recursion-boundary)', () => {
+  function makeStream() {
+    return { write: vi.fn() };
+  }
+
+  describe('createLLMEventSink critical fallback (phase 1176 / B.llm-event-sink-recursion-boundary)', () => {
     beforeEach(() => {
       vi.restoreAllMocks();
     });
 
-    it('audit.write throw → console.error [LLM AUDIT SINK CRITICAL] + sink 不抛（isolation 保）', () => {
+    it('audit.write throw → console.error [LLM EVENT SINK CRITICAL] + sink 不抛（isolation 保）', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const audit: AuditLog = {
         write: vi.fn(() => { throw new Error('audit fs full'); }),
@@ -71,7 +75,8 @@ describe('llm-audit-sink', () => {
         message: vi.fn((s: string) => s),
         summary: vi.fn((s: string) => s),
       };
-      const sink = createLLMAuditSink(audit);
+      const stream = makeStream();
+      const sink = createLLMEventSink(audit, stream);
 
       // sink emit 不抛（isolation 保）
       expect(() => sink.emit({
@@ -79,12 +84,17 @@ describe('llm-audit-sink', () => {
         provider: 'openai',
         attempt: 1,
         error: 'mock',
-      } as any)).not.toThrow();
+        errorClass: 'permanent',
+        userActionHint: 'rotate_api_key',
+      })).not.toThrow();
 
-      // console.error 真触发 + 含 [LLM AUDIT SINK CRITICAL] prefix
+      // console.error 真触发 + 含 [LLM EVENT SINK CRITICAL] audit prefix
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/^\[LLM AUDIT SINK CRITICAL\]/),
+        expect.stringMatching(/^\[LLM EVENT SINK CRITICAL\]\s*audit/),
       );
+
+      // stream 分支仍执行
+      expect(stream.write).toHaveBeenCalledTimes(1);
 
       consoleSpy.mockRestore();
     });
@@ -97,17 +107,21 @@ describe('llm-audit-sink', () => {
         message: vi.fn((s: string) => s),
         summary: vi.fn((s: string) => s),
       };
-      const sink = createLLMAuditSink(audit);
+      const stream = makeStream();
+      const sink = createLLMEventSink(audit, stream);
 
       sink.emit({
         type: 'provider_attempt_failed',
         provider: 'openai',
         attempt: 1,
         error: 'mock',
-      } as any);
+        errorClass: 'permanent',
+        userActionHint: 'rotate_api_key',
+      });
 
       expect(consoleSpy).not.toHaveBeenCalled();
       expect(audit.write).toHaveBeenCalledTimes(1);
+      expect(stream.write).toHaveBeenCalledTimes(1);
 
       consoleSpy.mockRestore();
     });

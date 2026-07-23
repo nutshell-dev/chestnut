@@ -10,7 +10,7 @@
  *   - cli/** + watchdog/** (CLI user-face / structural boundaries)
  *   - daemon-entry.ts + daemon-handlers.ts + watchdog-entry.ts (process-level uncaught handlers)
  *   - foundation/audit/** (audit recursion border)
- *   - assembly/llm-audit-sink.ts (audit-of-audit fallback)
+ *   - assembly/llm-event-sink.ts (audit-of-audit fallback)
  *
  * Line-level exemption:
  *   - `// console: <reason>` same-line comment
@@ -30,7 +30,7 @@ const ALLOWLIST_FILES = [
   'src/daemon-entry.ts',
   'src/daemon-handlers.ts',
   'src/watchdog-entry.ts',
-  'src/assembly/llm-audit-sink.ts',
+  'src/assembly/llm-event-sink.ts',
 ];
 
 function isAllowlisted(filename) {

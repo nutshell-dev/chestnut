@@ -23,7 +23,7 @@ import {
   LLMRateLimitError,
   LLMTimeoutError,
 } from '../../../src/foundation/llm-provider/errors.js';
-import { createLLMAuditSink } from '../../../src/assembly/llm-audit-sink.js';
+import { createLLMEventSink } from '../../../src/assembly/llm-event-sink.js';
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -537,7 +537,7 @@ describe('llm-audit-sink-missing-events', () => {
     it('emits context_exceeded_failover audit row', () => {
       const writes: any[][] = [];
       const audit: AuditLog = { write: (...args) => writes.push(args) , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any;
-      const sink = createLLMAuditSink(audit);
+      const sink = createLLMEventSink(audit, { write: () => {} });
       sink.emit({ type: 'context_exceeded_failover', provider: 'openai', stopReason: 'context_window_exceeded' });
       expect(writes.length).toBe(1);
       expect(writes[0][0]).toBe('llm_context_exceeded_failover');
@@ -547,7 +547,7 @@ describe('llm-audit-sink-missing-events', () => {
     it('emits permanent_skip_retry audit row', () => {
       const writes: any[][] = [];
       const audit: AuditLog = { write: (...args) => writes.push(args) , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any;
-      const sink = createLLMAuditSink(audit);
+      const sink = createLLMEventSink(audit, { write: () => {} });
       sink.emit({ type: 'permanent_skip_retry', provider: 'openai', attempt: 3, errorClass: 'permanent' });
       expect(writes.length).toBe(1);
       expect(writes[0][0]).toBe('llm_permanent_skip_retry');

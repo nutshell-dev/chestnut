@@ -21,8 +21,8 @@ describe('eslint custom rule: no-console-in-business-path (phase 340)', () => {
       { code: 'console.log("entry");', filename: 'src/daemon-entry.ts' },
       // allowlist: watchdog-entry.ts
       { code: 'console.log("entry");', filename: 'src/watchdog-entry.ts' },
-      // allowlist: assembly/llm-audit-sink.ts
-      { code: 'console.error("sink");', filename: 'src/assembly/llm-audit-sink.ts' },
+      // allowlist: assembly/llm-event-sink.ts
+      { code: 'console.error("sink");', filename: 'src/assembly/llm-event-sink.ts' },
       // business path with `// console: <reason>` exemption
       {
         code: 'console.error("hot"); // console: tmp debug',

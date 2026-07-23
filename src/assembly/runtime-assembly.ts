@@ -13,7 +13,6 @@ import { createSnapshot } from '../foundation/snapshot/index.js';
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、走 sibling-direct (合法 assembly 自家)
 import { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
-import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { type Runtime, type RuntimeDependencies } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
@@ -58,12 +57,12 @@ export async function createRuntimeAssembly(
   input: RuntimeAssemblyInput,
 ): Promise<RuntimeAssemblyOutput> {
   const { core, business, config } = input;
-  const { clawDir, globalConfig, identity, clawId } = config;
+  const { clawDir, identity, clawId } = config;
   const isMotion = identity === 'motion';
   const {
     systemFs, auditWriter, llm, llmConfig,
     maxSteps, toolProfile, idleTimeoutMs, toolTimeoutMs,
-    skillRegistry, contractManager, fsFactory, outboxWriter,
+    skillRegistry, contractManager, fsFactory, outboxWriter, streamWriter,
   } = core;
   const {
     taskSystem, permissionChecker, sessionManager, makeDialogStore,
@@ -94,13 +93,8 @@ export async function createRuntimeAssembly(
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=snapshot`, `phase=recovery-commit`, `reason=${recoveryResult.error.kind}`);
   }
 
-  // --- StreamWriter 前置（phase182 B.p166-5 升档：setter 双阶段消除） ---
-  let streamWriter: StreamWriter;
+  // --- StreamWriter open：复用 CoreInfrastructure 构造的同一实例 ---
   try {
-    streamWriter = createStreamWriter(systemFs, auditWriter, {
-      maxFiles: globalConfig.stream.retention.max_files,
-      maxDays: globalConfig.stream.retention.max_days,
-    });
     streamWriter.open();
     // Phase 833: wire stream writer into AsyncTaskSystem so migrated exec tasks
     // can emit task_started / task_completed viewport events.
