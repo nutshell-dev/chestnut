@@ -38,7 +38,7 @@ import {
   loadWatchdogState,
   saveWatchdogState,
 } from '../../src/watchdog/watchdog-state.js';
-import { clawStateAPI, setAuditWriter, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI, setAuditWriter, _resetWatchdogContextForTest, motionRestartStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
@@ -170,11 +170,116 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     expect(clawStateAPI.clawPreviouslyAlive.get('claw1')).toBe(false);
     expect(clawStateAPI.everSpawned.has('claw1')).toBe(true);
 
+    // motionRestart absent -> closed
+    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+
     // Subsequent save writes schema_version, not version
     saveWatchdogState(fsFactory);
     const savedRaw = fs.readFileSync(stateFile, 'utf-8');
     const saved = JSON.parse(savedRaw);
     expect(saved.schema_version).toBe(2);
     expect(saved).not.toHaveProperty('version');
+    expect(saved.motionRestart).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+  });
+
+  it('legacy v2 without motionRestart -> closed initial state', () => {
+    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 2,
+      lastInactivityNotified: {},
+      inactivityNotifyCount: {},
+      clawPreviouslyAlive: {},
+      everSpawned: [],
+    }));
+
+    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog;
+    setAuditWriter(mockAudit);
+
+    loadWatchdogState(fsFactory);
+
+    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+    expect(mockAudit.write.mock.calls.filter(
+      (c: any[]) => c[0] === WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED || c[0] === WATCHDOG_AUDIT_EVENTS.STATE_SCHEMA_INVALID,
+    )).toHaveLength(0);
+  });
+
+  it('retrying motionRestart round-trips through save/load', () => {
+    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    const retrying = {
+      status: 'retrying',
+      consecutiveAttempts: 3,
+      nextAttemptAt: 1_234_567_890,
+      awaitingStability: true,
+    } as const;
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 2,
+      lastInactivityNotified: {},
+      inactivityNotifyCount: {},
+      clawPreviouslyAlive: {},
+      everSpawned: [],
+      motionRestart: retrying,
+    }));
+
+    setAuditWriter({ write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog);
+
+    loadWatchdogState(fsFactory);
+    expect(motionRestartStateAPI.snapshot()).toEqual(retrying);
+
+    saveWatchdogState(fsFactory);
+    const saved = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    expect(saved.motionRestart).toEqual(retrying);
+  });
+
+  it('open motionRestart round-trips through save/load', () => {
+    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    const open = {
+      status: 'open',
+      consecutiveAttempts: 10,
+      openedAt: 1_234_567_890,
+    } as const;
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 2,
+      lastInactivityNotified: {},
+      inactivityNotifyCount: {},
+      clawPreviouslyAlive: {},
+      everSpawned: [],
+      motionRestart: open,
+    }));
+
+    setAuditWriter({ write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog);
+
+    loadWatchdogState(fsFactory);
+    expect(motionRestartStateAPI.snapshot()).toEqual(open);
+
+    saveWatchdogState(fsFactory);
+    const saved = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    expect(saved.motionRestart).toEqual(open);
+  });
+
+  it('malformed motionRestart present -> quarantine + STATE_LOAD_FAILED + closed', () => {
+    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 2,
+      lastInactivityNotified: {},
+      inactivityNotifyCount: {},
+      clawPreviouslyAlive: {},
+      everSpawned: [],
+      motionRestart: { status: 'retrying', consecutiveAttempts: -1 },
+    }));
+
+    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog;
+    setAuditWriter(mockAudit);
+
+    expect(() => loadWatchdogState(fsFactory)).not.toThrow();
+
+    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
+
+    const failedCall = mockAudit.write.mock.calls.find((c: any[]) => c[0] === WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED);
+    expect(failedCall).toBeDefined();
+
+    expect(fs.existsSync(stateFile)).toBe(false);
+    const files = fs.readdirSync(chestnutDir);
+    expect(files.some(f => f.match(/watchdog-state\.json\.corrupt-\d+/))).toBe(true);
   });
 });

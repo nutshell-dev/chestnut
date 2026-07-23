@@ -74,6 +74,42 @@ export interface ClawStateSnapshot {
   clawPreviouslyNotified?: Record<string, number>;
 }
 
+export type MotionRestartState =
+  | {
+      status: 'closed';
+      consecutiveAttempts: 0;
+    }
+  | {
+      status: 'retrying';
+      consecutiveAttempts: number;
+      nextAttemptAt: number;
+      awaitingStability: boolean;
+    }
+  | {
+      status: 'open';
+      consecutiveAttempts: number;
+      openedAt: number;
+    };
+
+const CLOSED_MOTION_RESTART_STATE: MotionRestartState = {
+  status: 'closed',
+  consecutiveAttempts: 0,
+};
+
+let _motionRestartState: MotionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+
+export const motionRestartStateAPI = {
+  snapshot(): MotionRestartState {
+    return { ..._motionRestartState };
+  },
+  replace(state: MotionRestartState): void {
+    _motionRestartState = { ...state };
+  },
+  reset(): void {
+    _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+  },
+} as const;
+
 export const clawStateAPI = {
   lastInactivityNotified: mapStore(_lastInactivityNotified),
   clawPreviouslyAlive: mapStore(_clawPreviouslyAlive),
@@ -218,4 +254,6 @@ export function _resetWatchdogContextForTest(): void {
   _inactivityNotifyCount.clear();
   _everSpawned.clear();
   _clawPreviouslyNotified.clear();
+  // motion restart durable state
+  _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
 }

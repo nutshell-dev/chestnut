@@ -238,5 +238,9 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     expect(saved.schema_version).toBe(2);
     expect(saved.clawPreviouslyNotified).toBeDefined();
     expect(saved.clawPreviouslyNotified[clawId]).toBeDefined();
+
+    // phase 1164: additive motionRestart field must not interfere with claw state round-trip
+    expect(saved.motionRestart).toBeDefined();
+    expect(saved.motionRestart).toEqual({ status: 'closed', consecutiveAttempts: 0 });
   });
 });

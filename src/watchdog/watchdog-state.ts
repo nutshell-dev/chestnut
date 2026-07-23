@@ -5,7 +5,7 @@
 
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
-import { getChestnutFs, getAuditWriter, clawStateAPI } from './watchdog-context.js';
+import { getChestnutFs, getAuditWriter, clawStateAPI, motionRestartStateAPI, type MotionRestartState } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 import { isFileNotFound } from '../foundation/fs/index.js';
@@ -21,6 +21,47 @@ interface WatchdogState {
   everSpawned: string[];
   // NEW v2 — phase 1269: crash notification dedup persisted
   clawPreviouslyNotified?: Record<string, number>;
+  // NEW v2 additive — phase 1164: motion restart durable state
+  motionRestart?: MotionRestartState;
+}
+
+function normalizeMotionRestartState(value: unknown): MotionRestartState {
+  if (typeof value !== 'object' || value === null) {
+    return { status: 'closed', consecutiveAttempts: 0 };
+  }
+  const s = value as Record<string, unknown>;
+  if (s.status === 'closed' && s.consecutiveAttempts === 0) {
+    return { status: 'closed', consecutiveAttempts: 0 };
+  }
+  if (
+    s.status === 'retrying'
+    && Number.isInteger(s.consecutiveAttempts)
+    && (s.consecutiveAttempts as number) > 0
+    && typeof s.nextAttemptAt === 'number'
+    && Number.isFinite(s.nextAttemptAt)
+    && typeof s.awaitingStability === 'boolean'
+  ) {
+    return {
+      status: 'retrying',
+      consecutiveAttempts: s.consecutiveAttempts as number,
+      nextAttemptAt: s.nextAttemptAt,
+      awaitingStability: s.awaitingStability,
+    };
+  }
+  if (
+    s.status === 'open'
+    && Number.isInteger(s.consecutiveAttempts)
+    && (s.consecutiveAttempts as number) > 0
+    && typeof s.openedAt === 'number'
+    && Number.isFinite(s.openedAt)
+  ) {
+    return {
+      status: 'open',
+      consecutiveAttempts: s.consecutiveAttempts as number,
+      openedAt: s.openedAt,
+    };
+  }
+  throw new Error('watchdog-state.json invalid motionRestart');
 }
 
 class WatchdogSchemaError extends Error {
@@ -43,6 +84,8 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
       throw new WatchdogSchemaError(stateVersion, CURRENT_WATCHDOG_SCHEMA_VERSION);
     }
     clawStateAPI.replaceAll(state);
+    const motionRestart = normalizeMotionRestartState(state.motionRestart);
+    motionRestartStateAPI.replace(motionRestart);
   } catch (err) {
     if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
@@ -57,6 +100,7 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
       everSpawned: [],
       clawPreviouslyNotified: {},
     });
+    motionRestartStateAPI.reset();
 
     const fs = getChestnutFs(fsFactory);
     const backupPath = `watchdog-state.json.corrupt-${Date.now()}`;
@@ -87,6 +131,7 @@ export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
   const state: WatchdogState = {
     schema_version: 2,
     ...clawStateAPI.snapshot(),
+    motionRestart: motionRestartStateAPI.snapshot(),
   };
   const fs = getChestnutFs(fsFactory);
   fs.writeAtomicSync('watchdog-state.json', JSON.stringify(state, null, 2));

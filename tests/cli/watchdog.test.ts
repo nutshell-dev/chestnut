@@ -100,7 +100,7 @@ import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-p
 import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
 import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
-import { clawStateAPI, getChestnutFs, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI, getChestnutFs, _resetWatchdogContextForTest, motionRestartStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import { spawn } from 'child_process';
 import { setTimeout as setTimeoutP } from 'timers/promises';
@@ -298,6 +298,8 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     const savedState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
     expect(savedState).toHaveProperty('lastInactivityNotified');
     expect(savedState).toHaveProperty('inactivityNotifyCount');
+    expect(savedState).toHaveProperty('motionRestart');
+    expect(savedState.motionRestart).toEqual({ status: 'closed', consecutiveAttempts: 0 });
 
     const auditLines = fs.readFileSync(path.join(tmpDir, '.chestnut', 'audit.tsv'), 'utf-8');
     expect(auditLines).toContain('watchdog_stop');
@@ -796,6 +798,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
       WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
       expect.any(String),
     );
+    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
   });
 
   it('writes WATCHDOG_STATE_LOAD_FAILED audit and renames corrupt file', () => {
@@ -824,6 +827,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     // 先 populate Maps with stale data
     clawStateAPI.lastInactivityNotified.set('stale-claw', 12345);
     clawStateAPI.inactivityNotifyCount.set('stale-claw', 7);
+    motionRestartStateAPI.replace({ status: 'retrying', consecutiveAttempts: 5, nextAttemptAt: 9999, awaitingStability: false });
 
     // 写真正 corrupt 的 JSON
     fs.writeFileSync(stateFile, '{ not valid json');
@@ -836,6 +840,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     // corrupt 路径 catch 内应清空 Maps，防止 partial populate 泄漏
     expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
     expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
+    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
   });
 
   it('loadWatchdogState audits move failure separately', () => {
