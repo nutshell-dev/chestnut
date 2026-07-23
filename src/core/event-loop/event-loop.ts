@@ -36,7 +36,10 @@ import {
   isContextExceededError,
   LLMInvalidRequestError,
   LLMAllProvidersFailedError,
+  classifyLLMError,
+  getUserActionHint,
 } from '../../foundation/llm-orchestrator/index.js';
+import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
@@ -174,14 +177,25 @@ export class EventLoop {
       await this._handleContextExceeded(result.error, failedRequestFingerprint);
       return;
     }
-    if (this._isDeterministicInvalidRequest(result.error)) {
-      this._enterLlmRequestBlocked({
-        version: 2,
-        reason: 'invalid_request',
-        requestFingerprint: failedRequestFingerprint,
-        errorCode: 'LLM_INVALID_REQUEST',
-        blockedAt: new Date().toISOString(),
-      });
+    if (this._isDeterministicPermanentError(result.error)) {
+      this._enterLlmRequestBlocked(
+        this._isInvalidRequestError(result.error)
+          ? {
+              version: 2,
+              reason: 'invalid_request',
+              requestFingerprint: failedRequestFingerprint,
+              errorCode: 'LLM_INVALID_REQUEST',
+              blockedAt: new Date().toISOString(),
+            }
+          : {
+              version: 2,
+              reason: 'permanent_provider_error',
+              requestFingerprint: failedRequestFingerprint,
+              userActionHint: this._resolvePermanentErrorHint(result.error),
+              message: formatErr(result.error),
+              blockedAt: new Date().toISOString(),
+            },
+      );
       this._resetLlmRetryState();
       this._saveLlmRetryState();
       return;
@@ -190,18 +204,39 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1154 Step E: deterministic invalid-request detection.
-   * Only true invalid-request errors (or all-provider failures whose every nested
-   * failure is an invalid request) are persisted in the request gate. Mixed or
-   * non-invalid-request permanent errors fall through to the normal dispatch path.
+   * Phase 1163: generalized from invalid-request-only detection. Any error
+   * classifyLLMError() reports as 'permanent' (auth, model-not-found,
+   * invalid-request, quota-pattern-matched) is deterministic — retrying it
+   * without a config change cannot succeed, so it must enter the blocked
+   * gate instead of looping through fallbackHandler indefinitely.
    */
-  private _isDeterministicInvalidRequest(error: unknown): boolean {
+  private _isDeterministicPermanentError(error: unknown): boolean {
+    return classifyLLMError(error) === 'permanent';
+  }
+
+  /**
+   * Phase 1154 Step E: keep the 'invalid_request' reason precise.
+   * Only true invalid-request errors (or all-provider failures whose every nested
+   * failure is an invalid request) use the existing 'invalid_request' reason.
+   */
+  private _isInvalidRequestError(error: unknown): boolean {
     if (error instanceof LLMInvalidRequestError) return true;
     return (
       error instanceof LLMAllProvidersFailedError
       && error.failures.length > 0
       && error.failures.every(f => f.error instanceof LLMInvalidRequestError)
     );
+  }
+
+  private _resolvePermanentErrorHint(error: unknown): UserActionHint {
+    if (error instanceof LLMAllProvidersFailedError) {
+      for (const failure of error.failures) {
+        const hint = getUserActionHint(failure.error);
+        if (hint) return hint;
+      }
+      return null;
+    }
+    return getUserActionHint(error);
   }
 
   /**
@@ -740,6 +775,12 @@ export class EventLoop {
 
     if (s.reason === 'invalid_request') {
       if (s.errorCode !== 'LLM_INVALID_REQUEST') return false;
+      return true;
+    }
+
+    if (s.reason === 'permanent_provider_error') {
+      if (typeof s.message !== 'string') return false;
+      // userActionHint is nullable; presence alone is enough.
       return true;
     }
 

@@ -2,6 +2,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { Runtime } from '../runtime/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
+import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
 
 export interface LLMRetryState {
   count: number;
@@ -21,7 +22,8 @@ export type LLMRequestBlockedReason =
   | 'no_progress'
   | 'policy_conflict'
   | 'retry_exhausted'
-  | 'invalid_request';
+  | 'invalid_request'
+  | 'permanent_provider_error';
 
 interface LLMRequestBlockedBase {
   version: 2;
@@ -43,6 +45,11 @@ export type LLMRequestBlockedState =
   | (LLMRequestBlockedBase & {
       reason: 'invalid_request';
       errorCode: 'LLM_INVALID_REQUEST';
+    })
+  | (LLMRequestBlockedBase & {
+      reason: 'permanent_provider_error';
+      userActionHint: UserActionHint;
+      message: string;
     });
 
 export type LLMRequestGateDecision =

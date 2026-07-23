@@ -17,7 +17,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { LLMContextExceededError, LLMInvalidRequestError, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLMContextExceededError, LLMInvalidRequestError, LLMAllProvidersFailedError, LLMAuthError } from '../../../src/foundation/llm-orchestrator/index.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
@@ -877,6 +877,108 @@ describe('EventLoop.run', () => {
     expect(nackHandles).toHaveBeenCalledTimes(1);
     const blocked = readBlockedState();
     expect(blocked).toMatchObject({ version: 2, reason: 'invalid_request', requestFingerprint: 'all-invalid-fp' });
+  });
+
+  it('LLMAuthError enters request blocked gate with permanent_provider_error reason', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const authErr = new LLMAuthError('custom-anthropic', 401, 'Authentication Fails, Your api key is invalid');
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: authErr }));
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('auth-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    const run1 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run1;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+
+    const blocked = readBlockedState();
+    expect(blocked).toMatchObject({
+      version: 2,
+      reason: 'permanent_provider_error',
+      userActionHint: 'rotate_api_key',
+      requestFingerprint: 'auth-fp',
+    });
+
+    // Blocked gate must suspend retries on the same fingerprint.
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+    expect(processTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('LLMAllProvidersFailedError with all auth failures enters request blocked gate', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const allAuthErr = new LLMAllProvidersFailedError([
+      { provider: 'openai', error: new LLMAuthError('openai', 401, 'bad key') },
+      { provider: 'anthropic', error: new LLMAuthError('anthropic', 401, 'bad key') },
+    ]);
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: allAuthErr }));
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('all-auth-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    const blocked = readBlockedState();
+    expect(blocked).toMatchObject({
+      version: 2,
+      reason: 'permanent_provider_error',
+      userActionHint: 'rotate_api_key',
+      requestFingerprint: 'all-auth-fp',
+    });
   });
 
   it('LLMAllProvidersFailedError with transient nested errors triggers retry, not blocked gate', async () => {
