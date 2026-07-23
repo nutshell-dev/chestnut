@@ -19,15 +19,18 @@ export interface AnthropicResponse {
   };
 }
 
-export function parseAnthropicResponse(data: AnthropicResponse): LLMResponse {
+export function parseAnthropicResponse(
+  data: AnthropicResponse,
+  providerName: string,
+): LLMResponse {
   if (!Array.isArray(data.content)) {
-    throw new LLMError('Invalid response: content must be array', { provider: 'anthropic' });
+    throw new LLMError('Invalid response: content must be array', { provider: providerName });
   }
   const content = data.content as ContentBlock[];
 
   // 0-chunk guard
   if (content.length === 0) {
-    throw new LLMEmptyResponseError('anthropic');
+    throw new LLMEmptyResponseError(providerName);
   }
 
   return {

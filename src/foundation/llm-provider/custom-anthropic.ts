@@ -147,7 +147,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             });
             if (retryResponse.ok) {
               const data = await retryResponse.json() as AnthropicResponse;
-              return parseAnthropicResponse(data);
+              return parseAnthropicResponse(data, this.name);
             }
             await throwHttpErrorResponse(this.name, this.model, retryResponse);
           } else {
@@ -167,7 +167,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
       }
 
       const data = await response.json() as AnthropicResponse;
-      return parseAnthropicResponse(data);
+      return parseAnthropicResponse(data, this.name);
 
     } catch (error) {
       const classified = classifyFetchAbortError(error, signal, timeout, this.name);
