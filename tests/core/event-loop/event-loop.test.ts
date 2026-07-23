@@ -17,7 +17,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { LLMContextExceededError, LLMInvalidRequestError, LLMAllProvidersFailedError, LLMAuthError } from '../../../src/foundation/llm-orchestrator/index.js';
+import { LLMContextExceededError, LLMInvalidRequestError, LLMAllProvidersFailedError, LLMAuthError, LLMRateLimitError } from '../../../src/foundation/llm-orchestrator/index.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
@@ -1010,6 +1010,93 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('transient-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(readBlockedState()).toBeUndefined();
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY)).toBe(true);
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(false);
+  });
+
+  it('LLMRateLimitError with retryAfter triggers backoff retry, not blocked gate', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const rateLimitErr = new LLMRateLimitError('openai', 30);
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: rateLimitErr }));
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('rate-limit-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(readBlockedState()).toBeUndefined();
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY)).toBe(true);
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(false);
+  });
+
+  it('LLMAllProvidersFailedError with all rate_limit failures triggers retry', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const allRateLimitErr = new LLMAllProvidersFailedError([
+      { provider: 'openai', error: new LLMRateLimitError('openai', 5) },
+      { provider: 'anthropic', error: new LLMRateLimitError('anthropic', 15) },
+    ]);
+
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: allRateLimitErr }));
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+
+    const runtime = {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('all-rate-limit-fp'),
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
     } as unknown as Runtime;
 

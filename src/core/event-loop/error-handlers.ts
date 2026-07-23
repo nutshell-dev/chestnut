@@ -19,7 +19,7 @@ import {
   LLM_RETRY_MAX_DELAY_MS,
 } from './constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
-import { LLMAllProvidersFailedError, classifyLLMError } from '../../foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError, classifyLLMError, LLMRateLimitError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
   WallTimeExceededError,
@@ -99,28 +99,50 @@ const priorityInboxHandler: ErrorHandler = {
 const llmRetryHandler: ErrorHandler = {
   name: 'llm_retry',
   match: (err, ctx) =>
-    err instanceof LLMAllProvidersFailedError &&
+    (err instanceof LLMAllProvidersFailedError || err instanceof LLMRateLimitError) &&
     ctx.llmRetry.count < LLM_MAX_RETRIES &&
-    classifyLLMError(err) === 'transient',
+    (classifyLLMError(err) === 'transient' || classifyLLMError(err) === 'rate_limit'),
   handle: async (err, ctx) => {
     ctx.llmRetry.count++;
+    const delay = classifyLLMError(err) === 'rate_limit'
+      ? resolveRateLimitDelay(err, ctx.llmRetry.delayMs)
+      : ctx.llmRetry.delayMs;
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.LLM_RETRY,
       `attempt=${ctx.llmRetry.count}`,
       `max=${LLM_MAX_RETRIES}`,
-      `delay_ms=${ctx.llmRetry.delayMs}`,
+      `delay_ms=${delay}`,
       `error=${(err as Error).message}`,
     );
-    await new Promise(resolve => setTimeout(resolve, ctx.llmRetry.delayMs));
+    await new Promise(resolve => setTimeout(resolve, delay));
     ctx.llmRetry.delayMs = Math.min(ctx.llmRetry.delayMs * 2, LLM_RETRY_MAX_DELAY_MS);
     ctx.saveLlmRetryState();
   },
 };
 
+function resolveRateLimitDelay(err: LLMAllProvidersFailedError | LLMRateLimitError, fallbackMs: number): number {
+  let minRetryAfterSec: number | undefined;
+  if (err instanceof LLMRateLimitError && err.retryAfter !== undefined) {
+    minRetryAfterSec = err.retryAfter;
+  } else if (err instanceof LLMAllProvidersFailedError) {
+    for (const f of err.failures) {
+      if (f.error instanceof LLMRateLimitError && f.error.retryAfter !== undefined) {
+        if (minRetryAfterSec === undefined || f.error.retryAfter < minRetryAfterSec) {
+          minRetryAfterSec = f.error.retryAfter;
+        }
+      }
+    }
+  }
+  if (minRetryAfterSec !== undefined) {
+    return Math.min(minRetryAfterSec * 1000, LLM_RETRY_MAX_DELAY_MS);
+  }
+  return fallbackMs;
+}
+
 /**
  * P0-2: 5 个确定性 typed Error 的统一 crash 分类源。
  * 注意 LLMAllProvidersFailedError 由 llmRetryHandler 按 nested 分类决定是否 backoff；
- * 仅 nested 分类为 transient 时才重试，permanent/invalid_request 不进 retry。
+ * nested 分类为 transient / rate_limit 时重试，permanent / invalid_request 不进 retry。
  */
 export function isAgentLoopCrashError(err: unknown): boolean {
   return err instanceof MaxStepsExceededError
