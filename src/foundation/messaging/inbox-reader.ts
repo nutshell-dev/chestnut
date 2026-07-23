@@ -39,7 +39,6 @@ import {
   emitInboxReconcile,
   emitInboxRestoreConflict,
   emitInboxStageQuarantine,
-  emitOutboxDelivered,
 } from './audit-emit.js';
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { makeClawId } from '../claw-identity/index.js';
@@ -721,7 +720,6 @@ export class InboxReader {
       throw new InboxMoveFailed(handle.filePath, 'ack_done', err);
     }
     emitInboxDone(this.audit, { file: fileName });
-    emitOutboxDelivered(this.audit, { file: fileName });
   }
 
   /**
@@ -874,7 +872,6 @@ export class InboxReader {
       throw new InboxMoveFailed(filePath, 'done', err);
     }
     emitInboxDone(this.audit, { file: fileName });
-    emitOutboxDelivered(this.audit, { file: fileName });
   }
 
   /**

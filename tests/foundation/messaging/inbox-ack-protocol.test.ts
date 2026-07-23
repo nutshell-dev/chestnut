@@ -90,6 +90,13 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
     const doneFiles = await fs.readdir(path.join(testDir, 'inbox', 'done'));
     expect(doneFiles).toHaveLength(1);
     expect(doneFiles[0]).toMatch(/^\d+_[a-f0-9]{8}_.+\.md$/);
+
+    expect(auditCalls.filter(
+      event => event.type === MESSAGING_AUDIT_EVENTS.INBOX_DONE,
+    )).toHaveLength(1);
+    expect(auditCalls.filter(
+      event => event.type === MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED,
+    )).toHaveLength(0);
   });
 
   // ─── Case 3: nack moves inflight back to pending ──────────────────────────

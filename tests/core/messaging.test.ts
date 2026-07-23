@@ -16,6 +16,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, OUTBOX_PENDING_DIR } from '../../src/foundation/messaging/dirs.js';
+import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
 /**
@@ -93,6 +94,13 @@ describe('Messaging', () => {
       const doneFiles = await fs.readdir(path.join(tempDir, 'inbox', 'done'));
       expect(doneFiles).toHaveLength(1);
       expect(doneFiles[0]).toMatch(/^\d+_[a-f0-9]{8}_test\.md$/);
+
+      expect(auditEvents.filter(
+        event => event[0] === MESSAGING_AUDIT_EVENTS.INBOX_DONE,
+      )).toHaveLength(1);
+      expect(auditEvents.filter(
+        event => event[0] === MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED,
+      )).toHaveLength(0);
     });
 
     it('should move failed message to failed', async () => {
