@@ -12,12 +12,14 @@ export const SEND_TOOL_NAME = 'send' as const;
 
 /**
  * phase 520: defaultTarget 由 caller 注入（foundation 不 import MOTION_CLAW_ID、owner=core/claw-topology）。
+ * phase 1160: send 工具对外只暴露 content，内部固定 type='report' 以满足 OutboxWriteOptions
+ * 的必填约束；priority 由 outbox-writer 内部兜底为 'normal'，不再从外部读取。
  */
 export function createSendTool(outboxWriter: OutboxWriter, defaultTarget: string): Tool {
   return {
     name: SEND_TOOL_NAME,
     profiles: ['full'],
-    description: 'Send a message to the outbox for the parent or other claws. Priority: critical|high|normal|low (default: normal).',
+    description: 'Send a message to the outbox for the parent.',
     schema: {
       type: 'object',
       properties: {
@@ -25,57 +27,25 @@ export function createSendTool(outboxWriter: OutboxWriter, defaultTarget: string
           type: 'string',
           description: 'Message content',
         },
-        type: {
-          type: 'string',
-          description: 'Message type: report (status update or progress), question (ask parent for input or clarification), result (final task output), error (failure or blocker)',
-          enum: ['report', 'question', 'result', 'error'],
-        },
-        priority: {
-          type: 'string',
-          description: 'Message priority: critical|high|normal|low (default: normal)',
-          enum: ['critical', 'high', 'normal', 'low'],
-          default: 'normal',
-        },
       },
-      required: ['content', 'type'],
+      required: ['content'],
     },
     readonly: false,
     idempotent: false,
 
     async execute(args: Record<string, unknown>, _ctx: ExecContext): Promise<ToolResult> {
       const content = args.content as string;
-      const type = args.type as string;
-      const priority = (args.priority as string) ?? 'normal';
-
-      // Validate type
-      const validTypes = ['report', 'question', 'result', 'error'];
-      if (!validTypes.includes(type)) {
-        return {
-          success: false,
-          content: `Invalid message type: ${type}. Must be one of: ${validTypes.join(', ')}`,
-        };
-      }
-
-      // Validate priority
-      const validPriorities = ['critical', 'high', 'normal', 'low'];
-      if (!validPriorities.includes(priority)) {
-        return {
-          success: false,
-          content: `Invalid priority: ${priority}. Must be one of: ${validPriorities.join(', ')}`,
-        };
-      }
 
       try {
         await outboxWriter.write({
-          type: type as 'report' | 'question' | 'result' | 'error',
+          type: 'report',
           to: defaultTarget,
           content,
-          priority: priority as 'critical' | 'high' | 'normal' | 'low',
         });
 
         return {
           success: true,
-          content: `Message sent: ${type}`,
+          content: 'Message sent',
         };
       } catch (error) {
         return {
