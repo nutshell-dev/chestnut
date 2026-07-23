@@ -114,6 +114,11 @@ describe('phase 1406 caller-snapshot access gate', () => {
     const violations = auditEntries.filter((e) => e.type === 'tool_caller_access_violation');
     expect(violations).toHaveLength(1);
     expect(violations[0].fields).toContain('reason=accessesCaller_not_declared');
+    const invariants = auditEntries.filter((e) => e.type === 'tools_invariant_violation');
+    expect(invariants).toHaveLength(1);
+    expect(invariants[0].fields).toContain('site=tools/executor:caller_snapshot_access_gate');
+    expect(invariants[0].fields).toContain('kind=caller_access_not_declared');
+    expect(invariants[0].fields).toContain('toolName=undeclared');
   });
 
   it('declared tool without bound provider throws + emits violation (provider_not_bound)', async () => {
@@ -139,6 +144,11 @@ describe('phase 1406 caller-snapshot access gate', () => {
     const violations = auditEntries.filter((e) => e.type === 'tool_caller_access_violation');
     expect(violations).toHaveLength(1);
     expect(violations[0].fields).toContain('reason=provider_not_bound');
+    const invariants = auditEntries.filter((e) => e.type === 'tools_invariant_violation');
+    expect(invariants).toHaveLength(1);
+    expect(invariants[0].fields).toContain('site=tools/executor:caller_snapshot_access_gate');
+    expect(invariants[0].fields).toContain('kind=caller_access_provider_not_bound');
+    expect(invariants[0].fields).toContain('toolName=declared-but-unbound');
   });
 
   it('declared tool with bound provider gets the snapshot', async () => {

@@ -31,7 +31,8 @@ import type {
   ToolExecutorOptions,
 } from './types.js';
 
-
+const CALLER_SNAPSHOT_ACCESS_GATE_SITE =
+  'site=tools/executor:caller_snapshot_access_gate';
 
 // Re-export types from ./types.js for caller compat (18 caller 0 改)
 export type {
@@ -136,7 +137,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         );
         audit?.write(
           TOOL_AUDIT_EVENTS.INVARIANT_VIOLATION,
-          `site=executor.ts:172`,
+          CALLER_SNAPSHOT_ACCESS_GATE_SITE,
           `kind=caller_access_not_declared`,
           `toolName=${toolNameLocal}`,
         );
@@ -157,7 +158,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         );
         audit?.write(
           TOOL_AUDIT_EVENTS.INVARIANT_VIOLATION,
-          `site=executor.ts:188`,
+          CALLER_SNAPSHOT_ACCESS_GATE_SITE,
           `kind=caller_access_provider_not_bound`,
           `toolName=${toolNameLocal}`,
         );
