@@ -105,7 +105,7 @@ const llmRetryHandler: ErrorHandler = {
   handle: async (err, ctx) => {
     ctx.llmRetry.count++;
     const delay = classifyLLMError(err) === 'rate_limit'
-      ? resolveRateLimitDelay(err, ctx.llmRetry.delayMs)
+      ? resolveRateLimitDelay(err as LLMAllProvidersFailedError | LLMRateLimitError, ctx.llmRetry.delayMs)
       : ctx.llmRetry.delayMs;
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.LLM_RETRY,
