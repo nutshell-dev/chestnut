@@ -164,7 +164,7 @@ describe('trimV2', () => {
     // newMessages: [tool_use 1, tool_result 1 (superseded), tool_use 2, tool_result 2 (collapsed), summary, anchor]
     const old = (result.outcome.newMessages[1].content as [{ type: 'tool_result'; content: string }])[0];
     const newest = (result.outcome.newMessages[3].content as [{ type: 'tool_result'; content: string }])[0];
-    expect(old.content).toContain('superseded');
+    expect(old.content).toBe(`[superseded by tool_use_id=${id2}]`);
     expect(newest.content).toContain('<...>');
   });
 

@@ -373,7 +373,7 @@ function applyOlderMessageTransforms(
   let supersededRedundantResults = 0;
 
   // P2 重复检测
-  const supersededIds = new Set<string>();
+  const supersededById = new Map<string, string>();
   {
     const groups = new Map<string, string[]>();
     for (const idx of olderIdx) {
@@ -397,8 +397,9 @@ function applyOlderMessageTransforms(
     }
     for (const [, tuIds] of groups) {
       if (tuIds.length > 1) {
+        const newestId = tuIds[tuIds.length - 1];
         for (let i = 0; i < tuIds.length - 1; i++) {
-          supersededIds.add(tuIds[i]);
+          supersededById.set(tuIds[i], newestId);
           supersededRedundantResults++;
         }
       }
@@ -437,7 +438,7 @@ function applyOlderMessageTransforms(
 
     // user role 含 tool_result：折叠 content（P1a）+ 应用 P2 superseded
     if (m.role === 'user' && typeof m.content !== 'string') {
-      const { newMsg, collapsedCount } = collapseToolResults(m, opts.previewBytes, supersededIds, opts.now);
+      const { newMsg, collapsedCount } = collapseToolResults(m, opts.previewBytes, supersededById, opts.now);
       collapsedToolResults += collapsedCount;
       newOlder.push(newMsg);
       continue;
@@ -521,7 +522,7 @@ function collapseStringContent(
 function collapseToolResults(
   msg: Message,
   previewBytes: number,
-  supersededIds: Set<string>,
+  supersededById: Map<string, string>,
   nowMs: number,
 ): { newMsg: Message; collapsedCount: number } {
   if (typeof msg.content === 'string') return { newMsg: msg, collapsedCount: 0 };
@@ -529,11 +530,12 @@ function collapseToolResults(
   const newContent: ContentBlock[] = msg.content.map(block => {
     if (block.type !== 'tool_result') return block;
     const tr = block as { tool_use_id: string; content: string };
-    if (supersededIds.has(tr.tool_use_id)) {
+    const supersededBy = supersededById.get(tr.tool_use_id);
+    if (supersededBy !== undefined) {
       collapsedCount++;
       return {
         ...tr,
-        content: `[superseded by tool_use_id=<newer>]`,
+        content: `[superseded by tool_use_id=${supersededBy}]`,
       } as unknown as ContentBlock;
     }
     const c = tr.content;
@@ -666,4 +668,3 @@ function stableHash(obj: unknown): string {
   };
   return JSON.stringify(sortedKeys(obj));
 }
-
