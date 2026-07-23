@@ -7,6 +7,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
+import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/token-estimator.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../../foundation/dialog-store/index.js';
@@ -111,6 +112,12 @@ function ready(state: DreamStateData): DeepDreamStateLoadResult {
   return { status: 'ready', state };
 }
 
+/** phase 1162 Step C: DI callback - caller (L6 装配期) bind chestnutRoot + MOTION_CLAW_ID + notifyClaw + fs + audit */
+export type DeepDreamNotifyClawFn = (
+  clawId: string,
+  message: InboxMessageOptionsBase,
+) => Promise<void>;
+
 export interface DeepDreamOptions {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
@@ -124,6 +131,8 @@ export interface DeepDreamOptions {
   audit: AuditLog;
   /** 临时构建 per-claw FileSystem 的 factory（memory/system.ts 注入 / 业务 0 触 L1 impl）*/
   clawFsFactory: (clawDir: string) => FileSystem;
+  /** phase 1162 Step C: caller-bound target-claw fail-loud notification */
+  notifyClaw: DeepDreamNotifyClawFn;
   signal?: AbortSignal;
 }
 
@@ -296,6 +305,8 @@ interface DreamRunContext {
   llm: LLMOrchestrator;
   maxCompressionTokens: number;
   audit: AuditLog;
+  /** phase 1162 Step C: caller-bound target-claw fail-loud notification */
+  notifyClaw: DeepDreamNotifyClawFn;
   signal?: AbortSignal;
 }
 
@@ -499,9 +510,10 @@ async function runDeepDreamForClaw(
   llm: LLMOrchestrator,
   maxCompressionTokens: number,
   audit: AuditLog,
+  notifyClaw: DeepDreamNotifyClawFn,
   signal?: AbortSignal,
 ): Promise<void> {
-  const ctx: DreamRunContext = { clawId, clawDir, clawFs, motionFs, llm, maxCompressionTokens, audit, signal };
+  const ctx: DreamRunContext = { clawId, clawDir, clawFs, motionFs, llm, maxCompressionTokens, audit, notifyClaw, signal };
   const plan = await prepareDeepDreamRun(ctx);
   if (!plan) return;
 
@@ -581,7 +593,7 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
       const location = opts.clawTopology.resolve(clawId);
       if (location.kind !== 'local') continue;
       const clawFs = opts.clawFsFactory(location.clawDir);
-      await runDeepDreamForClaw(clawId, location.clawDir, clawFs, opts.motionFs, llm, maxCompressionTokens, opts.audit, opts.signal);
+      await runDeepDreamForClaw(clawId, location.clawDir, clawFs, opts.motionFs, llm, maxCompressionTokens, opts.audit, opts.notifyClaw, opts.signal);
     } catch (err) {
       opts.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_UNEXPECTED, `step=unexpected`, `clawId=${clawId}`, `reason=${formatErr(err)}`);
       // 单 claw 失败不阻断其他 claw

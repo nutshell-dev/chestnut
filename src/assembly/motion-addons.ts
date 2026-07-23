@@ -195,6 +195,9 @@ export async function createMotionAddons(
           getContractProgress: clawContractBridge.getContractProgress,
           // phase 92 / phase 1159 Step C: DI callback for random-dream notify motion inbox (fail-loud async)
           notifyMotion: (msg) => routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          // phase 1162 Step C: DI callback for deep-dream notify target claw inbox (fail-loud async)
+          notifyClaw: (targetClawId, msg) =>
+            routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, msg, auditWriter),
         });
       } catch (e) {
         auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=memory_system`, `phase=construct`, `reason=${formatErr(e)}`);

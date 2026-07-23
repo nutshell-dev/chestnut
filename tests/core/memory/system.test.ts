@@ -23,6 +23,7 @@ describe('MemorySystem', () => {
     maxCompressionTokens: 100,
     clawFsFactory: vi.fn(),
     notifyMotion: vi.fn().mockResolvedValue(undefined),
+    notifyClaw: vi.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(() => {
@@ -50,6 +51,7 @@ describe('MemorySystem', () => {
         fs: mockOpts.fs,
         audit: mockOpts.audit,
         clawFsFactory: mockOpts.clawFsFactory,
+        notifyClaw: mockOpts.notifyClaw,
       }));
     });
 

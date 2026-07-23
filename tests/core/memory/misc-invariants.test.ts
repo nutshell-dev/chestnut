@@ -62,7 +62,7 @@ describe('deep-dream-phase926', () => {
         expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION);
         expect(call).toEqual(expect.arrayContaining([
           expect.stringMatching(/^version=99$/),
-          expect.stringMatching(/^current=1$/),
+          expect.stringMatching(/^current=2$/),
           expect.stringMatching(/^clawId=test-claw$/),
           expect.stringMatching(/^reason=cannot_migrate_future_version$/),
         ]));
@@ -246,6 +246,7 @@ describe('deep-dream-clawfs-factory', () => {
       fs: new NodeFileSystem({ baseDir: chestnutRoot }),
       audit: mockAudit,
       clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
+      notifyClaw: vi.fn().mockResolvedValue(undefined),
       ...overrides,
     };
   }
@@ -357,6 +358,7 @@ describe('deep-dream-phase923', () => {
         } as unknown as LLMOrchestrator,
         maxCompressionTokens: 100,
         audit: makeMockAudit(),
+        notifyClaw: vi.fn().mockResolvedValue(undefined),
         ...overrides,
       };
     }

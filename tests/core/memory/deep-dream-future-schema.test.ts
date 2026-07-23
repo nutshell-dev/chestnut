@@ -45,6 +45,7 @@ const fakeLlmConfig: LLMOrchestratorConfig = {
 };
 
 const clawFsFactory = (clawDir: string): FileSystem => new NodeFileSystem({ baseDir: clawDir });
+const mockNotifyClaw = vi.fn().mockResolvedValue(undefined);
 
 // ─── 测试 ─────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ describe('deep-dream future schema fail-closed (phase 1161)', () => {
     audit = makeMockAudit();
     mockLlmCall.mockReset();
     mockLlmCall.mockResolvedValue(makeTextResponse('dream output'));
+    mockNotifyClaw.mockClear();
   });
 
   afterEach(async () => {
@@ -81,6 +83,7 @@ describe('deep-dream future schema fail-closed (phase 1161)', () => {
       fs: new NodeFileSystem({ baseDir: chestnutDir }),
       audit,
       clawFsFactory,
+      notifyClaw: mockNotifyClaw,
       ...opts,
     });
   }

@@ -9,6 +9,7 @@ import { runRandomDream } from './random-dream.js';
 import type { RandomDreamOptions } from './random-dream.js';
 import type { ContractId } from '../contract/types.js';
 import type { RandomDreamNotifyMotionFn } from './random-dream.js';
+import type { DeepDreamNotifyClawFn } from './deep-dream.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 
 
@@ -30,6 +31,8 @@ export interface MemorySystemOptions {
   getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>;
   /** phase 92: random-dream caller-bound notify motion */
   notifyMotion: RandomDreamNotifyMotionFn;
+  /** phase 1162 Step C: deep-dream caller-bound notify target claw */
+  notifyClaw: DeepDreamNotifyClawFn;
   /** phase 1031: deep-dream factory DI seam — tests inject mock, production defaults to real runDeepDream */
   runDeepDream?: (opts: DeepDreamOptions) => Promise<void>;
   /** phase 1031: random-dream factory DI seam — tests inject mock, production defaults to real runRandomDream */
@@ -51,6 +54,7 @@ export class MemorySystem {
       fs: this.opts.fs,
       audit: this.opts.audit,
       clawFsFactory: this.opts.clawFsFactory,
+      notifyClaw: this.opts.notifyClaw,
       signal: opts?.signal,
     });
   }
