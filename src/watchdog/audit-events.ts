@@ -44,6 +44,10 @@ export const WATCHDOG_AUDIT_EVENTS = {
   // phase 723: GAVE_UP 后 motion 莫名恢复（外部 supervisor 拉起 / 手动重启）→ 解 circuit-open
   // 与 WATCHDOG_GAVE_UP 配对的 transition 锚点、forensic silent recovery 关键
   WATCHDOG_CIRCUIT_REOPENED: 'watchdog_circuit_reopened',
+  // phase 1164: defer audit when next restart attempt is before nextAttemptAt
+  WATCHDOG_RESTART_DEFERRED: 'watchdog_restart_deferred',
+  // phase 1164: motion survived until next watchdog tick after spawn
+  WATCHDOG_MOTION_STABILITY_CONFIRMED: 'watchdog_motion_stability_confirmed',
   // phase 346 B3 (review-2026-06-13): PID-reuse 探测 / argv 不匹配 skip kill
   ORPHAN_SWEEP_PID_REUSE_SKIPPED: 'watchdog_orphan_sweep_pid_reuse_skipped',
   PID_REUSE_DETECTED: 'watchdog_pid_reuse_detected',
@@ -97,4 +101,6 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_pid_reuse_detected: 'audit',
   watchdog_check: 'audit',
   watchdog_gave_up: 'audit',
+  watchdog_restart_deferred: 'audit',
+  watchdog_motion_stability_confirmed: 'audit',
 } as const;

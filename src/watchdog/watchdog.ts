@@ -45,6 +45,8 @@ import { resolveDaemonEntry } from '../assembly/spawn-entry.js';
 
 import {
   getChestnutFs, getGlobalConfig, setAuditWriter,
+  motionRestartStateAPI,
+  type MotionRestartState,
 } from './watchdog-context.js';
 import {
   writeWatchdogPid, removeWatchdogPid,
@@ -55,6 +57,11 @@ import {
 import {
   loadWatchdogState, saveWatchdogState,
 } from './watchdog-state.js';
+import {
+  decideMotionRestart,
+  reduceMotionRestartOutcome,
+  type MotionSpawnOutcome,
+} from './motion-restart-state.js';
 import {
   maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
 } from './watchdog-cron.js';
@@ -131,25 +138,13 @@ export function shutdownWatchdog(
 
 // === Motion restart helper ===
 
-interface RestartMotionResult {
-  newBackoff: number;
-  newFailures: number;
-}
-
-async function restartMotionIfDown(
+async function attemptMotionRestart(
   pm: ReturnType<typeof createProcessManagerForCLI>,
   fsFactory: (baseDir: string) => FileSystem,
   audit: AuditLog,
   status: ReturnType<ReturnType<typeof createProcessManagerForCLI>['getAliveStatus']>,
-  failures: number,
-  baseInterval: number,
-  maxBackoff: number,
   daemonLogName: string,
-): Promise<RestartMotionResult> {
-  if (status.alive) {
-    return { newBackoff: baseInterval, newFailures: 0 };
-  }
-
+): Promise<MotionSpawnOutcome> {
   log(fsFactory, `[watchdog] motion down (${status.reason}), restarting...`);
   // phase 601: 裸 MOTION_CLAW_ID 改 key=value 形态 + 加 reason col、与其他 watchdog emit 对齐
   audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, `claw=${MOTION_CLAW_ID}`, `reason=${status.reason}`);
@@ -182,20 +177,18 @@ async function restartMotionIfDown(
     log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
     // phase 716: raw MOTION_CLAW_ID 加 claw= prefix、与 spawn.ts:351 同 event 形态对齐
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, `claw=${MOTION_CLAW_ID}`, `pid=${pid}`);
-    return { newBackoff: baseInterval, newFailures: 0 };
+    return { kind: 'spawned', pid };
   } catch (err) {
     if (err instanceof LockConflictError) {
       // phase 324 H3 锚：LockConflictError 重置 failures 是 intentional —— 失锁意味着另
       // 一个 watchdog 实例赢了 race、不是本机 motion spawn 失败，所以不入失败计数。
       log(fsFactory, `[watchdog] motion already started by another instance`);
-      return { newBackoff: baseInterval, newFailures: 0 };
+      return { kind: 'lock_conflict' };
     }
-    const newFailures = failures + 1;
-    const newBackoff = Math.min(baseInterval * Math.pow(2, newFailures - 1), maxBackoff);
     // phase 716: raw MOTION_CLAW_ID 加 claw= prefix、与 spawn.ts:370 同 event 形态对齐
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED, `claw=${MOTION_CLAW_ID}`, `error=${formatErr(err)}`);
-    log(fsFactory, `[watchdog] FAILED to restart motion (failure #${newFailures}): ${err}`);
-    return { newBackoff, newFailures };
+    log(fsFactory, `[watchdog] FAILED to restart motion: ${err}`);
+    return { kind: 'failed', error: err };
   }
 }
 
@@ -251,13 +244,10 @@ export async function runWatchdogLoop(
   process.on('SIGTERM', sigtermHandler);
   process.on('SIGINT', sigintHandler);
 
-  // Motion restart failure tracking for backoff
-  let motionRestartFailures = 0;
-  // phase 324 H3: circuit-open flag — 一旦触顶，停止 spawn 直到手动重启 watchdog。
-  let gaveUpOnMotion = false;
   const maxRestart = getMaxRestart();
 
   while (!stopped) {
+    const now = Date.now();
     // 1. Check motion liveness
     const status = pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID));
 
@@ -292,53 +282,71 @@ export async function runWatchdogLoop(
     );
 
     const intervalMs = getGlobalConfig(fsFactory).watchdog.interval_ms;
-    let nextSleepMs: number;
-    if (gaveUpOnMotion) {
-      // circuit-open: 不再 spawn、按 max backoff idle、cron 仍跑（claw 监控不停）
-      nextSleepMs = WATCHDOG_BACKOFF_MAX_MS;
-      if (status.alive) {
-        // motion 莫名活过来了（手动重启）→ 解 circuit-open、回 normal mode
-        log(fsFactory, '[watchdog] motion is alive again, reopening circuit');
-        // phase 723: 加 audit emit 锚 GAVE_UP→reopen transition、forensic silent recovery
+    const prior = motionRestartStateAPI.snapshot();
+    const decision = decideMotionRestart(prior, status.alive, now, maxRestart);
+    motionRestartStateAPI.replace(decision.state);
+
+    let nextSleepMs = intervalMs;
+    switch (decision.action) {
+      case 'healthy':
+        if (prior.status === 'open') {
+          // phase 723 + 1164: circuit-open → closed recovery
+          log(fsFactory, '[watchdog] motion is alive again, reopening circuit');
+          auditWriter.write(
+            WATCHDOG_AUDIT_EVENTS.WATCHDOG_CIRCUIT_REOPENED,
+            `reason=motion_alive_again`,
+            `prev_failures=${decision.recoveredAttempts}`,
+          );
+        } else if (decision.recoveredAttempts > 0) {
+          // phase 1164: spawn success survived until next tick
+          auditWriter.write(
+            WATCHDOG_AUDIT_EVENTS.WATCHDOG_MOTION_STABILITY_CONFIRMED,
+            `previous_attempts=${decision.recoveredAttempts}`,
+          );
+        }
+        break;
+      case 'defer': {
+        const retryingState = decision.state as Extract<MotionRestartState, { status: 'retrying' }>;
+        nextSleepMs = Math.max(0, Math.min(decision.waitMs, WATCHDOG_BACKOFF_MAX_MS));
         auditWriter.write(
-          WATCHDOG_AUDIT_EVENTS.WATCHDOG_CIRCUIT_REOPENED,
-          `reason=motion_alive_again`,
-          `prev_failures=${motionRestartFailures}`,
+          WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_DEFERRED,
+          `consecutive_attempts=${retryingState.consecutiveAttempts}`,
+          `next_attempt_at=${retryingState.nextAttemptAt}`,
         );
-        gaveUpOnMotion = false;
-        motionRestartFailures = 0;
-        nextSleepMs = intervalMs;
+        break;
       }
-    } else if (motionRestartFailures >= maxRestart && !status.alive) {
-      // phase 324 H3: 触顶 → circuit-open。停 spawn、audit 一条 GAVE_UP、
-      // 等待手动重启或 motion 自己恢复（外部 supervisor 拉起）。
-      gaveUpOnMotion = true;
-      auditWriter.write(
-        WATCHDOG_AUDIT_EVENTS.WATCHDOG_GAVE_UP,
-        `consecutive_failures=${motionRestartFailures}`,
-        `cap=${maxRestart}`,
-        `reason=motion_unrecoverable`,
-      );
-      log(
-        fsFactory,
-        `[watchdog] gave up restarting motion after ${motionRestartFailures} consecutive failures (cap=${maxRestart}); ` +
-        `entering circuit-open. Restart watchdog manually after fixing motion.`,
-      );
-      nextSleepMs = WATCHDOG_BACKOFF_MAX_MS;
-    } else {
-      const { newBackoff, newFailures } = await restartMotionIfDown(
-        pm,
-        fsFactory,
-        auditWriter,
-        status,
-        motionRestartFailures,
-        intervalMs,
-        WATCHDOG_BACKOFF_MAX_MS,
-        daemonLogName,
-      );
-      motionRestartFailures = newFailures;
-      nextSleepMs = newBackoff;
+      case 'circuit_open':
+        nextSleepMs = WATCHDOG_BACKOFF_MAX_MS;
+        if (decision.justOpened) {
+          auditWriter.write(
+            WATCHDOG_AUDIT_EVENTS.WATCHDOG_GAVE_UP,
+            `consecutive_failures=${decision.state.consecutiveAttempts}`,
+            `cap=${maxRestart}`,
+            `reason=motion_restart_unstable`,
+          );
+          log(
+            fsFactory,
+            `[watchdog] gave up restarting motion after ${decision.state.consecutiveAttempts} consecutive failures (cap=${maxRestart}); ` +
+            `entering circuit-open. Restart watchdog manually after fixing motion.`,
+          );
+        }
+        break;
+      case 'attempt': {
+        const outcome = await attemptMotionRestart(pm, fsFactory, auditWriter, status, daemonLogName);
+        const next = reduceMotionRestartOutcome(
+          decision.state, outcome, Date.now(), intervalMs, WATCHDOG_BACKOFF_MAX_MS,
+        );
+        motionRestartStateAPI.replace(next);
+        nextSleepMs =
+          next.status === 'retrying'
+            ? Math.max(0, Math.min(next.nextAttemptAt - Date.now(), WATCHDOG_BACKOFF_MAX_MS))
+            : intervalMs;
+        break;
+      }
     }
+
+    // Persist restart transitions before cron/sleep may fail.
+    saveWatchdogState(fsFactory);
 
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
     await maybeCronClawInactivity(pm, auditWriter, fsFactory);

@@ -96,6 +96,7 @@ import {
   loadWatchdogState,
   saveWatchdogState,
 } from '../../src/watchdog/watchdog.js';
+import { motionRestartStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
@@ -660,6 +661,113 @@ describe('runWatchdogLoop', () => {
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).not.toContain('watchdog_restart_triggered');
     expect(auditContent).not.toContain('process_spawn_failed');
+  });
+
+  it('phase 1164: spawn success awaits stability; next tick down accumulates attempts', async () => {
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.stop).mockResolvedValue(undefined);
+    vi.mocked(mockPm.spawn).mockResolvedValue(9999);
+
+    await runLoopForOneTick();
+
+    // After one tick with spawn success, state should be retrying attempts=1 awaitingStability=true
+    expect(motionRestartStateAPI.snapshot()).toEqual({
+      status: 'retrying',
+      consecutiveAttempts: 1,
+      nextAttemptAt: expect.any(Number),
+      awaitingStability: true,
+    });
+
+    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditContentAfterFirst = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
+    expect(auditContentAfterFirst).toContain('process_spawned');
+    expect(auditContentAfterFirst).not.toContain('watchdog_motion_stability_confirmed');
+  });
+
+  it('phase 1164: failed spawn accumulates attempt count without resetting', async () => {
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.stop).mockResolvedValue(undefined);
+    vi.mocked(mockPm.spawn).mockRejectedValue(new Error('spawn error'));
+
+    await runLoopForOneTick();
+
+    expect(motionRestartStateAPI.snapshot()).toEqual({
+      status: 'retrying',
+      consecutiveAttempts: 1,
+      nextAttemptAt: expect.any(Number),
+      awaitingStability: false,
+    });
+  });
+
+  it('phase 1164: hitting max attempts transitions to open circuit', async () => {
+    motionRestartStateAPI.replace({
+      status: 'retrying',
+      consecutiveAttempts: 10,
+      nextAttemptAt: 0,
+      awaitingStability: false,
+    });
+
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+
+    await runLoopForOneTick();
+
+    expect(motionRestartStateAPI.snapshot()).toEqual({
+      status: 'open',
+      consecutiveAttempts: 10,
+      openedAt: expect.any(Number),
+    });
+
+    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
+    expect(auditContent).toContain('watchdog_gave_up');
+    expect(auditContent).toContain('reason=motion_restart_unstable');
+    expect(auditContent).toContain('consecutive_failures=10');
+  });
+
+  it('phase 1164: motion alive after retrying emits stability confirmed', async () => {
+    // Seed state as retrying awaitingStability
+    motionRestartStateAPI.replace({
+      status: 'retrying',
+      consecutiveAttempts: 2,
+      nextAttemptAt: 5_000,
+      awaitingStability: true,
+    });
+
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: '' });
+
+    await runLoopForOneTick();
+
+    expect(motionRestartStateAPI.snapshot()).toEqual({
+      status: 'closed',
+      consecutiveAttempts: 0,
+    });
+
+    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
+    expect(auditContent).toContain('watchdog_motion_stability_confirmed');
+    expect(auditContent).toContain('previous_attempts=2');
+  });
+
+  it('phase 1164: open state + alive recovery emits circuit_reopened', async () => {
+    motionRestartStateAPI.replace({
+      status: 'open',
+      consecutiveAttempts: 10,
+      openedAt: 1_000,
+    });
+
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: '' });
+
+    await runLoopForOneTick();
+
+    expect(motionRestartStateAPI.snapshot()).toEqual({
+      status: 'closed',
+      consecutiveAttempts: 0,
+    });
+
+    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
+    expect(auditContent).toContain('watchdog_circuit_reopened');
+    expect(auditContent).toContain('prev_failures=10');
   });
 
   // H3 crash audit tests (from phase269, merged with phase271)
