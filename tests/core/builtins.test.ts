@@ -717,7 +717,6 @@ describe('Builtin Tools', () => {
     it('should create message in outbox', async () => {
       const result = await sendTool.execute({
         content: 'Test message',
-        type: 'report',
       }, ctx);
 
       expect(result.success).toBe(true);
@@ -727,17 +726,6 @@ describe('Builtin Tools', () => {
       const outboxDir = path.join(tempDir, 'outbox', 'pending');
       const files = await fs.readdir(outboxDir);
       expect(files.length).toBe(1);
-      expect(files[0]).toContain('report');
-    });
-
-    it('should validate message type', async () => {
-      const result = await sendTool.execute({
-        content: 'Test',
-        type: 'invalid',
-      }, ctx);
-
-      expect(result.success).toBe(false);
-      expect(result.content).toContain('Invalid message type');
     });
   });
 
