@@ -86,24 +86,9 @@ export function createStreamCallbacks(
       checkWrite({ ts: Date.now(), type: 'provider_failover', ...info });
     },
     onProviderFailed: (info: { provider: string; model: string; error: string }) => {
+      // Phase 1176 Step C: 不再用正则 heuristic 伪造 provider_attempt_failed。
+      // 结构化 owner event 已由 LLMOrchestrator → composite LLMEventSink 写入 stream。
       checkWrite({ ts: Date.now(), type: 'provider_failed', ...info });
-      // Phase 737: heuristic permanent error detection for viewport banner
-      const errorLower = info.error.toLowerCase();
-      const isPermanent = /401|403|404|auth|quota|credit|insufficient|model not found|deprecated/.test(errorLower);
-      if (isPermanent) {
-        const hint = /quota|credit|insufficient/.test(errorLower)
-          ? 'check_quota'
-          : (/model|404/.test(errorLower) ? 'switch_primary' : 'rotate_api_key');
-        checkWrite({
-          ts: Date.now(),
-          type: 'provider_attempt_failed',
-          provider: info.provider,
-          attempt: 0,
-          error: info.error,
-          errorClass: 'permanent',
-          userActionHint: hint,
-        });
-      }
     },
   };
 }
