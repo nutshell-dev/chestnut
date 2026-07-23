@@ -89,7 +89,7 @@ export class UnixDomainSocketTransport implements Transport {
       const probe = connect(socketPath);
       probe.once('connect', () => {
         probe.destroy();
-        reject(new Error(`socket ${this.socketPath} is in use by a live process`));
+        reject(new Error(`socket ${socketPath} is in use by a live process`));
       });
       probe.once('error', (err: NodeJS.ErrnoException) => {
         // ENOTSOCK = path exists but is a regular file (not a socket) → 显式 stale，unlink。

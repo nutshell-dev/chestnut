@@ -267,7 +267,9 @@ describe('UnixDomainSocketTransport', () => {
     const t1 = makeTransport();
     await t1.listen({ socketPath: path });
     const t2 = makeTransport();
-    await expect(t2.listen({ socketPath: path })).rejects.toThrow(/in use by a live process/);
+    await expect(t2.listen({ socketPath: path })).rejects.toThrow(
+      `socket ${path} is in use by a live process`,
+    );
     await t1.close();
   });
 
