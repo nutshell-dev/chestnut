@@ -1,4 +1,4 @@
-import { formatErr } from "../../foundation/node-utils/index.js";
+import { formatErr, sha256ShortHex } from "../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
@@ -6,14 +6,14 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
-import { notifyInbox } from '../../foundation/messaging/index.js';
+import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../foundation/messaging/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/token-estimator.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
+
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
-import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
+
 import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
@@ -335,7 +335,10 @@ async function prepareDeepDreamRun(ctx: DreamRunContext): Promise<DreamRunPlan |
     );
     return null;
   }
-  const state = loaded.state;
+  const recovered = await flushPendingDeepNotifications(ctx, loaded.state);
+  if (recovered.status === 'deferred') return null;
+  const state = recovered.state;
+
   const dialogStore = new DialogStore(ctx.clawFs, DIALOG_DIR, ctx.audit, CURRENT_DIALOG_FILE, ctx.clawId);
   const sessionFiles = await discoverUnprocessed(dialogStore, state, today);
   if (sessionFiles.length === 0) {
@@ -450,6 +453,92 @@ async function processSession(
   return { status: 'ok', compressions: merged };
 }
 
+// ─── durable Deep Dream notification delivery ────────────────
+
+const DELIVERY_META_KEY = 'delivery_id';
+const DONE_DEDUP_WINDOW_MS = Number.POSITIVE_INFINITY;
+
+function buildPendingDeepNotification(
+  clawId: string,
+  state: DreamStateData,
+  body: string,
+  sessionCount: number,
+): PendingDeepDreamNotification {
+  return {
+    deliveryId: [
+      'deep-dream', clawId,
+      state.lastProcessedDeepDreamAt,
+      state.currentSessionDreamedDate || 'none',
+      sha256ShortHex(body, 16),
+    ].join(':'),
+    body,
+    sessionCount,
+    createdAt: Date.now(),
+  };
+}
+
+function toDeepDreamMessage(item: PendingDeepDreamNotification): InboxMessageOptionsBase {
+  return {
+    type: 'deep_dream',
+    source: 'cron-dream',
+    priority: 'low',
+    body: item.body,
+    idPrefix: `${item.createdAt}_deep_dream`,
+    extraFields: {
+      session_count: String(item.sessionCount),
+      [DELIVERY_META_KEY]: item.deliveryId,
+    },
+  };
+}
+
+type DeepNotificationFlushResult =
+  | { status: 'confirmed'; state: DreamStateData }
+  | { status: 'deferred'; state: DreamStateData };
+
+async function flushPendingDeepNotifications(
+  ctx: DreamRunContext,
+  state: DreamStateData,
+): Promise<DeepNotificationFlushResult> {
+  const reader = new InboxReader(
+    INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR,
+    ctx.clawFs, ctx.audit,
+  );
+  let current = state;
+  for (const item of current.pendingNotifications ?? []) {
+    let existing;
+    try {
+      existing = await reader.findByExtraMeta(
+        DELIVERY_META_KEY, item.deliveryId,
+        { includeDoneWithinMs: DONE_DEDUP_WINDOW_MS },
+      );
+    } catch (error) {
+      ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
+        'step=delivery_query', `clawId=${ctx.clawId}`, `reason=${formatErr(error)}`);
+      return { status: 'deferred', state: current };
+    }
+    if (!existing) {
+      try {
+        await ctx.notifyClaw(ctx.clawId, toDeepDreamMessage(item));
+      } catch (error) {
+        ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
+          'step=delivery_send', `clawId=${ctx.clawId}`, `reason=${formatErr(error)}`);
+        return { status: 'deferred', state: current };
+      }
+    }
+    const next = {
+      ...current,
+      pendingNotifications: current.pendingNotifications?.filter(
+        candidate => candidate.deliveryId !== item.deliveryId,
+      ),
+    };
+    if (!saveDreamState(ctx.clawFs, next, ctx.audit, ctx.clawId)) {
+      return { status: 'deferred', state: current };
+    }
+    current = next;
+  }
+  return { status: 'confirmed', state: current };
+}
+
 async function persistDreamRun(
   ctx: DreamRunContext,
   plan: DreamRunPlan,
@@ -475,31 +564,35 @@ async function persistDreamRun(
     }
   }
 
-  // Phase 923: commit state only after output is safely persisted.
-  // If writeAtomic throws above, state remains unchanged → next cycle retries.
-  const updatedState: DreamStateData = {
+  // Phase 923 / Phase 1162 Step D: commit progress + pending notification atomically,
+  // then flush. If any stage fails, disk retains pending for recovery.
+  const progressState: DreamStateData = {
     lastProcessedDeepDreamAt: plan.state.lastProcessedDeepDreamAt,
     currentSessionDreamedDate: currentProcessed ? plan.today : plan.state.currentSessionDreamedDate,
     currentSessionRetryCount: currentProcessed ? 0 : plan.state.currentSessionRetryCount,
   };
-  saveDreamState(ctx.clawFs, updatedState, ctx.audit, ctx.clawId);
 
-  if (dreamOutputs.length > 0) {
-    const clawAudit = createSystemAudit(ctx.clawFs, ctx.clawDir);
-    notifyInbox(ctx.clawFs, {
-      inboxDir: INBOX_PENDING_DIR,
-      type: 'deep_dream',
-      source: 'cron-dream',
-      priority: 'low',
-      body: dreamOutput,
-      idPrefix: `${Date.now()}_deep_dream`,
-      extraFields: { session_count: String(dreamOutputs.length) },
-    }, clawAudit);
+  if (dreamOutputs.length === 0) {
+    saveDreamState(ctx.clawFs, progressState, ctx.audit, ctx.clawId);
+    return;
   }
 
-  if (dreamOutputs.length > 0) {
-    ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB, `step=finished`, `clawId=${ctx.clawId}`, `dream_count=${dreamOutputs.length}`);
-  }
+  const notification = buildPendingDeepNotification(
+    ctx.clawId, progressState, dreamOutput, dreamOutputs.length,
+  );
+  const staged: DreamStateData = {
+    ...progressState,
+    pendingNotifications: [
+      ...(plan.state.pendingNotifications ?? []).filter(
+        old => old.deliveryId !== notification.deliveryId,
+      ),
+      notification,
+    ],
+  };
+  if (!saveDreamState(ctx.clawFs, staged, ctx.audit, ctx.clawId)) return;
+  await flushPendingDeepNotifications(ctx, staged);
+
+  ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB, `step=finished`, `clawId=${ctx.clawId}`, `dream_count=${dreamOutputs.length}`);
 }
 
 async function runDeepDreamForClaw(
@@ -572,6 +665,16 @@ export const __test_persistDreamRun = persistDreamRun;
 export const __test_runDeepDreamForClaw = runDeepDreamForClaw;
 /** @internal test-only export (phase 923) */
 export type { ProcessResult as __test_ProcessResult };
+
+// Phase 1162 Step D: test-only exports for durable delivery behavior.
+/** @internal test-only export (phase 1162) */
+export const __test_flushPendingDeepNotifications = flushPendingDeepNotifications;
+/** @internal test-only export (phase 1162) */
+export type { DeepNotificationFlushResult as __test_DeepNotificationFlushResult };
+/** @internal test-only export (phase 1162) */
+export const __test_buildPendingDeepNotification = buildPendingDeepNotification;
+/** @internal test-only export (phase 1162) */
+export type { PendingDeepDreamNotification as __test_PendingDeepDreamNotification };
 
 export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
   const maxCompressionTokens = opts.maxCompressionTokens ?? COMPRESSION_TOKENS_DEFAULT;

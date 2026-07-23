@@ -46,6 +46,10 @@ const NON_SENDER_SCAN_TYPES = new Set([
   // DI callback. The sender is real, but the balanced-call scanner intentionally does not
   // inspect arbitrary callback invocations.
   'random_dream_completed',      // src/core/memory/random-dream.ts via opts.notifyMotion(msg) DI callback
+  // phase 1162 Step D: deep-dream delivery uses opts.notifyClaw(clawId, msg) DI callback.
+  // The sender is real, but the balanced-call scanner intentionally does not
+  // inspect arbitrary callback invocations.
+  'deep_dream',                  // src/core/memory/deep-dream.ts via opts.notifyClaw(clawId, msg) DI callback
 ]);
 
 import { describe, it, expect } from 'vitest';

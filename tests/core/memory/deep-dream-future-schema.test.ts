@@ -186,15 +186,14 @@ describe('deep-dream future schema fail-closed (phase 1161)', () => {
     expect(fsSync.readFileSync(aStatePath, 'utf8')).toBe(futureState);
     expect(fsSync.readdirSync(path.join(clawA, 'inbox', 'pending'))).toHaveLength(0);
 
-    // claw-b: processed, state updated, inbox written.
+    // claw-b: processed, state updated, async callback invoked.
     const bStatePath = path.join(clawB, '.deep-dream-state.json');
     const bState = JSON.parse(fsSync.readFileSync(bStatePath, 'utf-8'));
     expect(bState.lastProcessedDeepDreamAt).toBeGreaterThanOrEqual(parseInt(bArchive.split('_')[0], 10));
 
-    const bInboxFiles = fsSync.readdirSync(path.join(clawB, 'inbox', 'pending'));
-    expect(bInboxFiles.length).toBeGreaterThan(0);
-    const bInbox = fsSync.readFileSync(path.join(clawB, 'inbox', 'pending', bInboxFiles[0]), 'utf8');
-    expect(bInbox).toContain('type: deep_dream');
+    expect(mockNotifyClaw).toHaveBeenCalledTimes(1);
+    expect(mockNotifyClaw.mock.calls[0][0]).toBe('claw-b');
+    expect(mockNotifyClaw.mock.calls[0][1].type).toBe('deep_dream');
 
     // Only claw-b triggered LLM calls (2 per archive).
     expect(mockLlmCall).toHaveBeenCalledTimes(2);

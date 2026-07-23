@@ -85,7 +85,7 @@ describe('runDeepDream', () => {
   // ── 无 claws 目录 ───────────────────────────────────────────
 
   it('claws 目录不存在时直接返回，不调用 LLM', async () => {
-    await expect(runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory })).resolves.toBeUndefined();
+    await expect(runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory, notifyClaw: mockNotifyClaw })).resolves.toBeUndefined();
     expect(mockLlmCall).not.toHaveBeenCalled();
   });
 
@@ -183,7 +183,7 @@ describe('runDeepDream', () => {
           return originalWriteAtomicSync.call(this, p, content);
         });
 
-        await expect(runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory })).resolves.toBeUndefined();
+        await expect(runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory, notifyClaw: mockNotifyClaw })).resolves.toBeUndefined();
 
         // audit 记录了 save_state 错误
         expect(mockAudit.write).toHaveBeenCalledWith(
@@ -277,11 +277,11 @@ describe('runDeepDream', () => {
       const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
       expect(state.lastProcessedDeepDreamAt).toBeGreaterThanOrEqual(parseInt(filename.split('_')[0], 10));
 
-      // inbox 消息已写入
-      const inboxDir = path.join(clawDir, 'inbox', 'pending');
-      const files = fsSync.readdirSync(inboxDir);
-      const hasDeepDream = files.some(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8').includes('type: deep_dream'));
-      expect(hasDeepDream).toBe(true);
+      // async callback 被调用且消息为 deep_dream
+      expect(mockNotifyClaw).toHaveBeenCalledTimes(1);
+      const msg = mockNotifyClaw.mock.calls[0][1] as { type: string; body: string };
+      expect(msg.type).toBe('deep_dream');
+      expect(msg.body).toContain('dream insight content');
     });
 
     // ── Fix 1 回归：Call 2 不传 system prompt ──────────────────
@@ -389,17 +389,17 @@ describe('runDeepDream', () => {
         .mockRejectedValueOnce(new Error('LLM timeout'));
 
       // 不抛出异常
-      await expect(runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory })).resolves.toBeUndefined();
+      await expect(runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory, notifyClaw: mockNotifyClaw })).resolves.toBeUndefined();
 
-      // state 已更新，inbox 消息已写入（dreamOutput 仍可用）
+      // state 已更新，async callback 被调用（dreamOutput 仍可用）
       const statePath = path.join(clawDir, '.deep-dream-state.json');
       const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
       expect(state.lastProcessedDeepDreamAt).toBeGreaterThanOrEqual(parseInt(filename.split('_')[0], 10));
 
-      const inboxDir = path.join(clawDir, 'inbox', 'pending');
-      const files = fsSync.readdirSync(inboxDir);
-      const hasDeepDream = files.some(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8').includes('type: deep_dream'));
-      expect(hasDeepDream).toBe(true);
+      expect(mockNotifyClaw).toHaveBeenCalledTimes(1);
+      const msg = mockNotifyClaw.mock.calls[0][1] as { type: string; body: string };
+      expect(msg.type).toBe('deep_dream');
+      expect(msg.body).toContain('dream insight');
     });
 
     // ── current.json 处理 ───────────────────────────────────────
@@ -516,10 +516,10 @@ describe('runDeepDream', () => {
 
     await runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory, notifyClaw: mockNotifyClaw });
 
-    // claw-ok 的 inbox 应有消息
-    const inboxFiles = fsSync.readdirSync(path.join(clawDir2, 'inbox', 'pending'));
-    const hasDeepDream = inboxFiles.some(f => fsSync.readFileSync(path.join(clawDir2, 'inbox', 'pending', f), 'utf8').includes('type: deep_dream'));
-    expect(hasDeepDream).toBe(true);
+    // claw-ok 的 async callback 被调用
+    expect(mockNotifyClaw).toHaveBeenCalledTimes(1);
+    const msg = mockNotifyClaw.mock.calls[0][1] as { type: string };
+    expect(msg.type).toBe('deep_dream');
   });
 
   // ── 元压缩触发 ──────────────────────────────────────────────
