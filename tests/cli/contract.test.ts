@@ -9,6 +9,7 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
   createDirContext: vi.fn((_deps: any) => ({
     fs: {
       appendSync: vi.fn(() => { throw new Error('disk full'); }),
+      existsSync: vi.fn(() => false),
     },
     audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)},
   })),
@@ -33,6 +34,7 @@ describe('notifyContractCreated audit observability', () => {
       fs: {
         appendSync: vi.fn(() => { throw new Error('disk full'); }),
         resolve: vi.fn((p: string) => path.resolve(p)),
+        existsSync: vi.fn(() => false),
       },
       audit,
     });
@@ -64,6 +66,7 @@ describe('notifyContractCreated audit observability', () => {
             fs.appendFileSync(path.join(tempDir, filePath), data);
           }),
           resolve: vi.fn((p: string) => path.resolve(tempDir, p)),
+          existsSync: vi.fn(() => false),
         },
         audit,
       });
@@ -96,6 +99,7 @@ describe('notifyContractCreated audit observability', () => {
       fs: {
         appendSync: vi.fn(() => { throw new Error('disk full'); }),
         resolve: vi.fn((p: string) => path.resolve(p)),
+        existsSync: vi.fn(() => false),
       },
       audit,
     });

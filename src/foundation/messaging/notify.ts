@@ -14,7 +14,10 @@ import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import { emitUnknownDestinationDlq } from './audit-emit.js';
+import {
+  emitUnknownDestinationDlq,
+  emitUnknownDestinationRejected,
+} from './audit-emit.js';
 import { INBOX_PENDING_DIR } from './dirs.js';
 
 /**
@@ -56,10 +59,11 @@ export function notifyClaw(
     );
   }
 
-  // phase 1372 sub-4: DLQ for unknown destination — prevent silent orphan dir creation
-  if (dlqDir !== undefined && typeof fs.existsSync === 'function') {
-    if (!fs.existsSync(targetClawRoot)) {
-      const targetClawId = path.basename(targetClawRoot);
+  // phase 1170: unknown target fail-closed — never create an orphan claw root
+  if (!fs.existsSync(targetClawRoot)) {
+    const targetClawId = path.basename(targetClawRoot);
+
+    if (dlqDir !== undefined) {
       try {
         const fileName = InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit).writeSync({
           ...message,
@@ -71,10 +75,20 @@ export function notifyClaw(
           file: fileName,
         });
       } catch {
-        // silent: best-effort DLQ write; do not rethrow.
+        // InboxWriter already audits write failure; side-channel stays best-effort.
       }
-      return;
+    } else {
+      try {
+        emitUnknownDestinationRejected(audit, {
+          targetClawId,
+          reason: 'claw_not_found',
+        });
+      } catch {
+        // silent: audit failure must not reopen delivery to a missing target.
+      }
     }
+
+    return;
   }
 
   try {

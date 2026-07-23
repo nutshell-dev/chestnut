@@ -320,6 +320,19 @@ export function emitUnknownDestinationDlq(
   );
 }
 
+// ─── UNKNOWN_DESTINATION_REJECTED (phase 1170) ─────────────────────────────────
+export function emitUnknownDestinationRejected(
+  audit: AuditLog,
+  opts: { targetClawId: string; reason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.UNKNOWN_DESTINATION_REJECTED,
+    `target_claw_id=${opts.targetClawId}`,
+    `reason=${opts.reason}`,
+    'fallback=unavailable',
+  );
+}
+
 // ─── OUTBOX_SEND_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxSendFailed(
   audit: AuditLog,

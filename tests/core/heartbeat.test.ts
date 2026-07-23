@@ -157,10 +157,10 @@ describe('Heartbeat', () => {
       });
     });
 
-    it('should create inbox directory if not exists', async () => {
-      // 使用没有 pre-created 目录的 tempDir 子目录
+    it('should create inbox pending directory when motion root exists', async () => {
+      // phase 1170: claw root lifecycle is owned by topology; Messaging only owns inbox subdirs.
       const newBaseDir = path.join(tempDir, 'newbase');
-      fs.mkdirSync(newBaseDir, { recursive: true });
+      fs.mkdirSync(path.join(newBaseDir, 'motion'), { recursive: true });
 
       heartbeat = createTestHeartbeat(newBaseDir, 1);
       await heartbeat.fire();

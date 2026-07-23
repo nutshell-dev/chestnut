@@ -106,6 +106,9 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('motion targetClawId → normal motion inbox delivery, no DLQ', () => {
+    // phase 1170: motion root must exist; Messaging no longer owns claw root creation.
+    fs.ensureDirSync(MOTION_CLAW_ID);
+
     const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
     notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'message',
@@ -119,5 +122,58 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
 
     const dlqEvents = audit.events.filter(e => e[0] === MESSAGING_AUDIT_EVENTS.UNKNOWN_DESTINATION_DLQ);
     expect(dlqEvents.length).toBe(0);
+
+    const rejectedEvents = audit.events.filter(
+      e => e[0] === MESSAGING_AUDIT_EVENTS.UNKNOWN_DESTINATION_REJECTED,
+    );
+    expect(rejectedEvents.length).toBe(0);
+  });
+
+  it('missing target without DLQ rejects without creating an orphan root', () => {
+    const { targetClawRoot, targetInboxDir } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
+
+    notifyClaw(fs, targetClawRoot, targetInboxDir, undefined, {
+      type: 'message',
+      source: 'system',
+      body: 'must not be written',
+    }, audit.audit);
+
+    expect(fs.existsSync(path.join(tempDir, MOTION_CLAW_ID))).toBe(false);
+    expect(audit.events.filter(
+      e => e[0] === MESSAGING_AUDIT_EVENTS.UNKNOWN_DESTINATION_REJECTED,
+    )).toEqual([[
+      MESSAGING_AUDIT_EVENTS.UNKNOWN_DESTINATION_REJECTED,
+      'target_claw_id=motion',
+      'reason=claw_not_found',
+      'fallback=unavailable',
+    ]]);
+    expect(audit.events.some(
+      e => e[0] === MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN,
+    )).toBe(false);
+  });
+
+  it('rejected audit failure still fail-closed', () => {
+    const { targetClawRoot, targetInboxDir } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
+    const message = {
+      type: 'message',
+      source: 'system',
+      body: 'must not be written',
+    } as const;
+    const throwingAudit = {
+      ...audit.audit,
+      write: () => {
+        throw new Error('audit unavailable');
+      },
+    };
+
+    expect(() => notifyClaw(
+      fs,
+      targetClawRoot,
+      targetInboxDir,
+      undefined,
+      message,
+      throwingAudit,
+    )).not.toThrow();
+    expect(fs.existsSync(targetClawRoot)).toBe(false);
   });
 });

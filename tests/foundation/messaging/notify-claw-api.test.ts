@@ -49,6 +49,8 @@ describe('notifyClaw API', () => {
     chestnutRoot = path.join(tmpdir(), `notify-claw-api-${randomUUID()}`);
     await fs.rm(chestnutRoot, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(chestnutRoot, { recursive: true });
+    // phase 1170: motion root is owned by topology/lifecycle, not Messaging.
+    await fs.mkdir(path.join(chestnutRoot, MOTION_CLAW_ID), { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: chestnutRoot });
     auditEvents.length = 0;
   });
