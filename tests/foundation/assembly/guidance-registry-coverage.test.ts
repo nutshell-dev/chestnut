@@ -42,6 +42,10 @@ const NON_SENDER_SCAN_TYPES = new Set([
   // type: 'random_dream' 字面量仍在 random-dream.ts，但投递改由 caller-bound
   // notifyMotion callback 执行，scanner 不抓 `notifyMotion(...)` 调用形态。
   'random_dream',                // src/core/memory/random-dream.ts via opts.notifyMotion(msg) DI callback
+  // phase 1159 Step E: random-dream completion delivery also uses opts.notifyMotion(message)
+  // DI callback. The sender is real, but the balanced-call scanner intentionally does not
+  // inspect arbitrary callback invocations.
+  'random_dream_completed',      // src/core/memory/random-dream.ts via opts.notifyMotion(msg) DI callback
 ]);
 
 import { describe, it, expect } from 'vitest';
