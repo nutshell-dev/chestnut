@@ -906,8 +906,6 @@
       "tool_invalid_input",
       "tool_not_found",
       "tools_invariant_violation",
-      "tool_async_rejected",
-      "tool_async_start",
       "tool_exec_race_loser",
       "stop_requested"
     ],
