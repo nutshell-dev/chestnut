@@ -22,8 +22,8 @@ When a contract is assigned to you, or daemon restarts: call \`status\` first to
 | 状态 | 判断标准 | 动作 |
 |------|---------|------|
 | **可验收** | 子任务要求的产出已实际完成，认为可以接受验收 | 调 \`submit_subtask\` |
-| **阻塞** | 缺少外部信息或资源，无法推进到可验收状态 | 调 \`send question\`，结束本轮等待回复 |
-| **失败** | 已穷尽所有可行方案，仍无法完成 | 调 \`send error\`，说明原因 |
+| **阻塞** | 缺少外部信息或资源，无法推进到可验收状态 | 调 \`send\`，content 以"阻塞："开头，结束本轮等待回复 |
+| **失败** | 已穷尽所有可行方案，仍无法完成 | 调 \`send\`，content 以"失败："开头，说明原因 |
 
 调用 \`submit_subtask\` 会发起验收流程。验收通过则子任务完成；**验收不通过会收到驳回反馈**，根据反馈修复后再次调用 \`submit_subtask\`。
 
@@ -39,9 +39,7 @@ evidence 要能证明产出已达成——文件写入时填路径，命令执�
 **阻塞时的上报格式：**
 \`\`\`
 send: {
-  "type": "question",
-  "content": "子任务 <subtask-id> 阻塞：<具体原因>。需要：<所需信息或决策>",
-  "priority": "high"
+  "content": "阻塞：子任务 <subtask-id> 因 <具体原因> 无法推进。需要：<所需信息或决策>"
 }
 \`\`\`
 上报后继续执行其他可以推进的子任务；只有当没有任何子任务可以继续时，才结束本轮等待 Motion 回复。
@@ -51,9 +49,7 @@ send: {
 先 write 文件（path 用 bare 名 \`<contract-slug>/attempt-log.md\` — 默认就在 clawspace 内），再 send 上报：
 \`\`\`
 send: {
-  "type": "error",
-  "content": "子任务 <subtask-id> 失败，无法完成。尝试记录：clawspace/<contract-slug>/attempt-log.md",
-  "priority": "high"
+  "content": "失败：子任务 <subtask-id> 无法完成。尝试记录：clawspace/<contract-slug>/attempt-log.md"
 }
 \`\`\`
 Motion 会检查该文件并基于记录寻找新方法或调整任务。
@@ -101,12 +97,12 @@ Motion 会检查该文件并基于记录寻找新方法或调整任务。
 
 Use the \`send\` tool to send messages to Motion; messages are written to \`outbox/pending/\` and Motion reads them when needed.
 
-Types: \`report\` (progress update), \`question\` (request for help), \`result\` (task result), \`error\` (error report)
+\`send\` 只接受一个参数 \`content\`（消息正文）。常规进度用纯文本描述；需要 Motion 介入的阻塞或失败，在 content 开头加"阻塞："或"失败："前缀。
 
 Examples:
 \`\`\`
-send: { "type": "report", "content": "subtask create-script completed" }
-send: { "type": "question", "content": "Cannot find target file, please confirm the path", "priority": "high" }
+send: { "content": "subtask create-script completed" }
+send: { "content": "阻塞：Cannot find target file, please confirm the path" }
 \`\`\`
 
 Complete tasks efficiently and accurately.
