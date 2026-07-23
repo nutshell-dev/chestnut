@@ -425,7 +425,7 @@ describe('inbox-write-side-encap-invariant', () => {
     // ESLint custom rule `no-hardcoded-inbox-path`。本 grep invariant 删除。
     // phase 705: L4 ClawTopology 提供 routeNotifyClaw 包装器，等价于 notifyClaw 调用站点。
 
-    it('non-deprecated callers use notifyClaw or writeInboxAsync (deep-dream = notifyInbox self-notify exception)', () => {
+    it('non-deprecated callers use notifyClaw or writeInboxAsync', () => {
       const outNotify = execSync(
         `grep -rn 'notifyClaw\\|routeNotifyClaw\\|writeInboxAsync' src/core src/watchdog src/core/memory src/core/contract --include='*.ts' | grep -v test`,
         { encoding: 'utf8', cwd: REPO_CWD },
@@ -434,19 +434,17 @@ describe('inbox-write-side-encap-invariant', () => {
       expect(outNotify).toContain('watchdog-cron.ts');
       expect(outNotify).toContain('watchdog-log.ts');
       expect(outNotify).toContain('random-dream.ts');
+      expect(outNotify).toContain('deep-dream.ts');
       expect(outNotify).toContain('result-delivery.ts');
       expect(outNotify).toContain('verification-notify.ts');
 
-      // deep-dream uses deprecated notifyInbox for self-notify (chrooted fs special case)
-      // phase 1493: grep -rn 单文件在 BSD (macOS) vs GNU (Linux) 输出格式差
-      //   BSD: `file.ts:N:content`（含 filename prefix）
-      //   GNU: `N:content`（单文件不带 filename prefix）
-      // 故 assertion 绑 content (notifyInbox) 而非 filename string、跨平台稳定。
-      const outInbox = execSync(
-        `grep -rn 'notifyInbox' src/core/memory/deep-dream.ts`,
-        { encoding: 'utf8', cwd: REPO_CWD },
+      // phase 1162 Step E: Deep Dream 不再使用 deprecated notifyInbox 自通知；
+      // 正向已由 deep-dream.ts 出现在 notifyClaw 入口集合证明，反向约束无回流。
+      const deprecatedDeepDreamWrite = safeGrep(
+        `grep -n 'notifyInbox' src/core/memory/deep-dream.ts`,
+        REPO_CWD,
       );
-      expect(outInbox).toMatch(/notifyInbox/);
+      expect(deprecatedDeepDreamWrite).toBe('');
     });
   });
 });
