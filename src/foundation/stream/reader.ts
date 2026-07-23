@@ -115,6 +115,13 @@ export function createStreamReader(
   let offset = 0;
   let pending = '';
   let decoder = new StringDecoder('utf-8');
+
+  const resetReadState = (): void => {
+    offset = 0;
+    pending = '';
+    decoder = new StringDecoder('utf-8');
+  };
+
   let started = false;
   let active = false;
   let consecutiveParseFails = 0;
@@ -176,9 +183,7 @@ export function createStreamReader(
           const size = fs.statSync(streamPath).size;
           if (size < offset) {
             // File truncated / replaced — reset
-            offset = 0;
-            pending = '';
-            decoder = new StringDecoder('utf-8');
+            resetReadState();
           }
           if (size === offset) continue;
 
@@ -274,8 +279,7 @@ export function createStreamReader(
               `path=${streamPath}`,
             );
             if (!active) return;   // §B.7 α / stop() 期间不 mutate offset/pending（已死状态）/ audit 仍记录
-            offset = 0;
-            pending = '';
+            resetReadState();
           }
         },
         {

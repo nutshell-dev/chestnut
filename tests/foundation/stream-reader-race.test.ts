@@ -3,6 +3,7 @@ import { createStreamReader } from '../../src/foundation/stream/reader.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { FileSystem, StatInfo } from '../../src/foundation/fs/types.js';
 import type { WatchEvent } from '../../src/foundation/file-watcher/types.js';
+import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 
 /**
  * Promise.race anti-hang deadline (2s): assertion 永不应到此 / hang detector.
@@ -27,9 +28,18 @@ function createMockWatcher(createWatcher: ReturnType<typeof vi.fn>) {
 function createMockFs(opts: {
   sizes: number[];
   readBytes?: Buffer;
+  readBytesSequence?: Buffer[];
 }): FileSystem {
   let statCallIdx = 0;
-  const readBytesSpy = vi.fn(() => opts.readBytes ?? Buffer.from('badjson\n', 'utf-8'));
+  let readCallIdx = 0;
+  const readBytesSpy = vi.fn(() => {
+    if (opts.readBytesSequence) {
+      const index = Math.min(readCallIdx, opts.readBytesSequence.length - 1);
+      readCallIdx++;
+      return opts.readBytesSequence[index];
+    }
+    return opts.readBytes ?? Buffer.from('badjson\n', 'utf-8');
+  });
 
   const fs = {
     existsSync: vi.fn(() => true),
@@ -257,5 +267,56 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
         new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hang')), ANTI_HANG_DEADLINE_MS)),
       ]),
     ).resolves.toBeDefined();
+  });
+
+  it('unlink resets decoder bytes before reading replacement file', async () => {
+    const partialOldFile = Buffer.concat([
+      Buffer.from('{"ts":1,"type":"old","text":"', 'utf-8'),
+      Buffer.from([0xe4]),
+    ]);
+    const replacementEvent = { ts: 2, type: 'replacement', text: '新文件' };
+    const replacementFile = Buffer.from(
+      `${JSON.stringify(replacementEvent)}\n`,
+      'utf-8',
+    );
+
+    const fs = createMockFs({
+      sizes: [0, partialOldFile.length, replacementFile.length],
+      readBytesSequence: [partialOldFile, replacementFile],
+    });
+    const auditRec = makeAudit();
+    const events: unknown[] = [];
+    const reader = createStreamReader(
+      fs,
+      'stream.jsonl',
+      event => events.push(event),
+      auditRec.audit,
+      { createWatcher },
+    );
+
+    try {
+      reader.start();
+
+      await capturedCallback!({ type: 'change', path: 'stream.jsonl' });
+      expect(events).toHaveLength(0);
+
+      await capturedCallback!({ type: 'unlink', path: 'stream.jsonl' });
+      await capturedCallback!({ type: 'add', path: 'stream.jsonl' });
+
+      expect(events).toEqual([replacementEvent]);
+      expect(
+        auditRec.events.filter(
+          ([type]) => type === STREAM_AUDIT_EVENTS.READER_PARSE_FAILED,
+        ),
+      ).toHaveLength(0);
+      expect(fs.readBytesSync).toHaveBeenNthCalledWith(
+        2,
+        'stream.jsonl',
+        0,
+        replacementFile.length,
+      );
+    } finally {
+      await reader.stop();
+    }
   });
 });
