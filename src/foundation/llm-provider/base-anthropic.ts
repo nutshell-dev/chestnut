@@ -236,19 +236,19 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
         finalBlocks = filtered;
       }
 
-      // Check if message contains structured blocks (tool_use, tool_result, or thinking)
-      const hasStructuredBlocks = finalBlocks.some(
-        b => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'thinking'
-      );
+      // Check if message contains any non-text block (tool_use, tool_result, thinking,
+      // image, document, redacted_thinking, or any future provider-specific block).
+      // Only all-text messages may be collapsed to a string for compatibility.
+      const hasNonTextBlocks = finalBlocks.some(block => block.type !== 'text');
 
-      if (hasStructuredBlocks) {
+      if (hasNonTextBlocks) {
         if (addCache) {
-          // Copy last block with cache_control
+          // Copy last block with cache_control to avoid mutating the input dialog reference.
           const copy: unknown[] = [...finalBlocks];
           copy[copy.length - 1] = { ...(copy[copy.length - 1] as Record<string, unknown>), cache_control: { type: 'ephemeral' } };
           return [{ role, content: copy }];
         }
-        // Keep array format for structured messages
+        // Keep array format to preserve block shape, fields and order.
         return [{ role, content: finalBlocks }];
       }
 

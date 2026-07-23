@@ -612,3 +612,93 @@ describe('CustomAnthropicAdapter — output budget exceeded', () => {
   });
 });
 
+
+
+describe('base-anthropic-unknown-block-preservation (phase 1166)', () => {
+  function createAdapter(dropThinkingBlocks = false) {
+    return new CustomAnthropicAdapter({
+      name: 'test-provider',
+      apiKey: 'test',
+      model: 'test-model',
+      maxTokens: 1024,
+      temperature: 0.5,
+      timeoutMs: 30000,
+      apiFormat: 'anthropic',
+      dropThinkingBlocks,
+    });
+  }
+
+  it('preserves unknown-only non-last assistant block as opaque array', () => {
+    const unknown = { type: 'redacted_thinking', data: 'opaque-provider-payload' };
+    const adapter = createAdapter();
+    const result = (adapter as any).formatMessages([
+      { role: 'assistant', content: [unknown] },
+      { role: 'user', content: [{ type: 'text', text: 'next' }] },
+    ]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ role: 'assistant', content: [unknown] });
+    expect(Array.isArray(result[0].content)).toBe(true);
+  });
+
+  it('preserves mixed text + unknown block as array', () => {
+    const mixed = [
+      { type: 'text', text: 'caption' },
+      { type: 'image', source: { type: 'base64', data: 'AA==' } },
+    ];
+    const adapter = createAdapter();
+    const result = (adapter as any).formatMessages([
+      { role: 'user', content: mixed },
+      { role: 'user', content: [{ type: 'text', text: 'next' }] },
+    ]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].content).toEqual(mixed);
+    expect(Array.isArray(result[0].content)).toBe(true);
+  });
+
+  it('dropThinking only removes thinking, keeps other non-text blocks', () => {
+    const adapter = createAdapter(true);
+    const result = (adapter as any).formatMessages([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'discard by config' },
+          { type: 'redacted_thinking', data: 'must-survive' },
+        ],
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toEqual([{ type: 'redacted_thinking', data: 'must-survive' }]);
+  });
+
+  it('adds cache_control to last user non-text block without mutating input', () => {
+    const block = { type: 'document', source: { id: 'doc-1' } };
+    const messages = [{ role: 'user', content: [block] }];
+    const adapter = createAdapter();
+    const result = (adapter as any).formatMessages(messages);
+
+    expect(result[0].content).toEqual([{
+      ...block,
+      cache_control: { type: 'ephemeral' },
+    }]);
+    expect(block).not.toHaveProperty('cache_control');
+    expect(messages[0].content[0]).toBe(block);
+  });
+
+  it('does not skip non-last user message with only unknown blocks', () => {
+    const adapter = createAdapter();
+    const result = (adapter as any).formatMessages([
+      { role: 'user', content: [{ type: 'future_block', payload: {} }] },
+      { role: 'user', content: [{ type: 'text', text: 'last' }] },
+    ]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({
+      role: 'user',
+      content: [{ type: 'future_block', payload: {} }],
+    });
+    expect(Array.isArray(result[0].content)).toBe(true);
+  });
+});
