@@ -36,16 +36,25 @@ import {
 
 /**
  * phase 547: 加 schema_version 字段（DP「持久化 schema 显式版本」+ 与 contract/progress.json / dialog/current.json 同模式）。
- * v1 = 当前 schema；未来增/改字段时 ++version + 加 migration 路径。
+ * phase 1162 Step B: 升级到 v2，支持 pendingNotifications durable outbox。
+ * v1/v2 = 历史 schema；未来增/改字段时 ++version + 加 migration 路径。
  * 与 phase 280 'processedArchives' legacy 实体共存（legacy 是字段名 hint、未来 v2 用版本号 cleaner）。
  */
-const DEEP_DREAM_STATE_CURRENT_VERSION = 1;
+const DEEP_DREAM_STATE_CURRENT_VERSION = 2;
+
+interface PendingDeepDreamNotification {
+  deliveryId: string;
+  body: string;
+  sessionCount: number;
+  createdAt: number;
+}
 
 interface DreamStateData {
   schema_version?: number;               // phase 547: 显式 schema 版本（默认 1、未写也视 v1）
   lastProcessedDeepDreamAt: number;      // ms epoch 高水位线：archivedAt ≤ 此值的视为已处理
   currentSessionDreamedDate: string;     // "YYYY-MM-DD"，当日 current.json 已处理
   currentSessionRetryCount?: number;     // Phase 1200: current.json 损坏重试计数器
+  pendingNotifications?: PendingDeepDreamNotification[];  // phase 1162 Step B: durable notification outbox
 }
 
 // Phase 1161: discriminated load result so callers can stop before discovery/LLM/output/save.
@@ -59,6 +68,42 @@ function defaultDreamState(): DreamStateData {
     lastProcessedDeepDreamAt: 0,
     currentSessionDreamedDate: '',
     currentSessionRetryCount: 0,
+    pendingNotifications: [],
+  };
+}
+
+function isValidPendingDeepNotification(e: unknown): e is PendingDeepDreamNotification {
+  if (typeof e !== 'object' || e === null) return false;
+  const n = e as Record<string, unknown>;
+  if (typeof n.deliveryId !== 'string') return false;
+  if (typeof n.body !== 'string') return false;
+  if (typeof n.sessionCount !== 'number' || !Number.isFinite(n.sessionCount) || n.sessionCount < 0) return false;
+  if (typeof n.createdAt !== 'number' || !Number.isFinite(n.createdAt)) return false;
+  return true;
+}
+
+function normalizeDreamState(raw: Record<string, unknown>, audit: AuditLog, clawId: string): DreamStateData {
+  const pendingNotifications = Array.isArray(raw.pendingNotifications)
+    ? raw.pendingNotifications.filter(isValidPendingDeepNotification)
+    : [];
+  if (Array.isArray(raw.pendingNotifications)
+      && pendingNotifications.length !== raw.pendingNotifications.length) {
+    audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
+      'step=load_state',
+      `clawId=${clawId}`,
+      'reason=pending_notifications_entry_invalid_filtered',
+      `before=${raw.pendingNotifications.length}`,
+      `after=${pendingNotifications.length}`);
+  }
+  return {
+    schema_version: DEEP_DREAM_STATE_CURRENT_VERSION,
+    lastProcessedDeepDreamAt: typeof raw.lastProcessedDeepDreamAt === 'number'
+      ? raw.lastProcessedDeepDreamAt : 0,
+    currentSessionDreamedDate: typeof raw.currentSessionDreamedDate === 'string'
+      ? raw.currentSessionDreamedDate : '',
+    ...(typeof raw.currentSessionRetryCount === 'number'
+      ? { currentSessionRetryCount: raw.currentSessionRetryCount } : {}),
+    pendingNotifications,
   };
 }
 
@@ -142,8 +187,8 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): De
       return ready(defaultDreamState());
     }
 
-    // phase 547: 缺 schema_version 视 v1（兼容旧 state 文件、未触发 migration audit）
-    return ready(raw as unknown as DreamStateData);
+    // phase 1162 Step B: normalize v1/v2 state into current schema (pending outbox + filters)
+    return ready(normalizeDreamState(raw, audit, clawId));
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {
@@ -164,7 +209,7 @@ function saveDreamState(
   state: DreamStateData,
   audit: AuditLog,
   clawId: string,
-): void {
+): boolean {
   // phase 247 Step A: schema invariant
   assertDreamStateShape(state, audit, 'deep_dream_save');
 
@@ -172,9 +217,10 @@ function saveDreamState(
   auditDeepDreamCrossSource(state, audit);
 
   try {
-    // phase 547: 总写 schema_version、迁老 state 文件升级
-    const stateToSave = { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, ...state };
+    // phase 547 / phase 1162 Step B: 总写 schema_version；确保当前版本最终生效
+    const stateToSave = { ...state, schema_version: DEEP_DREAM_STATE_CURRENT_VERSION };
     clawFs.writeAtomicSync(DEEP_DREAM_STATE_FILE, JSON.stringify(stateToSave, null, 2));
+    return true;
   } catch (err) {
     audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
       `step=save_state`,
@@ -182,6 +228,7 @@ function saveDreamState(
       `reason=${formatErr(err)}`,
     );
     // F36: do not re-throw — preserve progress of successfully processed files
+    return false;
   }
 }
 

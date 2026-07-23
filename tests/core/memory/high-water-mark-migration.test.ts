@@ -46,6 +46,8 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
     expect(state.lastProcessedDeepDreamAt).toBe(0);
     expect(state.currentSessionDreamedDate).toBe('');
     expect(state.currentSessionRetryCount).toBe(0);
+    expect(state.schema_version).toBe(2);
+    expect(state.pendingNotifications).toEqual([]);
 
     expect(audit.write).toHaveBeenCalledTimes(1);
     const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -72,6 +74,8 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
 
     expect(state.lastProcessedDeepDreamAt).toBe(1717000000000);
     expect(state.currentSessionDreamedDate).toBe('2026-05-30');
+    expect(state.schema_version).toBe(2);
+    expect(state.pendingNotifications).toEqual([]);
     expect(audit.write).not.toHaveBeenCalled();
   });
 
@@ -85,6 +89,8 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
 
     expect(state.lastProcessedDeepDreamAt).toBe(0);
     expect(state.currentSessionDreamedDate).toBe('');
+    expect(state.schema_version).toBe(2);
+    expect(state.pendingNotifications).toEqual([]);
     expect(audit.write).not.toHaveBeenCalled();
   });
 
@@ -100,6 +106,8 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
 
     expect(state.lastProcessedDeepDreamAt).toBe(0);
     expect(state.currentSessionDreamedDate).toBe('');
+    expect(state.schema_version).toBe(2);
+    expect(state.pendingNotifications).toEqual([]);
     const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
   });

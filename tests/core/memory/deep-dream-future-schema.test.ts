@@ -133,7 +133,7 @@ describe('deep-dream future schema fail-closed (phase 1161)', () => {
     expect(audit.write).toHaveBeenCalledWith(
       MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION,
       'version=99',
-      'current=1',
+      'current=2',
       'clawId=claw-a',
       'reason=cannot_migrate_future_version',
     );

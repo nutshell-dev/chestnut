@@ -77,6 +77,43 @@ function checkDeepDream(s: Record<string, unknown>, audit: AuditLog): void {
       );
     }
   }
+
+  // pendingNotifications?: PendingDeepDreamNotification[] (phase 1162 Step B)
+  if (s.pendingNotifications !== undefined) {
+    if (!Array.isArray(s.pendingNotifications)) {
+      audit.write(
+        MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
+        `kind=deep_pendingNotifications_not_array`, `source=deep_dream_save`,
+        `actual=${typeof s.pendingNotifications}`,
+      );
+    } else {
+      for (let i = 0; i < s.pendingNotifications.length; i++) {
+        const e = s.pendingNotifications[i];
+        if (typeof e !== 'object' || e === null) {
+          audit.write(
+            MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
+            `kind=deep_pendingNotifications_entry_invalid`, `source=deep_dream_save`,
+            `idx=${i}`,
+          );
+          continue;
+        }
+        const n = e as Record<string, unknown>;
+        if (typeof n.deliveryId !== 'string'
+            || typeof n.body !== 'string'
+            || typeof n.sessionCount !== 'number'
+            || !Number.isFinite(n.sessionCount)
+            || n.sessionCount < 0
+            || typeof n.createdAt !== 'number'
+            || !Number.isFinite(n.createdAt)) {
+          audit.write(
+            MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
+            `kind=deep_pendingNotifications_entry_invalid`, `source=deep_dream_save`,
+            `idx=${i}`,
+          );
+        }
+      }
+    }
+  }
 }
 
 function checkRandomDream(s: Record<string, unknown>, audit: AuditLog): void {

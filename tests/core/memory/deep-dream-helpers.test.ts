@@ -26,10 +26,11 @@ import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 
 const clawId = 'test-claw';
 const defaultState = {
-  schema_version: 1,
+  schema_version: 2,
   lastProcessedDeepDreamAt: 0,
   currentSessionDreamedDate: '',
   currentSessionRetryCount: 0,
+  pendingNotifications: [],
 };
 
 describe('deep-dream pure helpers (phase 1467)', () => {
@@ -179,7 +180,12 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       const result = __test_loadDreamState(fs, audit, clawId);
       expect(result.status).toBe('ready');
       if (result.status !== 'ready') throw new Error('expected ready');
-      expect(result.state).toEqual(stored);
+      expect(result.state).toEqual({
+        schema_version: 2,
+        lastProcessedDeepDreamAt: 1717000000000,
+        currentSessionDreamedDate: '2026-05-30',
+        pendingNotifications: [],
+      });
       expect(audit.write).not.toHaveBeenCalled();
     });
 
@@ -201,7 +207,7 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION);
       expect(call).toEqual(expect.arrayContaining([
         expect.stringMatching(/^version=99$/),
-        expect.stringMatching(/^current=1$/),
+        expect.stringMatching(/^current=2$/),
         expect.stringMatching(/^clawId=test-claw$/),
         expect.stringMatching(/^reason=cannot_migrate_future_version$/),
       ]));
@@ -261,12 +267,12 @@ describe('deep-dream pure helpers (phase 1467)', () => {
 
       expect(writes).toHaveLength(1);
       expect(writes[0][0]).toBe('.deep-dream-state.json');
-      // phase 547: save 写入总带 schema_version
-      expect(JSON.parse(writes[0][1])).toEqual({ schema_version: 1, ...state });
+      // phase 547 / phase 1162 Step B: save 写入总带 schema_version 2
+      expect(JSON.parse(writes[0][1])).toEqual({ schema_version: 2, ...state });
       expect(audit.write).not.toHaveBeenCalled();
     });
 
-    it('write failure emits DEEP_DREAM_ERROR audit + does NOT re-throw (F36 resilient)', () => {
+    it('write failure emits DEEP_DREAM_ERROR audit + returns false + does NOT re-throw (F36 resilient)', () => {
       const fs = makeMockFsForWrite(() => { throw new Error('ENOSPC: no space'); });
       const audit = makeMockAudit();
 
@@ -274,7 +280,7 @@ describe('deep-dream pure helpers (phase 1467)', () => {
         lastProcessedDeepDreamAt: 0,
         currentSessionDreamedDate: '',
       };
-      expect(() => __test_saveDreamState(fs, state, audit, clawId)).not.toThrow();
+      expect(__test_saveDreamState(fs, state, audit, clawId)).toBe(false);
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);

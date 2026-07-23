@@ -217,6 +217,78 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
           c[1]?.includes('deep_currentSessionRetryCount_invalid')
         )).toBe(true);
       });
+
+      describe('pendingNotifications (phase 1162 Step B)', () => {
+        it('undefined → 0 emit', () => {
+          const audit = makeMockAudit();
+          assertDreamStateShape({ lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' }, audit, 'deep_dream_save');
+          expect(audit.write).not.toHaveBeenCalled();
+        });
+
+        it('合法 entry 数组 → 0 emit', () => {
+          const audit = makeMockAudit();
+          assertDreamStateShape({
+            lastProcessedDeepDreamAt: 0,
+            currentSessionDreamedDate: '',
+            pendingNotifications: [{
+              deliveryId: 'deep-dream:test:0:none:abc',
+              body: 'body',
+              sessionCount: 1,
+              createdAt: 1717000000000,
+            }],
+          }, audit, 'deep_dream_save');
+          expect(audit.write).not.toHaveBeenCalled();
+        });
+
+        it('非数组 → emit kind=deep_pendingNotifications_not_array', () => {
+          const audit = makeMockAudit();
+          assertDreamStateShape({ lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '', pendingNotifications: 'nope' }, audit, 'deep_dream_save');
+          const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
+          expect(calls.some(c =>
+            c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
+            c[1]?.includes('deep_pendingNotifications_not_array')
+          )).toBe(true);
+        });
+
+        it('entry sessionCount 负数 → emit kind=deep_pendingNotifications_entry_invalid + idx', () => {
+          const audit = makeMockAudit();
+          assertDreamStateShape({
+            lastProcessedDeepDreamAt: 0,
+            currentSessionDreamedDate: '',
+            pendingNotifications: [{
+              deliveryId: 'deep-dream:test:0:none:abc',
+              body: 'body',
+              sessionCount: -1,
+              createdAt: 1717000000000,
+            }],
+          }, audit, 'deep_dream_save');
+          const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
+          expect(calls.some(c =>
+            c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
+            c[1]?.includes('deep_pendingNotifications_entry_invalid') &&
+            c.some((s: unknown) => typeof s === 'string' && s.includes('idx=0'))
+          )).toBe(true);
+        });
+
+        it('entry body 非 string → emit', () => {
+          const audit = makeMockAudit();
+          assertDreamStateShape({
+            lastProcessedDeepDreamAt: 0,
+            currentSessionDreamedDate: '',
+            pendingNotifications: [{
+              deliveryId: 'deep-dream:test:0:none:abc',
+              body: 123,
+              sessionCount: 1,
+              createdAt: 1717000000000,
+            }],
+          }, audit, 'deep_dream_save');
+          const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
+          expect(calls.some(c =>
+            c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
+            c[1]?.includes('deep_pendingNotifications_entry_invalid')
+          )).toBe(true);
+        });
+      });
     });
   });
 
