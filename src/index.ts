@@ -13,7 +13,7 @@ export type {
   DerivableStatus, SubtaskStatus, LastFailedFeedback,
   AcceptanceFailedNotification, SubTask, Contract,
 } from './core/contract/types.js';
-export type { InboxMessage, OutboxMessage, HeartbeatEntry, Priority } from './foundation/messaging/index.js';
+export type { InboxMessage, OutboxMessage, Priority } from './foundation/messaging/index.js';
 export { PRIORITY_VALUES } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
 export type { CallerType } from './core/permissions/caller-types.js';
@@ -57,5 +57,4 @@ export { ToolRegistryImpl } from './foundation/tools/registry.js';
 export type { SkillMeta } from './foundation/skill-system/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
 export type { ProgressData, VerificationResult } from './core/contract/index.js';
-
 

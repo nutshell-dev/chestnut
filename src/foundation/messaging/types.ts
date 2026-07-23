@@ -46,11 +46,3 @@ export type InboxHandle = {
   readonly originalFileName: string;
   readonly [InboxHandleBrand]: true;
 };
-
-export interface HeartbeatEntry {
-  claw_id: string;
-  timestamp: string;
-  status: 'idle' | 'working' | 'error';
-  message_count: number;
-  memory_usage?: number;
-}

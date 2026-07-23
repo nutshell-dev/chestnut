@@ -20,7 +20,7 @@ export type { InboxMessageOptionsBase } from './inbox-writer.js';
 export { InboxReader } from './inbox-reader.js';
 export type { InboxEntry, ScannedInboxLocation, DrainInboxResult, PendingView, PendingViewIssue } from './inbox-reader.js';
 export { PendingViewError } from './inbox-reader.js';
-export type { InboxHandle, OutboxMessage, InboxMessage, Priority, HeartbeatEntry } from './types.js';
+export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
 export { PRIORITY_VALUES } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 
@@ -113,4 +113,3 @@ export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 // claw→motion 通信改 pull 模型（motion 见 claw_outbox_summary 索引 → CLI claw <id> outbox 拉取消费）。
 // claw→claw 通信通道暂闭（claw 不知其他 claw 名字 / send tool to: 写死 motion）。
 // 详 design/modules/l2_messaging.md §7.A A.phase1476-drain-outboxes-removal-restore-pull-model.
-
