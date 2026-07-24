@@ -7,7 +7,6 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import stringWidth from 'string-width';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
@@ -116,12 +115,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const thinkingBuf = deps.mainUI.appendToThinking(event.delta as string);
         if (deps.getThinkingMode() === 'full') {
           const prefix = '⏺ [thinking] ';
-          const indent = ' '.repeat(stringWidth(prefix));
-          const previewText = thinkingBuf
-            .split('\n')
-            .map((line: string, i: number) => (i === 0 ? prefix : indent) + line)
-            .join('\n');
-          deps.mainUI.setPreview('\x1b[2m' + previewText + '\x1b[0m');
+          deps.mainUI.setPreview('\x1b[2m' + prefix + thinkingBuf + '\x1b[0m');
         } else if (deps.getThinkingMode() === 'compact') {
           const snippet = thinkingBuf.replace(/\s+/g, ' ').trim().slice(-60);
           deps.mainUI.setPreview('\x1b[2m[thinking] (' + snippet + ')\x1b[0m');
