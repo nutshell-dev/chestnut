@@ -55,6 +55,8 @@ export interface StepCallbacks {
    * 正常成功路径 + 异常 catch 路径 drain 都走此回调（API 发来的 input 必落盘、不被静默丢弃）。
    */
   onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
+  /** phase 1180: raw partial JSON input on each tool_use_delta */
+  onToolUseInputDelta?: (toolName: string, toolUseId: ToolUseId, partialInput: string) => void;
   /**
    * phase 688: catch 路径丢弃 partial assistant content（含 in-flight tool_use + text + thinking）
    * 这一**决策动作**的可观测点。args body 已由 onToolUseInput 落 stream.jsonl、本回调只载决策摘要。

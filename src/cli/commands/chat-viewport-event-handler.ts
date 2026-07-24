@@ -158,6 +158,25 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
+      case 'user_reply_delta': {
+        deps.mainUI.enterPhase('streaming_text');
+        const streamBuf = deps.mainUI.appendToBuffer(event.delta as string);
+        const prefix = '➤ ';
+        const indent = '  ';
+        const previewText = (streamBuf + '▋')
+          .split('\n')
+          .map((line: string, i: number) => (i === 0 ? prefix : indent) + line)
+          .join('\n');
+        deps.mainUI.setPreview(previewText);
+        break;
+      }
+
+      case 'user_reply_end': {
+        deps.mainUI.flushStreamingNormal();
+        deps.mainUI.clearPreview();
+        break;
+      }
+
       case 'user_reply': {
         deps.mainUI.flushThinking();
         deps.mainUI.flushStreaming();

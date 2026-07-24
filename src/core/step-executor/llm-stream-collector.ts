@@ -253,6 +253,12 @@ export async function collectStreamResponse(
         case 'tool_use_delta':
           if (state.currentToolUse && chunk.toolUse?.partialInput) {
             state.currentToolUse.input += chunk.toolUse.partialInput;
+            // phase 1180: forward raw partial input for streaming content extraction
+            callbacks?.onToolUseInputDelta?.(
+              state.currentToolUse.name,
+              makeToolUseId(state.currentToolUse.id),
+              chunk.toolUse.partialInput,
+            );
           }
           break;
         case 'reset':

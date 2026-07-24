@@ -40,6 +40,8 @@ export interface ReactOptions {
   onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>) => void;
   /** phase 688: fires inside flushToolUse (stream + catch drain). See StepCallbacks.onToolUseInput. */
   onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
+  /** phase 1180: fires on each tool_use_delta with raw partial JSON input. */
+  onToolUseInputDelta?: (toolName: string, toolUseId: ToolUseId, partialInput: string) => void;
   /** phase 688: fires in collector catch path after drain; carries discard 决策摘要. */
   onPartialAssistantDiscarded?: (info: {
     cause: 'all_providers_failed' | 'idle_timeout' | 'unknown';
@@ -101,7 +103,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
     wallTimeDeadlineMs,
-    onToolCall, onToolCallInput, onToolUseInput, onPartialAssistantDiscarded, onBeforeLLMCall, onToolResult, onStepComplete,
+    onToolCall, onToolCallInput, onToolUseInput, onToolUseInputDelta, onPartialAssistantDiscarded, onBeforeLLMCall, onToolResult, onStepComplete,
     tools = [],
     registry,
     onTextDelta, onTextEnd, onThinkingDelta,
@@ -124,6 +126,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onToolCall,
     onToolCallInput,
     onToolUseInput,
+    onToolUseInputDelta,
     onPartialAssistantDiscarded,
     onToolResult: onToolResult
       ? (name, toolUseId, result) => onToolResult(name, toolUseId, result, stepCount, maxSteps)

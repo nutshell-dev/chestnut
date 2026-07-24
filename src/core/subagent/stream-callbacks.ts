@@ -16,6 +16,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';
+import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/tools/send-content-extractor.js';
 
 
 
@@ -34,6 +35,8 @@ export interface PrimitiveStreamCallbacks {
   onToolCallInput: (name: string, toolUseId: ToolUseId, args: Record<string, unknown>) => void;
   /** phase 688: stream.jsonl 落 args body（catch 路径 drain 时也走此回调、API 输入不静默丢） */
   onToolUseInput: (name: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
+  /** phase 1180: raw partial JSON input on each tool_use_delta */
+  onToolUseInputDelta: (name: string, toolUseId: ToolUseId, partialInput: string) => void;
   onToolResult: (
     name: string,
     toolUseId: ToolUseId,
@@ -55,6 +58,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
   let turnEnded = false;
   let swClosed = false;
   let ghostAuditEmitted = false;
+  let sendTracker = createSendContentTracker();
 
   const safeSwWrite = (event: StreamEvent) => {
     if (swClosed) {
@@ -85,6 +89,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_END });
     },
     onToolCall: (name, toolUseId) => {
+      if (name === 'send') sendTracker = createSendContentTracker();
       safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_CALL, name, tool_use_id: toolUseId });
     },
     onToolCallInput: (name, toolUseId, args) => {
@@ -98,6 +103,16 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       // 与 onToolCallInput(audit only size) 互补：audit 仍只 index、stream.jsonl 才存 body。
       // catch 路径 drain 时也走此回调，确保 LLM 流中已 parse 的 input 不被静默丢弃。
       safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
+      if (name === 'send') {
+        safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_END });
+      }
+    },
+    onToolUseInputDelta: (name, _toolUseId, partialInput) => {
+      if (name !== 'send') return;
+      const delta = feedSendContentDelta(sendTracker, partialInput);
+      if (delta) {
+        safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_DELTA, delta });
+      }
     },
     onToolResult: (name, toolUseId, result, step, maxSteps) => {
       const content = result.content ?? '';

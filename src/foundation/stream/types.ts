@@ -27,4 +27,4 @@ export interface StreamLog {
  * Direct LLM output event types (excludes infrastructure events like llm_start/tool_result).
  * Used by watchdog (claw activity tracking) and chat-viewport (UI rendering).
  */
-export const LLM_OUTPUT_EVENTS = new Set(['thinking_delta', 'text_delta', 'tool_call', 'user_reply']);
+export const LLM_OUTPUT_EVENTS = new Set(['thinking_delta', 'text_delta', 'tool_call', 'user_reply', 'user_reply_delta', 'user_reply_end']);

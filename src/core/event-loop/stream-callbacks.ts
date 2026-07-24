@@ -11,6 +11,7 @@ import type { StreamLog } from '../../foundation/stream/index.js';
 import type { StreamCallbacks, Runtime } from '../runtime/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
+import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/tools/send-content-extractor.js';
 
 
 /**
@@ -28,6 +29,7 @@ export function createStreamCallbacks(
     }
     sink.write(event);
   };
+  let sendTracker = createSendContentTracker();
   return {
     onBeforeLLMCall: () => {
       checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.LLM_START });
@@ -42,11 +44,22 @@ export function createStreamCallbacks(
       checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_END });
     },
     onToolCall: (name: string, toolUseId: ToolUseId) => {
+      if (name === 'send') sendTracker = createSendContentTracker();
       checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_CALL, name, tool_use_id: toolUseId });
     },
     onToolUseInput: (name: string, toolUseId: ToolUseId, input: Record<string, unknown>) => {
       // phase 688: API 收到的 args body 必落 stream.jsonl（catch 路径 drain 时也走此回调）
       checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
+      if (name === 'send') {
+        checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_END });
+      }
+    },
+    onToolUseInputDelta: (name: string, _toolUseId: ToolUseId, partialInput: string) => {
+      if (name !== 'send') return;
+      const delta = feedSendContentDelta(sendTracker, partialInput);
+      if (delta) {
+        checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_DELTA, delta });
+      }
     },
     onToolResult: (name: string, toolUseId: ToolUseId, result: { success: boolean; content: string }, step: number, maxSteps: number) => {
       const STREAM_SUMMARY_MAX_CHARS = 500;

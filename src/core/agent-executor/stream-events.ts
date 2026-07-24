@@ -15,6 +15,8 @@ export const AGENT_STREAM_EVENTS = {
   TOOL_CALL: 'tool_call',
   // phase 688: tool_use args body 落 stream.jsonl（补 stream 流式产物全文契约、API 发来的 input 不被静默丢弃）
   TOOL_USE_INPUT: 'tool_use_input',
+  USER_REPLY_DELTA: 'user_reply_delta',
+  USER_REPLY_END: 'user_reply_end',
   TOOL_RESULT: 'tool_result',
   TURN_END: 'turn_end',
   TURN_INTERRUPTED: 'turn_interrupted',

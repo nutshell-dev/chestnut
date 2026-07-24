@@ -57,6 +57,7 @@ export interface MainTurnUIController {
   getPreview(): string;
   appendToBuffer(delta: string): string;
   flushStreaming(): void;
+  flushStreamingNormal(): void;
   appendToThinking(delta: string): string;
   flushThinking(): void;
   withScope<T>(scope: 'main' | 'task' | 'system', fn: () => T): T;
@@ -237,6 +238,26 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     deps.updateDisplay();
   };
 
+  const flushStreamingNormal = () => {
+    guardWrite('flushStreamingNormal');
+    if (!streamingBuffer) {
+      preview = '';
+      deps.updateDisplay();
+      return;
+    }
+    const prefix = '➤ ';
+    const indent = '  ';
+    const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
+    const formatted = content
+      .split('\n')
+      .map((line, i) => (i === 0 ? prefix : indent) + line)
+      .join('\n');
+    streamingBuffer = '';
+    preview = '';
+    deps.appendOutput('', formatted, true, indent);
+    deps.updateDisplay();
+  };
+
   const appendToThinking = (delta: string) => {
     guardWrite('appendToThinking');
     thinkingBuffer += delta ?? '';
@@ -262,7 +283,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     setPreview, clearPreview,
     getStatus: () => statusText,
     getPreview: () => preview,
-    appendToBuffer, flushStreaming,
+    appendToBuffer, flushStreaming, flushStreamingNormal,
     appendToThinking, flushThinking,
     withScope,
   };

@@ -254,6 +254,7 @@ export class SubAgent {
           },
           onToolCallInput: stream.callbacks.onToolCallInput,
           onToolUseInput: stream.callbacks.onToolUseInput,  // phase 688: stream.jsonl 落 args body
+          onToolUseInputDelta: stream.callbacks.onToolUseInputDelta,  // phase 1180
           onPartialAssistantDiscarded: (info) => {
             // phase 688: catch 路径 partial 丢弃决策 → audit 落「partial_assistant_discarded」
             emitPartialAssistantDiscarded(this.auditWriter, { ...info, agentId: this.agentId });

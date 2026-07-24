@@ -16,6 +16,8 @@ export interface StreamCallbacks {
   onToolCall?: (toolName: string, toolUseId: ToolUseId) => void;
   /** phase 688: tool_use args body 落 stream.jsonl（flushToolUse 成功 parse 后 fire） */
   onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
+  /** phase 1180: raw partial JSON input on each tool_use_delta */
+  onToolUseInputDelta?: (toolName: string, toolUseId: ToolUseId, partialInput: string) => void;
   onToolResult?: (toolName: string, toolUseId: ToolUseId, result: { success: boolean; content: string }, step: number, maxSteps: number) => void;
   onTurnStart?: (sources: Array<{ text: string; type: string }>) => void;
   onTurnEnd?: () => void;
