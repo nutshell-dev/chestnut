@@ -14,7 +14,6 @@
  * 防 StreamReader 同步 while 批读 + tui.requestRender nextTick 批 → spinner 0 帧塌缩。
  */
 
-import stringWidth from 'string-width';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
@@ -267,13 +266,9 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     guardWrite('flushThinking');
     if (!thinkingBuffer) return;
     const prefix = '⏺ [thinking] ';
-    const indent = ' '.repeat(stringWidth(prefix));
     const content = deps.trimOutputNewlines ? thinkingBuffer.trim() : thinkingBuffer;
-    const formatted = content
-      .split('\n')
-      .map((line, i) => (i === 0 ? prefix : indent) + line)
-      .join('\n');
-    deps.appendOutput('\x1b[2m', formatted, true, indent);
+    const formatted = prefix + content;
+    deps.appendOutput('\x1b[2m', formatted, true, '');
     thinkingBuffer = '';
   };
 
