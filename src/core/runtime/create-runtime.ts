@@ -110,7 +110,6 @@ export function createRuntime(
     return new Runtime({
       ...runtimeOptions,
       systemPromptBuilder: buildMotionSystemPrompt,
-      identityToolFilter: (registry) => registry.unregister('send'),
     });
   }
   return new Runtime(runtimeOptions);

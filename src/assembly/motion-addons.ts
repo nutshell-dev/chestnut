@@ -27,7 +27,6 @@ import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../core/claw-topology/index.js';
-import { createSendTool } from '../foundation/messaging/tools/send.js';
 import { formatClawStatusHint } from '../cli/utils/claw-status-hints.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
@@ -64,7 +63,6 @@ export async function createMotionAddons(
     llmConfig, llm,
     toolTimeoutMs,
     toolRegistry, fsFactory,
-    outboxWriter,
   } = core;
   const { inboxReader } = business;
 
@@ -112,23 +110,6 @@ export async function createMotionAddons(
     },
   }));
 
-  // --- send 覆盖注册（motion-only：outbox 持久化 + 实时 user_reply stream 事件） ---
-  // 覆盖 business-systems.ts:230 注册的共用 send（Map.set 同名覆盖，claw 侧共用注册不受影响）
-  const baseSendTool = createSendTool(outboxWriter, MOTION_CLAW_ID);
-  toolRegistry.register({
-    ...baseSendTool,
-    async execute(args, ctx) {
-      const result = await baseSendTool.execute(args, ctx);
-      if (result.success) {
-        streamWriter.write({
-          ts: Date.now(),
-          type: 'user_reply',
-          content: args.content as string,
-        });
-      }
-      return result;
-    },
-  });
 
   // --- Heartbeat (motion + interval > 0, daemon.ts L158-169) ---
   const heartbeatIntervalMs = globalConfig.motion.heartbeat_interval_ms;
