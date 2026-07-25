@@ -14,9 +14,11 @@ import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {
   lookupContentByToolUseId,
+  lookupContentByTrimId,
   DIALOG_DIR,
   type LookupResult,
   type LookupOptions,
+  type TrimIdLookupResult,
 } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
@@ -26,16 +28,25 @@ interface AuditLookupOpts {
   file: string;
   contentHash?: string;
   json?: boolean;
+  trimId?: string;
 }
 
 export async function auditLookupCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  toolUseId: string,
+  toolUseId: string | undefined,
   opts: AuditLookupOpts,
 ): Promise<void> {
   // phase 682: caller 直 reach dialog-store/lookupContentByToolUseId、不走 audit reader facade。
   // opts.file 字段保留为 CLI 表面兼容（不再读 audit、但 --file 仍可接受不报错）。
   void opts.file;
+
+  if (!toolUseId && !opts.trimId) {
+    throw new CliError('must provide <toolUseId> or --trim-id');
+  }
+  if (toolUseId && opts.trimId) {
+    throw new CliError('<toolUseId> and --trim-id are mutually exclusive');
+  }
+
   loadGlobalConfig(deps);
 
   const isMotion = opts.claw === MOTION_CLAW_ID;
@@ -47,6 +58,15 @@ export async function auditLookupCommand(
   const fs = deps.fsFactory(clawDir);
   const dialogDir = path.join(clawDir, DIALOG_DIR);
 
+  if (opts.trimId) {
+    const result = lookupContentByTrimId(fs, dialogDir, opts.trimId);
+    emitTrimId(result, opts.trimId, opts.json ?? false);
+    if (result.source === 'unavailable') {
+      process.exitCode = 3;
+    }
+    return;
+  }
+
   // Validate contentHash format if provided (8-char hex)
   if (opts.contentHash && !/^[0-9a-fA-F]{8}$/.test(opts.contentHash)) {
     throw new CliError('--content-hash must be 8-character hex');
@@ -56,8 +76,8 @@ export async function auditLookupCommand(
     contentHash: opts.contentHash,
   };
 
-  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId, lookupOpts);
-  emit(result, toolUseId, opts.json ?? false);
+  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId!, lookupOpts);
+  emit(result, toolUseId!, opts.json ?? false);
 
   // exit code strict semantics: 3 for unavailable
   if (result.source === 'unavailable') {
@@ -117,6 +137,39 @@ function emit(result: LookupResult, toolUseId: string, json: boolean): void {
         default:
           { const _exhaustiveReason: never = result; void _exhaustiveReason; }
       }
+      break;
+    }
+    default:
+      { const _exhaustiveResult: never = result; void _exhaustiveResult; }
+  }
+}
+
+function emitTrimId(result: TrimIdLookupResult, trimId: string, json: boolean): void {
+  if (json) {
+    process.stdout.write(JSON.stringify(result) + '\n');
+    return;
+  }
+
+  switch (result.source) {
+    case 'current': {
+      process.stdout.write(`Source: current dialog session\n`);
+      process.stdout.write(`trim-id: ${trimId}\n`);
+      process.stdout.write(`Tool use ID: ${result.toolUseId}\n`);
+      process.stdout.write(`Content size: ${Buffer.byteLength(result.content, 'utf-8')} bytes\n`);
+      process.stdout.write(`---\n${result.content}\n`);
+      break;
+    }
+    case 'archive': {
+      process.stdout.write(`Source: archived dialog session\n`);
+      process.stdout.write(`trim-id: ${trimId}\n`);
+      process.stdout.write(`Tool use ID: ${result.toolUseId}\n`);
+      process.stdout.write(`Archived at: ${result.archivedAt}\n`);
+      process.stdout.write(`Content size: ${Buffer.byteLength(result.content, 'utf-8')} bytes\n`);
+      process.stdout.write(`---\n${result.content}\n`);
+      break;
+    }
+    case 'unavailable': {
+      process.stderr.write(`dialog content unavailable: trim-id=${trimId} reason=${result.reason}${result.detail ? ` detail=${result.detail}` : ''}\n`);
       break;
     }
     default:

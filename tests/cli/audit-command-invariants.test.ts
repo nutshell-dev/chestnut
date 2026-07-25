@@ -292,6 +292,148 @@ describe('audit lookup', () => {
     // The withCliErrorHandling wrapper catches unexpected errors and sets exit 2.
     expect(true).toBe(true);
   });
+
+  // ─── phase 1183: --trim-id lookup ───
+
+  it('--trim-id current hit → exit 0 + stdout with trim-id/content', async () => {
+    const clawDir = path.join(tempDir, 'claws', 'test-claw');
+    fsNative.mkdirSync(path.join(clawDir, 'dialog'), { recursive: true });
+    fsNative.writeFileSync(path.join(clawDir, 'audit.tsv'), '');
+    const session = {
+      version: 2,
+      clawId: 'test-claw',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:01Z',
+      systemPrompt: 'test',
+      trace_id: 't1',
+      messages: [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'call_00_xxx', name: 'exec', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_00_xxx', content: 'preview<...>[context-trim: 100 bytes elided. trim-id=abc123de. tool_use_id=call_00_xxx. Inspect dialog archive for original.]' }] },
+      ],
+      toolsForLLM: [],
+    };
+    fsNative.writeFileSync(path.join(clawDir, 'dialog', 'current.json'), JSON.stringify(session));
+
+    vi.mocked(getClawDir).mockReturnValue(clawDir);
+
+    await auditLookupCommand({ fsFactory }, undefined, { claw: 'test-claw', file: 'audit', trimId: 'abc123de' });
+
+    const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
+    expect(output).toContain('Source: current dialog session');
+    expect(output).toContain('trim-id: abc123de');
+    expect(output).toContain('call_00_xxx');
+    expect(output).toContain('preview<...>');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('--trim-id archive hit → exit 0 + stdout with Archived at + content', async () => {
+    const clawDir = path.join(tempDir, 'claws', 'test-claw');
+    fsNative.mkdirSync(path.join(clawDir, 'dialog', 'archive'), { recursive: true });
+    fsNative.writeFileSync(path.join(clawDir, 'audit.tsv'), '');
+    const session = {
+      version: 2,
+      clawId: 'test-claw',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:01Z',
+      systemPrompt: 'test',
+      trace_id: 't1',
+      messages: [
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_00_xxx', content: 'preview<...>[context-trim: 100 bytes elided. trim-id=abc123de. tool_use_id=call_00_xxx. Inspect dialog archive for original.]' }] },
+      ],
+      toolsForLLM: [],
+    };
+    fsNative.writeFileSync(
+      path.join(clawDir, 'dialog', 'archive', '20240101000000_abc.json'),
+      JSON.stringify(session),
+    );
+
+    vi.mocked(getClawDir).mockReturnValue(clawDir);
+
+    await auditLookupCommand({ fsFactory }, undefined, { claw: 'test-claw', file: 'audit', trimId: 'abc123de' });
+
+    const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
+    expect(output).toContain('Source: archived dialog session');
+    expect(output).toContain('trim-id: abc123de');
+    expect(output).toContain('Archived at:');
+    expect(output).toContain('call_00_xxx');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('--trim-id not found → exit 3 + stderr reason=not_found', async () => {
+    const clawDir = path.join(tempDir, 'claws', 'test-claw');
+    fsNative.mkdirSync(path.join(clawDir, 'dialog'), { recursive: true });
+    fsNative.writeFileSync(path.join(clawDir, 'audit.tsv'), '');
+    const session = {
+      version: 2,
+      clawId: 'test-claw',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:01Z',
+      systemPrompt: 'test',
+      trace_id: 't1',
+      messages: [
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_00_xxx', content: 'no trim-id here' }] },
+      ],
+      toolsForLLM: [],
+    };
+    fsNative.writeFileSync(path.join(clawDir, 'dialog', 'current.json'), JSON.stringify(session));
+
+    vi.mocked(getClawDir).mockReturnValue(clawDir);
+
+    await auditLookupCommand({ fsFactory }, undefined, { claw: 'test-claw', file: 'audit', trimId: 'notfound1' });
+
+    const errOutput = stderrSpy.mock.calls.map(c => c[0] as string).join('');
+    expect(errOutput).toContain('trim-id=notfound1');
+    expect(errOutput).toContain('reason=not_found');
+    expect(process.exitCode).toBe(3);
+    process.exitCode = undefined;
+  });
+
+  it('--trim-id --json outputs TrimIdLookupResult discriminated union', async () => {
+    const clawDir = path.join(tempDir, 'claws', 'test-claw');
+    fsNative.mkdirSync(path.join(clawDir, 'dialog'), { recursive: true });
+    fsNative.writeFileSync(path.join(clawDir, 'audit.tsv'), '');
+    const session = {
+      version: 2,
+      clawId: 'test-claw',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:01Z',
+      systemPrompt: 'test',
+      trace_id: 't1',
+      messages: [
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_00_xxx', content: 'preview<...>[context-trim: 100 bytes elided. trim-id=abc123de. tool_use_id=call_00_xxx. Inspect dialog archive for original.]' }] },
+      ],
+      toolsForLLM: [],
+    };
+    fsNative.writeFileSync(path.join(clawDir, 'dialog', 'current.json'), JSON.stringify(session));
+
+    vi.mocked(getClawDir).mockReturnValue(clawDir);
+
+    await auditLookupCommand({ fsFactory }, undefined, { claw: 'test-claw', file: 'audit', trimId: 'abc123de', json: true });
+
+    const lines = stdoutSpy.mock.calls.map(c => c[0] as string).join('').trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const parsed = JSON.parse(lines[0]);
+    expect(parsed.source).toBe('current');
+    expect(parsed.toolUseId).toBe('call_00_xxx');
+    expect(parsed.content).toContain('trim-id=abc123de');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('no toolUseId and no --trim-id → throws CliError', async () => {
+    await expect(auditLookupCommand(
+      { fsFactory },
+      undefined,
+      { claw: 'test-claw', file: 'audit' },
+    )).rejects.toThrow('must provide <toolUseId> or --trim-id');
+  });
+
+  it('toolUseId and --trim-id together → throws CliError', async () => {
+    await expect(auditLookupCommand(
+      { fsFactory },
+      'call_00_xxx',
+      { claw: 'test-claw', file: 'audit', trimId: 'abc123de' },
+    )).rejects.toThrow('<toolUseId> and --trim-id are mutually exclusive');
+  });
 });
 
 describe('audit CLI motion-aware adaptation (phase 167)', () => {
