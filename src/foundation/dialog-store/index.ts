@@ -26,10 +26,12 @@ export type { ArchiveDialogRef } from './list-archive.js';
 // phase 147 Step B: lookup helper + 4 级降级路径
 export {
   lookupContentByToolUseId,
+  lookupContentByTrimId,
 } from './lookup.js';
 export type {
   LookupResult,
   LookupOptions,
+  TrimIdLookupResult,
 } from './lookup.js';
 
 // Phase 992: barrel export error classes + core types to stop cross-module deep imports.

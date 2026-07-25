@@ -324,3 +324,230 @@ function assertNonEmpty(arr: string[]): [string, ...string[]] {
 function computeSha8(content: string): string {
   return sha256ShortHex(content, 8);
 }
+
+// ─── phase 1183: trim-id lookup ───
+
+export type TrimIdLookupResult =
+  | { source: 'current'; content: string; toolUseId: string }
+  | { source: 'archive'; content: string; toolUseId: string; archivedAt: string }
+  | { source: 'unavailable'; reason: 'not_found' | 'io_error'; detail?: string };
+
+export function lookupContentByTrimId(
+  fs: FileSystem,
+  dialogDir: string,
+  trimId: string,
+  audit?: AuditLog,
+): TrimIdLookupResult {
+  let dialogExists: boolean;
+  try {
+    dialogExists = fs.existsSync(dialogDir);
+  } catch (err) {
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=dialog',
+      `trimId=${trimId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { source: 'unavailable', reason: 'io_error', detail: formatErr(err) };
+  }
+
+  if (!dialogExists) {
+    return { source: 'unavailable', reason: 'not_found' };
+  }
+
+  // Level 1: current
+  const currentPath = `${dialogDir}/current.json`;
+  let currentAccessible: boolean;
+  try {
+    currentAccessible = fs.existsSync(currentPath);
+  } catch (err) {
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'file=current.json',
+      `trimId=${trimId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { source: 'unavailable', reason: 'io_error', detail: formatErr(err) };
+  }
+
+  if (currentAccessible) {
+    const currentResult = lookupTrimIdInCurrent(fs, dialogDir, trimId, audit);
+    if (currentResult.found) {
+      return { source: 'current', content: currentResult.content, toolUseId: currentResult.toolUseId };
+    }
+    if (currentResult.reason === 'io_error') {
+      return { source: 'unavailable', reason: 'io_error', detail: currentResult.errorDetail };
+    }
+  }
+
+  // Level 2: archive (newest-first)
+  const archiveResult = lookupTrimIdInArchive(fs, dialogDir, trimId, audit);
+  if (archiveResult.found) {
+    return {
+      source: 'archive',
+      content: archiveResult.content,
+      toolUseId: archiveResult.toolUseId,
+      archivedAt: archiveResult.archivedAt,
+    };
+  }
+  if (archiveResult.ioError) {
+    return { source: 'unavailable', reason: 'io_error', detail: archiveResult.ioErrorDetail };
+  }
+
+  return { source: 'unavailable', reason: 'not_found' };
+}
+
+type TrimIdCurrentLookupResult =
+  | { found: true; content: string; toolUseId: string }
+  | { found: false; reason: 'missing' | 'not_found' }
+  | { found: false; reason: 'io_error'; errorDetail: string };
+
+function lookupTrimIdInCurrent(
+  fs: FileSystem,
+  dialogDir: string,
+  trimId: string,
+  audit?: AuditLog,
+): TrimIdCurrentLookupResult {
+  const currentPath = `${dialogDir}/current.json`;
+
+  let raw: string;
+  try {
+    raw = fs.readSync(currentPath);
+  } catch (err) {
+    if (isFileNotFound(err)) {
+      return { found: false, reason: 'missing' };
+    }
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'file=current.json',
+      `trimId=${trimId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { found: false, reason: 'io_error', errorDetail: formatErr(err) };
+  }
+
+  try {
+    const session = JSON.parse(raw);
+    if (typeof session !== 'object' || session === null || Array.isArray(session)) {
+      return { found: false, reason: 'not_found' };
+    }
+    const result = findContentByTrimId(session.messages ?? [], trimId);
+    return result !== null
+      ? { found: true, content: result.content, toolUseId: result.toolUseId }
+      : { found: false, reason: 'not_found' };
+  } catch (err) {
+    process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`);
+    return { found: false, reason: 'not_found' };
+  }
+}
+
+type TrimIdArchiveLookupResult =
+  | { found: true; content: string; toolUseId: string; archivedAt: string; ioError: false }
+  | { found: false; ioError: false }
+  | { found: false; ioError: true; ioErrorDetail: string };
+
+function lookupTrimIdInArchive(
+  fs: FileSystem,
+  dialogDir: string,
+  trimId: string,
+  audit?: AuditLog,
+): TrimIdArchiveLookupResult {
+  const archiveDir = `${dialogDir}/archive`;
+
+  let archiveExists: boolean;
+  try {
+    archiveExists = fs.existsSync(archiveDir);
+  } catch (err) {
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=archive',
+      `trimId=${trimId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
+  }
+  if (!archiveExists) return { found: false, ioError: false };
+
+  let entries;
+  try {
+    entries = fs.listSync(archiveDir);
+  } catch (err) {
+    if (isFileNotFound(err)) {
+      process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`);
+      return { found: false, ioError: false };
+    }
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=archive',
+      `trimId=${trimId}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
+  }
+
+  const sorted = entries
+    .filter(e => e.isFile && e.name.endsWith('.json'))
+    .sort((a, b) => {
+      const ta = parseArchiveTs(a.name);
+      const tb = parseArchiveTs(b.name);
+      return tb - ta;
+    });
+
+  for (const entry of sorted) {
+    const sessionPath = `${archiveDir}/${entry.name}`;
+
+    let raw: string;
+    try {
+      raw = fs.readSync(sessionPath);
+    } catch (err) {
+      if (isFileNotFound(err)) {
+        process.stderr.write(`[dialog-lookup] archive ${entry.name} read failed: ${err}\n`);
+        continue;
+      }
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+        `file=${entry.name}`,
+        `trimId=${trimId}`,
+        `reason=${formatErr(err)}`,
+      );
+      return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
+    }
+
+    try {
+      const session = JSON.parse(raw);
+      if (typeof session !== 'object' || session === null || Array.isArray(session)) continue;
+      const result = findContentByTrimId(session.messages ?? [], trimId);
+      if (result !== null) {
+        const archivedAt = String(parseArchiveTs(entry.name));
+        return { found: true, content: result.content, toolUseId: result.toolUseId, archivedAt, ioError: false };
+      }
+    } catch (err) {
+      process.stderr.write(`[dialog-lookup] archive ${entry.name} parse failed: ${err}\n`);
+      continue;
+    }
+  }
+
+  return { found: false, ioError: false };
+}
+
+function findContentByTrimId(
+  messages: unknown[],
+  trimId: string,
+): { content: string; toolUseId: string } | null {
+  for (const msg of messages) {
+    const m = msg as Record<string, unknown>;
+    if (typeof m.content === 'string') continue;
+    if (!Array.isArray(m.content)) continue;
+    for (const block of m.content) {
+      const b = block as Record<string, unknown>;
+      if (b?.type !== 'tool_result') continue;
+      const c = b.content;
+      const contentStr = typeof c === 'string' ? c : JSON.stringify(c);
+      if (contentStr.includes(`trim-id=${trimId}`)) {
+        const toolUseId = typeof b.tool_use_id === 'string' ? b.tool_use_id : String(b.tool_use_id ?? '');
+        return { content: contentStr, toolUseId };
+      }
+    }
+  }
+  return null;
+}
