@@ -15,6 +15,7 @@
  * - No delete (blocks are immutable)
  */
 
+import * as path from 'path';
 import { isFileNotFound } from '../fs/index.js';
 import type { FileSystem } from '../fs/index.js';
 
@@ -38,7 +39,7 @@ export class BlockIdIndex {
   ) {}
 
   get indexPath(): string {
-    return `${this.dialogDir}/${INDEX_FILENAME}`;
+    return path.join(this.dialogDir, INDEX_FILENAME);
   }
 
   load(auditWriter?: BlockIdIndexAuditWriter): void {

@@ -22,8 +22,9 @@ import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './typ
 import type { TraceId } from '../audit/types.js';
 import type { AuditLog } from '../audit/types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import { newShortUuid, newUuid } from '../node-utils/index.js';
+import { newShortUuid, newUuid, uuidToShort } from '../node-utils/index.js';
 import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
+import { BlockIdIndex } from './block-id-index.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';
@@ -48,6 +49,7 @@ const LOAD_STABLE_DEFAULT_RETRIES = 3;
 export class DialogStore {
   private readonly currentPath: string;
   private readonly archiveDir: string;
+  private readonly blockIdIndex: BlockIdIndex;
   private createdAt: string | null = null;
   private corruptedPoisoned: boolean = false;
   private flushPromise: Promise<void> = Promise.resolve();
@@ -67,9 +69,12 @@ export class DialogStore {
     filename: string,                                 // phase 450: 必填 / caller 注入
     private readonly clawId?: string,                 // phase 450: 可选 / subagent ephemeral 用例 0 clawId
     archiveDir?: string,                              // phase 450: 可选 / 默认 'archive' subdir 保兼容
+    blockIdIndex?: BlockIdIndex,
   ) {
     this.currentPath = path.join(dialogDir, filename);
     this.archiveDir = path.join(dialogDir, archiveDir ?? ARCHIVE_SUBDIR_DEFAULT);
+    this.blockIdIndex = blockIdIndex ?? new BlockIdIndex(this.fs, dialogDir);
+    this.blockIdIndex.load(this.audit);
   }
 
   /**
@@ -385,7 +390,11 @@ export class DialogStore {
         if (typeof msg.content === 'string') continue;
         for (const block of msg.content) {
           if (block.blockId !== undefined) continue;
-          (block as Record<string, unknown>).blockId = newUuid();
+          const fullId = newUuid();
+          (block as Record<string, unknown>).blockId = fullId;
+          const shortId = uuidToShort(fullId);
+          // 碰撞检测：add 内部抛错
+          this.blockIdIndex.add(shortId, fullId);
         }
       }
 
@@ -410,6 +419,8 @@ export class DialogStore {
         // phase 988 (audit-2026-05-17 NEW.P1 G.1): reset corruptedPoisoned 防 sticky data loss
         // save 写新 current.json → current.json 实然不再 corrupted、应然 align
         this.corruptedPoisoned = false;
+        // Phase 1186: persist block-id index after successful dialog write
+        this.blockIdIndex.save();
       } catch (err) {
         this.audit.write(
           DIALOG_AUDIT_EVENTS.SAVE_FAILED,

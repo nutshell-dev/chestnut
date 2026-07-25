@@ -13,6 +13,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../node-utils/index.js';
+import { BlockIdIndex } from './block-id-index.js';
 
 /** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
 export type LookupResult =
@@ -335,6 +336,7 @@ export function lookupContentByBlockId(
   fs: FileSystem,
   dialogDir: string,
   shortBlockId: string,
+  blockIdIndex: BlockIdIndex,
   audit?: AuditLog,
 ): BlockIdLookupResult {
   let dialogExists: boolean;
@@ -354,8 +356,14 @@ export function lookupContentByBlockId(
     return { source: 'unavailable', reason: 'not_found' };
   }
 
+  // Resolve short → full UUID via BlockIdIndex
+  const fullBlockId = blockIdIndex.resolve(shortBlockId);
+  if (!fullBlockId) {
+    return { source: 'unavailable', reason: 'not_found' };
+  }
+
   // Archive-first lookup (current.json holds collapsed placeholders, not original content).
-  const archiveResult = lookupBlockIdInArchive(fs, dialogDir, shortBlockId, audit);
+  const archiveResult = lookupBlockIdInArchive(fs, dialogDir, fullBlockId, audit);
   if (archiveResult.found) {
     return {
       source: 'archive',
@@ -381,7 +389,7 @@ type BlockIdArchiveLookupResult =
 function lookupBlockIdInArchive(
   fs: FileSystem,
   dialogDir: string,
-  shortBlockId: string,
+  fullBlockId: string,
   audit?: AuditLog,
 ): BlockIdArchiveLookupResult {
   const archiveDir = `${dialogDir}/archive`;
@@ -393,7 +401,7 @@ function lookupBlockIdInArchive(
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
       'dir=archive',
-      `blockId=${shortBlockId}`,
+      `blockId=${fullBlockId}`,
       `reason=${formatErr(err)}`,
     );
     return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
@@ -411,7 +419,7 @@ function lookupBlockIdInArchive(
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
       'dir=archive',
-      `blockId=${shortBlockId}`,
+      `blockId=${fullBlockId}`,
       `reason=${formatErr(err)}`,
     );
     return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
@@ -439,7 +447,7 @@ function lookupBlockIdInArchive(
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
         `file=${entry.name}`,
-        `blockId=${shortBlockId}`,
+        `blockId=${fullBlockId}`,
         `reason=${formatErr(err)}`,
       );
       return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
@@ -448,7 +456,7 @@ function lookupBlockIdInArchive(
     try {
       const session = JSON.parse(raw);
       if (typeof session !== 'object' || session === null || Array.isArray(session)) continue;
-      const result = findBlockByShortId(session.messages ?? [], shortBlockId);
+      const result = findBlockByFullId(session.messages ?? [], fullBlockId);
       if (result !== null) {
         const archivedAt = String(parseArchiveTs(entry.name));
         return { found: true, ...result, archivedAt, ioError: false };
@@ -462,9 +470,9 @@ function lookupBlockIdInArchive(
   return { found: false, ioError: false };
 }
 
-function findBlockByShortId(
+function findBlockByFullId(
   messages: unknown[],
-  shortBlockId: string,
+  fullBlockId: string,
 ): { content: string; blockType: string; toolUseId?: string; blockId: string } | null {
   for (const msg of messages) {
     const m = msg as Record<string, unknown>;
@@ -472,7 +480,7 @@ function findBlockByShortId(
     if (!Array.isArray(m.content)) continue;
     for (const block of m.content) {
       const b = block as Record<string, unknown>;
-      if (typeof b.blockId === 'string' && b.blockId.startsWith(shortBlockId)) {
+      if (b.blockId === fullBlockId) {
         return extractBlockContent(b);
       }
     }

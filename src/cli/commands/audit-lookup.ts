@@ -15,6 +15,7 @@ import { CliError } from '../errors.js';
 import {
   lookupContentByToolUseId,
   lookupContentByBlockId,
+  BlockIdIndex,
   DIALOG_DIR,
   type LookupResult,
   type LookupOptions,
@@ -59,7 +60,9 @@ export async function auditLookupCommand(
   const dialogDir = path.join(clawDir, DIALOG_DIR);
 
   if (opts.blockId) {
-    const result = lookupContentByBlockId(fs, dialogDir, opts.blockId);
+    const blockIdIndex = new BlockIdIndex(fs, dialogDir);
+    blockIdIndex.load();
+    const result = lookupContentByBlockId(fs, dialogDir, opts.blockId, blockIdIndex);
     emitBlockId(result, opts.blockId, opts.json ?? false);
     if (result.source === 'unavailable') {
       process.exitCode = 3;

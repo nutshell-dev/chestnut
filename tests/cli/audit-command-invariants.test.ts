@@ -315,6 +315,10 @@ describe('audit lookup', () => {
       path.join(clawDir, 'dialog', 'archive', '20240101000000_abc.json'),
       JSON.stringify(session),
     );
+    fsNative.writeFileSync(
+      path.join(clawDir, 'dialog', 'block-index.json'),
+      JSON.stringify({ abc123de: 'abc123de-0000-0000-0000-000000000000' }),
+    );
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
 
@@ -380,6 +384,10 @@ describe('audit lookup', () => {
     fsNative.writeFileSync(
       path.join(clawDir, 'dialog', 'archive', '20240101000000_abc.json'),
       JSON.stringify(session),
+    );
+    fsNative.writeFileSync(
+      path.join(clawDir, 'dialog', 'block-index.json'),
+      JSON.stringify({ abc123de: 'abc123de-0000-0000-0000-000000000000' }),
     );
 
     vi.mocked(getClawDir).mockReturnValue(clawDir);
