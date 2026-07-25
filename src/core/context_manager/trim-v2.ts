@@ -5,7 +5,7 @@
 
 import type { Message, ContentBlock } from '../../foundation/llm-provider/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/token-estimator.js';
-import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
+import { truncateUtf8Prefix, newShortUuid } from '../../foundation/node-utils/index.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
@@ -541,7 +541,8 @@ function collapseToolResults(
     const c = tr.content;
     const originalBytes = byteLength(c);
     const preview = truncateUtf8Prefix(c, previewBytes);
-    const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. tool_use_id=${tr.tool_use_id}. Inspect dialog archive for original.]`;
+    const trimId = newShortUuid();
+    const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. trim-id=${trimId}. tool_use_id=${tr.tool_use_id}. Inspect dialog archive for original.]`;
     if (byteLength(collapsed) >= originalBytes) return block;
     collapsedCount++;
     return {
