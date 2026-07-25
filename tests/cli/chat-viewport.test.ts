@@ -247,11 +247,14 @@ describe('chat-viewport Phase 72', () => {
       expect(flushMatch![0]).toMatch(/appendOutput\(.*indent\)/);
     });
 
-    it('flushThinking 传 indent 作为 hangIndent', () => {
+    it('flushThinking 不再传 indent（直接 prefix + content，不拆分多行）', () => {
       const flushMatch = sourceCode.match(
         /const flushThinking[\s\S]{0,500}?appendOutput\([^)]+\)/
       );
-      expect(flushMatch![0]).toMatch(/appendOutput\(.*indent\)/);
+      // thinking 不再 split/map 加缩进，直接 prefix + content
+      const actual = flushMatch![0];
+      expect(actual).toContain("formatted = prefix + content");
+      expect(actual).toMatch(/appendOutput\([^)]*''\)/);
     });
   });
 
@@ -288,15 +291,16 @@ describe('chat-viewport Phase 72', () => {
     });
   });
 
-  describe('Phase 91 step7: thinking_delta indent 用 stringWidth 计算', () => {
-    it('thinking_delta 中 indent 应使用 stringWidth(prefix)', () => {
+  describe('Phase 91 step7: thinking_delta 不再拆分多行', () => {
+    it('thinking_delta 直接用 prefix + buffer，不用 split/map 缩进', () => {
       const eventHandlerCode = fs.readFileSync(eventHandlerPath, 'utf-8');
       const tdStart = eventHandlerCode.indexOf("case 'thinking_delta':");
       expect(tdStart).toBeGreaterThan(-1);
       const tdEnd = eventHandlerCode.indexOf('break;', tdStart);
       expect(tdEnd).toBeGreaterThan(-1);
       const tdSection = eventHandlerCode.slice(tdStart, tdEnd + 6);
-      expect(tdSection).toContain('stringWidth(prefix)');
+      expect(tdSection).toContain("prefix + thinkingBuf");
+      expect(tdSection).not.toContain('.split(');
     });
   });
 
