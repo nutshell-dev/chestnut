@@ -456,16 +456,16 @@ auditCmd
 // audit lookup
 auditCmd
   .command('lookup [toolUseId]')
-  .description('Look up full tool content by tool_use_id or --trim-id (4-level fallback: current → archive → hash → unavailable)')
+  .description('Look up full tool content by tool_use_id or --block-id (4-level fallback: current → archive → hash → unavailable)')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--trim-id <uuid>', 'Look up by trim-id (from context-trim suffix)')
+  .option('--block-id <id>', 'Look up by block ID prefix (8-char, from context-trim suffix)')
   .option('--file <name>', "Audit file name (default 'audit'; multi-file aware)", 'audit')
   .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (level 3 fallback)')
   .option('--json', 'Output as JSON (LookupResult discriminated union)')
   .action(withCliErrorHandling(async (toolUseId: string | undefined, opts: {
     claw: string;
     file: string;
-    trimId?: string;
+    blockId?: string;
     contentHash?: string;
     json?: boolean;
   }) => {

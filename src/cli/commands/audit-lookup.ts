@@ -14,11 +14,11 @@ import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {
   lookupContentByToolUseId,
-  lookupContentByTrimId,
+  lookupContentByBlockId,
   DIALOG_DIR,
   type LookupResult,
   type LookupOptions,
-  type TrimIdLookupResult,
+  type BlockIdLookupResult,
 } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
@@ -28,7 +28,7 @@ interface AuditLookupOpts {
   file: string;
   contentHash?: string;
   json?: boolean;
-  trimId?: string;
+  blockId?: string;
 }
 
 export async function auditLookupCommand(
@@ -40,11 +40,11 @@ export async function auditLookupCommand(
   // opts.file 字段保留为 CLI 表面兼容（不再读 audit、但 --file 仍可接受不报错）。
   void opts.file;
 
-  if (!toolUseId && !opts.trimId) {
-    throw new CliError('must provide <toolUseId> or --trim-id');
+  if (!toolUseId && !opts.blockId) {
+    throw new CliError('must provide <toolUseId> or --block-id');
   }
-  if (toolUseId && opts.trimId) {
-    throw new CliError('<toolUseId> and --trim-id are mutually exclusive');
+  if (toolUseId && opts.blockId) {
+    throw new CliError('<toolUseId> and --block-id are mutually exclusive');
   }
 
   loadGlobalConfig(deps);
@@ -58,9 +58,9 @@ export async function auditLookupCommand(
   const fs = deps.fsFactory(clawDir);
   const dialogDir = path.join(clawDir, DIALOG_DIR);
 
-  if (opts.trimId) {
-    const result = lookupContentByTrimId(fs, dialogDir, opts.trimId);
-    emitTrimId(result, opts.trimId, opts.json ?? false);
+  if (opts.blockId) {
+    const result = lookupContentByBlockId(fs, dialogDir, opts.blockId);
+    emitBlockId(result, opts.blockId, opts.json ?? false);
     if (result.source === 'unavailable') {
       process.exitCode = 3;
     }
@@ -144,32 +144,26 @@ function emit(result: LookupResult, toolUseId: string, json: boolean): void {
   }
 }
 
-function emitTrimId(result: TrimIdLookupResult, trimId: string, json: boolean): void {
+function emitBlockId(result: BlockIdLookupResult, shortBlockId: string, json: boolean): void {
   if (json) {
     process.stdout.write(JSON.stringify(result) + '\n');
     return;
   }
 
   switch (result.source) {
-    case 'current': {
-      process.stdout.write(`Source: current dialog session\n`);
-      process.stdout.write(`trim-id: ${trimId}\n`);
-      process.stdout.write(`Tool use ID: ${result.toolUseId}\n`);
-      process.stdout.write(`Content size: ${Buffer.byteLength(result.content, 'utf-8')} bytes\n`);
-      process.stdout.write(`---\n${result.content}\n`);
-      break;
-    }
     case 'archive': {
-      process.stdout.write(`Source: archived dialog session\n`);
-      process.stdout.write(`trim-id: ${trimId}\n`);
-      process.stdout.write(`Tool use ID: ${result.toolUseId}\n`);
+      process.stdout.write(`Source: archive\n`);
+      process.stdout.write(`Block ID: ${result.blockId}\n`);
+      process.stdout.write(`Block type: ${result.blockType}\n`);
+      if (result.toolUseId) {
+        process.stdout.write(`Tool use ID: ${result.toolUseId}\n`);
+      }
       process.stdout.write(`Archived at: ${result.archivedAt}\n`);
-      process.stdout.write(`Content size: ${Buffer.byteLength(result.content, 'utf-8')} bytes\n`);
       process.stdout.write(`---\n${result.content}\n`);
       break;
     }
     case 'unavailable': {
-      process.stderr.write(`dialog content unavailable: trim-id=${trimId} reason=${result.reason}${result.detail ? ` detail=${result.detail}` : ''}\n`);
+      process.stderr.write(`Block ID not found: ${shortBlockId} reason=${result.reason}${result.detail ? ` detail=${result.detail}` : ''}\n`);
       break;
     }
     default:
