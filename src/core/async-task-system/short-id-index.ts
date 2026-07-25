@@ -227,7 +227,7 @@ export class PersistentShortIdIndex implements ShortIdIndex {
 
   /** Derive shortId from fullId (first 8 chars). */
   deriveShortId(fullId: FullTaskId): ShortTaskId {
-    return makeShortTaskId(fullId.slice(0, 8));
+    return makeShortTaskId(uuidToShort(fullId));
   }
 
   canonicalShortId(fullId: FullTaskId): ShortTaskId | undefined {
