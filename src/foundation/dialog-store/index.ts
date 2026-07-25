@@ -34,6 +34,10 @@ export type {
   BlockIdLookupResult,
 } from './lookup.js';
 
+// Phase 1186: blockId short ↔ full UUID index
+export { BlockIdIndex } from './block-id-index.js';
+export type { BlockIdMap } from './block-id-index.js';
+
 // Phase 992: barrel export error classes + core types to stop cross-module deep imports.
 export { DialogIOError, DialogStoreError, CorruptionError } from './errors.js';
 export type { LoadResult, DialogMarker, RestoreResult } from './types.js';
