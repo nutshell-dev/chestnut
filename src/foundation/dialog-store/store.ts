@@ -22,7 +22,7 @@ import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './typ
 import type { TraceId } from '../audit/types.js';
 import type { AuditLog } from '../audit/types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import { newShortUuid } from  '../node-utils/index.js';
+import { newShortUuid, newUuid } from '../node-utils/index.js';
 import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
@@ -379,6 +379,15 @@ export class DialogStore {
       this.prevMessagesLength = Array.isArray(snapshot.messages) ? snapshot.messages.length : undefined;
 
       const now = new Date().toISOString();
+
+      // 给未分配 blockId 的块分配 ID
+      for (const msg of snapshot.messages) {
+        if (typeof msg.content === 'string') continue;
+        for (const block of msg.content) {
+          if (block.blockId !== undefined) continue;
+          (block as Record<string, unknown>).blockId = newUuid();
+        }
+      }
 
       // Use cached createdAt if available, otherwise use now
       if (!this.createdAt) {

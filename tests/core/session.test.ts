@@ -439,7 +439,7 @@ describe('DialogStore unit tests', () => {
     } as unknown as NodeFileSystem;
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const smFail = new DialogStore(failingFs, 'dialog', audit, 'current.json', 'test-claw');
-    await expect(smFail.save([{ role: 'user', content: 'hi' }])).rejects.toThrow('disk full');
+    await expect(smFail.save({ systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], toolsForLLM: [] })).rejects.toThrow('disk full');
     expect(audit.write).toHaveBeenCalledWith(
       DIALOG_AUDIT_EVENTS.SAVE_FAILED,
       expect.stringContaining('path='),

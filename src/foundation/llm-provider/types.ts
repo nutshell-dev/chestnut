@@ -34,6 +34,7 @@ export type Role = 'user' | 'assistant' | 'system';
 export interface TextBlock {
   type: 'text';
   text: string;
+  blockId?: string;
 }
 
 export interface ToolUseBlock {
@@ -41,6 +42,7 @@ export interface ToolUseBlock {
   id: ToolUseId;
   name: string;
   input: Record<string, unknown>;
+  blockId?: string;
 }
 
 export interface ToolResultBlock {
@@ -48,12 +50,14 @@ export interface ToolResultBlock {
   tool_use_id: ToolUseId;
   content: string;
   is_error?: boolean;
+  blockId?: string;
 }
 
 export interface ThinkingBlock {
   type: 'thinking';
   thinking: string;
   signature?: string;
+  blockId?: string;
 }
 
 export interface UnknownBlock {
