@@ -21,6 +21,19 @@ export function newUuid(): string {
 }
 
 /**
+ * 从 UUID 截取前缀得到短 ID。
+ *
+ * 用作：Human-readable short ID、task shortId、blockId short ref 等需要
+ * 从长 UUID 推导短引用的场景。长度默认 UUID_SHORT_LEN = 8。
+ *
+ * 这是「长→短」的单源规则——所有需要从长 UUID 取前缀的地方都调这里，
+ * 不各自 slice(0, 8)。
+ */
+export function uuidToShort(uuid: string, len: number = UUID_SHORT_LEN): string {
+  return uuid.slice(0, len);
+}
+
+/**
  * 生成 UUID v4 + slice(0, len) 短 ID。
  *
  * 用作：人类可读的 short ID（如 commit msg、log 行 prefix）。
@@ -28,7 +41,7 @@ export function newUuid(): string {
  * @param len 短 ID 长度、默认 `UUID_SHORT_LEN = 8`
  */
 export function newShortUuid(len: number = UUID_SHORT_LEN): string {
-  return randomUUID().slice(0, len);
+  return uuidToShort(randomUUID(), len);
 }
 
 /**

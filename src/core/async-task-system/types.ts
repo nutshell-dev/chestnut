@@ -17,6 +17,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 import type { CallerType } from '../permissions/caller-types.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import { uuidToShort } from '../../foundation/node-utils/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
 import type { SendResult, SendFallbackError, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
 
@@ -42,7 +43,7 @@ export function makeTaskId(s: string): TaskId { return s as TaskId; }
 
 /** Derive the shortId from any TaskId. For FullTaskId returns first 8 chars; for legacy 8-char ids returns as-is. */
 export function deriveShortIdFromTaskId(taskId: TaskId): ShortTaskId {
-  return makeShortTaskId(taskId.length === 36 ? taskId.slice(0, 8) : taskId);
+  return makeShortTaskId(taskId.length === 36 ? uuidToShort(taskId) : taskId);
 }
 
 /**

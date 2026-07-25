@@ -13,7 +13,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
 import { makeFullTaskId, makeShortTaskId } from './types.js';
-import { newUuid } from '../../foundation/node-utils/index.js';
+import { newUuid, uuidToShort } from '../../foundation/node-utils/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
@@ -88,7 +88,7 @@ export class InMemoryShortIdIndex implements ShortIdIndex {
     return this.fullToShort.get(fullId);
   }
 
-  deriveShortId(fullId: FullTaskId): ShortTaskId { return makeShortTaskId(fullId.slice(0, 8)); }
+  deriveShortId(fullId: FullTaskId): ShortTaskId { return makeShortTaskId(uuidToShort(fullId)); }
 
   canonicalShortId(fullId: FullTaskId): ShortTaskId | undefined {
     return this.reverseResolve(fullId); // no fallback derive
