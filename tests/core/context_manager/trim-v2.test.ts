@@ -458,7 +458,7 @@ describe('trimV2 UTF-8 preview safety', () => {
     const trimmed = getToolResultContent(result.outcome.newMessages);
 
     expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
-    expect(Buffer.byteLength(trimmed, 'utf8')).toBeLessThanOrEqual(PREVIEW_BYTES + 120); // prefix + suffix overhead (includes trim-id)
+    expect(Buffer.byteLength(trimmed, 'utf8')).toBeLessThanOrEqual(PREVIEW_BYTES + 120); // prefix + suffix overhead (includes block-id)
     expect(trimmed.startsWith('a'.repeat(PREVIEW_BYTES))).toBe(true);
     expect(trimmed).not.toContain('😀');
     expect(trimmed).toContain('<...>');
