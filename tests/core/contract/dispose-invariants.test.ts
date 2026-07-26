@@ -23,10 +23,6 @@ import { makeAudit, makeMockAudit, waitForNextAuditEvent, waitForNthAuditEvent }
 import { waitFor } from '../../helpers/wait-for.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
-import {
-  prepareContractStaging,
-  commitContractStaging,
-} from '../../../src/core/contract/new-layout.js';
 
 const { mockRunContractVerifierDispose } = vi.hoisted(() => ({
   mockRunContractVerifierDispose: vi.fn(),
@@ -536,33 +532,6 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
     });
   });
 
-  // Phase 1135 Step D: lifecycle pre-checks must work through the current layout boundary,
-  // but terminal directory moves are still not cut over for current fixtures.
-  describe('current layout lifecycle pre-checks', () => {
-    it('isComplete reads current layout without directory move', async () => {
-      const currentYaml = {
-        ...makeContractYaml({
-          subtasks: [
-            { id: 't1', description: 'T1' },
-          ],
-          verification: [],
-        }),
-        id: 'cid-current-complete',
-      };
-
-      const staging = await prepareContractStaging(
-        { fs: nodeFs, audit: makeMockAudit() as any },
-        { creationId: 'create-complete', contract: currentYaml as any },
-      );
-      await commitContractStaging({ fs: nodeFs, audit: makeMockAudit() as any }, staging);
-
-      const complete = await manager.isComplete('cid-current-complete' as any);
-      expect(complete).toBe(false);
-
-      // The current fixture remains in active/current (no archive move).
-      await expect(fs.access(path.join(clawDir, 'contract', 'active', 'current'))).resolves.not.toThrow();
-    });
-  });
 });
 
 

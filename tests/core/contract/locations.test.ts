@@ -15,6 +15,7 @@ import {
   listPhysicalActiveContractIds,
   resolveContractLocation,
   resolveContractLocationSync,
+  resolveActiveContractLocation,
 } from '../../../src/core/contract/locations.js';
 import { ContractLocationAmbiguityError } from '../../../src/core/contract/errors.js';
 
@@ -96,6 +97,56 @@ describe('listPhysicalActiveContractIds', () => {
         activeDir: 'contract/active',
       }),
     ).rejects.toThrow('disk read failed');
+  });
+});
+
+describe('resolveActiveContractLocation', () => {
+  let tmpDir: string;
+  let clawDir: string;
+  let nodeFs: NodeFileSystem;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir('chestnut-resolve-active-');
+    clawDir = path.join(tmpDir, 'claws', 'test-claw');
+    await fs.mkdir(clawDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: clawDir });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(tmpDir).catch(() => { /* silent: cleanup */ });
+  });
+
+  const contractId = 'cid-1';
+
+  it('returns null when active/<id> does not exist', async () => {
+    const loc = await resolveActiveContractLocation({
+      fs: nodeFs,
+      activeDir: 'contract/active',
+      contractId,
+    });
+    expect(loc).toBeNull();
+  });
+
+  it('returns active location when active/<id> exists', async () => {
+    await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId), { recursive: true });
+    const loc = await resolveActiveContractLocation({
+      fs: nodeFs,
+      activeDir: 'contract/active',
+      contractId,
+    });
+    expect(loc).not.toBeNull();
+    expect(loc!.contractId).toBe(contractId);
+    expect(loc!.contractRoot).toBe('contract/active/cid-1');
+  });
+
+  it('ignores active/current directory', async () => {
+    await fs.mkdir(path.join(clawDir, 'contract', 'active', 'current'), { recursive: true });
+    const loc = await resolveActiveContractLocation({
+      fs: nodeFs,
+      activeDir: 'contract/active',
+      contractId,
+    });
+    expect(loc).toBeNull();
   });
 });
 

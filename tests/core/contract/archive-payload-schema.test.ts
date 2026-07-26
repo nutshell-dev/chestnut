@@ -1,5 +1,5 @@
 /**
- * Phase 1134 Step B: new-layout schema positive/negative matrix.
+ * Phase 1193 Step C: archive current-format payload schema positive/negative matrix.
  */
 import { describe, it, expect } from 'vitest';
 import {
