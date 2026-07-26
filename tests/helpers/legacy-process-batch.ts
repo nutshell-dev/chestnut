@@ -17,7 +17,6 @@ import {
   ConsecutiveMaxTokensToolUseError,
 } from '../../src/core/agent-executor/errors.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
-import { LockContentionExhaustedError } from '../../src/core/contract/errors.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
 import { formatErr } from '../../src/foundation/node-utils/index.js';
@@ -92,13 +91,11 @@ export async function runLegacyBatch(
       err instanceof WallTimeExceededError ||
       err instanceof ConsecutiveParseErrorsExceededError ||
       err instanceof ConsecutiveMaxTokensToolUseError ||
-      err instanceof LLMAllProvidersFailedError ||
-      err instanceof LockContentionExhaustedError;
+      err instanceof LLMAllProvidersFailedError;
 
     if (isAgentLoopCrash) {
       // phase 1121 Step B: process failure 不再 mutate Contract；legacy helper 仅做 audit。
-      const hasContract = infos.some(i => i.metadata?.contract_id) ||
-        (err instanceof LockContentionExhaustedError && err.contractId);
+      const hasContract = infos.some(i => i.metadata?.contract_id);
       if (!hasContract) {
         auditWriter.write(
           RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,

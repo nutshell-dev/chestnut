@@ -27,7 +27,6 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     exec: mockExec,
     fs: { realpathSync: vi.fn((p: string) => p) } as unknown as FileSystem,
     contractDir: vi.fn().mockResolvedValue('contract/active'),
-    withProgressLock: vi.fn((_id, fn) => fn()),
     getProgress: vi.fn().mockResolvedValue(null),
     saveProgress: vi.fn().mockResolvedValue(undefined),
     loadContractYaml: vi.fn().mockResolvedValue(null),

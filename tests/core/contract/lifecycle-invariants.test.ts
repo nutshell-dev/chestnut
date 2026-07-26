@@ -45,8 +45,6 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
       audit: { write: vi.fn(), preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });
@@ -146,8 +144,6 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -201,8 +197,6 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       llm: mockLLM,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -278,115 +272,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
   });
 });
 
-// ───── source: lifecycle-orphan-lock.test.ts ─────
-/**
- * ContractSystem lifecycle orphan lock fix (phase 871 / r113 G fork / new.P1.5)
- * Reverse test: fs.move throw → source lock released + throw propagated
- */
-describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster fix (new.P1.5)', () => {
-  let tempDir: string;
-  let clawDir: string;
-  let manager: ContractSystem;
-  let auditCalls: Array<{ type: string; args: string[] }>;
-  let nodeFs: NodeFileSystem;
 
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-    clawDir = path.join(tempDir, 'claws', 'test-claw');
-    await fs.mkdir(clawDir, { recursive: true });
-    nodeFs = new NodeFileSystem({ baseDir: clawDir });
-    auditCalls = [];
-    const captureAudit = {
-      write: (type: string, ...args: string[]) => {
-        auditCalls.push({ type, args });
-      },
-    };
-    manager = new ContractSystem({
-      clawDir,
-      clawId: 'test-claw',
-      fs: nodeFs,
-      audit: captureAudit as any,
-      toolRegistry: createToolRegistry(),
-      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
-    clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),});
-  });
-
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await cleanupTempDir(tempDir);
-  });
-
-  // 反向 1: cancelContract fs.move throw → source lock released + throw propagated
-  it('cancelContract: fs.move throws → source lock released + throw propagated', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Cancel Orphan Test',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
-
-    const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-
-    // Mock fs.move to throw ENOSPC only for contract directory moves,
-    // not for lock release moves.
-    const originalMove = nodeFs.move.bind(nodeFs);
-    const moveSpy = vi.spyOn(nodeFs, 'move').mockImplementation(async (fromPath: string, toPath: string) => {
-      if (path.basename(fromPath) === 'progress.lock' || String(toPath).includes('.released-')) {
-        return originalMove(fromPath, toPath);
-      }
-      throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
-    });
-
-    await expect(manager.cancel(contractId, 'orphan-test')).rejects.toThrow('ENOSPC');
-
-    // source lock must be released
-    await expect(fs.access(sourceLockPath)).rejects.toThrow();
-
-    moveSpy.mockRestore();
-  });
-
-  // 反向 3: moveContractToArchive fs.move throw → source lock released + throw propagated
-  it('moveContractToArchive: fs.move throws → source lock released + throw propagated', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Archive Orphan Test',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
-
-    // phase 188: archive precondition requires terminal status
-    // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks 才能 archive
-    await (manager as any).withProgressLock(contractId, async () => {
-      const progress = await manager.getProgress(contractId);
-      progress.subtasks.t1.status = 'completed';
-      progress.subtasks.t1.completed_at = new Date().toISOString();
-      await (manager as any).saveProgress(contractId, progress);
-    });
-
-    const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-
-    // Mock fs.move to throw EBUSY only for contract directory moves,
-    // not for lock release moves.
-    const originalMove = nodeFs.move.bind(nodeFs);
-    const moveSpy = vi.spyOn(nodeFs, 'move').mockImplementation(async (fromPath: string, toPath: string) => {
-      if (path.basename(fromPath) === 'progress.lock' || String(toPath).includes('.released-')) {
-        return originalMove(fromPath, toPath);
-      }
-      throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
-    });
-
-    await expect(manager.moveToArchive(contractId)).rejects.toThrow('EBUSY');
-
-    // source lock must be released
-    await expect(fs.access(sourceLockPath)).rejects.toThrow();
-
-    moveSpy.mockRestore();
-  });
-
-});
 
 // ───── source: mark-crashed.test.ts ─────
 /**
@@ -415,8 +301,6 @@ describe('phase 1121 Step C: markCorrupted', () => {
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     manager.setOnNotify((type, data) => {
@@ -515,8 +399,6 @@ describe('phase 1121 Step C: markCorrupted', () => {
       audit: audit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

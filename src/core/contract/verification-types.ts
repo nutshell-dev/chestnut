@@ -7,7 +7,8 @@
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId, ArchiveState } from './types.js';
-import { type LockContext } from './lock.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ContractId } from './types.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import type { VerificationMutex } from './verification-mutex.js';
@@ -32,8 +33,9 @@ export type NotifyClawFn = (
  * Composed via `&` intersection — runtime ctx instance unchanged, structurally compatible.
  */
 
-export interface VerificationLockContext extends LockContext {
-  withProgressLock: <T>(contractId: ContractId, fn: () => Promise<T>) => Promise<T>;
+export interface VerificationLockContext {
+  fs: FileSystem;
+  audit: AuditLog;
   /** phase 1465: per-ContractSystem instance race guard for verification pipeline (M#3 + Tier 1 flaky_test_zero_tolerance) */
   verificationMutex: VerificationMutex;
 }

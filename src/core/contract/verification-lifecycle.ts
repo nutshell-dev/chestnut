@@ -143,74 +143,72 @@ export async function completeSubtaskSync(
     return { passed: false, feedback: `Contract "${contractId}" is not active, cannot complete subtask "${subtaskId}".`, allCompleted: false };
   }
 
-  await ctx.withProgressLock(contractId, async () => {
-    const progress = await ctx.getProgress(contractId);
-    if (!progress) {
-      throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-    }
+  const progress = await ctx.getProgress(contractId);
+  if (!progress) {
+    throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
+  }
 
-    if (!progress.subtasks[subtaskId]) {
-      result = { passed: false, feedback: `Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}` };
-      emitContractProgressCorrupted(
-        ctx.audit,
-        {
-          context: 'ContractSystem._completeSubtaskSync',
-          contractId,
-          subtaskId,
-          message: 'Unknown subtaskId',
-        },
-      );
-      return;
-    }
-
-    const currentStatus = progress.subtasks[subtaskId].status;
-    if (currentStatus === 'in_progress') {
-      result = { passed: false, feedback: `Subtask "${subtaskId}" verification is already in progress — duplicate submit_subtask call ignored.` };
-      emitContractSubtaskDuplicateDone(ctx.audit, { contractId, subtaskId });
-      return;
-    }
-    if (currentStatus === 'completed') {
-      result = { passed: false, feedback: `Subtask "${subtaskId}" is already completed.` };
-      emitContractSubtaskAlreadyCompleted(ctx.audit, { contractId, subtaskId });
-      return;
-    }
-
-    progress.subtasks[subtaskId] = {
-      ...progress.subtasks[subtaskId],
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      evidence,
-      artifacts,
-    };
-    safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
-    const subtaskTotal = contractYaml.subtasks.length;
-    const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
-
-    allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-    if (allCompleted) {
-      progress.completed_at = new Date().toISOString();
-    }
-
-    await ctx.saveProgress(contractId, progress);
-    // Phase 968: emit completion audit AFTER saveProgress commits
-    emitContractSubtaskCompleted(
+  if (!progress.subtasks[subtaskId]) {
+    result = { passed: false, feedback: `Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}` };
+    emitContractProgressCorrupted(
       ctx.audit,
       {
+        context: 'ContractSystem._completeSubtaskSync',
         contractId,
         subtaskId,
-        progress: `${completedCount}/${subtaskTotal}`,
-        claw: ctx.clawId,
+        message: 'Unknown subtaskId',
       },
     );
-    emitContractUpdated(
-      ctx.audit,
-      {
-        contractId,
-        subtaskId,
-        status: allCompleted ? 'completed' : 'running',
-      },
-    );
-  });
+    return result;
+  }
+
+  const currentStatus = progress.subtasks[subtaskId].status;
+  if (currentStatus === 'in_progress') {
+    result = { passed: false, feedback: `Subtask "${subtaskId}" verification is already in progress — duplicate submit_subtask call ignored.` };
+    emitContractSubtaskDuplicateDone(ctx.audit, { contractId, subtaskId });
+    return result;
+  }
+  if (currentStatus === 'completed') {
+    result = { passed: false, feedback: `Subtask "${subtaskId}" is already completed.` };
+    emitContractSubtaskAlreadyCompleted(ctx.audit, { contractId, subtaskId });
+    return result;
+  }
+
+  progress.subtasks[subtaskId] = {
+    ...progress.subtasks[subtaskId],
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+    evidence,
+    artifacts,
+  };
+  safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
+  const subtaskTotal = contractYaml.subtasks.length;
+  const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
+
+  allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
+  if (allCompleted) {
+    progress.completed_at = new Date().toISOString();
+  }
+
+  await ctx.saveProgress(contractId, progress);
+  // Phase 968: emit completion audit AFTER saveProgress commits
+  emitContractSubtaskCompleted(
+    ctx.audit,
+    {
+      contractId,
+      subtaskId,
+      progress: `${completedCount}/${subtaskTotal}`,
+      claw: ctx.clawId,
+    },
+  );
+  emitContractUpdated(
+    ctx.audit,
+    {
+      contractId,
+      subtaskId,
+      status: allCompleted ? 'completed' : 'running',
+    },
+  );
 
   if (allCompleted) {
     // Phase 1132 Step D: contract may have been cancelled between lock release and now.

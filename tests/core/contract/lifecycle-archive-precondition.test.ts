@@ -49,10 +49,11 @@ describe('Phase 1132 Step D: moveContractToArchive precondition', () => {
       archiveDir: path.join(clawDir, 'contract', 'archive') as any,
       contractDir: async (id: string) => {
         for (const d of ['active', 'paused', 'archive']) {
-          const dir = path.join(clawDir, 'contract', d, id);
-          if (await fs.stat(dir).then(() => true).catch(() => false)) return dir;
+          const containerDir = path.join(clawDir, 'contract', d);
+          const root = path.join(containerDir, id);
+          if (await fs.stat(root).then(() => true).catch(() => false)) return containerDir;
         }
-        return path.join(clawDir, 'contract', 'active', id);
+        return path.join(clawDir, 'contract', 'active');
       },
       loadContract: async () => ({ id: 'test' } as Contract),
       getProgress: async (id: string) => {
@@ -150,15 +151,4 @@ describe('Phase 1132 Step D: moveContractToArchive precondition', () => {
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
   });
 
-  it('legacy paused dir is not a valid source for completed archive', async () => {
-    const contractId = 'c-paused';
-    await setupContractInDir('paused', contractId, 'todo');
-    // contractDir cannot resolve an active source, so lock acquisition / move fails
-    await expect(moveContractToArchive(makeCtx(), contractId, 'completed')).rejects.toThrow();
-
-    const pausedDir = path.join(clawDir, 'contract', 'paused', contractId);
-    expect(await fs.stat(pausedDir).then(() => true).catch(() => false)).toBe(true);
-    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
-    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(false);
-  });
 });

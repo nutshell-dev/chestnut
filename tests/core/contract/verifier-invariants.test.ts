@@ -522,7 +522,6 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
       moveContractToArchive: moveToArchiveSpy,
       emitContractCompleted: emitContractCompletedSpy,
       runLLMVerification: vi.fn().mockResolvedValue({ passed: true }),
-      withProgressLock: vi.fn().mockImplementation((_, fn) => fn()),
       toolRegistry: { getForProfile: vi.fn().mockReturnValue([]) } as any,
       isActiveContract: vi
         .fn()

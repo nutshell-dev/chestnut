@@ -19,7 +19,6 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { acquireLock, releaseLock, type LockContext } from '../../../src/core/contract/lock.js';  // phase 262: hoist
 import { listArchiveContracts } from '../../../src/core/contract/persistence.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
@@ -28,7 +27,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 /**
  * moveContractToArchive lock acquire (phase 860 / P0-B)
  */
-describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
+describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
@@ -48,8 +47,6 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -59,7 +56,7 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('acquires source-dir lock before fs.move', async () => {
+  it('concurrent archive + cancel end in a valid terminal state', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Archive Lock Test',
       goal: 'Test',
@@ -70,15 +67,13 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     }));
 
     // Concurrent: archive + cancel on same contract
-    // Both need lock; should serialize without race corruption
+    // Directory rename is the lifecycle commit point; single EventLoop means no
+    // true interleaving, but both operations should settle without hang.
     const [archiveResult, cancelResult] = await Promise.allSettled([
       (manager as any).moveToArchive(contractId),
       manager.cancel(contractId, 'concurrent cancel'),
     ]);
 
-    // One should succeed, the other may fail due to fs.move racing,
-    // but neither should hang (deadlock) and the system should be in a valid state.
-    //
     // Phase 964: contractDir assertion relaxed from strict 'contract/archive'.
     // Race: cancelContract writes saveProgress(cancelled), then moveToArchive wins
     // the fs.move race first. cancel gets ENOENT on its own move → contract stays
@@ -100,39 +95,7 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     expect(inArchive || inActive).toBe(true);
   });
 
-  it('releases lock at target after move', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Archive Release Test',
-      goal: 'Test',
-      subtasks: [
-        { id: 't1', description: 'T1' },
-      ],
-      verification: [],
-    }));
-
-    // phase 188: archive precondition requires terminal status
-    // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks
-    await (manager as any).withProgressLock(contractId, async () => {
-      const progress = await manager.getProgress(contractId);
-      progress.subtasks.t1.status = 'completed';
-      progress.subtasks.t1.completed_at = new Date().toISOString();
-      await (manager as any).saveProgress(contractId, progress);
-    });
-    await (manager as any).moveToArchive(contractId);
-
-    // Lock released by releaseLock@TARGET (lock file deleted after move)
-    const archiveLockPath = path.join(clawDir, 'contract', 'archive', 'completed', contractId, 'progress.lock');
-    const lockExists = await fsArchiveRace.stat(archiveLockPath).then(() => true).catch(() => false);
-    expect(lockExists).toBe(false);
-
-    // Verify lock is truly released: a new acquire on the same path succeeds
-    const nodeFs = new NodeFileSystem({ baseDir: clawDir });
-    const ctx = { fs: nodeFs, audit: { write: () => {} , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} };
-    const ownerToken = await acquireLock(ctx, archiveLockPath);
-    await releaseLock(ctx, archiveLockPath, ownerToken);
-  });
-
-  it('skips lock acquire when contract already archived', async () => {
+  it('idempotent no-op when contract already archived', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Already Archived Test',
       goal: 'Test',
@@ -144,17 +107,13 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
 
     // phase 188: archive precondition requires terminal status
     // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks
-    await (manager as any).withProgressLock(contractId, async () => {
-      const progress = await manager.getProgress(contractId);
-      progress.subtasks.t1.status = 'completed';
-      progress.subtasks.t1.completed_at = new Date().toISOString();
-      await (manager as any).saveProgress(contractId, progress);
-    });
+    const progress = await manager.getProgress(contractId);
+    progress.subtasks.t1.status = 'completed';
+    progress.subtasks.t1.completed_at = new Date().toISOString();
+    await (manager as any).saveProgress(contractId, progress);
     await manager.moveToArchive(contractId);
 
-    // Second call should early-return without acquiring lock
-    const acquireSpy = vi.fn(acquireLock);
-    // Since the early return happens before any lock call, simply re-invoking must not throw
+    // Second call should early-return without error
     await expect(manager.moveToArchive(contractId)).resolves.toBeUndefined();
   });
 });
@@ -387,8 +346,6 @@ describe('archive getProgress pure-read invariants', () => {
       audit: { write: () => {} } as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      lockMaxRetries: 3,
-      lockRetryDelayMs: 10,
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });
@@ -406,21 +363,19 @@ describe('archive getProgress pure-read invariants', () => {
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
-    await (manager as any).withProgressLock(contractId, async () => {
-      const progress = await manager.getProgress(contractId);
-      progress.subtasks.t1.status = 'completed';
-      progress.subtasks.t1.completed_at = new Date().toISOString();
-      await (manager as any).saveProgress(contractId, progress);
-    });
+    const progress = await manager.getProgress(contractId);
+    progress.subtasks.t1.status = 'completed';
+    progress.subtasks.t1.completed_at = new Date().toISOString();
+    await (manager as any).saveProgress(contractId, progress);
     await (manager as any).moveToArchive(contractId);
 
     const archiveRoot = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
     const before = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
 
-    const progress = await manager.getProgress(contractId);
-    expect(progress).not.toBeNull();
-    expect(progress.contract_id).toBe(contractId);
-    expect(progress.subtasks.t1.status).toBe('completed');
+    const archivedProgress = await manager.getProgress(contractId);
+    expect(archivedProgress).not.toBeNull();
+    expect(archivedProgress.contract_id).toBe(contractId);
+    expect(archivedProgress.subtasks.t1.status).toBe('completed');
 
     const after = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
     expect(after).toBe(before);
@@ -469,60 +424,5 @@ describe('archive getProgress pure-read invariants', () => {
     expect(progress!.contract_id).toBe(contractId);
     const after = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
     expect(after).toBe(before);
-  });
-});
-
-/**
- * releaseLock no-overwrite invariant (phase 1037 legacy + phase 1048 per-contender)
- */
-describe('releaseLock no-overwrite invariant', () => {
-  let tempDir: string;
-  let clawDir: string;
-
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-    clawDir = path.join(tempDir, 'claw');
-    await fs.mkdir(clawDir, { recursive: true });
-  });
-
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await cleanupTempDir(tempDir);
-  });
-
-  it('does not delete a concurrently held claim when token mismatches', async () => {
-    const nodeFs = new NodeFileSystem({ baseDir: clawDir });
-    const ctx: LockContext = {
-      fs: nodeFs,
-      audit: { write: () => {}, preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as any,
-    };
-    const lockPath = 'progress.lock';
-    const lockDir = path.dirname(lockPath);
-    const claimsDir = path.join(clawDir, lockDir, 'claims');
-
-    // phase 1048: 模拟已存在的新协议 claim
-    const ownerToken = 'owner-token';
-    const otherToken = 'other-token';
-    const ownerClaimName = `claim.${Date.now()}.${process.pid}.${ownerToken}`;
-    const otherClaimName = `claim.${Date.now() - 1}.${process.pid}.${otherToken}`;
-    await fs.mkdir(claimsDir, { recursive: true });
-    await fs.writeFile(
-      path.join(claimsDir, ownerClaimName),
-      JSON.stringify({ pid: process.pid, timestamp: Date.now(), ownerToken, startTime: '0' }),
-    );
-    await fs.writeFile(
-      path.join(claimsDir, otherClaimName),
-      JSON.stringify({ pid: process.pid, timestamp: Date.now() - 1, ownerToken: otherToken, startTime: '0' }),
-    );
-
-    await releaseLock(ctx, lockPath, ownerToken);
-
-    // 自己的 claim 被删除
-    const ownerExists = await fs.stat(path.join(claimsDir, ownerClaimName)).then(() => true).catch(() => false);
-    expect(ownerExists).toBe(false);
-
-    // 他人的 claim 保留
-    const otherExists = await fs.stat(path.join(claimsDir, otherClaimName)).then(() => true).catch(() => false);
-    expect(otherExists).toBe(true);
   });
 });

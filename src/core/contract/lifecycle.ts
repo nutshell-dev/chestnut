@@ -8,7 +8,9 @@ import type { Contract } from '../contract/types.js';
 import type { ProgressData } from './types.js';
 import { ARCHIVE_STATES } from './types.js';
 import { PROGRESS_CURRENT_SCHEMA_VERSION } from './persistence.js';
-import { lockContract, releaseLock, type LockContext } from './lock.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
@@ -27,7 +29,10 @@ import { type ArchiveDir } from './types.js';
 import { archiveStateContainerDir } from './locations.js';
 import * as path from 'path';
 
-export interface LifecycleContext extends LockContext {
+export interface LifecycleContext {
+  fs: FileSystem;
+  audit: AuditLog;
+  l1IsAlive?: typeof defaultL1IsAlive;
   activeDir: string;
   archiveDir: ArchiveDir;
   contractDir: (contractId: ContractId) => Promise<string>;
@@ -46,9 +51,8 @@ export async function cancelContract(
   contractId: ContractId,
   reason: string,
 ): Promise<void> {
-  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
+  const dir = await ctx.contractDir(contractId);
   if (dir.startsWith(ctx.archiveDir)) {
-    await releaseSource();
     throw new ToolError(`Cannot cancel contract "${contractId}": already archived`);
   }
   const targetDir = archiveStateContainerDir(ctx.archiveDir, 'cancelled');
@@ -56,13 +60,11 @@ export async function cancelContract(
 
   // Step D: directory rename is the lifecycle commit point.
   // op 顺序：
-  //   1. lockContract atomic acquire at SOURCE (covers TOCTOU race, phase 1362 r140)
+  //   1. resolve source dir
   //   2. saveProgress without lifecycle marker (subtask state + checkpoint reason only)
   //   3. fs.move source → archive/cancelled (commit)
   //   4. abortContractVerifiers post-commit (best-effort; late results rejected by active-path guard)
-  //   5. releaseLock at TARGET
   const targetDirPath = `${targetDir}/${contractId}`;
-  const targetLockPath = `${targetDirPath}/progress.lock`;
   try {
     // (2) persist subtask reset + checkpoint reason; no lifecycle status marker
     const progress = await ctx.getProgress(contractId);
@@ -108,19 +110,7 @@ export async function cancelContract(
       `reason=${reason}`,
       `error=${formatErr(err)}`,
     );
-    try { await releaseSource(); } catch (releaseErr) {
-      // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
-      // phase 558: 加 context col 区分 lifecycle 路径（cancel/crash/archive）
-      ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
-        `contract_id=${contractId}`,
-        `context=cancel`,
-        `error=${formatErr(releaseErr)}`,
-      );
-    }
     throw err;
-  } finally {
-    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 
   emitContractCancelled(ctx.audit, { contractId, reason });
@@ -159,16 +149,14 @@ export async function markCorrupted(
   const contractDirResolver = knownDir !== undefined
     ? () => Promise.resolve(knownDir)
     : ctx.contractDir;
-  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, contractDirResolver);
+  const dir = await contractDirResolver(contractId);
   if (dir.startsWith(ctx.archiveDir)) {
-    await releaseSource();
     throw new ToolError(`Cannot mark corrupted contract "${contractId}": already archived`);
   }
   const targetDir = archiveStateContainerDir(ctx.archiveDir, 'corrupted');
   await ctx.fs.ensureDir(targetDir);
 
   const targetDirPath = `${targetDir}/${contractId}`;
-  const targetLockPath = `${targetDirPath}/progress.lock`;
   try {
     // Step D: directory rename is the lifecycle commit point.
     // (2) persist subtask reset + checkpoint reason; no lifecycle status marker
@@ -236,17 +224,7 @@ export async function markCorrupted(
         error: formatErr(err),
       },
     );
-    try { await releaseSource(); } catch (releaseErr) {
-      ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
-        `contract_id=${contractId}`,
-        `context=corrupt`,
-        `error=${formatErr(releaseErr)}`,
-      );
-    }
     throw err;
-  } finally {
-    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 
   emitContractCorrupted(ctx.audit, {
@@ -276,19 +254,12 @@ export async function moveContractToArchive(
     throw new ToolError(`Invalid archive state "${targetState}"`);
   }
 
-  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
+  const dir = await ctx.contractDir(contractId);
   const normalizedDir = path.normalize(dir);
-  const normalizedActive = path.normalize(ctx.activeDir);
   const normalizedArchive = path.normalize(ctx.archiveDir);
-  const isActiveSource = normalizedDir === normalizedActive || normalizedDir.startsWith(`${normalizedActive}${path.sep}`);
   const isArchiveSource = normalizedDir === normalizedArchive || normalizedDir.startsWith(`${normalizedArchive}${path.sep}`);
-  if (!isActiveSource && !isArchiveSource) {
-    await releaseSource();
-    throw new ToolError(`Cannot archive contract "${contractId}": source directory is not active`);
-  }
   if (isArchiveSource) {
     // Already archived — idempotent no-op.
-    await releaseSource();
     return;
   }
 
@@ -298,7 +269,6 @@ export async function moveContractToArchive(
   if (targetState === 'completed') {
     const progress = await ctx.getProgress(contractId);
     if (!progress) {
-      await releaseSource();
       throw new ToolError(`Contract "${contractId}" progress unavailable: cannot archive`);
     }
     const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
@@ -307,7 +277,6 @@ export async function moveContractToArchive(
         ctx.audit,
         { contractId, status: progress.status, context: 'moveContractToArchive.completed' },
       );
-      await releaseSource();
       throw new ToolError(
         `Contract "${contractId}" cannot be archived to completed: not all subtasks are completed`,
       );
@@ -318,11 +287,6 @@ export async function moveContractToArchive(
   await ctx.fs.ensureDir(targetDir);
   const dst = `${targetDir}/${contractId}`;
 
-  // phase 860 (P0-B): acquire lock at SOURCE / move dir / release@TARGET
-  // phase 871 (new.P1.5 r113 G fork): catch fs.move throw + 显式释放 source 防 orphan
-  // phase 1362 (r140): lockContract atomic wrapper covers contractDir→acquireLock TOCTOU race.
-  // mirror phase 791 P0.16 template (cancel sister)
-  const targetLockPath = `${dst}/progress.lock`;
   try {
     if (await ctx.fs.exists(dst)) {
       emitContractArchiveTargetExists(ctx.audit, {
@@ -334,19 +298,6 @@ export async function moveContractToArchive(
     }
     await ctx.fs.move(`${dir}/${contractId}`, dst);
   } catch (err) {
-    try { await releaseSource(); } catch (releaseErr) {
-      // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
-      // phase 558: 加 context col
-      ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
-        `contract_id=${contractId}`,
-        `context=archive`,
-        `error=${formatErr(releaseErr)}`,
-      );
-    }
     throw err;
-  } finally {
-    // release at TARGET (lock file moved with dir)
-    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 }

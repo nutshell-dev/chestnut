@@ -732,7 +732,13 @@ describe('ContractSystem Acceptance Flow', () => {
     });
 
     it('writes CONTRACT_VERIFICATION_RESET_FAILED when reset status fails', async () => {
-      const lockSpy = vi.spyOn(manager as any, 'withProgressLock').mockRejectedValue(new Error('lock busy'));
+      // Phase 1191: progress lock removed; the retry path now checks active path first,
+      // so we need a real active contract for the reset-failure audit to be emitted.
+      await setupContract(tempDir, 'contract-1', makeContractYaml({
+        subtasks: [{ id: 'task-1', description: 'Test task' }],
+      }), { 'task-1': 'in_progress' });
+
+      const progressSpy = vi.spyOn(manager, 'getProgress').mockRejectedValue(new Error('progress unreadable'));
 
       try {
         // @ts-expect-error - private method
@@ -742,10 +748,10 @@ describe('ContractSystem Acceptance Flow', () => {
         expect(auditWriter.write).toHaveBeenCalledWith(
           CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
           expect.stringContaining('context=ContractSystem._writeVerificationError.resetStatus'),
-          expect.stringContaining('lock busy'),
+          expect.stringContaining('progress unreadable'),
         );
       } finally {
-        lockSpy.mockRestore();
+        progressSpy.mockRestore();
       }
     });
   });

@@ -53,7 +53,6 @@ describe('phase 1405 Fix 1: writeForceAcceptInbox', () => {
       onNotify: () => {},
       runScriptVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
       runLLMVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
-      withProgressLock: vi.fn(async (_id: string, fn: () => Promise<unknown>) => fn()),
       toolRegistry: createToolRegistry(),
       runVerifierWithCancel: vi.fn(async () => ({ passed: true, feedback: '' })),
     };
@@ -145,7 +144,6 @@ describe('phase 1388 Bug B: verification-notify Motion 端写正确 motion/inbox
       onNotify: () => {},
       runScriptVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
       runLLMVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
-      withProgressLock: vi.fn(async (_id: string, fn: () => Promise<unknown>) => fn()),
       toolRegistry: createToolRegistry(),
       runVerifierWithCancel: vi.fn(async () => ({ passed: true, feedback: '' })),
     };
@@ -465,7 +463,6 @@ describe('Phase 961 verification invariants', () => {
         },
       }),
       saveProgress: vi.fn().mockResolvedValue(undefined),
-      withProgressLock: vi.fn().mockImplementation((_, fn) => fn()),
       checkAllSubtasksCompleted: vi.fn().mockResolvedValue(true),
       moveContractToArchive: moveToArchiveSpy,
       emitContractCompleted: emitContractCompletedSpy,

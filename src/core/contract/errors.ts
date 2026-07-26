@@ -22,41 +22,6 @@ export class MultipleActiveContractsError extends Error {
 }
 
 /**
- * phase 67: lockContract TOCTOU race retry budget 用尽 typed Error
- *
- * 触发：高并发场景下、lockContract 自带 retry budget（LOCK_CONTRACT_MAX_RETRY 次）用尽。
- *
- * phase 1121 Step B: process failure 不再 mutate Contract；本 Error 作为 agent-loop
- * crash 类型仍由 EventLoop ack / 错误调度 / fatal audit 处理，但不进入 Contract lifecycle。
- */
-export class LockContentionExhaustedError extends Error {
-  readonly name = 'LockContentionExhaustedError';
-  readonly contractId: string;
-  readonly attempts: number;
-
-  constructor(contractId: string, attempts: number) {
-    super(`lockContract: TOCTOU race retry exhausted for ${contractId} after ${attempts} attempts`);
-    this.contractId = contractId;
-    this.attempts = attempts;
-  }
-}
-
-/**
- * phase 1048: 旧格式单文件锁被存活持有者持有时 fail-closed。
- *
- * 触发：acquireLock 迁移旧格式 progress.lock 时发现持有者 PID 仍存活。
- */
-export class LockConflictError extends Error {
-  readonly name = 'LockConflictError';
-  readonly lockPath: string;
-
-  constructor(lockPath: string, message: string) {
-    super(message);
-    this.lockPath = lockPath;
-  }
-}
-
-/**
  * phase 1127 Step B: contract 出现在多个 current/legacy archive 位置时 fail-closed。
  *
  * 触发：resolveContractLocation 发现同一个 contract id 同时存在于 active、状态子目录或 legacy flat。

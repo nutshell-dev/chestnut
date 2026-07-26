@@ -16,7 +16,7 @@ import {
   ConsecutiveMaxTokensToolUseError,
 } from '../../../src/core/agent-executor/errors.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
-import { LockContentionExhaustedError } from '../../../src/core/contract/errors.js';
+
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
@@ -88,7 +88,6 @@ describe('Runtime crash handling (phase 1121 Step B)', () => {
     { Cls: ConsecutiveParseErrorsExceededError, args: [3] },
     { Cls: ConsecutiveMaxTokensToolUseError, args: [5] },
     { Cls: LLMAllProvidersFailedError, args: [[{ provider: 'test', error: new Error('fail') }]] },
-    { Cls: LockContentionExhaustedError, args: ['test-contract', 5] },
   ];
 
   for (const { Cls, args } of errClasses) {

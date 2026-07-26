@@ -80,7 +80,6 @@ function makeAcceptanceCtx(
     },
     runScriptVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
     runLLMVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
-    withProgressLock: vi.fn(async (_id: string, fn: () => Promise<unknown>) => fn()),
     toolRegistry: createToolRegistry(),
     runVerifierWithCancel: vi.fn(async () => ({ passed: true, feedback: '' })),
     fs: {

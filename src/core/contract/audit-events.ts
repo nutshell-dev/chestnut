@@ -10,12 +10,6 @@
 import type { IdNamingEntry } from '../../foundation/audit/index.js';
 
 export const CONTRACT_AUDIT_EVENTS = {
-  LOCK_CLEARED: 'contract_lock_cleared',
-  LOCK_UNLINK_FAILED: 'contract_lock_unlink_failed',
-  LOCK_SCHEMA_INVALID: 'contract_lock_schema_invalid',   // ← NEW (phase 576)
-  LOCK_CLEANUP_FAILED: 'contract_lock_cleanup_failed',   // ← NEW (phase 850 / r108 F fork F2.1)
-  LOCK_RETRY: 'contract_lock_retry',                    // ← NEW (phase 1325 / r137 B fork)
-  LOCK_CLAIM_LEGACY_FORMAT_MIGRATED: 'contract_lock_claim_legacy_format_migrated', // ← NEW (phase 1048)
   PROGRESS_SCHEMA_INVALID: 'contract_progress_schema_invalid',  // ← NEW (phase 587)
   CONTRACT_YAML_SCHEMA_INVALID: 'contract_yaml_schema_invalid', // ← NEW (phase 587)
   OBSERVER_STATE_PARSE_FAILED: 'contract_observer_state_parse_failed',  // ← NEW (phase 1012 / r123 C fork)
@@ -56,8 +50,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 1121 Step C: deterministic persistent corruption lifecycle.
   CORRUPTED: 'contract_corrupted',
   CORRUPT_PARTIAL_FAILED: 'contract_corrupt_partial_failed',
-  // phase 472 (review N3-L): releaseSource catch 显式 audit、原"audit emit"注释承诺落地
-  RELEASE_SOURCE_FAILED: 'contract_release_source_failed',
   COMPLETED: 'contract_completed',
   // phase 569 const 化（verification.ts 7 处字面量收）
   SUBTASK_COMPLETED: 'subtask_completed',
@@ -98,8 +90,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   BOOT_RECONCILE_SCHEMA_FAILED: 'contract_boot_reconcile_schema_failed',
   // NEW phase 153: onboarding discovery progress.json parse failed silent skip 显式 audit
   CONTRACT_ONBOARDING_PROGRESS_PARSE_FAILED: 'contract_onboarding_progress_parse_failed',
-  // phase 1362 (r140): contractDir → acquireLock TOCTOU race retry audit trace
-  CONTRACT_DIR_RACE_RETRY: 'contract_dir_race_retry',
+
   // phase 1371 sub-3: verification pipeline mutex race rejection audit trace
   VERIFICATION_PIPELINE_RACE_REJECTED: 'verification_pipeline_race_rejected',
   // phase 956: contract exists in multiple directories (active/paused/archive)
@@ -181,12 +172,6 @@ export const CONTRACT_ID_NAMING: Readonly<Record<string, IdNamingEntry>> = {
  * 全 'audit'：业务事件归业务事件主 file（信噪比已通过 cron tick 分流改善）.
  */
 export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
-  contract_lock_cleared: 'audit',
-  contract_lock_unlink_failed: 'audit',
-  contract_lock_schema_invalid: 'audit',
-  contract_lock_cleanup_failed: 'audit',
-  contract_lock_retry: 'audit',
-  contract_lock_claim_legacy_format_migrated: 'audit',
   contract_progress_schema_invalid: 'audit',
   contract_yaml_schema_invalid: 'audit',
   contract_observer_state_parse_failed: 'audit',
@@ -206,7 +191,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_verification_reset_failed: 'audit',
   // phase 553 (back-fill phase 521 / 472): 业主声明 file 归属
   contract_verification_stuck_in_progress: 'audit',
-  contract_release_source_failed: 'audit',
   contract_verification_background_failed: 'audit',
   contract_complete_on_cancelled: 'audit',
   contract_verification_background_done: 'audit',
@@ -245,7 +229,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_boot_reconcile_skipped: 'audit',
   contract_boot_reconcile_schema_failed: 'audit',
   contract_onboarding_progress_parse_failed: 'audit',
-  contract_dir_race_retry: 'audit',
   mark_corrupted_graceful_fallback: 'audit',
   verification_pipeline_race_rejected: 'audit',
   contract_file_isolated: 'audit',

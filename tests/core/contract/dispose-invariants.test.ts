@@ -314,28 +314,6 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     abortSpy.mockRestore();
   });
 
-  // 反向 3: saveProgress reject → catch 块 releaseLock(source) + throw / lock 不 orphan
-  it('saveProgress reject: source lock released + throw propagated', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Cancel Save Reject Test',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
-
-    const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-
-    const saveSpy = vi.spyOn(manager as any, 'saveProgress').mockRejectedValue(
-      new Error('ENOSPC: no space left on device')
-    );
-
-    await expect(manager.cancel(contractId, 'test save reject')).rejects.toThrow('ENOSPC');
-
-    // source lock must be released (deleted)
-    await expect(fs.access(sourceLockPath)).rejects.toThrow();
-
-    saveSpy.mockRestore();
-  });
 });
 
 // ───── source: cancel-signal-propagation.test.ts ─────

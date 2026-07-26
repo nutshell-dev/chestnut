@@ -59,12 +59,7 @@ import type {
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
-import {
-  lockContract,
-  acquireLock,
-  releaseLock,
-  type LockContext,
-} from './lock.js';
+
 import { loadActiveContract, type DiscoveryContext } from './discovery.js';
 import {
   loadContractYaml as loadYaml, readContractYamlRaw as readYaml,
@@ -75,7 +70,7 @@ import {
 } from './persistence.js';
 import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } from './schemas.js';
 import { type ContractId, makeContractId } from './types.js';
-import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
+
 import { ContractValidationError, ContractCapacityError, ContractArchiveReadError, ContractLocationAmbiguityError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, type ArchiveState, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
@@ -140,8 +135,6 @@ export interface ContractSystemDeps {
   lockRetryDelayMs?: number;
   /** Injectable lock retry wait for deterministic contention tests. */
   lockRetrySleep?: (delayMs: number) => Promise<void>;
-  /** phase 1048: injectable process liveness checker for lock protocol */
-  l1IsAlive?: typeof defaultL1IsAlive;
 }
 
 export class ContractSystem {
@@ -156,11 +149,6 @@ export class ContractSystem {
   private fsFactory: (baseDir: string) => FileSystem;
   private runContractVerifier: typeof defaultRunContractVerifier;
   private runSubagent?: VerifierConfig['runSubagent'];
-  private lockMaxRetries?: number;
-  private lockRetryDelayMs?: number;
-  private lockRetrySleep?: (delayMs: number) => Promise<void>;
-  private l1IsAlive?: typeof defaultL1IsAlive;
-
   private activeDir = CONTRACT_ACTIVE_DIR;
   private pausedDir = CONTRACT_PAUSED_DIR;
   private archiveDir: ArchiveDir = makeArchiveDir(CONTRACT_ARCHIVE_DIR);
@@ -276,10 +264,7 @@ export class ContractSystem {
     this.fsFactory = deps.fsFactory;
     this.runContractVerifier = deps.runContractVerifier ?? defaultRunContractVerifier;
     this.runSubagent = deps.runSubagent;
-    this.lockMaxRetries = deps.lockMaxRetries;
-    this.lockRetryDelayMs = deps.lockRetryDelayMs;
-    this.lockRetrySleep = deps.lockRetrySleep;
-    this.l1IsAlive = deps.l1IsAlive;
+
   }
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
@@ -515,17 +500,6 @@ export class ContractSystem {
   // ctx 装配 helper
   // ============================================================================
 
-  private _lockCtx(): LockContext {
-    return {
-      fs: this.fs,
-      audit: this.audit,
-      lockMaxRetries: this.lockMaxRetries,
-      lockRetryDelayMs: this.lockRetryDelayMs,
-      lockRetrySleep: this.lockRetrySleep,
-      l1IsAlive: this.l1IsAlive,
-    };
-  }
-
   private _persistenceCtx(): PersistenceContext {
     return {
       fs: this.fs,
@@ -546,7 +520,8 @@ export class ContractSystem {
 
   private _lifecycleCtx(): LifecycleContext {
     return {
-      ...this._lockCtx(),
+      fs: this.fs,
+      audit: this.audit,
       activeDir: this.activeDir,
       archiveDir: this.archiveDir,
       contractDir: (id) => this.contractDir(id),
@@ -563,7 +538,8 @@ export class ContractSystem {
   private _verificationCtx(signal?: AbortSignal): VerificationContext {
     const self = this;
     return {
-      ...this._lockCtx(),
+      fs: this.fs,
+      audit: this.audit,
       clawDir: this.clawDir,
       clawId: this.clawId,
       // phase 104: caller pre-bound、直接 forward
@@ -589,7 +565,6 @@ export class ContractSystem {
       runLLMVerification: function(promptFile: string, contractAbsDir: string, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[]) {
         return self.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts, this.signal);
       },
-      withProgressLock: (contractId, fn) => this.withProgressLock(contractId, fn),
       toolRegistry: this.toolRegistry,
       toolTimeoutMs: this.toolTimeoutMs,
       verificationMutex: this.verificationMutex,
@@ -968,184 +943,177 @@ export class ContractSystem {
       }
     }
 
-    // Phase 957: claw-level create lock — 串并「校验 → 查重 → 读 active → 归档旧 → 建新」全路径。
-    const clawLockPath = '.contract-create.lock';
-    const createLockOwnerToken = await acquireLock(this._lockCtx(), clawLockPath);
+    if (contractYaml.id !== undefined && contractYaml.id.trim() === '') {
+      throw new ContractValidationError('id', 'empty',
+        'contract id must not be empty (yaml: id: "<not blank>")');
+    }
+    const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
+
+    // phase 1130 Step D: enforce single active contract capacity.
+    const activeIds = await listPhysicalActiveContractIds({
+      fs: this.fs,
+      activeDir: this.activeDir,
+    });
+    if (activeIds.length > 0) {
+      emitContractCapacityExhausted(this.audit, {
+        requestedContractId: contractId,
+        activeContractIds: activeIds,
+      });
+      throw new ContractCapacityError(contractId, activeIds);
+    }
+
+    // Phase 956: check uniqueness across current directories (active + archive states + legacy flat)
+    // phase 1123 Step C: paused/ is legacy-only and must not block creation.
+    // phase 1127 Step B: creation must not collide with any current archive state container or legacy flat entry.
+    const archiveStateDirs = [...ARCHIVE_STATES].map(state => `${this.archiveDir}/${state}`);
+    for (const dir of [this.activeDir, ...archiveStateDirs, this.archiveDir]) {
+      if (await this.fs.exists(`${dir}/${contractId}`)) {
+        throw new ContractValidationError('id', 'already_exists',
+          `contract id "${contractId}" already exists in ${path.basename(dir)}`,
+          { contractId });
+      }
+    }
+
+    if (!contractYaml.subtasks || contractYaml.subtasks.length === 0) {
+      throw new ContractValidationError('subtasks', 'missing',
+        'contract must have at least one subtask (yaml: subtasks: [- id: ..., description: ...])');
+    }
+
+    // phase 366 L4 (review-2026-06-13): schema 已 require script_file / prompt_file
+    // per type、生产 yaml parse 路径已 enforce。本 runtime check 保留作 defense in depth
+    // —— 直接 caller（测试 / 未来 SDK）若绕过 parse 传 raw object 也能在 manager.create
+    // 入口被拒。TS narrow 使分支编译期看是 never，用 as Record 绕回 runtime 真验。
+    for (const a of contractYaml.verification ?? []) {
+      const aRaw = a as unknown as Record<string, unknown>;
+      if (a.type === 'script' && typeof aRaw.script_file !== 'string') {
+        throw new ContractValidationError('verification', 'config_missing_field',
+          `verification config for subtask "${a.subtask_id}" has type='script' but missing 'script_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: script, script_file: ./path.sh])`,
+          { subtaskId: a.subtask_id, configType: 'script', missingField: 'script_file' });
+      }
+      if (a.type === 'llm' && typeof aRaw.prompt_file !== 'string') {
+        throw new ContractValidationError('verification', 'config_missing_field',
+          `verification config for subtask "${a.subtask_id}" has type='llm' but missing 'prompt_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: llm, prompt_file: ./prompt.md])`,
+          { subtaskId: a.subtask_id, configType: 'llm', missingField: 'prompt_file' });
+      }
+    }
+
+    const seenSubtaskIds = new Set<string>();
+    for (const a of contractYaml.verification ?? []) {
+      if (seenSubtaskIds.has(a.subtask_id)) {
+        throw new ContractValidationError('verification', 'duplicate',
+          `verification config: duplicate subtask_id "${a.subtask_id}" — each subtask can only have one verification entry (remove duplicate row in yaml)`,
+          { subtaskId: a.subtask_id });
+      }
+      seenSubtaskIds.add(a.subtask_id);
+    }
+
+    await this.fs.ensureDir(`${this.activeDir}/${contractId}`);
+
+    const content = yaml.dump({
+      schema_version: contractYaml.schema_version ?? CONTRACT_DEFAULTS.schema_version,
+      id: contractId,
+      title: contractYaml.title,
+      background: contractYaml.background,
+      goal: contractYaml.goal,
+      expectations: contractYaml.expectations,
+      subtasks: contractYaml.subtasks,
+      verification: contractYaml.verification ?? [],
+      verification_attempts: contractYaml.verification_attempts,
+      audit_interval: contractYaml.audit_interval,
+      auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
+    });
+    await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
+
+    const progress: ProgressData = {
+      schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
+      contract_id: contractId,
+      status: 'running',
+      subtasks: Object.fromEntries(
+        contractYaml.subtasks.map((st: { id: string }) => [st.id, { status: 'todo' as SubtaskStatus }])
+      ),
+      started_at: new Date().toISOString(),
+      checkpoint: null,
+    };
     try {
-      if (contractYaml.id !== undefined && contractYaml.id.trim() === '') {
-        throw new ContractValidationError('id', 'empty',
-          'contract id must not be empty (yaml: id: "<not blank>")');
-      }
-      const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
-
-      // phase 1130 Step D: enforce single active contract capacity.
-      const activeIds = await listPhysicalActiveContractIds({
-        fs: this.fs,
-        activeDir: this.activeDir,
-      });
-      if (activeIds.length > 0) {
-        emitContractCapacityExhausted(this.audit, {
-          requestedContractId: contractId,
-          activeContractIds: activeIds,
-        });
-        throw new ContractCapacityError(contractId, activeIds);
-      }
-
-      // Phase 956: check uniqueness across current directories (active + archive states + legacy flat)
-      // phase 1123 Step C: paused/ is legacy-only and must not block creation.
-      // phase 1127 Step B: creation must not collide with any current archive state container or legacy flat entry.
-      const archiveStateDirs = [...ARCHIVE_STATES].map(state => `${this.archiveDir}/${state}`);
-      for (const dir of [this.activeDir, ...archiveStateDirs, this.archiveDir]) {
-        if (await this.fs.exists(`${dir}/${contractId}`)) {
-          throw new ContractValidationError('id', 'already_exists',
-            `contract id "${contractId}" already exists in ${path.basename(dir)}`,
-            { contractId });
+      // phase 282 Step B: persist without derive fields (contract_id/status)
+      const persisted = { ...progress };
+      delete (persisted as Record<string, unknown>).contract_id;
+      delete (persisted as Record<string, unknown>).status;
+      await this.fs.writeAtomic(
+        `${this.activeDir}/${contractId}/progress.json`,
+        JSON.stringify(persisted, null, 2)
+      );
+    } catch (err) {
+      await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
+        if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => deleteErr instanceof T)) {
+          emitContractUnexpectedAsyncThrow(
+            this.audit,
+            {
+              context: 'ContractSystem.rollbackCleanup',
+              contractId,
+              errorType: deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr,
+              error: formatErr(deleteErr),
+              stack: deleteErr instanceof Error ? deleteErr.stack ?? '' : '',
+            },
+          );
         }
-      }
-
-      if (!contractYaml.subtasks || contractYaml.subtasks.length === 0) {
-        throw new ContractValidationError('subtasks', 'missing',
-          'contract must have at least one subtask (yaml: subtasks: [- id: ..., description: ...])');
-      }
-
-      // phase 366 L4 (review-2026-06-13): schema 已 require script_file / prompt_file
-      // per type、生产 yaml parse 路径已 enforce。本 runtime check 保留作 defense in depth
-      // —— 直接 caller（测试 / 未来 SDK）若绕过 parse 传 raw object 也能在 manager.create
-      // 入口被拒。TS narrow 使分支编译期看是 never，用 as Record 绕回 runtime 真验。
-      for (const a of contractYaml.verification ?? []) {
-        const aRaw = a as unknown as Record<string, unknown>;
-        if (a.type === 'script' && typeof aRaw.script_file !== 'string') {
-          throw new ContractValidationError('verification', 'config_missing_field',
-            `verification config for subtask "${a.subtask_id}" has type='script' but missing 'script_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: script, script_file: ./path.sh])`,
-            { subtaskId: a.subtask_id, configType: 'script', missingField: 'script_file' });
-        }
-        if (a.type === 'llm' && typeof aRaw.prompt_file !== 'string') {
-          throw new ContractValidationError('verification', 'config_missing_field',
-            `verification config for subtask "${a.subtask_id}" has type='llm' but missing 'prompt_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: llm, prompt_file: ./prompt.md])`,
-            { subtaskId: a.subtask_id, configType: 'llm', missingField: 'prompt_file' });
-        }
-      }
-
-      const seenSubtaskIds = new Set<string>();
-      for (const a of contractYaml.verification ?? []) {
-        if (seenSubtaskIds.has(a.subtask_id)) {
-          throw new ContractValidationError('verification', 'duplicate',
-            `verification config: duplicate subtask_id "${a.subtask_id}" — each subtask can only have one verification entry (remove duplicate row in yaml)`,
-            { subtaskId: a.subtask_id });
-        }
-        seenSubtaskIds.add(a.subtask_id);
-      }
-
-      await this.fs.ensureDir(`${this.activeDir}/${contractId}`);
-
-      const content = yaml.dump({
-        schema_version: contractYaml.schema_version ?? CONTRACT_DEFAULTS.schema_version,
-        id: contractId,
-        title: contractYaml.title,
-        background: contractYaml.background,
-        goal: contractYaml.goal,
-        expectations: contractYaml.expectations,
-        subtasks: contractYaml.subtasks,
-        verification: contractYaml.verification ?? [],
-        verification_attempts: contractYaml.verification_attempts,
-        audit_interval: contractYaml.audit_interval,
-        auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
-      });
-      await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
-
-      const progress: ProgressData = {
-        schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
-        contract_id: contractId,
-        status: 'running',
-        subtasks: Object.fromEntries(
-          contractYaml.subtasks.map((st: { id: string }) => [st.id, { status: 'todo' as SubtaskStatus }])
-        ),
-        started_at: new Date().toISOString(),
-        checkpoint: null,
-      };
-      try {
-        // phase 282 Step B: persist without derive fields (contract_id/status)
-        const persisted = { ...progress };
-        delete (persisted as Record<string, unknown>).contract_id;
-        delete (persisted as Record<string, unknown>).status;
-        await this.fs.writeAtomic(
-          `${this.activeDir}/${contractId}/progress.json`,
-          JSON.stringify(persisted, null, 2)
+        emitContractRollbackFailed(
+          this.audit,
+          {
+            contractId,
+            error: formatErr(deleteErr),
+          },
         );
-      } catch (err) {
-        await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
-          if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => deleteErr instanceof T)) {
-            emitContractUnexpectedAsyncThrow(
-              this.audit,
-              {
-                context: 'ContractSystem.rollbackCleanup',
-                contractId,
-                errorType: deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr,
-                error: formatErr(deleteErr),
-                stack: deleteErr instanceof Error ? deleteErr.stack ?? '' : '',
-              },
-            );
-          }
+      });
+      // verify rollback succeeded
+      if (await this.fs.exists(`${this.activeDir}/${contractId}`)) {
+        // phase 337 M3 (review-2026-06-13): 写 .rollback-incomplete sentinel
+        // 到 dir 内、让 ops + 未来 boot reconcile 一眼可见这是 stale 失败 rollback、
+        // 不是合法 active contract。dir 仍在但已 marked。audit 单独 emit。
+        const sentinelPath = `${this.activeDir}/${contractId}/.rollback-incomplete`;
+        const sentinelBody = JSON.stringify({
+          contract_id: contractId,
+          failed_at: new Date().toISOString(),
+          original_error: formatErr(err),
+          message: 'Contract.create rollback failed — dir is stale; ops should remove manually',
+        }, null, 2);
+        await this.fs.writeAtomic(sentinelPath, sentinelBody).catch((sentinelErr) => {
           emitContractRollbackFailed(
             this.audit,
             {
               contractId,
-              error: formatErr(deleteErr),
+              error: `sentinel write failed: ${formatErr(sentinelErr)}`,
             },
           );
         });
-        // verify rollback succeeded
-        if (await this.fs.exists(`${this.activeDir}/${contractId}`)) {
-          // phase 337 M3 (review-2026-06-13): 写 .rollback-incomplete sentinel
-          // 到 dir 内、让 ops + 未来 boot reconcile 一眼可见这是 stale 失败 rollback、
-          // 不是合法 active contract。dir 仍在但已 marked。audit 单独 emit。
-          const sentinelPath = `${this.activeDir}/${contractId}/.rollback-incomplete`;
-          const sentinelBody = JSON.stringify({
-            contract_id: contractId,
-            failed_at: new Date().toISOString(),
-            original_error: formatErr(err),
-            message: 'Contract.create rollback failed — dir is stale; ops should remove manually',
-          }, null, 2);
-          await this.fs.writeAtomic(sentinelPath, sentinelBody).catch((sentinelErr) => {
-            emitContractRollbackFailed(
-              this.audit,
-              {
-                contractId,
-                error: `sentinel write failed: ${formatErr(sentinelErr)}`,
-              },
-            );
-          });
-          emitContractRollbackIncomplete(
-            this.audit,
-            {
-              contractId,
-              remaining: `${this.activeDir}/${contractId}`,
-            },
-          );
-        }
-        throw err;
-      }
-
-      try {
-        this.onNotify?.('contract_created', { contractId, title: contractYaml.title, subtaskCount: contractYaml.subtasks.length });
-      } catch (err) {
-        emitContractNotifyFailed(
+        emitContractRollbackIncomplete(
           this.audit,
-          { error: formatErr(err) },
+          {
+            contractId,
+            remaining: `${this.activeDir}/${contractId}`,
+          },
         );
       }
-      emitContractCreated(
-        this.audit,
-        {
-          contractId,
-          subtasks: contractYaml.subtasks.length,
-          title: contractYaml.title,
-        },
-      );
-      return contractId;
-    } finally {
-      await releaseLock(this._lockCtx(), clawLockPath, createLockOwnerToken);
+      throw err;
     }
+
+    try {
+      this.onNotify?.('contract_created', { contractId, title: contractYaml.title, subtaskCount: contractYaml.subtasks.length });
+    } catch (err) {
+      emitContractNotifyFailed(
+        this.audit,
+        { error: formatErr(err) },
+      );
+    }
+    emitContractCreated(
+      this.audit,
+      {
+        contractId,
+        subtasks: contractYaml.subtasks.length,
+        title: contractYaml.title,
+      },
+    );
+    return contractId;
   }
 
   /**
@@ -1352,32 +1320,6 @@ export class ContractSystem {
   // private thin delegate（保 method 名 / tests white-box 调用面 + spy 保护）
   // ============================================================================
 
-  private async withProgressLock<T>(contractId: ContractId, fn: () => Promise<T>): Promise<T> {
-    // Phase 1136 Step E: current layout uses a single fixed slot lock; legacy active
-    // contracts continue to use the per-directory lock protocol.
-    const activeLoc = await resolveActiveContractLocation({
-      fs: this.fs,
-      audit: this.audit,
-      activeDir: this.activeDir,
-      contractId,
-    });
-    if (activeLoc?.layout === 'current') {
-      const lockPath = `${activeLoc.contractRoot}/progress.lock`;
-      const ownerToken = await acquireLock(this._lockCtx(), lockPath);
-      try {
-        return await fn();
-      } finally {
-        await releaseLock(this._lockCtx(), lockPath, ownerToken);
-      }
-    }
-
-    const { release } = await lockContract(this._lockCtx(), contractId, (id) => this.contractDir(id));
-    try {
-      return await fn();
-    } finally {
-      await release();
-    }
-  }
 
   private async loadContractYaml(contractId: ContractId): Promise<ContractYaml | null> {
     // Phase 1135 Step D: current layout YAML is read directly from the fixed slot.

@@ -26,7 +26,6 @@ import {
   ConsecutiveParseErrorsExceededError,
   ConsecutiveMaxTokensToolUseError,
 } from '../agent-executor/errors.js';
-import { LockContentionExhaustedError } from '../contract/errors.js';
 
 /**
  * EventLoop catch 块状态、handler 可读写以驱动 retry 状态机
@@ -148,8 +147,7 @@ export function isAgentLoopCrashError(err: unknown): boolean {
   return err instanceof MaxStepsExceededError
       || err instanceof WallTimeExceededError
       || err instanceof ConsecutiveParseErrorsExceededError
-      || err instanceof ConsecutiveMaxTokensToolUseError
-      || err instanceof LockContentionExhaustedError;
+      || err instanceof ConsecutiveMaxTokensToolUseError;
 }
 
 const agentLoopCrashHandler: ErrorHandler = {

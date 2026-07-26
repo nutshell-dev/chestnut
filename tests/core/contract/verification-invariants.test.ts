@@ -52,7 +52,6 @@ describe('archiveAndEmit (phase 951)', () => {
       emitContractCompleted: vi.fn(),
       getProgress: vi.fn().mockResolvedValue(null),
       saveProgress: vi.fn(),
-      withProgressLock: vi.fn(),
       verificationMutex: {} as VerificationContext['verificationMutex'],
       contractDir: vi.fn(),
       loadContractYaml: vi.fn(),
@@ -92,7 +91,6 @@ describe('archiveAndEmit (phase 951)', () => {
     // emit failed before move; contract stays active
     expect(result).toEqual({ archived: false });
     expect(ctx.moveContractToArchive).not.toHaveBeenCalled();
-    expect(ctx.withProgressLock).not.toHaveBeenCalled();
     expect(ctx.saveProgress).not.toHaveBeenCalled();
 
     // emit side effect was attempted
@@ -420,12 +418,10 @@ describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
     const contractId = await manager.create(makeContractYaml({ subtasks: [{ id: 't1', description: 'd1' }] }));
 
     // Mark subtask completed so archiveAndEmit will try to archive
-    await (manager as any).withProgressLock(contractId, async () => {
-      const progress = await manager.getProgress(contractId);
-      progress.subtasks['t1'].status = 'completed';
-      progress.subtasks['t1'].completed_at = new Date().toISOString();
-      await (manager as any).saveProgress(contractId, progress);
-    });
+    const progress = await manager.getProgress(contractId);
+    progress.subtasks['t1'].status = 'completed';
+    progress.subtasks['t1'].completed_at = new Date().toISOString();
+    await (manager as any).saveProgress(contractId, progress);
 
     // Spy moveToArchive to throw (simulating archive failure)
     vi.spyOn(manager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
@@ -449,8 +445,8 @@ describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
     // progress.json has no persisted status
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     const raw = await fs.readFile(progressPath, 'utf-8');
-    const progress = JSON.parse(raw);
-    expect(progress.status).toBeUndefined();
+    const savedProgress = JSON.parse(raw);
+    expect(savedProgress.status).toBeUndefined();
   });
 });
 
@@ -466,7 +462,6 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       notifyClaw: vi.fn(),
       fs: {} as unknown as FileSystem,
       contractDir: vi.fn().mockResolvedValue('contract/active'),
-      withProgressLock: vi.fn((_id, fn) => fn()),
       getProgress: vi.fn().mockResolvedValue(null),
       saveProgress: vi.fn().mockResolvedValue(undefined),
       loadContractYaml: vi.fn().mockResolvedValue({

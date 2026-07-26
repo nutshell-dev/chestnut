@@ -17,7 +17,6 @@ export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type Au
 // phase 465: errors barrel re-export
 export {
   ContractValidationError,
-  LockContentionExhaustedError,
   MultipleActiveContractsError,
   ContractCapacityError,
 } from './errors.js';
