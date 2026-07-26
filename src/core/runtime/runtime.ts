@@ -147,7 +147,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   // phase 521: regime switch coordination
   private dialogStoreFactory!: () => DialogStore;
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
-  // phase 440：上下文管理器运行时配置（filterSubtypes 等）
+  // phase 1190：上下文管理器运行时配置（filterSubtypes 已移除）
   private contextManagerConfig?: import('../step-executor/types.js').ContextManagerRuntimeConfig;
   /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
   private lastLLMCallAt: number = 0;
@@ -1116,7 +1116,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       trimPolicy: {
         recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
         retentionFloorRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
-        filterSubtypes: [...(this.contextManagerConfig?.filterSubtypes ?? new Set<string>())].sort(),
         previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
       },
     };
@@ -1140,7 +1139,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       toolsForLLM,
       contextWindow,
       lastLLMCallAt: this.lastLLMCallAt,
-      filterSubtypes: this.contextManagerConfig.filterSubtypes,
       dialogStore: this.sessionManager,
       audit: this.auditWriter,
     });
@@ -1179,7 +1177,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       contextWindow,
       recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
       previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-      filterSubtypes: this.contextManagerConfig.filterSubtypes,
       dialogStore: this.sessionManager,
       audit: this.auditWriter,
       triggerKind: 'reactive_overflow',

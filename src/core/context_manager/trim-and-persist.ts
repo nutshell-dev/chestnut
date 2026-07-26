@@ -21,7 +21,6 @@ export interface TrimAndPersistInputs {
   contextWindow: number;
   recentWindowMs: number;
   previewBytes: number;
-  filterSubtypes: ReadonlySet<string>;
   dialogStore: DialogStore;
   audit: AuditWriter;
   triggerKind: TriggerKind;
@@ -54,7 +53,6 @@ export async function trimAndPersist(
   const result = trimV2(inputs.messages, {
     recentWindowMs: inputs.recentWindowMs,
     previewBytes: inputs.previewBytes,
-    filterSubtypes: inputs.filterSubtypes,
     fixedTokens,
     policy: inputs.policy,
     now,

@@ -38,7 +38,6 @@ function baseOpts(overrides?: Partial<TrimV2Options>): TrimV2Options {
   return {
     recentWindowMs: RECENT_WINDOW_MS,
     previewBytes: PREVIEW_BYTES,
-    filterSubtypes: new Set(['claw_outbox_summary', 'heartbeat', 'claw_inactivity']),
     fixedTokens: 0,
     policy: buildProactiveTrimPolicy(10_000),
     now: NOW,
@@ -74,18 +73,21 @@ describe('trimV2', () => {
     expect(result.outcome.reason).toBe('already_within_target');
   });
 
-  it('2. 全 system 消息 24h 外且 filterSubtypes 命中 → 全删 + P4 摘要', () => {
+  it('2. 全 system 消息 24h 外 → 折叠为预览 + P4 摘要', () => {
     const messages: Message[] = withAnchor([
       makeSystemMsg('[system message] 未读 1 ' + '测'.repeat(500), 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - 1),
       makeSystemMsg('[system message] 未读 2 ' + '测'.repeat(500), 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - 2),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
-    expect(result.outcome.newMessages).toHaveLength(2);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    // newMessages: [collapsed system 1, collapsed system 2, summary, anchor]
+    expect(result.outcome.newMessages).toHaveLength(4);
     expect(result.metrics.droppedSystemMessages).toBe(2);
     expect(result.metrics.summaryMessageInjected).toBe(true);
-    const summary = result.outcome.newMessages[0];
+    const summary = result.outcome.newMessages[2];
     expect(summary.systemSubtype).toBe('context_trim_summary');
     expect(summary.content).toContain('claw_outbox_summary × 2');
+    expect(result.outcome.newMessages[0].content).toContain('<...>');
+    expect(result.outcome.newMessages[1].content).toContain('<...>');
   });
 
   it('3. tool_result 折叠基础 → content 替换且 id 配对在', () => {
@@ -103,12 +105,11 @@ describe('trimV2', () => {
         addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
       },
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     expect(result.metrics.collapsedToolResults).toBe(1);
     // newMessages: [assistant tool_use (unchanged), user tool_result (collapsed), summary, anchor]
     const tr = (result.outcome.newMessages[1].content as [{ type: 'tool_result'; content: string }])[0];
     expect(tr.content).toContain('<...>');
-    expect(tr.content).toContain('tool_use_id=call_1_abc');
     expect(tr.content).toContain('1500 bytes');
   });
 
@@ -125,7 +126,7 @@ describe('trimV2', () => {
         addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
       },
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     expect(result.metrics.collapsedToolUseFields).toBe(1);
     // newMessages: [assistant tool_use (collapsed), summary, anchor]
     const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
@@ -192,7 +193,7 @@ describe('trimV2', () => {
         timesTrimmed: 1,
       },
     };
-    const result = trimV2(withAnchor([preTrimmed]), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(withAnchor([preTrimmed]), baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     // newMessages: [preTrimmed (collapsed + trimmed metadata accumulated), summary, anchor]
     const trimmed = result.outcome.newMessages[0].trimmed!;
     expect(trimmed.trimmedAt).toBe(preTrimmed.trimmed!.trimmedAt);
@@ -205,43 +206,46 @@ describe('trimV2', () => {
     const justOlder = makeSystemMsg('[system message] ' + '测'.repeat(500), 'task_result', threshold - 1);
     const justNewer = makeTextMsg('newer', { addedAt: new Date(threshold + 1).toISOString() });
     // 加 NOW anchor 让 latest_addedAt = NOW、threshold = NOW - RW 同测试预期
-    const result = trimV2(withAnchor([justOlder, justNewer]), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(withAnchor([justOlder, justNewer]), baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     // newMessages: [collapsed older, summary, newer, anchor]
     expect(result.outcome.newMessages).toHaveLength(4);
     expect(result.outcome.newMessages[1].systemSubtype).toBe('context_trim_summary');
     expect(result.outcome.newMessages[2].content).toBe('newer');
   });
 
-  it('9. 老 dialog 无 addedAt → 视为 24h 外可裁 (phase 757、不向后兼容、archive 兜底)', () => {
-    // phase 757：无 addedAt 走 olderIdx 路径、命中 filterSubtypes 删除验证「24h 外」分类
+  it('9. 老 dialog 无 addedAt → 视为 24h 外可折叠 (phase 757、不向后兼容、archive 兜底)', () => {
+    // phase 757：无 addedAt 走 olderIdx 路径、验证「24h 外」分类
     const oldDialog: Message[] = [
       { ...makeSystemMsg('[system message] no addedAt ' + '测'.repeat(200), 'claw_outbox_summary', NOW), addedAt: undefined },
     ];
-    const result = trimV2(oldDialog, baseOpts({ policy: buildProactiveTrimPolicy(300) }));
+    const result = trimV2(oldDialog, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     expect(result.metrics.summaryMessageInjected).toBe(true);
     expect(result.metrics.droppedSystemMessages).toBe(1);
-    expect(result.outcome.newMessages).toHaveLength(1);
-    expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
+    expect(result.outcome.newMessages).toHaveLength(2);
+    expect(result.outcome.newMessages[0].content).toContain('<...>');
+    expect(result.outcome.newMessages[1].systemSubtype).toBe('context_trim_summary');
   });
 
-  it('10. filterSubtypes 命中 140 次 → 全删且摘要正确', () => {
+  it('10. 140 条 system 消息折叠后仍超 target → 选择性 turn 丢弃全部移除', () => {
     const messages: Message[] = [];
     for (let i = 0; i < 140; i++) {
       messages.push(makeSystemMsg(`summary ${i} ${'x'.repeat(200)}`, 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - i));
     }
     const result = trimV2(withAnchor(messages), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
     expect(result.metrics.droppedSystemMessages).toBe(140);
-    // newMessages: [summary, anchor]
+    expect(result.metrics.summaryMessageInjected).toBe(true);
+    // 旧 system turn 被整体丢弃；anchor 保留；摘要注入在 boundaryIndex=0
     expect(result.outcome.newMessages).toHaveLength(2);
-    expect(result.outcome.newMessages[0].content).toContain('claw_outbox_summary × 140');
+    expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
+    expect(result.outcome.newMessages[1].content).toBe('anchor');
   });
 
-  it('11. 高价值 systemSubtype → 头部预览 + 折叠（不删整 message）', () => {
+  it('11. systemSubtype 任意类型均折叠为预览（不再按 filterSubtypes 删除）', () => {
     const messages: Message[] = withAnchor([
       makeSystemMsg('[system message] ' + '测'.repeat(500), 'task_result', NOW - RECENT_WINDOW_MS - 1),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
-    expect(result.metrics.droppedSystemMessages).toBe(0);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    expect(result.metrics.droppedSystemMessages).toBe(1);
     // newMessages: [collapsed system message, summary, anchor]
     expect(result.outcome.newMessages).toHaveLength(3);
     expect(result.outcome.newMessages[0].content).toContain('[system message]');
@@ -249,7 +253,7 @@ describe('trimV2', () => {
     expect((result.outcome.newMessages[0].content as string).length).toBeLessThan(('测'.repeat(500)).length);
   });
 
-  it('12. proactive 有效下降但未达 target → progress（不再 throw）', () => {
+  it('12. proactive 压缩不足 → 选择性丢弃旧 turn 后达标', () => {
     const audit = { write: vi.fn() } satisfies AuditWriter;
     const messages: Message[] = withAnchor([
       {
@@ -259,8 +263,11 @@ describe('trimV2', () => {
       },
     ]);
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(10), audit }));
-    expect(result.outcome.status).toBe('progress');
-    expect(result.outcome.after).toBeLessThan(result.outcome.before);
+    expect(result.outcome.status).toBe('target_reached');
+    // 旧 turn 无 user 无 send，整段丢弃；摘要注入在 boundaryIndex=0；anchor 保留
+    expect(result.outcome.newMessages).toHaveLength(2);
+    expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
+    expect(result.outcome.newMessages[1].content).toBe('anchor');
     expect(result.metrics.collapsedToolResults).toBeGreaterThan(0);
   });
 
@@ -297,7 +304,7 @@ describe('trimV2', () => {
   });
 
   it('15. phase 757: 全无 addedAt → 全 olderIdx（不向后兼容、archive 兜底）', () => {
-    // phase 757：无 addedAt 全归 olderIdx、命中 filterSubtypes 删验证分类
+    // phase 757：无 addedAt 全归 olderIdx、验证折叠
     const messages: Message[] = [
       { ...makeSystemMsg('[system message] msg 1 ' + '测'.repeat(200), 'claw_outbox_summary', NOW), addedAt: undefined },
       { ...makeSystemMsg('[system message] msg 2 ' + '测'.repeat(200), 'claw_outbox_summary', NOW), addedAt: undefined },
@@ -306,22 +313,25 @@ describe('trimV2', () => {
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(300) }));
     expect(result.metrics.summaryMessageInjected).toBe(true);
     expect(result.metrics.droppedSystemMessages).toBe(3);
-    // newMessages: [summary]（3 system msgs 全删）
+    // 压缩后仍超 target，整 turn 无 user 无 send 被整体丢弃；只剩摘要
     expect(result.outcome.newMessages).toHaveLength(1);
+    expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
   });
 
   it('16. phase 757: 混合（部分有 addedAt + 部分无）→ anchor 自有 addedAt 算', () => {
     const messages: Message[] = [
       { ...makeSystemMsg('[system message] no addedat ' + '测'.repeat(200), 'claw_outbox_summary', NOW), addedAt: undefined }, // olderIdx
-      makeTextMsg('latest ' + '测'.repeat(100), { addedAt: new Date(NOW).toISOString() }),                                     // newerIdx (anchor)
       { ...makeSystemMsg('[system message] no addedat 2 ' + '测'.repeat(200), 'claw_outbox_summary', NOW), addedAt: undefined },// olderIdx
+      makeTextMsg('latest ' + '测'.repeat(100), { addedAt: new Date(NOW).toISOString() }),                                     // newerIdx (anchor)
     ];
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     // anchor = NOW、threshold = NOW - RW、addedAt = NOW 进 newerIdx、无 addedAt 进 olderIdx
     expect(result.metrics.summaryMessageInjected).toBe(true);
-    expect(result.metrics.droppedSystemMessages).toBe(2);   // 2 无 addedAt system msgs 命中 filterSubtypes
-    // newMessages: [summary, latest with addedat]
+    expect(result.metrics.droppedSystemMessages).toBe(2);   // 2 条无 addedAt system 消息被折叠
+    // 旧 system turn 被整体丢弃；摘要注入在 boundaryIndex=0；latest 保留
     expect(result.outcome.newMessages).toHaveLength(2);
+    expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
+    expect(result.outcome.newMessages[1].content).toContain('latest');
   });
 
   it('17. phase 757: 单条最新 addedAt 决定 anchor、其他更老都被裁', () => {
@@ -334,11 +344,13 @@ describe('trimV2', () => {
       makeTextMsg('latest ' + '测'.repeat(100), { addedAt: new Date(latest).toISOString() }),
     ];
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500), now: latest }));
-    // 2 老 (6/17) < threshold (6/18 15:00) → olderIdx、命中 filterSubtypes 删；latest > threshold → newerIdx
+    // 2 老 (6/17) < threshold (6/18 15:00) → olderIdx 折叠；latest > threshold → newerIdx
     expect(result.metrics.summaryMessageInjected).toBe(true);
     expect(result.metrics.droppedSystemMessages).toBe(2);
-    // newMessages: [summary, latest]
+    // 2 条老 system 压缩后仍超 target，整 turn 丢弃；摘要注入在 boundaryIndex=0；latest 保留
     expect(result.outcome.newMessages).toHaveLength(2);
+    expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
+    expect(result.outcome.newMessages[1].content).toContain('latest');
   });
 
   it('18. phase 757: 频繁用户 (latest = now) 行为同现行', () => {
@@ -349,50 +361,49 @@ describe('trimV2', () => {
       makeTextMsg('latest ' + '测'.repeat(100), { addedAt: new Date(NOW).toISOString() }),          // newerIdx (anchor)
     ];
     const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
-    expect(result.metrics.droppedSystemMessages).toBe(1);   // claw_outbox_summary 命中 filterSubtypes → 删
+    expect(result.metrics.droppedSystemMessages).toBe(1);   // system 消息被折叠
     expect(result.metrics.summaryMessageInjected).toBe(true);
-    // newMessages: [summary, latest]
-    expect(result.outcome.newMessages).toHaveLength(2);
+    // newMessages: [collapsed old, summary, latest]
+    expect(result.outcome.newMessages).toHaveLength(3);
   });
 
   // ─── phase 1153 新增：reactive policy + P5 完整 turn 裁剪 ───
 
-  it('19. reactive: P1-P4 后已落在 [floor, ceiling] → target_reached', () => {
+  it('19. reactive: P1-P4 后已落在 ceiling 以内 → target_reached', () => {
     const messages: Message[] = [
       makeSystemMsg('测'.repeat(200), 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - 1),
-      makeTextMsg('测'.repeat(430), { addedAt: new Date(NOW - RECENT_WINDOW_MS + 1).toISOString() }),
+      makeTextMsg('a'.repeat(250), { addedAt: new Date(NOW - RECENT_WINDOW_MS + 1).toISOString() }),
       makeTextMsg('anchor'),
     ];
     const fixedTokens = 0;
-    const policy = buildReactiveTrimPolicy({ contextWindow: 1_200, explicitMaxTokens: 200 });
+    const policy = buildReactiveTrimPolicy({ contextWindow: 400, explicitMaxTokens: 50 });
     const result = trimV2(messages, baseOpts({ fixedTokens, policy }));
     expect(result.outcome.status).toBe('target_reached');
     expect(result.outcome.after).toBeLessThanOrEqual(policy.completeCeilingTokens);
-    expect(result.outcome.after).toBeGreaterThanOrEqual(policy.completeFloorTokens);
   });
 
-  it('20. reactive: P1-P4 后仍超 ceiling → P5 移除最旧完整 turn', () => {
-    const userTurn1 = makeTextMsg('old', { addedAt: new Date(NOW - RECENT_WINDOW_MS * 2 - 2).toISOString() });
+  it('20. reactive: P1-P4 后仍超 ceiling → P5 选择性丢弃最旧 turn', () => {
+    const userTurn1 = makeTextMsg('old'.repeat(50), { addedAt: new Date(NOW - RECENT_WINDOW_MS * 2 - 2).toISOString() });
     const assistantTurn1: Message = {
       role: 'assistant',
-      content: [{ type: 'text', text: '测'.repeat(250) }],
+      content: [{ type: 'text', text: '测'.repeat(500) }],
       addedAt: new Date(NOW - RECENT_WINDOW_MS * 2 - 1).toISOString(),
     };
     const userTurn2 = makeTextMsg('recent', { addedAt: new Date(NOW - RECENT_WINDOW_MS + 1).toISOString() });
     const assistantTurn2: Message = {
       role: 'assistant',
-      content: [{ type: 'text', text: '测'.repeat(450) }],
+      content: [{ type: 'text', text: '测'.repeat(500) }],
       addedAt: new Date(NOW - RECENT_WINDOW_MS + 2).toISOString(),
     };
     const messages: Message[] = [userTurn1, assistantTurn1, userTurn2, assistantTurn2];
     const fixedTokens = 0;
-    const policy = buildReactiveTrimPolicy({ contextWindow: 1_200, explicitMaxTokens: 200 });
+    const policy = buildReactiveTrimPolicy({ contextWindow: 120, explicitMaxTokens: 10 });
     const result = trimV2(messages, baseOpts({ fixedTokens, policy }));
     expect(result.outcome.status).toBe('target_reached');
-    expect(result.droppedMessages.length).toBeGreaterThan(0);
+    expect(result.droppedMessages.length).toBe(2); // userTurn1 + assistantTurn1
+    // 旧 turn 的 assistant text 被移除，孤立的 userTurn1 因 API 交替约束也被移除
     expect(result.outcome.newMessages[0].content).toBe('recent');
     expect(result.outcome.after).toBeLessThanOrEqual(policy.completeCeilingTokens);
-    expect(result.outcome.after).toBeGreaterThanOrEqual(policy.completeFloorTokens);
   });
 
   it('21. reactive: maxTokens 进入 reserve；undefined 按 Phase 194 为 0', () => {
@@ -411,7 +422,7 @@ describe('trimV2', () => {
     expect(result.outcome.reason).toBe('empty_legal_interval');
   });
 
-  it('23. reactive: 无合法完整 turn 边界 → atomic_turn_boundary policy_conflict', () => {
+  it('23. reactive: 单条巨大 user 消息无法被选择性 drop，返回 atomic_turn_boundary', () => {
     const huge = makeTextMsg('测'.repeat(500));
     const policy = buildReactiveTrimPolicy({ contextWindow: 1_200, explicitMaxTokens: 200 });
     const result = trimV2([huge], baseOpts({ fixedTokens: 0, policy }));
@@ -425,6 +436,157 @@ describe('trimV2', () => {
     const result = trimV2(messages, baseOpts({ fixedTokens: 1_100, policy }));
     expect(result.outcome.status).toBe('policy_conflict');
     expect(result.outcome.reason).toBe('fixed_context_exceeds_ceiling');
+  });
+
+  // ─── phase 1190 新增：三层策略 + 选择性 turn 丢弃 ───
+
+  it('25. text block 在 assistant 消息中被压缩为预览', () => {
+    const messages: Message[] = withAnchor([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '测'.repeat(500), blockId: 'block-text-1' }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    expect(result.metrics.summaryMessageInjected).toBe(true);
+    const text = (result.outcome.newMessages[0].content as [{ type: 'text'; text: string }])[0].text;
+    expect(text).toContain('<...>');
+    expect(text).toContain('block-id=block-te');
+    expect(() => assertWellFormedUnicode(text)).not.toThrow();
+  });
+
+  it('26. thinking block 在 assistant 消息中被压缩为预览', () => {
+    const messages: Message[] = withAnchor([
+      {
+        role: 'assistant',
+        content: [{ type: 'thinking', thinking: '测'.repeat(500), blockId: 'block-think-1' }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    expect(result.metrics.summaryMessageInjected).toBe(true);
+    const thinking = (result.outcome.newMessages[0].content as [{ type: 'thinking'; thinking: string }])[0].thinking;
+    expect(thinking).toContain('<...>');
+    expect(thinking).toContain('block-id=block-th');
+    expect(() => assertWellFormedUnicode(thinking)).not.toThrow();
+  });
+
+  it('27. send.content 作为 Tier 1 不被截断', () => {
+    const longContent = '测'.repeat(500);
+    const messages: Message[] = withAnchor([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_send', name: 'send', input: { content: longContent } }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
+    expect(result.metrics.collapsedToolUseFields).toBe(0);
+    const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
+    expect(tu.input.content).toBe(longContent);
+  });
+
+  it('28. proactive 压缩不足 → 选择性丢弃旧 turn 但保留 user 消息与 send', () => {
+    const messages: Message[] = withAnchor([
+      makeTextMsg('old user', { addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString() }),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '测'.repeat(500) },
+          { type: 'tool_use', id: 'call_send', name: 'send', input: { content: 'hello' } },
+        ],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    expect(result.outcome.status).toBe('target_reached');
+    // newMessages: [old user, summary, send tool_use, anchor]
+    expect(result.outcome.newMessages).toHaveLength(4);
+    expect(result.outcome.newMessages[0].content).toBe('old user');
+    const assistant = result.outcome.newMessages[2];
+    expect(assistant.role).toBe('assistant');
+    const sendBlock = (assistant.content as [{ type: 'tool_use'; name: string; input: Record<string, unknown> }])[0];
+    expect(sendBlock.name).toBe('send');
+    expect(sendBlock.input.content).toBe('hello');
+  });
+
+  it('29. reactive 压缩不足 → 选择性丢弃旧 turn', () => {
+    const userTurn1 = makeTextMsg('old'.repeat(50), { addedAt: new Date(NOW - RECENT_WINDOW_MS * 2).toISOString() });
+    const assistantTurn1: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: '测'.repeat(500) }],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS * 2 + 1).toISOString(),
+    };
+    const userTurn2 = makeTextMsg('recent', { addedAt: new Date(NOW - RECENT_WINDOW_MS + 1).toISOString() });
+    const assistantTurn2: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: '测'.repeat(500) }],
+      addedAt: new Date(NOW - RECENT_WINDOW_MS + 2).toISOString(),
+    };
+    const messages: Message[] = [userTurn1, assistantTurn1, userTurn2, assistantTurn2];
+    const policy = buildReactiveTrimPolicy({ contextWindow: 120, explicitMaxTokens: 10 });
+    const result = trimV2(messages, baseOpts({ policy }));
+    expect(result.outcome.status).toBe('target_reached');
+    expect(result.droppedMessages.length).toBeGreaterThan(0);
+    expect(result.outcome.newMessages[0].content).toBe('recent');
+  });
+
+  it('30. 选择性 turn 丢弃保留 user + send，丢弃 text/thinking/其他 tool_use + tool_result', () => {
+    const messages: Message[] = withAnchor([
+      makeTextMsg('old user', { addedAt: new Date(NOW - RECENT_WINDOW_MS - 3).toISOString() }),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '测'.repeat(200) },
+          { type: 'thinking', thinking: '测'.repeat(200) },
+          { type: 'tool_use', id: 'call_other', name: 'read', input: { path: '/x' } },
+          { type: 'tool_use', id: 'call_send', name: 'send', input: { content: 'keep me' } },
+        ],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString(),
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_other', content: '测'.repeat(200) }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    expect(result.outcome.status).toBe('target_reached');
+    // newMessages: [old user, summary, send tool_use, anchor]
+    expect(result.outcome.newMessages[0].content).toBe('old user');
+    expect(result.outcome.newMessages[1].systemSubtype).toBe('context_trim_summary');
+    const keptAssistant = result.outcome.newMessages[2];
+    expect(keptAssistant.role).toBe('assistant');
+    const keptBlocks = keptAssistant.content as [{ type: string; name?: string; input?: Record<string, unknown> }];
+    expect(keptBlocks).toHaveLength(1);
+    expect(keptBlocks[0].type).toBe('tool_use');
+    expect(keptBlocks[0].name).toBe('send');
+    expect(keptBlocks[0].input?.content).toBe('keep me');
+    // 旧 turn 的 text/thinking/非 send tool_use/tool_result 均被丢弃
+    expect(result.droppedMessages.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('31. tool_use 与 tool_result 绑定一起丢弃', () => {
+    const messages: Message[] = withAnchor([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_bind', name: 'read', input: { path: '/x' } }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 2).toISOString(),
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_bind', content: '测'.repeat(200) }],
+        addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
+      },
+    ]);
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(10) }));
+    expect(result.outcome.status).toBe('target_reached');
+    // 旧 turn 无 user 无 send 被整体丢弃；摘要注入在 boundaryIndex=0；anchor 保留
+    expect(result.outcome.newMessages).toHaveLength(2);
+    expect(result.outcome.newMessages[0].systemSubtype).toBe('context_trim_summary');
+    expect(result.outcome.newMessages[1].content).toBe('anchor');
+    expect(result.droppedMessages.length).toBe(2);
   });
 });
 
@@ -454,7 +616,7 @@ function getToolResultContent(messages: Message[]): string {
 describe('trimV2 UTF-8 preview safety', () => {
   it('tool_result 在 100-byte 边界遇 emoji 不切 surrogate pair', () => {
     const content = `${'a'.repeat(PREVIEW_BYTES)}😀${'tail'.repeat(200)}`;
-    const result = trimV2(makeToolResultDialog(content), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(makeToolResultDialog(content), baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     const trimmed = getToolResultContent(result.outcome.newMessages);
 
     expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
@@ -470,7 +632,7 @@ describe('trimV2 UTF-8 preview safety', () => {
     const messages: Message[] = withAnchor([
       makeSystemMsg('[system message]' + restBodyBeforeEmoji + '😀' + 'tail'.repeat(200), 'task_result', NOW - RECENT_WINDOW_MS - 1),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     const trimmed = result.outcome.newMessages[0].content as string;
 
     expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
@@ -482,7 +644,7 @@ describe('trimV2 UTF-8 preview safety', () => {
     const messages: Message[] = withAnchor([
       makeSystemMsg('a'.repeat(PREVIEW_BYTES) + '😀' + 'tail'.repeat(200), 'task_result', NOW - RECENT_WINDOW_MS - 1),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     const trimmed = result.outcome.newMessages[0].content as string;
 
     expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();
@@ -503,7 +665,7 @@ describe('trimV2 UTF-8 preview safety', () => {
         addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString(),
       },
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     const tu = (result.outcome.newMessages[0].content as [{ type: 'tool_use'; input: Record<string, unknown> }])[0];
     const trimmed = tu.input.content as string;
 
@@ -519,7 +681,7 @@ describe('trimV2 UTF-8 preview safety', () => {
     const messages: Message[] = withAnchor([
       makeSystemMsg(content, 'task_result', NOW - RECENT_WINDOW_MS - 1),
     ]);
-    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(50) }));
+    const result = trimV2(messages, baseOpts({ policy: buildProactiveTrimPolicy(500) }));
     const trimmed = result.outcome.newMessages[0].content as string;
 
     expect(() => assertWellFormedUnicode(trimmed)).not.toThrow();

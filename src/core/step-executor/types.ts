@@ -25,7 +25,7 @@ export interface LLMCallInfo {
  * 反应式 trim+retry 路径用（runtime.contextManagerConfig 字段类型）。
  */
 export interface ContextManagerRuntimeConfig {
-  filterSubtypes: ReadonlySet<string>;
+  /** phase 1190：filterSubtypes 已移除，系统消息统一压缩成预览。保留空接口以避免级联改动。 */
 }
 
 export interface StepCallbacks {

@@ -113,7 +113,7 @@ export interface RuntimeOptions {
   /** phase 521: regime 切换 messages 继承 strategy / default 'all' / per L5.G1+G2 */
   regimeSwitchStrategy?: 'all' | 'none' | 'last-turn';
 
-  /** phase 440：上下文管理器运行时配置（filterSubtypes 等） */
+  /** phase 1190：上下文管理器运行时配置（filterSubtypes 已移除） */
   contextManagerConfig?: ContextManagerRuntimeConfig;
 }
 

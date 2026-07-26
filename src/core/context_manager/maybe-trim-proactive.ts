@@ -30,7 +30,6 @@ export interface MaybeTrimProactiveInputs {
   /** 上次 LLM 调用完成时刻 (ms epoch)；0 = 从未调用过 */
   lastLLMCallAt: number;
 
-  filterSubtypes: ReadonlySet<string>;
   dialogStore: DialogStore;
   audit: AuditWriter;
 
@@ -78,7 +77,6 @@ export async function maybeTrimProactive(
     contextWindow: inputs.contextWindow,
     recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
     previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-    filterSubtypes: inputs.filterSubtypes,
     dialogStore: inputs.dialogStore,
     audit: inputs.audit,
     triggerKind: 'proactive_cache_idle',

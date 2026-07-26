@@ -29,7 +29,6 @@ function makeInputs(overrides?: Partial<MaybeTrimProactiveInputs>): MaybeTrimPro
     toolsForLLM: [],
     contextWindow: 2_000,
     lastLLMCallAt: NOW - CACHE_TTL_MS - 1,
-    filterSubtypes: new Set(),
     dialogStore: makeDialogStore(),
     audit: makeAudit(),
     now: NOW,
@@ -147,19 +146,7 @@ describe('maybeTrimProactive', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('10. filterSubtypes 透传给 trimAndPersist', async () => {
-    vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
-    vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
-    vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
-    const spy = vi
-      .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
-    const filterSubtypes = new Set(['subtypeA']);
-    await maybeTrimProactive(makeInputs({ contextWindow: 2_000, filterSubtypes }));
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ filterSubtypes }));
-  });
-
-  it('11. proactive policy 透传', async () => {
+  it('10. proactive policy 透传', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);

@@ -36,7 +36,6 @@ function baseInputs(overrides?: Partial<Parameters<typeof trimAndPersist>[0]>): 
     contextWindow: 2_000,
     recentWindowMs: RECENT_WINDOW_MS,
     previewBytes: 100,
-    filterSubtypes: new Set(),
     dialogStore: makeDialogStore(),
     audit: makeAudit(),
     triggerKind: 'reactive_overflow' as TriggerKind,
