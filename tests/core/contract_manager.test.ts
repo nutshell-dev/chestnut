@@ -21,6 +21,9 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { ContractValidationError, ContractArchiveReadError } from '../../src/core/contract/errors.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
+import { createContextInjector } from '../../src/core/context_manager/injector.js';
+import { computeContractView } from '../../src/core/status-service/aggregators.js';
+import { createSubmitSubtaskTool } from '../../src/core/contract/tools/submit-subtask.js';
 
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
@@ -487,6 +490,97 @@ describe('ContractSystem', () => {
 
       const corruptedDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
       await expect(fs.stat(corruptedDir)).resolves.toBeDefined();
+    });
+  });
+
+  // === Phase 1194 Step C: foreground propagation and hand-off ===
+
+  describe('foreground propagation (phase 1194 Step C)', () => {
+    async function createWithStartedAt(
+      contractSystem: ContractSystem,
+      id: string,
+      startedAt: string,
+      title: string,
+    ) {
+      const contractId = await contractSystem.create(makeContractYaml({
+        id,
+        title,
+        goal: title,
+        subtasks: [{ id: 't1', description: `${title} task` }],
+        verification: [],
+      }));
+      // Override started_at so the test controls FIFO order deterministically.
+      const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
+      const progress = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
+      progress.started_at = startedAt;
+      await fs.writeFile(progressPath, JSON.stringify(progress, null, 2), 'utf-8');
+      return contractId;
+    }
+
+    it('ContextInjector, status aggregator and submit tool all observe the same foreground', async () => {
+      const older = await createWithStartedAt(manager, 'older', '2026-07-12T10:00:00.000Z', 'Older Contract');
+      const newer = await createWithStartedAt(manager, 'newer', '2026-07-12T11:00:00.000Z', 'Newer Contract');
+
+      // ContractSystem.loadActive is the single source of foreground.
+      const active = await manager.loadActive();
+      expect(active?.id).toBe(older);
+      expect(active?.title).toBe('Older Contract');
+
+      // ContextInjector injects only the foreground contract.
+      const injector = createContextInjector({ fs: nodeFs, contractManager: manager });
+      const parts = await injector.buildParts();
+      expect(parts.contract).toContain('Older Contract');
+      expect(parts.contract).not.toContain('Newer Contract');
+
+      // Status aggregator shows the same foreground.
+      const view = await computeContractView(manager);
+      expect(view.type).toBe('active');
+      if (view.type === 'active') {
+        expect(view.title).toBe('Older Contract');
+      }
+
+      // submit_subtask tool targets the foreground contract.
+      const tool = createSubmitSubtaskTool(manager);
+      const result = await tool.execute({ subtask: 't1', evidence: 'done' }, {} as any);
+      expect(result.success).toBe(true);
+      expect(result.metadata).toMatchObject({ contractId: older });
+      expect(result.metadata).not.toMatchObject({ contractId: newer });
+    });
+
+    it('foreground switches to next contract after the current one is cancelled', async () => {
+      const older = await createWithStartedAt(manager, 'older', '2026-07-12T10:00:00.000Z', 'Older Contract');
+      await createWithStartedAt(manager, 'newer', '2026-07-12T11:00:00.000Z', 'Newer Contract');
+
+      expect((await manager.loadActive())?.id).toBe(older);
+
+      await manager.cancel(older, 'release foreground');
+
+      const next = await manager.loadActive();
+      expect(next?.id).toBe('newer');
+      expect(next?.title).toBe('Newer Contract');
+
+      const injector = createContextInjector({ fs: nodeFs, contractManager: manager });
+      const parts = await injector.buildParts();
+      expect(parts.contract).toContain('Newer Contract');
+      expect(parts.contract).not.toContain('Older Contract');
+    });
+
+    it('foreground switches to next contract after the current one completes', async () => {
+      const older = await createWithStartedAt(manager, 'older', '2026-07-12T10:00:00.000Z', 'Older Contract');
+      await createWithStartedAt(manager, 'newer', '2026-07-12T11:00:00.000Z', 'Newer Contract');
+
+      await manager.completeSubtask({ contractId: older, subtaskId: 't1', evidence: 'done' });
+
+      const next = await manager.loadActive();
+      expect(next?.id).toBe('newer');
+    });
+
+    it('does not let a newly created contract preempt an earlier foreground', async () => {
+      const first = await createWithStartedAt(manager, 'first', '2026-07-12T09:00:00.000Z', 'First Contract');
+      await createWithStartedAt(manager, 'second', '2026-07-12T10:00:00.000Z', 'Second Contract');
+      await createWithStartedAt(manager, 'third', '2026-07-12T11:00:00.000Z', 'Third Contract');
+
+      expect((await manager.loadActive())?.id).toBe(first);
     });
   });
 });
