@@ -16,8 +16,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
 import { ARCHIVE_STATES, type ArchiveState, type ContractId, makeContractId } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import { ContractLocationAmbiguityError, ContractLayoutCorruptedError } from './errors.js';
-import { readCurrentContractLayout, getContractActiveCurrentRoot } from './new-layout.js';
+import { ContractLocationAmbiguityError } from './errors.js';
 
 export type ContractLocationKind = 'active' | 'archived-current' | 'archived-legacy';
 
@@ -55,71 +54,30 @@ export function contractProgressPath(contractRoot: string): string {
 }
 
 // ============================================================================
-// Phase 1135 Step A: typed active contract location (current vs legacy)
+// Phase 1135 Step A: typed active contract location
+// Phase 1193 Step A: active layout is now the single `active/<id>` directory.
 // ============================================================================
 
-export type ActiveContractLocation =
-  | { layout: 'current'; contractId: ContractId; contractRoot: string }
-  | { layout: 'legacy'; contractId: ContractId; contractRoot: string };
+export interface ActiveContractLocation {
+  contractId: ContractId;
+  contractRoot: string;
+}
 
 /**
- * Resolve the active runtime location for a contract id across the new
- * `active/current` slot and the legacy `active/<id>` directory.
+ * Resolve the active runtime location for a contract id.
  *
- * Precedence:
- *   1. If `active/current` exists, read it strictly and return the current root.
- *      - YAML id must equal the requested id.
- *      - Any corruption (missing yaml, schema invalid, etc.) throws; no fallback
- *        to the legacy active directory.
- *   2. If current does not exist, fall back to `active/<contractId>`.
- *   3. If neither exists, return null.
+ * Active runtime only uses `active/<contractId>`. Returns null when not found.
  */
 export async function resolveActiveContractLocation(opts: {
   fs: FileSystem;
-  audit: AuditLog;
   activeDir: string;
   contractId: ContractId;
 }): Promise<ActiveContractLocation | null> {
-  const { fs, audit, activeDir, contractId } = opts;
-  const currentRoot = getContractActiveCurrentRoot();
-
-  if (await fs.exists(currentRoot)) {
-    const layout = await readCurrentContractLayout({ fs, audit });
-    if (!layout) {
-      audit.write(
-        CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED,
-        `root=${currentRoot}`,
-        `cause=yaml_missing`,
-        `contractId=${contractId}`,
-      );
-      throw new ContractLayoutCorruptedError(
-        `active/current exists but contract.yaml is missing at ${currentRoot}`,
-        { root: currentRoot, cause: 'yaml_missing', contractId },
-      );
-    }
-
-    if (layout.contract.id !== contractId) {
-      audit.write(
-        CONTRACT_AUDIT_EVENTS.LAYOUT_CORRUPTED,
-        `root=${currentRoot}`,
-        `cause=yaml_id_mismatch`,
-        `expected=${contractId}`,
-        `actual=${layout.contract.id}`,
-      );
-      throw new ContractLayoutCorruptedError(
-        `active/current contract id mismatch: expected ${contractId}, got ${layout.contract.id}`,
-        { root: currentRoot, cause: 'yaml_id_mismatch', expectedId: contractId, actualId: layout.contract.id },
-      );
-    }
-
-    return { layout: 'current', contractId, contractRoot: currentRoot };
+  const { fs, activeDir, contractId } = opts;
+  const root = `${activeDir}/${contractId}`;
+  if (await fs.exists(root)) {
+    return { contractId, contractRoot: root };
   }
-
-  const legacyRoot = `${activeDir}/${contractId}`;
-  if (await fs.exists(legacyRoot)) {
-    return { layout: 'legacy', contractId, contractRoot: legacyRoot };
-  }
-
   return null;
 }
 

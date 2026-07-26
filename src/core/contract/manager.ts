@@ -92,12 +92,7 @@ import {
 import { archiveAndEmit } from './verification-lifecycle.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
-import {
-  readCurrentContractLayout,
-  projectCurrentRuntime,
-  saveCurrentProgressAtomic,
-  transitionCurrentVerificationAttempt,
-} from './new-layout.js';
+
 import { readArchivePayload } from './archive-reader.js';
 import { VerificationMutex } from './verification-mutex.js';
 import { ContractAuditor } from './contract-auditor.js';
@@ -378,7 +373,6 @@ export class ContractSystem {
   async isActiveContract(contractId: ContractId): Promise<boolean> {
     const loc = await resolveActiveContractLocation({
       fs: this.fs,
-      audit: this.audit,
       activeDir: this.activeDir,
       contractId,
     });
@@ -388,7 +382,6 @@ export class ContractSystem {
   async getContractRoot(contractId: ContractId): Promise<string> {
     const activeLoc = await resolveActiveContractLocation({
       fs: this.fs,
-      audit: this.audit,
       activeDir: this.activeDir,
       contractId,
     });
@@ -413,29 +406,11 @@ export class ContractSystem {
   ): Promise<VerificationGatewayResult> {
     const activeLoc = await resolveActiveContractLocation({
       fs: this.fs,
-      audit: this.audit,
       activeDir: this.activeDir,
       contractId,
     });
 
-    if (activeLoc?.layout === 'current') {
-      const result = await transitionCurrentVerificationAttempt(
-        { fs: this.fs, audit: this.audit },
-        contractId,
-        subtaskId,
-        transition,
-      );
-      if (result.kind !== 'updated') {
-        return result;
-      }
-      const layout = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
-      if (!layout) {
-        return { kind: 'skipped', reason: 'current layout disappeared after transition' };
-      }
-      return { kind: 'updated', progress: projectCurrentRuntime(layout).progress };
-    }
-
-    if (activeLoc?.layout === 'legacy') {
+    if (activeLoc) {
       return this.transitionLegacyVerificationAttempt(contractId, subtaskId, transition);
     }
 
@@ -600,11 +575,6 @@ export class ContractSystem {
 
   // Discovery
   async loadActive(): Promise<Contract | null> {
-    // Phase 1135 Step D: route active load through the layout boundary.
-    const current = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
-    if (current) {
-      return projectCurrentRuntime(current).contract;
-    }
     return loadActiveContract(this._discoveryCtx(), this.activeDir);
   }
 
@@ -649,53 +619,11 @@ export class ContractSystem {
 
     let failedCount = 0;
 
-    // Phase 1136 Step D: current layout boot interruption. Any running verification
-    // attempts from a previous daemon lifetime are explicitly interrupted so the
-    // attempt history records the daemon restart cause.
-    const currentLayout = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
-    if (currentLayout) {
-      const bootAt = new Date().toISOString();
-      for (const st of currentLayout.contract.subtasks) {
-        const record = currentLayout.subtasks.get(st.id);
-        if (record?.status === 'verifying' && record.current_attempt_id) {
-          try {
-            const result = await transitionCurrentVerificationAttempt(
-              { fs: this.fs, audit: this.audit },
-              currentLayout.contract.id as ContractId,
-              st.id,
-              {
-                kind: 'interrupt',
-                attemptId: record.current_attempt_id,
-                at: bootAt,
-                cause: 'daemon_restart',
-              },
-            );
-            if (result.kind === 'updated') {
-              this.audit.write(
-                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
-                `contract=${currentLayout.contract.id}`,
-                `subtask=${st.id}`,
-                `cause=daemon_restart`,
-              );
-            }
-          } catch (err) {
-            failedCount++;
-            this.audit.write(
-              CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_SKIPPED,
-              `contract=${currentLayout.contract.id}`,
-              `subtask=${st.id}`,
-              `error=${formatErr(err)}`,
-            );
-          }
-        }
-      }
-    }
-
     if (await this.fs.exists(this.activeDir)) {
-      const activeIds = (await listPhysicalActiveContractIds({
+      const activeIds = await listPhysicalActiveContractIds({
         fs: this.fs,
         activeDir: this.activeDir,
-      })).filter(id => id !== ('current' as ContractId));
+      });
 
       for (const contractId of activeIds) {
         try {
@@ -1119,11 +1047,9 @@ export class ContractSystem {
   /**
    * 读 contract progress。
    *
-   * Phase 1135 Step D / Phase 1145 Step C: route active access through the layout
-   * boundary first.
-   * - current layout → projection from YAML + subtask files (no progress.json)
-   * - legacy active → existing mutable progress.json path
-   * - archive → readArchivePayload (current/legacy dual-format)
+   * Phase 1193 Step A: active runtime uses the single `active/<id>` layout with
+   * progress.json. Archive payloads continue to support current/legacy dual-format
+   * via readArchivePayload.
    *
    * TOCTOU mitigation: active→archive race is handled by one re-resolve back to
    * the top-level dispatcher.
@@ -1131,17 +1057,11 @@ export class ContractSystem {
   async getProgress(contractId: ContractId): Promise<ProgressData | null> {
     const activeLoc = await resolveActiveContractLocation({
       fs: this.fs,
-      audit: this.audit,
       activeDir: this.activeDir,
       contractId,
     });
-    if (activeLoc?.layout === 'current') {
-      const layout = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
-      if (!layout) return null;
-      return projectCurrentRuntime(layout).progress;
-    }
-    if (activeLoc?.layout === 'legacy') {
-      // Phase 956 regression guard: legacy active must not simultaneously exist in archive.
+    if (activeLoc) {
+      // Phase 956 regression guard: active must not simultaneously exist in archive.
       const archiveLoc = await resolveContractLocation({
         fs: this.fs,
         activeDir: this.activeDir,
@@ -1322,11 +1242,6 @@ export class ContractSystem {
 
 
   private async loadContractYaml(contractId: ContractId): Promise<ContractYaml | null> {
-    // Phase 1135 Step D: current layout YAML is read directly from the fixed slot.
-    const current = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
-    if (current && current.contract.id === contractId) {
-      return current.contract;
-    }
     return loadYaml(this._persistenceCtx(), contractId);
   }
 
@@ -1339,27 +1254,10 @@ export class ContractSystem {
   }
 
   private async saveProgress(contractId: ContractId, progress: ProgressData, knownDir?: string): Promise<void> {
-    // Phase 1135 Step D: route current layout writes through the atomic subtask boundary.
-    if (knownDir === undefined) {
-      const activeLoc = await resolveActiveContractLocation({
-        fs: this.fs,
-        audit: this.audit,
-        activeDir: this.activeDir,
-        contractId,
-      });
-      if (activeLoc?.layout === 'current') {
-        return saveCurrentProgressAtomic({ fs: this.fs, audit: this.audit }, contractId, progress);
-      }
-    }
     return saveProg(this._persistenceCtx(), contractId, progress, knownDir);
   }
 
   private async checkAllCompleted(contractId: ContractId, progress: ProgressData): Promise<boolean> {
-    // Phase 1135 Step D: current layout subtask list comes from the YAML in the fixed slot.
-    const current = await readCurrentContractLayout({ fs: this.fs, audit: this.audit });
-    if (current && current.contract.id === contractId) {
-      return current.contract.subtasks.every(st => progress.subtasks[st.id]?.status === 'completed');
-    }
     return checkAllSubtasksCompleted(this._persistenceCtx(), contractId, progress);
   }
 
