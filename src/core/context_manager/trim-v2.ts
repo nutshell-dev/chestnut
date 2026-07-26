@@ -543,7 +543,7 @@ function collapseToolResults(
     const preview = truncateUtf8Prefix(c, previewBytes);
     const shortId = (block as Record<string, unknown>).blockId;
     const blockIdShort = typeof shortId === 'string' ? shortId.slice(0, 8) : '?';
-    const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. tool_use_id=${tr.tool_use_id}. Inspect dialog archive for original.]`;
+    const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: chestnut audit lookup --block-id ${blockIdShort}]`;
     if (byteLength(collapsed) >= originalBytes) return block;
     collapsedCount++;
     return {
@@ -575,6 +575,8 @@ function collapseAssistantToolUseInputs(
     if (block.type !== 'tool_use') return block;
     const tu = block as { name: string; input: Record<string, unknown> };
     toolNames.push(tu.name);
+    const shortId = (block as Record<string, unknown>).blockId;
+    const blockIdShort = typeof shortId === 'string' ? shortId.slice(0, 8) : '?';
     const newInput: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(tu.input)) {
       if (typeof v !== 'string') {
@@ -583,7 +585,7 @@ function collapseAssistantToolUseInputs(
       }
       const originalBytes = byteLength(v);
       const preview = truncateUtf8Prefix(v, previewBytes);
-      const collapsed = `${preview}<...>[truncated: ${originalBytes} bytes]`;
+      const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: chestnut audit lookup --block-id ${blockIdShort}]`;
       if (byteLength(collapsed) >= originalBytes) {
         newInput[k] = v;
         continue;

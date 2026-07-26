@@ -459,7 +459,7 @@ auditCmd
   .description('Look up original content by --tool-use-id or --block-id (4-level fallback: archive → current → unavailable)')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--tool-use-id <id>', 'Look up by tool_use_id')
-  .option('--block-id <id>', 'Look up by block ID (8-char, from context-trim suffix)')
+  .option('--block-id <id>', 'Look up by block ID (8-char short form, from context-trim suffix)')
   .option('--file <name>', "Audit file name (default 'audit'; multi-file aware)", 'audit')
   .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (--tool-use-id mode only)')
   .option('--json', 'Output as JSON')
