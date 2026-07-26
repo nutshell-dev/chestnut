@@ -1,9 +1,9 @@
 /**
  * `chestnut audit lookup` subcommand
  *
- * Look up full tool content by tool_use_id (4-level fallback).
- * Does NOT create an AuditLog; lookupContentByToolUseId may emit conditional
- * audit events on I/O error paths internally, but the CLI itself is read-only.
+ * Look up original content by --tool-use-id or --block-id.
+ * Does NOT create an AuditLog; lookup helpers may emit conditional audit events
+ * on I/O error paths internally, but the CLI itself is read-only.
  */
 
 import * as path from 'path';
@@ -27,25 +27,24 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 interface AuditLookupOpts {
   claw: string;
   file: string;
+  toolUseId?: string;
+  blockId?: string;
   contentHash?: string;
   json?: boolean;
-  blockId?: string;
 }
 
 export async function auditLookupCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  toolUseId: string | undefined,
   opts: AuditLookupOpts,
 ): Promise<void> {
   // phase 682: caller 直 reach dialog-store/lookupContentByToolUseId、不走 audit reader facade。
-  // opts.file 字段保留为 CLI 表面兼容（不再读 audit、但 --file 仍可接受不报错）。
   void opts.file;
 
-  if (!toolUseId && !opts.blockId) {
-    throw new CliError('must provide <toolUseId> or --block-id');
+  if (!opts.toolUseId && !opts.blockId) {
+    throw new CliError('must provide --tool-use-id or --block-id');
   }
-  if (toolUseId && opts.blockId) {
-    throw new CliError('<toolUseId> and --block-id are mutually exclusive');
+  if (opts.toolUseId && opts.blockId) {
+    throw new CliError('--tool-use-id and --block-id are mutually exclusive');
   }
 
   loadGlobalConfig(deps);
@@ -79,8 +78,8 @@ export async function auditLookupCommand(
     contentHash: opts.contentHash,
   };
 
-  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId!, lookupOpts);
-  emit(result, toolUseId!, opts.json ?? false);
+  const result = lookupContentByToolUseId(fs, dialogDir, opts.toolUseId!, lookupOpts);
+  emit(result, opts.toolUseId!, opts.json ?? false);
 
   // exit code strict semantics: 3 for unavailable
   if (result.source === 'unavailable') {

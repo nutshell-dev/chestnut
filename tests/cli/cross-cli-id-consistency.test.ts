@@ -157,7 +157,7 @@ describe('cross-CLI id consistency (phase 152 §5.B SoT guard)', () => {
   });
 
   it('audit lookup call_00_xxx returns current source with full content', async () => {
-    await auditLookupCommand({ fsFactory }, 'call_00_xxx', { claw: 'test-claw', file: 'audit' });
+    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', toolUseId: 'call_00_xxx' });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(output).toContain('Source: current dialog session');
@@ -167,7 +167,7 @@ describe('cross-CLI id consistency (phase 152 §5.B SoT guard)', () => {
   });
 
   it('audit lookup non-existent tool_use_id → unavailable + reason all_failed', async () => {
-    await auditLookupCommand({ fsFactory }, 'call_99_nonexistent', { claw: 'test-claw', file: 'audit' });
+    await auditLookupCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', toolUseId: 'call_99_nonexistent' });
 
     const errOutput = stderrSpy.mock.calls.map(c => c[0] as string).join('');
     expect(errOutput).toContain('reason=all_failed');
@@ -191,7 +191,7 @@ describe('cross-CLI id consistency (phase 152 §5.B SoT guard)', () => {
     await auditQueryCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', toolUseId: 'call_00_xxx' });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
-    expect(output).toContain('详情：chestnut audit lookup call_00_xxx -c <claw>');
+    expect(output).toContain('详情：chestnut audit lookup --tool-use-id call_00_xxx -c <claw>');
   });
 
   it('JSON output does not contain jump hint lines', async () => {

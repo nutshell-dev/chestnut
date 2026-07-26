@@ -455,22 +455,24 @@ auditCmd
 
 // audit lookup
 auditCmd
-  .command('lookup [toolUseId]')
-  .description('Look up full tool content by tool_use_id or --block-id (4-level fallback: current → archive → hash → unavailable)')
+  .command('lookup')
+  .description('Look up original content by --tool-use-id or --block-id (4-level fallback: archive → current → unavailable)')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--block-id <id>', 'Look up by block ID prefix (8-char, from context-trim suffix)')
+  .option('--tool-use-id <id>', 'Look up by tool_use_id')
+  .option('--block-id <id>', 'Look up by block ID (8-char, from context-trim suffix)')
   .option('--file <name>', "Audit file name (default 'audit'; multi-file aware)", 'audit')
-  .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (level 3 fallback)')
-  .option('--json', 'Output as JSON (LookupResult discriminated union)')
-  .action(withCliErrorHandling(async (toolUseId: string | undefined, opts: {
+  .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (--tool-use-id mode only)')
+  .option('--json', 'Output as JSON')
+  .action(withCliErrorHandling(async (opts: {
     claw: string;
     file: string;
+    toolUseId?: string;
     blockId?: string;
     contentHash?: string;
     json?: boolean;
   }) => {
     const { auditLookupCommand } = await import('./commands/audit-lookup.js');
-    await auditLookupCommand({ fsFactory }, toolUseId, opts);
+    await auditLookupCommand({ fsFactory }, opts);
   }));
 
 // audit info

@@ -175,7 +175,7 @@ function emit(rec: AuditRecord, sourceName: string, json: boolean): void {
 
     // phase 152 jump hint（仅人读 + 仅 tool 类）
     if (TOOL_EVENT_TYPES.has(rec.type) && rec.toolUseId) {
-      process.stdout.write(`  → 详情：chestnut audit lookup ${rec.toolUseId} -c <claw>\n`);
+      process.stdout.write(`  → 详情：chestnut audit lookup --tool-use-id ${rec.toolUseId} -c <claw>\n`);
     }
   }
 }

@@ -263,7 +263,7 @@ describe('audit query', () => {
     await auditQueryCommand({ fsFactory }, { claw: 'test-claw', file: 'audit' });
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
-    expect(output).toContain('详情：chestnut audit lookup call_00_xxx -c <claw>');
+    expect(output).toContain('详情：chestnut audit lookup --tool-use-id call_00_xxx -c <claw>');
   });
 
   it('human-readable non-tool row has no jump hint', async () => {
