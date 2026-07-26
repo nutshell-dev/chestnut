@@ -13,7 +13,7 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
-import { ContractCapacityError } from '../../../src/core/contract/errors.js';
+
 import type { VerificationContext } from '../../../src/core/contract/verification.js';
 import type { ProgressData } from '../../../src/core/contract/types.js';
 
@@ -290,22 +290,22 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       return { manager, nodeFs };
     }
 
-    it('existing active contract → second create throws ContractCapacityError + 0 new dir created', async () => {
+    it('existing active contract → second create succeeds and both directories exist', async () => {
       // create existing active contract c1
       const { manager: mgr0 } = makeManager();
       await mgr0.create(makeContractYaml({ id: 'c1', title: 'Existing' }));
 
-      // now try to create c2 while c1 is still active
+      // now create c2 while c1 is still active
       const { manager, nodeFs } = makeManager();
       // share same fs so c1 exists
       (manager as any).fs = nodeFs;
 
-      await expect(manager.create(makeContractYaml({ id: 'c2', title: 'New' })))
-        .rejects.toBeInstanceOf(ContractCapacityError);
+      const id = await manager.create(makeContractYaml({ id: 'c2', title: 'New' }));
+      expect(id).toBe('c2');
 
-      // verify c2 dir NOT created
-      const c2Exists = await nodeFs.exists('contract/active/c2');
-      expect(c2Exists).toBe(false);
+      // verify both active directories exist
+      expect(await nodeFs.exists('contract/active/c1')).toBe(true);
+      expect(await nodeFs.exists('contract/active/c2')).toBe(true);
     });
 
     it('active released → new contract created normally', async () => {

@@ -13,7 +13,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { ContractCapacityError, ContractValidationError } from '../../../src/core/contract/errors.js';
+import { ContractValidationError } from '../../../src/core/contract/errors.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -84,26 +84,44 @@ describe('ContractSystem manager (phase 956)', () => {
     expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR)).toBe(true);
   });
 
-  it('rejects create when contractId already exists in active (capacity guard)', async () => {
+  it('rejects create when contractId already exists in active (duplicate id)', async () => {
     const { manager } = setupManager();
     const contractId = 'dup-active-c1';
 
     // Simulate an existing active contract directory
     await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId), { recursive: true });
+    await fs.writeFile(
+      path.join(clawDir, 'contract', 'active', contractId, 'progress.json'),
+      JSON.stringify({ schema_version: 1, subtasks: {}, started_at: new Date().toISOString(), checkpoint: null }),
+      'utf-8',
+    );
 
     await expect(
       manager.create(makeContractYaml({ id: contractId })),
-    ).rejects.toThrow(ContractCapacityError);
+    ).rejects.toThrow(ContractValidationError);
 
     try {
       await manager.create(makeContractYaml({ id: contractId }));
     } catch (err) {
-      expect(err).toBeInstanceOf(ContractCapacityError);
-      const e = err as ContractCapacityError;
-      expect(e.requestedContractId).toBe(contractId);
-      expect(e.activeContractIds).toContain(contractId);
-      expect(e.message).toContain('active capacity is full');
+      expect(err).toBeInstanceOf(ContractValidationError);
+      const e = err as ContractValidationError;
+      expect(e.field).toBe('id');
+      expect(e.kind).toBe('already_exists');
+      expect(e.context?.contractId).toBe(contractId);
     }
+  });
+
+  it('allows creating a second active contract with a different id', async () => {
+    const { manager } = setupManager();
+
+    const contract1 = await manager.create(makeContractYaml({ id: 'first-active', title: 'First' }));
+    const contract2 = await manager.create(makeContractYaml({ id: 'second-active', title: 'Second' }));
+
+    expect(contract1).toBe('first-active');
+    expect(contract2).toBe('second-active');
+
+    expect(await nodeFs.exists('contract/active/first-active')).toBe(true);
+    expect(await nodeFs.exists('contract/active/second-active')).toBe(true);
   });
 
   it('resets in_progress subtasks during boot reconcile (Phase 966)', async () => {

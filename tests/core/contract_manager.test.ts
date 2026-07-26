@@ -19,7 +19,7 @@ import * as yaml from 'js-yaml';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
-import { ContractCapacityError, ContractArchiveReadError } from '../../src/core/contract/errors.js';
+import { ContractValidationError, ContractArchiveReadError } from '../../src/core/contract/errors.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 
 import { DEAD_PID } from '../helpers/dead-pid.js';
@@ -109,10 +109,11 @@ describe('ContractSystem', () => {
     await expect(manager.cancel(contractId, 'Cancel again')).rejects.toThrow('Cannot cancel');
   });
 
-  // === Phase 1130: capacity=1 create rejection ===
+  // === Phase 1194 Step B: multiple active create ===
 
-  it('should reject second create while active exists and leave active untouched', async () => {
+  it('should allow second create while another active exists and preserve both', async () => {
     const contract1 = await manager.create(makeContractYaml({
+      id: 'first-active',
       title: 'First',
       goal: 'First',
       subtasks: [{ id: 't1', description: 'T1' }],
@@ -122,26 +123,43 @@ describe('ContractSystem', () => {
     const activePath = path.join(clawDir, 'contract', 'active', contract1);
     const yamlBefore = await fs.readFile(path.join(activePath, 'contract.yaml'), 'utf-8');
     const progressBefore = await fs.readFile(path.join(activePath, 'progress.json'), 'utf-8');
-    const onCompleted = vi.fn();
-    manager.onContractCompleted(onCompleted);
 
-    await expect(manager.create(makeContractYaml({
+    const contract2 = await manager.create(makeContractYaml({
+      id: 'second-active',
       title: 'Second',
       goal: 'Second',
       subtasks: [{ id: 't2', description: 'T2' }],
       verification: [],
-    }))).rejects.toBeInstanceOf(ContractCapacityError);
+    }));
 
-    // active contract unchanged byte-for-byte
+    // first active contract unchanged byte-for-byte
     expect(await fs.readFile(path.join(activePath, 'contract.yaml'), 'utf-8')).toBe(yamlBefore);
     expect(await fs.readFile(path.join(activePath, 'progress.json'), 'utf-8')).toBe(progressBefore);
 
-    // no replacement archive
-    const archivePath = path.join(clawDir, 'contract', 'archive', 'completed', contract1);
-    await expect(fs.access(archivePath)).rejects.toThrow();
+    // second active directory created
+    expect(await nodeFs.exists('contract/active/second-active')).toBe(true);
 
-    // no completed callback
-    expect(onCompleted).not.toHaveBeenCalled();
+    // loadActive returns foreground (earliest started_at)
+    const active = await manager.loadActive();
+    expect(active?.id).toBe(contract1);
+  });
+
+  it('should reject create with duplicate id across active contracts', async () => {
+    await manager.create(makeContractYaml({
+      id: 'shared-id',
+      title: 'First',
+      goal: 'First',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+
+    await expect(manager.create(makeContractYaml({
+      id: 'shared-id',
+      title: 'Second',
+      goal: 'Second',
+      subtasks: [{ id: 't2', description: 'T2' }],
+      verification: [],
+    }))).rejects.toBeInstanceOf(ContractValidationError);
   });
 
   it('should allow new create after active is cancelled', async () => {

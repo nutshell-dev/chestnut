@@ -46,7 +46,6 @@ import {
   emitContractVerifierRegistered,
   emitContractVerifierUnregistered,
   emitContractLegacyPausedObserved,
-  emitContractCapacityExhausted,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -71,7 +70,7 @@ import {
 import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } from './schemas.js';
 import { type ContractId, makeContractId } from './types.js';
 
-import { ContractValidationError, ContractCapacityError, ContractArchiveReadError, ContractLocationAmbiguityError } from './errors.js';
+import { ContractValidationError, ContractArchiveReadError, ContractLocationAmbiguityError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, type ArchiveState, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
@@ -876,19 +875,6 @@ export class ContractSystem {
         'contract id must not be empty (yaml: id: "<not blank>")');
     }
     const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
-
-    // phase 1130 Step D: enforce single active contract capacity.
-    const activeIds = await listPhysicalActiveContractIds({
-      fs: this.fs,
-      activeDir: this.activeDir,
-    });
-    if (activeIds.length > 0) {
-      emitContractCapacityExhausted(this.audit, {
-        requestedContractId: contractId,
-        activeContractIds: activeIds,
-      });
-      throw new ContractCapacityError(contractId, activeIds);
-    }
 
     // Phase 956: check uniqueness across current directories (active + archive states + legacy flat)
     // phase 1123 Step C: paused/ is legacy-only and must not block creation.

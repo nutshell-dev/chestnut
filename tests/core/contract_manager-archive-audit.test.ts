@@ -14,7 +14,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
-import { ContractCapacityError } from '../../src/core/contract/errors.js';
+
 
 let testDir: string;
 let clawDir: string;
@@ -48,7 +48,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
   });
 
   describe('phase230 audit events', () => {
-    it('writes CAPACITY_EXHAUSTED audit and leaves active unchanged on second create', async () => {
+    it('allows second active create and emits CREATED for both', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({
         clawDir,
@@ -61,25 +61,29 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
     notifyClaw: vi.fn(),});
 
       const contract1 = await testManager.create(makeContractYaml({
+        id: 'first-active',
         title: 'First',
         goal: 'First',
         subtasks: [{ id: 't1', description: 'T1' }],
         verification: [],
       }));
 
-      await expect(testManager.create(makeContractYaml({
+      const contract2 = await testManager.create(makeContractYaml({
+        id: 'second-active',
         title: 'Second',
         goal: 'Second',
         subtasks: [{ id: 't2', description: 'T2' }],
         verification: [],
-      }))).rejects.toBeInstanceOf(ContractCapacityError);
+      }));
 
-      expect(mockAudit.write).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.CAPACITY_EXHAUSTED,
-        expect.stringContaining('requested_contract_id='),
-        `active_contract_ids=${contract1}`,
-        'capacity=1',
+      expect(contract2).toBe('second-active');
+
+      const createdEvents = mockAudit.write.mock.calls.filter(
+        (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.CREATED,
       );
+      expect(createdEvents).toHaveLength(2);
+      expect(createdEvents.some((c) => c.some((col) => typeof col === 'string' && col.includes(`contractId=${contract1}`)))).toBe(true);
+      expect(createdEvents.some((c) => c.some((col) => typeof col === 'string' && col.includes('contractId=second-active')))).toBe(true);
     });
 
     it('writes CONTRACT_ROLLBACK_FAILED audit when contract dir rollback fails', async () => {

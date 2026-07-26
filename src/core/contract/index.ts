@@ -17,8 +17,6 @@ export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type Au
 // phase 465: errors barrel re-export
 export {
   ContractValidationError,
-  MultipleActiveContractsError,
-  ContractCapacityError,
 } from './errors.js';
 // phase 482: audit-events barrel re-export (CONTRACT_AUDIT_EVENTS for evolution-system; ID/file routing constants for assembly remain deep-imported per allowlist)
 export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';

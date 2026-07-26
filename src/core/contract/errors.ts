@@ -3,23 +3,7 @@
  * phase 67: ContractSystem typed errors
  */
 
-import type { ContractId, ArchiveReadIssue } from './types.js';
-
-/**
- * phase 957: 检测到多个 active contract 时 fail-closed。
- *
- * 触发：discovery.loadActiveContract 发现 active dir 下存在 >1 个有效 contract。
- * 行为：emit audit 后抛出，强制 caller 先运行 reconciler 解决冲突，不再静默返回 latest。
- */
-export class MultipleActiveContractsError extends Error {
-  readonly name = 'MultipleActiveContractsError';
-  readonly contractIds: string[];
-
-  constructor(message: string, contractIds: string[]) {
-    super(message);
-    this.contractIds = contractIds;
-  }
-}
+import type { ArchiveReadIssue } from './types.js';
 
 /**
  * phase 1127 Step B: contract 出现在多个 current/legacy archive 位置时 fail-closed。
@@ -47,7 +31,7 @@ export class ContractLocationAmbiguityError extends Error {
  * 字段:
  *   - field: 'id' | 'subtasks' | 'verification' (语义类别)
  *   - kind: 'empty' | 'already_exists' | 'missing' | 'duplicate' | 'config_missing_field'
- *   - message: human-readable describe (CLI 渲染参考)
+ *   - message: human-readable describe (CLI 渲染参考）
  *   - context: 可选额外字段（如 subtaskId / configType）
  */
 export class ContractValidationError extends Error {
@@ -66,25 +50,6 @@ export class ContractValidationError extends Error {
     this.field = field;
     this.kind = kind;
     this.context = context;
-  }
-}
-
-/**
- * phase 1130 Step C: active capacity exhausted typed error.
- *
- * Triggered by ContractSystem.create when a physical active contract directory
- * already exists. Carries the requested id and all active ids (stable sorted).
- */
-export class ContractCapacityError extends Error {
-  readonly name = 'ContractCapacityError';
-  readonly activeContractIds: ContractId[];
-
-  constructor(
-    readonly requestedContractId: ContractId,
-    activeContractIds: readonly ContractId[],
-  ) {
-    super(`Cannot create contract "${requestedContractId}": active capacity is full`);
-    this.activeContractIds = [...activeContractIds].sort();
   }
 }
 
@@ -115,4 +80,3 @@ export class ContractArchiveReadError extends Error {
     super(message);
   }
 }
-
