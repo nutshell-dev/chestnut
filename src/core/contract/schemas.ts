@@ -108,10 +108,10 @@ export const ContractProgressPersistedSchema = z.object({
 
 export type ContractProgressPersistedValidated = z.infer<typeof ContractProgressPersistedSchema>;
 
-// Phase 1134: new active/current layout schemas (strict, fail-closed)
+// Phase 1134 / Phase 1193 Step B: archive current-format payload schemas (strict, fail-closed)
 
 /**
- * Persisted contract.yaml in the new layout: id is required after creation.
+ * Persisted contract.yaml in the archive current-format payload: id is required.
  * The create-input schema (ContractYamlSchema) continues to allow optional id.
  */
 export const PersistedContractYamlSchema = ContractYamlSchema.extend({

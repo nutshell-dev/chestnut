@@ -8,7 +8,7 @@
  *   contract/archive/corrupted/<id>
  *   contract/archive/<legacy-id>  (flat legacy, read-only classification)
  *
- * All path construction for active/current archive/legacy flat goes through this file.
+ * All path construction for active/<id>, archive state subdirs, and legacy flat goes through this file.
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';

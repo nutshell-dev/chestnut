@@ -17,8 +17,8 @@ export const DERIVABLE_STATUSES_TUPLE = ['pending', 'running', 'completed'] as c
 export const SUBTASK_STATUSES_TUPLE = ['todo', 'in_progress', 'completed'] as const;
 
 /**
- * Phase 1134: runtime subtask status vocabulary for the new active/current layout.
- * Distinct from the legacy SUBTASK_STATUSES_TUPLE which uses 'in_progress' naming.
+ * Phase 1134 / Phase 1193 Step B: archive current-format payload subtask status
+ * vocabulary. Distinct from the legacy SUBTASK_STATUSES_TUPLE which uses 'in_progress' naming.
  */
 export const SUBTASK_RUNTIME_STATUSES_TUPLE = ['todo', 'verifying', 'completed'] as const;
 

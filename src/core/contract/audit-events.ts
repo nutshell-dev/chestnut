@@ -18,8 +18,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   // NEW phase 164: listArchiveContracts progress.json non-ENOENT silent catch audit emit (playbook §1)
   ARCHIVE_PROGRESS_READ_FAILED: 'contract_archive_progress_read_failed',
   PROGRESS_CORRUPTED: 'contract_progress_corrupted',
-  // Phase 1134: new active/current layout corruption detection (read-only path)
-  // Phase 1193 Step B: kept for archive current-format payload reader.
+  // Phase 1134 / Phase 1193 Step B: archive current-format payload corruption detection.
   LAYOUT_CORRUPTED: 'contract_layout_corrupted',
   ROLLBACK_FAILED: 'contract_rollback_failed',
   ROLLBACK_INCOMPLETE: 'contract_rollback_incomplete',
