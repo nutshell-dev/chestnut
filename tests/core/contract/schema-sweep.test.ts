@@ -194,7 +194,7 @@ describe('loadContractYaml schema check', () => {
 // ============================================================================
 
 describe('discovery schema check', () => {
-  it('gracefully skips corrupt schema and finds latest valid', async () => {
+  it('gracefully skips corrupt schema and finds foreground valid', async () => {
     const mockAudit = makeMockAudit();
     const activeDir = path.join(clawDir, 'contract', 'active');
 
@@ -207,7 +207,7 @@ describe('discovery schema check', () => {
       'utf-8',
     );
 
-    // Contract B: valid, started_at older
+    // Contract B: valid, started_at older (foreground)
     const dirB = path.join(activeDir, 'contract-b');
     await fs.mkdir(dirB, { recursive: true });
     await fs.writeFile(
@@ -216,8 +216,7 @@ describe('discovery schema check', () => {
       'utf-8',
     );
 
-    // Contract C: schema invalid (subtasks=null) — phase 957: 多 valid active 会 fail-closed，
-    // 因此本测试只保留一个 valid contract，专注验证「跳过 corrupt 后返回唯一 valid」。
+    // Contract C: schema invalid (subtasks=null)
     const dirC = path.join(activeDir, 'contract-c');
     await fs.mkdir(dirC, { recursive: true });
     await fs.writeFile(
@@ -232,7 +231,6 @@ describe('discovery schema check', () => {
       loadContract: vi.fn(),
     };
 
-    // loadActiveContract 内部会调用 loadContract，我们需要 mock
     ctx.loadContract.mockResolvedValue({ id: 'contract-b', status: 'running' });
 
     const result = await loadActiveContract(ctx, 'contract/active');

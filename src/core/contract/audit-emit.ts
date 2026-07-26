@@ -49,16 +49,17 @@ export function emitContractMultiDir(
   );
 }
 
-// ─── MULTI_ACTIVE_CONTRACTS ─────────────────────────────────────────────────
-export function emitMultiActiveContracts(
+// ─── MISSING_STARTED_AT (Phase 1194 Step A) ─────────────────────────────────
+export function emitContractMissingStartedAt(
   audit: AuditLog,
-  opts: { count: number; contractIds: ContractId[]; context: string },
+  opts: { context: string; contractId: ContractId; reason: 'missing_started_at' },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractMissingStartedAt')) return;
   audit.write(
-    CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS,
+    CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT,
     `context=${opts.context}`,
-    `count=${opts.count}`,
-    `contractIds=${opts.contractIds.join(',')}`,
+    `contractId=${opts.contractId}`,
+    `reason=${opts.reason}`,
   );
 }
 

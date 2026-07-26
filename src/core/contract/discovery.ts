@@ -12,10 +12,9 @@ import type { Contract } from '../contract/types.js';
 import {
   emitContractProgressSchemaInvalid,
   emitContractProgressCorrupted,
-  emitMultiActiveContracts,
+  emitContractMissingStartedAt,
 } from './audit-emit.js';
 import { ContractProgressPersistedSchema } from './schemas.js';
-import { MultipleActiveContractsError } from './errors.js';
 
 export interface DiscoveryContext {
   fs: FileSystem;
@@ -23,18 +22,35 @@ export interface DiscoveryContext {
   loadContract: (contractId: ContractId) => Promise<Contract>;
 }
 
-interface LatestEntry { name: string; startedAt: string; }
+interface ActiveEntry {
+  name: string;
+  startedAt?: string;
+}
+
+function compareActiveEntries(a: ActiveEntry, b: ActiveEntry): number {
+  const aMissing = a.startedAt === undefined;
+  const bMissing = b.startedAt === undefined;
+  // Missing started_at sorts first (priority over known times).
+  if (aMissing && !bMissing) return -1;
+  if (!aMissing && bMissing) return 1;
+  // Both missing: tie-break by contract id ascending.
+  if (aMissing && bMissing) return a.name.localeCompare(b.name);
+  // Both known: sort by started_at ascending, then contract id ascending.
+  const timeCompare = (a.startedAt as string).localeCompare(b.startedAt as string);
+  if (timeCompare !== 0) return timeCompare;
+  return a.name.localeCompare(b.name);
+}
 
 async function findContractsInDir(
   ctx: DiscoveryContext,
   dir: string,
   auditContext: string,
-): Promise<LatestEntry[]> {
+): Promise<ActiveEntry[]> {
   const exists = await ctx.fs.exists(dir);
   if (!exists) return [];
 
   const entries = await ctx.fs.list(dir, { includeDirs: true });
-  const valid: LatestEntry[] = [];
+  const valid: ActiveEntry[] = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory) continue;
@@ -58,8 +74,12 @@ async function findContractsInDir(
         );
         continue;
       }
-      const startedAt = result.data.started_at ?? '';
-      valid.push({ name: entry.name, startedAt });
+      const startedAt = result.data.started_at;
+      const entryRecord: ActiveEntry = { name: entry.name };
+      if (startedAt !== undefined && startedAt !== '') {
+        entryRecord.startedAt = startedAt;
+      }
+      valid.push(entryRecord);
     } catch (error) {
       // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
       if (!isFileNotFound(error)) {
@@ -79,28 +99,37 @@ async function findContractsInDir(
   return valid;
 }
 
+function sortActiveEntries(entries: ActiveEntry[]): ActiveEntry[] {
+  return [...entries].sort(compareActiveEntries);
+}
+
+function emitMissingStartedAudits(
+  audit: AuditLog,
+  entries: ActiveEntry[],
+  context: string,
+): void {
+  for (const entry of entries) {
+    if (entry.startedAt === undefined) {
+      emitContractMissingStartedAt(audit, {
+        context,
+        contractId: makeContractId(entry.name),
+        reason: 'missing_started_at',
+      });
+    }
+  }
+}
+
 export async function loadActiveContract(
   ctx: DiscoveryContext,
   activeDir: string,
 ): Promise<Contract | null> {
   const valid = await findContractsInDir(ctx, activeDir, 'ContractSystem.loadActive');
-  if (valid.length === 0) return null;
-  if (valid.length > 1) {
-    const contractIds = valid.map(e => makeContractId(e.name));
-    emitMultiActiveContracts(ctx.audit, {
-      context: 'ContractSystem.loadActive',
-      count: valid.length,
-      contractIds,
-    });
-    // phase 957: fail-closed — 多 active 不再静默返回 latest，强制 reconciler 介入。
-    throw new MultipleActiveContractsError(
-      `Found ${valid.length} active contracts: ${contractIds.join(', ')}. Run contract reconciler.`,
-      contractIds,
-    );
-  }
+  const sorted = sortActiveEntries(valid);
+  emitMissingStartedAudits(ctx.audit, sorted, 'ContractSystem.loadActive');
+  if (sorted.length === 0) return null;
   // Step F: status is strictly derived from subtasks (DerivableStatus). Terminal
   // lifecycle states are committed by the directory path, not progress.status.
-  return ctx.loadContract(makeContractId(valid[0].name));
+  return ctx.loadContract(makeContractId(sorted[0].name));
 }
 
 export async function loadAllActiveContracts(
@@ -108,14 +137,7 @@ export async function loadAllActiveContracts(
   activeDir: string,
 ): Promise<Array<{ name: string; startedAt: string }>> {
   const valid = await findContractsInDir(ctx, activeDir, 'ContractSystem.loadAllActiveContracts');
-  if (valid.length > 1) {
-    emitMultiActiveContracts(ctx.audit, {
-      context: 'ContractSystem.loadAllActiveContracts',
-      count: valid.length,
-      contractIds: valid.map(e => makeContractId(e.name)),
-    });
-  }
-  return valid;
+  const sorted = sortActiveEntries(valid);
+  emitMissingStartedAudits(ctx.audit, sorted, 'ContractSystem.loadAllActiveContracts');
+  return sorted.map(e => ({ name: e.name, startedAt: e.startedAt ?? '' }));
 }
-
-

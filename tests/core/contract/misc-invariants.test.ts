@@ -18,7 +18,6 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { loadAllActiveContracts, loadActiveContract } from '../../../src/core/contract/discovery.js';
-import { MultipleActiveContractsError } from '../../../src/core/contract/errors.js';
 import { getActiveContractTimestamp } from '../../../src/core/contract/lightweight-query.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/index.js';
 import { FileNotFoundError, type FileSystem } from '../../../src/foundation/fs/types.js';
@@ -444,11 +443,12 @@ describe('contract_id derive (phase 282 Step B)', () => {
 });
 
 /**
- * Contract discovery tests (phase 956)
+ * Contract discovery tests (phase 1194 Step A)
  *
- * - loadAllActiveContracts returns all active contracts and audits when multiple found
+ * - loadActiveContract returns the FIFO foreground (sorted by started_at asc, id asc)
+ * - missing started_at sorts first and emits a typed audit
  */
-describe('Contract discovery (phase 956)', () => {
+describe('Contract discovery (phase 1194 Step A)', () => {
   let tmpDir: string;
   let clawDir: string;
   let activeDir: string;
@@ -472,42 +472,58 @@ describe('Contract discovery (phase 956)', () => {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  async function writeContractDir(contractId: string, startedAt: string) {
+  async function writeContractDir(contractId: string, startedAt?: string) {
     const dir = path.join(activeDir, contractId);
     await fs.mkdir(dir, { recursive: true });
-    const progress = {
+    const progress: Record<string, unknown> = {
       schema_version: 1,
       subtasks: { 'task-1': { status: 'todo' } },
-      started_at: startedAt,
       checkpoint: null,
     };
+    if (startedAt !== undefined) {
+      progress.started_at = startedAt;
+    }
     await fs.writeFile(path.join(dir, 'progress.json'), JSON.stringify(progress), 'utf-8');
   }
 
-  it('returns all active contracts and audits when multiple found', async () => {
-    const { audit, events, emitter } = makeAudit();
+  it('returns foreground as the earliest started_at contract', async () => {
+    const { audit } = makeAudit();
     const ctx = {
       fs: nodeFs,
       audit,
       loadContract: vi.fn(async (id: string) => ({ id } as any)),
     };
 
-    await writeContractDir('c1', '2026-07-12T10:00:00.000Z');
     await writeContractDir('c2', '2026-07-12T11:00:00.000Z');
+    await writeContractDir('c1', '2026-07-12T10:00:00.000Z');
+
+    const active = await loadActiveContract(ctx, 'contract/active');
+    expect(active).not.toBeNull();
+    expect(active!.id).toBe('c1');
 
     const all = await loadAllActiveContracts(ctx, 'contract/active');
-
-    expect(all.length).toBe(2);
-    expect(all.map((e) => e.name).sort()).toEqual(['c1', 'c2']);
-
-    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS);
-    const event = events.find((e) => e[0] === CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS);
-    expect(event).toBeDefined();
-    expect(event!.some((col) => typeof col === 'string' && col.startsWith('count=2'))).toBe(true);
-    expect(event!.some((col) => typeof col === 'string' && col.includes('c1') && col.includes('c2'))).toBe(true);
+    expect(all.map((e) => e.name)).toEqual(['c1', 'c2']);
   });
 
-  it('returns single active contract without multi-active audit', async () => {
+  it('ties on started_at are broken by contract id ascending', async () => {
+    const { audit } = makeAudit();
+    const ctx = {
+      fs: nodeFs,
+      audit,
+      loadContract: vi.fn(async (id: string) => ({ id } as any)),
+    };
+
+    await writeContractDir('c2', '2026-07-12T10:00:00.000Z');
+    await writeContractDir('c1', '2026-07-12T10:00:00.000Z');
+
+    const active = await loadActiveContract(ctx, 'contract/active');
+    expect(active!.id).toBe('c1');
+
+    const all = await loadAllActiveContracts(ctx, 'contract/active');
+    expect(all.map((e) => e.name)).toEqual(['c1', 'c2']);
+  });
+
+  it('missing started_at entries sort first and emit typed audit', async () => {
     const { audit, events } = makeAudit();
     const ctx = {
       fs: nodeFs,
@@ -515,33 +531,118 @@ describe('Contract discovery (phase 956)', () => {
       loadContract: vi.fn(async (id: string) => ({ id } as any)),
     };
 
-    await writeContractDir('c1', '2026-07-12T10:00:00.000Z');
+    await writeContractDir('c-known', '2026-07-12T10:00:00.000Z');
+    await writeContractDir('c-missing');
+
+    const active = await loadActiveContract(ctx, 'contract/active');
+    expect(active!.id).toBe('c-missing');
+
+    const missingEvents = events.filter(
+      (e) => e[0] === CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT,
+    );
+    expect(missingEvents).toHaveLength(1);
+    expect(missingEvents[0]).toContainEqual(expect.stringContaining('contractId=c-missing'));
+    expect(missingEvents[0]).toContainEqual(expect.stringContaining('reason=missing_started_at'));
 
     const all = await loadAllActiveContracts(ctx, 'contract/active');
-
-    expect(all.length).toBe(1);
-    expect(all[0].name).toBe('c1');
-    expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS)).toBe(false);
+    expect(all.map((e) => e.name)).toEqual(['c-missing', 'c-known']);
   });
 
-  it('throws MultipleActiveContractsError when multiple valid active contracts exist', async () => {
-    const { audit, events, emitter } = makeAudit();
+  it('multiple missing started_at entries sort by contract id ascending', async () => {
+    const { audit, events } = makeAudit();
     const ctx = {
       fs: nodeFs,
       audit,
       loadContract: vi.fn(async (id: string) => ({ id } as any)),
     };
 
-    await writeContractDir('c1', '2026-07-12T10:00:00.000Z');
-    await writeContractDir('c2', '2026-07-12T11:00:00.000Z');
+    await writeContractDir('c-missing-b');
+    await writeContractDir('c-missing-a');
 
-    await expect(loadActiveContract(ctx, 'contract/active')).rejects.toThrow(MultipleActiveContractsError);
-    await expect(loadActiveContract(ctx, 'contract/active')).rejects.toThrow(/Found 2 active contracts/);
+    const all = await loadAllActiveContracts(ctx, 'contract/active');
+    expect(all.map((e) => e.name)).toEqual(['c-missing-a', 'c-missing-b']);
 
-    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS);
-    const event = events.find((e) => e[0] === CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS);
-    expect(event).toBeDefined();
-    expect(event!.some((col) => typeof col === 'string' && col.startsWith('count=2'))).toBe(true);
+    const missingIds = events
+      .filter((e) => e[0] === CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT)
+      .map((e) => {
+        const col = e.find((c) => typeof c === 'string' && c.startsWith('contractId=')) as string;
+        return col?.replace('contractId=', '');
+      })
+      .sort();
+    expect(missingIds).toEqual(['c-missing-a', 'c-missing-b']);
+  });
+
+  it('returns null and empty list when no valid active contracts exist', async () => {
+    const { audit, events } = makeAudit();
+    const ctx = {
+      fs: nodeFs,
+      audit,
+      loadContract: vi.fn(async (id: string) => ({ id } as any)),
+    };
+
+    const active = await loadActiveContract(ctx, 'contract/active');
+    expect(active).toBeNull();
+
+    const all = await loadAllActiveContracts(ctx, 'contract/active');
+    expect(all).toEqual([]);
+
+    expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT)).toBe(false);
+  });
+
+  it('single valid contract returns itself without extra audit', async () => {
+    const { audit, events } = makeAudit();
+    const ctx = {
+      fs: nodeFs,
+      audit,
+      loadContract: vi.fn(async (id: string) => ({ id } as any)),
+    };
+
+    await writeContractDir('c-only', '2026-07-12T10:00:00.000Z');
+
+    const active = await loadActiveContract(ctx, 'contract/active');
+    expect(active!.id).toBe('c-only');
+
+    expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT)).toBe(false);
+  });
+
+  it('schema invalid / corrupt directories are still excluded from the active set', async () => {
+    const { audit, events } = makeAudit();
+    const ctx = {
+      fs: nodeFs,
+      audit,
+      loadContract: vi.fn(async (id: string) => ({ id } as any)),
+    };
+
+    const dirBad = path.join(activeDir, 'c-bad');
+    await fs.mkdir(dirBad, { recursive: true });
+    await fs.writeFile(path.join(dirBad, 'progress.json'), JSON.stringify({ schema_version: 1, subtasks: null }), 'utf-8');
+
+    await writeContractDir('c-good', '2026-07-12T10:00:00.000Z');
+
+    const active = await loadActiveContract(ctx, 'contract/active');
+    expect(active!.id).toBe('c-good');
+
+    expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID)).toBe(true);
+    expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT)).toBe(false);
+  });
+
+  it('does not fabricate started_at from mtime or current time', async () => {
+    const { audit, events } = makeAudit();
+    const ctx = {
+      fs: nodeFs,
+      audit,
+      loadContract: vi.fn(async (id: string) => ({ id } as any)),
+    };
+
+    await writeContractDir('c-missing');
+
+    const all = await loadAllActiveContracts(ctx, 'contract/active');
+    expect(all[0].startedAt).toBe('');
+
+    const nowCol = events
+      .filter((e) => e[0] === CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT)
+      .find((e) => e.some((c) => typeof c === 'string' && /started_at=\d{4}/.test(c)));
+    expect(nowCol).toBeUndefined();
   });
 });
 

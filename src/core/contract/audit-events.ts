@@ -94,8 +94,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   VERIFICATION_PIPELINE_RACE_REJECTED: 'verification_pipeline_race_rejected',
   // phase 956: contract exists in multiple directories (active/paused/archive)
   CONTRACT_MULTI_DIR: 'contract_multi_dir',
-  // phase 956: multiple active contracts detected
-  MULTI_ACTIVE_CONTRACTS: 'multi_active_contracts',
+  // Phase 1194 Step A: active contract progress.json lacks started_at
+  MISSING_STARTED_AT: 'contract_missing_started_at',
   // NEW phase 966: boot reconcile reset leftover in_progress subtasks
   BOOT_RECONCILE_IN_PROGRESS_RESET: 'contract_boot_reconcile_in_progress_reset',
   // phase 66 NEW: schema corruption isolation
@@ -251,11 +251,11 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
   contract_create_policy_rejected: 'audit',
+  contract_missing_started_at: 'audit',
   contract_capacity_exhausted: 'audit',
   contract_legacy_crashed_observed: 'audit',
   contract_legacy_paused_observed: 'audit',
   contract_archive_payload_read_issue: 'audit',
   contract_multi_dir: 'audit',
-  multi_active_contracts: 'audit',
   contract_boot_reconcile_in_progress_reset: 'audit',
 } as const;
