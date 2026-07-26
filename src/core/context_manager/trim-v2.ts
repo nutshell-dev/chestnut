@@ -783,7 +783,7 @@ function collapseTextBlock(block: TextBlock, previewBytes: number): TextBlock {
   const originalBytes = byteLength(block.text);
   const preview = truncateUtf8Prefix(block.text, previewBytes);
   const blockIdShort = block.blockId?.slice(0, 8) ?? '?';
-  const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: chestnut audit lookup --block-id ${blockIdShort}]`;
+  const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: audit lookup --block-id ${blockIdShort}]`;
   if (byteLength(collapsed) >= originalBytes) return block;
   return { ...block, text: collapsed };
 }
@@ -792,7 +792,7 @@ function collapseThinkingBlock(block: ThinkingBlock, previewBytes: number): Thin
   const originalBytes = byteLength(block.thinking);
   const preview = truncateUtf8Prefix(block.thinking, previewBytes);
   const blockIdShort = block.blockId?.slice(0, 8) ?? '?';
-  const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: chestnut audit lookup --block-id ${blockIdShort}]`;
+  const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: audit lookup --block-id ${blockIdShort}]`;
   if (byteLength(collapsed) >= originalBytes) return block;
   return { ...block, thinking: collapsed };
 }
@@ -821,7 +821,7 @@ function collapseToolResults(
     const preview = truncateUtf8Prefix(c, previewBytes);
     const shortId = tr.blockId;
     const blockIdShort = typeof shortId === 'string' ? shortId.slice(0, 8) : '?';
-    const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: chestnut audit lookup --block-id ${blockIdShort}]`;
+    const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: audit lookup --block-id ${blockIdShort}]`;
     if (byteLength(collapsed) >= originalBytes) return block;
     collapsedCount++;
     return {
@@ -896,7 +896,7 @@ function collapseAssistantMessage(
       }
       const originalBytes = byteLength(v);
       const preview = truncateUtf8Prefix(v, previewBytes);
-      const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: chestnut audit lookup --block-id ${blockIdShort}]`;
+      const collapsed = `${preview}<...>[context-trim: ${originalBytes} bytes elided. block-id=${blockIdShort}. 查原文: audit lookup --block-id ${blockIdShort}]`;
       if (byteLength(collapsed) >= originalBytes) {
         newInput[k] = v;
         continue;
