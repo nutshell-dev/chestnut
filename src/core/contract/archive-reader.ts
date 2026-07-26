@@ -20,8 +20,8 @@ import {
   getContractYamlPath,
   getContractSubtasksDir,
   readStrictContractLayoutAtRoot,
-  projectCurrentRuntime,
-} from './new-layout.js';
+  projectArchivePayloadRuntime,
+} from './archive-payload-layout.js';
 import { ContractLayoutCorruptedError } from './errors.js';
 import { contractProgressPath } from './locations.js';
 import {
@@ -257,7 +257,7 @@ async function readCurrentArchivePayload(
 ): Promise<ArchivePayloadReadResult> {
   try {
     const layout = await readStrictContractLayoutAtRoot(deps, root, contractId);
-    const runtime = projectCurrentRuntime(layout);
+    const runtime = projectArchivePayloadRuntime(layout);
     const view: ArchivePayloadView = {
       contractId,
       state,

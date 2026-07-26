@@ -49,12 +49,8 @@ export {
 // Phase 724: expose runtime Zod schema so CLI YAML validation uses the same source of truth
 export { ContractYamlSchema } from './schemas.js';
 
-// Phase 1134: new active/current layout primitives (not wired to legacy writers yet)
-export {
-  CONTRACT_STAGING_DIR,
-  CONTRACT_ACTIVE_CURRENT_DIR,
-  CONTRACT_SUBTASKS_DIR,
-} from './dirs.js';
+// Phase 1193 Step B: archive current-format payload reader primitives only.
+export { CONTRACT_SUBTASKS_DIR } from './dirs.js';
 
 export {
   type PersistedContractYaml,
@@ -71,24 +67,23 @@ export {
 } from './schemas.js';
 
 export {
-  readCurrentContractLayout,
+  readStrictContractLayoutAtRoot,
   deriveContractAggregate,
   deriveSubtaskRetrySummary,
-  projectCurrentRuntime,
-  prepareContractStaging,
-  commitContractStaging,
-  cleanupAbandonedContractStaging,
-  type CurrentContractLayout,
+  projectArchivePayloadRuntime,
+  type ArchivePayloadLayoutSnapshot,
   type ContractAggregateStatus,
   type SubtaskRetrySummary,
-  type PreparedStaging,
-  type CurrentContractRuntimeView,
-} from './new-layout.js';
+  type ArchivePayloadRuntimeView,
+} from './archive-payload-layout.js';
+
+export {
+  getContractSubtasksDir,
+  getContractYamlPath,
+} from './archive-payload-layout.js';
 
 export {
   ContractLayoutCorruptedError,
-  ActiveContractSlotOccupiedError,
-  ContractStagingCorruptedError,
   ContractArchiveReadError,
 } from './errors.js';
 

@@ -317,7 +317,6 @@
       "contract_progress_schema_invalid",
       "contract_rollback_failed",
       "contract_rollback_incomplete",
-      "contract_staging_cleanup",
       "contract_subtask_already_completed",
       "contract_subtask_duplicate_done",
       "contract_subtask_reset_to_todo",

@@ -16,7 +16,5 @@ export const PROGRESS_FILE = 'progress.json' as const;
 export const CONTRACT_YAML_FILE = 'contract.yaml' as const;
 export const PROGRESS_LOCK_FILE = 'progress.lock' as const;
 
-// Phase 1134: new-layout primitive paths (not wired to legacy writers yet)
-export const CONTRACT_STAGING_DIR = 'contract/staging' as const;
-export const CONTRACT_ACTIVE_CURRENT_DIR = 'contract/active/current' as const;
+// Phase 1193 Step B: current-format archive payload subtasks directory (read-only).
 export const CONTRACT_SUBTASKS_DIR = 'subtasks' as const;
