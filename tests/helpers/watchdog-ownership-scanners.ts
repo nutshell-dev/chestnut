@@ -28,11 +28,9 @@ export function findForbiddenLockReferences(text: string, file = '<text>'): stri
   return matchingLines(text, LOCK_PATTERN, file);
 }
 
-/** 规则 2：禁 PID overwrite —— `writeWatchdogPid(` 调用点（定义行除外） */
-export function findPidWriteCallSites(text: string, file = '<text>'): string[] {
-  return matchingLines(text, /\bwriteWatchdogPid\s*\(/, file).filter(
-    (hit) => !/function\s+writeWatchdogPid/.test(hit),
-  );
+/** 规则 2：禁 PID writer 回归 —— `writeWatchdogPid` 定义/调用均为 0（zero universe） */
+export function findPidWriterReferences(text: string, file = '<text>'): string[] {
+  return matchingLines(text, /\bwriteWatchdogPid\b/, file);
 }
 
 /** 规则 3：禁入口旁路 —— `runWatchdogLoop` import/调用引用（定义行与注释除外） */

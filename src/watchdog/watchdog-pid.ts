@@ -57,14 +57,10 @@ function auditMalformedActiveQuery(ctx: string, cause: unknown): void {
 
 import { isFileNotFound } from '../foundation/fs/index.js';
 
-/** 1:1 保 watchdog.ts:85-89 */
-export function writeWatchdogPid(fsFactory: (baseDir: string) => FileSystem, pid: number): void {
-  const root = getWorkspaceRoot();
-  const fs = getChestnutFs(fsFactory);
-  fs.writeAtomicSync('watchdog.pid', JSON.stringify({ pid, root }));
-}
+// Phase 1203 Step E: runtime writer 已删除 —— 新版 Watchdog 运行期不创建/覆盖/更新
+// `watchdog.pid`；本文件只保留 legacy reader / migration / stop 兼容清理能力。
 
-/** 1:1 保 watchdog.ts:91-98 */
+/** 1:1 保 watchdog.ts:91-98；仅 stop 兼容清理 legacy 输入用 */
 export function removeWatchdogPid(fsFactory: (baseDir: string) => FileSystem): void {
   try {
     const fs = getChestnutFs(fsFactory);

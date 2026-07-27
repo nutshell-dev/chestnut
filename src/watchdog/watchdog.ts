@@ -49,7 +49,7 @@ import {
   type MotionRestartState,
 } from './watchdog-context.js';
 import {
-  writeWatchdogPid, removeWatchdogPid, removeWatchdogPidIfOwner,
+  removeWatchdogPid, removeWatchdogPidIfOwner,
   isWatchdogProcessAlive, disposLegacyWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import {
@@ -110,6 +110,7 @@ export function _setWatchdogOwnershipForTest(ownership: WatchdogOwnership | null
 export type AcquireWatchdogOwnership =
   | { kind: 'committed'; ownership: WatchdogOwnership }
   | { kind: 'lost'; owner: WatchdogOwnerRecord }
+  | { kind: 'foreign_owned'; owner: WatchdogOwnerRecord }
   | { kind: 'legacy_live'; pid: number }
   | { kind: 'failed'; error: unknown };
 
@@ -138,7 +139,9 @@ function ownershipFromRecord(record: WatchdogOwnerRecord): WatchdogOwnership {
 /**
  * 子进程 ownership commit 唯一入口（任何监控副作用前调用）。
  * - committed：进入主 loop 的唯一门票；caller 后续写只能用 active 路径。
- * - foreign live owner → lost（拒绝接管）；同 workspace dead owner → 判死 retire 后重试一次。
+ * - live owner：同 workspace → lost；foreign → foreign_owned（entry fail-loud）。
+ * - dead owner（含 PID-reuse argv 不符）：不按 workspace 区分，只按其完整 generation
+ *   identity（attempt/token/pid）generation-guarded retire 后重试一次 commit。
  * - retryable failure → failed（不伪装 loser；进程退出后由下一 candidate 判死并 retire）。
  */
 export function acquireWatchdogOwnership(
@@ -180,9 +183,14 @@ export function acquireWatchdogOwnership(
 
   if (commit.kind === 'foreign_owned') {
     const owner = commit.owner;
-    const sameWorkspace = owner.workspace_root === getWorkspaceRoot();
-    if (sameWorkspace && !isWatchdogProcessAlive(owner.pid)) {
-      // stale recovery：判死后 retire 旧 generation，再重试一次 commit
+    if (isWatchdogProcessAlive(owner.pid)) {
+      // live owner：同 workspace → lost；foreign → fail-loud（不赋予 live foreign 覆盖权）
+      if (owner.workspace_root !== getWorkspaceRoot()) {
+        return { kind: 'foreign_owned', owner };
+      }
+    } else {
+      // dead owner（含 PID-reuse argv 不符）：无论历史 workspace，只按磁盘 record 的
+      // 完整 generation identity retire，不用当前 candidate identity。
       log(fsFactory, `[watchdog] stale owner (PID=${owner.pid}) detected, retiring before commit...`);
       const retired = retireOwnership(
         fs,
@@ -377,14 +385,23 @@ export async function runWatchdogLoop(
     auditWriter.dispose?.();
     return;
   }
+  if (acquisition.kind === 'foreign_owned') {
+    // live foreign owner：fail-loud（entry unhandledRejection → crash audit + exit 1）
+    auditWriter.dispose?.();
+    throw new WatchdogPidForeignWorkspaceError(
+      acquisition.owner.pid,
+      acquisition.owner.workspace_root,
+      getWorkspaceRoot(),
+    );
+  }
   if (acquisition.kind === 'failed') {
     auditWriter.dispose?.();
     throw new Error(`watchdog ownership commit failed: ${formatErr(acquisition.error)}`);
   }
   currentOwnership = acquisition.ownership;
 
-  writeWatchdogPid(fsFactory, process.pid);   // legacy mirror（phase 1203 兼容窗口，查询已走 active owner）
-
+  // Phase 1203 Step E: 不写 `watchdog.pid` —— active/owner.json 是唯一 current owner 事实；
+  // legacy pid 文件只作升级前输入读取/判活/迁移/stop 兼容清理。
   loadWatchdogState(fsFactory);   // 恢复通知状态（_auditWriter 已设，corrupt 路径可写 audit）
   log(fsFactory, '[watchdog] State loaded.');
 
@@ -535,7 +552,7 @@ export {
 } from './watchdog-context.js';
 
 export {
-  getWatchdogPid, isWatchdogAlive, writeWatchdogPid, removeWatchdogPid,
+  getWatchdogPid, isWatchdogAlive, removeWatchdogPid,
 } from './watchdog-pid.js';
 
 export {

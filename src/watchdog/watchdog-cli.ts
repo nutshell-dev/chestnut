@@ -161,6 +161,8 @@ export async function stopCommand(
       console.log('Watchdog is not running');
     }
 
+    // Phase 1203 Step E: 只清 legacy 输入 `watchdog.pid`；active owner 由被停进程自己的
+    // generation-guarded shutdown retire，stop 不触碰 active 目录、不代宣称处置 generation。
     removeWatchdogPid(fsFactory);
     console.log('Watchdog stopped');
     return;
@@ -195,6 +197,8 @@ export async function stopCommand(
     await setTimeout(WATCHDOG_SIGKILL_GRACE_MS);
   }
   
+  // Phase 1203 Step E: 同上 —— 仅 legacy 输入兼容清理，active 目录留由 owner 自己 retire
+  // （SIGKILL 未优雅退出时留作 stale，由下一 candidate generation-guarded recovery）。
   removeWatchdogPid(fsFactory);
   console.log('Watchdog stopped');
 }

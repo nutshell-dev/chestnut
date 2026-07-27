@@ -1,11 +1,13 @@
 /**
  * Phase 1203 Step B: 子进程持有 ownership — generation lifecycle 测试。
+ * Phase 1203 Step E: active 目录为唯一 owner authority — liveness-based stale 判断。
  *
  * 反向覆盖：
  * - loser 零主 loop 副作用（无 state load / WATCHDOG_START / signal / pid 写）
  * - 旧 generation 迟到 shutdown 不动 fresh active、不删新 owner pid 镜像
- * - stale owner 判死 retire 后接管
- * - foreign live owner 拒绝接管
+ * - stale owner 判死 retire 后接管（含 dead foreign active — Step E 关闭缺口）
+ * - foreign live owner 拒绝接管（fail-loud）
+ * - winner 进入 loop 后磁盘无新版创建的 watchdog.pid
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -157,7 +159,7 @@ describe('acquireWatchdogOwnership', () => {
     expect(auditLines()).toContain('watchdog_ownership_committed');
   });
 
-  it('foreign live owner 拒绝接管：lost + immutable outcome + active 不动', () => {
+  it('live owner（同 workspace）→ lost + immutable outcome + active 不动', () => {
     const foreign = newWatchdogAttempt(process.pid); // alive（本进程）
     seedActive(foreign);
 
@@ -189,6 +191,52 @@ describe('acquireWatchdogOwnership', () => {
     const audit = auditLines();
     expect(audit).toContain('watchdog_ownership_retired');
     expect(audit).toContain('reason=stale_recovery');
+  });
+
+  it('live foreign owner（不同 workspace）→ foreign_owned + active 保留、不写 outcome', () => {
+    const foreign = { ...newWatchdogAttempt(process.pid), workspace_root: '/foreign/root' };
+    seedActive(foreign);
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('foreign_owned');
+    if (result.kind === 'foreign_owned') expect(result.owner.owner_token).toBe(foreign.owner_token);
+    // active 保留原样；foreign 分型不写 lost outcome（entry fail-loud 处理）
+    expect(activeOwner()!.owner_token).toBe(foreign.owner_token);
+    expect(activeOwner()!.workspace_root).toBe('/foreign/root');
+    expect(candidateOutcomeFiles().length).toBe(0);
+  });
+
+  it('dead foreign active 可被 generation-guarded retire 后接管（Step E 关闭 dead-foreign 缺口）', () => {
+    const foreign = { ...newWatchdogAttempt(DEAD_PID), workspace_root: '/foreign/root' };
+    seedActive(foreign);
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    expect(activeOwner()!.pid).toBe(process.pid);
+    expect(activeOwner()!.workspace_root).toBe(tmpDir);
+    // 旧 foreign generation 完整保留在 retired/<token>（不误删证据）
+    const retiredPath = path.join(chestnutDir, WATCHDOG_RETIRED_DIR, foreign.owner_token, 'owner.json');
+    expect(JSON.parse(fs.readFileSync(retiredPath, 'utf-8'))).toMatchObject({
+      attempt_id: foreign.attempt_id,
+      workspace_root: '/foreign/root',
+    });
+    const audit = auditLines();
+    expect(audit).toContain('watchdog_ownership_retired');
+    expect(audit).toContain('reason=stale_recovery');
+  });
+
+  it('PID-reuse 且 argv 不符的 foreign active 按 dead 处理（不误杀无关进程）', () => {
+    _setPidArgvVerifierForTest(() => false);
+    const foreign = { ...newWatchdogAttempt(process.pid), workspace_root: '/foreign/root' };
+    seedActive(foreign);
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, foreign.owner_token))).toBe(true);
+    expect(activeOwner()!.pid).toBe(process.pid);
   });
 
   it('畸形 active → failed（不伪装 loser）+ failed outcome', () => {
@@ -239,6 +287,19 @@ describe('runWatchdogLoop ownership 门', () => {
     expect(candidateOutcomeFiles().length).toBe(1);
     // active 仍属 foreign
     expect(activeOwner()!.owner_token).toBe(foreign.owner_token);
+  });
+
+  it('live foreign active owner → entry fail-loud throw + active 保留', async () => {
+    const foreign = { ...newWatchdogAttempt(process.pid), workspace_root: '/foreign/root' };
+    seedActive(foreign);
+
+    await expect(runWatchdogLoop(fsFactory, 'logs/daemon.log'))
+      .rejects.toThrow(WatchdogPidForeignWorkspaceError);
+
+    // active 原样保留；零主 loop 副作用
+    expect(activeOwner()!.owner_token).toBe(foreign.owner_token);
+    expect(capturedHandlers['SIGTERM']).toBeUndefined();
+    expect(auditLines()).not.toContain('watchdog_start');
   });
 
   it('winner commit 后进入 loop；SIGTERM shutdown 只 retire 自身 generation', async () => {
@@ -340,7 +401,8 @@ describe('legacy watchdog.pid 迁移（Phase 1203 Step D）', () => {
     const result = acquireWatchdogOwnership(fsFactory);
 
     expect(result.kind).toBe('committed');
-    // active 经 stale_recovery  retire；镜像文件不动（下一步 winner 自己覆写）
+    // active 经 stale_recovery retire；legacy 镜像文件不动（Step E：winner 不再覆写，
+    // 残留仅作 legacy 输入，由 stop 兼容清理，永不再是 authority）
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, stale.owner_token))).toBe(true);
     expect(fs.readFileSync(legacyPidFile(), 'utf-8')).toBe(mirror);
     expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, `legacy-${DEAD_PID}`))).toBe(false);
