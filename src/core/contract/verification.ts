@@ -21,7 +21,6 @@ import {
   emitContractVerificationFailed,
   emitContractVerificationResetFailed,
   emitContractVerificationStarted,
-  emitContractVerificationPipelineRaceRejected,
   emitSubtaskForceAccepted,
   emitVerificationOutcomeLate,
 } from './audit-emit.js';
@@ -29,7 +28,6 @@ import { buildVerificationOutcome } from './verification-outcome.js';
 
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
-// phase 1465: verification mutex 改 ContractSystem 实例、经 ctx.verificationMutex 访问 (M#3 + Tier 1 真治)
 import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';
 import { formatRejectionFeedback } from './verification-format.js';
 import type { VerificationContext } from './verification-types.js';
@@ -338,29 +336,12 @@ export async function runVerificationPipeline(
 
   const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
-  // phase 438: sync 路径（无 verificationConfig）保持原有"幂等守卫"语义 —
-  // 第二个并发提交进 completeSubtaskSync 由底层 progress 读写竞争自然串行、
-  // 见 status='completed' 结构化返回 "already completed"（不 race-reject）；
-  // 与 async 路径"必须 race-reject 防 bg 串扰"是两种并发模型、不统一闸门。
-  // review R2-C-N13 指控复核站不住、本 phase 不改 sync 语义。
-  if (verificationConfig) {
-    if (!ctx.verificationMutex.acquire(contractId, subtaskId)) {
-      emitContractVerificationPipelineRaceRejected(
-        ctx.audit,
-        { contractId, subtaskId, context: 'runVerificationPipeline', reason: 'verification_pipeline_already_active' },
-      );
-      throw new ToolError(`Verification pipeline for contract "${contractId}" subtask "${subtaskId}" is already active — concurrent attempt rejected.`);
-    }
+  // Phase 1201 Step D: 内存闸门已删除。duplicate async submit 完全由 queued
+  // fresh-read start transition 的 status/attempt 规则决定（第二提交见
+  // status=in_progress → skipped → ToolError）。
+  if (!verificationConfig) {
+    return await completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
   }
-
-  // handedOff = true 表示 release 所有权已交给 bg promise 的 .finally；
-  // 此函数返回前不可再 release。phase 438: 配对结构对称化（review N3-C-H2）。
-  // 仅 verificationConfig 存在时 acquire、!verificationConfig 时无需 release。
-  let handedOff = false;
-  try {
-    if (!verificationConfig) {
-      return await completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
-    }
 
   const attemptId = newUuid();
   const startedAt = new Date().toISOString();
@@ -396,11 +377,8 @@ export async function runVerificationPipeline(
   }
   emitContractVerificationStarted(ctx.audit, { contractId, subtaskId });
 
-  // phase 337 M1 / review-2026-06-13: mutex hold must span the background
-  // work lifetime, not just the in-progress mark commit. Earlier early-release
-  // (削 phase 1371 sub-3 闭环) let a second completeSubtask reach background-
-  // work concurrently with the first when status briefly flipped during
-  // archiveAndEmit / rollback windows. Release in .finally() of the bg promise.
+  // Phase 1201 Step D: background work 的并发安全由 durable outcome persist +
+  // attempt guard + per-contract queue 保证，无需进程内闸门。
   runVerificationInBackground(ctx, { ...params, attemptId }, contractYaml, verificationConfig)
     .catch(async (err) => {
       // Phase 965: abort is handled inside runVerificationInBackground and re-thrown so it does not
@@ -410,26 +388,9 @@ export async function runVerificationPipeline(
       }
       // Fallback for unexpected errors that escaped runVerificationInBackground.
       process.stderr.write(`[verification] unexpected background error: ${formatErr(err)}\n`);
-    })
-    .finally(() => {
-      // phase 337 M1: 释放 mutex 必须在 background work 全 settle 后、
-      // 覆盖整个 hold-window。否则第二个 completeSubtask 会在 archiveAndEmit
-      // 或 rollback 窗口里 race 进入 background。
-      ctx.verificationMutex.release(contractId, subtaskId);
     });
-  // phase 438: bg promise 的 .finally 已绑定 release —— 所有权移交给 bg。
-  // 不可在 outer finally 再 release（会重复）。
-  handedOff = true;
 
   return { passed: false, feedback: '', async: true };
-  } finally {
-    if (verificationConfig && !handedOff) {
-      // verificationConfig 存在时 acquire 成功（!handedOff 表示 release 未交给 bg）
-      // sync 异常路径（transitionVerificationAttempt throw、progress save throw、其他 sync 异常）
-      // 必须在此处释放。
-      ctx.verificationMutex.release(contractId, subtaskId);
-    }
-  }
 }
 
 export async function runVerificationInBackground(

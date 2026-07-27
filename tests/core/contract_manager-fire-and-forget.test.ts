@@ -17,7 +17,8 @@ import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
 import { completeSubtask } from '../helpers/contract-subtask.js';
-// phase 1465: _resetVerificationMutexForTest import removed — mutex now instance-bound, per-test fresh ContractSystem 自然提供 fresh mutex
+// phase 1465: 旧全局 reset hook 早已移除；Phase 1201 Step D 起并发闸门整体删除，
+// duplicate submit 由 queued fresh-read status/attempt 规则决定。
 
 /**
  * Retry exponential backoff base delay: set to 0 in tests because the retry
@@ -33,7 +34,7 @@ afterEach(() => {
 });
 
 /**
- * Retry completeSubtask on transient mutex race ("already active"),
+ * Retry completeSubtask on transient concurrent-start race ("Cannot start verification"),
  * with exponential backoff (50/100/200/400/800ms, 5 attempts).
  */
 async function completeSubtaskWithRetry(
@@ -45,7 +46,7 @@ async function completeSubtaskWithRetry(
     try {
       return await completeSubtask(manager, params);
     } catch (e: any) {
-      if (e?.message?.includes('already active') && attempt < maxRetries - 1) {
+      if (e?.message?.includes('Cannot start verification') && attempt < maxRetries - 1) {
         await new Promise(r => setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)));
         continue;
       }

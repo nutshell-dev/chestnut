@@ -8,6 +8,9 @@
  * 3. start 与 sync complete 竞争按 FIFO 看到前一提交。
  * 4. queue 执行期间 contract 被 cancel，mutation 不写 archive progress。
  * 5. post-commit notify 抛错不回滚 progress，也不毒死 queue。
+ * 6. (Step D) async start/async start 同 subtask：无内存闸门，queued fresh-read
+ *    status 规则拒绝第二 start。
+ * 7. (Step D) async outcome/sync submit：FIFO 无 lost update，迟到者不覆盖。
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'path';
@@ -259,6 +262,88 @@ describe('progress mutation race (phase 1201 step B)', () => {
 
     // active 目录未被重建。
     await expect(fsp.access(path.join(fx.clawDir, 'contract', 'active', contractId))).rejects.toThrow();
+  });
+
+  it('async start/async start 同 subtask：queued fresh-read 拒绝第二 start（Step D 无内存闸门）', async () => {
+    const fx = await setup();
+    cleanups.push(fx.tempDir);
+    const contractId = makeContractId(await fx.manager.create(makeContractYaml({
+      subtasks: [{ id: 'st1', description: 'S1' }],
+      verification: [],
+    })));
+    const st1 = makeSubtaskId('st1');
+
+    const gate = deferred();
+    gateFirstActiveProgressRead(fx.fs, gate);
+
+    const start = (attemptId: string) => fx.manager.transitionVerificationAttempt(contractId, st1, {
+      kind: 'start',
+      attemptId,
+      evidence: 'e',
+      artifacts: [],
+      at: new Date().toISOString(),
+    });
+    const p1 = start('att-1');
+    const p2 = start('att-2');
+
+    await waitForQueuedCount(fx.auditEvents, fx.auditEmitter, 2);
+    gate.resolve();
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    // FIFO：第一 start 提交 in_progress(att-1)；第二 start fresh-read 见非 todo → skipped。
+    expect(r1.kind).toBe('updated');
+    expect(r2.kind).toBe('skipped');
+
+    const progress = await readActiveProgress(fx.clawDir, contractId);
+    expect(progress.subtasks.st1.status).toBe('in_progress');
+    expect(progress.subtasks.st1.verification_attempt_id).toBe('att-1');
+  });
+
+  it('async outcome/sync submit：FIFO 无 lost update，迟到者见已提交状态', async () => {
+    const fx = await setup();
+    cleanups.push(fx.tempDir);
+    const contractId = makeContractId(await fx.manager.create(makeContractYaml({
+      subtasks: [{ id: 'st1', description: 'S1' }],
+      verification: [],
+    })));
+    const st1 = makeSubtaskId('st1');
+
+    // 先落 in_progress(att-1)。
+    const started = await fx.manager.transitionVerificationAttempt(contractId, st1, {
+      kind: 'start',
+      attemptId: 'att-1',
+      evidence: 'e',
+      artifacts: [],
+      at: new Date().toISOString(),
+    });
+    expect(started.kind).toBe('updated');
+
+    const gate = deferred();
+    gateFirstActiveProgressRead(fx.fs, gate);
+
+    const passAt = '2026-07-27T02:00:00.000Z';
+    const pOutcome = fx.manager.transitionVerificationAttempt(contractId, st1, {
+      kind: 'pass',
+      attemptId: 'att-1',
+      at: passAt,
+    });
+    const pSync = fx.manager._submitSyncCompletion(contractId, st1, {
+      evidence: 'e-sync',
+      at: new Date().toISOString(),
+    });
+
+    await waitForQueuedCount(fx.auditEvents, fx.auditEmitter, 3);
+    gate.resolve();
+
+    const [outcomeResult, syncResult] = await Promise.all([pOutcome, pSync]);
+    expect(outcomeResult.kind).toBe('updated');
+    // sync completion fresh-read 见 pass 已提交的 completed → already_completed，不覆盖。
+    expect(syncResult.kind).toBe('already_completed');
+
+    const progress = await readActiveProgress(fx.clawDir, contractId);
+    expect(progress.subtasks.st1.status).toBe('completed');
+    expect(progress.subtasks.st1.completed_at).toBe(passAt);
+    expect(progress.subtasks.st1.evidence).not.toBe('e-sync');
   });
 
   it('post-commit notify 抛错：progress 不回滚，queue 不毒化', async () => {

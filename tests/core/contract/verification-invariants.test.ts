@@ -138,7 +138,6 @@ describe('archiveAndEmit (phase 951)', () => {
       emitContractCompleted: vi.fn(),
       getProgress: vi.fn().mockResolvedValue(null),
       saveProgress: vi.fn(),
-      verificationMutex: {} as VerificationContext['verificationMutex'],
       contractDir: vi.fn(),
       loadContractYaml: vi.fn(),
       checkAllSubtasksCompleted: vi.fn(),
@@ -286,10 +285,11 @@ describe('archiveAndEmit (phase 951)', () => {
 });
 
 /**
- * @module tests/core/contract/verification-pipeline-mutex
- * Phase 1371 sub-3: completeSubtaskSync vs runVerificationPipeline mutex reverse test
+ * @module tests/core/contract/verification-pipeline-race
+ * Phase 1371 sub-3: completeSubtaskSync vs runVerificationPipeline 并发拒绝
+ * （Phase 1201 Step D：由 queued fresh-read start transition 决定，内存闸门已删除）
  */
-describe('verification pipeline mutex (phase 1371 sub-3)', () => {
+describe('verification pipeline concurrent reject (phase 1371 sub-3 / 1201 step D)', () => {
   let tmpDir: string;
   let clawDir: string;
   let nodeFs: NodeFileSystem;
@@ -298,7 +298,7 @@ describe('verification pipeline mutex (phase 1371 sub-3)', () => {
     tmpDir = path.join(
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
-      `.test-verification-mutex-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
+      `.test-verification-pipeline-race-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     clawDir = path.join(tmpDir, 'claws', 'test-claw');
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
@@ -335,16 +335,14 @@ describe('verification pipeline mutex (phase 1371 sub-3)', () => {
     // Mock runScriptVerification to delay so pipeline stays active
     vi.spyOn(manager as any, 'runScriptVerification').mockImplementation(() => new Promise(() => {}));
 
-    // phase 337 M1 (review-2026-06-13): mutex 现 hold 到 background work 结束 finally。
-    // 第一次 await 返后、background work 仍跑（mocked 死锁 promise）、mutex 仍 hold。
-    // 第二次 completeSubtask 在 mutex.acquire 处即被拒、抛 "already active — concurrent attempt rejected"
-    // 而非进 in-progress 状态守。两条都是合法 reject 路径、仅 wording 不同；
-    // 修后期望第一种 wording。
+    // Phase 1201 Step D：内存闸门已删除。第一次 await 返后、background work 仍跑
+    // （mocked 死锁 promise），subtask 保持 in_progress。第二次 completeSubtask 的
+    // queued fresh-read start transition 见 status=in_progress → skipped → ToolError。
     await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
 
     await expect(
       completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e2' })
-    ).rejects.toThrow(/already active — concurrent attempt rejected/);
+    ).rejects.toThrow(/Cannot start verification/);
   });
 
 
@@ -402,7 +400,7 @@ describe('force-accept state transition valid (phase 1399)', () => {
     // Mock script verification to always fail
     vi.spyOn(manager as any, 'runScriptVerification').mockResolvedValue({ passed: false, feedback: 'bad' });
 
-    // First failure (wait for background done before next call to avoid mutex race)
+    // First failure (wait for background done before next call to avoid concurrent reject)
     await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
 

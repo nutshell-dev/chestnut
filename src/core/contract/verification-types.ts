@@ -11,7 +11,6 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ContractId } from './types.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
-import type { VerificationMutex } from './verification-mutex.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type {
   VerificationAttemptTransition,
@@ -37,14 +36,9 @@ export type NotifyClawFn = (
  * Composed via `&` intersection — runtime ctx instance unchanged, structurally compatible.
  */
 
-export interface VerificationLockContext {
+export interface VerificationContractContext {
   fs: FileSystem;
   audit: AuditLog;
-  /** phase 1465: per-ContractSystem instance race guard for verification pipeline (M#3 + Tier 1 flaky_test_zero_tolerance) */
-  verificationMutex: VerificationMutex;
-}
-
-export interface VerificationContractContext {
   clawDir: string;
   clawId: ClawId;
   /** phase 95: required pre-bound notifyClaw (caller binds fs + chestnutRoot + audit) */
@@ -130,7 +124,6 @@ export interface VerificationExecutionContext {
 }
 
 export type VerificationContext =
-  & VerificationLockContext
   & VerificationContractContext
   & VerificationExecutionContext;
 

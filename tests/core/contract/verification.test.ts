@@ -9,7 +9,6 @@ import * as nodeFs from 'fs';
 import * as path from 'path';
 import { makeMockAudit } from '../../helpers/audit.js';
 import { formatRejectionFeedback, runScriptVerification, runLLMVerification, runVerificationInBackground, runVerificationPipeline } from '../../../src/core/contract/verification.js';
-import { VerificationMutex } from '../../../src/core/contract/verification-mutex.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
@@ -30,7 +29,6 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     getProgress: vi.fn().mockResolvedValue(null),
     saveProgress: vi.fn().mockResolvedValue(undefined),
     loadContractYaml: vi.fn().mockResolvedValue(null),
-    verificationMutex: new VerificationMutex(),
     toolRegistry: {} as VerificationContext['toolRegistry'],
     runScriptVerification: vi.fn(),
     runLLMVerification: vi.fn(),
@@ -411,9 +409,6 @@ describe('runVerificationPipeline (Phase 968)', () => {
       expect.stringContaining('runVerificationPipeline'),
       expect.stringContaining('not active'),
     );
-
-    // mutex 已释放：同 (contractId, subtaskId) 再次 acquire 成功
-    expect(ctx.verificationMutex.acquire(contractId, subtaskId)).toBe(true);
   });
 });
 

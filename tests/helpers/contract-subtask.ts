@@ -19,7 +19,6 @@ import type { ClawId } from '../../src/foundation/claw-identity/index.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/index.js';
 import type { NotifyClawFn } from '../../src/core/contract/verification-types.js';
-import type { VerificationMutex } from '../../src/core/contract/verification-mutex.js';
 import type { ProgressData, ContractYaml, ArchiveState } from '../../src/core/contract/types.js';
 import type { VerificationAttemptTransition } from '../../src/core/contract/verification-transition-types.js';
 import type { SyncCompletionGatewayResult, VerificationGatewayResult } from '../../src/core/contract/verification-types.js';
@@ -37,7 +36,6 @@ type Internals = {
   notifyClaw: NotifyClawFn;
   toolRegistry: ToolRegistry;
   toolTimeoutMs?: number;
-  verificationMutex: VerificationMutex;
   fsFactory: (baseDir: string) => FileSystem;
   runSubagent?: VerifierConfig['runSubagent'];
   contractDir: (id: ContractId) => Promise<string>;
@@ -119,7 +117,6 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     },
     toolRegistry: self.toolRegistry,
     toolTimeoutMs: self.toolTimeoutMs,
-    verificationMutex: self.verificationMutex,
     registerController: (contractId, controller, promise) => {
       self._registerVerifierController(contractId, controller, promise);
     },

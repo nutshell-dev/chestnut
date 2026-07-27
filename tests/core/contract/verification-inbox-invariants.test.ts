@@ -470,7 +470,6 @@ describe('Phase 961 verification invariants', () => {
       runLLMVerification: vi.fn().mockResolvedValue({ passed: true, feedback: 'ok' }),
       runScriptVerification: vi.fn(),
       toolRegistry: createToolRegistry(),
-      verificationMutex: { acquire: vi.fn(() => true), release: vi.fn() } as unknown as VerificationContext['verificationMutex'],
       runVerifierWithCancel: vi.fn(),
       onNotify: vi.fn(),
       isActiveContract: vi.fn().mockResolvedValue(true),
