@@ -7,18 +7,25 @@
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import type { ContractSystem } from '../manager.js';
+import type { Contract, VerificationResult } from '../types.js';
 import { makeContractId } from '../types.js';
 import { makeSubtaskId, type SubtaskId } from '../types.js';
 
-/**
- * Done tool implementation
- * 
- * Requires contractManager to be injected before use.
- */
+export interface SubmitSubtaskParams {
+  contractId: ReturnType<typeof makeContractId>;
+  subtaskId: SubtaskId;
+  evidence: string;
+  artifacts?: string[];
+}
+
+export interface SubmitSubtaskToolDeps {
+  loadForeground(): Promise<Contract | null>;
+  submit(params: SubmitSubtaskParams): Promise<VerificationResult>;
+}
+
 export const SUBMIT_SUBTASK_TOOL_NAME = 'submit_subtask' as const;
 
-export function createSubmitSubtaskTool(contractManager: ContractSystem): Tool {
+export function buildSubmitSubtaskTool(deps: SubmitSubtaskToolDeps): Tool {
   return {
     name: SUBMIT_SUBTASK_TOOL_NAME,
     profiles: ['full'],
@@ -48,7 +55,7 @@ export function createSubmitSubtaskTool(contractManager: ContractSystem): Tool {
     idempotent: false,
 
     async execute(args: Record<string, unknown>, _ctx: ExecContext): Promise<ToolResult> {
-      const active = await contractManager.loadActive();
+      const active = await deps.loadForeground();
       if (!active) {
         return {
           success: false,
@@ -61,7 +68,7 @@ export function createSubmitSubtaskTool(contractManager: ContractSystem): Tool {
       const evidence = String(args.evidence);
       const artifacts = (args.artifacts as string[]) || [];
 
-      const result = await contractManager.completeSubtask({
+      const result = await deps.submit({
         contractId: makeContractId(active.id),
         subtaskId,
         evidence,
@@ -87,7 +94,7 @@ export function createSubmitSubtaskTool(contractManager: ContractSystem): Tool {
           };
         }
         // 从 active 契约中读取剩余列表（此时契约仍在 active/，未 archive）
-        const updated = await contractManager.loadActive();
+        const updated = await deps.loadForeground();
         const remaining = updated?.subtasks.filter(s => s.status !== 'completed') ?? [];
         const remainingList = remaining.map(s => `- ${s.id}: ${s.description}`).join('\n');
         return {

@@ -93,8 +93,6 @@ export {
   type ArchiveReadIssueCode,
 } from './archive-reader.js';
 
-export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submit-subtask.js';
-
 // phase 744 + 752: lightweight read-only query helpers (0-instance-dep)
 export {
   hasActiveContract,
@@ -117,7 +115,6 @@ export {
   CONTRACT_ARCHIVE_DIR,
   PROGRESS_FILE,
   CONTRACT_YAML_FILE,
-  PROGRESS_LOCK_FILE,
 } from './dirs.js';
 
 // Phase 1335 (r138 F fork): cross-module query API

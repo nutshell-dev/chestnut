@@ -13,6 +13,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -218,7 +219,7 @@ auth_level: auto
         fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
-      const result = await manager.completeSubtask({
+      const result = await completeSubtask(manager, {
         contractId: 'contract-002',
         subtaskId: 'st-001',
         evidence: 'Done',
@@ -268,7 +269,7 @@ auth_level: auto
         fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
-      const result = await manager.completeSubtask({
+      const result = await completeSubtask(manager, {
         contractId: 'contract-003',
         subtaskId: 'st-001',
         evidence: 'Done',
@@ -316,7 +317,7 @@ auth_level: auto
         fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
-      const result = await manager.completeSubtask({
+      const result = await completeSubtask(manager, {
         contractId: 'contract-004',
         subtaskId: 'st-001',
         evidence: 'Done',
@@ -367,7 +368,7 @@ auth_level: auto
       expect(await manager.isComplete('contract-005')).toBe(false);
 
       // Complete one
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId: 'contract-005',
         subtaskId: 'st-001',
         evidence: 'Done',
@@ -375,7 +376,7 @@ auth_level: auto
       expect(await manager.isComplete('contract-005')).toBe(false);
 
       // Complete the other
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId: 'contract-005',
         subtaskId: 'st-002',
         evidence: 'Done',

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
-import { createSubmitSubtaskTool } from '../../src/core/contract/index.js';
+
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as os from 'os';
@@ -31,7 +31,7 @@ function makeCtx() {
 describe('submitSubtaskTool', () => {
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
-  let submitSubtaskTool: ReturnType<typeof createSubmitSubtaskTool>;
+  let submitSubtaskTool: ReturnType<ContractSystem['createSubmitSubtaskTool']>;
 
   beforeEach(async () => {
     testDir = path.join(
@@ -53,7 +53,7 @@ describe('submitSubtaskTool', () => {
       fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
-    submitSubtaskTool = createSubmitSubtaskTool(manager);
+    submitSubtaskTool = manager.createSubmitSubtaskTool();
   });
 
   afterEach(async () => {

@@ -22,6 +22,7 @@ import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
+import { completeSubtask } from '../../helpers/contract-subtask.js';
 
 
 
@@ -269,7 +270,7 @@ describe('CONTRACT_AUDIT_EVENTS.COMPLETED single emit (phase 791 / P0.17)', () =
       verification: [],
     }));
 
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'done' });
 
     const completedEvents = auditCalls.filter(
       c => c.type === CONTRACT_AUDIT_EVENTS.COMPLETED

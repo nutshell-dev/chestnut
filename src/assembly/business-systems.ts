@@ -26,7 +26,7 @@ import { isFileNotFound } from '../foundation/fs/index.js';
 import { summonContractExtractPostProcessor, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, AskMotionTool, createSummonVerifyPolicy, SummonTool } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem, MotionReviewContext } from '../core/evolution-system/index.js';
-import { createSubmitSubtaskTool } from '../core/contract/index.js';
+
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
 import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
@@ -221,7 +221,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   }
 
   // --- 11. 工具注册 + toolExecutor + DialogStore + InboxReader + ContractAuditor + FormatterRegistry + GuidanceRegistry ---
-  toolRegistry.register(createSubmitSubtaskTool(contractManager));
+  toolRegistry.register(contractManager.createSubmitSubtaskTool());
   toolRegistry.register(createDoneTool());
   toolRegistry.register(
     createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),

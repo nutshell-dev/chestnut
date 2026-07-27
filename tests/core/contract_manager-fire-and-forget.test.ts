@@ -16,6 +16,7 @@ import { ToolTimeoutError } from '../../src/foundation/tools/errors.js';  // pha
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 // phase 1465: _resetVerificationMutexForTest import removed — mutex now instance-bound, per-test fresh ContractSystem 自然提供 fresh mutex
 
 /**
@@ -42,7 +43,7 @@ async function completeSubtaskWithRetry(
 ): Promise<ReturnType<ContractSystem['completeSubtask']>> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      return await manager.completeSubtask(params);
+      return await completeSubtask(manager, params);
     } catch (e: any) {
       if (e?.message?.includes('already active') && attempt < maxRetries - 1) {
         await new Promise(r => setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)));
@@ -102,7 +103,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       });
 
       const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
-      const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      const result = await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
       expect(result.async).toBe(true);
 
       await verifDoneP;
@@ -141,7 +142,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
 
       // phase 425: 必先订阅 SUBTASK_RESET_TO_TODO 再 completeSubtask
       const resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
-      await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
       await resetP;
 
       const progress = await testManager.getProgress(contractId);
@@ -181,7 +182,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
 
       // phase 425: 必先订阅 SUBTASK_RESET_TO_TODO 再 completeSubtask
       const resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
-      await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
       await resetP;
 
       const progress = await testManager.getProgress(contractId);
@@ -216,7 +217,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       });
 
       const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
-      await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
       await verifDoneP;
 
       const notifyCall = onNotifySpy.mock.calls.find(

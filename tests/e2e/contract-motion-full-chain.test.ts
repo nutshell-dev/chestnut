@@ -19,6 +19,7 @@ import {
 } from '../helpers/test-timeouts.js';
 import { createAuditEmitterHelper, type AuditEmitterHelper } from '../helpers/audit-emitter.js';
 import { waitForPathExists } from '../helpers/wait-for-file.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -108,7 +109,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
 
     await setupPromptFile(contractId);
 
-    await manager.completeSubtask({
+    await completeSubtask(manager, {
       contractId,
       subtaskId: 'task-1',
       evidence: 'done',
@@ -138,7 +139,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
 
     await setupPromptFile(contractId);
 
-    await manager.completeSubtask({
+    await completeSubtask(manager, {
       contractId,
       subtaskId: 'task-1',
       evidence: 'done',
@@ -178,7 +179,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
 
     await setupPromptFile(contractId);
 
-    const completePromise = manager.completeSubtask({
+    const completePromise = completeSubtask(manager, {
       contractId,
       subtaskId: 'task-1',
       evidence: 'done',

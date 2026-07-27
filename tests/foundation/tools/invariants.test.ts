@@ -15,7 +15,7 @@ import { memorySearchTool } from '../../../src/core/memory/tools/memory_search.j
 import type { Tool } from '../../../src/foundation/tools/types.js';
 import { DEFAULT_TOOL_TIMEOUT_MS, createToolExecutor } from '../../../src/foundation/tools/index.js';
 import { createDoneTool } from '../../../src/core/subagent/tools/done.js';
-import { createSubmitSubtaskTool } from '../../../src/core/contract/tools/submit-subtask.js';
+import { buildSubmitSubtaskTool } from '../../../src/core/contract/tools/submit-subtask.js';
 import { cloneExecContext } from '../../../src/foundation/tools/context.js';
 import type { ExecContext } from '../../../src/foundation/tools/context.js';
 
@@ -85,8 +85,11 @@ describe('Tool profiles DONE_TOOL_NAME business semantic boundary (phase 947 M#2
     expect(doneTool.profiles).toContain('subagent');
   });
 
-  it('SUBMIT_SUBTASK_TOOL_NAME is in full profile (main motion uses contract flow)', () => {
-    const submitSubtaskTool = createSubmitSubtaskTool({} as any);
+  it('submit_subtask tool is in full profile (main motion uses contract flow)', () => {
+    const submitSubtaskTool = buildSubmitSubtaskTool({
+      loadForeground: async () => null,
+      submit: async () => ({ passed: true, allCompleted: false } as any),
+    });
     expect(submitSubtaskTool.profiles).toContain('full');
   });
 });

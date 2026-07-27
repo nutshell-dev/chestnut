@@ -14,6 +14,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 let testDir: string;
 let clawDir: string;
@@ -105,7 +106,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
         verification: [],
       }));
 
-      const result = await monitorManager.completeSubtask({
+      const result = await completeSubtask(monitorManager, {
         contractId,
         subtaskId: 'nonexistent-task',
         evidence: 'evidence',

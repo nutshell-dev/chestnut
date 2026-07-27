@@ -19,6 +19,7 @@ import { ContractSystem } from '../../src/core/contract/manager.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { TASKS_QUEUES_RUNNING_DIR } from '../../src/core/async-task-system/index.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 describe('Builtin Tools - status tool', () => {
   let tempDir: string;
@@ -133,7 +134,7 @@ describe('Builtin Tools - status tool', () => {
         verification: [],
       }));
       // 完成第一个子任务（无 verification 脚本，直接通过）
-      await manager.completeSubtask({ contractId, subtaskId: 'done-task', evidence: 'done' });
+      await completeSubtask(manager, { contractId, subtaskId: 'done-task', evidence: 'done' });
       const statusTool = createStatusTool(manager);
 
       const result = await statusTool.execute({}, ctx);

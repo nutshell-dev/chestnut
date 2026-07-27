@@ -29,6 +29,7 @@ import { makeContractId } from '../../../src/core/contract/types.js';
 import { handleVerificationErrorRetry } from '../../../src/core/contract/verification-notify.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import * as VerificationMain from '../../../src/core/contract/verification.js';
+import { completeSubtask } from '../../helpers/contract-subtask.js';
 
 /**
  * @module tests/core/contract/verification-lifecycle
@@ -183,10 +184,10 @@ describe('verification pipeline mutex (phase 1371 sub-3)', () => {
     // 第二次 completeSubtask 在 mutex.acquire 处即被拒、抛 "already active — concurrent attempt rejected"
     // 而非进 in-progress 状态守。两条都是合法 reject 路径、仅 wording 不同；
     // 修后期望第一种 wording。
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
 
     await expect(
-      manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e2' })
+      completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e2' })
     ).rejects.toThrow(/already active — concurrent attempt rejected/);
   });
 
@@ -246,11 +247,11 @@ describe('force-accept state transition valid (phase 1399)', () => {
     vi.spyOn(manager as any, 'runScriptVerification').mockResolvedValue({ passed: false, feedback: 'bad' });
 
     // First failure (wait for background done before next call to avoid mutex race)
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
 
     // Second failure → force-accept (retry_count reaches verification_attempts=2)
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e2' });
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e2' });
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.COMPLETED);
 
     // Verify force-accepted audit
@@ -324,7 +325,7 @@ describe('verification outcome observability (phase 1371 sub-4)', () => {
     const runScriptSpy = vi.spyOn(manager as any, 'runScriptVerification').mockResolvedValue({ passed: true, feedback: 'ok' });
 
     // Start pipeline — lifecycle guard should reject before background starts
-    const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
+    const result = await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
 
     expect(result.passed).toBe(false);
     expect(result.async).toBeUndefined();
@@ -358,7 +359,7 @@ describe('verification outcome observability (phase 1371 sub-4)', () => {
     });
 
     // Start pipeline
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
 
     // Wait for background done audit
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);

@@ -18,6 +18,7 @@ import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
 import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/index.js';  // phase 262: hoist
 import { waitFor } from '../helpers/wait-for.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 
 let testDir: string;
@@ -85,7 +86,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       const resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
 
       // Complete subtask (triggers background LLM verification)
-      const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      const result = await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
       // Should indicate async processing
       expect(result.async).toBe(true);
@@ -147,7 +148,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       // verification_attempts = 2, need 2 failures to trigger force-accept
       for (let i = 0; i < 2; i++) {
         const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
-        await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
+        await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
         await verifDoneP;
         // phase 789: waitFor poll until background verification releases the mutex
         await waitFor(() => releaseSpy.mock.calls.length > 0, 5000);
@@ -195,7 +196,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       // Only 2 failures — below verification_attempts (3)
       for (let i = 0; i < 2; i++) {
         const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
-        await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
+        await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
         await verifDoneP;
         // phase 789: waitFor poll until background verification releases the mutex
         await waitFor(() => releaseSpy.mock.calls.length > 0, 5000);
@@ -255,7 +256,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
       await fs.writeFile(path.join(contractDir, 'verification', 't1.sh'), '#!/bin/sh\nexit 0', { mode: 0o755 });
 
-      const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      const result = await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
       expect(result.async).toBe(true);
 
       expect(mockAudit.write).toHaveBeenCalledWith(
@@ -278,7 +279,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         verification: [],
       }));
 
-      await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.UPDATED,

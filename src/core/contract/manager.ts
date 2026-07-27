@@ -30,7 +30,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { Contract, SubtaskStatus } from '../contract/types.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
-import type { ToolRegistry } from '../../foundation/tools/index.js';
+import type { Tool, ToolRegistry } from '../../foundation/tools/index.js';
 
 
 import {
@@ -88,6 +88,7 @@ import {
   writeVerificationError,
   type VerificationContext,
 } from './verification.js';
+import { buildSubmitSubtaskTool, type SubmitSubtaskParams } from './tools/submit-subtask.js';
 import { archiveAndEmit } from './verification-lifecycle.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
@@ -123,12 +124,6 @@ export interface ContractSystemDeps {
   fsFactory: (baseDir: string) => FileSystem;
   runContractVerifier?: typeof defaultRunContractVerifier;
   runSubagent?: VerifierConfig['runSubagent'];
-  /** phase 1028: injectable lock retry budget — defaults to LOCK_MAX_RETRIES */
-  lockMaxRetries?: number;
-  /** phase 1028: injectable lock retry delay (ms) — defaults to LOCK_RETRY_DELAY_MS */
-  lockRetryDelayMs?: number;
-  /** Injectable lock retry wait for deterministic contention tests. */
-  lockRetrySleep?: (delayMs: number) => Promise<void>;
 }
 
 export class ContractSystem {
@@ -775,12 +770,14 @@ export class ContractSystem {
   }
 
   // Verification
-  async completeSubtask(params: {
-    contractId: ContractId;
-    subtaskId: SubtaskId;
-    evidence: string;
-    artifacts?: string[];
-  }): Promise<VerificationResult> {
+  createSubmitSubtaskTool(): Tool {
+    return buildSubmitSubtaskTool({
+      loadForeground: () => this.loadActive(),
+      submit: (params: SubmitSubtaskParams) => this.submitSubtaskInternal(params),
+    });
+  }
+
+  private submitSubtaskInternal(params: SubmitSubtaskParams): Promise<VerificationResult> {
     return runVerificationPipeline(this._verificationCtx(), params);
   }
 
@@ -850,7 +847,7 @@ export class ContractSystem {
   async create(arg: ContractYaml | CreateContractOptions): Promise<string> {
     const opts = 'contract' in arg ? arg : { contract: arg };
     const contractYaml = opts.contract;
-    // Phase 230: policy iteration（在 schema 校验后、lock 创建前）
+    // Phase 230: policy iteration（在 schema 校验后、持久化前）
     const ctx: CreatePolicyContext = {
       subagentTaskId: opts.subagentTaskId,
       clawDir: opts.clawDir,

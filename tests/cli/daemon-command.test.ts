@@ -71,7 +71,9 @@ vi.mock('../../src/daemon/daemon-loop.js', () => ({
 }));
 
 vi.mock('../../src/core/contract/manager.js', () => ({
-  ContractSystem: vi.fn().mockImplementation(() => ({})),
+  ContractSystem: vi.fn().mockImplementation(() => ({
+    createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })),
+  })),
 }));
 
 vi.mock('../../src/foundation/audit/index.js', () => ({

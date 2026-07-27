@@ -16,6 +16,7 @@ import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/inde
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 /**
  * Setup contract files for testing (copy from contract_manager_llm.test.ts)
@@ -105,7 +106,7 @@ describe('ContractSystem — background verification error handling', () => {
       // subtasks intentionally omitted to trigger TypeError
     });
 
-    await manager.completeSubtask({ contractId, subtaskId, evidence: 'done' });
+    await completeSubtask(manager, { contractId, subtaskId, evidence: 'done' });
 
     await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_unexpected_async_throw'), { timeout: 5000 });
 
@@ -171,7 +172,7 @@ describe('ContractSystem — background verification error handling', () => {
       },
     });
 
-    await manager.completeSubtask({ contractId, subtaskId, evidence: 'done' });
+    await completeSubtask(manager, { contractId, subtaskId, evidence: 'done' });
 
     await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_verification_background_failed'), { timeout: 5000 });
 

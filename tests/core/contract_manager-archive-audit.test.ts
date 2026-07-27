@@ -14,6 +14,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 
 let testDir: string;
@@ -167,7 +168,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       }));
 
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
-      await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
@@ -204,7 +205,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
 
       // Complete the subtask (no verification = allCompleted = true, sync path)
-      await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(moveSpy).toHaveBeenCalledWith(contractId, 'completed');
       // updateContractStatus already writes contract_completed; the additional
@@ -238,7 +239,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       // Spy but let it work normally
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockResolvedValue(undefined);
 
-      await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(moveSpy).toHaveBeenCalledWith(contractId, 'completed');
       // phase 705: contractId 加 key= prefix

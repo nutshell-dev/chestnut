@@ -23,14 +23,13 @@ import { ContractValidationError, ContractArchiveReadError } from '../../src/cor
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createContextInjector } from '../../src/core/context_manager/injector.js';
 import { computeContractView } from '../../src/core/status-service/aggregators.js';
-import { createSubmitSubtaskTool } from '../../src/core/contract/tools/submit-subtask.js';
+
 
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 // phase 1351: vi.mock(child_process) removed (was no-op passthrough)
-// phase 1351: vi.mock(constants.js LOCK_MAX_RETRIES override) moved to contract_manager-locks.test.ts
-// (remaining tests do NOT trigger lock retry path → don't need override)
 
 let testDir: string;
 let clawDir: string;
@@ -202,7 +201,7 @@ describe('ContractSystem', () => {
       verification: [],
     });
     const contractId = await manager.create(contractYaml);
-    await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'Task completed' });
+    await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'Task completed' });
 
     const progress = await manager.getProgress(contractId);
     expect(progress.subtasks['task-1'].status).toBe('completed');
@@ -217,7 +216,7 @@ describe('ContractSystem', () => {
     });
     const contractId = await manager.create(contractYaml);
     // 尝试完成不存在的子任务
-    const result = await manager.completeSubtask({ 
+    const result = await completeSubtask(manager, { 
       contractId, 
       subtaskId: 'unknown-task', 
       evidence: 'Test' 
@@ -242,11 +241,11 @@ describe('ContractSystem', () => {
     }));
 
     // First call: completes successfully
-    const first = await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
+    const first = await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done' });
     expect(first.passed).toBe(true);
 
     // Second call on already-completed subtask: should return error feedback
-    const second = await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done again' });
+    const second = await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done again' });
     expect(second.passed).toBe(false);
     expect(second.feedback).toContain('already completed');
   });
@@ -263,8 +262,8 @@ describe('ContractSystem', () => {
     });
     const contractId = await manager.create(contractYaml);
     // 完成所有子任务
-    await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'Task 1 done' });
-    await manager.completeSubtask({ contractId, subtaskId: 'task-2', evidence: 'Task 2 done' });
+    await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'Task 1 done' });
+    await completeSubtask(manager, { contractId, subtaskId: 'task-2', evidence: 'Task 2 done' });
 
     const progress = await manager.getProgress(contractId);
     expect(progress.status).toBe('completed');
@@ -340,7 +339,7 @@ describe('ContractSystem', () => {
       verification: [],
     }));
 
-    const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+    const result = await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
     expect(result.passed).toBe(true);
     expect(result.allCompleted).toBe(true);
@@ -373,7 +372,7 @@ describe('ContractSystem', () => {
       verification: [],
     }));
 
-    const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+    const result = await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'done' });
 
     expect(result.passed).toBe(true);
     expect(result.allCompleted).toBe(false);
@@ -540,7 +539,7 @@ describe('ContractSystem', () => {
       }
 
       // submit_subtask tool targets the foreground contract.
-      const tool = createSubmitSubtaskTool(manager);
+      const tool = manager.createSubmitSubtaskTool();
       const result = await tool.execute({ subtask: 't1', evidence: 'done' }, {} as any);
       expect(result.success).toBe(true);
       expect(result.metadata).toMatchObject({ contractId: older });
@@ -569,7 +568,7 @@ describe('ContractSystem', () => {
       const older = await createWithStartedAt(manager, 'older', '2026-07-12T10:00:00.000Z', 'Older Contract');
       await createWithStartedAt(manager, 'newer', '2026-07-12T11:00:00.000Z', 'Newer Contract');
 
-      await manager.completeSubtask({ contractId: older, subtaskId: 't1', evidence: 'done' });
+      await completeSubtask(manager, { contractId: older, subtaskId: 't1', evidence: 'done' });
 
       const next = await manager.loadActive();
       expect(next?.id).toBe('newer');

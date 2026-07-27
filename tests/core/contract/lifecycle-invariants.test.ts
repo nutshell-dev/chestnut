@@ -21,6 +21,7 @@ import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { ToolError } from '../../../src/foundation/tools/errors.js';
+import { completeSubtask } from '../../helpers/contract-subtask.js';
 
 
 
@@ -207,7 +208,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     });
 
     // Trigger background verification
-    await testManager.completeSubtask({ contractId, subtaskId, evidence: 'done' });
+    await completeSubtask(testManager, { contractId, subtaskId, evidence: 'done' });
 
     // Immediately cancel while background is still running
     await testManager.cancel(contractId, 'user cancelled');
@@ -239,7 +240,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     const beforeAudit = auditCalls.length;
 
     // Try to complete subtask on cancelled contract
-    const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
+    const result = await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'done' });
 
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('not active');

@@ -137,9 +137,9 @@ export function notifyVerificationError(
 
 /**
  * phase 19 Step C: pure retry state machine (SRP).
- * progress lock + retry_count increment + force-accept decision + inbox/safeNotify.
+ * verification mutex + retry_count increment + force-accept decision + inbox/safeNotify.
  * Returns { archived } so caller (runVerificationInBackground catch) can do archiveAndEmit
- * outside the progress lock.
+ * outside the verification mutex.
  */
 async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
   return ctx.isActiveContract(contractId);

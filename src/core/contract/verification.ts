@@ -316,7 +316,7 @@ export async function runVerificationPipeline(
   const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
   // phase 438: sync 路径（无 verificationConfig）保持原有"幂等守卫"语义 —
-  // 第二个并发提交进 completeSubtaskSync 通过内层 progressLock 串行、
+  // 第二个并发提交进 completeSubtaskSync 由底层 progress 读写竞争自然串行、
   // 见 status='completed' 结构化返回 "already completed"（不 race-reject）；
   // 与 async 路径"必须 race-reject 防 bg 串扰"是两种并发模型、不统一闸门。
   // review R2-C-N13 指控复核站不住、本 phase 不改 sync 语义。

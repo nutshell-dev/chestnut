@@ -88,6 +88,7 @@ import { makeContractYaml } from '../helpers/contract-yaml.js';
 import * as yaml from 'js-yaml';  // phase 258: hoist; was per-call dynamic in writeContractFiles helper.
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { WAIT_FOR_DEFAULT_BUDGET_MS } from '../helpers/test-timeouts.js';
+import { completeSubtask } from '../helpers/contract-subtask.js';
 
 /**
  * Setup contract files for testing
@@ -302,7 +303,7 @@ describe('ContractSystem Acceptance Flow', () => {
         verification: [{ subtask_id: 'task-1', type: 'script', script_file: '../../../etc/passwd' }],
       }));
 
-      const result = await manager.completeSubtask({
+      const result = await completeSubtask(manager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'test evidence',
@@ -331,7 +332,7 @@ describe('ContractSystem Acceptance Flow', () => {
       execFileMockBehavior = 'success';
       execFileMockStdout = 'ok';
 
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'test evidence',
@@ -371,7 +372,7 @@ describe('ContractSystem Acceptance Flow', () => {
       execFileMockBehavior = 'fail';
       execFileMockStderr = 'test error output';
 
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'test evidence',
@@ -414,7 +415,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       mockSubAgentRun.mockResolvedValue('{"passed":true,"reason":"looks good","issues":[]}');
 
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'test evidence',
@@ -455,7 +456,7 @@ describe('ContractSystem Acceptance Flow', () => {
         '{"passed":false,"reason":"缺少测试","issues":["add unit tests", "add integration tests"]}'
       );
 
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'test evidence',
@@ -480,7 +481,7 @@ describe('ContractSystem Acceptance Flow', () => {
         verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: '../../../etc/passwd' }],
       }));
 
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'test evidence',
@@ -519,7 +520,7 @@ describe('ContractSystem Acceptance Flow', () => {
         verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
       }));
 
-      const result = await noLLMManager.completeSubtask({
+      const result = await completeSubtask(noLLMManager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'test evidence',
@@ -565,7 +566,7 @@ describe('ContractSystem Acceptance Flow', () => {
         return 'irrelevant text that is not JSON'; // 文本不含 JSON，但应被忽略
       });
 
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
+      await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done' });
 
       // Wait for background verification to finish (phase 779 Step A)
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
@@ -602,7 +603,7 @@ describe('ContractSystem Acceptance Flow', () => {
       // SubAgent 未调用 done，返回纯文字（无 JSON）
       mockSubAgentRun.mockResolvedValue('I reviewed the evidence but cannot determine a verdict.');
 
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
+      await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       // 应以 rejected 写入 inbox，内容含 "无法解析 JSON"
@@ -638,7 +639,7 @@ describe('ContractSystem Acceptance Flow', () => {
         return '{}'; // 返回合法 JSON 确保主流程继续（避免额外 rejection 干扰）
       });
 
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
+      await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       // auditWriter 应收到 verification_timeout 日志
@@ -680,7 +681,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       // This failure should push retry_count to 2, triggering force-accept audit
       const auditWriter = (manager as any).audit;
-      await manager.completeSubtask({
+      await completeSubtask(manager, {
         contractId,
         subtaskId: 'task-1',
         evidence: 'attempt 2',
@@ -720,7 +721,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       execFileMockBehavior = 'success';
 
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
+      await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const auditWriter = (manager as any).audit;
@@ -732,7 +733,7 @@ describe('ContractSystem Acceptance Flow', () => {
     });
 
     it('writes CONTRACT_VERIFICATION_RESET_FAILED when reset status fails', async () => {
-      // Phase 1191: progress lock removed; the retry path now checks active path first,
+      // Phase 1191: legacy file lock removed; the retry path now checks active path first,
       // so we need a real active contract for the reset-failure audit to be emitted.
       await setupContract(tempDir, 'contract-1', makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
@@ -769,7 +770,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       execFileMockBehavior = 'success';
 
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
+      await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const inbox = await readClawInbox(tempDir);
@@ -806,7 +807,7 @@ describe('ContractSystem Acceptance Flow', () => {
       execFileMockBehavior = 'fail';
       execFileMockStderr = 'file not found';
 
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
+      await completeSubtask(manager, { contractId, subtaskId: 'task-1', evidence: 'done' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const inbox = await readClawInbox(tempDir);

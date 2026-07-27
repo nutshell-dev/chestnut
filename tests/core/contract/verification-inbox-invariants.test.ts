@@ -23,6 +23,7 @@ import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { makeAudit, waitForAuditEvent, makeMockAudit } from '../../helpers/audit.js';
 import { runVerificationInBackground } from '../../../src/core/contract/verification.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
+import { completeSubtask } from '../../helpers/contract-subtask.js';
 
 /**
  * @module tests/core/contract/verification-force-accept-inbox
@@ -282,7 +283,7 @@ describe('no verification path', () => {
       }),
     );
 
-    const result = await manager.completeSubtask({
+    const result = await completeSubtask(manager, {
       contractId,
       subtaskId: 'task-1',
       evidence: 'done',
@@ -345,7 +346,7 @@ describe('no verification path', () => {
       return { passed: true, feedback: 'mocked' };
     });
 
-    const result = await manager.completeSubtask({
+    const result = await completeSubtask(manager, {
       contractId,
       subtaskId: 'task-1',
       evidence: 'done',
@@ -390,7 +391,7 @@ describe('no verification path', () => {
       notifyCalls.push({ type, data });
     });
 
-    await manager.completeSubtask({
+    await completeSubtask(manager, {
       contractId,
       subtaskId: 'task-1',
       evidence: 'done',
@@ -528,7 +529,7 @@ describe('Phase 961 verification invariants', () => {
       return { passed: true, feedback: 'ok' };
     });
 
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
 
     const contractDir = await (manager as any).contractDir(contractId);
@@ -562,7 +563,7 @@ describe('Phase 961 verification invariants', () => {
       return originalWrite(type, ...cols);
     });
 
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e1' });
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
     await vi.waitFor(async () => {
       const p = await manager.getProgress(contractId);
       expect(p?.subtasks.t1.status).toBe('todo');
