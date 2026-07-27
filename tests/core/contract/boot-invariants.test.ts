@@ -173,6 +173,153 @@ describe('ContractSystem.init() boot reconcile', () => {
     // Recovery event emitted.
     expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED)).toBe(true);
   });
+
+  it('does not recover when active .creating collides with current archive state (Phase 1197 Step C)', async () => {
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const archiveDir = path.join(clawDir, 'contract', 'archive');
+    const contractId = 'collision-boot';
+    const activeRoot = path.join(activeDir, contractId);
+    const collisionRoot = path.join(archiveDir, 'completed', contractId);
+
+    await fs.mkdir(activeRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(activeRoot, CREATION_CLAIM_FILE),
+      JSON.stringify({
+        schema_version: 1,
+        contract_id: contractId,
+        started_at: '2026-07-12T10:00:00.000Z',
+        contract: {
+          schema_version: 1,
+          id: contractId,
+          title: 'Collision',
+          goal: 'Collision',
+          subtasks: [{ id: 't1', description: 'T1' }],
+          verification: [],
+        },
+      }, null, 2),
+    );
+    await fs.mkdir(collisionRoot, { recursive: true });
+    await fs.writeFile(path.join(collisionRoot, 'contract.yaml'), 'schema_version: 1\nid: collision-boot\ntitle: Archive\ngoal: Archive\nsubtasks:\n  - id: t1\n    description: D\n');
+
+    const manager = makeManager();
+    await manager.init();
+
+    // Marker remains; active payload not materialized; archive untouched.
+    await expect(fs.access(path.join(activeRoot, CREATION_CLAIM_FILE))).resolves.not.toThrow();
+    await expect(fs.access(path.join(activeRoot, 'contract.yaml'))).rejects.toThrow();
+    await expect(fs.access(path.join(collisionRoot, 'contract.yaml'))).resolves.not.toThrow();
+    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED)).toBe(false);
+    expect(auditWrite.mock.calls.filter((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED && c.some((col: any) => String(col).includes('reason=archive_collision')))).toHaveLength(1);
+  });
+
+  it('does not recover when intent contract_id mismatches active path (Phase 1197 Step C)', async () => {
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const contractId = 'mismatch-path';
+    const activeRoot = path.join(activeDir, contractId);
+    await fs.mkdir(activeRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(activeRoot, CREATION_CLAIM_FILE),
+      JSON.stringify({
+        schema_version: 1,
+        contract_id: 'wrong-id',
+        started_at: '2026-07-12T10:00:00.000Z',
+        contract: {
+          schema_version: 1,
+          id: 'wrong-id',
+          title: 'Mismatch',
+          goal: 'Mismatch',
+          subtasks: [{ id: 't1', description: 'T1' }],
+          verification: [],
+        },
+      }, null, 2),
+    );
+
+    const manager = makeManager();
+    await manager.init();
+
+    expect(await manager.getProgress(contractId)).toBeNull();
+    await expect(fs.access(path.join(activeRoot, CREATION_CLAIM_FILE))).resolves.not.toThrow();
+    await expect(fs.access(path.join(activeRoot, 'contract.yaml'))).rejects.toThrow();
+    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED)).toBe(false);
+    expect(auditWrite.mock.calls.filter((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED && c.some((col: any) => String(col).includes('reason=intent_contract_id_mismatch')))).toHaveLength(1);
+  });
+
+  it('does not recover when active .creating collides with legacy flat archive (Phase 1197 Step C)', async () => {
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const archiveDir = path.join(clawDir, 'contract', 'archive');
+    const contractId = 'legacy-collision-boot';
+    const activeRoot = path.join(activeDir, contractId);
+    const collisionRoot = path.join(archiveDir, contractId);
+
+    await fs.mkdir(activeRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(activeRoot, CREATION_CLAIM_FILE),
+      JSON.stringify({
+        schema_version: 1,
+        contract_id: contractId,
+        started_at: '2026-07-12T10:00:00.000Z',
+        contract: {
+          schema_version: 1,
+          id: contractId,
+          title: 'Legacy',
+          goal: 'Legacy',
+          subtasks: [{ id: 't1', description: 'T1' }],
+          verification: [],
+        },
+      }, null, 2),
+    );
+    await fs.mkdir(collisionRoot, { recursive: true });
+    await fs.writeFile(path.join(collisionRoot, 'contract.yaml'), 'schema_version: 1\nid: legacy-collision-boot\ntitle: Archive\ngoal: Archive\nsubtasks:\n  - id: t1\n    description: D\n');
+
+    const manager = makeManager();
+    await manager.init();
+
+    await expect(fs.access(path.join(activeRoot, CREATION_CLAIM_FILE))).resolves.not.toThrow();
+    await expect(fs.access(path.join(activeRoot, 'contract.yaml'))).rejects.toThrow();
+    await expect(fs.access(path.join(collisionRoot, 'contract.yaml'))).resolves.not.toThrow();
+    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED)).toBe(false);
+    expect(auditWrite.mock.calls.filter((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED && c.some((col: any) => String(col).includes('reason=archive_collision')))).toHaveLength(1);
+  });
+
+  it('repeated init() gives identical refusal for mismatched intent (Phase 1197 Step C)', async () => {
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const contractId = 'idempotent-mismatch-boot';
+    const activeRoot = path.join(activeDir, contractId);
+    const partialYaml = 'schema_version: 1\nid: idempotent-mismatch-boot\ntitle: Original\ngoal: Original\nsubtasks:\n  - id: t1\n    description: Original\n';
+    const partialProgress = JSON.stringify({ schema_version: 1, subtasks: { t1: { status: 'in_progress' } }, started_at: '2026-07-12T09:00:00.000Z', checkpoint: null }, null, 2);
+
+    await fs.mkdir(activeRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(activeRoot, CREATION_CLAIM_FILE),
+      JSON.stringify({
+        schema_version: 1,
+        contract_id: 'wrong-id',
+        started_at: '2026-07-12T10:00:00.000Z',
+        contract: {
+          schema_version: 1,
+          id: 'wrong-id',
+          title: 'Mismatch',
+          goal: 'Mismatch',
+          subtasks: [{ id: 't1', description: 'T1' }],
+          verification: [],
+        },
+      }, null, 2),
+    );
+    await fs.writeFile(path.join(activeRoot, 'contract.yaml'), partialYaml);
+    await fs.writeFile(path.join(activeRoot, 'progress.json'), partialProgress);
+
+    const manager = makeManager();
+    await manager.init();
+    const markerAfterFirst = await fs.readFile(path.join(activeRoot, CREATION_CLAIM_FILE), 'utf-8');
+
+    await manager.init();
+
+    expect(await fs.readFile(path.join(activeRoot, 'contract.yaml'), 'utf-8')).toBe(partialYaml);
+    expect(await fs.readFile(path.join(activeRoot, 'progress.json'), 'utf-8')).toBe(partialProgress);
+    expect(await fs.readFile(path.join(activeRoot, CREATION_CLAIM_FILE), 'utf-8')).toBe(markerAfterFirst);
+    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED)).toBe(false);
+    expect(auditWrite.mock.calls.filter((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED && c.some((col: any) => String(col).includes('reason=intent_contract_id_mismatch')))).toHaveLength(2);
+  });
 });
 
 /**

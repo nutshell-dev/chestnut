@@ -12,7 +12,7 @@ import * as yaml from 'js-yaml';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ContractYamlSchema } from './schemas.js';
-import { type ContractId } from './types.js';
+import { type ContractId, type ArchiveDir, ARCHIVE_STATES } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { SubtaskStatus } from './types.js';
 
@@ -93,6 +93,29 @@ export function buildCreationIntent(
     started_at: startedAt,
     contract,
   };
+}
+
+/**
+ * Locate an existing archive entry for a contract id across current terminal
+ * state directories and legacy flat archive. Returns the first collision path
+ * or null if absent.
+ *
+ * This helper is read-only and only answers collision location; it does not
+ * grant creation authority.
+ */
+export async function findArchiveCollisionLocation(opts: {
+  fs: FileSystem;
+  archiveDir: ArchiveDir;
+  contractId: ContractId;
+}): Promise<string | null> {
+  const { fs, archiveDir, contractId } = opts;
+  for (const state of ARCHIVE_STATES) {
+    const candidate = `${archiveDir}/${state}/${contractId}`;
+    if (await fs.exists(candidate)) return candidate;
+  }
+  const legacy = `${archiveDir}/${contractId}`;
+  if (await fs.exists(legacy)) return legacy;
+  return null;
 }
 
 /**
@@ -191,9 +214,10 @@ export async function recoverUnpublishedCreation(opts: {
   fs: FileSystem;
   audit: AuditLog;
   activeDir: string;
+  archiveDir: ArchiveDir;
   contractId: ContractId;
 }): Promise<void> {
-  const { fs, audit, activeDir, contractId } = opts;
+  const { fs, audit, activeDir, archiveDir, contractId } = opts;
   const claimPath = `${activeDir}/${contractId}/${CREATION_CLAIM_FILE}`;
 
   let raw: string;
@@ -216,6 +240,45 @@ export async function recoverUnpublishedCreation(opts: {
       `contractId=${contractId}`,
       `reason=intent_schema_invalid`,
       `error=failed to parse ContractCreationIntent`,
+    );
+    return;
+  }
+
+  // Phase 1197 Step C: recovery must re-prove identity authority.
+  if (intent.contract_id !== contractId) {
+    audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED,
+      `contractId=${contractId}`,
+      `path_id=${contractId}`,
+      `intent_contract_id=${intent.contract_id}`,
+      `reason=intent_contract_id_mismatch`,
+      `error=intent contract_id does not match active path`,
+    );
+    return;
+  }
+  const yamlId = intent.contract.id;
+  if (yamlId !== undefined && yamlId !== contractId) {
+    audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED,
+      `contractId=${contractId}`,
+      `path_id=${contractId}`,
+      `yaml_id=${yamlId}`,
+      `reason=contract_yaml_id_mismatch`,
+      `error=contract yaml id does not match active path`,
+    );
+    return;
+  }
+
+  // Phase 1197 Step C: recovery must re-prove archive uniqueness.
+  const collision = await findArchiveCollisionLocation({ fs, archiveDir, contractId });
+  if (collision) {
+    audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED,
+      `contractId=${contractId}`,
+      `started_at=${intent.started_at}`,
+      `reason=archive_collision`,
+      `collision_path=${collision}`,
+      `error=contract id already exists in archive`,
     );
     return;
   }

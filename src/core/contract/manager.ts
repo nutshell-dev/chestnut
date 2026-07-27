@@ -97,6 +97,7 @@ import { ContractAuditor } from './contract-auditor.js';
 import {
   CREATION_CLAIM_FILE,
   buildCreationIntent,
+  findArchiveCollisionLocation,
   isAlreadyExists,
   materializeClaimedCreation,
   publishCreation,
@@ -626,6 +627,7 @@ export class ContractSystem {
               fs: this.fs,
               audit: this.audit,
               activeDir: this.activeDir,
+              archiveDir: this.archiveDir,
               contractId,
             });
           } catch (err) {
@@ -967,28 +969,20 @@ export class ContractSystem {
     emitContractCreationClaimed(this.audit, { contractId, startedAt });
 
     // Recheck archive collision after claim (another process may have archived the same id).
-    for (const dir of archiveStateDirs) {
-      if (await this.fs.exists(`${dir}/${contractId}`)) {
-        emitContractCreationInterrupted(this.audit, {
-          contractId,
-          startedAt,
-          boundary: 'archive_collision_recheck',
-          error: `contract id "${contractId}" already exists in ${path.basename(dir)}`,
-        });
-        throw new ContractValidationError('id', 'already_exists',
-          `contract id "${contractId}" already exists in ${path.basename(dir)}`,
-          { contractId });
-      }
-    }
-    if (await this.fs.exists(`${this.archiveDir}/${contractId}`)) {
+    const collisionAfterClaim = await findArchiveCollisionLocation({
+      fs: this.fs,
+      archiveDir: this.archiveDir,
+      contractId,
+    });
+    if (collisionAfterClaim) {
       emitContractCreationInterrupted(this.audit, {
         contractId,
         startedAt,
         boundary: 'archive_collision_recheck',
-        error: `contract id "${contractId}" already exists in ${path.basename(this.archiveDir)}`,
+        error: `contract id "${contractId}" already exists in ${path.basename(collisionAfterClaim)}`,
       });
       throw new ContractValidationError('id', 'already_exists',
-        `contract id "${contractId}" already exists in ${path.basename(this.archiveDir)}`,
+        `contract id "${contractId}" already exists in ${path.basename(collisionAfterClaim)}`,
         { contractId });
     }
 
