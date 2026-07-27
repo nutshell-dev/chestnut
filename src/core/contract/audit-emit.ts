@@ -1077,3 +1077,57 @@ export function emitLifecycleIntentReadIssue(
   if (opts.detail !== undefined) cols.push(`detail=${opts.detail}`);
   audit.write(CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_READ_ISSUE, ...cols);
 }
+
+// ─── PROGRESS_MUTATION queue (Phase 1201 Step A) ────────────────────────────
+// depth 是 observability metadata、非 authority。
+interface ProgressMutationEmitPayload {
+  contractId: ContractId;
+  mutationId: string;
+  kind: string;
+  depth: number;
+}
+
+function progressMutationCols(opts: ProgressMutationEmitPayload): string[] {
+  return [
+    `contractId=${opts.contractId}`,
+    `mutationId=${opts.mutationId}`,
+    `kind=${opts.kind}`,
+    `depth=${opts.depth}`,
+  ];
+}
+
+export function emitProgressMutationQueued(
+  audit: AuditLog,
+  opts: ProgressMutationEmitPayload,
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitProgressMutationQueued')) return;
+  audit.write(CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_QUEUED, ...progressMutationCols(opts));
+}
+
+export function emitProgressMutationStarted(
+  audit: AuditLog,
+  opts: ProgressMutationEmitPayload,
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitProgressMutationStarted')) return;
+  audit.write(CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_STARTED, ...progressMutationCols(opts));
+}
+
+export function emitProgressMutationFinished(
+  audit: AuditLog,
+  opts: ProgressMutationEmitPayload,
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitProgressMutationFinished')) return;
+  audit.write(CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_FINISHED, ...progressMutationCols(opts));
+}
+
+export function emitProgressMutationFailed(
+  audit: AuditLog,
+  opts: ProgressMutationEmitPayload & { error: string },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitProgressMutationFailed')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_FAILED,
+    ...progressMutationCols(opts),
+    `error=${opts.error}`,
+  );
+}

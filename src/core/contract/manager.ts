@@ -95,6 +95,7 @@ import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 
 import { readArchivePayload } from './archive-reader.js';
 import { VerificationMutex } from './verification-mutex.js';
+import { ProgressMutationQueue, type ProgressMutationMeta } from './progress-mutation-queue.js';
 import { ContractAuditor } from './contract-auditor.js';
 import {
   CREATION_CLAIM_FILE,
@@ -174,6 +175,14 @@ export class ContractSystem {
    * 改后：each ContractSystem instance own its own mutex / per-test 自然 fresh / 0 leak / 0 reset hook
    */
   private readonly verificationMutex = new VerificationMutex();
+
+  /**
+   * Phase 1201 Step A: per-contract FIFO progress mutation queue.
+   * Owner = ContractSystem（progress 业务语义与资源所有权归此）；queue key 是
+   * contractId（资源粒度 = 整份 progress.json）。Step B/C 起全部 published
+   * active progress 短事务经 `_enqueueProgressMutation` 调度。
+   */
+  private readonly progressMutationQueue: ProgressMutationQueue;
 
   // Phase 230: contract create policy plug-in registry
   private createPolicies = new Map<string, ContractCreatePolicy>();
@@ -257,6 +266,7 @@ export class ContractSystem {
     this.fsFactory = deps.fsFactory;
     this.runContractVerifier = deps.runContractVerifier ?? defaultRunContractVerifier;
     this.runSubagent = deps.runSubagent;
+    this.progressMutationQueue = new ProgressMutationQueue(this.audit);
 
   }
 
@@ -362,6 +372,30 @@ export class ContractSystem {
     });
     if (!loc) throw new ToolError(`Contract "${contractId}" not found`);
     return loc.containerDir;
+  }
+
+  // ============================================================================
+  // Phase 1201 Step A: progress mutation queue delegate
+  // ============================================================================
+
+  /**
+   * 唯一 progress 短事务调度入口（minimal enqueue delegate）。
+   * 命名 `_` 前缀表 internal（同 `_writeVerificationError` 既有约定）；
+   * Step B/C 业务 caller 与测试装配经此调度。
+   * mutation callback 必须在执行时 fresh-read（不接受 caller 预读 snapshot）、
+   * 不得包含长耗时 verifier/LLM/script 或 terminal side effect 等待。
+   */
+  async _enqueueProgressMutation<T>(
+    contractId: ContractId,
+    meta: ProgressMutationMeta,
+    mutation: () => Promise<T>,
+  ): Promise<T> {
+    return this.progressMutationQueue.enqueue(contractId, meta, mutation);
+  }
+
+  /** Observability: 该 contract 当前 queued-or-running mutation 数（0 = idle）。 */
+  progressMutationQueueDepth(contractId: ContractId): number {
+    return this.progressMutationQueue.pendingCount(contractId);
   }
 
   // ============================================================================

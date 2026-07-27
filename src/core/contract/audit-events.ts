@@ -154,6 +154,12 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_LEGACY_PAUSED_OBSERVED: 'contract_legacy_paused_observed',
   // Phase 1145 Step B: archive payload reader encountered a typed issue
   ARCHIVE_PAYLOAD_READ_ISSUE: 'contract_archive_payload_read_issue',
+
+  // Phase 1201 Step A: per-contract progress mutation queue observability
+  PROGRESS_MUTATION_QUEUED: 'contract_progress_mutation_queued',
+  PROGRESS_MUTATION_STARTED: 'contract_progress_mutation_started',
+  PROGRESS_MUTATION_FINISHED: 'contract_progress_mutation_finished',
+  PROGRESS_MUTATION_FAILED: 'contract_progress_mutation_failed',
 } as const;
 
 /**
@@ -277,4 +283,8 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_archive_payload_read_issue: 'audit',
   contract_multi_dir: 'audit',
   contract_boot_reconcile_in_progress_reset: 'audit',
+  contract_progress_mutation_queued: 'audit',
+  contract_progress_mutation_started: 'audit',
+  contract_progress_mutation_finished: 'audit',
+  contract_progress_mutation_failed: 'audit',
 } as const;

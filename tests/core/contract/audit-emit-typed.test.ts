@@ -3,8 +3,13 @@ import {
   emitContractPassed,
   emitContractSubtaskCompleted,
   emitContractVerificationStarted,
+  emitProgressMutationFailed,
+  emitProgressMutationFinished,
+  emitProgressMutationQueued,
+  emitProgressMutationStarted,
 } from '../../../src/core/contract/audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 
 describe('contract typed audit emit (phase 1141)', () => {
@@ -71,5 +76,80 @@ describe('contract typed audit emit (phase 1141)', () => {
       typeof c === 'string' && c.includes('/') && !c.startsWith('progress=') && !c.includes('=')
     ).length;
     expect(compositeCount).toBe(0);
+  });
+});
+
+describe('contract progress mutation queue typed audit emit (phase 1201 step A)', () => {
+  const makeAudit = makeMockAudit;
+
+  it('emitProgressMutationQueued serializes contractId/mutationId/kind/depth', () => {
+    const audit = makeAudit();
+    emitProgressMutationQueued(audit, {
+      contractId: makeContractId('c_abc'),
+      mutationId: 'm_1',
+      kind: 'sync_complete',
+      depth: 2,
+    });
+    expect(audit.write).toHaveBeenCalledWith(
+      CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_QUEUED,
+      'contractId=c_abc',
+      'mutationId=m_1',
+      'kind=sync_complete',
+      'depth=2',
+    );
+  });
+
+  it('emitProgressMutationStarted/Finished 归属 queue 事件 typed emit', () => {
+    const audit = makeAudit();
+    const payload = {
+      contractId: makeContractId('c_abc'),
+      mutationId: 'm_2',
+      kind: 'apply_outcome',
+      depth: 1,
+    };
+    emitProgressMutationStarted(audit, payload);
+    emitProgressMutationFinished(audit, payload);
+    expect(audit.write).toHaveBeenNthCalledWith(
+      1,
+      CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_STARTED,
+      'contractId=c_abc',
+      'mutationId=m_2',
+      'kind=apply_outcome',
+      'depth=1',
+    );
+    expect(audit.write).toHaveBeenNthCalledWith(
+      2,
+      CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_FINISHED,
+      'contractId=c_abc',
+      'mutationId=m_2',
+      'kind=apply_outcome',
+      'depth=1',
+    );
+  });
+
+  it('emitProgressMutationFailed 附加 error col', () => {
+    const audit = makeAudit();
+    emitProgressMutationFailed(audit, {
+      contractId: makeContractId('c_abc'),
+      mutationId: 'm_3',
+      kind: 'attempt_reject',
+      depth: 1,
+      error: 'boom',
+    });
+    expect(audit.write).toHaveBeenCalledWith(
+      CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_FAILED,
+      'contractId=c_abc',
+      'mutationId=m_3',
+      'kind=attempt_reject',
+      'depth=1',
+      'error=boom',
+    );
+  });
+
+  it('反向: typed payload key TS enforce (queue emit)', () => {
+    const audit = makeAudit();
+    // @ts-expect-error 故意 typo 验证 TS 编译期 enforce
+    emitProgressMutationQueued(audit, { contract: 'x', mutation: 'm', k: 'sync_complete', d: 1 });
+    expect(audit.write).toHaveBeenCalledTimes(1);
   });
 });
