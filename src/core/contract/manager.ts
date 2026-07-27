@@ -8,7 +8,7 @@
  * - discovery.ts    / loadActive/Paused
  * - persistence.ts  / yaml + progress.json fs helpers
  * - verifier-job.ts / runContractVerifier
- * - lifecycle.ts    / cancel/markCorrupted/isComplete/moveToArchive
+ * - lifecycle.ts    / cancel/markCorrupted/isComplete/commitTerminalLifecycle
  * - verification.ts / completeSubtask + verification pipeline
  *
  * 本 class own:
@@ -54,6 +54,7 @@ import { type ClawId } from '../../foundation/claw-identity/index.js';
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
+  ArchiveState, LifecycleCommitOutcome,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 
@@ -69,11 +70,13 @@ import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } f
 import { type ContractId, makeContractId } from './types.js';
 
 import { ContractValidationError, ContractArchiveReadError, ContractLocationAmbiguityError } from './errors.js';
-import { type SubtaskId, type ArchiveDir, type ArchiveState, makeArchiveDir } from './types.js';
+import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
   cancelContract, markCorrupted,
-  isContractComplete, moveContractToArchive,
+  isContractComplete,
+  commitTerminalLifecycle,
+  reconcilePendingLifecycleIntents,
   type LifecycleContext,
 } from './lifecycle.js';
 import type { NotifyClawFn, VerificationGatewayResult } from './verification-types.js';
@@ -88,6 +91,7 @@ import {
 } from './verification.js';
 import { buildSubmitSubtaskTool, type SubmitSubtaskParams } from './tools/submit-subtask.js';
 import { archiveAndEmit } from './verification-lifecycle.js';
+import { buildCompletedIntent } from './lifecycle-intent.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 
@@ -493,10 +497,11 @@ export class ContractSystem {
     return {
       fs: this.fs,
       audit: this.audit,
+      baseDir: this.clawDir,
       activeDir: this.activeDir,
       archiveDir: this.archiveDir,
       contractDir: (id) => this.contractDir(id),
-      loadContract: (id) => this.loadContract(id),
+      loadContract: (id) => this.loadContractYaml(id),
       getProgress: (id) => this.getProgress(id),
       saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
@@ -521,7 +526,10 @@ export class ContractSystem {
       getProgress: (id) => this.getProgress(id),
       saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
-      moveContractToArchive: (id, targetState) => this.moveToArchive(id, targetState),
+      baseDir: this.clawDir,
+      activeDir: this.activeDir,
+      archiveDir: this.archiveDir,
+      abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
       emitContractCompleted: (id) => this._emitContractCompleted(id),
       isActiveContract: (id) => this.isActiveContract(id),
       getContractRoot: (id) => this.getContractRoot(id),
@@ -650,6 +658,16 @@ export class ContractSystem {
 
       for (const contractId of activeIds) {
         try {
+          // Phase 1198 Step D: replay any pending lifecycle intents before active reconcile.
+          // If a terminal intent wins the rename race, the contract is no longer active.
+          const reconcileResult = await reconcilePendingLifecycleIntents(
+            this._lifecycleCtx(),
+            contractId,
+          );
+          if (reconcileResult.committed) {
+            continue;
+          }
+
           // Phase 1399: migrate legacy 'escalated' subtask status -> completed + force_accepted.
           // Use the loose archive schema because strict active schema no longer recognises
           // 'escalated'; after migration strict getProgress will succeed.
@@ -811,21 +829,63 @@ export class ContractSystem {
   }
 
   // Lifecycle
-  async cancel(contractId: ContractId, reason: string): Promise<void> {
-    await cancelContract(this._lifecycleCtx(), contractId, reason);
+  async cancel(contractId: ContractId, reason: string): Promise<LifecycleCommitOutcome> {
+    const outcome = await cancelContract(this._lifecycleCtx(), contractId, reason);
     // phase 398 Step D (review N9): 终态清 auditorState、防 unbounded growth +
     // contract-id 复用残留。cancel 失败 throw、entry 留待重试。
     this.auditorState.delete(contractId);
+    return outcome;
+  }
+
+  /**
+   * Phase 1198 Step B: move an active contract to a terminal archive state.
+   * Thin wrapper over commitTerminalLifecycle; keeps the old public/internal
+   * surface used by tests and legacy callers. No business precondition is
+   * enforced here — callers (e.g. verification) must ensure subtasks/state.
+   */
+  async moveToArchive(
+    contractId: ContractId,
+    targetState: ArchiveState = 'completed',
+  ): Promise<void> {
+    const ctx = this._lifecycleCtx();
+    if (targetState === 'completed') {
+      const requestId = `completed-${Date.now()}-${newShortUuid()}`;
+      const intent = buildCompletedIntent(contractId, requestId, 'ContractSystem.moveToArchive');
+      const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+      if (outcome.kind === 'committed' || outcome.kind === 'already_committed' || outcome.kind === 'lost_to_state') {
+        this.auditorState.delete(contractId);
+        return;
+      }
+      throw new ToolError(`moveToArchive failed for ${contractId}: ${outcome.cause}`);
+    }
+    if (targetState === 'cancelled') {
+      const outcome = await cancelContract(ctx, contractId, 'moveToArchive');
+      this.auditorState.delete(contractId);
+      if (outcome.kind === 'retryable_failure') {
+        throw new ToolError(`moveToArchive failed for ${contractId}: ${outcome.cause}`);
+      }
+      return;
+    }
+    if (targetState === 'corrupted') {
+      const outcome = await markCorrupted(ctx, contractId, { reason: 'progress_schema_invalid', relativePath: '' });
+      this.auditorState.delete(contractId);
+      if (outcome.kind === 'retryable_failure') {
+        throw new ToolError(`moveToArchive failed for ${contractId}: ${outcome.cause}`);
+      }
+      return;
+    }
+    throw new ToolError(`Unsupported archive state: ${targetState}`);
   }
 
   async markCorrupted(
     contractId: ContractId,
     evidence: ContractCorruptionEvidence,
     knownDir?: string,
-  ): Promise<void> {
-    await markCorrupted(this._lifecycleCtx(), contractId, evidence, knownDir);
+  ): Promise<LifecycleCommitOutcome> {
+    const outcome = await markCorrupted(this._lifecycleCtx(), contractId, evidence, knownDir);
     // phase 398 Step D (review N9): 同 cancel。
     this.auditorState.delete(contractId);
+    return outcome;
   }
 
   async isComplete(contractId: ContractId): Promise<boolean> {
@@ -1074,6 +1134,7 @@ export class ContractSystem {
       audit: this.audit,
       location: loc,
       contractId,
+      baseDir: this.clawDir,
     });
     if (result.kind === 'found') return result.view.progress;
     throw new ContractArchiveReadError(
@@ -1233,10 +1294,6 @@ export class ContractSystem {
 
   private async checkAllCompleted(contractId: ContractId, progress: ProgressData): Promise<boolean> {
     return checkAllSubtasksCompleted(this._persistenceCtx(), contractId, progress);
-  }
-
-  private async moveToArchive(contractId: ContractId, targetState: ArchiveState = 'completed'): Promise<void> {
-    return moveContractToArchive(this._lifecycleCtx(), contractId, targetState);
   }
 
   private async runScriptVerification(scriptFile: string, contractAbsDir: string, signal?: AbortSignal): Promise<VerificationResult> {

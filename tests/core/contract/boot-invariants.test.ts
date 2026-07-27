@@ -24,6 +24,11 @@ import { makeAudit } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
 import { CREATION_CLAIM_FILE } from '../../../src/core/contract/creation.js';
+import {
+  buildCancelledIntent,
+  buildCompletedIntent,
+  buildCorruptedIntent,
+} from '../../../src/core/contract/lifecycle-intent.js';
 
 
 
@@ -320,6 +325,145 @@ describe('ContractSystem.init() boot reconcile', () => {
     expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED)).toBe(false);
     expect(auditWrite.mock.calls.filter((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED && c.some((col: any) => String(col).includes('reason=intent_contract_id_mismatch')))).toHaveLength(2);
   });
+
+  // Phase 1198 Step D: boot reconcile of pending lifecycle intents.
+  async function seedActiveContract(
+    contractId: string,
+    subtasks: { id: string; description: string; status?: 'todo' | 'completed' }[],
+  ) {
+    const activeRoot = path.join(clawDir, 'contract', 'active', contractId);
+    await fs.mkdir(activeRoot, { recursive: true });
+    const yamlLines = [
+      'schema_version: 1',
+      `id: ${contractId}`,
+      'title: Boot Intent',
+      'goal: Test',
+      'subtasks:',
+      ...subtasks.map(s => `  - id: ${s.id}\n    description: ${s.description}`),
+    ];
+    await fs.writeFile(path.join(activeRoot, 'contract.yaml'), yamlLines.join('\n') + '\n');
+    const progressSubtasks: Record<string, { status: string; completed_at?: string }> = {};
+    for (const s of subtasks) {
+      progressSubtasks[s.id] = {
+        status: s.status ?? 'todo',
+        ...(s.status === 'completed' ? { completed_at: new Date().toISOString() } : {}),
+      };
+    }
+    await fs.writeFile(
+      path.join(activeRoot, 'progress.json'),
+      JSON.stringify({ schema_version: 1, subtasks: progressSubtasks, started_at: new Date().toISOString() }, null, 2),
+    );
+    return activeRoot;
+  }
+
+  function intentPath(contractId: string, requestId: string) {
+    return path.join(clawDir, 'contract', 'lifecycle-intents', contractId, `${requestId}.json`);
+  }
+
+  async function writeIntent(intent: ReturnType<typeof buildCancelledIntent>) {
+    const p = intentPath(intent.contract_id, intent.request_id);
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    await fs.writeFile(p, JSON.stringify(intent, null, 2));
+  }
+
+  it('recovers a persisted cancel intent by moving active contract to cancelled', async () => {
+    const contractId = 'boot-cancel-intent';
+    await seedActiveContract(contractId, [{ id: 't1', description: 'T1' }]);
+    const intent = buildCancelledIntent(contractId as any, 'cancel-boot-1', 'user cancelled before crash');
+    await writeIntent(intent);
+
+    const manager = makeManager();
+    await manager.init();
+
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(false);
+
+    expect(auditWrite.mock.calls.some((c: any) =>
+      c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_OUTCOME &&
+      c.some((col: any) => String(col).includes('requestId=cancel-boot-1')) &&
+      c.some((col: any) => String(col).includes('outcome=committed')),
+    )).toBe(true);
+  });
+
+  it('recovers a persisted completed intent only when all subtasks are completed', async () => {
+    const contractId = 'boot-completed-intent';
+    await seedActiveContract(contractId, [
+      { id: 't1', description: 'T1', status: 'completed' },
+      { id: 't2', description: 'T2', status: 'completed' },
+    ]);
+    const intent = buildCompletedIntent(contractId as any, 'completed-boot-1', 'boot reconcile');
+    await writeIntent(intent);
+
+    const manager = makeManager();
+    await manager.init();
+
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(false);
+
+    expect(auditWrite.mock.calls.some((c: any) =>
+      c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_OUTCOME &&
+      c.some((col: any) => String(col).includes('requestId=completed-boot-1')) &&
+      c.some((col: any) => String(col).includes('outcome=committed')),
+    )).toBe(true);
+  });
+
+  it('skips a persisted completed intent when business precondition is not met', async () => {
+    const contractId = 'boot-completed-skipped';
+    await seedActiveContract(contractId, [
+      { id: 't1', description: 'T1', status: 'completed' },
+      { id: 't2', description: 'T2', status: 'todo' },
+    ]);
+    const intent = buildCompletedIntent(contractId as any, 'completed-boot-skipped', 'boot reconcile');
+    await writeIntent(intent);
+
+    const manager = makeManager();
+    await manager.init();
+
+    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
+    expect(auditWrite.mock.calls.some((c: any) =>
+      c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_SKIPPED &&
+      c.some((col: any) => String(col).includes('requestId=completed-boot-skipped')),
+    )).toBe(true);
+  });
+
+  it('reconciles cross-state intents: first successful rename wins, loser remains as request fact', async () => {
+    const contractId = 'boot-cross-state';
+    await seedActiveContract(contractId, [
+      { id: 't1', description: 'T1', status: 'completed' },
+    ]);
+    const cancelIntent = buildCancelledIntent(contractId as any, 'cancel-boot-cross', 'user cancelled');
+    const completedIntent = buildCompletedIntent(contractId as any, 'completed-boot-cross', 'boot reconcile');
+    // Deterministic replay order: completed intent sorts first by request_id.
+    await writeIntent(cancelIntent);
+    await writeIntent(completedIntent);
+
+    const manager = makeManager();
+    await manager.init();
+
+    const finalState = await resolveFinalArchiveState(clawDir, contractId);
+    expect(['completed', 'cancelled']).toContain(finalState);
+
+    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+    expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(false);
+
+    // Both request intents are still present.
+    const intentFiles = await fs.readdir(path.join(clawDir, 'contract', 'lifecycle-intents', contractId));
+    expect(intentFiles.sort()).toEqual(['cancel-boot-cross.json', 'completed-boot-cross.json']);
+  });
+
+  async function resolveFinalArchiveState(clawDirArg: string, contractId: string): Promise<string | null> {
+    for (const state of ['completed', 'cancelled', 'corrupted']) {
+      if (await fs.stat(path.join(clawDirArg, 'contract', 'archive', state, contractId)).then(() => true).catch(() => false)) {
+        return state;
+      }
+    }
+    return null;
+  }
 });
 
 /**

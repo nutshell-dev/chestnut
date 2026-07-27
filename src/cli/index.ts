@@ -293,7 +293,7 @@ contractCmd
   .command('cancel')
   .description('Cancel an active contract (legacy paused contracts are read-only)')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .requiredOption('--reason <text>', 'Cancel reason (recorded in progress checkpoint)')
+  .requiredOption('--reason <text>', 'Cancel reason (recorded as immutable lifecycle intent)')
   .option('--contract <id>', 'Contract ID (default: active contract)')
   .action(withCliErrorHandling(async (opts: { claw: string; reason: string; contract?: string }) => {
     loadGlobalConfig({ fsFactory });

@@ -30,6 +30,86 @@ function makeAudit() {
   return { audit, events };
 }
 
+function createMockFs(opts: { moveThrow?: Error } = {}): VerificationContext['fs'] {
+  const files = new Map<string, string>();
+  const dirs = new Set<string>();
+  function addDir(p: string) {
+    let cur = p;
+    while (cur && cur !== '/' && cur !== '.') {
+      dirs.add(cur);
+      cur = path.dirname(cur);
+    }
+  }
+  function isDir(p: string) {
+    if (dirs.has(p)) return true;
+    for (const f of files.keys()) {
+      if (f.startsWith(p + '/')) return true;
+    }
+    return false;
+  }
+  return {
+    exists: vi.fn(async (p: string) => files.has(p) || isDir(p)),
+    existsSync: vi.fn((p: string) => files.has(p) || isDir(p)),
+    read: vi.fn(async (p: string) => {
+      if (!files.has(p)) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      }
+      return files.get(p)!;
+    }),
+    writeExclusive: vi.fn(async (p: string, content: string) => {
+      if (files.has(p)) {
+        const err = new Error('EEXIST') as NodeJS.ErrnoException;
+        err.code = 'EEXIST';
+        throw err;
+      }
+      addDir(path.dirname(p));
+      files.set(p, content);
+    }),
+    writeAtomic: vi.fn(async (p: string, content: string) => {
+      addDir(path.dirname(p));
+      files.set(p, content);
+    }),
+    ensureDir: vi.fn(async (p: string) => {
+      addDir(p);
+    }),
+    move: vi.fn(async (src: string, dst: string) => {
+      if (opts.moveThrow) throw opts.moveThrow;
+      const srcDir = isDir(src);
+      const entries: Array<[string, string]> = [];
+      if (srcDir) {
+        for (const [k, v] of files.entries()) {
+          if (k === src || k.startsWith(src + '/')) {
+            entries.push([k, v]);
+          }
+        }
+      } else if (files.has(src)) {
+        entries.push([src, files.get(src)!]);
+      }
+      if (entries.length === 0) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      }
+      for (const [k, v] of entries) {
+        const relative = k.slice(src.length);
+        const newKey = dst + relative;
+        addDir(path.dirname(newKey));
+        files.set(newKey, v);
+        files.delete(k);
+      }
+      dirs.delete(src);
+      addDir(dst);
+    }),
+    list: vi.fn(async () => []),
+    listSync: vi.fn(() => []),
+    removeDir: vi.fn(async () => {}),
+    deleteFile: vi.fn(async () => {}),
+    stat: vi.fn(async () => ({ mtime: new Date() } as any)),
+  } as unknown as VerificationContext['fs'];
+}
+
 function makeAcceptanceCtx(
   overrides: {
     moveToArchiveThrows?: boolean;
@@ -42,10 +122,15 @@ function makeAcceptanceCtx(
   const notifyCalls: Array<{ type: string; data: Record<string, unknown> }> = [];
 
   const storedProgress: Record<string, ProgressData> = {};
+  const fsMock = createMockFs({ moveThrow: overrides.moveToArchiveThrows ? new Error('disk full') : undefined });
 
   const ctx: VerificationContext = {
     clawDir: '/tmp/claw',
     clawId: 'claw-test',
+    baseDir: '/tmp/claw',
+    activeDir: '/tmp/claw/contract/active',
+    archiveDir: '/tmp/claw/contract/archive' as any,
+    abortContractVerifiers: vi.fn(),
     audit,
     notifyClaw: vi.fn(),
     contractDir: vi.fn(async (_id: string) => `contract/active`),
@@ -69,11 +154,6 @@ function makeAcceptanceCtx(
       storedProgress[id] = p;
     }),
     checkAllSubtasksCompleted: vi.fn(async () => false),
-    moveContractToArchive: vi.fn(async () => {
-      if (overrides.moveToArchiveThrows) {
-        throw new Error('moveToArchive mock error');
-      }
-    }),
     emitContractCompleted: vi.fn(async () => {}),
     onNotify: (type: string, data: Record<string, unknown>) => {
       notifyCalls.push({ type, data });
@@ -82,14 +162,7 @@ function makeAcceptanceCtx(
     runLLMVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
     toolRegistry: createToolRegistry(),
     runVerifierWithCancel: vi.fn(async () => ({ passed: true, feedback: '' })),
-    fs: {
-      exists: vi.fn(async () => true),
-      existsSync: vi.fn(() => true),
-      read: vi.fn(async () => ''),
-      writeAtomic: vi.fn(async () => {}),
-      removeDir: vi.fn(async () => {}),
-      ensureDir: vi.fn(async () => {}),
-    } as unknown as VerificationContext['fs'],
+    fs: fsMock,
     isActiveContract: vi.fn(async () => true),
     getContractRoot: vi.fn(async (_id: string) => `contract/active/${_id}`),
     transitionVerificationAttempt: vi.fn(async (contractId: string, subtaskId: string, transition: any) => {
@@ -126,12 +199,13 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
   describe('α-1 archiveAndEmit failure does not revert progress.status', () => {
     it('archive fail → no progress save, no status rollback, returns archived=false', async () => {
       const { ctx, events } = makeAcceptanceCtx({ moveToArchiveThrows: true });
-      // setup: contract with status='completed'
+      // setup: contract with all subtasks completed
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         contract_id: 'c1',
         status: 'completed',
-        subtasks: { st1: { status: 'completed' } },
+        subtasks: { st1: { status: 'completed', completed_at: '2026-07-27T00:00:00Z' } },
       });
+      (ctx.checkAllSubtasksCompleted as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
 
       const result = await archiveAndEmit(ctx, 'c1', 'Test', 'test');
 
@@ -139,19 +213,28 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       // no saveProgress call after failed move
       expect(ctx.saveProgress).not.toHaveBeenCalled();
 
-      // audit emit MOVE_ARCHIVE_FAILED with retry message
+      // audit emit MOVE_ARCHIVE_FAILED
       const moveArchiveFails = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
       expect(moveArchiveFails.length).toBeGreaterThanOrEqual(1);
-      expect(moveArchiveFails.some(e =>
-        e.some(col => typeof col === 'string' && col.includes('remains active for retry'))
-      )).toBe(true);
     });
 
-    it('archive success → moveContractToArchive called + contract_completed fires', async () => {
+    it('archive success → intent persisted + handler called after rename + contract_completed fires', async () => {
       const { ctx, notifyCalls } = makeAcceptanceCtx({ moveToArchiveThrows: false });
-      await archiveAndEmit(ctx, 'c2', 'Test', 'test');
+      const contractId = 'c2';
+      (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        contract_id: contractId,
+        status: 'completed',
+        subtasks: { st1: { status: 'completed', completed_at: '2026-07-27T00:00:00Z' } },
+      });
+      (ctx.checkAllSubtasksCompleted as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+      // seed active contract so move succeeds
+      await ctx.fs.writeAtomic(`/tmp/claw/contract/active/${contractId}/contract.yaml`, 'yaml');
 
-      expect(ctx.moveContractToArchive).toHaveBeenCalledWith('c2', 'completed');
+      const result = await archiveAndEmit(ctx, contractId, 'Test', 'test');
+
+      expect(result).toEqual({ archived: true, state: 'completed' });
+      expect(ctx.emitContractCompleted).toHaveBeenCalledTimes(1);
+      expect(ctx.emitContractCompleted).toHaveBeenCalledWith(contractId);
       expect(notifyCalls).toContainEqual(expect.objectContaining({ type: 'contract_completed' }));
     });
 
@@ -161,8 +244,9 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         contract_id: 'c3',
         status: 'completed',
-        subtasks: {},
+        subtasks: { st1: { status: 'completed', completed_at: '2026-07-27T00:00:00Z' } },
       });
+      (ctx.checkAllSubtasksCompleted as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
 
       const result = await archiveAndEmit(ctx, 'c3', 'Test', 'test');
 

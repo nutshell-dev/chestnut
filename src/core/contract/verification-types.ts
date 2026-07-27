@@ -6,7 +6,7 @@
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId, ArchiveState } from './types.js';
+import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId, ArchiveDir } from './types.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ContractId } from './types.js';
@@ -50,7 +50,18 @@ export interface VerificationContractContext {
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
   saveProgress: (contractId: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
-  moveContractToArchive: (contractId: ContractId, targetState: ArchiveState) => Promise<void>;
+  /** Phase 1198 Step B: base directory for stable lifecycle intent store. */
+  baseDir: string;
+  /** Phase 1198 Step B: active container directory. */
+  activeDir: string;
+  /** Phase 1198 Step B: archive container directory. */
+  archiveDir: ArchiveDir;
+  /** Phase 1198 Step B: abort active verifiers post terminal commit. */
+  abortContractVerifiers: (contractId: ContractId, reason: string) => void;
+  /**
+   * Phase 1198 Step B: post-commit completed handler callback.
+   * Called by verification-lifecycle only after the directory rename commit succeeds.
+   */
   emitContractCompleted: (contractId: ContractId) => Promise<void>;
   /**
    * Phase 1136 Step B: layout-neutral active check. Returns true iff the

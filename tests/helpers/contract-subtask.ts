@@ -40,7 +40,11 @@ type Internals = {
   getProgress: (id: ContractId) => Promise<ProgressData | null>;
   saveProgress: (id: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
   checkAllCompleted: (id: ContractId, progress: ProgressData) => Promise<boolean>;
-  moveToArchive: (id: ContractId, targetState: ArchiveState) => Promise<void>;
+  /** Phase 1198 Step B: stable base directory for lifecycle intent store. */
+  baseDir: string;
+  activeDir: string;
+  archiveDir: ArchiveDir;
+  moveToArchive: (id: ContractId, targetState?: ArchiveState) => Promise<void>;
   _emitContractCompleted: (id: ContractId) => Promise<void>;
   isActiveContract: (id: ContractId) => Promise<boolean>;
   getContractRoot: (id: ContractId) => Promise<string>;
@@ -75,6 +79,9 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     getProgress: (id) => self.getProgress(id),
     saveProgress: (id, p, knownDir) => self.saveProgress(id, p, knownDir),
     checkAllSubtasksCompleted: (id, p) => self.checkAllCompleted(id, p),
+    baseDir: self.clawDir,
+    activeDir: self.activeDir,
+    archiveDir: self.archiveDir,
     moveContractToArchive: (id, targetState) => self.moveToArchive(id, targetState),
     emitContractCompleted: (id) => self._emitContractCompleted(id),
     isActiveContract: (id) => self.isActiveContract(id),

@@ -1,8 +1,8 @@
 /**
  * Cancel an active contract (moves to archive with status=cancelled).
  *
- * Thin CLI wrapper around ContractSystem.cancel — business logic (lock /
- * saveProgress / abort verifier / fs.move) lives in core/contract/lifecycle.ts.
+ * Thin CLI wrapper around ContractSystem.cancel — business logic lives in
+ * core/contract/lifecycle.ts.
  */
 
 import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
@@ -42,8 +42,9 @@ export async function contractCancelCommand(
     resolvedId = active.id;
   }
 
+  let outcome;
   try {
-    await manager.cancel(makeContractId(resolvedId), reason);
+    outcome = await manager.cancel(makeContractId(resolvedId), reason);
   } catch (err) {
     throw new CliError(
       `Failed to cancel contract "${resolvedId}" for claw ${clawId}`,
@@ -51,11 +52,38 @@ export async function contractCancelCommand(
     );
   }
 
-  audit?.write(
-    CLI_AUDIT_EVENTS.CONTRACT_CANCEL,
-    `claw=${clawId}`,
-    `contract=${resolvedId}`,
-    `reason=${reason}`,
+  if (outcome.kind === 'committed') {
+    audit?.write(
+      CLI_AUDIT_EVENTS.CONTRACT_CANCEL,
+      `claw=${clawId}`,
+      `contract=${resolvedId}`,
+      `reason=${reason}`,
+    );
+    console.log(`Contract cancelled: ${resolvedId} (reason: ${reason})`);
+    return;
+  }
+
+  if (outcome.kind === 'already_committed') {
+    audit?.write(
+      CLI_AUDIT_EVENTS.CONTRACT_CANCEL,
+      `claw=${clawId}`,
+      `contract=${resolvedId}`,
+      `reason=${reason}`,
+    );
+    console.log(`Contract already cancelled: ${resolvedId}`);
+    return;
+  }
+
+  if (outcome.kind === 'lost_to_state') {
+    throw new CliError(
+      `Contract "${resolvedId}" is already in terminal state: ${outcome.committed}`,
+      { cause: outcome },
+    );
+  }
+
+  // retryable_failure
+  throw new CliError(
+    `Failed to cancel contract "${resolvedId}": ${outcome.cause ?? 'unknown'}`,
+    { cause: outcome.cause ?? 'unknown' },
   );
-  console.log(`Contract cancelled: ${resolvedId} (reason: ${reason})`);
 }

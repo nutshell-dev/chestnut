@@ -22,6 +22,8 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { ToolError } from '../../../src/foundation/tools/errors.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
+import * as path from 'path';
+import { readLifecycleIntentsForContract } from '../../../src/core/contract/lifecycle-intent.js';
 
 
 
@@ -56,7 +58,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('resets in_progress subtasks when cancelling contract (Phase 967)', async () => {
+  it('Phase 1198 Step C: cancel archives contract without pre-rename progress mutation', async () => {
     const contractId = await manager.create({
       title: 'Cancel Test',
       goal: 'test',
@@ -71,17 +73,31 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     progress.subtasks['task-1'].verification_attempt_id = 'attempt-1';
     await fs.writeFile(progressPath, JSON.stringify(progress, null, 2));
 
-    await manager.cancel(contractId, 'test');
+    const outcome = await manager.cancel(contractId, 'test');
+    expect(outcome.kind).toBe('committed');
+    expect(outcome.state).toBe('cancelled');
 
-    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json');
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+
+    // Phase 1198 Step C: no pre-rename progress mutation; subtask state is preserved.
+    const archivedProgressPath = path.join(archiveDir, 'progress.json');
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBeUndefined();
-    expect(archivedProgress.subtasks['task-1'].status).toBe('todo');
-    expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
+    expect(archivedProgress.subtasks['task-1'].status).toBe('in_progress');
+
+    // Reason is persisted in the immutable lifecycle intent store.
+    const { intents } = await readLifecycleIntentsForContract(
+      manager['fs'],
+      manager['audit'] as any,
+      clawDir,
+      contractId,
+    );
+    expect(intents.some(i => i.requested_state === 'cancelled' && (i as { reason: string }).reason === 'test')).toBe(true);
   });
 
-  it('resets in_progress subtasks when marking contract corrupted (Phase 1121 Step C)', async () => {
+  it('Phase 1198 Step C: markCorrupted archives contract without pre-rename progress mutation', async () => {
     const contractId = await manager.create({
       title: 'Corrupt Test',
       goal: 'test',
@@ -96,17 +112,34 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     progress.subtasks['task-1'].verification_attempt_id = 'attempt-1';
     await fs.writeFile(progressPath, JSON.stringify(progress, null, 2));
 
-    await manager.markCorrupted(contractId, {
+    const outcome = await manager.markCorrupted(contractId, {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
     });
+    expect(outcome.kind).toBe('committed');
+    expect(outcome.state).toBe('corrupted');
 
-    const archivedProgressPath = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId, 'progress.json');
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+
+    // Phase 1198 Step C: no pre-rename progress mutation; subtask state is preserved.
+    const archivedProgressPath = path.join(archiveDir, 'progress.json');
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBeUndefined();
-    expect(archivedProgress.subtasks['task-1'].status).toBe('todo');
-    expect(archivedProgress.subtasks['task-1'].verification_attempt_id).toBeUndefined();
+    expect(archivedProgress.subtasks['task-1'].status).toBe('in_progress');
+
+    // Evidence is persisted in the immutable lifecycle intent store.
+    const { intents } = await readLifecycleIntentsForContract(
+      manager['fs'],
+      manager['audit'] as any,
+      clawDir,
+      contractId,
+    );
+    expect(intents.some(i =>
+      i.requested_state === 'corrupted' &&
+      (i as { evidence: { reason: string; relativePath: string } }).evidence.reason === 'progress_schema_invalid'
+    )).toBe(true);
   });
 
 });
@@ -314,7 +347,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('saveProgress(no status) + move to corrupted archive + no notify', async () => {
+  it('Phase 1198 Step C: intent + move to corrupted archive + no notify', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Corrupt Test',
       goal: 'Test',
@@ -324,10 +357,11 @@ describe('phase 1121 Step C: markCorrupted', () => {
     // create 会触发 contract_created notify、清掉只验 markCorrupted 的
     notifyCalls.length = 0;
 
-    await manager.markCorrupted(contractId, {
+    const outcome = await manager.markCorrupted(contractId, {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
     });
+    expect(outcome.kind).toBe('committed');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
@@ -336,13 +370,25 @@ describe('phase 1121 Step C: markCorrupted', () => {
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBeUndefined();
-    expect(archivedProgress.checkpoint).toContain('archive_corrupted: progress_schema_invalid');
+    // Phase 1198 Step C: reason lives in immutable intent, not progress checkpoint.
+    expect(archivedProgress.checkpoint).toBeUndefined();
+
+    const { intents } = await readLifecycleIntentsForContract(
+      manager['fs'],
+      manager['audit'] as any,
+      clawDir,
+      contractId,
+    );
+    expect(intents.some(i =>
+      i.requested_state === 'corrupted' &&
+      (i as { evidence: { reason: string; relativePath: string } }).evidence.reason === 'progress_schema_invalid'
+    )).toBe(true);
 
     // phase 1121 Step D: 新 contract_crashed notify 已删除
     expect(notifyCalls).toHaveLength(0);
   });
 
-  it('throws ToolError if contract already in archive', async () => {
+  it('Phase 1198 Step C: returns lost_to_state if contract already in archive', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Corrupt Already Archived',
       goal: 'Test',
@@ -351,10 +397,12 @@ describe('phase 1121 Step C: markCorrupted', () => {
     }));
 
     await manager.cancel(contractId, 'pre-cancel');
-    await expect(manager.markCorrupted(contractId, {
+    const outcome = await manager.markCorrupted(contractId, {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
-    })).rejects.toThrow(ToolError);
+    });
+    expect(outcome.kind).toBe('lost_to_state');
+    expect(outcome.committed).toBe('cancelled');
   });
 
   it('abortContractVerifiers failure does not break main flow', async () => {
@@ -369,10 +417,11 @@ describe('phase 1121 Step C: markCorrupted', () => {
       throw new Error('verifier abort boom');
     });
 
-    await expect(manager.markCorrupted(contractId, {
+    const outcome = await manager.markCorrupted(contractId, {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
-    })).resolves.toBeUndefined();
+    });
+    expect(outcome.kind).toBe('committed');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
@@ -417,5 +466,6 @@ describe('phase 1121 Step C: markCorrupted', () => {
 
     expect(auditWrites.some(a => a[0] === 'contract_corrupted' && a.some(s => s.includes('contractId=' + contractId)))).toBe(true);
     expect(auditWrites.some(a => a[0] === 'contract_corrupted' && a.some(s => s.includes('reason=progress_schema_invalid')))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'contract_lifecycle_intent_persisted' && a.some(s => s.includes('contractId=' + contractId)))).toBe(true);
   });
 });

@@ -354,6 +354,10 @@ export interface ArchivePayloadView {
   layout: ArchivePayloadLayout;
   contract: PersistedContractYaml;
   progress: ProgressData;
+  // Phase 1198 Step A: immutable lifecycle intents associated with this contract.
+  // Empty for legacy archives without a stable intent store entry.
+  intents: LifecycleIntent[];
+  intentIssues: LifecycleIntentIssue[];
 }
 
 export type ArchiveReadIssueCode =
@@ -441,4 +445,54 @@ export type ContractCorruptionReason =
 export interface ContractCorruptionEvidence {
   reason: ContractCorruptionReason;
   relativePath: string;
+}
+
+// ============================================================================
+// Phase 1198 Step A: immutable lifecycle intent types
+// ============================================================================
+
+export type LifecycleIntentState = ArchiveState;
+
+export interface BaseLifecycleIntent {
+  schema_version: 1;
+  request_id: string;
+  contract_id: string;
+  requested_state: LifecycleIntentState;
+  requested_at: string;
+}
+
+export interface CompletedLifecycleIntent extends BaseLifecycleIntent {
+  requested_state: 'completed';
+  context: string;
+}
+
+export interface CancelledLifecycleIntent extends BaseLifecycleIntent {
+  requested_state: 'cancelled';
+  reason: string;
+}
+
+export interface CorruptedLifecycleIntent extends BaseLifecycleIntent {
+  requested_state: 'corrupted';
+  evidence: ContractCorruptionEvidence;
+}
+
+export type LifecycleIntent =
+  | CompletedLifecycleIntent
+  | CancelledLifecycleIntent
+  | CorruptedLifecycleIntent;
+
+export interface LifecycleIntentIssue {
+  requestId: string;
+  path: string;
+  reason: 'parse_failed' | 'schema_invalid' | 'identity_mismatch';
+  detail?: string;
+}
+
+export interface LifecycleCommitOutcome {
+  kind: 'committed' | 'already_committed' | 'lost_to_state' | 'retryable_failure';
+  requested: ArchiveState;
+  state?: ArchiveState;
+  committed?: ArchiveState;
+  requestId: string;
+  cause?: string;
 }

@@ -23,6 +23,7 @@ import { makeAudit, makeMockAudit, waitForNextAuditEvent, waitForNthAuditEvent }
 import { waitFor } from '../../helpers/wait-for.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
+import { readLifecycleIntentsForContract } from '../../../src/core/contract/lifecycle-intent.js';
 
 const { mockRunContractVerifierDispose } = vi.hoisted(() => ({
   mockRunContractVerifierDispose: vi.fn(),
@@ -259,8 +260,8 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     });
   });
 
-  // 反向 1: happy path — cancelContract 后 progress.json 不含 status，subtasks 重置，contract 在 archive dir
-  it('happy path: cancel resets subtasks then moves to archive', async () => {
+  // 反向 1: happy path — cancelContract archives contract via intent; no pre-rename progress mutation.
+  it('happy path: cancel archives contract via intent without pre-rename progress mutation', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Cancel Order Test',
       goal: 'Test',
@@ -268,7 +269,8 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       verification: [],
     }));
 
-    await manager.cancel(contractId, 'user cancelled');
+    const outcome = await manager.cancel(contractId, 'user cancelled');
+    expect(outcome.kind).toBe('committed');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
@@ -277,12 +279,22 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBeUndefined();
+    // Phase 1198 Step C: subtask state is not modified during cancel.
     expect(archivedProgress.subtasks['t1'].status).toBe('todo');
-    expect(archivedProgress.checkpoint).toBe('cancelled: user cancelled');
+    // Phase 1198 Step C: reason lives in immutable intent, not progress checkpoint.
+    expect(archivedProgress.checkpoint).toBeUndefined();
+
+    const { intents } = await readLifecycleIntentsForContract(
+      manager['fs'],
+      manager['audit'] as any,
+      clawDir,
+      contractId,
+    );
+    expect(intents.some(i => i.requested_state === 'cancelled' && (i as { reason: string }).reason === 'user cancelled')).toBe(true);
   });
 
-  // 反向 2: abortContractVerifiers throws → catch 不阻断 → saveProgress 已 land + fs.move 仍执行
-  it('abort throw: saveProgress lands before abort, catch does not block move', async () => {
+  // 反向 2: abortContractVerifiers throws → catch 不阻断 → directory rename still executes
+  it('abort throw: rename commits before abort failure, catch does not block move', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Cancel Abort Throw Test',
       goal: 'Test',
@@ -295,7 +307,8 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     });
 
     // Should NOT throw — abort is best-effort wrapped in try/catch
-    await expect(manager.cancel(contractId, 'test abort throw')).resolves.toBeUndefined();
+    const outcome = await manager.cancel(contractId, 'test abort throw');
+    expect(outcome.kind).toBe('committed');
 
     // contract should still be moved to archive
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);

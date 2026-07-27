@@ -176,14 +176,14 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         verification: [],
       }));
 
-      const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
+      const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('disk full'));
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
         expect.stringContaining('context=ContractSystem._completeSubtaskSync'),
-        expect.stringContaining('message=move failed before lifecycle commit; remains active for retry'),
-        expect.stringContaining('error=disk full'),
+        expect.stringContaining('message=terminal commit failed'),
+        expect.stringContaining('disk full'),
       );
 
       // phase 738 reverse 3: contract_completed notify NOT emitted on archive failure
@@ -210,13 +210,13 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         verification: [],
       }));
 
-      // Spy on moveToArchive to make it fail
-      const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
+      // Spy on fs.move to make the terminal directory rename fail.
+      const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('disk full'));
 
       // Complete the subtask (no verification = allCompleted = true, sync path)
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
-      expect(moveSpy).toHaveBeenCalledWith(contractId, 'completed');
+      // The terminal commit failed; no title-bearing completion audit should run.
       // updateContractStatus already writes contract_completed; the additional
       // title-bearing audit in _completeSubtaskSync should not run on failure
       const titleAuditCalls = mockAudit.write.mock.calls.filter(
@@ -245,16 +245,10 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         verification: [],
       }));
 
-      // Spy but let it work normally
-      const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockResolvedValue(undefined);
-
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
-      expect(moveSpy).toHaveBeenCalledWith(contractId, 'completed');
       // phase 705: contractId 加 key= prefix
       expect(mockAudit.write).toHaveBeenCalledWith(CONTRACT_AUDIT_EVENTS.COMPLETED, `contractId=${contractId}`, 'title=Test', expect.stringContaining('claw='));
-
-      moveSpy.mockRestore();
     });
   });
 });

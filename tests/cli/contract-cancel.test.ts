@@ -19,6 +19,7 @@ import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { CliError } from '../../src/cli/errors.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
+import { readLifecycleIntentsForContract } from '../../src/core/contract/lifecycle-intent.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -76,14 +77,24 @@ describe('contractCancelCommand (phase 1471)', () => {
       { audit },
     );
 
-    // active dir gone, archive/cancelled entry present with progress.status=cancelled
+    // active dir gone, archive/cancelled entry present
     const activePath = path.join(clawDir, 'contract', 'active', contractId);
     const archivePath = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(activePath)).rejects.toBeTruthy();
     const progressRaw = await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8');
     const progress = JSON.parse(progressRaw);
     expect(progress.status).toBeUndefined();
-    expect(progress.checkpoint).toContain('user requested abort');
+    // Phase 1198 Step C: reason lives in immutable lifecycle intent, not progress checkpoint.
+    expect(progress.checkpoint).toBeUndefined();
+
+    const clawFs = new NodeFileSystem({ baseDir: clawDir });
+    const { intents } = await readLifecycleIntentsForContract(
+      clawFs,
+      audit,
+      clawDir,
+      contractId,
+    );
+    expect(intents.some(i => i.requested_state === 'cancelled' && (i as { reason: string }).reason === 'user requested abort')).toBe(true);
 
     // CLI audit emit
     expect(audit.write).toHaveBeenCalledWith(
@@ -116,6 +127,7 @@ describe('contractCancelCommand (phase 1471)', () => {
       await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8'),
     );
     expect(progress.status).toBeUndefined();
+    expect(progress.checkpoint).toBeUndefined();
     expect(audit.write).toHaveBeenCalledWith(
       'cli_contract_cancel',
       `claw=${CLAW_ID}`,

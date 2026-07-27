@@ -4,13 +4,14 @@ import * as yaml from 'js-yaml';
 import { isFileNotFound, stat, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
-import type { ArchiveState } from '../types.js';
+import type { ArchiveState, LifecycleIntent } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { listArchiveContractLocations, archiveContainerDir, type ArchiveListEntry } from '../locations.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 import { LEGACY_PROGRESS_STATUSES_TUPLE } from '../schemas.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
+import { readLifecycleIntentsForContract } from '../lifecycle-intent.js';
 
 function readContractMeta(
   fs: FileSystem,
@@ -40,27 +41,82 @@ interface FormattedEvent {
   cause?: string;
 }
 
+function formatCancelledReason(
+  _contractDirName: string,
+  progress: ProgressData,
+  intents: LifecycleIntent[],
+): { reason: string; notes?: string } {
+  const cancelledIntents = intents.filter(
+    (i): i is LifecycleIntent & { requested_state: 'cancelled'; reason: string } =>
+      i.requested_state === 'cancelled',
+  );
+  if (cancelledIntents.length > 0) {
+    const reasons = cancelledIntents.map(i => i.reason);
+    const note = reasons.length === 1 ? reasons[0] : `requests: ${reasons.join('; ')}`;
+    return { reason: note };
+  }
+  // Legacy fallback: checkpoint written before Phase 1198.
+  const legacy = (progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
+  return { reason: legacy, notes: '(from legacy checkpoint)' };
+}
+
+function formatCorruptedCause(
+  _contractDirName: string,
+  progress: ProgressData,
+  intents: LifecycleIntent[],
+): { cause: string; notes?: string } {
+  const corruptedIntents = intents.filter(
+    (i): i is LifecycleIntent & { requested_state: 'corrupted'; evidence: { reason: string; relativePath: string } } =>
+      i.requested_state === 'corrupted',
+  );
+  if (corruptedIntents.length > 0) {
+    const entries = corruptedIntents.map(i => `${i.evidence.reason} (${i.evidence.relativePath})`);
+    return { cause: entries.length === 1 ? entries[0] : `requests: ${entries.join('; ')}` };
+  }
+  // Legacy fallback.
+  const legacy = (progress.checkpoint ?? '').replace(/^archive_corrupted:\s*/, '') || '(no cause given)';
+  return { cause: legacy, notes: '(from legacy checkpoint)' };
+}
+
 // Step F: current archive state comes from the directory path (SoT).
-function formatCurrentArchiveEvent(
+async function formatCurrentArchiveEvent(
+  fs: FileSystem,
+  clawDir: string,
   clawId: ClawId,
   contractDirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
   state: ArchiveState,
-): FormattedEvent | null {
+): Promise<FormattedEvent | null> {
   switch (state) {
     case 'completed':
       return formatCompleted(clawId, contractDirName, meta, progress);
-    case 'cancelled':
-      return formatCancelled(clawId, contractDirName, meta, progress);
-    case 'corrupted':
+    case 'cancelled': {
+      const { intents } = await readLifecycleIntentsForContract(
+        fs,
+        { write: () => {} } as unknown as AuditLog,
+        clawDir,
+        contractDirName as import('../types.js').ContractId,
+      );
+      const { reason } = formatCancelledReason(contractDirName, progress, intents);
+      return formatCancelled(clawId, contractDirName, meta, progress, reason);
+    }
+    case 'corrupted': {
+      const { intents } = await readLifecycleIntentsForContract(
+        fs,
+        { write: () => {} } as unknown as AuditLog,
+        clawDir,
+        contractDirName as import('../types.js').ContractId,
+      );
+      const { cause } = formatCorruptedCause(contractDirName, progress, intents);
       return {
         body: `[contract_archive_corrupted] claw=${clawId} contract=${contractDirName}`,
         hasFailure: true,
         status: 'corrupted',
         reason: 'archive_corrupted',
-        cause: `Contract ${contractDirName} is in corrupted archive state`,
+        cause: `Contract ${contractDirName} is in corrupted archive state: ${cause}`,
       };
+    }
     default: {
       const _exhaustive: never = state;
       return _exhaustive;
@@ -84,8 +140,10 @@ function formatLegacyFlatArchiveEvent(
   switch (status) {
     case 'completed':
       return formatCompleted(clawId, contractDirName, meta, progress);
-    case 'cancelled':
-      return formatCancelled(clawId, contractDirName, meta, progress);
+    case 'cancelled': {
+      const reason = (progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
+      return formatCancelled(clawId, contractDirName, meta, progress, reason);
+    }
     case 'crashed':
       return formatCrashed(clawId, contractDirName, meta, progress);
     case 'archive_corrupted':
@@ -143,7 +201,7 @@ function formatCompleted(
   if (completed.length > 0) {
     lines.push('  subtasks:');
     for (const [stId, st] of completed) {
-      // phase 1487: 去 [force-accepted] prefix（语义诚实化 / motion 是决策主体 / DP）
+      // phase 1487: 去 [force-accepted] 前缀（语义诚实化 / motion 是决策主体 / DP）
       const ev = st.evidence ?? '';
       lines.push(`    [${stId}] ${ev}`);
       if (st.last_failed_feedback?.feedback) {
@@ -160,8 +218,8 @@ function formatCancelled(
   dirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
+  reason: string,
 ): FormattedEvent {
-  const reason = (progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
   const lines: string[] = [`[contract_cancelled] claw=${clawId} contract=${dirName}`];
   if (meta.title) lines.push(`  title: ${meta.title}`);
   if (meta.goal) lines.push(`  goal: ${meta.goal}`);
@@ -301,7 +359,7 @@ export async function scanArchivedContracts(
       const meta = readContractMeta(fs, loc.contractRoot);
       let formatted: FormattedEvent | null;
       if (loc.kind === 'current' && loc.state) {
-        formatted = formatCurrentArchiveEvent(clawId, loc.contractId, meta, progress, loc.state);
+        formatted = await formatCurrentArchiveEvent(fs, clawDir, clawId, loc.contractId, meta, progress, loc.state);
       } else {
         // Step F: legacy flat archive — derive status from historical progress.json field.
         (progress as unknown as Record<string, unknown>).status = result.data.status ?? 'completed';

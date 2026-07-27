@@ -131,6 +131,13 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_CREATION_INTERRUPTED: 'contract_creation_interrupted',
   CONTRACT_CREATION_RECOVERED: 'contract_creation_recovered',
   CONTRACT_CREATION_RECOVERY_FAILED: 'contract_creation_recovery_failed',
+  // Phase 1198 Step A: immutable lifecycle intent store
+  LIFECYCLE_INTENT_PERSISTED: 'contract_lifecycle_intent_persisted',
+  LIFECYCLE_INTENT_READ_ISSUE: 'contract_lifecycle_intent_read_issue',
+
+  // Phase 1198 Step D: boot reconcile of pending lifecycle intents
+  CONTRACT_BOOT_RECONCILE_INTENT_OUTCOME: 'contract_boot_reconcile_intent_outcome',
+  CONTRACT_BOOT_RECONCILE_INTENT_SKIPPED: 'contract_boot_reconcile_intent_skipped',
 
   // phase 233 Step A: saveProgress 入口 schema invariant 违例
   CONTRACT_PROGRESS_INVARIANT_VIOLATED: 'contract_progress_invariant_violated',
@@ -230,6 +237,8 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_boot_migrate_escalated: 'audit',
   contract_boot_migrate_archive_skipped: 'audit',
   contract_boot_reconcile_skipped: 'audit',
+  contract_boot_reconcile_intent_outcome: 'audit',
+  contract_boot_reconcile_intent_skipped: 'audit',
   contract_boot_reconcile_schema_failed: 'audit',
   contract_onboarding_progress_parse_failed: 'audit',
   mark_corrupted_graceful_fallback: 'audit',
@@ -260,6 +269,8 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_creation_interrupted: 'audit',
   contract_creation_recovered: 'audit',
   contract_creation_recovery_failed: 'audit',
+  contract_lifecycle_intent_persisted: 'audit',
+  contract_lifecycle_intent_read_issue: 'audit',
   contract_missing_started_at: 'audit',
   contract_legacy_crashed_observed: 'audit',
   contract_legacy_paused_observed: 'audit',

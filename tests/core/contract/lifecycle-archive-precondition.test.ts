@@ -44,6 +44,7 @@ describe('Phase 1132 Step D: moveContractToArchive precondition', () => {
     return {
       fs: nodeFs,
       audit: audit as any,
+      baseDir: clawDir,
       activeDir: path.join(clawDir, 'contract', 'active'),
       pausedDir: path.join(clawDir, 'contract', 'paused'),
       archiveDir: path.join(clawDir, 'contract', 'archive') as any,

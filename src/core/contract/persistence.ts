@@ -12,7 +12,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
-import type { ProgressData, ContractCorruptionEvidence } from './types.js';
+import type { ProgressData, ContractCorruptionEvidence, LifecycleCommitOutcome } from './types.js';
 import { stripProgressDerivedFields, ContractProgressInvariantViolatedError } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
@@ -40,7 +40,7 @@ export interface PersistenceContext {
   audit: AuditLog;
   contractDir: (contractId: ContractId) => Promise<string>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  markCorrupted?: (contractId: ContractId, evidence: ContractCorruptionEvidence) => Promise<void>;
+  markCorrupted?: (contractId: ContractId, evidence: ContractCorruptionEvidence) => Promise<LifecycleCommitOutcome>;
 }
 
 export async function loadContractYaml(

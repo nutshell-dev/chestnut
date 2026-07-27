@@ -12,6 +12,7 @@ export const CONTRACT_ARCHIVE_DIR = 'contract/archive' as const;
 export const CONTRACT_ARCHIVE_COMPLETED_DIR = 'contract/archive/completed' as const;
 export const CONTRACT_ARCHIVE_CANCELLED_DIR = 'contract/archive/cancelled' as const;
 export const CONTRACT_ARCHIVE_CORRUPTED_DIR = 'contract/archive/corrupted' as const;
+export const CONTRACT_LIFECYCLE_INTENTS_DIR = 'contract/lifecycle-intents' as const;
 export const PROGRESS_FILE = 'progress.json' as const;
 export const CONTRACT_YAML_FILE = 'contract.yaml' as const;
 

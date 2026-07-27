@@ -33,7 +33,10 @@ import {
   type ArchiveReadIssueCode,
   type ProgressData,
   type SubtaskStatus,
+  type LifecycleIntent,
+  type LifecycleIntentIssue,
 } from './types.js';
+import { readLifecycleIntentsForContract } from './lifecycle-intent.js';
 
 export type { ArchivePayloadView, ArchiveReadIssue, ArchiveReadIssueCode };
 
@@ -53,6 +56,8 @@ interface ReadArchivePayloadOpts {
   audit: AuditLog;
   location: ArchivePayloadLocation;
   contractId: ContractId;
+  /** Phase 1198 Step A: base directory (clawDir) for stable lifecycle intent store. */
+  baseDir?: string;
 }
 
 function emitArchiveReadIssue(audit: AuditLog, issue: ArchiveReadIssue): void {
@@ -164,10 +169,20 @@ function projectLegacyProgress(
   return { progress };
 }
 
+async function readLifecycleIntents(
+  deps: { fs: FileSystem; audit: AuditLog },
+  baseDir: string | undefined,
+  contractId: ContractId,
+): Promise<{ intents: LifecycleIntent[]; issues: LifecycleIntentIssue[] }> {
+  if (!baseDir) return { intents: [], issues: [] };
+  return readLifecycleIntentsForContract(deps.fs, deps.audit, baseDir, contractId);
+}
+
 async function readLegacyArchivePayload(
   deps: { fs: FileSystem; audit: AuditLog },
   contractId: ContractId,
   root: string,
+  baseDir?: string,
 ): Promise<ArchivePayloadReadResult> {
   const yamlPath = getContractYamlPath(root);
   let content: string;
@@ -238,6 +253,7 @@ async function readLegacyArchivePayload(
     return { kind: 'issue', issue: projected.issue };
   }
 
+  const { intents, issues } = await readLifecycleIntents(deps, baseDir, contractId);
   const view: ArchivePayloadView = {
     contractId,
     state: 'legacy-unresolved',
@@ -245,6 +261,8 @@ async function readLegacyArchivePayload(
     layout: 'legacy',
     contract: parsed.data,
     progress: projected.progress,
+    intents,
+    intentIssues: issues,
   };
   return { kind: 'found', view };
 }
@@ -254,10 +272,12 @@ async function readCurrentArchivePayload(
   contractId: ContractId,
   root: string,
   state: ArchiveState,
+  baseDir?: string,
 ): Promise<ArchivePayloadReadResult> {
   try {
     const layout = await readStrictContractLayoutAtRoot(deps, root, contractId);
     const runtime = projectArchivePayloadRuntime(layout);
+    const { intents, issues } = await readLifecycleIntents(deps, baseDir, contractId);
     const view: ArchivePayloadView = {
       contractId,
       state,
@@ -265,6 +285,8 @@ async function readCurrentArchivePayload(
       layout: 'current',
       contract: layout.contract,
       progress: runtime.progress,
+      intents,
+      intentIssues: issues,
     };
     return { kind: 'found', view };
   } catch (err) {
@@ -280,6 +302,54 @@ async function readCurrentArchivePayload(
 }
 
 /**
+ * Phase 1198 Step C: project the canonical cancelled reason from an archive view.
+ *
+ * Prefers lifecycle intents; falls back to legacy progress.checkpoint.
+ */
+export function projectCancelledReason(view: ArchivePayloadView): {
+  reason: string;
+  source: 'intent' | 'legacy_checkpoint';
+} {
+  const cancelledIntents = view.intents.filter(
+    (i): i is typeof i & { requested_state: 'cancelled'; reason: string } =>
+      i.requested_state === 'cancelled',
+  );
+  if (cancelledIntents.length > 0) {
+    const reasons = cancelledIntents.map(i => i.reason);
+    return {
+      reason: reasons.length === 1 ? reasons[0] : `requests: ${reasons.join('; ')}`,
+      source: 'intent',
+    };
+  }
+  const legacy = (view.progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
+  return { reason: legacy, source: 'legacy_checkpoint' };
+}
+
+/**
+ * Phase 1198 Step C: project the canonical corrupted cause from an archive view.
+ *
+ * Prefers lifecycle intents; falls back to legacy progress.checkpoint.
+ */
+export function projectCorruptedCause(view: ArchivePayloadView): {
+  cause: string;
+  source: 'intent' | 'legacy_checkpoint';
+} {
+  const corruptedIntents = view.intents.filter(
+    (i): i is typeof i & { requested_state: 'corrupted'; evidence: { reason: string; relativePath: string } } =>
+      i.requested_state === 'corrupted',
+  );
+  if (corruptedIntents.length > 0) {
+    const entries = corruptedIntents.map(i => `${i.evidence.reason} (${i.evidence.relativePath})`);
+    return {
+      cause: entries.length === 1 ? entries[0] : `requests: ${entries.join('; ')}`,
+      source: 'intent',
+    };
+  }
+  const legacy = (view.progress.checkpoint ?? '').replace(/^archive_corrupted:\s*/, '') || '(no cause given)';
+  return { cause: legacy, source: 'legacy_checkpoint' };
+}
+
+/**
  * Read a located archive entry and return either a verified payload view or a
  * typed issue. The reader performs no mutation and does not read archive-time
  * provenance.
@@ -287,7 +357,7 @@ async function readCurrentArchivePayload(
 export async function readArchivePayload(
   opts: ReadArchivePayloadOpts,
 ): Promise<ArchivePayloadReadResult> {
-  const { fs, audit, location, contractId } = opts;
+  const { fs, audit, location, contractId, baseDir } = opts;
   const root = location.contractRoot;
   const subtasksDir = getContractSubtasksDir(root);
   const progressPath = contractProgressPath(root);
@@ -315,8 +385,8 @@ export async function readArchivePayload(
   }
 
   const result = hasSubtasks
-    ? await readCurrentArchivePayload({ fs, audit }, contractId, root, location.state as ArchiveState)
-    : await readLegacyArchivePayload({ fs, audit }, contractId, root);
+    ? await readCurrentArchivePayload({ fs, audit }, contractId, root, location.state as ArchiveState, baseDir)
+    : await readLegacyArchivePayload({ fs, audit }, contractId, root, baseDir);
 
   if (result.kind === 'issue' && result.issue.code !== 'layout_corrupted') {
     // layout_corrupted was already audited by the strict current reader.

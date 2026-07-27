@@ -466,3 +466,101 @@ describe('readArchivePayload layout detection', () => {
     expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toBe(true);
   });
 });
+
+
+describe('readArchivePayload lifecycle intents (Phase 1198 Step A)', () => {
+  it('returns empty intents for archive without intent store', async () => {
+    const root = await writeCurrentArchive('completed', makeContract(), { t1: makeCompletedRecord('t1') });
+    const { audit } = makeAudit();
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: currentLocation('completed', root),
+      contractId,
+      baseDir: clawDir,
+    });
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    expect(result.view.intents).toEqual([]);
+    expect(result.view.intentIssues).toEqual([]);
+  });
+
+  it('returns intents associated with current archive', async () => {
+    const root = await writeCurrentArchive('cancelled', makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+    const intentPath = path.join(clawDir, 'contract', 'lifecycle-intents', contractId, 'req-1.json');
+    await fs.mkdir(path.dirname(intentPath), { recursive: true });
+    await fs.writeFile(
+      intentPath,
+      JSON.stringify({
+        schema_version: 1,
+        request_id: 'req-1',
+        contract_id: contractId,
+        requested_state: 'cancelled',
+        requested_at: new Date().toISOString(),
+        reason: 'user cancelled',
+      }),
+      'utf-8',
+    );
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: currentLocation('cancelled', root),
+      contractId,
+      baseDir: clawDir,
+    });
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    expect(result.view.intents).toHaveLength(1);
+    expect(result.view.intents[0].requested_state).toBe('cancelled');
+    expect((result.view.intents[0] as { reason: string }).reason).toBe('user cancelled');
+  });
+
+  it('returns empty intents for markerless legacy archive (legacy fallback)', async () => {
+    const root = await writeLegacyArchive(makeContract(), {
+      schema_version: 1,
+      subtasks: { t1: { status: 'completed', completed_at: '2026-07-19T10:00:00Z' } },
+    });
+    const { audit } = makeAudit();
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: legacyLocation(root),
+      contractId,
+      baseDir: clawDir,
+    });
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    expect(result.view.intents).toEqual([]);
+    expect(result.view.intentIssues).toEqual([]);
+  });
+
+  it('reports malformed intent without hiding valid payload', async () => {
+    const root = await writeCurrentArchive('completed', makeContract(), { t1: makeCompletedRecord('t1') });
+    const { audit, events } = makeAudit();
+    const intentDir = path.join(clawDir, 'contract', 'lifecycle-intents', contractId);
+    await fs.mkdir(intentDir, { recursive: true });
+    await fs.writeFile(path.join(intentDir, 'bad.json'), '{broken', 'utf-8');
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: currentLocation('completed', root),
+      contractId,
+      baseDir: clawDir,
+    });
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    expect(result.view.intents).toEqual([]);
+    expect(result.view.intentIssues).toHaveLength(1);
+    expect(result.view.intentIssues[0].reason).toBe('parse_failed');
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_READ_ISSUE)).toBe(true);
+  });
+});

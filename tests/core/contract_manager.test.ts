@@ -111,7 +111,7 @@ describe('ContractSystem', () => {
 
   // === 新增测试：状态转换验证 ===
 
-  it('should throw when cancelling already cancelled contract', async () => {
+  it('returns already_committed when cancelling already cancelled contract', async () => {
     const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
@@ -120,10 +120,13 @@ describe('ContractSystem', () => {
     });
 
     const contractId = await manager.create(contractYaml);
-    await manager.cancel(contractId, 'Cancel');
-    
-    // 再次 cancel 应该抛错
-    await expect(manager.cancel(contractId, 'Cancel again')).rejects.toThrow('Cannot cancel');
+    const first = await manager.cancel(contractId, 'Cancel');
+    expect(first.kind).toBe('committed');
+
+    // Phase 1198 Step C: idempotent retry returns already_committed, not an error.
+    const second = await manager.cancel(contractId, 'Cancel again');
+    expect(second.kind).toBe('already_committed');
+    expect(second.state).toBe('cancelled');
   });
 
   // === Phase 1194 Step B: multiple active create ===
@@ -284,7 +287,7 @@ describe('ContractSystem', () => {
     expect(progress.status).toBe('completed');
   });
 
-  it('should throw state validation errors with correct message', async () => {
+  it('returns already_committed when retrying cancel on a cancelled contract', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Test',
       goal: 'Test',
@@ -292,9 +295,11 @@ describe('ContractSystem', () => {
       verification: [],
     }));
 
-    // cancel 后不应该再 cancel
+    // Phase 1198 Step C: idempotent retry returns already_committed, not an error.
     await manager.cancel(contractId, 'Cancelled');
-    await expect(manager.cancel(contractId, 'Try cancel again')).rejects.toThrow('Cannot cancel');
+    const outcome = await manager.cancel(contractId, 'Try cancel again');
+    expect(outcome.kind).toBe('already_committed');
+    expect(outcome.state).toBe('cancelled');
   });
 
   // === 新增测试：损坏 progress.json 抛出 ToolError ===

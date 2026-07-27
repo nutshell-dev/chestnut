@@ -36,10 +36,95 @@ import { completeSubtask } from '../../helpers/contract-subtask.js';
  * Phase 951: archiveAndEmit commit-point behavior
  */
 describe('archiveAndEmit (phase 951)', () => {
+  function createMockFs(opts: { moveThrow?: Error } = {}): VerificationContext['fs'] {
+    const files = new Map<string, string>();
+    const dirs = new Set<string>();
+    function addDir(p: string) {
+      let cur = p;
+      while (cur && cur !== '/' && cur !== '.') {
+        dirs.add(cur);
+        cur = path.dirname(cur);
+      }
+    }
+    function isDir(p: string) {
+      if (dirs.has(p)) return true;
+      // a path is a directory if any file is under it
+      for (const f of files.keys()) {
+        if (f.startsWith(p + '/')) return true;
+      }
+      return false;
+    }
+    return {
+      exists: vi.fn(async (p: string) => files.has(p) || isDir(p)),
+      existsSync: vi.fn((p: string) => files.has(p) || isDir(p)),
+      read: vi.fn(async (p: string) => {
+        if (!files.has(p)) {
+          const err = new Error('ENOENT') as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+        return files.get(p)!;
+      }),
+      writeExclusive: vi.fn(async (p: string, content: string) => {
+        if (files.has(p)) {
+          const err = new Error('EEXIST') as NodeJS.ErrnoException;
+          err.code = 'EEXIST';
+          throw err;
+        }
+        addDir(path.dirname(p));
+        files.set(p, content);
+      }),
+      writeAtomic: vi.fn(async (p: string, content: string) => {
+        addDir(path.dirname(p));
+        files.set(p, content);
+      }),
+      ensureDir: vi.fn(async (p: string) => {
+        addDir(p);
+      }),
+      move: vi.fn(async (src: string, dst: string) => {
+        if (opts.moveThrow) throw opts.moveThrow;
+        const srcDir = isDir(src);
+        const entries: Array<[string, string]> = [];
+        if (srcDir) {
+          for (const [k, v] of files.entries()) {
+            if (k === src || k.startsWith(src + '/')) {
+              entries.push([k, v]);
+            }
+          }
+        } else if (files.has(src)) {
+          entries.push([src, files.get(src)!]);
+        }
+        if (entries.length === 0) {
+          const err = new Error('ENOENT') as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+        for (const [k, v] of entries) {
+          const relative = k.slice(src.length);
+          const newKey = dst + relative;
+          addDir(path.dirname(newKey));
+          files.set(newKey, v);
+          files.delete(k);
+        }
+        dirs.delete(src);
+        addDir(dst);
+      }),
+      list: vi.fn(async () => []),
+      listSync: vi.fn(() => []),
+      removeDir: vi.fn(async () => {}),
+      deleteFile: vi.fn(async () => {}),
+      stat: vi.fn(async () => ({ mtime: new Date() } as any)),
+    } as unknown as VerificationContext['fs'];
+  }
+
   function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
     return {
       clawDir: '/tmp/claw',
       clawId: 'claw-test',
+      baseDir: '/tmp/claw',
+      activeDir: '/tmp/claw/contract/active',
+      archiveDir: '/tmp/claw/contract/archive' as any,
+      abortContractVerifiers: vi.fn(),
       audit: {
         __brand: 'AuditLog',
         write: vi.fn(),
@@ -49,7 +134,6 @@ describe('archiveAndEmit (phase 951)', () => {
       } as unknown as VerificationContext['audit'],
       notifyClaw: vi.fn(),
       onNotify: vi.fn(),
-      moveContractToArchive: vi.fn(),
       emitContractCompleted: vi.fn(),
       getProgress: vi.fn().mockResolvedValue(null),
       saveProgress: vi.fn(),
@@ -82,47 +166,89 @@ describe('archiveAndEmit (phase 951)', () => {
     contractYaml = makeYaml();
   });
 
-  it('does not archive when emitContractCompleted fails', async () => {
+  it('does not call handler when precondition fails', async () => {
     const contractId = makeContractId('c-1');
-    vi.mocked(ctx.moveContractToArchive).mockResolvedValue(undefined);
-    vi.mocked(ctx.emitContractCompleted).mockRejectedValue(new Error('emit failed'));
+    vi.mocked(ctx.getProgress).mockResolvedValue({
+      contract_id: contractId,
+      status: 'running',
+      subtasks: { t1: { status: 'todo' } },
+    } as any);
+    vi.mocked(ctx.checkAllSubtasksCompleted).mockResolvedValue(false);
 
     const result = await archiveAndEmit(ctx, contractId, contractYaml, 'test-context');
 
-    // emit failed before move; contract stays active
     expect(result).toEqual({ archived: false });
-    expect(ctx.moveContractToArchive).not.toHaveBeenCalled();
+    expect(ctx.emitContractCompleted).not.toHaveBeenCalled();
     expect(ctx.saveProgress).not.toHaveBeenCalled();
 
-    // emit side effect was attempted
-    expect(ctx.emitContractCompleted).toHaveBeenCalledWith(contractId);
-
-    // move-archive-failed audit emitted
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
-    const moveFailed = auditWrites.find(c => c[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
-    expect(moveFailed).toBeDefined();
-    expect(moveFailed?.some(col => String(col).includes('emitContractCompleted failed, cannot archive'))).toBe(true);
+    expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED)).toBe(true);
   });
 
-  it('emits completed audit and notifies after successful emit + move', async () => {
+  it('handler called zero times before rename and exactly once after successful commit', async () => {
+    const fs = createMockFs();
     const contractId = makeContractId('c-2');
-    vi.mocked(ctx.moveContractToArchive).mockResolvedValue(undefined);
-    vi.mocked(ctx.emitContractCompleted).mockResolvedValue(undefined);
+    const activeRoot = `/tmp/claw/contract/active/${contractId}`;
+    const archiveRoot = `/tmp/claw/contract/archive/completed/${contractId}`;
+    // Seed active contract dir so move succeeds
+    await fs.writeAtomic(`${activeRoot}/contract.yaml`, 'yaml');
+    vi.mocked(ctx.getProgress).mockResolvedValue({
+      contract_id: contractId,
+      status: 'completed',
+      subtasks: { t1: { status: 'completed', completed_at: '2026-07-27T00:00:00Z' } },
+    } as any);
+    vi.mocked(ctx.checkAllSubtasksCompleted).mockResolvedValue(true);
 
-    const result = await archiveAndEmit(ctx, contractId, contractYaml, 'test-context');
+    const result = await archiveAndEmit({ ...ctx, fs }, contractId, contractYaml, 'test-context');
 
-    expect(result).toEqual({ archived: true });
+    expect(result).toEqual({ archived: true, state: 'completed' });
+    expect(await fs.exists(archiveRoot)).toBe(true);
+    // handler called exactly once, after rename
+    expect(ctx.emitContractCompleted).toHaveBeenCalledTimes(1);
+    expect(ctx.emitContractCompleted).toHaveBeenCalledWith(contractId);
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
     expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.COMPLETED)).toBe(true);
     expect(ctx.onNotify).toHaveBeenCalled();
   });
 
-  it('returns archived false when moveContractToArchive fails (no rollback + audit)', async () => {
+  it('returns lost_to_state when cancel won the race', async () => {
+    const fs = createMockFs();
     const contractId = makeContractId('c-3');
-    vi.mocked(ctx.moveContractToArchive).mockRejectedValue(new Error('disk full'));
+    const cancelledRoot = `/tmp/claw/contract/archive/cancelled/${contractId}`;
+    // Contract already in cancelled archive (lost the race)
+    await fs.ensureDir(`/tmp/claw/contract/archive/cancelled`);
+    await fs.writeAtomic(`${cancelledRoot}/contract.yaml`, 'yaml');
+    vi.mocked(ctx.getProgress).mockResolvedValue({
+      contract_id: contractId,
+      status: 'completed',
+      subtasks: { t1: { status: 'completed', completed_at: '2026-07-27T00:00:00Z' } },
+    } as any);
+    vi.mocked(ctx.checkAllSubtasksCompleted).mockResolvedValue(true);
 
-    await expect(archiveAndEmit(ctx, contractId, contractYaml, 'test-context')).resolves.toEqual({ archived: false });
+    const result = await archiveAndEmit({ ...ctx, fs }, contractId, contractYaml, 'test-context');
 
+    expect(result).toEqual({ archived: false, state: 'cancelled' });
+    expect(ctx.emitContractCompleted).not.toHaveBeenCalled();
+    const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
+    expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED)).toBe(true);
+  });
+
+  it('returns retryable_failure when move fails and contract stays active', async () => {
+    const fs = createMockFs({ moveThrow: new Error('disk full') });
+    const contractId = makeContractId('c-4');
+    const activeRoot = `/tmp/claw/contract/active/${contractId}`;
+    await fs.writeAtomic(`${activeRoot}/contract.yaml`, 'yaml');
+    vi.mocked(ctx.getProgress).mockResolvedValue({
+      contract_id: contractId,
+      status: 'completed',
+      subtasks: { t1: { status: 'completed', completed_at: '2026-07-27T00:00:00Z' } },
+    } as any);
+    vi.mocked(ctx.checkAllSubtasksCompleted).mockResolvedValue(true);
+
+    const result = await archiveAndEmit({ ...ctx, fs }, contractId, contractYaml, 'test-context');
+
+    expect(result).toEqual({ archived: false });
+    expect(ctx.emitContractCompleted).not.toHaveBeenCalled();
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
     expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED)).toBe(true);
     expect(ctx.saveProgress).not.toHaveBeenCalled();
@@ -424,8 +550,8 @@ describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
     progress.subtasks['t1'].completed_at = new Date().toISOString();
     await (manager as any).saveProgress(contractId, progress);
 
-    // Spy moveToArchive to throw (simulating archive failure)
-    vi.spyOn(manager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
+    // Spy fs.move to throw (simulating archive failure)
+    vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('disk full'));
 
     await archiveAndEmit(
       (manager as any)._verificationCtx(),

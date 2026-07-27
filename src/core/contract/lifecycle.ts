@@ -3,40 +3,47 @@
  * Contract status transitions: cancel / archive / completion check (phase 1123 Step C)
  */
 
-import type { ContractId, ArchiveState } from './types.js';
-import type { Contract } from '../contract/types.js';
+import type { ContractId, ArchiveState, LifecycleIntent, LifecycleCommitOutcome } from './types.js';
+import type { ContractYaml } from './types.js';
 import type { ProgressData } from './types.js';
 import { ARCHIVE_STATES } from './types.js';
-import { PROGRESS_CURRENT_SCHEMA_VERSION } from './persistence.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ContractCorruptionEvidence } from './types.js';
 
 import {
   emitContractCancelled,
   emitContractCorrupted,
-  emitContractCorruptPartialFailed,
   emitContractNotifyFailed,
   emitContractArchivePreconditionViolated,
   emitContractArchiveTargetExists,
 } from './audit-emit.js';
+import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 import { type ArchiveDir } from './types.js';
-import { archiveStateContainerDir } from './locations.js';
+import { archiveStateContainerDir, resolveContractLocation } from './locations.js';
 import * as path from 'path';
+import {
+  persistLifecycleIntent,
+  readLifecycleIntentsForContract,
+  buildCancelledIntent,
+  buildCorruptedIntent,
+} from './lifecycle-intent.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 
 export interface LifecycleContext {
   fs: FileSystem;
   audit: AuditLog;
   l1IsAlive?: typeof defaultL1IsAlive;
+  /** Phase 1198: clawDir / base directory for stable intent store. */
+  baseDir: string;
   activeDir: string;
   archiveDir: ArchiveDir;
   contractDir: (contractId: ContractId) => Promise<string>;
-  loadContract: (contractId: ContractId) => Promise<Contract>;
+  loadContract: (contractId: ContractId) => Promise<ContractYaml | null>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
   saveProgress: (contractId: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
@@ -46,75 +53,8 @@ export interface LifecycleContext {
   onNotify?: (type: string, data: Record<string, unknown>) => void;
 }
 
-export async function cancelContract(
-  ctx: LifecycleContext,
-  contractId: ContractId,
-  reason: string,
-): Promise<void> {
-  const dir = await ctx.contractDir(contractId);
-  if (dir.startsWith(ctx.archiveDir)) {
-    throw new ToolError(`Cannot cancel contract "${contractId}": already archived`);
-  }
-  const targetDir = archiveStateContainerDir(ctx.archiveDir, 'cancelled');
-  await ctx.fs.ensureDir(targetDir);
-
-  // Step D: directory rename is the lifecycle commit point.
-  // op 顺序：
-  //   1. resolve source dir
-  //   2. saveProgress without lifecycle marker (subtask state + checkpoint reason only)
-  //   3. fs.move source → archive/cancelled (commit)
-  //   4. abortContractVerifiers post-commit (best-effort; late results rejected by active-path guard)
-  const targetDirPath = `${targetDir}/${contractId}`;
-  try {
-    // (2) persist subtask reset + checkpoint reason; no lifecycle status marker
-    const progress = await ctx.getProgress(contractId);
-    if (!progress) {
-      throw new ToolError(`Cannot cancel contract "${contractId}": progress unavailable (schema corruption)`);
-    }
-    // Phase 967: reset leftover in_progress subtasks so archived contract does
-    // not carry stale verification state.
-    for (const subtask of Object.values(progress.subtasks)) {
-      if (subtask.status === 'in_progress') {
-        subtask.status = 'todo';
-        delete subtask.verification_attempt_id;
-      }
-    }
-    progress.checkpoint = `cancelled: ${reason}`;
-    await ctx.saveProgress(contractId, progress);
-
-    // (3) move whole dir — this is the commit
-    if (await ctx.fs.exists(targetDirPath)) {
-      emitContractArchiveTargetExists(ctx.audit, {
-        contractId,
-        targetPath: targetDirPath,
-        context: 'cancelContract',
-      });
-      throw new ToolError(`Cannot cancel contract "${contractId}": target already exists at ${targetDirPath}`);
-    }
-    await ctx.fs.move(`${dir}/${contractId}`, targetDirPath);
-
-    // (4) abort verifier subagents post-commit (best-effort, no-blocking)
-    try {
-      ctx.abortContractVerifiers(contractId, reason);
-    } catch (abortErr) {
-      // 不破 cancel 主流程；abortContractVerifiers 内已 try/catch + audit emit
-      // 此处仅 outer 保险（按 M#10 不合理停下、subordinate failure 不阻 superordinate flow）
-    }
-  } catch (err) {
-    // phase 422 Step C (review medium audit-emit-implies-no-write): saveProgress
-    // 已写 'cancelled' 到 source dir、fs.move 失败 → 半态 (source 含 cancelled
-    // progress、target dir 缺/半成)。emit audit 留痕、boot reconcile / 运维可追。
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.CANCEL_PARTIAL_FAILED,
-      `contract_id=${contractId}`,
-      `reason=${reason}`,
-      `error=${formatErr(err)}`,
-    );
-    throw err;
-  }
-
-  emitContractCancelled(ctx.audit, { contractId, reason });
-  safeNotify(ctx, 'contract_cancelled', { contractId, reason });
+function makeRequestId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${newShortUuid()}`;
 }
 
 function safeNotify(
@@ -130,108 +70,309 @@ function safeNotify(
 }
 
 /**
+ * Phase 1198 Step C: cancel an active contract via immutable intent + typed rename outcome.
+ *
+ * No progress.json mutation occurs before the directory rename. The sole lifecycle
+ * commit is the move from active/<id> to archive/cancelled/<id>.
+ */
+export async function cancelContract(
+  ctx: LifecycleContext,
+  contractId: ContractId,
+  reason: string,
+  requestId?: string,
+): Promise<LifecycleCommitOutcome> {
+  const intent = buildCancelledIntent(
+    contractId,
+    requestId ?? makeRequestId('cancel'),
+    reason,
+  );
+  const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+
+  if (outcome.kind === 'committed') {
+    try {
+      ctx.abortContractVerifiers(contractId, reason);
+    } catch {
+      // best-effort abort after terminal commit
+    }
+    emitContractCancelled(ctx.audit, { contractId, reason });
+    safeNotify(ctx, 'contract_cancelled', { contractId, reason });
+    return outcome;
+  }
+
+  if (outcome.kind === 'already_committed') {
+    // Idempotent: intent already present and archive state matches. Do not re-emit
+    // success side effects; the original request owns those.
+    return outcome;
+  }
+
+  if (outcome.kind === 'lost_to_state') {
+    // Terminal state is already committed to a different archive state.
+    // Return the real state without success side effects.
+    return outcome;
+  }
+
+  // retryable_failure: intent is persisted, caller decides whether to retry.
+  return outcome;
+}
+
+/**
+ * Phase 1198 Step B: generic terminal lifecycle commit with tagged outcome.
+ *
+ * 1. Persist immutable intent in stable store.
+ * 2. Attempt directory rename from active/<id> to archive/<state>/<id>.
+ * 3. On move failure, re-resolve location and classify:
+ *    - requested archive state → already_committed
+ *    - other archive state    → lost_to_state
+ *    - still active / missing → retryable_failure
+ *    - ambiguity              → retryable_failure (fail-closed)
+ *
+ * Caller is responsible for any business precondition and post-commit side effects.
+ */
+/**
+ * Strip the obsolete `checkpoint: null` field that creation persisted before Phase 1198.
+ * Lifecycle reasons now live exclusively in the intent store; progress.json should not
+ * carry a null checkpoint placeholder after terminal commit.
+ *
+ * This is a one-time cleanup mutation performed immediately before the directory rename.
+ */
+async function stripObsoleteCheckpoint(
+  fs: FileSystem,
+  contractRoot: string,
+): Promise<void> {
+  const progressPath = `${contractRoot}/progress.json`;
+  try {
+    const raw = await fs.read(progressPath);
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).checkpoint === null) {
+      const { checkpoint: _removed, ...rest } = parsed as Record<string, unknown>;
+      void _removed;
+      await fs.writeAtomic(progressPath, JSON.stringify(rest, null, 2));
+    }
+  } catch {
+    // Missing or unreadable progress.json is fine; the rename will move whatever exists.
+  }
+}
+
+export async function commitTerminalLifecycle(
+  ctx: LifecycleContext,
+  contractId: ContractId,
+  intent: LifecycleIntent,
+): Promise<LifecycleCommitOutcome> {
+  await persistLifecycleIntent(ctx.fs, ctx.audit, ctx.baseDir, intent);
+
+  const targetState = intent.requested_state;
+  const targetContainer = archiveStateContainerDir(ctx.archiveDir, targetState);
+  await ctx.fs.ensureDir(targetContainer);
+  const sourceRoot = `${ctx.activeDir}/${contractId}`;
+  const targetRoot = `${targetContainer}/${contractId}`;
+
+  // Phase 1198 Step C: remove the legacy null checkpoint placeholder before committing.
+  await stripObsoleteCheckpoint(ctx.fs, sourceRoot);
+
+  try {
+    await ctx.fs.move(sourceRoot, targetRoot);
+    return {
+      kind: 'committed',
+      state: targetState,
+      requested: targetState,
+      requestId: intent.request_id,
+    };
+  } catch (moveErr) {
+    let loc: Awaited<ReturnType<typeof resolveContractLocation>>;
+    try {
+      loc = await resolveContractLocation({
+        fs: ctx.fs,
+        activeDir: ctx.activeDir,
+        archiveDir: ctx.archiveDir,
+        contractId,
+        audit: ctx.audit,
+      });
+    } catch (resolveErr) {
+      return {
+        kind: 'retryable_failure',
+        requested: targetState,
+        requestId: intent.request_id,
+        cause: `resolve failed: ${formatErr(resolveErr)}`,
+      };
+    }
+
+    if (!loc) {
+      return {
+        kind: 'retryable_failure',
+        requested: targetState,
+        requestId: intent.request_id,
+        cause: `move failed: ${formatErr(moveErr)}; contract not found after resolve`,
+      };
+    }
+
+    if (loc.kind === 'active') {
+      return {
+        kind: 'retryable_failure',
+        requested: targetState,
+        requestId: intent.request_id,
+        cause: `move failed: ${formatErr(moveErr)}; contract still active`,
+      };
+    }
+
+    if (loc.kind === 'archived-legacy') {
+      return {
+        kind: 'retryable_failure',
+        requested: targetState,
+        requestId: intent.request_id,
+        cause: `contract in legacy archive: ${loc.contractRoot}`,
+      };
+    }
+
+    if (loc.state === targetState) {
+      return {
+        kind: 'already_committed',
+        state: targetState,
+        requested: targetState,
+        requestId: intent.request_id,
+      };
+    }
+
+    return {
+      kind: 'lost_to_state',
+      requested: targetState,
+      committed: loc.state,
+      requestId: intent.request_id,
+    };
+  }
+}
+
+/**
  * phase 1121 Step C: ContractSystem 纯资源 corruption 入口
  *
- * 前置条件：调用者已成功将损坏文件隔离到 Contract 内 corrupted/ 目录。
- * 本函数只处理已确认的持久化损坏：写 archive_corrupted marker、abort verifier、
- * move source → archive、emit audit。不发送业务 notify。
- *
- * 与 cancelContract 对称但语义不同：
- * - cancelContract: 主动决策中止
- * - markCorrupted:  已确认的 Contract 持久化资源损坏
+ * Phase 1198 Step C: migrate to immutable intent + typed rename outcome.
+ * No progress.json mutation occurs before the directory rename.
  */
 export async function markCorrupted(
   ctx: LifecycleContext,
   contractId: ContractId,
   evidence: ContractCorruptionEvidence,
-  knownDir?: string,
-): Promise<void> {
-  const contractDirResolver = knownDir !== undefined
-    ? () => Promise.resolve(knownDir)
-    : ctx.contractDir;
-  const dir = await contractDirResolver(contractId);
-  if (dir.startsWith(ctx.archiveDir)) {
-    throw new ToolError(`Cannot mark corrupted contract "${contractId}": already archived`);
-  }
-  const targetDir = archiveStateContainerDir(ctx.archiveDir, 'corrupted');
-  await ctx.fs.ensureDir(targetDir);
+  _knownDir?: string,
+  requestId?: string,
+): Promise<LifecycleCommitOutcome> {
+  const intent = buildCorruptedIntent(
+    contractId,
+    requestId ?? makeRequestId('corrupted'),
+    evidence,
+  );
+  const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
 
-  const targetDirPath = `${targetDir}/${contractId}`;
-  try {
-    // Step D: directory rename is the lifecycle commit point.
-    // (2) persist subtask reset + checkpoint reason; no lifecycle status marker
-    let progress: ProgressData;
-    try {
-      const p = await ctx.getProgress(contractId);
-      if (!p) {
-        throw new Error('progress unavailable (schema corruption)');
-      }
-      progress = p;
-    } catch (getProgressErr) {
-      // progress.json 自身不可读 → 创建最小过渡 payload，保留 evidence 引用
-      ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.MARK_CORRUPTED_GRACEFUL_FALLBACK,
-        `contract_id=${contractId}`,
-        `reason=getProgress_failed`,
-        `corruption_reason=${evidence.reason}`,
-        `error=${formatErr(getProgressErr)}`,
-      );
-      progress = {
-        schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
-        contract_id: contractId,
-        status: 'running',
-        checkpoint: `archive_corrupted: ${evidence.reason} (${evidence.relativePath})`,
-        subtasks: {},
-      };
-    }
-    // Phase 967: reset leftover in_progress subtasks so archived contract does
-    // not carry stale verification state.
-    for (const subtask of Object.values(progress.subtasks)) {
-      if (subtask.status === 'in_progress') {
-        subtask.status = 'todo';
-        delete subtask.verification_attempt_id;
-      }
-    }
-    progress.checkpoint = `archive_corrupted: ${evidence.reason} (${evidence.relativePath})`;
-    await ctx.saveProgress(contractId, progress, knownDir);
-
-    // (3) move whole dir — this is the commit
-    if (await ctx.fs.exists(targetDirPath)) {
-      emitContractArchiveTargetExists(ctx.audit, {
-        contractId,
-        targetPath: targetDirPath,
-        context: 'markCorrupted',
-      });
-      throw new ToolError(`Cannot mark corrupted contract "${contractId}": target already exists at ${targetDirPath}`);
-    }
-    await ctx.fs.move(`${dir}/${contractId}`, targetDirPath);
-
-    // (4) abort verifier subagents post-commit (best-effort)
+  if (outcome.kind === 'committed') {
     try {
       ctx.abortContractVerifiers(contractId, evidence.reason);
-    } catch (abortErr) {
-      // silent: abort verifier best-effort, markCorrupted main flow must not break
+    } catch {
+      // best-effort abort after terminal commit
     }
-  } catch (err) {
-    // saveProgress 已写 'archive_corrupted' 到 source dir、fs.move 失败 → 半态。
-    // emit audit 留痕、boot reconcile / 运维可追。
-    emitContractCorruptPartialFailed(
-      ctx.audit,
-      {
-        contractId,
-        reason: evidence.reason,
-        evidencePath: evidence.relativePath,
-        error: formatErr(err),
-      },
-    );
-    throw err;
+    emitContractCorrupted(ctx.audit, {
+      contractId,
+      reason: evidence.reason,
+      evidencePath: evidence.relativePath,
+    });
+    return outcome;
   }
 
-  emitContractCorrupted(ctx.audit, {
+  if (outcome.kind === 'already_committed') {
+    return outcome;
+  }
+
+  if (outcome.kind === 'lost_to_state') {
+    return outcome;
+  }
+
+  return outcome;
+}
+
+export interface ReconcilePendingIntentsResult {
+  /** The terminal state that was ultimately committed, if any. */
+  committed?: ArchiveState;
+  /** One outcome per pending intent, in deterministic replay order. */
+  outcomes: LifecycleCommitOutcome[];
+}
+
+/**
+ * Phase 1198 Step D: boot reconcile pending lifecycle intents for an active contract.
+ *
+ * Replays every persisted terminal intent through `commitTerminalLifecycle` without
+ * emitting success side effects (notify/contract_completed). The first successful
+ * rename decides the final archive state; subsequent intents become
+ * `already_committed` or `lost_to_state` request facts and remain in the store.
+ *
+ * `completed` intents are only replayed when the active contract currently satisfies
+ * the business precondition (all subtasks completed). Cancelled/corrupted intents have
+ * no precondition beyond an active directory.
+ */
+export async function reconcilePendingLifecycleIntents(
+  ctx: LifecycleContext,
+  contractId: ContractId,
+): Promise<ReconcilePendingIntentsResult> {
+  const { intents, issues } = await readLifecycleIntentsForContract(
+    ctx.fs,
+    ctx.audit,
+    ctx.baseDir,
     contractId,
-    reason: evidence.reason,
-    evidencePath: evidence.relativePath,
-  });
+  );
+
+  const outcomes: LifecycleCommitOutcome[] = [];
+  let committed: ArchiveState | undefined;
+
+  if (intents.length === 0 && issues.length === 0) {
+    return { outcomes };
+  }
+
+  for (const intent of intents) {
+    if (intent.requested_state === 'completed') {
+      let progress: ProgressData | null = null;
+      try {
+        progress = await ctx.getProgress(contractId);
+      } catch {
+        // Active payload unreadable; let commitTerminalLifecycle classify the race.
+      }
+      if (progress && !(await ctx.checkAllSubtasksCompleted(contractId, progress))) {
+        ctx.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_SKIPPED,
+          `contract=${contractId}`,
+          `requestId=${intent.request_id}`,
+          `requested_state=completed`,
+          'reason=business_precondition_not_met',
+        );
+        outcomes.push({
+          kind: 'retryable_failure',
+          requested: 'completed',
+          requestId: intent.request_id,
+          cause: 'business precondition not met: not all subtasks completed',
+        });
+        continue;
+      }
+    }
+
+    const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+    outcomes.push(outcome);
+
+    if (outcome.kind === 'committed') {
+      committed = outcome.state;
+    } else if (outcome.kind === 'already_committed') {
+      committed = outcome.state ?? committed;
+    } else if (outcome.kind === 'lost_to_state') {
+      committed = outcome.committed ?? committed;
+    }
+
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_OUTCOME,
+      `contract=${contractId}`,
+      `requestId=${intent.request_id}`,
+      `requested_state=${intent.requested_state}`,
+      `outcome=${outcome.kind}`,
+      outcome.state ? `state=${outcome.state}` : '',
+      (outcome as { committed?: ArchiveState }).committed ? `committed_state=${(outcome as { committed?: ArchiveState }).committed}` : '',
+      outcome.cause ? `cause=${outcome.cause}` : '',
+    );
+  }
+
+  return { committed, outcomes };
 }
 
 export async function isContractComplete(

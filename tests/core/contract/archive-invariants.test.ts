@@ -411,17 +411,18 @@ describe('archive getProgress pure-read invariants', () => {
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     await fs.writeFile(progressPath, '{ broken json', 'utf-8');
 
-    // First getProgress isolates + markCorrupted (legacy active mutation path).
+    // First getProgress isolates the broken progress.json, then markCorrupted moves the
+    // remaining active directory into archive/corrupted. No further mutation happens.
     await manager.getProgress(contractId);
 
     const archiveRoot = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveRoot)).resolves.not.toThrow();
 
-    // Second getProgress is pure read via archive reader; it must not mutate the archive.
+    // Second getProgress is a pure read via archive reader; it must not mutate the archive.
+    // Because the corrupt progress.json was isolated away, the payload reader surfaces a
+    // missing_payload issue for the corrupted archive.
     const before = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
-    const progress = await manager.getProgress(contractId);
-    expect(progress).not.toBeNull();
-    expect(progress!.contract_id).toBe(contractId);
+    await expect(manager.getProgress(contractId)).rejects.toThrow('missing_payload');
     const after = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);
     expect(after).toBe(before);
   });
