@@ -62,6 +62,7 @@ type Internals = {
   _registerVerifierController: (contractId: ContractId, controller: AbortController, promise: Promise<unknown>) => void;
   _unregisterVerifierController: (contractId: ContractId, controller: AbortController) => void;
   runContractVerifier: (config: any) => Promise<VerifierResult>;
+  _abortContractVerifiers: (id: ContractId, reason: string) => void;
 };
 
 function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal): VerificationContext {
@@ -78,6 +79,10 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     getProgress: (id) => self.getProgress(id),
     saveProgress: (id, p, knownDir) => self.saveProgress(id, p, knownDir),
     checkAllSubtasksCompleted: (id, p) => self.checkAllCompleted(id, p),
+    // Mirror manager._verificationCtx(): without this the abort throws TypeError
+    // inside archiveAndEmit and pollutes the completed audit with a spurious
+    // abort_verifier_failed column.
+    abortContractVerifiers: (id, reason) => self._abortContractVerifiers(id, reason),
     baseDir: self.clawDir,
     activeDir: self.activeDir,
     archiveDir: self.archiveDir,

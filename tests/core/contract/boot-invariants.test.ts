@@ -431,6 +431,36 @@ describe('ContractSystem.init() boot reconcile', () => {
     )).toBe(true);
   });
 
+  it('records progress_read_failed when completed precondition cannot be evaluated, then still commits', async () => {
+    const contractId = 'boot-progress-unreadable';
+    await seedActiveContract(contractId, [
+      { id: 't1', description: 'T1', status: 'completed' },
+    ]);
+    const intent = buildCompletedIntent(contractId as any, 'completed-boot-unreadable', 'boot reconcile');
+    await writeIntent(intent);
+
+    const manager = makeManager();
+    vi.spyOn(manager, 'getProgress').mockRejectedValue(new Error('io boom'));
+    await manager.init();
+
+    // The skipped precondition evaluation is fully auditable: reason + error.
+    expect(auditWrite.mock.calls.some((c: any) =>
+      c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_SKIPPED &&
+      c.some((col: any) => String(col).includes('requestId=completed-boot-unreadable')) &&
+      c.some((col: any) => String(col).includes('reason=progress_read_failed')) &&
+      c.some((col: any) => String(col).includes('io boom')),
+    )).toBe(true);
+
+    // The terminal commit was still attempted and won the rename.
+    const archiveDir = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+    expect(auditWrite.mock.calls.some((c: any) =>
+      c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_OUTCOME &&
+      c.some((col: any) => String(col).includes('requestId=completed-boot-unreadable')) &&
+      c.some((col: any) => String(col).includes('outcome=committed')),
+    )).toBe(true);
+  });
+
   it('reconciles cross-state intents: first successful rename wins, loser remains as request fact', async () => {
     const contractId = 'boot-cross-state';
     await seedActiveContract(contractId, [

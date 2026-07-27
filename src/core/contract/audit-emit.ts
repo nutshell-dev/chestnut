@@ -407,15 +407,17 @@ export function emitContractCorrupted(
     contractId: ContractId;
     reason: string;
     evidencePath: string;
+    abortVerifierFailed?: string;
   },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCorrupted')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CORRUPTED,
+  const cols: string[] = [
     `contractId=${opts.contractId}`,
     `reason=${opts.reason}`,
     `evidence_path=${opts.evidencePath}`,
-  );
+  ];
+  if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.CORRUPTED, ...cols);
 }
 
 // ─── CORRUPT_PARTIAL_FAILED (phase 1121 Step C) ─────────────────────────────
@@ -454,16 +456,17 @@ export function emitContractCancelled(
 // ─── COMPLETED ──────────────────────────────────────────────────────────────
 export function emitContractCompleted(
   audit: AuditLog,
-  opts: { contractId: ContractId; title: string; claw: string },
+  opts: { contractId: ContractId; title: string; claw: string; abortVerifierFailed?: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCompleted')) return;
   // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.COMPLETED,
+  const cols: string[] = [
     `contractId=${opts.contractId}`,
     `title=${opts.title}`,
     `claw=${opts.claw}`,
-  );
+  ];
+  if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.COMPLETED, ...cols);
 }
 
 // ─── SUBTASK_COMPLETED (key-fix site: split ${contractId}/${subtaskId}) ─────

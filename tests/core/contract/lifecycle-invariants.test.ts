@@ -142,6 +142,30 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     )).toBe(true);
   });
 
+  it('Phase 1198 Step E: cancel records verifier abort failure on the cancelled audit', async () => {
+    const contractId = await manager.create({
+      title: 'Cancel Abort Throw',
+      goal: 'test',
+      subtasks: [{ id: 'task-1', description: 'Task 1' }],
+      verification: [],
+    });
+
+    vi.spyOn(manager as any, '_abortContractVerifiers').mockImplementation(() => {
+      throw new Error('verifier abort boom');
+    });
+
+    const outcome = await manager.cancel(contractId, 'test');
+    expect(outcome.kind).toBe('committed');
+
+    const auditWrite = manager['audit'].write as ReturnType<typeof vi.fn>;
+    const cancelledCalls = auditWrite.mock.calls.filter(
+      (c: unknown[]) => c[0] === CONTRACT_AUDIT_EVENTS.CANCELLED,
+    );
+    expect(cancelledCalls.some((c: unknown[]) =>
+      c.some(col => String(col).startsWith('abort_verifier_failed=') && String(col).includes('verifier abort boom')),
+    )).toBe(true);
+  });
+
 });
 
 // ───── source: lifecycle-race.test.ts ─────
@@ -318,6 +342,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
   let notifyCalls: Array<{ type: string; data: Record<string, unknown> }>;
+  let auditWrites: string[][];
 
   beforeEach(async () => {
     tempDir = await createTempDir();
@@ -325,8 +350,11 @@ describe('phase 1121 Step C: markCorrupted', () => {
     await fs.mkdir(clawDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     notifyCalls = [];
+    auditWrites = [];
     const captureAudit = {
-      write: () => {},
+      write: (...args: string[]) => {
+        auditWrites.push(args);
+      },
     };
     manager = new ContractSystem({
       clawDir,
@@ -431,6 +459,12 @@ describe('phase 1121 Step C: markCorrupted', () => {
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBeUndefined();
+
+    // Phase 1198 Step E: abort failure is recorded on the corrupted audit, not swallowed.
+    const corruptedCalls = auditWrites.filter(c => c[0] === CONTRACT_AUDIT_EVENTS.CORRUPTED);
+    expect(corruptedCalls.some(c =>
+      c.some(col => String(col).startsWith('abort_verifier_failed=') && String(col).includes('verifier abort boom')),
+    )).toBe(true);
 
     abortSpy.mockRestore();
   });

@@ -109,10 +109,13 @@ export async function archiveAndEmit(
 
   // Side effects (abort, handler, audit, notify) belong ONLY to this committed request.
   if (outcome.kind === 'committed') {
+    let abortVerifierFailed: string | undefined;
     try {
       ctx.abortContractVerifiers(contractId, 'contract completed');
-    } catch {
-      // silent: best-effort abort after terminal commit
+    } catch (abortErr) {
+      // Abort failure does not undo the terminal commit; record it on the
+      // completed audit so the decision chain stays reconstructible.
+      abortVerifierFailed = formatErr(abortErr);
     }
     try {
       await ctx.emitContractCompleted(contractId);
@@ -123,7 +126,7 @@ export async function archiveAndEmit(
     try {
       emitContractCompleted(
         ctx.audit,
-        { contractId, title: contractYaml.title, claw: ctx.clawId },
+        { contractId, title: contractYaml.title, claw: ctx.clawId, abortVerifierFailed },
       );
     } catch {
       // silent: audit failure should not affect downstream side effects

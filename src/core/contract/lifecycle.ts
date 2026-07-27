@@ -84,12 +84,15 @@ export async function cancelContract(
   const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
 
   if (outcome.kind === 'committed') {
+    let abortVerifierFailed: string | undefined;
     try {
       ctx.abortContractVerifiers(contractId, reason);
-    } catch {
-      // silent: best-effort abort after terminal commit
+    } catch (abortErr) {
+      // Abort failure does not undo the terminal commit; record it on the
+      // cancelled audit so the decision chain stays reconstructible.
+      abortVerifierFailed = formatErr(abortErr);
     }
-    emitContractCancelled(ctx.audit, { contractId, reason });
+    emitContractCancelled(ctx.audit, { contractId, reason, abortVerifierFailed });
     safeNotify(ctx, 'contract_cancelled', { contractId, reason });
     return outcome;
   }
@@ -229,15 +232,19 @@ export async function markCorrupted(
   const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
 
   if (outcome.kind === 'committed') {
+    let abortVerifierFailed: string | undefined;
     try {
       ctx.abortContractVerifiers(contractId, evidence.reason);
-    } catch {
-      // silent: best-effort abort after terminal commit
+    } catch (abortErr) {
+      // Abort failure does not undo the terminal commit; record it on the
+      // corrupted audit so the decision chain stays reconstructible.
+      abortVerifierFailed = formatErr(abortErr);
     }
     emitContractCorrupted(ctx.audit, {
       contractId,
       reason: evidence.reason,
       evidencePath: evidence.relativePath,
+      abortVerifierFailed,
     });
     return outcome;
   }
@@ -295,8 +302,18 @@ export async function reconcilePendingLifecycleIntents(
       let progress: ProgressData | null = null;
       try {
         progress = await ctx.getProgress(contractId);
-      } catch {
-        // silent: active payload unreadable; let commitTerminalLifecycle classify the race.
+      } catch (progressErr) {
+        // Precondition cannot be evaluated for this intent; commitTerminalLifecycle
+        // will classify the race. Record why the completed check was skipped so
+        // the replay decision is reconstructible from audit alone.
+        ctx.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_SKIPPED,
+          `contract=${contractId}`,
+          `requestId=${intent.request_id}`,
+          `requested_state=completed`,
+          'reason=progress_read_failed',
+          `error=${formatErr(progressErr)}`,
+        );
       }
       if (progress && !(await ctx.checkAllSubtasksCompleted(contractId, progress))) {
         ctx.audit.write(

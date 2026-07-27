@@ -212,6 +212,35 @@ describe('archiveAndEmit (phase 951)', () => {
     expect(ctx.onNotify).toHaveBeenCalled();
   });
 
+  it('records verifier abort failure on the completed audit without breaking side effects', async () => {
+    const fs = createMockFs();
+    const contractId = makeContractId('c-abort-throw');
+    const activeRoot = `/tmp/claw/contract/active/${contractId}`;
+    await fs.writeAtomic(`${activeRoot}/contract.yaml`, 'yaml');
+    vi.mocked(ctx.getProgress).mockResolvedValue({
+      contract_id: contractId,
+      status: 'completed',
+      subtasks: { t1: { status: 'completed', completed_at: '2026-07-27T00:00:00Z' } },
+    } as any);
+    vi.mocked(ctx.checkAllSubtasksCompleted).mockResolvedValue(true);
+    vi.mocked(ctx.abortContractVerifiers).mockImplementation(() => {
+      throw new Error('abort boom');
+    });
+
+    const result = await archiveAndEmit({ ...ctx, fs }, contractId, contractYaml, 'test-context');
+
+    expect(result).toEqual({ archived: true, state: 'completed' });
+    // Commit stands; the remaining success side effects still fire exactly once.
+    expect(ctx.emitContractCompleted).toHaveBeenCalledTimes(1);
+    expect(ctx.onNotify).toHaveBeenCalled();
+    // The abort failure is recorded on the completed audit, not swallowed.
+    const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
+    const completedCalls = auditWrites.filter(c => c[0] === CONTRACT_AUDIT_EVENTS.COMPLETED);
+    expect(completedCalls.some(c =>
+      c.some(col => String(col).startsWith('abort_verifier_failed=') && String(col).includes('abort boom')),
+    )).toBe(true);
+  });
+
   it('returns lost_to_state when cancel won the race', async () => {
     const fs = createMockFs();
     const contractId = makeContractId('c-3');
