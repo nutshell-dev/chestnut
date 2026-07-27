@@ -190,27 +190,28 @@ describe('ProcessManager', () => {
       }
     });
 
-    it('empty PID file triggers fail closed on spawn conflict', async () => {
-      const { audit, events } = makeAudit();
+    it('empty legacy PID file is ignored (spawn no longer treats empty pidfile as conflict)', async () => {
+      const { audit } = makeAudit();
       const pm = new ProcessManager(nodeFs, audit);
       const clawDir = path.join(tempDir, 'claws', 'empty-pid-claw');
       const pidFile = path.join(clawDir, 'status', 'pid');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
 
-      // Pre-create an EMPTY PID file
+      // Pre-create an EMPTY legacy PID file
       await fs.mkdir(path.dirname(pidFile), { recursive: true });
       await fs.writeFile(pidFile, '', 'utf-8');
 
-      await expect(
-        pm.spawn(testClawDaemonDir(tempDir, 'empty-pid-claw'), {
-          command: 'node',
-          args: ['--version'],
-          logFile,
-          env: { ...process.env },
-        }),
-      ).rejects.toThrow(/Cannot determine pidfile state/);
+      pm.isReady = () => true;
 
-      expect(events.some(e => e[0] === 'pid_read_failed' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('empty-pid-claw')))).toBe(true);
+      const result = await pm.spawn(testClawDaemonDir(tempDir, 'empty-pid-claw'), {
+        command: 'node',
+        args: ['--version'],
+        logFile,
+        env: { ...process.env },
+      });
+
+      expect(typeof result).toBe('number');
+      expect(result).toBeGreaterThan(0);
     });
   });
 

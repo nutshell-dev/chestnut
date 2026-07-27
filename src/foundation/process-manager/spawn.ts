@@ -1,18 +1,29 @@
-import { ensureStatusDir, getLockFile, getPidFile } from './paths.js';
+import { getLockFile, getPidFile } from './paths.js';
 import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from "../node-utils/index.js";
 import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { isFileNotFound } from '../fs/index.js';
 import { ProcessListUnavailable } from './errors.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
 import { isReady as checkReady } from './ready.js';
-import { readLock, acquireSpawnLock, releaseSpawnLock } from './lock.js';
-import { readPid, removePid } from './pid.js';
+import { readLock } from './lock.js';
+import { removePid } from './pid.js';
 import type { PidFileContent } from './pid.js';
 import { findProcessesDetailed, commandContainsDaemonDirToken } from './find.js';
+import {
+  newProcessGeneration,
+  prepareGeneration,
+  commitSpawning,
+  inspectSpawning,
+  writeChildPid,
+  writeFailureFact,
+  retireGeneration,
+  PROCESS_GENERATION_ENV,
+  type ProcessGenerationRecord,
+} from './generation.js';
+import { isFileNotFound } from '../fs/index.js';
 
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
@@ -27,20 +38,24 @@ const sleep = (ms: number): Promise<void> =>
  * Spawn the daemon process for `daemonDir` and resolve with its PID once the
  * child has marked itself ready.
  *
- * Pipeline:
- *   1. alive precheck — bail if a live process already holds the pidfile
- *   2. orphan cleanup — SIGTERM matching processes from previous run
- *   3. lock cleanup   — drop stale lockfile (kill live holder first)
- *   4. pidfile claim  — `writeExclusiveSync`; on EEXIST verify + recover or reject
- *   5. child spawn    — `spawnDetached` + atomic pidfile overwrite with real PID
- *   6. readiness wait — poll until ready file appears or child dies (event-driven,
- *                       no wall-clock deadline — phase 1317)
+ * Pipeline (Phase 1204 Step B — generation 目录提交协议，无 spawn lock / pid:0）：
+ *   1. alive precheck       — legacy pidfile 判活（过渡；Step E 迁 generation 读路径）
+ *   2. orphan cleanup       — SIGTERM matching processes from previous run
+ *   3. lock cleanup         — drop stale legacy lockfile (kill live holder first)
+ *   4. spawning precheck    — 已有 spawning generation → typed conflict / malformed fail-closed
+ *   5. generation commit    — candidate → spawning（move winner 才可 spawn）
+ *   6. child spawn          — `spawnDetached` + generation ID 显式注入 child env；
+ *                             pid.json 写 spawning（existing-generation 语义）；
+ *                             legacy status/pid 双写（派生 artifact，Step E 删除）
+ *   7. readiness wait       — poll until ready or child dies（l1IsAlive 直探 child PID，
+ *                             event-driven + BOOT_DEADLINE_MS 兜底）
  *
  * @param ctx       Process manager context (fs + audit + resolveDir + optional this-seam)
  * @param daemonDir    Target claw
  * @param options   Spawn options (command/args/env/cwd/logFile)
  * @returns         The spawned child's PID
- * @throws LockConflictError if a live process already owns the pidfile
+ * @throws LockConflictError if a live process already owns the daemon or another
+ *                         spawn generation holds spawning
  * @throws Error              if the child dies during boot before becoming ready
  *                            (also written to audit as PROCESS_SPAWN_FAILED)
  */
@@ -61,23 +76,61 @@ export async function spawnProcess(
   await cleanupOrphans(ctx, daemonDir, options);
   await cleanupLock(ctx, daemonDir);
 
-  // Acquire the spawn-transition lock (daemon.lock.spawn — phase 1017, separate from the
-  // daemon lifecycle lock) to cover the {pid:0} → {pid:real} spawning window, so a
-  // concurrent stop cannot remove the pid:0 sentinel while we write the real child PID.
-  // The lock is released right after writeAtomic({pid:real}) inside spawnAndAwaitReady
-  // (before the ready poll) to keep the hold time minimal — the window only needs to
-  // cover the pidfile transition. The finally below only covers error paths that throw
-  // before that release.
-  acquireSpawnLock(ctx, daemonDir);
-  try {
-    await writePidExclusive(ctx, daemonDir);
-
-    ctx.fs.ensureDirSync(path.dirname(options.logFile));
-
-    return await spawnAndAwaitReady(ctx, daemonDir, options, startMs, isAliveByPidFile);
-  } finally {
-    releaseSpawnLock(ctx, daemonDir);
+  // generation precheck：spawning 已被持 → typed conflict（不从异常猜 winner）；
+  // malformed → fail-closed（不覆盖、不猜状态）。
+  const spawningInspection = inspectSpawning(ctx, daemonDir);
+  if (spawningInspection.status === 'ok') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST,
+      `daemon_dir=${daemonDir}`,
+      `ctx=spawn_precheck`,
+      `winner_generation=${spawningInspection.record.generation_id}`,
+      `winner_parent_pid=${spawningInspection.record.parent_pid}`,
+    );
+    throw new LockConflictError(
+      daemonDir,
+      `Claw "${daemonDir}" spawn already in progress (generation ${spawningInspection.record.generation_id})`,
+    );
   }
+  if (spawningInspection.status === 'malformed') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_MALFORMED,
+      `daemon_dir=${daemonDir}`,
+      `dir=spawning`,
+      `ctx=spawn_precheck`,
+      `reason=${ctx.audit.message(formatErr(spawningInspection.cause))}`,
+    );
+    throw new LockConflictError(
+      daemonDir,
+      `Cannot determine spawning generation state for "${daemonDir}" (malformed)`,
+    );
+  }
+
+  // candidate → spawning：move winner 才可 spawn；另一 spawn 读取真实位置返回 typed conflict。
+  const record = newProcessGeneration(ctx, daemonDir);
+  prepareGeneration(ctx, record);
+  const commit = commitSpawning(ctx, record);
+  if (commit.kind === 'foreign_spawning') {
+    throw new LockConflictError(
+      daemonDir,
+      `Claw "${daemonDir}" spawn race lost to generation ${commit.winner.generation_id}`,
+    );
+  }
+  if (commit.kind === 'malformed_spawning') {
+    throw new LockConflictError(
+      daemonDir,
+      `Cannot commit spawn generation for "${daemonDir}" (malformed spawning)`,
+    );
+  }
+  if (commit.kind === 'retryable_failure') {
+    throw new Error(
+      `Failed to commit spawn generation for "${daemonDir}": ${formatErr(commit.cause)}`,
+    );
+  }
+
+  ctx.fs.ensureDirSync(path.dirname(options.logFile));
+
+  return await spawnAndAwaitReady(ctx, daemonDir, options, startMs, record);
 }
 
 /**
@@ -159,7 +212,6 @@ async function cleanupLock(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
 ): Promise<void> {
-  const lockFile = getLockFile(ctx, daemonDir);
   const result = readLock(ctx, daemonDir);
   if (result.status === 'missing') {
     return; // nothing to clean
@@ -193,6 +245,7 @@ async function cleanupLock(
     `pid=${lockHolder.pid}`,
     `reason=holder_dead`,
   );
+  const lockFile = getLockFile(ctx, daemonDir);
   try {
     await ctx.fs.delete(lockFile);
   } catch (err) {
@@ -208,168 +261,58 @@ async function cleanupLock(
   }
 }
 
-/**
- * Claim the pidfile exclusively. On EEXIST, hand off to {@link handlePidFileConflict}
- * to verify the holder, recover stale state, and retry the write — or reject
- * with `LockConflictError` if a live process still owns it.
- */
-async function writePidExclusive(
-  ctx: ProcessManagerContext,
-  daemonDir: DaemonDir,
-): Promise<void> {
-  const pidFile = getPidFile(ctx, daemonDir);
-  await ensureStatusDir(ctx, daemonDir);
-
-  try {
-    // phase 458 (review N3-M): 写 pid=0 占位 sentinel 而非父进程 PID。
-    // 改前 JSON.stringify({ pid: process.pid }) = 父 PID、外部 stop 在子 PID
-    // 覆盖（L322）前若 SIGTERM 会误杀父进程。alive.ts pid===0 分支识别为
-    // "spawning placeholder" 跳过 kill 决策。
-    ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: 0 }));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    await handlePidFileConflict(ctx, daemonDir, pidFile);
-  }
-}
-
-/**
- * EEXIST recovery path for {@link writePidExclusive}.
- *
- * PID-recycling defense: read the stored PID + startTime and only declare
- * a real conflict if the holder is provably alive. Otherwise audit whatever
- * race symptoms we observed (empty content, ENOENT during readback, …),
- * remove the stale pidfile, and re-attempt the exclusive write.
- *
- * Throws `LockConflictError` when the holder is live; falls through silently
- * (write retried in caller-visible state) when stale and reclaimable.
- */
-async function handlePidFileConflict(
-  ctx: ProcessManagerContext,
-  daemonDir: DaemonDir,
-  pidFile: string,
-): Promise<void> {
-  const stored = await readPid(ctx, daemonDir);
-  if (stored.status === 'missing') {
-    // pidfile disappeared during check → fall through to stale cleanup
-  } else if (stored.status !== 'valid') {
-    // io_error, corrupt, or spawning sentinel → cannot determine state / must not kill
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-      `daemon_dir=${daemonDir}`,
-      `context=eexist_check`,
-      `reason=${stored.status}${'error' in stored ? `: ${stored.error}` : ''}`,
-    );
-    throw new LockConflictError(
-      daemonDir,
-      `Cannot determine pidfile state for "${daemonDir}" (${stored.status})`,
-    );
-  } else {
-    const startTimeForVerify = stored.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(stored.pid);
-    if ((ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, startTimeForVerify)) {
-      throw new LockConflictError(
-        daemonDir,
-        `Claw "${daemonDir}" is already running (PID file exists)`,
-      );
-    }
-    // phase 182: PID-wrap detection emit (phase 1023 intent)
-    if (stored.startTime !== undefined && stored.startTime !== startTimeForVerify) {
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.STARTTIME_MISMATCH,
-        `daemon_dir=${daemonDir}`,
-        `stored_pid=${stored.pid}`,
-        `stored_startTime=${stored.startTime}`,
-        `verify_startTime=${startTimeForVerify ?? 'unavailable'}`,
-      );
-    }
-    // startTime mismatch or unavailable → fall through to stale cleanup
-  }
-
-  let existingContent = '';
-  let readSucceeded = false;
-  try {
-    existingContent = ctx.fs.readSync(pidFile).trim();
-    readSucceeded = true;
-  } catch (readErr) {
-    if (isFileNotFound(readErr)) {
-      // race: concurrent removePid deleted pidFile / benign
-      // phase 682: 加 path forensic col、与 watchdog-pid.ts:138 + lock.ts:49 同 event 形态对齐
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `path=${pidFile}`,
-        `context=race_check`,
-      );
-    } else {
-      // phase 682: 加 path forensic col、与 watchdog-pid.ts:138 + lock.ts:49 同 event 形态对齐
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `path=${pidFile}`,
-        `context=eexist_check`,
-        `reason=${formatErr(readErr)}`,
-      );
-    }
-  }
-  if (readSucceeded && existingContent === '') {
-    // true empty PID file (concurrent spawn symptom / not race)
-    // phase 683: 加 path forensic col、与同代码块 PID_READ_FAILED (phase 682) 形态一致
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.PID_EMPTY,
-      `daemon_dir=${daemonDir}`,
-      `path=${pidFile}`,
-    );
-  }
-  const removed = await removePid(ctx, daemonDir, 'spawn_retry_overwrite');
-  if (!removed) {
-    // removePid already audited PID_REMOVE_FAILED with context=spawn_retry_overwrite
-  }
-  // phase 518 (review-round4 medium、phase 458 gap 补完): EEXIST 恢复分支同 phase 458 主路径、
-  // 写 pid=0 sentinel 而非 process.pid（父 PID）；alive.ts pid===0 识别为 spawning placeholder。
-  ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: 0 }));
-}
-
-/**
- * Spawn the child, overwrite the pidfile with the real child PID, and poll
- * until the ready marker appears or the child dies during boot.
- *
- * Polling is event-driven (no wall-clock deadline — phase 1317). Hang case
- * relies on user Ctrl-C / OS `timeout(1)` wrapper to escalate.
- *
- * On failure: audits PROCESS_SPAWN_FAILED and best-effort removes the pidfile
- * so the next spawn attempt doesn't false-conflict.
- */
 const BOOT_DEADLINE_MS = 30_000; // 30s for daemon to become ready
 
+/**
+ * Spawn the child, persist its PID into the spawning generation, and poll
+ * until ready or child death.
+ *
+ * 死亡检测直探 child PID（l1IsAlive(pid, startTime)），不经 pidfile probe ——
+ * parent 不再写 status/pid  sentinel，磁盘 generation record 即可重建运行时句柄。
+ *
+ * On failure: kill 精确 child（PID 属本 generation）、写 failure 事实、retire
+ * spawning（无孤儿、无悬空 spawning），audit PROCESS_SPAWN_FAILED。
+ */
 async function spawnAndAwaitReady(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
   options: SpawnOptions,
   startMs: number,
-  isAliveByPidFile: (id: DaemonDir) => boolean,
+  record: ProcessGenerationRecord,
 ): Promise<number> {
-  const pidFile = getPidFile(ctx, daemonDir);
   let pid: number | undefined;
   let childStartTime: ProcessStartTime | undefined;
   try {
+    // generation ID 显式传入 child 环境（CHESTNUT_* 落 env-scrub allowlist）——
+    // 跨进程交接必须携带 generation identity，child 不得「扫描 spawning 猜是自己」。
+    const baseEnv = options.env ?? process.env;
+    const childEnv = { ...baseEnv, [PROCESS_GENERATION_ENV]: record.generation_id };
     ({ pid } = (ctx.spawnDetached ?? defaultSpawnDetached)(options.command, options.args, {
       cwd: options.cwd,
-      env: options.env,
+      env: childEnv,
       logFile: options.logFile,
     }));
 
     childStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(pid);
+
+    // generation pid.json 是 child PID 的 SoT；existing-generation 语义 —
+    // 目录已 move 走则返回 generation_moved，绝不复活。
+    const pidWrite = await writeChildPid(ctx, record, pid, childStartTime);
+    if (pidWrite.kind !== 'written') {
+      throw new Error(
+        `Cannot persist child PID for "${daemonDir}" generation ${record.generation_id} (${pidWrite.kind})`,
+      );
+    }
+
+    // legacy status/pid 双写（过渡期派生 artifact：ready/alive 读路径尚未迁移，
+    // Step C 读路径 generation 化后删除，legacy 迁移归 Step E）。
     const pidPayload: PidFileContent = {
       pid,
       ...(childStartTime !== undefined ? { startTime: childStartTime } : {}),
     };
-    await ctx.fs.writeAtomic(pidFile, JSON.stringify(pidPayload));
+    await ctx.fs.writeAtomic(getPidFile(ctx, daemonDir), JSON.stringify(pidPayload));
 
-    // Release the spawn-window lock now that the real child PID is on disk.
-    // The ready poll below runs outside the lock to keep the hold time minimal — the
-    // lock only needs to cover the {pid:0} → {pid:real} transition. The outer
-    // spawnProcess finally releaseSpawnLock is a no-op once this runs.
-    releaseSpawnLock(ctx, daemonDir);
-
+    const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
     const isReady = ctx.isReady ?? ((id: DaemonDir) => checkReady(ctx, id));
     let ready = isReady(daemonDir);
     const bootStart = Date.now();
@@ -380,7 +323,7 @@ async function spawnAndAwaitReady(
           `Check logs at: ${options.logFile}`,
         );
       }
-      if (!isAliveByPidFile(daemonDir)) {
+      if (!l1IsAlive(pid, childStartTime)) {
         throw new Error(
           `Process "${daemonDir}" died during boot. Check logs at: ${options.logFile}`,
         );
@@ -393,6 +336,7 @@ async function spawnAndAwaitReady(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED,
       `daemon_dir=${daemonDir}`,
       `pid=${pid}`,
+      `generation=${record.generation_id}`,
       `command=${options.command}`,
       `args=${ctx.audit.message(options.args.join(' '))}`,
       `duration_ms=${Date.now() - startMs}`,
@@ -429,7 +373,7 @@ async function spawnAndAwaitReady(
         : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
       if (stillAlive) {
         childSurvived = true;
-        // Child survived SIGTERM + SIGKILL. Keep PID file for forensics.
+        // Child survived SIGTERM + SIGKILL. Keep PID file + generation for forensics.
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
           `daemon_dir=${daemonDir}`,
@@ -440,11 +384,16 @@ async function spawnAndAwaitReady(
       }
     }
     if (!childSurvived) {
+      // generation disposition：失败事实随 generation 持久化后整体 retire —
+      // 无孤儿、无悬空 spawning；legacy status/pid 双写清理（0 残留）。
+      await writeFailureFact(ctx, record, formatErr(err));
+      retireGeneration(ctx, daemonDir, { generationId: record.generation_id }, 'spawn_failed', 'spawning');
       await removePid(ctx, daemonDir, 'spawn_cleanup');
     }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
       `daemon_dir=${daemonDir}`,
+      `generation=${record.generation_id}`,
       `command=${options.command}`,
       `reason=${formatErr(err)}`,
       `code=${(err as NodeJS.ErrnoException).code ?? 'unknown'}`,

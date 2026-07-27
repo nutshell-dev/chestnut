@@ -53,6 +53,12 @@ export const PID_FILE = 'pid.json';
 export const READY_FILE = 'ready.json';
 export const FAILURE_FILE = 'failure.json';
 
+/**
+ * child env 携带的 generation identity（CHESTNUT_* 落 process-exec env-scrub
+ * allowlist）。跨进程交接必须显式传 generation ID，child 不得扫描猜测。
+ */
+export const PROCESS_GENERATION_ENV = 'CHESTNUT_PROCESS_GENERATION';
+
 // === Records ===
 
 export interface ProcessGenerationRecord {
