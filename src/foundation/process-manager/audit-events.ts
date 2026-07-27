@@ -50,6 +50,7 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   GENERATION_COMMIT_LOST: 'process_generation_commit_lost', // ← NEW phase 1204 Step A
   GENERATION_MALFORMED: 'process_generation_malformed', // ← NEW phase 1204 Step A
   GENERATION_PID_WROTE: 'process_generation_pid_wrote', // ← NEW phase 1204 Step A
+  GENERATION_READY_WROTE: 'process_generation_ready_wrote', // ← NEW phase 1204 Step C
   GENERATION_ACTIVATED: 'process_generation_activated', // ← NEW phase 1204 Step A
   GENERATION_RETIRED: 'process_generation_retired', // ← NEW phase 1204 Step A
   GENERATION_FAILED: 'process_generation_failed', // ← NEW phase 1204 Step A

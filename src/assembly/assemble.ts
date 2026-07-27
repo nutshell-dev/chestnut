@@ -1,5 +1,4 @@
 import { formatErr } from '../foundation/node-utils/index.js';
-import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
 
 import type { FileSystem } from '../foundation/fs/index.js';
 
@@ -14,7 +13,6 @@ import { isFileNotFound } from '../foundation/fs/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { makeClawId } from '../foundation/claw-identity/index.js';
 
 
 
@@ -83,7 +81,6 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
   }
   const isMotion = identity === 'motion';
 
-  const lockState = { acquired: false };
   let core: CoreInfraOutput | undefined;
 
   let streamWriter: StreamWriter | undefined;
@@ -91,7 +88,7 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
   let disposeContractSystems: (() => Promise<void>) | undefined;
 
   try {
-    core = await createCoreInfrastructure({ config, lockState, createSkillSystem: deps?.createSkillSystem });
+    core = await createCoreInfrastructure({ config, createSkillSystem: deps?.createSkillSystem });
     const {
       systemFs,
       auditWriter, processManager,
@@ -149,18 +146,6 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
     core?.llm?.close()?.catch(() => {
       // silent: assemble throw 兜底 teardown 路径，原 error e 在末尾 throw 不丢失；llm.close 异步失败属次生 error，无 auditWriter 可信通道（catch 内 auditWriter 自身可能未完成构造）
     });
-    if (lockState.acquired && core) {
-      try {
-        core.processManager.releaseLock(resolveClawDaemonDir(makeClawId(clawId)));
-      } catch (releaseErr) {
-        core.auditWriter.write(
-          ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
-          `module=lockfile_release`,
-          `phase=assemble_throw_cleanup`,
-          `reason=${formatErr(releaseErr)}`,
-        );
-      }
-    }
     throw e;
   }
 }

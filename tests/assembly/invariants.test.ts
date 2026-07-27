@@ -4,7 +4,6 @@
  *  - assemble-evolution-toolregistry.test.ts
  *  - assemble-dream-trigger-guard.test.ts
  *  - assemble-evolution-guard.test.ts
- *  - assemble-lockfile-cleanup.test.ts
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -14,7 +13,6 @@ import { createMemorySystem } from '../../src/core/memory/index.js';
 import { CronRunner } from '../../src/foundation/cron/runner.js';
 import { createEvolutionSystem } from '../../src/core/evolution-system/index.js';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
-import { LockConflictError } from '../../src/assembly/index.js';
 import { buildLLMConfig } from '../../src/assembly/config/config-load.js';
 
 const { mockSkillFactory } = vi.hoisted(() => ({
@@ -39,10 +37,7 @@ const mockSnapshot = {
   init: vi.fn(),
   commit: vi.fn(),
 };
-const mockProcessManager = {
-  acquireLock: vi.fn(),
-  releaseLock: vi.fn(),
-};
+const mockProcessManager = {};
 const mockCronRunner = {
   start: vi.fn(),
   stop: vi.fn(),
@@ -284,7 +279,6 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
-    mockProcessManager.acquireLock.mockReturnValue(undefined);
     capturedContractCallback = undefined;
     createContractSystemCalls = [];
   });
@@ -357,7 +351,6 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
-    mockProcessManager.acquireLock.mockReturnValue(undefined);
   });
 
   it('handler returns early when memorySystem is undefined (non-motion claw)', async () => {
@@ -426,7 +419,6 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
-    mockProcessManager.acquireLock.mockReturnValue(undefined);
     capturedContractCallback = undefined;
   });
 
@@ -454,111 +446,4 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
 });
 });
 
-describe('assemble-lockfile-cleanup', () => {
-  // phase 280: hoist 2 dyn
 
-// ============================================================================
-// Shared mocks
-// ============================================================================
-
-// phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 迁 assembly/snapshot-patterns
-
-// ============================================================================
-// Tests
-// ============================================================================
-describe('Assembly — lockfile cleanup on throw (F-r72-asm-P0-1 / γ)', () => {
-  const baseConfig = {
-    identity: 'motion' as const,
-    clawId: 'motion',
-    clawDir: '/tmp/motion',
-    globalConfig: buildTestGlobalConfig({
-      cron: { enabled: true, tick_interval_ms: 1000 },
-      watchdog: { disk_warning_mb: 500 },
-      motion: {
-        heartbeat_interval_ms: 5000,
-        max_steps: 30,
-        max_concurrent_tasks: 5,
-      },
-      tool_timeout_ms: 30000,
-    }),
-    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockAuditWrite.mockClear();
-    mockSnapshot.init.mockResolvedValue({ ok: true });
-    mockSnapshot.commit.mockResolvedValue({ ok: true });
-    mockProcessManager.acquireLock.mockReturnValue(undefined);
-    mockProcessManager.releaseLock.mockReturnValue(undefined);
-  });
-
-  it('releases lockfile when assembly throws after acquireLock', async () => {
-    (buildLLMConfig as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
-      throw new Error('simulated assembly failure');
-    });
-
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow('simulated assembly failure');
-
-    expect(mockProcessManager.releaseLock).toHaveBeenCalledTimes(1);
-    expect(mockProcessManager.releaseLock).toHaveBeenCalledWith(expect.any(String));
-
-    // 原 step 的 assemble_failed audit 应存在
-    expect(mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_failed',
-      'module=llm_config',
-      'phase=construct',
-      'reason=simulated assembly failure',
-    );
-
-    // release 成功时不应有 lockfile_release audit
-    const lockfileReleaseAudit = mockAuditWrite.mock.calls.find(
-      (call: any[]) => call[1]?.includes('module=lockfile_release'),
-    );
-    expect(lockfileReleaseAudit).toBeUndefined();
-  });
-
-  it('audits releaseLock failure during cleanup but rethrows original error', async () => {
-    (buildLLMConfig as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
-      throw new Error('simulated assembly failure');
-    });
-    mockProcessManager.releaseLock.mockImplementationOnce(() => {
-      throw new Error('release-fail');
-    });
-
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow('simulated assembly failure');
-
-    expect(mockProcessManager.releaseLock).toHaveBeenCalledTimes(1);
-    expect(mockProcessManager.releaseLock).toHaveBeenCalledWith(expect.any(String));
-
-    // release 失败时应写 audit
-    expect(mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_failed',
-      'module=lockfile_release',
-      'phase=assemble_throw_cleanup',
-      expect.stringContaining('release-fail'),
-    );
-
-    // 错误消息应为原错误，而非 release-fail
-    try {
-      await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
-    } catch (e: any) {
-      expect(e.message).toBe('simulated assembly failure');
-    }
-  });
-
-  it('does not call releaseLock when acquireLock itself fails', async () => {
-    mockProcessManager.acquireLock.mockImplementationOnce(() => {
-      throw new LockConflictError('motion', 'already locked');
-    });
-
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toBeInstanceOf(LockConflictError);
-
-    expect(mockProcessManager.releaseLock).not.toHaveBeenCalled();
-    expect(mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_lock_conflict',
-      'clawId=motion',
-    );
-  });
-});
-});

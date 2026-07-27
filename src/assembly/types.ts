@@ -22,6 +22,8 @@ export interface AssembleConfig {
   readonly clawDir: string;
   readonly globalConfig: ClawGlobalConfig;
   readonly clawConfig: ClawConfig | null;  // identity='claw' 必填；'motion' 为 null
+  /** Phase 1204 Step C: parent 传入的 spawn generation identity（env CHESTNUT_PROCESS_GENERATION）。 */
+  readonly processGenerationId?: string;
 }
 
 export interface Instances {

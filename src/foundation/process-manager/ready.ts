@@ -4,9 +4,10 @@ import { formatErr } from "../node-utils/index.js";
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';
+import { isFileNotFound } from '../fs/index.js';
 
 import type { PidFileContent } from './pid.js';
-import { isFileNotFound } from '../fs/index.js';
+import { inspectActive, inspectActiveReady } from './generation.js';
 
 
 export async function markReady(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<void> {
@@ -61,15 +62,69 @@ export async function markNotReady(ctx: ProcessManagerContext, daemonDir: Daemon
  * process the PID file points to. Returns false on any kind of mismatch
  * (stale ready marker, missing files, parse failure).
  *
- * Cross-checks `ready` file pid+startTime against `pid` file to defend against
- * stale ready markers from a prior process recycled into the same PID.
- *
- * @param ctx     Process manager context
- * @param daemonDir  Target claw
- * @returns       true only when ready marker and PID file agree on identity
- *                and the OS confirms the process is still alive.
+ * Phase 1204 Step C: generation active/ready.json 是 primary SoT；legacy
+ * status/ready + status/pid 作为过渡期 fallback（Step E 删除）。
  */
 export function isReady(ctx: ProcessManagerContext, daemonDir: DaemonDir): boolean {
+  const generationReady = isReadyFromGeneration(ctx, daemonDir);
+  if (generationReady !== undefined) return generationReady;
+  return isReadyLegacy(ctx, daemonDir);
+}
+
+/** generation active 有明确结论时返回 boolean；无 active/未迁移时返回 undefined 走 legacy fallback。 */
+function isReadyFromGeneration(ctx: ProcessManagerContext, daemonDir: DaemonDir): boolean | undefined {
+  const active = inspectActive(ctx, daemonDir);
+  if (active.status === 'malformed') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_MALFORMED,
+      `daemon_dir=${daemonDir}`,
+      `dir=active`,
+      `ctx=isReady`,
+      `reason=${ctx.audit.message(formatErr(active.cause))}`,
+    );
+    return false; // fail-closed
+  }
+  if (active.status === 'none') return undefined; // no active generation; fallback legacy
+
+  const ready = inspectActiveReady(ctx, daemonDir);
+  if (ready.status === 'malformed') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_MALFORMED,
+      `daemon_dir=${daemonDir}`,
+      `dir=active`,
+      `ctx=isReady`,
+      `file=ready`,
+      `reason=${ctx.audit.message(formatErr(ready.cause))}`,
+    );
+    return false;
+  }
+  if (ready.status === 'none') return false;
+
+  if (ready.record.generation_id !== active.record.generation_id) {
+    // ready 事实与 active generation 不匹配（不应发生；保守 fail-closed）
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_STALE,
+      `daemon_dir=${daemonDir}`,
+      `ready_generation=${ready.record.generation_id}`,
+      `active_generation=${active.record.generation_id}`,
+    );
+    return false;
+  }
+
+  try {
+    return (ctx.l1IsAlive ?? defaultL1IsAlive)(ready.record.pid, ready.record.start_time as ProcessStartTime | undefined);
+  } catch (err) {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_ISALIVE_THROW,
+      `daemon_dir=${daemonDir}`,
+      `ready_pid=${ready.record.pid}`,
+      `reason=${formatErr(err)}`,
+    );
+    return false;
+  }
+}
+
+function isReadyLegacy(ctx: ProcessManagerContext, daemonDir: DaemonDir): boolean {
   const readyFile = getReadyFile(ctx, daemonDir);
   const pidFile = getPidFile(ctx, daemonDir);
   let readyContent: string;

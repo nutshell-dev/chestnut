@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import { disassemble } from '../../src/assembly/disassemble.js';
 
 describe('disassemble', () => {
@@ -7,7 +6,6 @@ describe('disassemble', () => {
     clawId: string;
     runtime: { stop: ReturnType<typeof vi.fn> };
     streamWriter: { close: ReturnType<typeof vi.fn> };
-    processManager: { markNotReady: ReturnType<typeof vi.fn>; releaseLock: ReturnType<typeof vi.fn> };
     auditWriter: { write: ReturnType<typeof vi.fn> };
     cronRunner?: { stop: ReturnType<typeof vi.fn> };
     heartbeat?: unknown;
@@ -19,7 +17,6 @@ describe('disassemble', () => {
       clawId: 'test-claw',
       runtime: { stop: vi.fn().mockResolvedValue(undefined) },
       streamWriter: { close: vi.fn() },
-      processManager: { markNotReady: vi.fn().mockResolvedValue(undefined), releaseLock: vi.fn() },
       auditWriter: { write: vi.fn() },
       cronRunner: { stop: vi.fn() },
       heartbeat: undefined,
@@ -30,7 +27,7 @@ describe('disassemble', () => {
   it('应按反序关停并最后写 daemon_stop', async () => {
     await disassemble(mockInstances, 'SIGTERM');
 
-    // 验证调用顺序
+    // 验证调用顺序（Phase 1204 Step C：lifecycle lock 已删除，无 releaseLock 步骤）
     expect(mockInstances.gateway!.stop).toHaveBeenCalledBefore(
       mockInstances.cronRunner!.stop
     );
@@ -41,14 +38,8 @@ describe('disassemble', () => {
       mockInstances.streamWriter.close
     );
     expect(mockInstances.streamWriter.close).toHaveBeenCalledBefore(
-      mockInstances.processManager.releaseLock
-    );
-    expect(mockInstances.processManager.releaseLock).toHaveBeenCalledBefore(
       mockInstances.auditWriter.write
     );
-
-    // 验证 releaseLock 参数
-    expect(mockInstances.processManager.releaseLock).toHaveBeenCalledWith(expect.any(String));
 
     // 验证 daemon_stop 在最后
     const lastCall = mockInstances.auditWriter.write.mock.calls.at(-1);
@@ -76,7 +67,6 @@ describe('disassemble', () => {
 
     expect(mockInstances.runtime.stop).toHaveBeenCalled();
     expect(mockInstances.streamWriter.close).toHaveBeenCalled();
-    expect(mockInstances.processManager.releaseLock).toHaveBeenCalled();
 
     const lastCall = mockInstances.auditWriter.write.mock.calls.at(-1);
     expect(lastCall).toEqual(['daemon_stop', 'signal=sigterm']);
@@ -93,7 +83,6 @@ describe('disassemble', () => {
       'reason=stop failed'
     );
     expect(mockInstances.streamWriter.close).toHaveBeenCalled();
-    expect(mockInstances.processManager.releaseLock).toHaveBeenCalled();
 
     const lastCall = mockInstances.auditWriter.write.mock.calls.at(-1);
     expect(lastCall).toEqual(['daemon_stop', 'signal=sigint']);
@@ -111,24 +100,6 @@ describe('disassemble', () => {
       'step=stream_close',
       'reason=close failed'
     );
-    expect(mockInstances.processManager.releaseLock).toHaveBeenCalled();
-
-    const lastCall = mockInstances.auditWriter.write.mock.calls.at(-1);
-    expect(lastCall).toEqual(['daemon_stop', 'signal=sigterm']);
-  });
-
-  it('releaseLock 抛错时应仍写 daemon_stop', async () => {
-    mockInstances.processManager.releaseLock.mockImplementation(() => {
-      throw new Error('release failed');
-    });
-
-    await disassemble(mockInstances, 'SIGTERM');
-
-    expect(mockInstances.auditWriter.write).toHaveBeenCalledWith(
-      'disassemble_step_failed',
-      'step=release_lock',
-      'reason=release failed'
-    );
 
     const lastCall = mockInstances.auditWriter.write.mock.calls.at(-1);
     expect(lastCall).toEqual(['daemon_stop', 'signal=sigterm']);
@@ -141,7 +112,6 @@ describe('disassemble', () => {
     expect(mockInstances.cronRunner!.stop).toHaveBeenCalled();
     expect(mockInstances.runtime.stop).toHaveBeenCalled();
     expect(mockInstances.streamWriter.close).toHaveBeenCalled();
-    expect(mockInstances.processManager.releaseLock).toHaveBeenCalled();
 
     const lastCall = mockInstances.auditWriter.write.mock.calls.at(-1);
     expect(lastCall).toEqual(['daemon_stop', 'signal=sigterm']);

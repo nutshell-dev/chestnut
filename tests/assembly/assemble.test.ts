@@ -5,7 +5,6 @@ import * as path from 'path';
 import { assemble } from '../../src/assembly/assemble.js';
 import { cleanupOrphanedTemp } from '../../src/assembly/cleanup.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
-import { LockConflictError } from '../../src/assembly/index.js';
 
 // ============================================================================
 // Shared mock instances (captured by vi.mock factories)
@@ -24,10 +23,7 @@ const mockSnapshot = {
   init: vi.fn(),
   commit: vi.fn(),
 };
-const mockProcessManager = {
-  acquireLock: vi.fn(),
-  releaseLock: vi.fn(),
-};
+const mockProcessManager = {};
 const mockCronRunner = {
   start: vi.fn(),
   stop: vi.fn(),
@@ -287,7 +283,6 @@ describe('assemble', () => {
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
-    mockProcessManager.acquireLock.mockReturnValue(undefined);
   });
 
   // --------------------------------------------------------------------------
@@ -384,19 +379,6 @@ describe('assemble', () => {
   // --------------------------------------------------------------------------
   // 失败语义
   // --------------------------------------------------------------------------
-  it('acquireLock 冲突 → LockConflictError + assemble_lock_conflict audit', async () => {
-    mockProcessManager.acquireLock.mockImplementation(() => {
-      throw new LockConflictError('motion', 'already locked');
-    });
-
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toBeInstanceOf(LockConflictError);
-
-    expect(mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_lock_conflict',
-      'clawId=motion'
-    );
-  });
-
   it('snapshot.init 失败 → assemble_failed + 抛 Error', async () => {
     mockSnapshot.init.mockResolvedValue({
       ok: false,

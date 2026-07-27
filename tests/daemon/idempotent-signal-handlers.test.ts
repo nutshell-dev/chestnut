@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import { createDaemonCommand, _resetDaemonSignalHandlers } from '../../src/daemon/daemon.js';
+import { PROCESS_GENERATION_ENV } from '../../src/foundation/process-manager/generation.js';
+import { getProcessStartTime } from '../../src/foundation/process-exec/index.js';
 
 let stopFn: (() => void) | null = null;
 
@@ -48,6 +50,14 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
     selfWritePid: vi.fn().mockResolvedValue(undefined),
     markReady: vi.fn().mockResolvedValue(undefined),
     selfRemovePid: vi.fn().mockResolvedValue(undefined),
+    inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
+    inspectSpawningPid: vi.fn(() => ({
+      status: 'ok',
+      record: { pid: process.pid, ...(ownStartTime !== undefined ? { start_time: ownStartTime } : {}) },
+    })),
+    writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
+    activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+    retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
   })),
   makeDaemonDir: (s: string) => s,
   STATUS_SUBDIR: 'status',
@@ -71,14 +81,28 @@ const mockFs = {
   readBytesSync: vi.fn().mockReturnValue(Buffer.from('')),
 };
 
+const TEST_GENERATION_ID = 'test-generation-id';
+const ownStartTime = getProcessStartTime(process.pid);
+
 const mockAuditWriter = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
 const mockDisassemble = vi.fn().mockResolvedValue(undefined);
+const mockProcessManager = {
+  inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
+  inspectSpawningPid: vi.fn(() => ({
+    status: 'ok',
+    record: { pid: process.pid, ...(ownStartTime !== undefined ? { start_time: ownStartTime } : {}) },
+  })),
+  writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
+  activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+  retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+};
 const mockAssemble = vi.fn().mockResolvedValue({
   runtime: { initialize: vi.fn().mockResolvedValue(undefined) },
   streamWriter: {},
   snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) },
   auditWriter: mockAuditWriter,
   heartbeat: null,
+  processManager: mockProcessManager,
 });
 
 const daemonCommand = createDaemonCommand({
@@ -100,6 +124,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
   beforeEach(() => {
     _resetDaemonSignalHandlers();
     stopFn = null;
+    process.env[PROCESS_GENERATION_ENV] = TEST_GENERATION_ID;
   });
 
   afterEach(() => {
@@ -109,6 +134,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
     }
     _resetDaemonSignalHandlers();
     vi.clearAllMocks();
+    delete process.env[PROCESS_GENERATION_ENV];
   });
 
   it('case 1: daemonCommand 调 2 次 SIGTERM listener 不增', async () => {

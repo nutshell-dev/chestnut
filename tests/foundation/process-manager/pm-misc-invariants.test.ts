@@ -119,9 +119,15 @@ describe('alive-conservative', () => {
       const tempDir = makeTempDir();
       const daemonDir = makeDaemonDirAt(tempDir, 'claws', 'ioerr-claw');
 
-      // fs.readSync will throw EACCES.
+      // fs.readSync will throw EACCES on the legacy PID file, but active generation
+      // must appear absent so the legacy path is exercised (Phase 1204 Step C).
       const nodeFs = new NodeFileSystem({ baseDir: tempDir });
-      vi.spyOn(nodeFs, 'readSync').mockImplementation(() => {
+      vi.spyOn(nodeFs, 'readSync').mockImplementation((p: string) => {
+        if (p.includes('active/generation.json')) {
+          const err = new Error('not found') as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
         const err = new Error('Permission denied') as NodeJS.ErrnoException;
         err.code = 'EACCES';
         throw err;

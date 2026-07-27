@@ -12,7 +12,7 @@ import * as path from 'path';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { loadGlobalConfig, loadClawConfig } from '../assembly/config/config-load.js';
-import { getClawDir, getNamedSubrootDir, getClawConfigPath, getChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../core/claw-topology/claw-instance-paths.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
@@ -21,15 +21,18 @@ import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audi
 import { summarizeLastExit } from './last-exit-summary.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
+import { getProcessStartTime, type ProcessStartTime } from '../foundation/process-exec/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
-import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig } from '../assembly/types.js';
+import type { DaemonDir } from '../foundation/process-manager/types.js';
+import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/generation.js';
+import type { ProcessGenerationRecord } from '../foundation/process-manager/generation.js';
 
 // phase 175: idempotent signal handler refs（mirror watchdog.ts:60-61 pattern、防 test re-entry 累 listener）
 // phase 517 B2: handler 返 Promise（Node 忽略、但测试可 await 验 dispose + exit 时序）
@@ -80,13 +83,15 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     // 配置
     const dir = isMotion ? getNamedSubrootDir('motion') : getClawDir(name);
+    const daemonDir = resolveClawDaemonDir(makeClawId(clawId));
+    const processGenerationId = process.env[PROCESS_GENERATION_ENV];
 
     // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
     const preAssembleFs = deps.fsFactory(dir);
     const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
 
-    // ProcessManager 接管 PID 文件
-    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir: getChestnutRoot() }, preAssembleAudit);
+    // ProcessManager 由 Assembly 构造；daemon.ts 主要用 instances.processManager
+    // 做 generation 激活与 shutdown retire。
 
     // phase 521 (review-round4 CLI M): loadClawConfig 包入 try 显式归类 module=claw_config
     // YAML parse error 改前 escape 到 shim 无 ASSEMBLE_FAILED granularity
@@ -102,9 +107,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       }
     }
 
-    // Assembly 装配（phase 324 H1：先取锁、再写 PID。
-    // 若先写 PID，losing 实例会在 LockConflictError 前覆盖上家 PID 文件 →
-    // pm.isAlive 谎报、stop 找不到真进程、watchdog 重生 race。）
+    // Assembly 装配（Phase 1204 Step C：lifecycle lock 已删除，child 凭显式
+    // generation identity 在 Assembly 成功后激活 generation。）
     let instances: DaemonInstances;
     try {
       instances = await deps.assemble({
@@ -114,23 +118,32 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         globalConfig,
         // phase 386: AssembleConfig.clawConfig 是 `ClawConfig | null`、loadClawConfig 返 `... | undefined` → coalesce null
         clawConfig: clawConfig ?? null,
+        processGenerationId,
       });
     } catch (e) {
       const reason = formatErr(e);
-      if (e instanceof LockConflictError) {
-        preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=lockfile', 'phase=preconstruct', `reason=${reason}`);
-        preAssembleAudit.dispose?.();  // phase 467 (review N3-L): flush batched audit 前 exit、防丢 telemetry
-        process.exit(1);
-      }
       preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=pre_assemble', 'phase=preconstruct', `reason=${reason}`);
       preAssembleAudit.dispose?.();  // phase 467 (review N3-L)
       process.exit(1);
     }
 
-    // 锁取成后写 PID 文件（兜底：无论启动方式都确保 PID 可查）
-    await processManager.selfWritePid(resolveClawDaemonDir(makeClawId(clawId)));
-
     const { runtime, streamWriter, snapshot, auditWriter, heartbeat } = instances;
+
+    // Phase 1204 Step C：child 校验 generation identity，写 ready 事实后激活 generation。
+    let generationRecord: ProcessGenerationRecord | undefined;
+    try {
+      const startTime = getProcessStartTime(process.pid) as ProcessStartTime | undefined;
+      const activationResult = await activateOwnGeneration(instances.processManager, daemonDir, processGenerationId, startTime);
+      if (activationResult.kind !== 'ok') {
+        throw new Error(activationResult.reason);
+      }
+      generationRecord = activationResult.record;
+    } catch (e) {
+      const reason = formatErr(e);
+      auditWriter.write(deps.auditEvents.assembleFailed, 'module=generation_activation', 'phase=post_assemble', `reason=${reason}`);
+      auditWriter.dispose?.();
+      process.exit(1);
+    }
 
     // phase 1124: 4 个 shutdown 入口统一重入 guard（mirror watchdog.ts:87-111）
     const beginShutdown = (cause: string): boolean => {
@@ -194,7 +207,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     } catch { /* silent: AGENTS.md is optional, missing is expected */ }
     // phase 719: 'sha256:' algo prefix 不是 audit col key= prefix、forensic 解析无法 join、改 'prompt_hash=' key
     auditWriter.write(deps.auditEvents.daemonStart, `prompt_hash=sha256:${promptHash}`);
-    await processManager.markReady(resolveClawDaemonDir(makeClawId(clawId)));
+    // generation activation 已完成；legacy status/ready 不再由 daemon 写（Step E 删除 legacy 路径）。
 
     // daemon-start commit（不阻塞启动）
     snapshot.commit(`daemon-start ${new Date().toISOString()}`).then((result) => {
@@ -247,11 +260,14 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       stop();
       const dispose = (async () => {
         await deps.disassemble(instances, reason);
-        try {
-          await processManager.selfRemovePid(resolveClawDaemonDir(makeClawId(clawId)));
-        } catch (e) {
-          // phase 720: 加 context col 区分 caller 路径、reason key 命名统一
-          instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `context=self_remove_pid`, `reason=${(e as Error).message}`);
+        // Phase 1204 Step C：shutdown 时将本 generation 从 active retire（late retire
+        // 由 identity match 保证不动 fresh generation）。
+        if (generationRecord !== undefined) {
+          try {
+            instances.processManager.retireGeneration(daemonDir, { generationId: generationRecord.generation_id }, 'shutdown', 'active');
+          } catch (e) {
+            instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `context=retire_generation`, `reason=${(e as Error).message}`);
+          }
         }
       })().catch((e) => {
         // phase 720: 加 context col 区分 caller 路径、改 raw 'dispose_failed=' 为统一 'reason=' key
@@ -305,4 +321,55 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     await promise;
   };
+}
+
+interface GenerationActivationResult {
+  kind: 'ok' | 'error';
+  record?: ProcessGenerationRecord;
+  reason?: string;
+}
+
+/**
+ * Phase 1204 Step C: child 校验显式 generation identity，写 ready 事实后激活 generation。
+ * child 只能 activate 与自身 PID/startTime 匹配的 spawning；任何 mismatch 都 fail-closed。
+ */
+async function activateOwnGeneration(
+  processManager: ReturnType<typeof createAgentProcessManager>,
+  daemonDir: DaemonDir,
+  generationId: string | undefined,
+  startTime: ProcessStartTime | undefined,
+): Promise<GenerationActivationResult> {
+  if (generationId === undefined) {
+    return { kind: 'error', reason: 'CHESTNUT_PROCESS_GENERATION env missing' };
+  }
+  const spawning = processManager.inspectSpawning(daemonDir);
+  if (spawning.status !== 'ok') {
+    return { kind: 'error', reason: `spawning generation not found: ${spawning.status}` };
+  }
+  if (spawning.record.generation_id !== generationId) {
+    return { kind: 'error', reason: 'spawning generation id mismatch' };
+  }
+  const pid = processManager.inspectSpawningPid(daemonDir);
+  if (pid.status !== 'ok') {
+    return { kind: 'error', reason: `spawning pid fact not found: ${pid.status}` };
+  }
+  if (pid.record.pid !== process.pid) {
+    return { kind: 'error', reason: 'spawning pid does not match current process' };
+  }
+  if (
+    startTime !== undefined &&
+    pid.record.start_time !== undefined &&
+    pid.record.start_time !== startTime
+  ) {
+    return { kind: 'error', reason: 'spawning startTime mismatch' };
+  }
+  const ready = await processManager.writeGenerationReady(daemonDir, spawning.record, process.pid, startTime);
+  if (ready.kind !== 'written') {
+    return { kind: 'error', reason: `ready fact write failed: ${ready.kind}` };
+  }
+  const activation = processManager.activateGeneration(daemonDir, { generationId, pid: process.pid, startTime: startTime as ProcessStartTime | undefined });
+  if (activation.kind === 'activated' || activation.kind === 'already_active') {
+    return { kind: 'ok', record: activation.record };
+  }
+  return { kind: 'error', reason: `generation activation failed: ${activation.kind}` };
 }

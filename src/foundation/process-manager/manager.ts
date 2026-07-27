@@ -27,6 +27,17 @@ import * as lockOps from './lock.js';
 import { spawnProcess } from './spawn.js';
 import { stopProcess } from './stop.js';
 import { findProcesses } from './find.js';
+import {
+  activateGeneration,
+  retireGeneration,
+  writeReadyFact,
+  inspectSpawning,
+  inspectSpawningPid,
+  type ActivateGeneration,
+  type RetireGeneration,
+  type ProcessGenerationRecord,
+  type WriteGenerationFact,
+} from './generation.js';
 import type { ProcessManagerContext, SpawnOptions } from './types.js';
 
 
@@ -80,10 +91,23 @@ export class ProcessManager {
   markReady(daemonDir: DaemonDir): Promise<void> { return readyOps.markReady(this._ctx, daemonDir); }
   markNotReady(daemonDir: DaemonDir): Promise<void> { return readyOps.markNotReady(this._ctx, daemonDir); }
 
-  // lock
+  // lock (legacy; Step E 删除)
   readLockPid(daemonDir: DaemonDir): { pid: number; startTime?: ProcessStartTime } | null { return lockOps.readLockPid(this._ctx, daemonDir); }
   acquireLock(daemonDir: DaemonDir): void { lockOps.acquireLock(this._ctx, daemonDir); }
   releaseLock(daemonDir: DaemonDir): void { lockOps.releaseLock(this._ctx, daemonDir); }
+
+  // generation (Phase 1204 Step C)
+  inspectSpawning(daemonDir: DaemonDir): ReturnType<typeof inspectSpawning> { return inspectSpawning(this._ctx, daemonDir); }
+  inspectSpawningPid(daemonDir: DaemonDir): ReturnType<typeof inspectSpawningPid> { return inspectSpawningPid(this._ctx, daemonDir); }
+  writeGenerationReady(_daemonDir: DaemonDir, record: ProcessGenerationRecord, pid: number, startTime?: ProcessStartTime): Promise<WriteGenerationFact> {
+    return writeReadyFact(this._ctx, record, pid, startTime);
+  }
+  activateGeneration(daemonDir: DaemonDir, identity: { generationId: string; pid: number; startTime?: ProcessStartTime }): ActivateGeneration {
+    return activateGeneration(this._ctx, daemonDir, identity);
+  }
+  retireGeneration(daemonDir: DaemonDir, expected: { generationId: string }, reason: Parameters<typeof retireGeneration>[3], source: Parameters<typeof retireGeneration>[4]): RetireGeneration {
+    return retireGeneration(this._ctx, daemonDir, expected, reason, source);
+  }
 
   // lifecycle
   spawn(daemonDir: DaemonDir, options: SpawnOptions): Promise<number> {

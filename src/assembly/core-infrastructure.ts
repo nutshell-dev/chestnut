@@ -24,7 +24,7 @@ import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../f
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type OutboxWriter } from '../foundation/messaging/index.js';
 import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
@@ -35,7 +35,6 @@ import type { AssembleConfig } from './types.js';
 
 export interface CoreInfraInput {
   config: AssembleConfig;
-  lockState: { acquired: boolean };
   createSkillSystem?: typeof defaultCreateSkillSystem;
 }
 
@@ -75,7 +74,7 @@ export interface CoreInfraOutput {
  * 抽出动机：assemble() M#1/SRP 治理（assembly-auditor §六.1 follow-up）。
  */
 export async function createCoreInfrastructure(input: CoreInfraInput): Promise<CoreInfraOutput> {
-  const { config, lockState } = input;
+  const { config } = input;
   const { identity, clawId, clawDir, globalConfig, clawConfig } = config;
   const isMotion = identity === 'motion';
   const auditMaxSizeMb = globalConfig.audit.retention.max_size_mb;
@@ -133,20 +132,14 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       );
     }
 
-    // --- 2. ProcessManager + acquireLock (daemon.ts L107-108) ---
+    // --- 2. ProcessManager (daemon.ts L107-108) ---
+    // Phase 1204 Step C: lifecycle lock 删除；child 凭显式 generation identity 在
+    // daemon.ts 激活 generation，Assembly 不再 acquireLock。
     try {
       processManager = createAgentProcessManager({ fsFactory, baseDir: resolveChestnutRoot(clawDir, isMotion) }, auditWriter);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=process_manager`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: ProcessManager construct failed: ${formatErr(e)}`, { cause: e });
-    }
-
-    try {
-      processManager.acquireLock(resolveClawDaemonDir(makeClawId(clawId)));
-      lockState.acquired = true;
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_LOCK_CONFLICT, `clawId=${clawId}`);
-      throw e;
     }
 
     // --- 3. LLM Config / Orchestrator (daemon.ts L111-137 的 L3-L5 部分) ---
@@ -315,19 +308,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       topology,
     };
   } catch (e) {
-    if (lockState.acquired && processManager) {
-      try {
-        processManager.releaseLock(resolveClawDaemonDir(makeClawId(clawId)));
-        lockState.acquired = false;
-      } catch (releaseErr) {
-        auditWriter?.write(
-          ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
-          `module=lockfile_release`,
-          `phase=assemble_throw_cleanup`,
-          `reason=${formatErr(releaseErr)}`,
-        );
-      }
-    }
     throw e;
   }
 }

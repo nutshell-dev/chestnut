@@ -289,6 +289,41 @@ export function inspectActivePid(ctx: ProcessManagerContext, daemonDir: DaemonDi
   return readPidFile(ctx.fs, getActiveDir(daemonDir));
 }
 
+/** 读 spawning/active 内 ready 事实。 */
+function readReadyFile(fs: ProcessManagerContext['fs'], dir: string):
+  | { status: 'none' }
+  | { status: 'ok'; record: ProcessReadyRecord }
+  | { status: 'malformed'; cause: unknown } {
+  let content: string;
+  try {
+    content = fs.readSync(path.join(dir, READY_FILE));
+  } catch (err) {
+    if (isFileNotFound(err)) return { status: 'none' };
+    return { status: 'malformed', cause: formatErr(err) };
+  }
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (!isPidRecord(parsed)) return { status: 'malformed', cause: 'ready_shape_mismatch' };
+    return { status: 'ok', record: parsed };
+  } catch (err) {
+    return { status: 'malformed', cause: formatErr(err) };
+  }
+}
+
+export function inspectSpawningReady(ctx: ProcessManagerContext, daemonDir: DaemonDir):
+  | { status: 'none' }
+  | { status: 'ok'; record: ProcessReadyRecord }
+  | { status: 'malformed'; cause: unknown } {
+  return readReadyFile(ctx.fs, getSpawningDir(daemonDir));
+}
+
+export function inspectActiveReady(ctx: ProcessManagerContext, daemonDir: DaemonDir):
+  | { status: 'none' }
+  | { status: 'ok'; record: ProcessReadyRecord }
+  | { status: 'malformed'; cause: unknown } {
+  return readReadyFile(ctx.fs, getActiveDir(daemonDir));
+}
+
 // === Commit (candidate → spawning) ===
 
 /**
@@ -390,6 +425,50 @@ export async function writeChildPid(
     `daemon_dir=${record.daemon_dir}`,
     `generation=${record.generation_id}`,
     `pid=${childPid}`,
+  );
+  return { kind: 'written' };
+}
+
+// === Ready fact (child, pre-activate) ===
+
+/**
+ * child 在 Assembly 成功后把 ready 事实写入 spawning 内 `ready.json`。
+ * 写前重读 spawning 确认本 generation 仍在位；完整 ready 事实在 spawning 内
+ * 写好后整体 move 到 active（单 SoT，Step C 风险）。
+ */
+export async function writeReadyFact(
+  ctx: ProcessManagerContext,
+  record: ProcessGenerationRecord,
+  pid: number,
+  startTime?: ProcessStartTime,
+): Promise<WriteGenerationFact> {
+  const daemonDir = record.daemon_dir as DaemonDir;
+  const inspection = inspectSpawning(ctx, daemonDir);
+  if (inspection.status === 'malformed') return { kind: 'malformed_spawning', cause: inspection.cause };
+  if (inspection.status === 'none' || inspection.record.generation_id !== record.generation_id) {
+    return { kind: 'generation_moved' };
+  }
+  const readyRecord: ProcessReadyRecord = {
+    schema_version: PROCESS_GENERATION_SCHEMA_VERSION,
+    generation_id: record.generation_id,
+    pid,
+    ...(startTime !== undefined ? { start_time: startTime } : {}),
+    created_at: new Date().toISOString(),
+  };
+  try {
+    await ctx.fs.writeAtomicExisting(
+      path.join(getSpawningDir(daemonDir), READY_FILE),
+      JSON.stringify(readyRecord, null, 2),
+    );
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'generation_moved' };
+    return { kind: 'retryable_failure', cause: formatErr(err) };
+  }
+  ctx.audit.write(
+    PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_READY_WROTE,
+    `daemon_dir=${record.daemon_dir}`,
+    `generation=${record.generation_id}`,
+    `pid=${pid}`,
   );
   return { kind: 'written' };
 }

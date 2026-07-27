@@ -5,6 +5,8 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
+import { PROCESS_GENERATION_ENV } from '../../src/foundation/process-manager/generation.js';
+import { getProcessStartTime } from '../../src/foundation/process-exec/index.js';
 import { once } from 'events';
 import { EventEmitter } from 'events';
 
@@ -169,7 +171,10 @@ function installProcessSpies(): void {
 // ============================================================================
 // Helpers
 // ============================================================================
+const TEST_GENERATION_ID = 'test-generation-id';
+
 function makeMockInstances(overrides?: Partial<any>) {
+  const ownStartTime = getProcessStartTime(process.pid);
   return {
     clawId: 'test',
     runtime: mockState.mockRuntime,
@@ -177,12 +182,29 @@ function makeMockInstances(overrides?: Partial<any>) {
     snapshot: { commit: mockState.mockSnapshotCommit },
     auditWriter: { write: mockState.mockAuditWrite },
     heartbeat: mockState.mockHeartbeat,
-    processManager: { /* not destructured */ },
+    processManager: {
+      inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
+      inspectSpawningPid: vi.fn(() => ({
+        status: 'ok',
+        record: { pid: process.pid, ...(ownStartTime !== undefined ? { start_time: ownStartTime } : {}) },
+      })),
+      writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
+      activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+      retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+    },
     cronRunner: undefined,
     gateway: undefined,
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  process.env[PROCESS_GENERATION_ENV] = TEST_GENERATION_ID;
+});
+
+afterEach(() => {
+  delete process.env[PROCESS_GENERATION_ENV];
+});
 
 async function flushMicrotasks(n = 10) {
   for (let i = 0; i < n; i++) await Promise.resolve();
@@ -328,17 +350,16 @@ describe('daemonCommand - A4a startup failure', () => {
     vi.restoreAllMocks();
   });
 
-  it('it #3: assemble LockConflictError → audit module=lockfile + exit 1', async () => {
+  it('it #3: assemble LockConflictError → audit module=pre_assemble + exit 1', async () => {
     const { LockConflictError } = await import('../../src/foundation/process-manager/index.js');
     const lockErr = new LockConflictError('test-claw');
     mockState.mockAssemble.mockRejectedValue(lockErr);
 
     await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
 
-    // phase189 §7.A3 清零：LockConflictError 分支补 audit
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
       'assemble_failed',
-      'module=lockfile',
+      'module=pre_assemble',
       'phase=preconstruct',
       expect.stringMatching(/reason=.*Lock conflict/),
     );
@@ -427,9 +448,7 @@ describe('daemonCommand - A4d shutdown signal', () => {
     vi.restoreAllMocks();
   });
 
-  it('it #8: SIGTERM → shutdown → disassemble + selfRemovePid + exit 0', async () => {
-    const selfRemovePidSpy = vi.spyOn(ProcessManager.prototype, 'selfRemovePid').mockResolvedValue(undefined);
-
+  it('it #8: SIGTERM → shutdown → disassemble + retire generation + exit 0', async () => {
     const cmdPromise = daemonCommand('test-claw');
     const sigtermHandler = await waitForProcessOn('SIGTERM');
 
@@ -441,8 +460,13 @@ describe('daemonCommand - A4d shutdown signal', () => {
       expect.objectContaining({ runtime: mockState.mockRuntime }),
       'SIGTERM',
     );
-    expect(selfRemovePidSpy).toHaveBeenCalledWith(expect.stringContaining('test-claw'));
-    selfRemovePidSpy.mockRestore();
+    const instances = mockState.mockDisassemble.mock.calls[0][0];
+    expect(instances.processManager.retireGeneration).toHaveBeenCalledWith(
+      expect.stringContaining('test-claw'),
+      { generationId: TEST_GENERATION_ID },
+      'shutdown',
+      'active',
+    );
 
     await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });

@@ -213,10 +213,10 @@ describe('ready-stale-cleanup-narrow', () => {
     deleteSync?: () => void;
   }): FileSystem {
     return {
-      readSync: vi.fn().mockImplementation((p: string) => {
+      readSync: vi.fn().mockImplementation(readSyncBypassActiveGeneration((p: string) => {
         if (p.includes('ready')) return JSON.stringify({ pid: 11111 });
         return JSON.stringify({ pid: 22222 });
-      }),
+      })),
       read: vi.fn(),
       writeAtomic: vi.fn(),
       writeAtomicSync: vi.fn(),
@@ -322,10 +322,10 @@ describe('ready-cleanup-narrow', () => {
     deleteSync?: () => void;
   }): FileSystem {
     return {
-      readSync: vi.fn().mockImplementation((p: string) => {
+      readSync: vi.fn().mockImplementation(readSyncBypassActiveGeneration((p: string) => {
         if (p.includes('ready')) return JSON.stringify({ pid: 11111 });
         return JSON.stringify({ pid: 22222 });
-      }),
+      })),
       read: vi.fn(),
       writeAtomic: vi.fn(),
       writeAtomicSync: vi.fn(),
@@ -430,6 +430,19 @@ describe('ready-cleanup-narrow', () => {
  */
 
 
+/**
+ * Phase 1204 Step C: isReady 优先读 active generation；要让这些 legacy 反向测试
+ * 命中 legacy 路径，需先让 active/generation.json 表现为不存在（ENOENT）。
+ */
+function readSyncBypassActiveGeneration(impl: (p: string) => string): (p: string) => string {
+  return (p: string) => {
+    if (p.includes('active/generation.json')) {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    }
+    return impl(p);
+  };
+}
+
 function makeMockFs(overrides?: {
   readSync?: (p: string) => string;
 }): FileSystem {
@@ -465,9 +478,9 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
   it('反向 1: non-ENOENT read error → READY_CHECK_READ_FAILED audit + return false', () => {
     const { audit, events } = makeAudit();
     const mockFs = makeMockFs({
-      readSync: vi.fn().mockImplementation(() => {
+      readSync: vi.fn().mockImplementation(readSyncBypassActiveGeneration(() => {
         throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
-      }),
+      })),
     });
     const ctx: ProcessManagerContext = {
       fs: mockFs,
@@ -511,11 +524,11 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     const { audit, events } = makeAudit();
     let callCount = 0;
     const mockFs = makeMockFs({
-      readSync: vi.fn().mockImplementation(() => {
+      readSync: vi.fn().mockImplementation(readSyncBypassActiveGeneration(() => {
         callCount++;
         if (callCount === 1) return 'not-json';
         return JSON.stringify({ pid: 12345 });
-      }),
+      })),
     });
     const ctx: ProcessManagerContext = {
       fs: mockFs,
@@ -541,10 +554,10 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
   it('反向 4: l1IsAlive throw → READY_CHECK_ISALIVE_THROW audit + return false', async () => {
     const { audit, events } = makeAudit();
     const mockFs = makeMockFs({
-      readSync: vi.fn().mockImplementation((p: string) => {
+      readSync: vi.fn().mockImplementation(readSyncBypassActiveGeneration((p: string) => {
         if (p.includes('ready')) return JSON.stringify({ pid: 12345 });
         return JSON.stringify({ pid: 12345 });
-      }),
+      })),
     });
     const ctx: ProcessManagerContext = {
       fs: mockFs,
