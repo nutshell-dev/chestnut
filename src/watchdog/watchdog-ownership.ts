@@ -13,9 +13,8 @@
  * reclaimer 覆盖 fresh generation 的必要条件（反向测试先证、不只靠 mock）。
  */
 
-import { randomUUID } from 'crypto';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { formatErr } from '../foundation/node-utils/index.js';
+import { formatErr, newUuid } from '../foundation/node-utils/index.js';
 import { getWorkspaceRoot } from '../core/claw-topology/index.js';
 import { getProcessStartTime } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
@@ -102,8 +101,8 @@ export type RetireOwnership =
 export function newWatchdogAttempt(pid: number = process.pid): WatchdogOwnerRecord {
   return {
     schema_version: WATCHDOG_OWNERSHIP_SCHEMA_VERSION,
-    attempt_id: randomUUID(),
-    owner_token: randomUUID(),
+    attempt_id: newUuid(),
+    owner_token: newUuid(),
     pid,
     process_start_time: getProcessStartTime(pid) ?? 'unknown',
     workspace_root: getWorkspaceRoot(),
@@ -139,14 +138,14 @@ export function inspectActive(fs: FileSystem): ActiveInspection {
     content = fs.readSync(`${WATCHDOG_ACTIVE_DIR}/${WATCHDOG_OWNER_FILE}`);
   } catch (err) {
     if (isFsNotFound(err)) return { status: 'none' };
-    return { status: 'malformed', cause: err };
+    return { status: 'malformed', cause: formatErr(err) };
   }
   try {
     const parsed: unknown = JSON.parse(content);
-    if (!isOwnerRecord(parsed)) return { status: 'malformed', cause: new Error('owner_shape_mismatch') };
+    if (!isOwnerRecord(parsed)) return { status: 'malformed', cause: 'owner_shape_mismatch' };
     return { status: 'ok', owner: parsed };
   } catch (err) {
-    return { status: 'malformed', cause: err };
+    return { status: 'malformed', cause: formatErr(err) };
   }
 }
 
@@ -170,7 +169,7 @@ export function commitOwnership(fs: FileSystem, record: WatchdogOwnerRecord): Co
   try {
     fs.moveSync(src, WATCHDOG_ACTIVE_DIR);
   } catch (moveErr) {
-    return resolveCommitCollision(fs, record, moveErr);
+    return resolveCommitCollision(fs, record, formatErr(moveErr));
   }
   const ownership: WatchdogOwnership = {
     attemptId: record.attempt_id,
@@ -282,7 +281,7 @@ export function retireOwnership(
     fs.moveSync(WATCHDOG_ACTIVE_DIR, retiredDest);
   } catch (moveErr) {
     if (fs.existsSync(retiredDest)) return { kind: 'collision', owner };
-    return { kind: 'retryable_failure', cause: moveErr };
+    return { kind: 'retryable_failure', cause: formatErr(moveErr) };
   }
   auditWriter?.write(
     WATCHDOG_AUDIT_EVENTS.OWNERSHIP_RETIRED,

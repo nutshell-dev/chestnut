@@ -249,6 +249,8 @@ const INTEGRATION_PROCESS_FILES = [
   'tests/core/async-task-system/migrated-exec.test.ts',
   // phase 1069: real exec timeout integration test
   'tests/foundation/command-tool/exec-timeout.integration.test.ts',
+  // phase 1203 Step D: real child watchdog ownership race
+  'tests/watchdog/watchdog-ownership-process-race.test.ts',
 ];
 
 /**

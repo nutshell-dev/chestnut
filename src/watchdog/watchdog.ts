@@ -50,11 +50,11 @@ import {
 } from './watchdog-context.js';
 import {
   writeWatchdogPid, removeWatchdogPid, removeWatchdogPidIfOwner,
-  isWatchdogProcessAlive,
+  isWatchdogProcessAlive, disposLegacyWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, retireOwnership,
-  writeCandidateOutcome, WATCHDOG_ACTIVE_DIR,
+  writeCandidateOutcome, inspectActive, WATCHDOG_ACTIVE_DIR,
   type WatchdogOwnership, type WatchdogOwnerRecord,
 } from './watchdog-ownership.js';
 import {
@@ -110,7 +110,20 @@ export function _setWatchdogOwnershipForTest(ownership: WatchdogOwnership | null
 export type AcquireWatchdogOwnership =
   | { kind: 'committed'; ownership: WatchdogOwnership }
   | { kind: 'lost'; owner: WatchdogOwnerRecord }
+  | { kind: 'legacy_live'; pid: number }
   | { kind: 'failed'; error: unknown };
+
+function writeOutcomeBestEffort(
+  fsFactory: (baseDir: string) => FileSystem,
+  attemptId: string,
+  outcome: Parameters<typeof writeCandidateOutcome>[2],
+): void {
+  try {
+    writeCandidateOutcome(getChestnutFs(fsFactory), attemptId, outcome);
+  } catch (err) {
+    log(fsFactory, `[watchdog] Failed to write candidate outcome: ${formatErr(err)}`);
+  }
+}
 
 function ownershipFromRecord(record: WatchdogOwnerRecord): WatchdogOwnership {
   return {
@@ -134,6 +147,35 @@ export function acquireWatchdogOwnership(
   const fs = getChestnutFs(fsFactory);
   const attempt = newWatchdogAttempt(process.pid);
   prepareCandidate(fs, attempt);
+
+  // Phase 1203 Step D: 无 active owner 时先处置 legacy watchdog.pid ——
+  // live 保守阻止接管；dead/corrupt 保留证据迁移后放行；文件不得直接删除。
+  if (inspectActive(fs).status === 'none') {
+    const legacy = disposLegacyWatchdogPid(fsFactory);
+    if (legacy.kind === 'foreign_live') {
+      writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
+        outcome: 'failed',
+        reason: `legacy_foreign_live:${legacy.pid}`,
+      });
+      throw new WatchdogPidForeignWorkspaceError(legacy.pid, legacy.root, getWorkspaceRoot());
+    }
+    if (legacy.kind === 'live') {
+      writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
+        outcome: 'lost',
+        winner_pid: legacy.pid,
+        reason: 'legacy_live',
+      });
+      return { kind: 'legacy_live', pid: legacy.pid };
+    }
+    if (legacy.kind === 'unreadable') {
+      writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
+        outcome: 'failed',
+        reason: `legacy_unreadable:${formatErr(legacy.cause)}`,
+      });
+      return { kind: 'failed', error: legacy.cause };
+    }
+  }
+
   let commit = commitOwnership(fs, attempt);
 
   if (commit.kind === 'foreign_owned') {
@@ -152,16 +194,12 @@ export function acquireWatchdogOwnership(
       }
     }
     if (commit.kind === 'foreign_owned') {
-      try {
-        writeCandidateOutcome(fs, attempt.attempt_id, {
-          outcome: 'lost',
-          winner_owner_token: commit.owner.owner_token,
-          winner_pid: commit.owner.pid,
-          reason: 'active_occupied',
-        });
-      } catch (err) {
-        log(fsFactory, `[watchdog] Failed to write loser outcome: ${formatErr(err)}`);
-      }
+      writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
+        outcome: 'lost',
+        winner_owner_token: commit.owner.owner_token,
+        winner_pid: commit.owner.pid,
+        reason: 'active_occupied',
+      });
       return { kind: 'lost', owner: commit.owner };
     }
   }
@@ -170,14 +208,10 @@ export function acquireWatchdogOwnership(
   if (commit.kind === 'already_owned') return { kind: 'committed', ownership: ownershipFromRecord(commit.owner) };
 
   // retryable_failure：留 failed outcome，不伪装 loser
-  try {
-    writeCandidateOutcome(fs, attempt.attempt_id, {
-      outcome: 'failed',
-      reason: `commit_retryable_failure:${formatErr(commit.cause)}`,
-    });
-  } catch (err) {
-    log(fsFactory, `[watchdog] Failed to write failure outcome: ${formatErr(err)}`);
-  }
+  writeOutcomeBestEffort(fsFactory, attempt.attempt_id, {
+    outcome: 'failed',
+    reason: `commit_retryable_failure:${formatErr(commit.cause)}`,
+  });
   return { kind: 'failed', error: commit.cause };
 }
 
@@ -335,8 +369,11 @@ export async function runWatchdogLoop(
   // signal / timer / motion restart）前必须 commit 目录 ownership；
   // loser 在零副作用后退出，failure 不伪装 loser（由下一 candidate 判死 retire）。
   const acquisition = acquireWatchdogOwnership(fsFactory);
-  if (acquisition.kind === 'lost') {
-    log(fsFactory, `[watchdog] active already owned (PID=${acquisition.owner.pid}), exiting before any side effect.`);
+  if (acquisition.kind === 'lost' || acquisition.kind === 'legacy_live') {
+    const detail = acquisition.kind === 'lost'
+      ? `active already owned (PID=${acquisition.owner.pid})`
+      : `legacy watchdog alive (PID=${acquisition.pid})`;
+    log(fsFactory, `[watchdog] ${detail}, exiting before any side effect.`);
     auditWriter.dispose?.();
     return;
   }

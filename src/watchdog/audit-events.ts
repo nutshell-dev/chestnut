@@ -58,6 +58,8 @@ export const WATCHDOG_AUDIT_EVENTS = {
   OWNERSHIP_LOST: 'watchdog_ownership_lost',
   OWNERSHIP_RETIRED: 'watchdog_ownership_retired',
   OWNERSHIP_MALFORMED_ACTIVE: 'watchdog_ownership_malformed_active',
+  // phase 1203 Step D: dead/corrupt legacy watchdog.pid 保留证据迁移后放行
+  OWNERSHIP_LEGACY_MIGRATED: 'watchdog_ownership_legacy_migrated',
 } as const;
 
 
@@ -110,4 +112,5 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_ownership_lost: 'audit',
   watchdog_ownership_retired: 'audit',
   watchdog_ownership_malformed_active: 'audit',
+  watchdog_ownership_legacy_migrated: 'audit',
 } as const;

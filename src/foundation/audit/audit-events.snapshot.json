@@ -1007,7 +1007,8 @@
       "watchdog_ownership_committed",
       "watchdog_ownership_lost",
       "watchdog_ownership_retired",
-      "watchdog_ownership_malformed_active"
+      "watchdog_ownership_malformed_active",
+      "watchdog_ownership_legacy_migrated"
     ],
     "core_step-executor_audit-events": [
       "llm_empty_response",

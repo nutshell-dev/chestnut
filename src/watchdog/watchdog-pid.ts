@@ -163,6 +163,90 @@ export function removeWatchdogPidIfOwner(fsFactory: (baseDir: string) => FileSys
   }
 }
 
+// === Legacy watchdog.pid 处置（Phase 1203 Step D） ===
+
+export type LegacyPidDisposition =
+  | { kind: 'none' }
+  | { kind: 'live'; pid: number }
+  | { kind: 'foreign_live'; pid: number; root: string }
+  | { kind: 'migrated' }
+  | { kind: 'unreadable'; cause: unknown };
+
+/**
+ * legacy `watchdog.pid` 处置边界（仅在无 active owner 时由 candidate 调用）。
+ * - live（同 workspace / PID-reuse 已 argv 检）→ 保守阻止接管；
+ * - foreign live → foreign_live（caller fail-loud）；
+ * - dead / PID-reuse / foreign dead → 保留证据迁移到 `watchdog/retired/legacy-<pid>/owner.json` 后放行；
+ * - corrupt → 走既有 `watchdog.pid.corrupt-<ts>` quarantine 后放行。
+ * legacy 文件不得直接删除；migration destination 由 pid 稳定派生（不用当前时间），
+ * 两个 migrator 产生同一 destination、rename 单 winner。
+ */
+export function disposLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSystem): LegacyPidDisposition {
+  const fs = getChestnutFs(fsFactory);
+  let content: string;
+  try {
+    content = fs.readSync('watchdog.pid');
+  } catch (err) {
+    if (isFileNotFound(err)) return { kind: 'none' };
+    const auditWriter = getAuditWriter();
+    auditWriter?.write(
+      WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
+      `path=watchdog.pid`,
+      `error=${auditWriter?.message(formatErr(err)) ?? formatErr(err)}`,
+    );
+    // 读不出 = 不能证明 dead → fail-closed 阻止接管
+    return { kind: 'unreadable', cause: err };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    backupCorruptPid(fsFactory, content, formatErr(e));
+    return { kind: 'migrated' };
+  }
+  if (!validatePidShape(parsed)) {
+    backupCorruptPid(fsFactory, content, 'shape_mismatch');
+    return { kind: 'migrated' };
+  }
+  const currentRoot = getWorkspaceRoot();
+  if (parsed.root !== currentRoot) {
+    if (isLiveChestnutWatchdog(parsed.pid)) {
+      return { kind: 'foreign_live', pid: parsed.pid, root: parsed.root };
+    }
+    return migrateDeadLegacyPid(fsFactory, parsed.pid, parsed.root);
+  }
+  if (isLiveChestnutWatchdog(parsed.pid)) {
+    return { kind: 'live', pid: parsed.pid };
+  }
+  // dead 或 PID-reuse（argv 不符 = 进程位被无关进程占用）
+  return migrateDeadLegacyPid(fsFactory, parsed.pid, parsed.root);
+}
+
+/** dead legacy 迁移：move 原始文件为不可变证据；并发 migrator 单 winner；真 IO 失败 fail-closed */
+function migrateDeadLegacyPid(
+  fsFactory: (baseDir: string) => FileSystem,
+  pid: number,
+  root: string,
+): LegacyPidDisposition {
+  const fs = getChestnutFs(fsFactory);
+  const dest = `watchdog/retired/legacy-${pid}/owner.json`;
+  try {
+    fs.moveSync('watchdog.pid', dest);
+  } catch (err) {
+    // 另一 migrator 已迁移（source 消失或 destination 已存在）→ 幂等收敛
+    if (fs.existsSync(dest) || !fs.existsSync('watchdog.pid')) return { kind: 'migrated' };
+    return { kind: 'unreadable', cause: formatErr(err) };
+  }
+  const auditWriter = getAuditWriter();
+  auditWriter?.write(
+    WATCHDOG_AUDIT_EVENTS.OWNERSHIP_LEGACY_MIGRATED,
+    `pid=${pid}`,
+    `root=${root}`,
+    `dest=${dest}`,
+  );
+  return { kind: 'migrated' };
+}
+
 export class WatchdogPidForeignWorkspaceError extends Error {
   constructor(public foreignPid: number, public foreignRoot: string, public currentRoot: string) {
     super(`Watchdog PID file owned by foreign workspace: pid=${foreignPid} root=${foreignRoot} current=${currentRoot}`);
