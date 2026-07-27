@@ -123,7 +123,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
       );
     });
 
-    it('should clean up contract.yaml if progress.json write fails', async () => {
+    it('should leave durable incomplete state if progress.json write fails (Phase 1197 Step B)', async () => {
       // spy writeAtomic，对 progress.json 抛错
       vi.spyOn(nodeFs, 'writeAtomic').mockImplementation(async (p: string, c: string) => {
         if (p.includes('progress.json')) throw new Error('disk full');
@@ -135,19 +135,27 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
       const failManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
+      const contractId = `incomplete-${Date.now()}`;
       await expect(failManager.create(makeContractYaml({
+        id: contractId,
         title: 'Test',
         subtasks: [{ id: 't1', description: 'T1' }],
         verification: [],
       }))).rejects.toThrow('disk full');
 
-      // active/ 下不应存在任何 contract.yaml
-      const activeDir = path.join(clawDir, 'contract', 'active');
-      const dirs = await fs.readdir(activeDir).catch(() => [] as string[]);
-      for (const dir of dirs) {
-        const yamlPath = path.join(activeDir, dir, 'contract.yaml');
-        await expect(fs.access(yamlPath)).rejects.toThrow(); // ENOENT
-      }
+      // Phase 1197: claim + intent + contract.yaml remain for boot recovery; .creating is not deleted.
+      const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+      await expect(fs.access(path.join(activeDir, '.creating'))).resolves.not.toThrow();
+      await expect(fs.access(path.join(activeDir, 'contract.yaml'))).resolves.not.toThrow();
+      await expect(fs.access(path.join(activeDir, 'progress.json'))).rejects.toThrow();
+
+      expect(mockAudit.write).toHaveBeenCalledWith(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_INTERRUPTED,
+        expect.stringContaining(`contractId=${contractId}`),
+        expect.stringContaining('started_at='),
+        expect.stringContaining('boundary=materialize_or_publish'),
+        expect.stringContaining('error=disk full'),
+      );
     });
   });
 

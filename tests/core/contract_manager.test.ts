@@ -77,6 +77,21 @@ describe('ContractSystem', () => {
     expect(progress.subtasks['task-1'].status).toBe('todo');
   });
 
+  it('create publishes by removing .creating marker (Phase 1197 Step B)', async () => {
+    const contractId = await manager.create(makeContractYaml({
+      id: 'published-markerless',
+      title: 'Test',
+      goal: 'Test',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+
+    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
+    await expect(fs.access(path.join(activeDir, 'contract.yaml'))).resolves.not.toThrow();
+    await expect(fs.access(path.join(activeDir, 'progress.json'))).resolves.not.toThrow();
+    await expect(fs.access(path.join(activeDir, '.creating'))).rejects.toThrow();
+  });
+
   it('should cancel contract and move to archive/cancelled', async () => {
     const contractYaml = makeContractYaml();
 

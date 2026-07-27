@@ -18,7 +18,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { loadAllActiveContracts, loadActiveContract } from '../../../src/core/contract/discovery.js';
-import { getActiveContractTimestamp } from '../../../src/core/contract/lightweight-query.js';
+import { getActiveContractTimestamp, listActiveContracts } from '../../../src/core/contract/lightweight-query.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/index.js';
 import { FileNotFoundError, type FileSystem } from '../../../src/foundation/fs/types.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
@@ -644,6 +644,27 @@ describe('Contract discovery (phase 1194 Step A)', () => {
       .find((e) => e.some((c) => typeof c === 'string' && /started_at=\d{4}/.test(c)));
     expect(nowCol).toBeUndefined();
   });
+
+  it('skips directories with .creating marker even when progress.json is valid (Phase 1197 Step A)', async () => {
+    const { audit, events } = makeAudit();
+    const ctx = {
+      fs: nodeFs,
+      audit,
+      loadContract: vi.fn(async (id: string) => ({ id } as any)),
+    };
+
+    await writeContractDir('c-published', '2026-07-12T10:00:00.000Z');
+    await writeContractDir('c-unpublished', '2026-07-12T09:00:00.000Z');
+    await fs.writeFile(path.join(activeDir, 'c-unpublished', '.creating'), JSON.stringify({ schema_version: 1 }), 'utf-8');
+
+    const active = await loadActiveContract(ctx, 'contract/active');
+    expect(active!.id).toBe('c-published');
+
+    const all = await loadAllActiveContracts(ctx, 'contract/active');
+    expect(all.map((e) => e.name)).toEqual(['c-published']);
+
+    expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.MISSING_STARTED_AT)).toBe(false);
+  });
 });
 
 /**
@@ -702,15 +723,74 @@ describe('phase 1154 — getActiveContractTimestamp FS_NOT_FOUND narrow', () => 
   it('happy path returns first timestamp and no audit', () => {
     const { audit, events } = makeAudit();
     const ts = Date.now();
+    const activeDir = path.join('/tmp/claw', 'contract/active');
     const fs = {
       listSync: () => [
         { name: `${ts}-contract1`, isDirectory: true, isFile: false, size: 0, mtime: new Date(), path: '' },
         { name: `${ts + 1000}-contract2`, isDirectory: true, isFile: false, size: 0, mtime: new Date(), path: '' },
       ],
-      existsSync: () => true,
+      existsSync: (p: string) => p === activeDir,
     } as unknown as FileSystem;
     const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBe(ts);
     expect(events).toHaveLength(0);
+  });
+});
+
+/**
+ * Phase 1197 Step A: lightweight query helpers respect creation visibility boundary.
+ */
+describe('creation visibility boundary — lightweight query (Phase 1197 Step A)', () => {
+  let tmpDir: string;
+  let clawDir: string;
+  let activeDir: string;
+  let nodeFs: NodeFileSystem;
+
+  beforeEach(async () => {
+    tmpDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+      os.tmpdir(),
+      `.test-creation-visibility-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
+    );
+    clawDir = path.join(tmpDir, 'claws', 'test-claw');
+    activeDir = path.join(clawDir, 'contract', 'active');
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await fs.mkdir(activeDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: clawDir });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  });
+
+  async function seedContractDir(contractId: string, withCreatingMarker: boolean) {
+    const dir = path.join(activeDir, contractId);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'progress.json'),
+      JSON.stringify({ schema_version: 1, subtasks: { 'task-1': { status: 'todo' } }, started_at: new Date().toISOString() }),
+      'utf-8',
+    );
+    if (withCreatingMarker) {
+      await fs.writeFile(path.join(dir, '.creating'), JSON.stringify({ schema_version: 1 }), 'utf-8');
+    }
+  }
+
+  it('getActiveContractTimestamp ignores .creating directories', async () => {
+    const publishedTs = Date.now();
+    const unpublishedTs = publishedTs - 1000;
+    await seedContractDir(`${publishedTs}-published`, false);
+    await seedContractDir(`${unpublishedTs}-unpublished`, true);
+
+    const result = getActiveContractTimestamp(nodeFs, clawDir);
+    expect(result).toBe(publishedTs);
+  });
+
+  it('listActiveContracts ignores .creating directories', async () => {
+    await seedContractDir('c-published', false);
+    await seedContractDir('c-unpublished', true);
+
+    const result = listActiveContracts(nodeFs, clawDir);
+    expect(result.map((c) => c.contractId)).toEqual(['c-published']);
   });
 });

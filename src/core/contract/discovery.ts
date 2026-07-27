@@ -15,6 +15,7 @@ import {
   emitContractMissingStartedAt,
 } from './audit-emit.js';
 import { ContractProgressPersistedSchema } from './schemas.js';
+import { classifyActivePublication, isActivePublished } from './creation.js';
 
 export interface DiscoveryContext {
   fs: FileSystem;
@@ -54,7 +55,11 @@ async function findContractsInDir(
 
   for (const entry of entries) {
     if (!entry.isDirectory) continue;
-    const progressPath = `${dir}/${entry.name}/progress.json`;
+    const contractRoot = `${dir}/${entry.name}`;
+    const publication = await classifyActivePublication({ fs: ctx.fs, contractRoot });
+    if (!isActivePublished(publication)) continue;
+
+    const progressPath = `${contractRoot}/progress.json`;
     const hasProgress = await ctx.fs.exists(progressPath);
     if (!hasProgress) continue;
 

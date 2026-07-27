@@ -24,6 +24,7 @@ import {
   archiveContainerDir,
 } from './locations.js';
 import { makeContractId } from './types.js';
+import { classifyActivePublicationSync, isActivePublished } from './creation.js';
 
 /** Lightweight contract summary for enumeration (CLI list / health check scenarios). */
 export interface ContractSummary {
@@ -51,7 +52,11 @@ export function hasActiveContract(fs: FileSystem, clawDir: string): boolean {
   if (!fs.existsSync(activeDir)) return false;
   try {
     const entries = fs.listSync(activeDir, { includeDirs: true });
-    return entries.some(e => e.isDirectory);
+    return entries.some(e => {
+      if (!e.isDirectory) return false;
+      const publication = classifyActivePublicationSync({ fs, contractRoot: path.join(activeDir, e.name) });
+      return isActivePublished(publication);
+    });
   } catch {
     /* silent: TOCTOU race — dir vanished between existsSync and listSync */
     return false;
@@ -90,7 +95,13 @@ export function getActiveContractTimestamp(
   if (!fs.existsSync(activeDir)) return null;
   try {
     const entries = fs.listSync(activeDir, { includeDirs: true });
-    const contractDirs = entries.filter(e => e.isDirectory).sort();
+    const contractDirs = entries
+      .filter(e => e.isDirectory)
+      .filter(e => {
+        const publication = classifyActivePublicationSync({ fs, contractRoot: path.join(activeDir, e.name) });
+        return isActivePublished(publication);
+      })
+      .sort();
     if (contractDirs.length === 0) return null;
     const first = contractDirs[0].name;
     // contractId format: <epochMs>-<hash>
@@ -134,7 +145,10 @@ export function listActiveContracts(
   for (const e of entries) {
     if (!e.isDirectory) continue;
     const contractId = e.name;
-    const yamlPath = path.join(activeDir, contractId, CONTRACT_YAML_FILE);
+    const contractRoot = path.join(activeDir, contractId);
+    const publication = classifyActivePublicationSync({ fs, contractRoot });
+    if (!isActivePublished(publication)) continue;
+    const yamlPath = path.join(contractRoot, CONTRACT_YAML_FILE);
     let title = '';
     try {
       const raw = fs.readSync(yamlPath);

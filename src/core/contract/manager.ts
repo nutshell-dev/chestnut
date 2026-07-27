@@ -20,14 +20,13 @@
  * - setOnNotify + onContractCompleted + _emitContractCompleted（事件）
  */
 
-import * as yaml from 'js-yaml';
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { newShortUuid } from '../../foundation/node-utils/index.js';
 
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { Contract, SubtaskStatus } from '../contract/types.js';
+import type { Contract } from '../contract/types.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
 import type { Tool, ToolRegistry } from '../../foundation/tools/index.js';
@@ -36,9 +35,6 @@ import type { Tool, ToolRegistry } from '../../foundation/tools/index.js';
 import {
   emitContractCancelled,
   emitContractCompletedHandlerFailed,
-  emitContractUnexpectedAsyncThrow,
-  emitContractRollbackFailed,
-  emitContractRollbackIncomplete,
   emitContractNotifyFailed,
   emitContractCreated,
   emitContractProgressSchemaInvalid,
@@ -46,6 +42,8 @@ import {
   emitContractVerifierRegistered,
   emitContractVerifierUnregistered,
   emitContractLegacyPausedObserved,
+  emitContractCreationClaimed,
+  emitContractCreationInterrupted,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -96,12 +94,15 @@ import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 import { readArchivePayload } from './archive-reader.js';
 import { VerificationMutex } from './verification-mutex.js';
 import { ContractAuditor } from './contract-auditor.js';
-
-// Contract default value constants
-const CONTRACT_DEFAULTS = {
-  schema_version: 1,
-  auth_level: 'auto' as const,
-};
+import {
+  CREATION_CLAIM_FILE,
+  buildCreationIntent,
+  isAlreadyExists,
+  materializeClaimedCreation,
+  publishCreation,
+  serializeCreationIntent,
+  recoverUnpublishedCreation,
+} from './creation.js';
 
 export {
   type ContractYaml,
@@ -613,6 +614,32 @@ export class ContractSystem {
 
     let failedCount = 0;
 
+    // Phase 1197 Step B: recover durable creation intents before normal active reconcile.
+    if (await this.fs.exists(this.activeDir)) {
+      const allEntries = await this.fs.list(this.activeDir, { includeDirs: true });
+      for (const entry of allEntries) {
+        if (!entry.isDirectory) continue;
+        const contractId = makeContractId(entry.name);
+        if (await this.fs.exists(`${this.activeDir}/${contractId}/${CREATION_CLAIM_FILE}`)) {
+          try {
+            await recoverUnpublishedCreation({
+              fs: this.fs,
+              audit: this.audit,
+              activeDir: this.activeDir,
+              contractId,
+            });
+          } catch (err) {
+            this.audit.write(
+              CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_SKIPPED,
+              `contract=${contractId}`,
+              `error=${formatErr(err)}`,
+            );
+            failedCount++;
+          }
+        }
+      }
+    }
+
     if (await this.fs.exists(this.activeDir)) {
       const activeIds = await listPhysicalActiveContractIds({
         fs: this.fs,
@@ -873,9 +900,10 @@ export class ContractSystem {
     }
     const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
 
-    // Phase 956: check uniqueness across current directories (active + archive states + legacy flat)
+    // Phase 956: preflight uniqueness check across current directories (active + archive states + legacy flat).
     // phase 1123 Step C: paused/ is legacy-only and must not block creation.
     // phase 1127 Step B: creation must not collide with any current archive state container or legacy flat entry.
+    // Phase 1197: preflight is friendly diagnostic only; real authority comes from exclusive claim.
     const archiveStateDirs = [...ARCHIVE_STATES].map(state => `${this.archiveDir}/${state}`);
     for (const dir of [this.activeDir, ...archiveStateDirs, this.archiveDir]) {
       if (await this.fs.exists(`${dir}/${contractId}`)) {
@@ -918,93 +946,62 @@ export class ContractSystem {
       seenSubtaskIds.add(a.subtask_id);
     }
 
-    await this.fs.ensureDir(`${this.activeDir}/${contractId}`);
+    const startedAt = new Date().toISOString();
+    const intent = buildCreationIntent(contractYaml, contractId, startedAt);
 
-    const content = yaml.dump({
-      schema_version: contractYaml.schema_version ?? CONTRACT_DEFAULTS.schema_version,
-      id: contractId,
-      title: contractYaml.title,
-      background: contractYaml.background,
-      goal: contractYaml.goal,
-      expectations: contractYaml.expectations,
-      subtasks: contractYaml.subtasks,
-      verification: contractYaml.verification ?? [],
-      verification_attempts: contractYaml.verification_attempts,
-      audit_interval: contractYaml.audit_interval,
-      auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
-    });
-    await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
-
-    const progress: ProgressData = {
-      schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
-      contract_id: contractId,
-      status: 'running',
-      subtasks: Object.fromEntries(
-        contractYaml.subtasks.map((st: { id: string }) => [st.id, { status: 'todo' as SubtaskStatus }])
-      ),
-      started_at: new Date().toISOString(),
-      checkpoint: null,
-    };
+    // Phase 1197: exclusive claim grants creation authority.
     try {
-      // phase 282 Step B: persist without derive fields (contract_id/status)
-      const persisted = { ...progress };
-      delete (persisted as Record<string, unknown>).contract_id;
-      delete (persisted as Record<string, unknown>).status;
-      await this.fs.writeAtomic(
-        `${this.activeDir}/${contractId}/progress.json`,
-        JSON.stringify(persisted, null, 2)
+      await this.fs.writeExclusive(
+        `${this.activeDir}/${contractId}/${CREATION_CLAIM_FILE}`,
+        serializeCreationIntent(intent),
       );
-    } catch (err) {
-      await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
-        if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => deleteErr instanceof T)) {
-          emitContractUnexpectedAsyncThrow(
-            this.audit,
-            {
-              context: 'ContractSystem.rollbackCleanup',
-              contractId,
-              errorType: deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr,
-              error: formatErr(deleteErr),
-              stack: deleteErr instanceof Error ? deleteErr.stack ?? '' : '',
-            },
-          );
-        }
-        emitContractRollbackFailed(
-          this.audit,
-          {
-            contractId,
-            error: formatErr(deleteErr),
-          },
-        );
-      });
-      // verify rollback succeeded
-      if (await this.fs.exists(`${this.activeDir}/${contractId}`)) {
-        // phase 337 M3 (review-2026-06-13): 写 .rollback-incomplete sentinel
-        // 到 dir 内、让 ops + 未来 boot reconcile 一眼可见这是 stale 失败 rollback、
-        // 不是合法 active contract。dir 仍在但已 marked。audit 单独 emit。
-        const sentinelPath = `${this.activeDir}/${contractId}/.rollback-incomplete`;
-        const sentinelBody = JSON.stringify({
-          contract_id: contractId,
-          failed_at: new Date().toISOString(),
-          original_error: formatErr(err),
-          message: 'Contract.create rollback failed — dir is stale; ops should remove manually',
-        }, null, 2);
-        await this.fs.writeAtomic(sentinelPath, sentinelBody).catch((sentinelErr) => {
-          emitContractRollbackFailed(
-            this.audit,
-            {
-              contractId,
-              error: `sentinel write failed: ${formatErr(sentinelErr)}`,
-            },
-          );
-        });
-        emitContractRollbackIncomplete(
-          this.audit,
-          {
-            contractId,
-            remaining: `${this.activeDir}/${contractId}`,
-          },
-        );
+    } catch (error) {
+      if (isAlreadyExists(error)) {
+        throw new ContractValidationError('id', 'already_exists',
+          `contract id "${contractId}" already exists`,
+          { contractId });
       }
+      throw error;
+    }
+
+    emitContractCreationClaimed(this.audit, { contractId, startedAt });
+
+    // Recheck archive collision after claim (another process may have archived the same id).
+    for (const dir of archiveStateDirs) {
+      if (await this.fs.exists(`${dir}/${contractId}`)) {
+        emitContractCreationInterrupted(this.audit, {
+          contractId,
+          startedAt,
+          boundary: 'archive_collision_recheck',
+          error: `contract id "${contractId}" already exists in ${path.basename(dir)}`,
+        });
+        throw new ContractValidationError('id', 'already_exists',
+          `contract id "${contractId}" already exists in ${path.basename(dir)}`,
+          { contractId });
+      }
+    }
+    if (await this.fs.exists(`${this.archiveDir}/${contractId}`)) {
+      emitContractCreationInterrupted(this.audit, {
+        contractId,
+        startedAt,
+        boundary: 'archive_collision_recheck',
+        error: `contract id "${contractId}" already exists in ${path.basename(this.archiveDir)}`,
+      });
+      throw new ContractValidationError('id', 'already_exists',
+        `contract id "${contractId}" already exists in ${path.basename(this.archiveDir)}`,
+        { contractId });
+    }
+
+    try {
+      await materializeClaimedCreation({ fs: this.fs, activeDir: this.activeDir, contractId, intent });
+      await publishCreation({ fs: this.fs, activeDir: this.activeDir, contractId });
+    } catch (err) {
+      emitContractCreationInterrupted(this.audit, {
+        contractId,
+        startedAt,
+        boundary: 'materialize_or_publish',
+        error: formatErr(err),
+      });
       throw err;
     }
 

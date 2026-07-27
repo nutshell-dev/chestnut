@@ -87,12 +87,12 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       expect(createdEvents.some((c) => c.some((col) => typeof col === 'string' && col.includes('contractId=second-active')))).toBe(true);
     });
 
-    it('writes CONTRACT_ROLLBACK_FAILED audit when contract dir rollback fails', async () => {
-      vi.spyOn(nodeFs, 'writeAtomic').mockImplementation(async (p: string, c: string) => {
+    it('writes CONTRACT_CREATION_INTERRUPTED audit when materialize fails (no destructive rollback)', async () => {
+      const writeAtomicSpy = vi.spyOn(nodeFs, 'writeAtomic').mockImplementation(async (p: string, c: string) => {
         if (p.includes('progress.json')) throw new Error('disk full');
         return fs.writeFile(path.join(clawDir, p), c);
       });
-      vi.spyOn(nodeFs, 'removeDir').mockRejectedValue(new Error('rm failed'));
+      const removeDirSpy = vi.spyOn(nodeFs, 'removeDir').mockRejectedValue(new Error('rm failed'));
 
       const mockAudit = makeMockAudit();
       const failManager = new ContractSystem({
@@ -111,10 +111,19 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         verification: [],
       }))).rejects.toThrow('disk full');
 
+      expect(writeAtomicSpy).toHaveBeenCalledWith(expect.stringContaining('progress.json'), expect.any(String));
+      expect(removeDirSpy).not.toHaveBeenCalled();
       expect(mockAudit.write).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.ROLLBACK_FAILED,
+        CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_INTERRUPTED,
         expect.stringContaining('contractId='),
+        expect.stringContaining('started_at='),
+        expect.stringContaining('boundary=materialize_or_publish'),
         expect.stringContaining('error='),
+      );
+      expect(mockAudit.write).not.toHaveBeenCalledWith(
+        CONTRACT_AUDIT_EVENTS.ROLLBACK_FAILED,
+        expect.anything(),
+        expect.anything(),
       );
     });
 

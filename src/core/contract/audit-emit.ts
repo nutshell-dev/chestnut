@@ -994,5 +994,55 @@ export function emitContractLegacyPausedObserved(
   );
 }
 
+// ─── CONTRACT_CREATION (Phase 1197) ─────────────────────────────────────────
+export function emitContractCreationClaimed(
+  audit: AuditLog,
+  opts: { contractId: ContractId; startedAt: string },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreationClaimed')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_CLAIMED,
+    `contractId=${opts.contractId}`,
+    `started_at=${opts.startedAt}`,
+  );
+}
+
+export function emitContractCreationInterrupted(
+  audit: AuditLog,
+  opts: { contractId: ContractId; startedAt: string; boundary: string; error: string },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreationInterrupted')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_INTERRUPTED,
+    `contractId=${opts.contractId}`,
+    `started_at=${opts.startedAt}`,
+    `boundary=${opts.boundary}`,
+    `error=${opts.error}`,
+  );
+}
+
+export function emitContractCreationRecovered(
+  audit: AuditLog,
+  opts: { contractId: ContractId; startedAt: string },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreationRecovered')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED,
+    `contractId=${opts.contractId}`,
+    `started_at=${opts.startedAt}`,
+  );
+}
+
+export function emitContractCreationRecoveryFailed(
+  audit: AuditLog,
+  opts: { contractId: ContractId; startedAt?: string; reason: string; error: string },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreationRecoveryFailed')) return;
+  const cols: string[] = [`contractId=${opts.contractId}`];
+  if (opts.startedAt !== undefined) cols.push(`started_at=${opts.startedAt}`);
+  cols.push(`reason=${opts.reason}`, `error=${opts.error}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED, ...cols);
+}
+
 // ─── Legacy helper: format error ──────────────────────────────────────────────
 export { formatErr };

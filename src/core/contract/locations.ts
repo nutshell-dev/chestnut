@@ -17,6 +17,7 @@ import { CONTRACT_ACTIVE_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs
 import { ARCHIVE_STATES, type ArchiveState, type ContractId, makeContractId } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { ContractLocationAmbiguityError } from './errors.js';
+import { classifyActivePublication, classifyActivePublicationSync, isActivePublished } from './creation.js';
 
 export type ContractLocationKind = 'active' | 'archived-current' | 'archived-legacy';
 
@@ -75,10 +76,12 @@ export async function resolveActiveContractLocation(opts: {
 }): Promise<ActiveContractLocation | null> {
   const { fs, activeDir, contractId } = opts;
   const root = `${activeDir}/${contractId}`;
-  if (await fs.exists(root)) {
-    return { contractId, contractRoot: root };
-  }
-  return null;
+  if (!(await fs.exists(root))) return null;
+
+  const publication = await classifyActivePublication({ fs, contractRoot: root });
+  if (!isActivePublished(publication)) return null;
+
+  return { contractId, contractRoot: root };
 }
 
 /**
@@ -95,10 +98,16 @@ export async function listPhysicalActiveContractIds(opts: {
 }): Promise<ContractId[]> {
   if (!(await opts.fs.exists(opts.activeDir))) return [];
   const entries = await opts.fs.list(opts.activeDir, { includeDirs: true });
-  return entries
-    .filter(entry => entry.isDirectory)
-    .map(entry => makeContractId(entry.name))
-    .sort();
+  const results: ContractId[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory) continue;
+    const contractRoot = `${opts.activeDir}/${entry.name}`;
+    const publication = await classifyActivePublication({ fs: opts.fs, contractRoot });
+    if (isActivePublished(publication)) {
+      results.push(makeContractId(entry.name));
+    }
+  }
+  return results.sort();
 }
 
 export function isArchiveStateContainer(name: string): name is ArchiveState {
@@ -132,7 +141,10 @@ export async function resolveContractLocation(opts: {
 
   const activeRoot = contractRoot(activeDir, contractId);
   if (await fs.exists(activeRoot)) {
-    candidates.push({ kind: 'active', containerDir: activeDir, contractRoot: activeRoot });
+    const publication = await classifyActivePublication({ fs, contractRoot: activeRoot });
+    if (isActivePublished(publication)) {
+      candidates.push({ kind: 'active', containerDir: activeDir, contractRoot: activeRoot });
+    }
   }
 
   for (const state of ARCHIVE_STATES) {
@@ -172,7 +184,10 @@ export function resolveContractLocationSync(opts: {
 
   const activeRoot = contractRoot(activeDir, contractId);
   if (fs.existsSync(activeRoot)) {
-    candidates.push({ kind: 'active', containerDir: activeDir, contractRoot: activeRoot });
+    const publication = classifyActivePublicationSync({ fs, contractRoot: activeRoot });
+    if (isActivePublished(publication)) {
+      candidates.push({ kind: 'active', containerDir: activeDir, contractRoot: activeRoot });
+    }
   }
 
   for (const state of ARCHIVE_STATES) {

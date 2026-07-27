@@ -98,6 +98,32 @@ describe('listPhysicalActiveContractIds', () => {
       }),
     ).rejects.toThrow('disk read failed');
   });
+
+  it('excludes directories with a .creating marker (Phase 1197 Step A)', async () => {
+    const activeDir = path.join(tmpDir, 'contract', 'active');
+    await fs.mkdir(path.join(activeDir, 'c-published'), { recursive: true });
+    await fs.mkdir(path.join(activeDir, 'c-unpublished'), { recursive: true });
+    await fs.writeFile(path.join(activeDir, 'c-unpublished', '.creating'), JSON.stringify({ schema_version: 1 }));
+
+    const result = await listPhysicalActiveContractIds({
+      fs: fsNode,
+      activeDir: 'contract/active',
+    });
+
+    expect(result).toEqual(['c-published']);
+  });
+
+  it('includes legacy directories without any marker (Phase 1197 Step A)', async () => {
+    const activeDir = path.join(tmpDir, 'contract', 'active');
+    await fs.mkdir(path.join(activeDir, 'c-legacy'), { recursive: true });
+
+    const result = await listPhysicalActiveContractIds({
+      fs: fsNode,
+      activeDir: 'contract/active',
+    });
+
+    expect(result).toEqual(['c-legacy']);
+  });
 });
 
 describe('resolveActiveContractLocation', () => {
@@ -147,6 +173,30 @@ describe('resolveActiveContractLocation', () => {
       contractId,
     });
     expect(loc).toBeNull();
+  });
+
+  it('returns null when .creating marker is present (Phase 1197 Step A)', async () => {
+    const root = path.join(clawDir, 'contract', 'active', contractId);
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(path.join(root, '.creating'), JSON.stringify({ schema_version: 1 }));
+
+    const loc = await resolveActiveContractLocation({
+      fs: nodeFs,
+      activeDir: 'contract/active',
+      contractId,
+    });
+    expect(loc).toBeNull();
+  });
+
+  it('returns location for legacy directory without marker (Phase 1197 Step A)', async () => {
+    await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId), { recursive: true });
+    const loc = await resolveActiveContractLocation({
+      fs: nodeFs,
+      activeDir: 'contract/active',
+      contractId,
+    });
+    expect(loc).not.toBeNull();
+    expect(loc!.contractRoot).toBe('contract/active/cid-1');
   });
 });
 

@@ -126,6 +126,12 @@ export const CONTRACT_AUDIT_EVENTS = {
   // Phase 230: contract create policy rejected
   CONTRACT_CREATE_POLICY_REJECTED: 'contract_create_policy_rejected',
 
+  // Phase 1197: contract creation publish protocol
+  CONTRACT_CREATION_CLAIMED: 'contract_creation_claimed',
+  CONTRACT_CREATION_INTERRUPTED: 'contract_creation_interrupted',
+  CONTRACT_CREATION_RECOVERED: 'contract_creation_recovered',
+  CONTRACT_CREATION_RECOVERY_FAILED: 'contract_creation_recovery_failed',
+
   // phase 233 Step A: saveProgress 入口 schema invariant 违例
   CONTRACT_PROGRESS_INVARIANT_VIOLATED: 'contract_progress_invariant_violated',
   // phase 282 Step A: legacy status field ignored on load
@@ -250,6 +256,10 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
   contract_create_policy_rejected: 'audit',
+  contract_creation_claimed: 'audit',
+  contract_creation_interrupted: 'audit',
+  contract_creation_recovered: 'audit',
+  contract_creation_recovery_failed: 'audit',
   contract_missing_started_at: 'audit',
   contract_legacy_crashed_observed: 'audit',
   contract_legacy_paused_observed: 'audit',

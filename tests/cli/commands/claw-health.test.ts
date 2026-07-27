@@ -78,6 +78,8 @@ describe('claw-health', () => {
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
       const sp = String(p);
+      // Phase 1197: .creating is a transient marker, not a published contract.
+      if (sp.endsWith('.creating')) return false;
       return sp.includes('contract/active') || sp.includes('inbox/pending') || sp.includes('outbox/pending');
     });
   });

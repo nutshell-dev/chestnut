@@ -23,6 +23,7 @@ import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
+import { CREATION_CLAIM_FILE } from '../../../src/core/contract/creation.js';
 
 
 
@@ -136,6 +137,41 @@ describe('ContractSystem.init() boot reconcile', () => {
     // Step E: boot reconcile ignores legacy progress.status; subtasks are not all
     // completed, so the contract stays active.
     expect(await fs.stat(activeDir).then(() => true).catch(() => false)).toBe(true);
+  });
+
+  it('recovers unpublished creation before normal active reconcile (Phase 1197 Step B)', async () => {
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const recoveredId = 'recovered-boot';
+    const recoveredDir = path.join(activeDir, recoveredId);
+    await fs.mkdir(recoveredDir, { recursive: true });
+    await fs.writeFile(
+      path.join(recoveredDir, CREATION_CLAIM_FILE),
+      JSON.stringify({
+        schema_version: 1,
+        contract_id: recoveredId,
+        started_at: '2026-07-12T10:00:00.000Z',
+        contract: {
+          schema_version: 1,
+          id: recoveredId,
+          title: 'Recovered',
+          goal: 'Recovered',
+          subtasks: [{ id: 't1', description: 'T1' }],
+          verification: [],
+        },
+      }, null, 2),
+    );
+
+    const manager = makeManager();
+    await manager.init();
+
+    // Recovered contract is now published and visible.
+    const progress = await manager.getProgress(recoveredId);
+    expect(progress).not.toBeNull();
+    expect(progress!.started_at).toBe('2026-07-12T10:00:00.000Z');
+    await expect(fs.access(path.join(recoveredDir, CREATION_CLAIM_FILE))).rejects.toThrow();
+
+    // Recovery event emitted.
+    expect(auditWrite.mock.calls.some((c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED)).toBe(true);
   });
 });
 
