@@ -17,6 +17,10 @@ import {
   emitSubtaskForceAccepted,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import {
+  buildVerificationOutcome,
+  type SerializableErrorFact,
+} from './verification-outcome.js';
 
 type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed' | 'contract_cancelled';
 
@@ -152,6 +156,7 @@ export async function handleVerificationErrorRetry(
   cause: LastFailedFeedback['cause'],
   feedbackText: string,
   attemptId?: string,
+  errorFact?: SerializableErrorFact,
 ): Promise<{ archived?: boolean }> {
   let result: { archived?: boolean } = {};
   try {
@@ -186,6 +191,14 @@ export async function handleVerificationErrorRetry(
     // attempt）传入；缺失时退回 fresh-read 当前 attempt。forceAccept 由 queued
     // mutation 基于 fresh retry_count 计算。
     const effectiveAttemptId = attemptId ?? subtask.verification_attempt_id!;
+
+    // Phase 1201 Step C: errored outcome 先持久化 immutable fact，再 queued reject。
+    if (errorFact !== undefined) {
+      await ctx.persistVerificationOutcome(buildVerificationOutcome(
+        { contractId, subtaskId, attemptId: effectiveAttemptId, completedAt: new Date().toISOString() },
+        { kind: 'errored', error: errorFact, cause, feedback: feedbackText, maxAttempts },
+      ));
+    }
 
     const transitionResult = await ctx.transitionVerificationAttempt(
       contractId,
@@ -311,6 +324,12 @@ export async function writeVerificationError(
       : `Acceptance verification crashed (system bug). Error: ${errorMsg}. 修代码后再 retry。`;
 
   notifyVerificationError(ctx, contractId, subtaskId, errorMsg);
-  return handleVerificationErrorRetry(ctx, contractId, subtaskId, cause, feedbackText, attemptId);
+  // Phase 1201 Step C: error fact 传入 retry state machine，由其 durable-first persist。
+  const errorFact: SerializableErrorFact = {
+    message: errorMsg,
+    name: error instanceof Error ? error.constructor.name : typeof error,
+    ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+  };
+  return handleVerificationErrorRetry(ctx, contractId, subtaskId, cause, feedbackText, attemptId, errorFact);
 }
 

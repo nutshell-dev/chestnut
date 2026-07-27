@@ -160,6 +160,14 @@ export const CONTRACT_AUDIT_EVENTS = {
   PROGRESS_MUTATION_STARTED: 'contract_progress_mutation_started',
   PROGRESS_MUTATION_FINISHED: 'contract_progress_mutation_finished',
   PROGRESS_MUTATION_FAILED: 'contract_progress_mutation_failed',
+
+  // Phase 1201 Step C: durable verification outcome store + boot replay
+  VERIFICATION_OUTCOME_PERSISTED: 'contract_verification_outcome_persisted',
+  VERIFICATION_OUTCOME_IDEMPOTENT: 'contract_verification_outcome_idempotent',
+  VERIFICATION_OUTCOME_CONFLICT: 'contract_verification_outcome_conflict',
+  VERIFICATION_OUTCOME_READ_ISSUE: 'contract_verification_outcome_read_issue',
+  VERIFICATION_OUTCOME_REPLAY: 'contract_verification_outcome_replay',
+  VERIFICATION_OUTCOME_LATE: 'contract_verification_outcome_late',
 } as const;
 
 /**
@@ -287,4 +295,10 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_progress_mutation_started: 'audit',
   contract_progress_mutation_finished: 'audit',
   contract_progress_mutation_failed: 'audit',
+  contract_verification_outcome_persisted: 'audit',
+  contract_verification_outcome_idempotent: 'audit',
+  contract_verification_outcome_conflict: 'audit',
+  contract_verification_outcome_read_issue: 'audit',
+  contract_verification_outcome_replay: 'audit',
+  contract_verification_outcome_late: 'audit',
 } as const;

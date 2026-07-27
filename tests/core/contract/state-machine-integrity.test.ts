@@ -165,6 +165,7 @@ function makeAcceptanceCtx(
     fs: fsMock,
     isActiveContract: vi.fn(async () => true),
     getContractRoot: vi.fn(async (_id: string) => `contract/active/${_id}`),
+    persistVerificationOutcome: vi.fn(async () => 'persisted'),
     transitionVerificationAttempt: vi.fn(async (contractId: string, subtaskId: string, transition: any) => {
       const current = storedProgress[contractId] ?? {
         contract_id: contractId,

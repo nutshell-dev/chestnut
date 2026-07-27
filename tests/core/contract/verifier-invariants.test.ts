@@ -528,6 +528,7 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
         .mockResolvedValueOnce(true)
         .mockResolvedValueOnce(false),
       getContractRoot: vi.fn().mockResolvedValue('contract/active/c1'),
+      persistVerificationOutcome: vi.fn().mockResolvedValue('persisted'),
       transitionVerificationAttempt: vi.fn().mockResolvedValue({
         kind: 'updated',
         record: {},

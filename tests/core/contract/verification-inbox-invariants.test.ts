@@ -475,6 +475,7 @@ describe('Phase 961 verification invariants', () => {
       onNotify: vi.fn(),
       isActiveContract: vi.fn().mockResolvedValue(true),
       getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+      persistVerificationOutcome: vi.fn().mockResolvedValue('persisted'),
       transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'late', expectedAttemptId: 'attempt-B', actualAttemptId: 'attempt-A' }),
     } as unknown as VerificationContext;
 

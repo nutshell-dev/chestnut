@@ -182,15 +182,15 @@ describe('ContractSystem manager (phase 956)', () => {
     await fs.writeFile(path.join(c2Dir, 'contract.yaml'), yaml.dump(makeContractYaml({ id: c2 })));
     await fs.writeFile(path.join(c2Dir, 'progress.json'), JSON.stringify({ ...baseProgress, contract_id: c2 }, null, 2));
 
-    vi.spyOn(manager, 'getProgress')
-      .mockResolvedValueOnce({
-        schema_version: 1,
-        contract_id: c1,
-        status: 'running',
-        subtasks: { 'task-1': { status: 'in_progress', verification_attempt_id: 'old-attempt' } },
-        started_at: new Date().toISOString(),
-      } as any)
-      .mockRejectedValueOnce(new Error('EIO'));
+    // Phase 1201 Step C: boot reset 走 queued fresh-read（不再经 getProgress）；
+    // 改为对 c2 的 saveProgress 注入 IO 失败，验证单 contract 失败隔离。
+    const originalSave = (manager as any).saveProgress.bind(manager);
+    vi.spyOn(manager as any, 'saveProgress').mockImplementation(
+      async (contractId: string, ...rest: unknown[]) => {
+        if (contractId === c2) throw new Error('EIO');
+        return originalSave(contractId, ...rest);
+      },
+    );
 
     await manager.init();
 

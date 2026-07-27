@@ -23,6 +23,10 @@ import type { VerificationMutex } from '../../src/core/contract/verification-mut
 import type { ProgressData, ContractYaml, ArchiveState } from '../../src/core/contract/types.js';
 import type { VerificationAttemptTransition } from '../../src/core/contract/verification-transition-types.js';
 import type { SyncCompletionGatewayResult, VerificationGatewayResult } from '../../src/core/contract/verification-types.js';
+import type {
+  PersistVerificationOutcomeResult,
+  VerificationOutcomeIntent,
+} from '../../src/core/contract/verification-outcome.js';
 
 type Internals = {
   fs: FileSystem;
@@ -44,6 +48,7 @@ type Internals = {
     stId: SubtaskId,
     facts: { evidence: string; artifacts?: string[]; at: string },
   ) => Promise<SyncCompletionGatewayResult>;
+  _persistVerificationOutcome: (outcome: VerificationOutcomeIntent) => Promise<PersistVerificationOutcomeResult>;
   checkAllCompleted: (id: ContractId, progress: ProgressData) => Promise<boolean>;
   /** Phase 1198 Step B: stable base directory for lifecycle intent store. */
   baseDir: string;
@@ -83,6 +88,7 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     loadContractYaml: (id) => self.loadContractYaml(id),
     getProgress: (id) => self.getProgress(id),
     submitSyncCompletion: (id, stId, facts) => self._submitSyncCompletion(id, stId, facts),
+    persistVerificationOutcome: (outcome) => self._persistVerificationOutcome(outcome),
     checkAllSubtasksCompleted: (id, p) => self.checkAllCompleted(id, p),
     // Mirror manager._verificationCtx(): without this the abort throws TypeError
     // inside archiveAndEmit and pollutes the completed audit with a spurious

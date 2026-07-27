@@ -23,7 +23,9 @@ import {
   emitContractVerificationStarted,
   emitContractVerificationPipelineRaceRejected,
   emitSubtaskForceAccepted,
+  emitVerificationOutcomeLate,
 } from './audit-emit.js';
+import { buildVerificationOutcome } from './verification-outcome.js';
 
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
@@ -126,6 +128,7 @@ async function applyVerificationOutcome(
   contractYaml: ContractYaml,
   verificationConfig: VerificationConfig,
   attemptId: string,
+  at: string,
 ): Promise<ApplyOutcome> {
   // Phase 1136 Step C: lifecycle guard based on physical active path.
   if (!(await isContractActive(ctx, contractId))) {
@@ -160,8 +163,6 @@ async function applyVerificationOutcome(
     return { kind: 'missing_subtask' };
   }
 
-  const at = new Date().toISOString();
-
   if (result.passed) {
     const transitionResult = await ctx.transitionVerificationAttempt(
       contractId,
@@ -169,6 +170,17 @@ async function applyVerificationOutcome(
       { kind: 'pass', attemptId, at },
     );
     if (transitionResult.kind === 'late') {
+      // Phase 1201 Step C: 旧 attempt outcome 晚到新 attempt —— durable fact 已
+      // 保留，progress 不被覆盖，audit superseded。
+      emitVerificationOutcomeLate(ctx.audit, {
+        contractId,
+        subtaskId,
+        attemptId,
+        outcomeKind: 'passed',
+        ...(transitionResult.actualAttemptId !== undefined
+          ? { actualAttemptId: transitionResult.actualAttemptId }
+          : {}),
+      });
       return { kind: 'late' };
     }
     if (transitionResult.kind !== 'updated') {
@@ -215,6 +227,15 @@ async function applyVerificationOutcome(
     },
   );
   if (transitionResult.kind === 'late') {
+    emitVerificationOutcomeLate(ctx.audit, {
+      contractId,
+      subtaskId,
+      attemptId,
+      outcomeKind: 'rejected',
+      ...(transitionResult.actualAttemptId !== undefined
+        ? { actualAttemptId: transitionResult.actualAttemptId }
+        : {}),
+    });
     return { kind: 'late' };
   }
   if (transitionResult.kind !== 'updated') {
@@ -456,6 +477,27 @@ export async function runVerificationInBackground(
 
     const result = await promise;
 
+    // Phase 1201 Step C: durable-first —— verifier 计算结果先持久化为 immutable
+    // outcome，再 queued apply；persist→apply 窗口崩溃由 boot replay 恢复（DP1/DP4）。
+    const outcomeCompletedAt = new Date().toISOString();
+    const resultFact = {
+      passed: result.passed,
+      feedback: result.feedback,
+      ...(result.structured ? { structured: result.structured } : {}),
+    };
+    const maxAttempts = contractYaml.verification_attempts ?? DEFAULT_VERIFICATION_ATTEMPTS;
+    await ctx.persistVerificationOutcome(buildVerificationOutcome(
+      { contractId, subtaskId, attemptId, completedAt: outcomeCompletedAt },
+      result.passed
+        ? { kind: 'passed', result: resultFact }
+        : {
+            kind: 'rejected',
+            result: resultFact,
+            cause: verificationConfig.type === 'script' ? 'script_failed' : 'llm_rejected',
+            maxAttempts,
+          },
+    ));
+
     const outcome = await applyVerificationOutcome(
       ctx,
       contractId,
@@ -465,6 +507,7 @@ export async function runVerificationInBackground(
       contractYaml,
       verificationConfig,
       attemptId,
+      outcomeCompletedAt,
     );
 
     if ('kind' in outcome) {
@@ -504,6 +547,14 @@ export async function runVerificationInBackground(
       // Phase 1136 Step D: persist abort as an interrupted attempt when the contract is still active.
       try {
         if (await isContractActive(ctx, contractId)) {
+          // Phase 1201 Step C: interrupted 也先落 durable outcome 再 queued transition。
+          await ctx.persistVerificationOutcome(buildVerificationOutcome(
+            { contractId, subtaskId, attemptId, completedAt: new Date().toISOString() },
+            {
+              kind: 'interrupted',
+              reason: controller.signal.aborted ? formatErr(controller.signal.reason) : 'AbortError',
+            },
+          ));
           await ctx.transitionVerificationAttempt(
             contractId,
             subtaskId,

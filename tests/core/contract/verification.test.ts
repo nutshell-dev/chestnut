@@ -37,6 +37,7 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     runVerifierWithCancel: vi.fn(),
     isActiveContract: vi.fn().mockResolvedValue(true),
     getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+    persistVerificationOutcome: vi.fn().mockResolvedValue('persisted'),
     transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'skipped', reason: 'not configured' }),
     ...overrides,
   } as VerificationContext;

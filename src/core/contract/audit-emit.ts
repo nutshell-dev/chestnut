@@ -1131,3 +1131,49 @@ export function emitProgressMutationFailed(
     `error=${opts.error}`,
   );
 }
+
+// ─── VERIFICATION_OUTCOME replay / late (Phase 1201 Step C) ─────────────────
+export function emitVerificationOutcomeReplay(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    subtaskId: string;
+    attemptId: string;
+    outcomeKind: string;
+    result: 'replayed' | 'already_applied' | 'superseded' | 'not_active' | 'invalid';
+    detail?: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitVerificationOutcomeReplay')) return;
+  const cols: string[] = [
+    `contractId=${opts.contractId}`,
+    `subtaskId=${opts.subtaskId}`,
+    `attemptId=${opts.attemptId}`,
+    `outcome_kind=${opts.outcomeKind}`,
+    `result=${opts.result}`,
+  ];
+  if (opts.detail !== undefined) cols.push(`detail=${opts.detail}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_OUTCOME_REPLAY, ...cols);
+}
+
+export function emitVerificationOutcomeLate(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    subtaskId: string;
+    attemptId: string;
+    outcomeKind: string;
+    actualAttemptId?: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitVerificationOutcomeLate')) return;
+  const cols: string[] = [
+    `contractId=${opts.contractId}`,
+    `subtaskId=${opts.subtaskId}`,
+    `attemptId=${opts.attemptId}`,
+    `outcome_kind=${opts.outcomeKind}`,
+    `result=superseded`,
+  ];
+  if (opts.actualAttemptId !== undefined) cols.push(`actual_attempt_id=${opts.actualAttemptId}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_OUTCOME_LATE, ...cols);
+}

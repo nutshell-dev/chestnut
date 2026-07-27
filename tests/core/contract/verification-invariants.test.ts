@@ -629,6 +629,7 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       toolRegistry: {} as VerificationContext['toolRegistry'],
       isActiveContract: vi.fn().mockResolvedValue(true),
       getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+      persistVerificationOutcome: vi.fn().mockResolvedValue('persisted'),
       transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'skipped', reason: 'not configured' }),
       ...overrides,
     } as VerificationContext;

@@ -16,6 +16,10 @@ import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.j
 import type {
   VerificationAttemptTransition,
 } from './verification-transition-types.js';
+import type {
+  PersistVerificationOutcomeResult,
+  VerificationOutcomeIntent,
+} from './verification-outcome.js';
 
 /**
  * phase 95: pre-bound notifyClaw — caller (Manager) binds fs + chestnutRoot + audit.
@@ -59,6 +63,14 @@ export interface VerificationContractContext {
     facts: { evidence: string; artifacts?: string[]; at: string },
   ) => Promise<SyncCompletionGatewayResult>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
+  /**
+   * Phase 1201 Step C: durable-first verification outcome persist。
+   * background result/error 必须先持久化 immutable outcome，再 queued apply；
+   * 崩溃窗口由 boot replay 恢复。
+   */
+  persistVerificationOutcome: (
+    outcome: VerificationOutcomeIntent,
+  ) => Promise<PersistVerificationOutcomeResult>;
   /** Phase 1198 Step B: base directory for stable lifecycle intent store. */
   baseDir: string;
   /** Phase 1198 Step B: active container directory. */

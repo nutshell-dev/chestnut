@@ -44,6 +44,7 @@ import {
   emitContractLegacyPausedObserved,
   emitContractCreationClaimed,
   emitContractCreationInterrupted,
+  emitVerificationOutcomeReplay,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -91,6 +92,13 @@ import {
 import { buildSubmitSubtaskTool, type SubmitSubtaskParams } from './tools/submit-subtask.js';
 import { archiveAndEmit } from './verification-lifecycle.js';
 import { formatValidIds } from './verification-format.js';
+import {
+  isOutcomeAlreadyApplied,
+  persistVerificationOutcome,
+  readVerificationOutcomesForContract,
+  type PersistVerificationOutcomeResult,
+  type VerificationOutcomeIntent,
+} from './verification-outcome.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 
@@ -116,6 +124,12 @@ export {
   type VerifierConfig,
   type VerifierResult,
 };
+
+/** Phase 1201 Step C: queued boot reset mutation outcome。 */
+type BootResetOutcome =
+  | { kind: 'done'; resetIds: string[]; progress: ProgressData }
+  | { kind: 'not_active' }
+  | { kind: 'schema_failed' };
 
 export interface ContractSystemDeps {
   clawDir: string;
@@ -375,6 +389,90 @@ export class ContractSystem {
     return loc.containerDir;
   }
 
+  /** Phase 1201 Step C: durable verification outcome store 归 ContractSystem（M#3）。 */
+  private _persistVerificationOutcome(outcome: VerificationOutcomeIntent): Promise<PersistVerificationOutcomeResult> {
+    return persistVerificationOutcome(this.fs, this.audit, this.clawDir, outcome);
+  }
+
+  /**
+   * Phase 1201 Step C: boot replay durable verification outcomes。
+   *
+   * 顺序契约：init() 在 reset 遗留 in_progress 之前调用本方法；replay 经同一
+   * per-contract queue + attempt guard，只应用 progress fact（success
+   * audit/notify/inbox 等 process-local side effect 不在 boot 重放——无法证明
+   * 未投递，不伪称 exactly-once）。重复 boot 由 already_applied 分类保证幂等。
+   */
+  private async _replayVerificationOutcomes(contractId: ContractId): Promise<void> {
+    const { outcomes } = await readVerificationOutcomesForContract(this.fs, this.audit, this.clawDir, contractId);
+    for (const outcome of outcomes) {
+      const replay = await this._enqueueProgressMutation(
+        contractId,
+        { mutationId: `boot-replay-${outcome.attempt_id}-${newShortUuid()}`, kind: 'boot_replay' },
+        async (): Promise<{ result: 'replayed' | 'already_applied' | 'superseded' | 'not_active' | 'invalid'; detail?: string }> => {
+          const activeLoc = await resolveActiveContractLocation({
+            fs: this.fs,
+            activeDir: this.activeDir,
+            contractId,
+          });
+          if (!activeLoc) return { result: 'not_active' };
+          const readResult = await this._readActiveProgressForMutation(contractId, activeLoc);
+          if (readResult === 'not_active') return { result: 'not_active' };
+          if (!readResult) return { result: 'invalid', detail: 'progress unavailable' };
+          const progress = readResult;
+          const subtask = progress.subtasks[outcome.subtask_id];
+          if (!subtask) return { result: 'invalid', detail: 'subtask missing from progress' };
+
+          if (subtask.status === 'in_progress' && subtask.verification_attempt_id === outcome.attempt_id) {
+            // 应用 durable fact（与 typed transition 等价的 mutation 语义）。
+            if (outcome.kind === 'passed') {
+              subtask.status = 'completed';
+              subtask.completed_at = outcome.completed_at;
+            } else if (outcome.kind === 'rejected' || outcome.kind === 'errored') {
+              const feedback = outcome.kind === 'rejected' ? outcome.result.feedback : outcome.feedback;
+              subtask.retry_count = (subtask.retry_count ?? 0) + 1;
+              subtask.last_failed_feedback = { feedback, cause: outcome.cause };
+              if (subtask.retry_count >= outcome.max_attempts) {
+                subtask.status = 'completed';
+                subtask.completed_at = outcome.completed_at;
+                subtask.force_accepted = true;
+              } else {
+                subtask.status = 'todo';
+              }
+            } else {
+              subtask.status = 'todo';
+              delete subtask.verification_attempt_id;
+            }
+            const stillActive = await resolveActiveContractLocation({
+              fs: this.fs,
+              activeDir: this.activeDir,
+              contractId,
+            });
+            if (!stillActive) return { result: 'not_active' };
+            try {
+              await this.saveProgress(contractId, progress, this.activeDir);
+            } catch (err) {
+              if (isFileNotFound(err)) return { result: 'not_active' };
+              throw err;
+            }
+            return { result: 'replayed' };
+          }
+
+          // idempotent replay（已应用）vs superseded（新 attempt 已取代）。
+          if (isOutcomeAlreadyApplied(subtask, outcome)) return { result: 'already_applied' };
+          return { result: 'superseded' };
+        },
+      );
+      emitVerificationOutcomeReplay(this.audit, {
+        contractId,
+        subtaskId: outcome.subtask_id,
+        attemptId: outcome.attempt_id,
+        outcomeKind: outcome.kind,
+        result: replay.result,
+        ...(replay.detail !== undefined ? { detail: replay.detail } : {}),
+      });
+    }
+  }
+
   // ============================================================================
   // Phase 1201 Step A: progress mutation queue delegate
   // ============================================================================
@@ -465,6 +563,30 @@ export class ContractSystem {
     );
   }
 
+  /**
+   * Phase 1201 Step B/C: queued mutation 共用的 active progress fresh-read。
+   * read ENOENT 时 re-resolve：active 已消失 → 'not_active'（rename 胜出，
+   * fail-closed）；active 仍在 → 真 corruption，上抛。
+   */
+  private async _readActiveProgressForMutation(
+    contractId: ContractId,
+    activeLoc: ActiveContractLocation,
+  ): Promise<ProgressData | null | 'not_active'> {
+    try {
+      return await this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
+    } catch (err) {
+      if (isFileNotFound(err)) {
+        const stillActive = await resolveActiveContractLocation({
+          fs: this.fs,
+          activeDir: this.activeDir,
+          contractId,
+        });
+        if (!stillActive) return 'not_active';
+      }
+      throw err;
+    }
+  }
+
   private async transitionLegacyVerificationAttempt(
     contractId: ContractId,
     subtaskId: SubtaskId,
@@ -473,16 +595,11 @@ export class ContractSystem {
   ): Promise<VerificationGatewayResult> {
     // Phase 1201 Step B: active-only read —— queued callback 不得 fallback 读
     // archive progress（rename 竞争时 getProgress 会读到 archive view）。
-    // rename 在 resolve 后胜出时 read ENOENT → fail-closed skipped。
-    let progress: ProgressData | null;
-    try {
-      progress = await this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
-    } catch (err) {
-      if (isFileNotFound(err)) {
-        return { kind: 'skipped', reason: `contract ${contractId} is not active` };
-      }
-      throw err;
+    const readResult = await this._readActiveProgressForMutation(contractId, activeLoc);
+    if (readResult === 'not_active') {
+      return { kind: 'skipped', reason: `contract ${contractId} is not active` };
     }
+    const progress = readResult;
     if (!progress) {
       return { kind: 'skipped', reason: `progress unavailable for ${contractId}` };
     }
@@ -501,12 +618,20 @@ export class ContractSystem {
       subtask.artifacts = transition.artifacts;
       subtask.verification_attempt_id = transition.attemptId;
     } else if (transition.kind === 'pass') {
+      if (subtask.status === 'in_progress' && subtask.verification_attempt_id !== transition.attemptId) {
+        // Phase 1201 Step C: 旧 attempt 的 outcome 晚到新 attempt —— late/superseded，
+        // durable fact 保留、progress 不被覆盖。
+        return { kind: 'late', expectedAttemptId: transition.attemptId, actualAttemptId: subtask.verification_attempt_id };
+      }
       if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
         return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
       }
       subtask.status = 'completed';
       subtask.completed_at = transition.at;
     } else if (transition.kind === 'reject') {
+      if (subtask.status === 'in_progress' && subtask.verification_attempt_id !== transition.attemptId) {
+        return { kind: 'late', expectedAttemptId: transition.attemptId, actualAttemptId: subtask.verification_attempt_id };
+      }
       if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
         return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
       }
@@ -523,6 +648,9 @@ export class ContractSystem {
         subtask.status = 'todo';
       }
     } else if (transition.kind === 'interrupt') {
+      if (subtask.status === 'in_progress' && subtask.verification_attempt_id !== transition.attemptId) {
+        return { kind: 'late', expectedAttemptId: transition.attemptId, actualAttemptId: subtask.verification_attempt_id };
+      }
       if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
         return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
       }
@@ -577,15 +705,11 @@ export class ContractSystem {
         }
 
         // rename 在 resolve 后胜出时 read ENOENT → fail-closed not_active。
-        let progress: ProgressData | null;
-        try {
-          progress = await this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
-        } catch (err) {
-          if (isFileNotFound(err)) {
-            return { kind: 'not_active' };
-          }
-          throw err;
+        const readResult = await this._readActiveProgressForMutation(contractId, activeLoc);
+        if (readResult === 'not_active') {
+          return { kind: 'not_active' };
         }
+        const progress = readResult;
         if (!progress) {
           throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
         }
@@ -689,6 +813,7 @@ export class ContractSystem {
       loadContractYaml: (id) => this.loadContractYaml(id),
       getProgress: (id) => this.getProgress(id),
       submitSyncCompletion: (id, stId, facts) => this._submitSyncCompletion(id, stId, facts),
+      persistVerificationOutcome: (outcome) => this._persistVerificationOutcome(outcome),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       baseDir: this.clawDir,
       activeDir: this.activeDir,
@@ -866,8 +991,58 @@ export class ContractSystem {
             }
           }
 
-          const progress = await this.getProgress(contractId);
-          if (!progress) {
+          // Phase 1201 Step C: replay durable verification outcomes BEFORE reset.
+          // boot 先 replay 已持久化的 verifier 计算事实（queued + attempt guard），
+          // 再 reset 没有可重放结果的遗留 in_progress attempt。
+          await this._replayVerificationOutcomes(contractId);
+
+          // Phase 1201 Step B/C: boot reset 也经 per-contract queue（fresh-read、
+          // rename 竞争 fail-closed）。
+          const bootReset = await this._enqueueProgressMutation(
+            contractId,
+            { mutationId: `boot-reset-${newShortUuid()}`, kind: 'boot_reset' },
+            async (): Promise<BootResetOutcome> => {
+              const activeLoc = await resolveActiveContractLocation({
+                fs: this.fs,
+                activeDir: this.activeDir,
+                contractId,
+              });
+              if (!activeLoc) return { kind: 'not_active' };
+              const readResult = await this._readActiveProgressForMutation(contractId, activeLoc);
+              if (readResult === 'not_active') return { kind: 'not_active' };
+              const progress = readResult;
+              if (!progress) return { kind: 'schema_failed' };
+
+              // Phase 966 / 1132 Step E: reset leftover in_progress subtasks based on subtask fact
+              const resetIds: string[] = [];
+              for (const [stId, subtask] of Object.entries(progress.subtasks)) {
+                if (subtask.status === 'in_progress') {
+                  subtask.status = 'todo';
+                  delete subtask.verification_attempt_id;
+                  resetIds.push(stId);
+                }
+              }
+
+              if (resetIds.length > 0) {
+                const stillActive = await resolveActiveContractLocation({
+                  fs: this.fs,
+                  activeDir: this.activeDir,
+                  contractId,
+                });
+                if (!stillActive) return { kind: 'not_active' };
+                try {
+                  // Phase 970: save progress FIRST so audit failures cannot block the reset.
+                  await this.saveProgress(contractId, progress, this.activeDir);
+                } catch (err) {
+                  if (isFileNotFound(err)) return { kind: 'not_active' };
+                  throw err;
+                }
+              }
+              return { kind: 'done', resetIds, progress };
+            },
+          );
+
+          if (bootReset.kind === 'schema_failed') {
             this.audit.write(
               CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_SCHEMA_FAILED,
               `contract=${contractId}`,
@@ -876,34 +1051,21 @@ export class ContractSystem {
             failedCount++;
             continue;
           }
-
-          let mutated = false;
-          const resetIds: string[] = [];
-
-          // Phase 966 / 1132 Step E: reset leftover in_progress subtasks based on subtask fact
-          for (const [stId, subtask] of Object.entries(progress.subtasks)) {
-            if (subtask.status === 'in_progress') {
-              subtask.status = 'todo';
-              delete subtask.verification_attempt_id;
-              resetIds.push(stId);
-              mutated = true;
-            }
+          if (bootReset.kind === 'not_active') {
+            continue;
           }
 
-          if (mutated) {
-            // Phase 970: save progress FIRST so audit failures cannot block the reset.
-            await this.saveProgress(contractId, progress);
-            for (const stId of resetIds) {
-              try {
-                this.audit.write(
-                  CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
-                  `contract=${contractId}`,
-                  `subtask=${stId}`,
-                );
-              } catch {
-                // best-effort audit: leave stderr trace for diagnosis
-                process.stderr.write(`[contract] boot reconcile in_progress reset audit failed for ${contractId}/${stId}\n`);
-              }
+          const progress = bootReset.progress;
+          for (const stId of bootReset.resetIds) {
+            try {
+              this.audit.write(
+                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET,
+                `contract=${contractId}`,
+                `subtask=${stId}`,
+              );
+            } catch {
+              // best-effort audit: leave stderr trace for diagnosis
+              process.stderr.write(`[contract] boot reconcile in_progress reset audit failed for ${contractId}/${stId}\n`);
             }
           }
 

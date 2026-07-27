@@ -29,6 +29,7 @@ import {
   buildCompletedIntent,
   buildCorruptedIntent,
 } from '../../../src/core/contract/lifecycle-intent.js';
+import { buildVerificationOutcome } from '../../../src/core/contract/verification-outcome.js';
 
 
 
@@ -633,5 +634,98 @@ describe('CONTRACT_AUDIT_EVENTS.COMPLETED single emit (phase 791 / P0.17)', () =
       c => c.type === CONTRACT_AUDIT_EVENTS.COMPLETED
     );
     expect(completedEvents).toHaveLength(1);
+  });
+});
+/**
+ * @module tests/core/contract/boot-replay-then-reset
+ * Phase 1201 Step C: boot 顺序契约 —— replay durable verification outcomes 先于
+ * reset 遗留 in_progress attempt。
+ */
+describe('boot replay-then-reset ordering (phase 1201 step C)', () => {
+  let tempDir: string;
+  let clawDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir('phase1201-boot-order-');
+    clawDir = path.join(tempDir, 'claws', 'test-claw');
+    await fs.mkdir(clawDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanupTempDir(tempDir);
+  });
+
+  function makeManager(audit: any) {
+    return new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: new NodeFileSystem({ baseDir: clawDir }),
+      audit,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      clawsDir: '/tmp/test/claws',
+      notifyClaw: vi.fn(),
+    });
+  }
+
+  it('durable outcome replay 先应用，无可重放结果的 in_progress 再由 reset 处理', async () => {
+    const contractId = 'c-order';
+    const activeRoot = path.join(clawDir, 'contract', 'active', contractId);
+    await fs.mkdir(activeRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(activeRoot, 'contract.yaml'),
+      [
+        'schema_version: 1',
+        `id: ${contractId}`,
+        'title: Order',
+        'goal: Test',
+        'subtasks:',
+        '  - id: st1',
+        '    description: S1',
+        '  - id: st2',
+        '    description: S2',
+        '',
+      ].join('\n'),
+    );
+    await fs.writeFile(
+      path.join(activeRoot, 'progress.json'),
+      JSON.stringify({
+        schema_version: 1,
+        subtasks: {
+          st1: { status: 'in_progress', verification_attempt_id: 'att-1' },
+          st2: { status: 'in_progress', verification_attempt_id: 'att-orphan' },
+        },
+        started_at: '2026-07-27T00:00:00.000Z',
+      }, null, 2),
+    );
+    const outcomeDir = path.join(clawDir, 'contract', 'verification-outcomes', contractId);
+    await fs.mkdir(outcomeDir, { recursive: true });
+    await fs.writeFile(
+      path.join(outcomeDir, 'att-1.json'),
+      JSON.stringify(buildVerificationOutcome(
+        {
+          contractId: contractId as any,
+          subtaskId: 'st1' as any,
+          attemptId: 'att-1',
+          completedAt: '2026-07-27T01:00:00.000Z',
+        },
+        { kind: 'passed', result: { passed: true, feedback: 'ok' } },
+      ), null, 2),
+    );
+
+    const { audit, events } = makeAudit();
+    await makeManager(audit).init();
+
+    const progress = JSON.parse(await fs.readFile(path.join(activeRoot, 'progress.json'), 'utf-8'));
+    expect(progress.subtasks.st1.status).toBe('completed');
+    expect(progress.subtasks.st1.completed_at).toBe('2026-07-27T01:00:00.000Z');
+    expect(progress.subtasks.st2.status).toBe('todo');
+    expect(progress.subtasks.st2.verification_attempt_id).toBeUndefined();
+
+    const replayIdx = events.findIndex(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_OUTCOME_REPLAY);
+    const resetIdx = events.findIndex(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET);
+    expect(replayIdx).toBeGreaterThanOrEqual(0);
+    expect(resetIdx).toBeGreaterThan(replayIdx);
   });
 });
