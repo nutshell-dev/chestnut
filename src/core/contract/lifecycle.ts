@@ -87,7 +87,7 @@ export async function cancelContract(
     try {
       ctx.abortContractVerifiers(contractId, reason);
     } catch {
-      // best-effort abort after terminal commit
+      // silent: best-effort abort after terminal commit
     }
     emitContractCancelled(ctx.audit, { contractId, reason });
     safeNotify(ctx, 'contract_cancelled', { contractId, reason });
@@ -232,7 +232,7 @@ export async function markCorrupted(
     try {
       ctx.abortContractVerifiers(contractId, evidence.reason);
     } catch {
-      // best-effort abort after terminal commit
+      // silent: best-effort abort after terminal commit
     }
     emitContractCorrupted(ctx.audit, {
       contractId,
@@ -296,7 +296,7 @@ export async function reconcilePendingLifecycleIntents(
       try {
         progress = await ctx.getProgress(contractId);
       } catch {
-        // Active payload unreadable; let commitTerminalLifecycle classify the race.
+        // silent: active payload unreadable; let commitTerminalLifecycle classify the race.
       }
       if (progress && !(await ctx.checkAllSubtasksCompleted(contractId, progress))) {
         ctx.audit.write(
