@@ -68,10 +68,10 @@ export function createDisplay(deps: DisplayDeps) {
 
     const currentStatus = deps.mainUI ? deps.mainUI.getStatus() : '';
     const currentPreview = deps.mainUI ? deps.mainUI.getPreview() : '';
-    const composed = [currentStatus, currentPreview].filter(Boolean).join('\n');
-    const suffixBody = composed
-      ? composed.split('\n').flatMap(line => wrapLine(line, cols)).join('\n')
-      : '';
+    // phase 1200: preview 需要 hangIndent（自动换行时保持缩进），status 不需要
+    const statusLines = currentStatus ? currentStatus.split('\n').flatMap(line => wrapLine(line, cols)) : [];
+    const previewLines = currentPreview ? currentPreview.split('\n').flatMap(line => wrapLine(line, cols, '  ')) : [];
+    const suffixBody = [...statusLines, ...previewLines].join('\n');
 
     const full = suffixBody ? bodyCache + '\n' + suffixBody : bodyCache;
     deps.outputText.setText(full ?? '');
