@@ -1004,7 +1004,12 @@
       "watchdog_subscription_corrupt",
       "watchdog_subscription_dir_list_failed",
       "watchdog_subscription_fired",
-      "watchdog_subscription_process_failed"
+      "watchdog_subscription_process_failed",
+      "watchdog_ownership_attempted",
+      "watchdog_ownership_committed",
+      "watchdog_ownership_lost",
+      "watchdog_ownership_retired",
+      "watchdog_ownership_malformed_active"
     ],
     "core_step-executor_audit-events": [
       "llm_empty_response",

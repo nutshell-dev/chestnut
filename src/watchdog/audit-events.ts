@@ -54,6 +54,12 @@ export const WATCHDOG_AUDIT_EVENTS = {
   // phase 472 (review N3-L): stopCommand SIGTERM/SIGKILL syscall 失败可观察化
   STOP_SIGTERM_FAILED: 'watchdog_stop_sigterm_failed',
   STOP_SIGKILL_FAILED: 'watchdog_stop_sigkill_failed',
+  // phase 1203: 目录位置 ownership 状态机（candidate→active→retired）
+  OWNERSHIP_ATTEMPTED: 'watchdog_ownership_attempted',
+  OWNERSHIP_COMMITTED: 'watchdog_ownership_committed',
+  OWNERSHIP_LOST: 'watchdog_ownership_lost',
+  OWNERSHIP_RETIRED: 'watchdog_ownership_retired',
+  OWNERSHIP_MALFORMED_ACTIVE: 'watchdog_ownership_malformed_active',
 } as const;
 
 
@@ -103,4 +109,9 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_gave_up: 'audit',
   watchdog_restart_deferred: 'audit',
   watchdog_motion_stability_confirmed: 'audit',
+  watchdog_ownership_attempted: 'audit',
+  watchdog_ownership_committed: 'audit',
+  watchdog_ownership_lost: 'audit',
+  watchdog_ownership_retired: 'audit',
+  watchdog_ownership_malformed_active: 'audit',
 } as const;
