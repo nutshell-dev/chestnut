@@ -353,4 +353,48 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
       },
     );
   });
+
+  it('completed vs completed: exactly one success side-effect set, both intents preserved', async () => {
+    const contractId = await fx.managerA.create(makeContractYaml({
+      title: 'Race Completed Completed',
+      goal: 'Test',
+      subtasks: [
+        { id: 't1', description: 'T1' },
+        { id: 't2', description: 'T2' },
+      ],
+      verification: [],
+    }));
+
+    const progress = await fx.managerA.getProgress(contractId as any);
+    progress!.subtasks.t1.status = 'completed';
+    progress!.subtasks.t1.completed_at = new Date().toISOString();
+    progress!.subtasks.t2.status = 'completed';
+    progress!.subtasks.t2.completed_at = new Date().toISOString();
+    await (fx.managerA as any).saveProgress(contractId as any, progress);
+
+    const barrier = await makeBarrier(fx.tempDir, 'completed-completed');
+
+    await runRace(
+      contractId,
+      async () => {
+        await barrier.arrive('a');
+        const ctx = createManagerVerificationContext(fx.managerA);
+        const yaml = await ctx.loadContractYaml(contractId as any);
+        if (!yaml) throw new Error('missing contract yaml');
+        return archiveAndEmit(ctx, contractId as any, yaml, 'race.completed');
+      },
+      async () => {
+        await barrier.arrive('b');
+        const ctx = createManagerVerificationContext(fx.managerB);
+        const yaml = await ctx.loadContractYaml(contractId as any);
+        if (!yaml) throw new Error('missing contract yaml');
+        return archiveAndEmit(ctx, contractId as any, yaml, 'race.completed');
+      },
+      ['completed', 'completed'],
+      () => {
+        const completedNotifies = [...fx.notifyA, ...fx.notifyB].filter(n => n.type === 'contract_completed');
+        expect(completedNotifies).toHaveLength(1);
+      },
+    );
+  });
 });

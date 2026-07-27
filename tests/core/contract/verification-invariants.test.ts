@@ -124,6 +124,7 @@ describe('archiveAndEmit (phase 951)', () => {
       baseDir: '/tmp/claw',
       activeDir: '/tmp/claw/contract/active',
       archiveDir: '/tmp/claw/contract/archive' as any,
+      fs: createMockFs(),
       abortContractVerifiers: vi.fn(),
       audit: {
         __brand: 'AuditLog',

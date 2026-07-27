@@ -84,8 +84,8 @@ describe('contractCancelCommand (phase 1471)', () => {
     const progressRaw = await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8');
     const progress = JSON.parse(progressRaw);
     expect(progress.status).toBeUndefined();
-    // Phase 1198 Step C: reason lives in immutable lifecycle intent, not progress checkpoint.
-    expect(progress.checkpoint).toBeUndefined();
+    // Phase 1198 Step E: terminal commit performs zero progress mutation.
+    expect(progress.checkpoint).toBeNull();
 
     const clawFs = new NodeFileSystem({ baseDir: clawDir });
     const { intents } = await readLifecycleIntentsForContract(
@@ -127,7 +127,8 @@ describe('contractCancelCommand (phase 1471)', () => {
       await fs.readFile(path.join(archivePath, 'progress.json'), 'utf-8'),
     );
     expect(progress.status).toBeUndefined();
-    expect(progress.checkpoint).toBeUndefined();
+    // Phase 1198 Step E: terminal commit performs zero progress mutation.
+    expect(progress.checkpoint).toBeNull();
     expect(audit.write).toHaveBeenCalledWith(
       'cli_contract_cancel',
       `claw=${CLAW_ID}`,

@@ -21,6 +21,8 @@ import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { listArchiveContracts } from '../../../src/core/contract/persistence.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
+import { archiveAndEmit } from '../../../src/core/contract/verification-lifecycle.js';
+import { createManagerVerificationContext } from '../../helpers/contract-subtask.js';
 
 
 
@@ -56,7 +58,7 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('concurrent archive + cancel end in a valid terminal state', async () => {
+  it('conventional completed archive + cancel end in a valid terminal state', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Archive Lock Test',
       goal: 'Test',
@@ -66,36 +68,31 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
       verification: [],
     }));
 
-    // Concurrent: archive + cancel on same contract
-    // Directory rename is the lifecycle commit point; single EventLoop means no
-    // true interleaving, but both operations should settle without hang.
+    const progress = await manager.getProgress(contractId);
+    progress.subtasks.t1.status = 'completed';
+    progress.subtasks.t1.completed_at = new Date().toISOString();
+    await (manager as any).saveProgress(contractId, progress);
+
+    // Concurrent: completed archive + cancel on same contract.
+    // Directory rename is the sole lifecycle commit point.
+    const ctx = createManagerVerificationContext(manager);
+    const yaml = await ctx.loadContractYaml(contractId);
+    if (!yaml) throw new Error('missing contract yaml');
+
     const [archiveResult, cancelResult] = await Promise.allSettled([
-      (manager as any).moveToArchive(contractId),
+      archiveAndEmit(ctx, contractId, yaml, 'archive-invariants.race'),
       manager.cancel(contractId, 'concurrent cancel'),
     ]);
 
-    // Phase 964: contractDir assertion relaxed from strict 'contract/archive'.
-    // Race: cancelContract writes saveProgress(cancelled), then moveToArchive wins
-    // the fs.move race first. cancel gets ENOENT on its own move → contract stays
-    // in active/ with cancelled progress. This is a valid terminal state — the
-    // contract is cancelled and progress is intact.
-    const progress = await manager.getProgress(contractId);
-    expect(progress.contract_id).toBe(contractId);
     const contractDir = await (manager as any).contractDir(contractId);
-    // Valid terminal states after concurrent archive+cancel:
-    // - Archived (moveToArchive won the race)
-    // - Active with cancelled status (cancel won, saveProgress completed)
-    // - Active with any status (cancel's saveProgress may not have completed;
-    //   the contract is still in a valid readable state)
     const inArchive =
       contractDir.startsWith('contract/archive/completed') ||
       contractDir.startsWith('contract/archive/cancelled') ||
       contractDir.startsWith('contract/archive/corrupted');
-    const inActive = contractDir === 'contract/active';
-    expect(inArchive || inActive).toBe(true);
+    expect(inArchive).toBe(true);
   });
 
-  it('idempotent no-op when contract already archived', async () => {
+  it('archiveAndEmit is idempotent when contract already archived', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Already Archived Test',
       goal: 'Test',
@@ -105,16 +102,22 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
       verification: [],
     }));
 
-    // phase 188: archive precondition requires terminal status
-    // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks
     const progress = await manager.getProgress(contractId);
     progress.subtasks.t1.status = 'completed';
     progress.subtasks.t1.completed_at = new Date().toISOString();
     await (manager as any).saveProgress(contractId, progress);
-    await manager.moveToArchive(contractId);
 
-    // Second call should early-return without error
-    await expect(manager.moveToArchive(contractId)).resolves.toBeUndefined();
+    const ctx = createManagerVerificationContext(manager);
+    const yaml = await ctx.loadContractYaml(contractId);
+    if (!yaml) throw new Error('missing contract yaml');
+
+    const first = await archiveAndEmit(ctx, contractId, yaml, 'archive-invariants.idempotent');
+    expect(first.archived).toBe(true);
+
+    // Second call returns already_committed; success side effects must not repeat.
+    const second = await archiveAndEmit(ctx, contractId, yaml, 'archive-invariants.idempotent');
+    expect(second.archived).toBe(false);
+    expect(second.state).toBe('completed');
   });
 });
 
@@ -367,7 +370,10 @@ describe('archive getProgress pure-read invariants', () => {
     progress.subtasks.t1.status = 'completed';
     progress.subtasks.t1.completed_at = new Date().toISOString();
     await (manager as any).saveProgress(contractId, progress);
-    await (manager as any).moveToArchive(contractId);
+    const ctx = createManagerVerificationContext(manager);
+    const yaml = await ctx.loadContractYaml(contractId);
+    if (!yaml) throw new Error('missing contract yaml');
+    await archiveAndEmit(ctx, contractId, yaml, 'archive-invariants.read');
 
     const archiveRoot = path.join(clawDir, 'contract', 'archive', 'completed', contractId);
     const before = await fsArchiveRace.stat(archiveRoot).then(s => s.mtimeMs);

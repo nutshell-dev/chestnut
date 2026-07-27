@@ -281,8 +281,8 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     expect(archivedProgress.status).toBeUndefined();
     // Phase 1198 Step C: subtask state is not modified during cancel.
     expect(archivedProgress.subtasks['t1'].status).toBe('todo');
-    // Phase 1198 Step C: reason lives in immutable intent, not progress checkpoint.
-    expect(archivedProgress.checkpoint).toBeUndefined();
+    // Phase 1198 Step E: terminal commit performs zero progress mutation.
+    expect(archivedProgress.checkpoint).toBeNull();
 
     const { intents } = await readLifecycleIntentsForContract(
       manager['fs'],

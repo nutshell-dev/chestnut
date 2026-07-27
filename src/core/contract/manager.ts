@@ -54,7 +54,7 @@ import { type ClawId } from '../../foundation/claw-identity/index.js';
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
-  ArchiveState, LifecycleCommitOutcome,
+  LifecycleCommitOutcome,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 
@@ -75,7 +75,6 @@ import { runContractVerifier as defaultRunContractVerifier } from './verifier-jo
 import {
   cancelContract, markCorrupted,
   isContractComplete,
-  commitTerminalLifecycle,
   reconcilePendingLifecycleIntents,
   type LifecycleContext,
 } from './lifecycle.js';
@@ -91,7 +90,6 @@ import {
 } from './verification.js';
 import { buildSubmitSubtaskTool, type SubmitSubtaskParams } from './tools/submit-subtask.js';
 import { archiveAndEmit } from './verification-lifecycle.js';
-import { buildCompletedIntent } from './lifecycle-intent.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 
@@ -503,7 +501,6 @@ export class ContractSystem {
       contractDir: (id) => this.contractDir(id),
       loadContract: (id) => this.loadContractYaml(id),
       getProgress: (id) => this.getProgress(id),
-      saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
       // phase 438: lazy thunk、setOnNotify 后的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
@@ -835,46 +832,6 @@ export class ContractSystem {
     // contract-id 复用残留。cancel 失败 throw、entry 留待重试。
     this.auditorState.delete(contractId);
     return outcome;
-  }
-
-  /**
-   * Phase 1198 Step B: move an active contract to a terminal archive state.
-   * Thin wrapper over commitTerminalLifecycle; keeps the old public/internal
-   * surface used by tests and legacy callers. No business precondition is
-   * enforced here — callers (e.g. verification) must ensure subtasks/state.
-   */
-  async moveToArchive(
-    contractId: ContractId,
-    targetState: ArchiveState = 'completed',
-  ): Promise<void> {
-    const ctx = this._lifecycleCtx();
-    if (targetState === 'completed') {
-      const requestId = `completed-${Date.now()}-${newShortUuid()}`;
-      const intent = buildCompletedIntent(contractId, requestId, 'ContractSystem.moveToArchive');
-      const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
-      if (outcome.kind === 'committed' || outcome.kind === 'already_committed' || outcome.kind === 'lost_to_state') {
-        this.auditorState.delete(contractId);
-        return;
-      }
-      throw new ToolError(`moveToArchive failed for ${contractId}: ${outcome.cause}`);
-    }
-    if (targetState === 'cancelled') {
-      const outcome = await cancelContract(ctx, contractId, 'moveToArchive');
-      this.auditorState.delete(contractId);
-      if (outcome.kind === 'retryable_failure') {
-        throw new ToolError(`moveToArchive failed for ${contractId}: ${outcome.cause}`);
-      }
-      return;
-    }
-    if (targetState === 'corrupted') {
-      const outcome = await markCorrupted(ctx, contractId, { reason: 'progress_schema_invalid', relativePath: '' });
-      this.auditorState.delete(contractId);
-      if (outcome.kind === 'retryable_failure') {
-        throw new ToolError(`moveToArchive failed for ${contractId}: ${outcome.cause}`);
-      }
-      return;
-    }
-    throw new ToolError(`Unsupported archive state: ${targetState}`);
   }
 
   async markCorrupted(

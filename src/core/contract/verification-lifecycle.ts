@@ -17,6 +17,7 @@ import {
   commitTerminalLifecycle,
 } from './lifecycle.js';
 import {
+  persistLifecycleIntent,
   buildCompletedIntent,
 } from './lifecycle-intent.js';
 import {
@@ -38,7 +39,13 @@ export async function archiveAndEmit(
   contractYaml: ContractYaml,
   contextLabel: string,
 ): Promise<{ archived: boolean; state?: 'completed' | 'cancelled' | 'corrupted' }> {
-  // Phase 1198 Step B: all-subtasks-completed precondition verified before intent.
+  // Phase 1198 Step E: persist the immutable intent BEFORE checking the completed precondition.
+  // A failed precondition still leaves a request fact for future boot replay.
+  const requestId = `completed-${Date.now()}-${newShortUuid()}`;
+  const lifecycleCtx = verificationToLifecycleContext(ctx);
+  const intent = buildCompletedIntent(contractId, requestId, contextLabel);
+  await persistLifecycleIntent(lifecycleCtx.fs, lifecycleCtx.audit, lifecycleCtx.baseDir, intent);
+
   let progress: ProgressData | null = null;
   try {
     progress = await ctx.getProgress(contractId);
@@ -75,10 +82,6 @@ export async function archiveAndEmit(
     return { archived: false };
   }
 
-  // Phase 1198 Step B: persist immutable intent, then directory rename is the sole commit.
-  const requestId = `completed-${Date.now()}-${newShortUuid()}`;
-  const lifecycleCtx = verificationToLifecycleContext(ctx);
-  const intent = buildCompletedIntent(contractId, requestId, contextLabel);
   const outcome = await commitTerminalLifecycle(lifecycleCtx, contractId, intent);
 
   if (outcome.kind === 'retryable_failure') {
@@ -87,7 +90,7 @@ export async function archiveAndEmit(
       {
         context: contextLabel,
         message: 'terminal commit failed',
-        error: outcome.cause ?? 'unknown',
+        error: outcome.cause,
       },
     );
     return { archived: false };
@@ -104,7 +107,7 @@ export async function archiveAndEmit(
     return { archived: false, state: outcome.committed };
   }
 
-  // committed or already_committed: post-commit side effects exactly once.
+  // Side effects (abort, handler, audit, notify) belong ONLY to this committed request.
   if (outcome.kind === 'committed') {
     try {
       ctx.abortContractVerifiers(contractId, 'contract completed');
@@ -116,35 +119,41 @@ export async function archiveAndEmit(
     } catch {
       // silent: handler failures are audited inside _emitContractCompleted; outcome stands.
     }
+
+    try {
+      emitContractCompleted(
+        ctx.audit,
+        { contractId, title: contractYaml.title, claw: ctx.clawId },
+      );
+    } catch {
+      // silent: audit failure should not affect downstream side effects
+    }
+
+    const subtasksSummary = Object.entries(progress.subtasks)
+      .filter(([, st]) => st.status === 'completed')
+      .map(([id, st]) => ({ id, completed_at: st.completed_at ?? '', force_accepted: !!st.force_accepted }));
+    const completedAt = Object.values(progress.subtasks)
+      .reduce((max, s) => {
+        if (!s.completed_at) return max;
+        return s.completed_at > max ? s.completed_at : max;
+      }, '');
+
+    safeNotify(ctx, 'contract_completed', {
+      contractId,
+      title: contractYaml.title,
+      goal: contractYaml.goal,
+      subtasks: subtasksSummary,
+      completed_at: completedAt,
+    });
+
+    return { archived: true, state: 'completed' };
   }
 
-  try {
-    emitContractCompleted(
-      ctx.audit,
-      { contractId, title: contractYaml.title, claw: ctx.clawId },
-    );
-  } catch {
-    // silent: audit failure should not affect downstream side effects
+  if (outcome.kind === 'already_committed') {
+    return { archived: false, state: 'completed' };
   }
 
-  const subtasksSummary = Object.entries(progress.subtasks)
-    .filter(([, st]) => st.status === 'completed')
-    .map(([id, st]) => ({ id, completed_at: st.completed_at ?? '', force_accepted: !!st.force_accepted }));
-  const completedAt = Object.values(progress.subtasks)
-    .reduce((max, s) => {
-      if (!s.completed_at) return max;
-      return s.completed_at > max ? s.completed_at : max;
-    }, '');
-
-  safeNotify(ctx, 'contract_completed', {
-    contractId,
-    title: contractYaml.title,
-    goal: contractYaml.goal,
-    subtasks: subtasksSummary,
-    completed_at: completedAt,
-  });
-
-  return { archived: true, state: 'completed' };
+  return { archived: false };
 }
 
 function verificationToLifecycleContext(ctx: VerificationContext): {
@@ -156,7 +165,6 @@ function verificationToLifecycleContext(ctx: VerificationContext): {
   contractDir: (id: ContractId) => Promise<string>;
   loadContract: (id: ContractId) => Promise<ContractYaml | null>;
   getProgress: (id: ContractId) => Promise<ProgressData | null>;
-  saveProgress: (id: ContractId, p: ProgressData, knownDir?: string) => Promise<void>;
   checkAllSubtasksCompleted: (id: ContractId, p: ProgressData) => Promise<boolean>;
   abortContractVerifiers: (id: ContractId, reason: string) => void;
 } {
@@ -169,7 +177,6 @@ function verificationToLifecycleContext(ctx: VerificationContext): {
     contractDir: (id) => ctx.contractDir(id),
     loadContract: (id) => ctx.loadContractYaml(id),
     getProgress: (id) => ctx.getProgress(id),
-    saveProgress: (id, p, knownDir) => ctx.saveProgress(id, p, knownDir),
     checkAllSubtasksCompleted: (id, p) => ctx.checkAllSubtasksCompleted(id, p),
     abortContractVerifiers: (id, reason) => ctx.abortContractVerifiers(id, reason),
   };

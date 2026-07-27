@@ -6,11 +6,10 @@
 import type { ContractId, ArchiveState, LifecycleIntent, LifecycleCommitOutcome } from './types.js';
 import type { ContractYaml } from './types.js';
 import type { ProgressData } from './types.js';
-import { ARCHIVE_STATES } from './types.js';
+
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
-import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ContractCorruptionEvidence } from './types.js';
 
@@ -18,14 +17,11 @@ import {
   emitContractCancelled,
   emitContractCorrupted,
   emitContractNotifyFailed,
-  emitContractArchivePreconditionViolated,
-  emitContractArchiveTargetExists,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 import { type ArchiveDir } from './types.js';
 import { archiveStateContainerDir, resolveContractLocation } from './locations.js';
-import * as path from 'path';
 import {
   persistLifecycleIntent,
   readLifecycleIntentsForContract,
@@ -45,7 +41,6 @@ export interface LifecycleContext {
   contractDir: (contractId: ContractId) => Promise<string>;
   loadContract: (contractId: ContractId) => Promise<ContractYaml | null>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  saveProgress: (contractId: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   /** phase 1020 (r124 C fork): cancelContract abort propagation to active verifier subagents */
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
@@ -128,31 +123,6 @@ export async function cancelContract(
  *
  * Caller is responsible for any business precondition and post-commit side effects.
  */
-/**
- * Strip the obsolete `checkpoint: null` field that creation persisted before Phase 1198.
- * Lifecycle reasons now live exclusively in the intent store; progress.json should not
- * carry a null checkpoint placeholder after terminal commit.
- *
- * This is a one-time cleanup mutation performed immediately before the directory rename.
- */
-async function stripObsoleteCheckpoint(
-  fs: FileSystem,
-  contractRoot: string,
-): Promise<void> {
-  const progressPath = `${contractRoot}/progress.json`;
-  try {
-    const raw = await fs.read(progressPath);
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).checkpoint === null) {
-      const { checkpoint: _removed, ...rest } = parsed as Record<string, unknown>;
-      void _removed;
-      await fs.writeAtomic(progressPath, JSON.stringify(rest, null, 2));
-    }
-  } catch {
-    // Missing or unreadable progress.json is fine; the rename will move whatever exists.
-  }
-}
-
 export async function commitTerminalLifecycle(
   ctx: LifecycleContext,
   contractId: ContractId,
@@ -165,9 +135,6 @@ export async function commitTerminalLifecycle(
   await ctx.fs.ensureDir(targetContainer);
   const sourceRoot = `${ctx.activeDir}/${contractId}`;
   const targetRoot = `${targetContainer}/${contractId}`;
-
-  // Phase 1198 Step C: remove the legacy null checkpoint placeholder before committing.
-  await stripObsoleteCheckpoint(ctx.fs, sourceRoot);
 
   try {
     await ctx.fs.move(sourceRoot, targetRoot);
@@ -235,7 +202,7 @@ export async function commitTerminalLifecycle(
     return {
       kind: 'lost_to_state',
       requested: targetState,
-      committed: loc.state,
+      committed: loc.state!,
       requestId: intent.request_id,
     };
   }
@@ -360,16 +327,22 @@ export async function reconcilePendingLifecycleIntents(
       committed = outcome.committed ?? committed;
     }
 
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_OUTCOME,
+    const outcomeCols: string[] = [
       `contract=${contractId}`,
       `requestId=${intent.request_id}`,
       `requested_state=${intent.requested_state}`,
       `outcome=${outcome.kind}`,
-      outcome.state ? `state=${outcome.state}` : '',
-      (outcome as { committed?: ArchiveState }).committed ? `committed_state=${(outcome as { committed?: ArchiveState }).committed}` : '',
-      outcome.cause ? `cause=${outcome.cause}` : '',
-    );
+    ];
+    if (outcome.kind === 'committed' || outcome.kind === 'already_committed') {
+      outcomeCols.push(`state=${outcome.state}`);
+    }
+    if (outcome.kind === 'lost_to_state') {
+      outcomeCols.push(`committed_state=${outcome.committed}`);
+    }
+    if (outcome.kind === 'retryable_failure') {
+      outcomeCols.push(`cause=${outcome.cause}`);
+    }
+    ctx.audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE_INTENT_OUTCOME, ...outcomeCols);
   }
 
   return { committed, outcomes };
@@ -384,61 +357,3 @@ export async function isContractComplete(
   return ctx.checkAllSubtasksCompleted(contractId, progress);
 }
 
-// phase 351: ARCHIVE_ALLOWED_STATUSES 复用 types.ts (ML#1 共用基础设施单源、mirror phase 347/348 pattern)
-
-export async function moveContractToArchive(
-  ctx: LifecycleContext,
-  contractId: ContractId,
-  targetState: ArchiveState,
-): Promise<void> {
-  if (!(ARCHIVE_STATES as ReadonlySet<string>).has(targetState)) {
-    throw new ToolError(`Invalid archive state "${targetState}"`);
-  }
-
-  const dir = await ctx.contractDir(contractId);
-  const normalizedDir = path.normalize(dir);
-  const normalizedArchive = path.normalize(ctx.archiveDir);
-  const isArchiveSource = normalizedDir === normalizedArchive || normalizedDir.startsWith(`${normalizedArchive}${path.sep}`);
-  if (isArchiveSource) {
-    // Already archived — idempotent no-op.
-    return;
-  }
-
-  // Step D: archive precondition is based on business facts, not progress.status.
-  // 'completed' requires all subtasks completed; 'cancelled'/'corrupted' are only
-  // reached through their dedicated lifecycle entry points.
-  if (targetState === 'completed') {
-    const progress = await ctx.getProgress(contractId);
-    if (!progress) {
-      throw new ToolError(`Contract "${contractId}" progress unavailable: cannot archive`);
-    }
-    const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-    if (!allCompleted) {
-      emitContractArchivePreconditionViolated(
-        ctx.audit,
-        { contractId, status: progress.status, context: 'moveContractToArchive.completed' },
-      );
-      throw new ToolError(
-        `Contract "${contractId}" cannot be archived to completed: not all subtasks are completed`,
-      );
-    }
-  }
-
-  const targetDir = archiveStateContainerDir(ctx.archiveDir, targetState);
-  await ctx.fs.ensureDir(targetDir);
-  const dst = `${targetDir}/${contractId}`;
-
-  try {
-    if (await ctx.fs.exists(dst)) {
-      emitContractArchiveTargetExists(ctx.audit, {
-        contractId,
-        targetPath: dst,
-        context: 'moveContractToArchive',
-      });
-      throw new ToolError(`Cannot archive contract "${contractId}": target already exists at ${dst}`);
-    }
-    await ctx.fs.move(`${dir}/${contractId}`, dst);
-  } catch (err) {
-    throw err;
-  }
-}

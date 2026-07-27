@@ -370,8 +370,9 @@ describe('phase 1121 Step C: markCorrupted', () => {
     const archivedRaw = await fs.readFile(archivedProgressPath, 'utf-8');
     const archivedProgress = JSON.parse(archivedRaw);
     expect(archivedProgress.status).toBeUndefined();
-    // Phase 1198 Step C: reason lives in immutable intent, not progress checkpoint.
-    expect(archivedProgress.checkpoint).toBeUndefined();
+    // Phase 1198 Step E: terminal commit performs zero progress mutation.
+    // The legacy checkpoint:null placeholder from creation is left untouched.
+    expect(archivedProgress.checkpoint).toBeNull();
 
     const { intents } = await readLifecycleIntentsForContract(
       manager['fs'],

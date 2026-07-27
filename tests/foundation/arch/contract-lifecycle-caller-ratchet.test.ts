@@ -42,18 +42,16 @@ describe('Phase 1198 Step D: terminal lifecycle caller ratchet', () => {
 
   it('`cancelContract` and `markCorrupted` never call `saveProgress` before rename', () => {
     const lifecycleSrc = fs.readFileSync(lifecycleFile, 'utf8');
-    // saveProgress appears only in the LifecycleContext interface, never as a call.
+    // LifecycleContext no longer exposes saveProgress; lifecycle helpers must not call it.
     const callMatches = lifecycleSrc.match(/saveProgress\(/g);
     expect(callMatches ?? []).toEqual([]);
   });
 
-  it('raw `moveContractToArchive(` has no production callers', () => {
+  it('raw `moveContractToArchive(` is not defined or called in production code', () => {
     const cmd = `grep -rnE "moveContractToArchive\\(" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' }).trim();
     const lines = out.split('\n').filter(Boolean);
-    // Only the function definition in lifecycle.ts is allowed.
-    expect(lines.length).toBe(1);
-    expect(lines[0]).toMatch(/src\/core\/contract\/lifecycle\.ts:/);
+    expect(lines).toEqual([]);
   });
 
   it('direct `fs.move` calls in contract module are limited to known helpers', () => {

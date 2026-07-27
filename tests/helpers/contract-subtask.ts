@@ -44,7 +44,6 @@ type Internals = {
   baseDir: string;
   activeDir: string;
   archiveDir: ArchiveDir;
-  moveToArchive: (id: ContractId, targetState?: ArchiveState) => Promise<void>;
   _emitContractCompleted: (id: ContractId) => Promise<void>;
   isActiveContract: (id: ContractId) => Promise<boolean>;
   getContractRoot: (id: ContractId) => Promise<string>;
@@ -82,7 +81,6 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     baseDir: self.clawDir,
     activeDir: self.activeDir,
     archiveDir: self.archiveDir,
-    moveContractToArchive: (id, targetState) => self.moveToArchive(id, targetState),
     emitContractCompleted: (id) => self._emitContractCompleted(id),
     isActiveContract: (id) => self.isActiveContract(id),
     getContractRoot: (id) => self.getContractRoot(id),

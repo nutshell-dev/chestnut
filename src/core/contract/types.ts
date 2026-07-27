@@ -488,11 +488,28 @@ export interface LifecycleIntentIssue {
   detail?: string;
 }
 
-export interface LifecycleCommitOutcome {
-  kind: 'committed' | 'already_committed' | 'lost_to_state' | 'retryable_failure';
-  requested: ArchiveState;
-  state?: ArchiveState;
-  committed?: ArchiveState;
-  requestId: string;
-  cause?: string;
-}
+export type LifecycleCommitOutcome =
+  | {
+      kind: 'committed';
+      requested: ArchiveState;
+      state: ArchiveState;
+      requestId: string;
+    }
+  | {
+      kind: 'already_committed';
+      requested: ArchiveState;
+      state: ArchiveState;
+      requestId: string;
+    }
+  | {
+      kind: 'lost_to_state';
+      requested: ArchiveState;
+      committed: ArchiveState;
+      requestId: string;
+    }
+  | {
+      kind: 'retryable_failure';
+      requested: ArchiveState;
+      requestId: string;
+      cause: string;
+    };
