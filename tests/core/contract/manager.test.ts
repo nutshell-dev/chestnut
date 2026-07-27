@@ -183,9 +183,10 @@ describe('ContractSystem manager (phase 956)', () => {
     await fs.writeFile(path.join(c2Dir, 'progress.json'), JSON.stringify({ ...baseProgress, contract_id: c2 }, null, 2));
 
     // Phase 1201 Step C: boot reset 走 queued fresh-read（不再经 getProgress）；
-    // 改为对 c2 的 saveProgress 注入 IO 失败，验证单 contract 失败隔离。
-    const originalSave = (manager as any).saveProgress.bind(manager);
-    vi.spyOn(manager as any, 'saveProgress').mockImplementation(
+    // 改为对 c2 的 active 保存注入 IO 失败，验证单 contract 失败隔离。
+    // （Step E：保存原语更名 saveActiveProgressExisting。）
+    const originalSave = (manager as any).saveActiveProgressExisting.bind(manager);
+    vi.spyOn(manager as any, 'saveActiveProgressExisting').mockImplementation(
       async (contractId: string, ...rest: unknown[]) => {
         if (contractId === c2) throw new Error('EIO');
         return originalSave(contractId, ...rest);

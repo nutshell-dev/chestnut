@@ -242,3 +242,160 @@ describe('Phase 1201 Step D: contract progress authority ratchet', () => {
     expect(isBootReplayBeforeReset(compliant)).toBe(true);
   });
 });
+
+// ─── Phase 1201 Step E 追加规则 ──────────────────────────────────────────────
+
+const nodeFsFile = path.join(srcRoot, 'foundation', 'fs', 'node-fs.ts');
+const persistenceFile = path.join(contractSrc, 'persistence.ts');
+const verificationNotifyFile = path.join(contractSrc, 'verification-notify.ts');
+const raceTestFile = path.join(repoRoot, 'tests', 'core', 'contract', 'progress-mutation-race.test.ts');
+
+/** 规则 E1：文本中调用 ensure-parent 通用 writeAtomic（排除 writeAtomicExisting）。 */
+export function findGenericWriteAtomicCalls(text: string): string[] {
+  return text.split('\n').filter(line => /\.writeAtomic\(/.test(line));
+}
+
+/** 规则 E2：方法体内出现 ensureDir/mkdir。 */
+export function findEnsureParentInBody(body: string): string[] {
+  return body.split('\n').filter(line => /ensureDir|mkdir/.test(line));
+}
+
+/** 提取类方法体（`async <name>(` 起，先括号配对再 brace 配对）。 */
+function extractMethodBody(text: string, name: string): string | null {
+  const sigIdx = text.indexOf(`async ${name}(`);
+  if (sigIdx === -1) return null;
+  const paramsOpen = text.indexOf('(', sigIdx);
+  let pDepth = 0;
+  let paramsClose = -1;
+  for (let i = paramsOpen; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '(') pDepth++;
+    else if (ch === ')') {
+      pDepth--;
+      if (pDepth === 0) { paramsClose = i; break; }
+    }
+  }
+  if (paramsClose === -1) return null;
+  const openIdx = text.indexOf('{', paramsClose);
+  let depth = 0;
+  for (let i = openIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(openIdx, i + 1);
+    }
+  }
+  return null;
+}
+
+/** 规则 E3/E4：persist 结果必须赋名且后跟含 conflict 分支的 switch。返回违规点。 */
+export function findUnconsumedPersistResults(text: string): string[] {
+  const violations: string[] = [];
+  const callPattern = /await ctx\.persistVerificationOutcome\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = callPattern.exec(text)) !== null) {
+    // 必须形如 `const <name> = await ctx.persistVerificationOutcome(`
+    const prefix = text.slice(Math.max(0, m.index - 80), m.index);
+    const assignMatch = prefix.match(/const\s+(\w+)\s*=\s*$/);
+    if (!assignMatch) {
+      violations.push(`bare persist call @${m.index}`);
+      continue;
+    }
+    const varName = assignMatch[1];
+    // 后续 2000 字符内必须有 `switch (<varName>)` 且含 `case 'conflict'`。
+    const following = text.slice(m.index, m.index + 2000);
+    const switchIdx = following.indexOf(`switch (${varName})`);
+    if (switchIdx === -1 || !following.slice(switchIdx).includes("case 'conflict'")) {
+      violations.push(`persist result '${varName}' without exhaustive conflict branch @${m.index}`);
+    }
+  }
+  return violations;
+}
+
+/** 规则 E5：manager 暴露 public enqueue delegate 或 depth surface。返回违规行。 */
+export function findPublicQueueSurface(text: string): string[] {
+  const violations: string[] = [];
+  for (const line of text.split('\n')) {
+    if (/^\s*async _enqueueProgressMutation/.test(line)) violations.push(line.trim());
+    if (/progressMutationQueueDepth/.test(line)) violations.push(line.trim());
+  }
+  return violations;
+}
+
+describe('Phase 1201 Step E: progress commit correctness ratchet', () => {
+  it('规则 E1：manager 不调用 ensure-parent 通用 writeAtomic；active 保存走 writeAtomicExisting', () => {
+    const managerText = fs.readFileSync(managerFile, 'utf8');
+    expect(findGenericWriteAtomicCalls(managerText)).toEqual([]);
+    const body = extractFunctionBody(fs.readFileSync(persistenceFile, 'utf8'), 'saveActiveProgressExisting');
+    expect(body).not.toBeNull();
+    expect(body!).toContain('writeAtomicExisting(');
+    expect(findGenericWriteAtomicCalls(body!)).toEqual([]);
+  });
+
+  it('规则 E1 反向 fixture：active owner 注入通用 writeAtomic 调用会被检出', () => {
+    expect(findGenericWriteAtomicCalls('await this.fs.writeAtomic(p, c);')).toHaveLength(1);
+    expect(findGenericWriteAtomicCalls('await this.fs.writeAtomicExisting(p, c);')).toHaveLength(0);
+  });
+
+  it('规则 E2：writeAtomicExisting 实现体不含 ensureDir/mkdir', () => {
+    const body = extractMethodBody(fs.readFileSync(nodeFsFile, 'utf8'), 'writeAtomicExisting');
+    expect(body).not.toBeNull();
+    expect(findEnsureParentInBody(body!)).toEqual([]);
+  });
+
+  it('规则 E2 反向 fixture：实现体注入 ensureDir 会被检出', () => {
+    expect(findEnsureParentInBody('{\n  await ensureDir(dir);\n  await writeAtomic(abs, c);\n}')).toHaveLength(1);
+    expect(findEnsureParentInBody('{\n  return wrapENOENT(p, () => writeAtomic(abs, c));\n}')).toHaveLength(0);
+  });
+
+  it('规则 E3/E4：pass/reject/errored/interrupted persist 结果全部 exhaustive 消费且含 conflict 分支', () => {
+    const verificationText = fs.readFileSync(verificationFile, 'utf8');
+    const notifyText = fs.readFileSync(verificationNotifyFile, 'utf8');
+    // 两个文件共有 ≥3 个 persist call site，全部合规。
+    expect(findUnconsumedPersistResults(verificationText)).toEqual([]);
+    expect(findUnconsumedPersistResults(notifyText)).toEqual([]);
+  });
+
+  it('规则 E3/E4 反向 fixture：裸 persist 调用或缺 conflict 分支会被检出', () => {
+    const bare = 'async function f() {\n  await ctx.persistVerificationOutcome(o);\n}';
+    expect(findUnconsumedPersistResults(bare)).toHaveLength(1);
+    const noConflictBranch = [
+      'const persistResult = await ctx.persistVerificationOutcome(o);',
+      "switch (persistResult) { case 'persisted': break; }",
+    ].join('\n');
+    expect(findUnconsumedPersistResults(noConflictBranch)).toHaveLength(1);
+    const compliant = [
+      'const persistResult = await ctx.persistVerificationOutcome(o);',
+      "switch (persistResult) { case 'persisted': case 'idempotent': break; case 'conflict': return; }",
+    ].join('\n');
+    expect(findUnconsumedPersistResults(compliant)).toEqual([]);
+  });
+
+  it('规则 E5：manager 无 public `_enqueueProgressMutation` 与 `progressMutationQueueDepth`', () => {
+    const managerText = fs.readFileSync(managerFile, 'utf8');
+    expect(findPublicQueueSurface(managerText)).toEqual([]);
+  });
+
+  it('规则 E5 反向 fixture：public delegate/depth 会被检出', () => {
+    const violating = [
+      '  async _enqueueProgressMutation<T>(',
+      '  progressMutationQueueDepth(contractId: ContractId): number {',
+    ].join('\n');
+    expect(findPublicQueueSurface(violating)).toHaveLength(2);
+    const compliant = '  private async _enqueueProgressMutation<T>(';
+    expect(findPublicQueueSurface(compliant)).toEqual([]);
+  });
+
+  it('规则 E6：recheck-after/physical-write-before barrier race test 在固定 suite', () => {
+    const raceText = fs.readFileSync(raceTestFile, 'utf8');
+    // ghost race：writeAtomicExisting 入口 gate + gate 内 cancel rename + not_active 断言。
+    expect(raceText).toContain('mutable.writeAtomicExisting');
+    expect(raceText).toContain("expect(syncResult.kind).toBe('not_active')");
+  });
+
+  it('规则 E6 反向 fixture：无 barrier 标记文本不通过', () => {
+    const noBarrier = "it('x', async () => { expect(1).toBe(1); });";
+    expect(noBarrier).not.toContain('mutable.writeAtomicExisting');
+  });
+});

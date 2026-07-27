@@ -75,7 +75,7 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
     const progress = await manager.getProgress(contractId);
     progress.subtasks.t1.status = 'completed';
     progress.subtasks.t1.completed_at = new Date().toISOString();
-    await (manager as any).saveProgress(contractId, progress);
+    await (manager as any).saveActiveProgressExisting(contractId, progress);
 
     // Concurrent: completed archive + cancel on same contract.
     // Directory rename is the sole lifecycle commit point.
@@ -109,7 +109,7 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
     const progress = await manager.getProgress(contractId);
     progress.subtasks.t1.status = 'completed';
     progress.subtasks.t1.completed_at = new Date().toISOString();
-    await (manager as any).saveProgress(contractId, progress);
+    await (manager as any).saveActiveProgressExisting(contractId, progress);
 
     // Observe every success side effect: abort, completed handler,
     // completed audit, contract_completed notify.
@@ -394,7 +394,7 @@ describe('archive getProgress pure-read invariants', () => {
     const progress = await manager.getProgress(contractId);
     progress.subtasks.t1.status = 'completed';
     progress.subtasks.t1.completed_at = new Date().toISOString();
-    await (manager as any).saveProgress(contractId, progress);
+    await (manager as any).saveActiveProgressExisting(contractId, progress);
     const ctx = createManagerVerificationContext(manager);
     const yaml = await ctx.loadContractYaml(contractId);
     if (!yaml) throw new Error('missing contract yaml');

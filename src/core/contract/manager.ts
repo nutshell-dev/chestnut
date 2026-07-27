@@ -62,7 +62,7 @@ import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATE
 import { loadActiveContract, type DiscoveryContext } from './discovery.js';
 import {
   loadContractYaml as loadYaml, readContractYamlRaw as readYaml,
-  loadContract as loadCt, saveProgress as saveProg,
+  loadContract as loadCt, saveActiveProgressExisting as saveActiveProg,
   checkAllSubtasksCompleted,
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
@@ -438,7 +438,7 @@ export class ContractSystem {
             });
             if (!stillActive) return { result: 'not_active' };
             try {
-              await this.saveProgress(contractId, progress, this.activeDir);
+              await this.saveActiveProgressExisting(contractId, progress);
             } catch (err) {
               if (isFileNotFound(err)) return { result: 'not_active' };
               throw err;
@@ -467,23 +467,19 @@ export class ContractSystem {
   // ============================================================================
 
   /**
-   * 唯一 progress 短事务调度入口（minimal enqueue delegate）。
-   * 命名 `_` 前缀表 internal（同 `_writeVerificationError` 既有约定）；
-   * Step B/C 业务 caller 与测试装配经此调度。
+   * 唯一 progress 短事务调度入口（private owner delegate）。
+   * Phase 1201 Step E: 收窄为 private——production caller 只能经 typed 业务
+   * capability（transitionVerificationAttempt / submitSyncCompletion / boot）
+   * 间接调度，不暴露 arbitrary callback enqueue 表面。
    * mutation callback 必须在执行时 fresh-read（不接受 caller 预读 snapshot）、
    * 不得包含长耗时 verifier/LLM/script 或 terminal side effect 等待。
    */
-  async _enqueueProgressMutation<T>(
+  private async _enqueueProgressMutation<T>(
     contractId: ContractId,
     meta: ProgressMutationMeta,
     mutation: () => Promise<T>,
   ): Promise<T> {
     return this.progressMutationQueue.enqueue(contractId, meta, mutation);
-  }
-
-  /** Observability: 该 contract 当前 queued-or-running mutation 数（0 = idle）。 */
-  progressMutationQueueDepth(contractId: ContractId): number {
-    return this.progressMutationQueue.pendingCount(contractId);
   }
 
   // ============================================================================
@@ -658,7 +654,7 @@ export class ContractSystem {
       return { kind: 'skipped', reason: `contract ${contractId} is not active` };
     }
     try {
-      await this.saveProgress(contractId, progress, this.activeDir);
+      await this.saveActiveProgressExisting(contractId, progress);
     } catch (err) {
       // rename 在 re-verify 后胜出：active 目录已消失，fail-closed 不写 archive。
       if (isFileNotFound(err)) {
@@ -736,7 +732,7 @@ export class ContractSystem {
           return { kind: 'not_active' };
         }
         try {
-          await this.saveProgress(contractId, progress, this.activeDir);
+          await this.saveActiveProgressExisting(contractId, progress);
         } catch (err) {
           // rename 在 re-verify 后胜出：fail-closed 不写 archive。
           if (isFileNotFound(err)) {
@@ -971,7 +967,9 @@ export class ContractSystem {
                   }
                 }
                 if (migrated) {
-                  await this.fs.writeAtomic(activeProgressPath, JSON.stringify(loose.data, null, 2));
+                  // Phase 1201 Step E: active progress 写一律 existing-parent，
+                  // rename 先胜出时 ENOENT（下方 catch 静默，不 ghost-recreate）。
+                  await this.fs.writeAtomicExisting(activeProgressPath, JSON.stringify(loose.data, null, 2));
                 }
               }
             } catch {
@@ -1020,7 +1018,7 @@ export class ContractSystem {
                 if (!stillActive) return { kind: 'not_active' };
                 try {
                   // Phase 970: save progress FIRST so audit failures cannot block the reset.
-                  await this.saveProgress(contractId, progress, this.activeDir);
+                  await this.saveActiveProgressExisting(contractId, progress);
                 } catch (err) {
                   if (isFileNotFound(err)) return { kind: 'not_active' };
                   throw err;
@@ -1562,8 +1560,8 @@ export class ContractSystem {
     return loadCt(this._persistenceCtx(), contractId);
   }
 
-  private async saveProgress(contractId: ContractId, progress: ProgressData, knownDir?: string): Promise<void> {
-    return saveProg(this._persistenceCtx(), contractId, progress, knownDir);
+  private async saveActiveProgressExisting(contractId: ContractId, progress: ProgressData): Promise<void> {
+    return saveActiveProg(this._persistenceCtx(), contractId, progress, this.activeDir);
   }
 
   private async checkAllCompleted(contractId: ContractId, progress: ProgressData): Promise<boolean> {

@@ -152,14 +152,11 @@ export async function loadContract(
   };
 }
 
-export async function saveProgress(
-  ctx: PersistenceContext,
-  contractId: ContractId,
-  progress: ProgressData,
-  knownDir?: string,
-): Promise<void> {
-  const dir = knownDir ?? await ctx.contractDir(contractId);
-  const progressPath = `${dir}/${contractId}/progress.json`;
+/**
+ * 共享：progress 序列化 + schema defensive validate（失败 audit + throw）。
+ * 返回写入磁盘的 JSON 文本。
+ */
+function serializeProgressForSave(ctx: PersistenceContext, contractId: ContractId, progress: ProgressData): string {
   // phase 319: ProgressData.schema_version now z.literal(1) brand (Zod SoT)、显式 set 保 writer SoT
   const progressToSave = { ...progress, schema_version: PROGRESS_CURRENT_SCHEMA_VERSION };
   // Step C: current progress disk protocol removes all derive fields (contract_id + status).
@@ -188,9 +185,41 @@ export async function saveProgress(
     );
   }
 
+  return JSON.stringify(progressToSave, null, 2);
+}
+
+export async function saveProgress(
+  ctx: PersistenceContext,
+  contractId: ContractId,
+  progress: ProgressData,
+  knownDir?: string,
+): Promise<void> {
+  const dir = knownDir ?? await ctx.contractDir(contractId);
+  const progressPath = `${dir}/${contractId}/progress.json`;
+  const serialized = serializeProgressForSave(ctx, contractId, progress);
+
   // phase 282 Step B: cross-source audit 整文件已删除
 
-  await ctx.fs.writeAtomic(progressPath, JSON.stringify(progressToSave, null, 2));
+  await ctx.fs.writeAtomic(progressPath, serialized);
+}
+
+/**
+ * Phase 1201 Step E: published active progress 的 queued commit 专用保存。
+ *
+ * existing-parent 语义：不创建 parent。terminal rename 在 active recheck 后、
+ * 物理写前胜出时，temp 创建即 ENOENT（FileNotFoundError）——不会
+ * ghost-recreate `active/<id>`，也不会写入已归档目录。caller（queued
+ * mutation）必须把 FileNotFoundError 分类为 typed not_active/skipped。
+ */
+export async function saveActiveProgressExisting(
+  ctx: PersistenceContext,
+  contractId: ContractId,
+  progress: ProgressData,
+  activeDir: string,
+): Promise<void> {
+  const progressPath = `${activeDir}/${contractId}/progress.json`;
+  const serialized = serializeProgressForSave(ctx, contractId, progress);
+  await ctx.fs.writeAtomicExisting(progressPath, serialized);
 }
 
 // phase 791 (P0.17): updateContractStatus deleted.

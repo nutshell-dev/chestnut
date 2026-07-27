@@ -194,10 +194,19 @@ export async function handleVerificationErrorRetry(
 
     // Phase 1201 Step C: errored outcome 先持久化 immutable fact，再 queued reject。
     if (errorFact !== undefined) {
-      await ctx.persistVerificationOutcome(buildVerificationOutcome(
+      const persistResult = await ctx.persistVerificationOutcome(buildVerificationOutcome(
         { contractId, subtaskId, attemptId: effectiveAttemptId, completedAt: new Date().toISOString() },
         { kind: 'errored', error: errorFact, cause, feedback: feedbackText, maxAttempts },
       ));
+      // Phase 1201 Step E: conflict fail-closed —— durable fact 与本次 payload 冲突时
+      // 不得 transition/side effect（audit 已含 immutable conflict fact）。
+      switch (persistResult) {
+        case 'persisted':
+        case 'idempotent':
+          break;
+        case 'conflict':
+          return result;
+      }
     }
 
     const transitionResult = await ctx.transitionVerificationAttempt(

@@ -346,6 +346,103 @@ describe('progress mutation race (phase 1201 step B)', () => {
     expect(progress.subtasks.st1.evidence).not.toBe('e-sync');
   });
 
+  it('active recheck 后 terminal rename 胜出：existing-parent write 0 ghost、archive bytes 不变（Step E）', async () => {
+    const fx = await setup();
+    cleanups.push(fx.tempDir);
+    const contractId = makeContractId(await fx.manager.create(makeContractYaml({
+      subtasks: [{ id: 'st1', description: 'S1' }],
+      verification: [],
+    })));
+    const otherId = makeContractId(await fx.manager.create(makeContractYaml({
+      subtasks: [{ id: 'st1', description: 'S1' }],
+      verification: [],
+    })));
+    const st1 = makeSubtaskId('st1');
+
+    // Barrier：queued mutation fresh-read + active recheck 通过后，暂停在
+    // writeAtomicExisting 入口（temp-file 创建前），此时 cancel 赢 rename。
+    const gate = deferred();
+    const writeEntered = deferred();
+    const mutable = fx.fs as { writeAtomicExisting: (p: string, c: string) => Promise<void> };
+    const origWrite = mutable.writeAtomicExisting.bind(fx.fs);
+    let armed = true;
+    mutable.writeAtomicExisting = async (p: string, c: string) => {
+      if (armed && p.includes(`contract/active/${contractId}/`)) {
+        armed = false;
+        writeEntered.resolve();
+        await gate.promise;
+      }
+      return origWrite(p, c);
+    };
+
+    const pSync = fx.manager._submitSyncCompletion(contractId, st1, {
+      evidence: 'loser-evidence',
+      at: new Date().toISOString(),
+    });
+    await writeEntered.promise;
+
+    // recheck 已过、物理写暂停 → terminal rename 胜出。
+    const cancelOutcome = await fx.manager.cancel(contractId, 'step-E ghost race');
+    expect(cancelOutcome.kind).toBe('committed');
+    gate.resolve();
+
+    const syncResult = await pSync;
+    // typed 分类：绝不报告 updated/completed。
+    expect(syncResult.kind).toBe('not_active');
+
+    // 0 ghost：active/<id> 不存在，且未被 write 复活。
+    await expect(fsp.access(path.join(fx.clawDir, 'contract', 'active', contractId))).rejects.toThrow();
+    // 只有 archive/cancelled 一个 terminal 目录。
+    await expect(fsp.access(path.join(fx.clawDir, 'contract', 'archive', 'cancelled', contractId))).resolves.toBeUndefined();
+    await expect(fsp.access(path.join(fx.clawDir, 'contract', 'archive', 'completed', contractId))).rejects.toThrow();
+    // archive progress bytes 不含 loser mutation。
+    const archiveProgress = JSON.parse(await fsp.readFile(
+      path.join(fx.clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json'),
+      'utf-8',
+    ));
+    expect(archiveProgress.subtasks.st1.status).toBe('todo');
+    expect(archiveProgress.subtasks.st1.evidence).toBeUndefined();
+    // active 父目录下无 temp ghost。
+    const activeEntries = await fsp.readdir(path.join(fx.clawDir, 'contract', 'active'));
+    expect(activeEntries.filter(e => e.startsWith('.tmp_'))).toEqual([]);
+
+    // queue 继续可用：另一 contract 的 mutation 正常完成。
+    const other = await fx.manager._submitSyncCompletion(otherId, st1, {
+      evidence: 'ok',
+      at: new Date().toISOString(),
+    });
+    expect(other.kind).toBe('completed');
+  });
+
+  it('existing-parent write 胜出后 terminal rename：archive 含完整新 bytes（Step E）', async () => {
+    const fx = await setup();
+    cleanups.push(fx.tempDir);
+    const contractId = makeContractId(await fx.manager.create(makeContractYaml({
+      subtasks: [{ id: 'st1', description: 'S1' }],
+      verification: [],
+    })));
+    const st1 = makeSubtaskId('st1');
+
+    // file commit 先完成。
+    const sync = await fx.manager._submitSyncCompletion(contractId, st1, {
+      evidence: 'winner-evidence',
+      at: new Date().toISOString(),
+    });
+    expect(sync.kind).toBe('completed');
+
+    // terminal rename 随后发生：新 progress 一并提交到 archive，无半写。
+    const cancelOutcome = await fx.manager.cancel(contractId, 'after commit');
+    expect(cancelOutcome.kind).toBe('committed');
+
+    const archiveProgress = JSON.parse(await fsp.readFile(
+      path.join(fx.clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json'),
+      'utf-8',
+    ));
+    expect(archiveProgress.subtasks.st1.status).toBe('completed');
+    expect(archiveProgress.subtasks.st1.evidence).toBe('winner-evidence');
+    await expect(fsp.access(path.join(fx.clawDir, 'contract', 'active', contractId))).rejects.toThrow();
+  });
+
   it('post-commit notify 抛错：progress 不回滚，queue 不毒化', async () => {
     const fx = await setup();
     cleanups.push(fx.tempDir);
@@ -379,7 +476,7 @@ describe('progress mutation race (phase 1201 step B)', () => {
       subtaskId: makeSubtaskId('st2'),
       evidence: 'e2',
     });
+    // queue 未毒化：后续 mutation 正常完成（r2 passed 即证明 queue 恢复可用）。
     expect(r2.passed).toBe(true);
-    expect(fx.manager.progressMutationQueueDepth(makeContractId(contractId))).toBe(0);
   });
 });

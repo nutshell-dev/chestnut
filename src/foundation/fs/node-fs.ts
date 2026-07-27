@@ -293,6 +293,19 @@ export class NodeFileSystem implements FileSystem {
     
     await writeAtomic(absolute, content);
   }
+
+  /**
+   * Phase 1201 Step E: existing-parent atomic write。
+   *
+   * 与 writeAtomic 相同 temp+rename+fsync 协议，但不调 ensureDir：parent
+   * 不存在时 temp 创建即 ENOENT → FileNotFoundError。temp 写在 target 同目录，
+   * 与目录 rename 的交错天然安全（terminal rename 先胜出 → ENOENT；temp 先创建
+   * → 随目录移动、旧路径 rename 失败，不复活旧 parent）。
+   */
+  async writeAtomicExisting(relativePath: string, content: string): Promise<void> {
+    const absolute = this.resolveAndCheck(relativePath);
+    return wrapENOENT(relativePath, () => writeAtomic(absolute, content));
+  }
   
   async append(relativePath: string, content: string): Promise<void> {
     const absolute = this.resolveAndCheck(relativePath);

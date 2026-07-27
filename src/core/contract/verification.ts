@@ -447,7 +447,7 @@ export async function runVerificationInBackground(
       ...(result.structured ? { structured: result.structured } : {}),
     };
     const maxAttempts = contractYaml.verification_attempts ?? DEFAULT_VERIFICATION_ATTEMPTS;
-    await ctx.persistVerificationOutcome(buildVerificationOutcome(
+    const persistResult = await ctx.persistVerificationOutcome(buildVerificationOutcome(
       { contractId, subtaskId, attemptId, completedAt: outcomeCompletedAt },
       result.passed
         ? { kind: 'passed', result: resultFact }
@@ -458,6 +458,20 @@ export async function runVerificationInBackground(
             maxAttempts,
           },
     ));
+    // Phase 1201 Step E: conflict fail-closed —— durable fact 冲突时不得 apply
+    // （不 transition、不 archive、不 retry side effect）。以 error 分类 settle
+    // background promise 并直接 return：不进 catch（避免被当成新 errored outcome
+    // 形成冲突循环）；audit 已含 immutable conflict fact。
+    switch (persistResult) {
+      case 'persisted':
+      case 'idempotent':
+        break;
+      case 'conflict': {
+        outcomeKind = 'error';
+        resolveVerification({ passed: false, feedback: '' });
+        return;
+      }
+    }
 
     const outcome = await applyVerificationOutcome(
       ctx,
@@ -509,22 +523,30 @@ export async function runVerificationInBackground(
       try {
         if (await isContractActive(ctx, contractId)) {
           // Phase 1201 Step C: interrupted 也先落 durable outcome 再 queued transition。
-          await ctx.persistVerificationOutcome(buildVerificationOutcome(
+          const persistResult = await ctx.persistVerificationOutcome(buildVerificationOutcome(
             { contractId, subtaskId, attemptId, completedAt: new Date().toISOString() },
             {
               kind: 'interrupted',
               reason: controller.signal.aborted ? formatErr(controller.signal.reason) : 'AbortError',
             },
           ));
-          await ctx.transitionVerificationAttempt(
-            contractId,
-            subtaskId,
-            {
-              kind: 'interrupt',
-              attemptId,
-              at: new Date().toISOString(),
-            },
-          );
+          // Phase 1201 Step E: conflict fail-closed —— 不做 interrupt transition。
+          switch (persistResult) {
+            case 'persisted':
+            case 'idempotent':
+              await ctx.transitionVerificationAttempt(
+                contractId,
+                subtaskId,
+                {
+                  kind: 'interrupt',
+                  attemptId,
+                  at: new Date().toISOString(),
+                },
+              );
+              break;
+            case 'conflict':
+              break;
+          }
         }
       } catch (cleanupErr) {
         // best-effort: audit but don't block

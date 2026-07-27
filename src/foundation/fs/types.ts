@@ -107,6 +107,21 @@ export interface FileSystem {
    * @throws PathGuardError if path is outside configured baseDir
    */
   writeAtomic(path: string, content: string): Promise<void>;
+
+  /**
+   * Write file atomically, requiring the parent directory to already exist.
+   *
+   * Phase 1201 Step E: 与 `writeAtomic` 相同的 temp+rename+fsync 协议，但
+   * 不创建 parent 或任何 ancestor：parent 不存在 → FileNotFoundError。
+   * 用于 published active progress commit——terminal rename 若先胜出，
+   * temp 创建即 ENOENT，不会 ghost-recreate 已归档的 active 目录。
+   *
+   * @param path - Relative path within configured baseDir
+   * @param content - Content to write
+   * @throws FileNotFoundError if the parent directory does not exist
+   * @throws PathGuardError if path is outside configured baseDir
+   */
+  writeAtomicExisting(path: string, content: string): Promise<void>;
   
   /**
    * Append content to file (creates if not exists)

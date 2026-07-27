@@ -576,7 +576,7 @@ describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
     const progress = await manager.getProgress(contractId);
     progress.subtasks['t1'].status = 'completed';
     progress.subtasks['t1'].completed_at = new Date().toISOString();
-    await (manager as any).saveProgress(contractId, progress);
+    await (manager as any).saveActiveProgressExisting(contractId, progress);
 
     // Spy fs.move to throw (simulating archive failure)
     vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('disk full'));

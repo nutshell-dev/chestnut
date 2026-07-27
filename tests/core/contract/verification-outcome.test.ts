@@ -2,12 +2,12 @@
  * Phase 1201 Step C: durable verification outcome store — schema / exclusive /
  * idempotency / strict reader.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import * as fsp from 'fs/promises';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { makeAudit } from '../../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
 import {
   buildVerificationOutcome,
   isOutcomeAlreadyApplied,
@@ -203,5 +203,144 @@ describe('isOutcomeAlreadyApplied classification (phase 1201 step C)', () => {
       { status: 'todo', verification_attempt_id: 'att-2' },
       interrupted,
     )).toBe(false);
+  });
+});
+
+/**
+ * Phase 1201 Step E: durable outcome conflict fail-closed 行为验收。
+ *
+ * pass / reject / errored / interrupted 四类 caller 遇 conflict 均不得
+ * transition / archive / retry side effect；idempotent 仍可 guarded apply；
+ * background promise 必须 settle（无 unhandled rejection）。
+ */
+describe('verification outcome conflict fail-closed (phase 1201 step E)', () => {
+  const contractYaml = {
+    subtasks: [{ id: 'st1', description: 'desc' }],
+    verification_attempts: 3,
+  } as any;
+  const scriptConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+  function makeBgCtx(overrides: Record<string, unknown>) {
+    return {
+      clawDir: '/tmp/claw',
+      clawId: 'claw-test',
+      audit: makeMockAudit(),
+      notifyClaw: vi.fn(),
+      fs: {},
+      contractDir: vi.fn().mockResolvedValue('contract/active'),
+      getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+      loadContractYaml: vi.fn().mockResolvedValue(contractYaml),
+      getProgress: vi.fn().mockResolvedValue({
+        schema_version: 1,
+        status: 'running',
+        subtasks: { st1: { status: 'in_progress', verification_attempt_id: 'a1' } },
+        started_at: '2026-07-27T00:00:00.000Z',
+      }),
+      isActiveContract: vi.fn().mockResolvedValue(true),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'updated', progress: { subtasks: {} } }),
+      submitSyncCompletion: vi.fn(),
+      persistVerificationOutcome: vi.fn().mockResolvedValue('conflict'),
+      runScriptVerification: vi.fn(),
+      runLLMVerification: vi.fn(),
+      runVerifierWithCancel: vi.fn(),
+      registerController: vi.fn(),
+      unregisterController: vi.fn(),
+      onNotify: vi.fn(),
+      toolRegistry: {},
+      ...overrides,
+    } as unknown as import('../../../src/core/contract/verification.js').VerificationContext;
+  }
+
+  it('pass outcome conflict → 0 transition、background settle、BACKGROUND_DONE result=error', async () => {
+    const { runVerificationInBackground } = await import('../../../src/core/contract/verification.js');
+    const ctx = makeBgCtx({
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: 'ok' }),
+    });
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1' as any, subtaskId: 'st1' as any, evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      scriptConfig,
+    );
+
+    expect(ctx.persistVerificationOutcome).toHaveBeenCalledTimes(1);
+    expect(ctx.transitionVerificationAttempt).not.toHaveBeenCalled();
+    const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
+    expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE
+      && c.some(col => String(col).includes('result=error')))).toBe(true);
+  });
+
+  it('reject outcome conflict → 0 transition、0 retry side effect', async () => {
+    const { runVerificationInBackground } = await import('../../../src/core/contract/verification.js');
+    const ctx = makeBgCtx({
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: false, feedback: 'bad' }),
+    });
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1' as any, subtaskId: 'st1' as any, evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      scriptConfig,
+    );
+
+    expect(ctx.persistVerificationOutcome).toHaveBeenCalledTimes(1);
+    expect(ctx.transitionVerificationAttempt).not.toHaveBeenCalled();
+  });
+
+  it('errored outcome conflict → 0 transition（不形成 conflict 循环）', async () => {
+    const { runVerificationInBackground } = await import('../../../src/core/contract/verification.js');
+    const ctx = makeBgCtx({
+      runScriptVerification: vi.fn().mockRejectedValue(new Error('script crashed')),
+    });
+
+    // background 必须 settle（不 throw、无 unhandled rejection）。
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1' as any, subtaskId: 'st1' as any, evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      scriptConfig,
+    );
+
+    // errored persist 恰好一次（conflict 后不再被 catch 当成新 errored outcome 重试）。
+    expect(ctx.persistVerificationOutcome).toHaveBeenCalledTimes(1);
+    expect(ctx.transitionVerificationAttempt).not.toHaveBeenCalled();
+  });
+
+  it('interrupted outcome conflict → 0 interrupt transition，abort 仍 rethrow', async () => {
+    const { runVerificationInBackground } = await import('../../../src/core/contract/verification.js');
+    const ctx = makeBgCtx({
+      runScriptVerification: vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')),
+    });
+
+    await expect(runVerificationInBackground(
+      ctx,
+      { contractId: 'c1' as any, subtaskId: 'st1' as any, evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      scriptConfig,
+    )).rejects.toThrow('aborted');
+
+    expect(ctx.persistVerificationOutcome).toHaveBeenCalledTimes(1);
+    expect(ctx.transitionVerificationAttempt).not.toHaveBeenCalled();
+  });
+
+  it('idempotent 同 payload → 仍 guarded apply（transition 恰好一次）', async () => {
+    const { runVerificationInBackground } = await import('../../../src/core/contract/verification.js');
+    const ctx = makeBgCtx({
+      persistVerificationOutcome: vi.fn().mockResolvedValue('idempotent'),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: 'ok' }),
+    });
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1' as any, subtaskId: 'st1' as any, evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      scriptConfig,
+    );
+
+    expect(ctx.persistVerificationOutcome).toHaveBeenCalledTimes(1);
+    expect(ctx.transitionVerificationAttempt).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ctx.transitionVerificationAttempt).mock.calls[0][2]).toMatchObject({ kind: 'pass', attemptId: 'a1' });
   });
 });

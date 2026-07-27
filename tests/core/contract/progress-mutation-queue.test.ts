@@ -7,8 +7,7 @@
  * 3. first reject 后 second 仍执行（reject 隔离），caller 收到原始 reject；
  * 4. settle 后 entry 回收（size 0）；
  * 5. old tail finally 不删除 new tail（identity-safe cleanup）；
- * 6. owner 装配：ContractSystem._enqueueProgressMutation 走同一 queue + audit。
- */
+ * 6. owner 装配（Step E 收口后）：ContractSystem 业务 capability 走同一 queue + audit。 */
 import { describe, it, expect, vi } from 'vitest';
 import {
   ProgressMutationQueue,
@@ -16,7 +15,8 @@ import {
 } from '../../../src/core/contract/progress-mutation-queue.js';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
-import { makeContractId } from '../../../src/core/contract/types.js';
+import { makeContractId, makeSubtaskId } from '../../../src/core/contract/types.js';
+import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../../helpers/audit.js';
@@ -185,69 +185,88 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
   });
 });
 
-describe('ContractSystem progress mutation queue owner wiring (phase 1201 step A)', () => {
-  it('manager owns the queue and exposes the enqueue delegate + depth observability', async () => {
+describe('ContractSystem progress mutation queue owner wiring (phase 1201 step A/E)', () => {
+  // Phase 1201 Step E: `_enqueueProgressMutation` 已收窄为 private、depth 已删除。
+  // owner 装配不再经白盒 enqueue/depth 断言，改经真实业务 capability 观察：
+  // typed transition 走 queue（queued/started/finished audit），不同 contract 不共享 FIFO。
+  async function makeManagerWithContract(tempDir: string) {
+    const audit = makeMockAudit();
+    const fs = new NodeFileSystem({ baseDir: tempDir });
+    const manager = new ContractSystem({
+      clawDir: tempDir,
+      clawId: 'claw-queue',
+      fs,
+      audit,
+      notifyClaw: () => Promise.resolve(),
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    });
+    const contractId = makeContractId(await manager.create(makeContractYaml({
+      subtasks: [{ id: 'st1', description: 'S1' }],
+      verification: [],
+    })));
+    return { audit, fs, manager, contractId };
+  }
+
+  it('manager owns the queue: typed transition 经 queue 调度并产生 queued/finished audit', async () => {
     const tempDir = await createTempDir('phase1201-queue-');
     try {
-      const audit = makeMockAudit();
-      const manager = new ContractSystem({
-        clawDir: tempDir,
-        clawId: 'claw-queue',
-        fs: new NodeFileSystem({ baseDir: tempDir }),
-        audit,
-        notifyClaw: () => Promise.resolve(),
-        toolRegistry: createToolRegistry(),
-        fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      });
+      const { audit, manager, contractId } = await makeManagerWithContract(tempDir);
 
-      const gate = deferred();
-      const p1 = manager._enqueueProgressMutation(C_A, meta('sync_complete', 'm1'), async () => {
-        await gate.promise;
-        return 'r1';
+      const result = await manager.transitionVerificationAttempt(contractId, makeSubtaskId('st1'), {
+        kind: 'start',
+        attemptId: 'att-1',
+        evidence: 'e',
+        artifacts: [],
+        at: new Date().toISOString(),
       });
-      const p2 = manager._enqueueProgressMutation(C_A, meta('attempt_start', 'm2'), async () => 'r2');
-
-      expect(manager.progressMutationQueueDepth(C_A)).toBe(2);
-      gate.resolve();
-      await expect(p1).resolves.toBe('r1');
-      await expect(p2).resolves.toBe('r2');
-      expect(manager.progressMutationQueueDepth(C_A)).toBe(0);
+      expect(result.kind).toBe('updated');
 
       const writes = vi.mocked(audit.write).mock.calls;
       expect(writes.some(c => c[0] === CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_QUEUED)).toBe(true);
+      expect(writes.some(c => c[0] === CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_STARTED)).toBe(true);
       expect(writes.some(c => c[0] === CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_FINISHED)).toBe(true);
     } finally {
       await cleanupTempDir(tempDir);
     }
   });
 
-  it('reverse: enqueueing with a different contract id does not share the same FIFO tail', async () => {
+  it('reverse: 不同 contract 的业务 mutation 不共享同一 FIFO tail', async () => {
     const tempDir = await createTempDir('phase1201-queue-');
     try {
-      const manager = new ContractSystem({
-        clawDir: tempDir,
-        clawId: 'claw-queue',
-        fs: new NodeFileSystem({ baseDir: tempDir }),
-        audit: makeMockAudit(),
-        notifyClaw: () => Promise.resolve(),
-        toolRegistry: createToolRegistry(),
-        fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      });
+      const { fs, manager, contractId: contractA } = await makeManagerWithContract(tempDir);
+      const contractB = makeContractId(await manager.create(makeContractYaml({
+        subtasks: [{ id: 'st1', description: 'S1' }],
+        verification: [],
+      })));
 
-      const gateA = deferred();
-      let bEntered = false;
-      const pA = manager._enqueueProgressMutation(C_A, meta('sync_complete', 'm1'), async () => {
-        await gateA.promise;
-      });
-      const pB = manager._enqueueProgressMutation(C_B, meta('sync_complete', 'm2'), async () => {
-        bEntered = true;
-      });
+      // Gate contract A 的第一次 active progress read（mutation 在 queue 内 fresh-read 阻塞）；
+      // contract B 的 sync completion 必须能并行完成，证明不共享 tail。
+      const gate = deferred();
+      const mutable = fs as { read: (p: string) => Promise<string> };
+      const origRead = mutable.read.bind(fs);
+      let armed = true;
+      const aReadEntered = deferred();
+      mutable.read = async (p: string) => {
+        if (armed && p.includes(`contract/active/${contractA}/`) && p.endsWith('progress.json')) {
+          armed = false;
+          aReadEntered.resolve();
+          await gate.promise;
+        }
+        return origRead(p);
+      };
 
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(bEntered).toBe(true);
-      gateA.resolve();
-      await Promise.all([pA, pB]);
+      const st1 = makeSubtaskId('st1');
+      const at = new Date().toISOString();
+      const pA = manager._submitSyncCompletion(contractA, st1, { evidence: 'a', at });
+      await aReadEntered.promise;
+
+      const bResult = await manager._submitSyncCompletion(contractB, st1, { evidence: 'b', at });
+      expect(bResult.kind).toBe('completed');
+
+      gate.resolve();
+      const aResult = await pA;
+      expect(aResult.kind).toBe('completed');
     } finally {
       await cleanupTempDir(tempDir);
     }

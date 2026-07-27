@@ -269,7 +269,7 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     progress!.subtasks.t1.completed_at = new Date().toISOString();
     progress!.subtasks.t2.status = 'completed';
     progress!.subtasks.t2.completed_at = new Date().toISOString();
-    await (fx.managerA as any).saveProgress(contractId as any, progress);
+    await (fx.managerA as any).saveActiveProgressExisting(contractId as any, progress);
 
     const barrier = await makeBarrier(fx.tempDir, 'cancel-completed');
 
@@ -346,7 +346,7 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     progress!.subtasks.t1.completed_at = new Date().toISOString();
     progress!.subtasks.t2.status = 'completed';
     progress!.subtasks.t2.completed_at = new Date().toISOString();
-    await (fx.managerA as any).saveProgress(contractId as any, progress);
+    await (fx.managerA as any).saveActiveProgressExisting(contractId as any, progress);
 
     const barrier = await makeBarrier(fx.tempDir, 'completed-corrupted');
 
@@ -394,7 +394,7 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     progress!.subtasks.t1.completed_at = new Date().toISOString();
     progress!.subtasks.t2.status = 'completed';
     progress!.subtasks.t2.completed_at = new Date().toISOString();
-    await (fx.managerA as any).saveProgress(contractId as any, progress);
+    await (fx.managerA as any).saveActiveProgressExisting(contractId as any, progress);
 
     const barrier = await makeBarrier(fx.tempDir, 'completed-completed');
 
