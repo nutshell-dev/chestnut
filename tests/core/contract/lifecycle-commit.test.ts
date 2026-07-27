@@ -10,6 +10,7 @@ import { commitTerminalLifecycle } from '../../../src/core/contract/lifecycle.js
 import { buildCancelledIntent, buildCompletedIntent } from '../../../src/core/contract/lifecycle-intent.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+import type { LifecycleCommitOutcome } from '../../../src/core/contract/types.js';
 
 let tmpDir: string;
 let clawDir: string;
@@ -202,5 +203,113 @@ describe('commitTerminalLifecycle', () => {
 
     const intentPath = `${clawDir}/contract/lifecycle-intents/${contractId}/req-loser.json`;
     expect(await ctx.fs.exists(intentPath)).toBe(true);
+  });
+});
+
+/**
+ * Phase 1198 Step E: the generic rename commit must never read or write
+ * progress.json. `checkpoint: null` is a legacy additive payload and must
+ * survive the rename byte-for-byte (no hygiene writes piggybacked on commit).
+ */
+const PROGRESS_BYTES = JSON.stringify({
+  schema_version: 1,
+  contract_id: 'cid-commit',
+  status: 'running',
+  subtasks: { t1: { status: 'todo' } },
+  checkpoint: null,
+}, null, 2);
+
+describe('commitTerminalLifecycle: progress.json bytes survive all four outcome paths', () => {
+  it('committed: archived progress bytes identical to pre-rename active bytes', async () => {
+    const { ctx } = makeCtx();
+    const activeRoot = `${clawDir}/contract/active/${contractId}`;
+    const archiveRoot = `${clawDir}/contract/archive/completed/${contractId}`;
+    await ctx.fs.writeAtomic(`${activeRoot}/contract.yaml`, 'yaml');
+    await ctx.fs.writeAtomic(`${activeRoot}/progress.json`, PROGRESS_BYTES);
+
+    const intent = buildCompletedIntent(contractId, 'req-bytes-committed', 'test');
+    const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+
+    expect(outcome.kind).toBe('committed');
+    expect(await ctx.fs.read(`${archiveRoot}/progress.json`)).toBe(PROGRESS_BYTES);
+  });
+
+  it('retryable_failure: active progress bytes unchanged when move fails', async () => {
+    const { ctx } = makeCtx({ moveThrow: new Error('disk full') });
+    const activeRoot = `${clawDir}/contract/active/${contractId}`;
+    await ctx.fs.writeAtomic(`${activeRoot}/contract.yaml`, 'yaml');
+    await ctx.fs.writeAtomic(`${activeRoot}/progress.json`, PROGRESS_BYTES);
+
+    const intent = buildCompletedIntent(contractId, 'req-bytes-retryable', 'test');
+    const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+
+    expect(outcome.kind).toBe('retryable_failure');
+    expect(await ctx.fs.read(`${activeRoot}/progress.json`)).toBe(PROGRESS_BYTES);
+  });
+
+  it('already_committed: same-state archived progress bytes unchanged', async () => {
+    const { ctx } = makeCtx();
+    const archiveRoot = `${clawDir}/contract/archive/completed/${contractId}`;
+    await ctx.fs.ensureDir(`${clawDir}/contract/archive/completed`);
+    await ctx.fs.writeAtomic(`${archiveRoot}/contract.yaml`, 'yaml');
+    await ctx.fs.writeAtomic(`${archiveRoot}/progress.json`, PROGRESS_BYTES);
+
+    const intent = buildCompletedIntent(contractId, 'req-bytes-already', 'test');
+    const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+
+    expect(outcome.kind).toBe('already_committed');
+    expect(await ctx.fs.read(`${archiveRoot}/progress.json`)).toBe(PROGRESS_BYTES);
+  });
+
+  it('lost_to_state: winner-state archived progress bytes unchanged', async () => {
+    const { ctx } = makeCtx();
+    const cancelledRoot = `${clawDir}/contract/archive/cancelled/${contractId}`;
+    await ctx.fs.ensureDir(`${clawDir}/contract/archive/cancelled`);
+    await ctx.fs.writeAtomic(`${cancelledRoot}/contract.yaml`, 'yaml');
+    await ctx.fs.writeAtomic(`${cancelledRoot}/progress.json`, PROGRESS_BYTES);
+
+    const intent = buildCompletedIntent(contractId, 'req-bytes-lost', 'test');
+    const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+
+    expect(outcome.kind).toBe('lost_to_state');
+    expect(await ctx.fs.read(`${cancelledRoot}/progress.json`)).toBe(PROGRESS_BYTES);
+  });
+});
+
+/**
+ * Phase 1198 Step E: compile fixture — after `kind` narrowing, variant-foreign
+ * fields must be inaccessible. If the union ever widens back into optional
+ * fields, these `@ts-expect-error` directives stop matching and typecheck fails.
+ */
+describe('LifecycleCommitOutcome discriminated narrowing (compile fixture)', () => {
+  it('variant-foreign fields are inaccessible after kind narrowing', () => {
+    // Laundered through a function return so control-flow narrowing cannot pin
+    // the value to one variant; the point is compile-time field accessibility.
+    const makeOutcome = (): LifecycleCommitOutcome => ({
+      kind: 'retryable_failure',
+      requested: 'completed',
+      requestId: 'req-type-fixture',
+      cause: 'fixture',
+    });
+    const outcome = makeOutcome();
+    if (outcome.kind === 'retryable_failure') {
+      // @ts-expect-error retryable_failure carries no final state
+      void outcome.state;
+      // @ts-expect-error retryable_failure carries no committed field
+      void outcome.committed;
+    }
+    if (outcome.kind === 'committed') {
+      // @ts-expect-error committed carries no failure cause
+      void outcome.cause;
+    }
+    if (outcome.kind === 'already_committed') {
+      // @ts-expect-error already_committed carries no failure cause
+      void outcome.cause;
+    }
+    if (outcome.kind === 'lost_to_state') {
+      // @ts-expect-error lost_to_state carries no state field (only committed)
+      void outcome.state;
+    }
+    expect(outcome.kind).toBe('retryable_failure');
   });
 });

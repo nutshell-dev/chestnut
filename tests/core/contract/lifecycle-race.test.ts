@@ -138,6 +138,22 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     return intents;
   }
 
+  /** Result shape returned by `archiveAndEmit`. */
+  interface ArchiveResult {
+    archived: boolean;
+    state?: ArchiveState;
+  }
+
+  type RaceOutcome = LifecycleCommitOutcome | ArchiveResult | void;
+
+  function isCommitOutcome(v: RaceOutcome): v is LifecycleCommitOutcome {
+    return typeof v === 'object' && v !== null && 'kind' in v;
+  }
+
+  function isArchiveResult(v: RaceOutcome): v is ArchiveResult {
+    return typeof v === 'object' && v !== null && 'archived' in v;
+  }
+
   /**
    * Race two terminal operations and verify the shared invariants.
    *
@@ -148,8 +164,8 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
    */
   async function runRace(
     contractId: string,
-    runA: () => Promise<LifecycleCommitOutcome | void>,
-    runB: () => Promise<LifecycleCommitOutcome | void>,
+    runA: () => Promise<RaceOutcome>,
+    runB: () => Promise<RaceOutcome>,
     intentStates: [ArchiveState, ArchiveState],
     assertSideEffects: (finalState: ArchiveState) => void,
   ) {
@@ -163,15 +179,13 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     await assertSingleArchive(contractId, finalState!);
     await assertBothIntentsPreserved(contractId, intentStates);
 
-    type ArchiveResult = { archived: boolean; state?: ArchiveState };
     const explicitOutcomes: LifecycleCommitOutcome[] = [];
     const archiveResults: ArchiveResult[] = [];
     for (const out of [outA, outB]) {
-      if (!out) continue;
-      if (typeof out === 'object' && 'kind' in out) {
-        explicitOutcomes.push(out as LifecycleCommitOutcome);
-      } else if (typeof out === 'object' && 'archived' in out) {
-        archiveResults.push(out as ArchiveResult);
+      if (isCommitOutcome(out)) {
+        explicitOutcomes.push(out);
+      } else if (isArchiveResult(out)) {
+        archiveResults.push(out);
       }
     }
 
@@ -187,15 +201,18 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
       expect(['already_committed', 'lost_to_state']).toContain(o.kind);
     }
 
-    // Determine the winner.
+    // Determine the winner. The discriminated union narrows by `kind` alone;
+    // no field-level type assertion is needed anywhere below.
     if (committed.length === 1) {
       expect(committed[0].state).toBe(finalState);
     } else if (archiveCommitted.length === 1) {
       expect(archiveCommitted[0].state ?? finalState).toBe(finalState);
     } else if (explicitOutcomes.length === 1) {
       const only = explicitOutcomes[0];
-      expect(only.kind).toBe('lost_to_state');
-      expect((only as { committed?: ArchiveState }).committed).toBe(finalState);
+      if (only.kind !== 'lost_to_state') {
+        throw new Error(`expected lost_to_state loser, got ${only.kind}`);
+      }
+      expect(only.committed).toBe(finalState);
     } else if (archiveResults.length === 1) {
       const only = archiveResults[0];
       expect(only.archived).toBe(false);

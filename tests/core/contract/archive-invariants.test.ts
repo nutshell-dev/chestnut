@@ -33,14 +33,18 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
+  let auditTypes: string[];
 
   beforeEach(async () => {
     tempDir = await createTempDir();
     clawDir = path.join(tempDir, 'claws', 'test-claw');
     await fsArchiveRace.mkdir(clawDir, { recursive: true });
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    auditTypes = [];
     const captureAudit = {
-      write: () => {},
+      write: (type: string) => {
+        auditTypes.push(type);
+      },
     };
     manager = new ContractSystem({
       clawDir,
@@ -107,17 +111,38 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
     progress.subtasks.t1.completed_at = new Date().toISOString();
     await (manager as any).saveProgress(contractId, progress);
 
+    // Observe every success side effect: abort, completed handler,
+    // completed audit, contract_completed notify.
+    const notifyTypes: string[] = [];
+    manager.setOnNotify((type) => notifyTypes.push(type));
+    const completedHandler = vi.fn(async () => {});
+    manager.onContractCompleted(completedHandler);
+
     const ctx = createManagerVerificationContext(manager);
+    const abortSpy = vi.fn();
+    ctx.abortContractVerifiers = abortSpy;
     const yaml = await ctx.loadContractYaml(contractId);
     if (!yaml) throw new Error('missing contract yaml');
 
     const first = await archiveAndEmit(ctx, contractId, yaml, 'archive-invariants.idempotent');
     expect(first.archived).toBe(true);
 
+    // The committed request fires exactly one complete success side-effect set.
+    expect(abortSpy).toHaveBeenCalledTimes(1);
+    expect(completedHandler).toHaveBeenCalledTimes(1);
+    expect(auditTypes.filter(t => t === CONTRACT_AUDIT_EVENTS.COMPLETED)).toHaveLength(1);
+    expect(notifyTypes.filter(t => t === 'contract_completed')).toHaveLength(1);
+
     // Second call returns already_committed; success side effects must not repeat.
     const second = await archiveAndEmit(ctx, contractId, yaml, 'archive-invariants.idempotent');
     expect(second.archived).toBe(false);
     expect(second.state).toBe('completed');
+
+    // already_committed: abort / handler / audit / notify call counts stay frozen.
+    expect(abortSpy).toHaveBeenCalledTimes(1);
+    expect(completedHandler).toHaveBeenCalledTimes(1);
+    expect(auditTypes.filter(t => t === CONTRACT_AUDIT_EVENTS.COMPLETED)).toHaveLength(1);
+    expect(notifyTypes.filter(t => t === 'contract_completed')).toHaveLength(1);
   });
 });
 

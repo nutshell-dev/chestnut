@@ -322,9 +322,9 @@ export async function reconcilePendingLifecycleIntents(
     if (outcome.kind === 'committed') {
       committed = outcome.state;
     } else if (outcome.kind === 'already_committed') {
-      committed = outcome.state ?? committed;
+      committed = outcome.state;
     } else if (outcome.kind === 'lost_to_state') {
-      committed = outcome.committed ?? committed;
+      committed = outcome.committed;
     }
 
     const outcomeCols: string[] = [
