@@ -1,0 +1,290 @@
+/**
+ * Phase 1203 Step B: 子进程持有 ownership — generation lifecycle 测试。
+ *
+ * 反向覆盖：
+ * - loser 零主 loop 副作用（无 state load / WATCHDOG_START / signal / pid 写）
+ * - 旧 generation 迟到 shutdown 不动 fresh active、不删新 owner pid 镜像
+ * - stale owner 判死 retire 后接管
+ * - foreign live owner 拒绝接管
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { randomUUID } from 'crypto';
+
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+  return {
+    ...actual,
+    getNamedSubrootDir: vi.fn(),
+  };
+});
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(() => true),
+  buildLLMConfig: vi.fn(),
+}));
+vi.mock('timers/promises', () => ({
+  setTimeout: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../../src/foundation/process-manager/factories.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/process-manager/factories.js')>();
+  return {
+    ...actual,
+    createProcessManagerForCLI: vi.fn(),
+    createDirContext: vi.fn((...args: any[]) => (actual as any).createDirContext(...args)),
+  };
+});
+
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
+import { AuditWriter } from '../../src/foundation/audit/writer.js';
+import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
+import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
+import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
+import { buildTestGlobalConfig } from '../helpers/global-config.js';
+import {
+  setAuditWriter,
+  _resetWatchdogContextForTest,
+} from '../../src/watchdog/watchdog-context.js';
+import {
+  acquireWatchdogOwnership,
+  runWatchdogLoop,
+  shutdownWatchdog,
+  _resetShutdownGuard,
+  _setWatchdogOwnershipForTest,
+} from '../../src/watchdog/watchdog.js';
+import {
+  newWatchdogAttempt,
+  prepareCandidate,
+  commitOwnership,
+  WATCHDOG_ACTIVE_DIR,
+  WATCHDOG_CANDIDATES_DIR,
+  WATCHDOG_RETIRED_DIR,
+  type WatchdogOwnerRecord,
+} from '../../src/watchdog/watchdog-ownership.js';
+
+const DEAD_PID = 999999999;
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
+let tmpDir: string;
+let chestnutDir: string;
+let auditWriter: AuditWriter;
+const originalRoot = process.env.CHESTNUT_ROOT;
+
+function auditLines(): string {
+  const p = path.join(chestnutDir, 'audit.tsv');
+  return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '';
+}
+
+function activeOwner(): WatchdogOwnerRecord | null {
+  const p = path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json');
+  return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : null;
+}
+
+/** 以外部 record 占住 active（模拟另一进程已 commit） */
+function seedActive(record: WatchdogOwnerRecord): void {
+  const chestnutFs = new NodeFileSystem({ baseDir: chestnutDir });
+  prepareCandidate(chestnutFs, record);
+  commitOwnership(chestnutFs, record);
+}
+
+function candidateOutcomeFiles(): string[] {
+  const dir = path.join(chestnutDir, WATCHDOG_CANDIDATES_DIR);
+  if (!fs.existsSync(dir)) return [];
+  const found: string[] = [];
+  for (const attemptDir of fs.readdirSync(dir)) {
+    const outcome = path.join(dir, attemptDir, 'outcome.json');
+    if (fs.existsSync(outcome)) found.push(outcome);
+  }
+  return found;
+}
+
+beforeEach(() => {
+  _resetWatchdogContextForTest();
+  _resetShutdownGuard();
+  _setWatchdogOwnershipForTest(null);
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  tmpDir = path.join(os.tmpdir(), `wd-lifecycle-${randomUUID()}`);
+  chestnutDir = path.join(tmpDir, '.chestnut');
+  fs.mkdirSync(path.join(chestnutDir, 'motion', 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
+  vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
+  vi.mocked(loadGlobalConfig).mockReturnValue(buildTestGlobalConfig({
+    watchdog: { interval_ms: 5_000, claw_inactivity_timeout_ms: 300_000 },
+  }));
+  process.env.CHESTNUT_ROOT = tmpDir;
+  auditWriter = new AuditWriter(new NodeFileSystem({ baseDir: chestnutDir }), 'audit.tsv', null);
+  setAuditWriter(auditWriter);
+});
+
+afterEach(() => {
+  _setWatchdogOwnershipForTest(null);
+  setAuditWriter(null);
+  if (originalRoot !== undefined) {
+    process.env.CHESTNUT_ROOT = originalRoot;
+  } else {
+    delete process.env.CHESTNUT_ROOT;
+  }
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('acquireWatchdogOwnership', () => {
+  it('空目录 commit 成功；active owner.json 是可解释完整事实（commit 后崩溃不丢事实）', () => {
+    const result = acquireWatchdogOwnership(fsFactory);
+    expect(result.kind).toBe('committed');
+
+    const owner = activeOwner();
+    expect(owner).not.toBeNull();
+    expect(owner!.pid).toBe(process.pid);
+    expect(owner!.workspace_root).toBe(tmpDir);
+    expect(owner!.attempt_id.length).toBeGreaterThan(0);
+    expect(owner!.owner_token.length).toBeGreaterThan(0);
+    expect(auditLines()).toContain('watchdog_ownership_committed');
+  });
+
+  it('foreign live owner 拒绝接管：lost + immutable outcome + active 不动', () => {
+    const foreign = newWatchdogAttempt(process.pid); // alive（本进程）
+    seedActive(foreign);
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('lost');
+    if (result.kind === 'lost') expect(result.owner.owner_token).toBe(foreign.owner_token);
+    expect(activeOwner()!.owner_token).toBe(foreign.owner_token);
+    const outcomes = candidateOutcomeFiles();
+    expect(outcomes.length).toBe(1);
+    expect(JSON.parse(fs.readFileSync(outcomes[0], 'utf-8'))).toMatchObject({
+      outcome: 'lost',
+      winner_owner_token: foreign.owner_token,
+    });
+  });
+
+  it('stale owner（dead pid）判死 retire 后接管；旧 generation 完整保留在 retired/<token>', () => {
+    const stale = newWatchdogAttempt(DEAD_PID);
+    seedActive(stale);
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    expect(activeOwner()!.pid).toBe(process.pid);
+    const retiredPath = path.join(chestnutDir, WATCHDOG_RETIRED_DIR, stale.owner_token, 'owner.json');
+    expect(JSON.parse(fs.readFileSync(retiredPath, 'utf-8'))).toMatchObject({
+      attempt_id: stale.attempt_id,
+    });
+    const audit = auditLines();
+    expect(audit).toContain('watchdog_ownership_retired');
+    expect(audit).toContain('reason=stale_recovery');
+  });
+
+  it('畸形 active → failed（不伪装 loser）+ failed outcome', () => {
+    fs.mkdirSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR), { recursive: true });
+    fs.writeFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'), '{broken');
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('failed');
+    const outcomes = candidateOutcomeFiles();
+    expect(outcomes.length).toBe(1);
+    expect(JSON.parse(fs.readFileSync(outcomes[0], 'utf-8')).outcome).toBe('failed');
+  });
+});
+
+describe('runWatchdogLoop ownership 门', () => {
+  let capturedHandlers: Record<string, Function>;
+
+  beforeEach(() => {
+    const mockPm = {
+      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
+      isAlive: vi.fn().mockReturnValue(false),
+      spawn: vi.fn().mockResolvedValue(9999),
+      stop: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ProcessManager;
+    vi.mocked(createProcessManagerForCLI).mockReturnValue(mockPm);
+    capturedHandlers = {};
+    vi.spyOn(process, 'on').mockImplementation((event: string, handler: any) => {
+      capturedHandlers[event] = handler;
+      return process;
+    });
+  });
+
+  it('loser 零主 loop 副作用：无 pid 写 / 无 WATCHDOG_START / 无 signal install / 无 tick', async () => {
+    const foreign = newWatchdogAttempt(process.pid);
+    seedActive(foreign);
+
+    await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+
+    expect(fs.existsSync(path.join(chestnutDir, 'watchdog.pid'))).toBe(false);
+    expect(capturedHandlers['SIGTERM']).toBeUndefined();
+    expect(capturedHandlers['SIGINT']).toBeUndefined();
+    const audit = auditLines();
+    expect(audit).not.toContain('watchdog_start');
+    expect(audit).not.toContain('watchdog_check');
+    expect(fs.existsSync(path.join(chestnutDir, 'watchdog-state.json'))).toBe(false);
+    // loser outcome 留痕
+    expect(candidateOutcomeFiles().length).toBe(1);
+    // active 仍属 foreign
+    expect(activeOwner()!.owner_token).toBe(foreign.owner_token);
+  });
+
+  it('winner commit 后进入 loop；SIGTERM shutdown 只 retire 自身 generation', async () => {
+    const { setTimeout: setTimeoutP } = await import('timers/promises');
+    vi.mocked(setTimeoutP).mockImplementationOnce(async () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+      try { capturedHandlers['SIGTERM']?.(); } catch { /* exit mock throws */ }
+      exitSpy.mockRestore();
+    });
+    try {
+      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+    } catch { /* process.exit mock may throw */ }
+
+    const owner = activeOwner();
+    const audit = auditLines();
+    expect(audit).toContain('watchdog_ownership_committed');
+    expect(audit).toContain('watchdog_start');
+    expect(audit).toContain('watchdog_ownership_retired');
+    expect(audit).toContain('reason=shutdown');
+    // active 已 retire（owner 为 null 因为 active 被移走）
+    expect(owner).toBeNull();
+    expect(fs.existsSync(path.join(chestnutDir, 'watchdog.pid'))).toBe(false);
+  });
+});
+
+describe('旧 generation 迟到 shutdown', () => {
+  it('不动 fresh active、不删新 owner legacy pid 镜像', () => {
+    // fresh generation（gen2）占 active + legacy pid 镜像
+    const fresh = newWatchdogAttempt(DEAD_PID);
+    seedActive(fresh);
+    fs.writeFileSync(
+      path.join(chestnutDir, 'watchdog.pid'),
+      JSON.stringify({ pid: fresh.pid, root: tmpDir }),
+    );
+    // 旧 generation（gen1）迟到 shutdown
+    const staleRecord = newWatchdogAttempt(88888888);
+    _setWatchdogOwnershipForTest({
+      attemptId: staleRecord.attempt_id,
+      ownerToken: staleRecord.owner_token,
+      pid: staleRecord.pid,
+      activeDir: WATCHDOG_ACTIVE_DIR,
+      record: staleRecord,
+    });
+
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
+    exitSpy.mockRestore();
+
+    // fresh active 未被移动、retired/<gen1 token> 不存在、pid 镜像未删
+    expect(activeOwner()!.owner_token).toBe(fresh.owner_token);
+    expect(fs.existsSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR, staleRecord.owner_token))).toBe(false);
+    expect(fs.existsSync(path.join(chestnutDir, 'watchdog.pid'))).toBe(true);
+  });
+});

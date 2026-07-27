@@ -49,8 +49,14 @@ import {
   type MotionRestartState,
 } from './watchdog-context.js';
 import {
-  writeWatchdogPid, removeWatchdogPid,
+  writeWatchdogPid, removeWatchdogPid, removeWatchdogPidIfOwner,
+  isWatchdogProcessAlive,
 } from './watchdog-pid.js';
+import {
+  newWatchdogAttempt, prepareCandidate, commitOwnership, retireOwnership,
+  writeCandidateOutcome, WATCHDOG_ACTIVE_DIR,
+  type WatchdogOwnership, type WatchdogOwnerRecord,
+} from './watchdog-ownership.js';
 import {
   log, logWithAudit,
 } from './watchdog-log.js';
@@ -86,6 +92,93 @@ function getMaxRestart(): number {
   if (!raw) return WATCHDOG_MAX_RESTART_DEFAULT;
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : WATCHDOG_MAX_RESTART_DEFAULT;
+}
+
+// === Ownership (phase 1203 Step B) ===
+
+/** 本子进程 commit 的 ownership 句柄；shutdown 凭它只 retire 自身 generation */
+let currentOwnership: WatchdogOwnership | null = null;
+
+/** Test-only: 设置/清除 ownership 句柄（模拟旧 generation 迟到 shutdown） */
+export function _setWatchdogOwnershipForTest(ownership: WatchdogOwnership | null): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('_setWatchdogOwnershipForTest is for tests only');
+  }
+  currentOwnership = ownership;
+}
+
+export type AcquireWatchdogOwnership =
+  | { kind: 'committed'; ownership: WatchdogOwnership }
+  | { kind: 'lost'; owner: WatchdogOwnerRecord }
+  | { kind: 'failed'; error: unknown };
+
+function ownershipFromRecord(record: WatchdogOwnerRecord): WatchdogOwnership {
+  return {
+    attemptId: record.attempt_id,
+    ownerToken: record.owner_token,
+    pid: record.pid,
+    activeDir: WATCHDOG_ACTIVE_DIR,
+    record,
+  };
+}
+
+/**
+ * 子进程 ownership commit 唯一入口（任何监控副作用前调用）。
+ * - committed：进入主 loop 的唯一门票；caller 后续写只能用 active 路径。
+ * - foreign live owner → lost（拒绝接管）；同 workspace dead owner → 判死 retire 后重试一次。
+ * - retryable failure → failed（不伪装 loser；进程退出后由下一 candidate 判死并 retire）。
+ */
+export function acquireWatchdogOwnership(
+  fsFactory: (baseDir: string) => FileSystem,
+): AcquireWatchdogOwnership {
+  const fs = getChestnutFs(fsFactory);
+  const attempt = newWatchdogAttempt(process.pid);
+  prepareCandidate(fs, attempt);
+  let commit = commitOwnership(fs, attempt);
+
+  if (commit.kind === 'foreign_owned') {
+    const owner = commit.owner;
+    const sameWorkspace = owner.workspace_root === getWorkspaceRoot();
+    if (sameWorkspace && !isWatchdogProcessAlive(owner.pid)) {
+      // stale recovery：判死后 retire 旧 generation，再重试一次 commit
+      log(fsFactory, `[watchdog] stale owner (PID=${owner.pid}) detected, retiring before commit...`);
+      const retired = retireOwnership(
+        fs,
+        { attemptId: owner.attempt_id, ownerToken: owner.owner_token, pid: owner.pid },
+        'stale_recovery',
+      );
+      if (retired.kind === 'retired' || retired.kind === 'collision' || retired.kind === 'no_active') {
+        commit = commitOwnership(fs, attempt);
+      }
+    }
+    if (commit.kind === 'foreign_owned') {
+      try {
+        writeCandidateOutcome(fs, attempt.attempt_id, {
+          outcome: 'lost',
+          winner_owner_token: commit.owner.owner_token,
+          winner_pid: commit.owner.pid,
+          reason: 'active_occupied',
+        });
+      } catch (err) {
+        log(fsFactory, `[watchdog] Failed to write loser outcome: ${formatErr(err)}`);
+      }
+      return { kind: 'lost', owner: commit.owner };
+    }
+  }
+
+  if (commit.kind === 'committed') return { kind: 'committed', ownership: commit.ownership };
+  if (commit.kind === 'already_owned') return { kind: 'committed', ownership: ownershipFromRecord(commit.owner) };
+
+  // retryable_failure：留 failed outcome，不伪装 loser
+  try {
+    writeCandidateOutcome(fs, attempt.attempt_id, {
+      outcome: 'failed',
+      reason: `commit_retryable_failure:${formatErr(commit.cause)}`,
+    });
+  } catch (err) {
+    log(fsFactory, `[watchdog] Failed to write failure outcome: ${formatErr(err)}`);
+  }
+  return { kind: 'failed', error: commit.cause };
 }
 
 // === Shutdown (21 行) ===
@@ -124,7 +217,7 @@ export function shutdownWatchdog(
     saveFailed = formatErr(err);
     log(fsFactory, `[watchdog] Failed to save state: ${saveFailed}`);
   }
-  removeWatchdogPid(fsFactory);
+  removeWatchdogPidLegacy(fsFactory);
   if (saveFailed) {
     auditWriter.write(WATCHDOG_AUDIT_EVENTS.STOP, `signal=${signal}`, `save_failed=${auditWriter.message(saveFailed)}`);
   } else {
@@ -134,6 +227,29 @@ export function shutdownWatchdog(
   // dispose audit、flush batched buffer 防 telemetry 丢
   auditWriter.dispose?.();
   process.exit(saveFailed ? 1 : 0);
+}
+
+/** shutdown 的 PID/ownership 处置：有 ownership 句柄 → generation guard；无句柄 → legacy 旧行为 */
+function removeWatchdogPidLegacy(fsFactory: (baseDir: string) => FileSystem): void {
+  if (currentOwnership) {
+    const fs = getChestnutFs(fsFactory);
+    const retired = retireOwnership(
+      fs,
+      {
+        attemptId: currentOwnership.attemptId,
+        ownerToken: currentOwnership.ownerToken,
+        pid: currentOwnership.pid,
+      },
+      'shutdown',
+    );
+    if (retired.kind !== 'retired' && retired.kind !== 'no_active') {
+      // 旧 generation 迟到 shutdown 命中 fresh active / 他 reclaimer 已处置 → 不动磁盘
+      log(fsFactory, `[watchdog] ownership retire skipped (kind=${retired.kind})`);
+    }
+    removeWatchdogPidIfOwner(fsFactory, currentOwnership.pid);
+    return;
+  }
+  removeWatchdogPid(fsFactory);
 }
 
 // === Motion restart helper ===
@@ -206,9 +322,7 @@ export async function runWatchdogLoop(
 ): Promise<void> {
   log(fsFactory, '[watchdog] Daemon starting...');
 
-  writeWatchdogPid(fsFactory, process.pid);
-
-  // 先建 auditWriter，让 loadWatchdogState corrupt 路径可写 audit（N1 修复）
+  // 先建 auditWriter，让 ownership commit 与 loadWatchdogState corrupt 路径可写 audit（N1 修复）
   const auditMaxSizeMb = getGlobalConfig(fsFactory).audit.retention.max_size_mb;
   const auditWriter = createAuditWriter(
     getChestnutFs(fsFactory),
@@ -216,6 +330,23 @@ export async function runWatchdogLoop(
     auditMaxSizeMb,
   );
   setAuditWriter(auditWriter);
+
+  // Phase 1203 Step B: 子进程在任何监控副作用（state load / WATCHDOG_START /
+  // signal / timer / motion restart）前必须 commit 目录 ownership；
+  // loser 在零副作用后退出，failure 不伪装 loser（由下一 candidate 判死 retire）。
+  const acquisition = acquireWatchdogOwnership(fsFactory);
+  if (acquisition.kind === 'lost') {
+    log(fsFactory, `[watchdog] active already owned (PID=${acquisition.owner.pid}), exiting before any side effect.`);
+    auditWriter.dispose?.();
+    return;
+  }
+  if (acquisition.kind === 'failed') {
+    auditWriter.dispose?.();
+    throw new Error(`watchdog ownership commit failed: ${formatErr(acquisition.error)}`);
+  }
+  currentOwnership = acquisition.ownership;
+
+  writeWatchdogPid(fsFactory, process.pid);   // legacy mirror（phase 1203 兼容窗口，查询已走 active owner）
 
   loadWatchdogState(fsFactory);   // 恢复通知状态（_auditWriter 已设，corrupt 路径可写 audit）
   log(fsFactory, '[watchdog] State loaded.');

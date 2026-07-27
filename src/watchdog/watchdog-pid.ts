@@ -10,6 +10,7 @@ import { getChestnutFs } from './watchdog-context.js';
 import { isAlive, isPidArgvMatching } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
+import { inspectActive, type WatchdogOwnerRecord } from './watchdog-ownership.js';
 
 /**
  * phase 346 B3 (review-2026-06-13): PID-reuse 防误判 helper。
@@ -38,6 +39,20 @@ function verifyArgv(pid: number, token: string): boolean {
 function isLiveChestnutWatchdog(pid: number): boolean {
   if (!isAlive(pid)) return false;
   return verifyArgv(pid, WATCHDOG_ARGV_TOKEN);
+}
+
+/** Phase 1203 Step B: ownership reclaim 共用的判活（isAlive + argv verify） */
+export function isWatchdogProcessAlive(pid: number): boolean {
+  return isLiveChestnutWatchdog(pid);
+}
+
+function auditMalformedActiveQuery(ctx: string, cause: unknown): void {
+  const auditWriter = getAuditWriter();
+  auditWriter?.write(
+    WATCHDOG_AUDIT_EVENTS.OWNERSHIP_MALFORMED_ACTIVE,
+    `ctx=${ctx}`,
+    `error=${auditWriter?.message(formatErr(cause)) ?? formatErr(cause)}`,
+  );
 }
 
 import { isFileNotFound } from '../foundation/fs/index.js';
@@ -93,8 +108,19 @@ function backupCorruptPid(fsFactory: (baseDir: string) => FileSystem, _content: 
   );
 }
 
-/** 1:1 保 watchdog.ts:121-130 */
+/** 1:1 保 watchdog.ts:121-130；Phase 1203 Step B: active owner 优先、legacy watchdog.pid 为 fallback 边界 */
 export function getWatchdogPid(fsFactory: (baseDir: string) => FileSystem): number | null {
+  const fs = getChestnutFs(fsFactory);
+  const inspection = inspectActive(fs);
+  if (inspection.status === 'ok') return inspection.owner.pid;
+  if (inspection.status === 'malformed') {
+    auditMalformedActiveQuery('pid_query', inspection.cause);
+    return null;
+  }
+  return getLegacyWatchdogPid(fsFactory);
+}
+
+function getLegacyWatchdogPid(fsFactory: (baseDir: string) => FileSystem): number | null {
   try {
     const fs = getChestnutFs(fsFactory);
     const content = fs.readSync('watchdog.pid');
@@ -121,6 +147,22 @@ export function getWatchdogPid(fsFactory: (baseDir: string) => FileSystem): numb
   }
 }
 
+/** Phase 1203 Step B: generation guard — 仅当 legacy pid 文件属于本进程才删（防旧 generation 迟到 shutdown 删新 owner 镜像） */
+export function removeWatchdogPidIfOwner(fsFactory: (baseDir: string) => FileSystem, pid: number): void {
+  try {
+    const fs = getChestnutFs(fsFactory);
+    const parsed: unknown = JSON.parse(fs.readSync('watchdog.pid'));
+    if (
+      typeof parsed === 'object' && parsed !== null &&
+      (parsed as { pid?: unknown }).pid === pid
+    ) {
+      fs.deleteSync('watchdog.pid');
+    }
+  } catch {
+    // silent: legacy mirror cleanup best-effort
+  }
+}
+
 export class WatchdogPidForeignWorkspaceError extends Error {
   constructor(public foreignPid: number, public foreignRoot: string, public currentRoot: string) {
     super(`Watchdog PID file owned by foreign workspace: pid=${foreignPid} root=${foreignRoot} current=${currentRoot}`);
@@ -128,8 +170,39 @@ export class WatchdogPidForeignWorkspaceError extends Error {
   }
 }
 
-/** 1:1 保 watchdog.ts:132-149 */
+/** 1:1 保 watchdog.ts:132-149；Phase 1203 Step B: active owner 优先、legacy watchdog.pid 为 fallback 边界 */
 export function isWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boolean {
+  const fs = getChestnutFs(fsFactory);
+  const inspection = inspectActive(fs);
+  if (inspection.status === 'ok') return isActiveOwnerAlive(inspection.owner);
+  if (inspection.status === 'malformed') {
+    // fail-closed：不猜 owner、不 fallback legacy
+    auditMalformedActiveQuery('alive_query', inspection.cause);
+    return false;
+  }
+  return isLegacyWatchdogAlive(fsFactory);
+}
+
+function isActiveOwnerAlive(owner: WatchdogOwnerRecord): boolean {
+  const currentRoot = getWorkspaceRoot();
+  if (owner.workspace_root !== currentRoot) {
+    if (isLiveChestnutWatchdog(owner.pid)) {
+      const auditWriter = getAuditWriter();
+      auditWriter?.write(
+        WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
+        `foreign_pid=${owner.pid}`,
+        `foreign_root=${owner.workspace_root}`,
+        `current_root=${currentRoot}`,
+      );
+      throw new WatchdogPidForeignWorkspaceError(owner.pid, owner.workspace_root, currentRoot);
+    }
+    // foreign owner 已死：不删 active（目录 authority、recovery 走 retire），仅报死
+    return false;
+  }
+  return isLiveChestnutWatchdog(owner.pid);
+}
+
+function isLegacyWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boolean {
   const fs = getChestnutFs(fsFactory);
   let content: string;
   try {
