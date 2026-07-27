@@ -47,7 +47,9 @@ const WATCHDOG_STOP_MAX_ATTEMPTS = 50;
  */
 const WATCHDOG_SIGKILL_GRACE_MS = 500;
 
-/** 1:1 保 watchdog.ts:514-543 / startCommand */
+/** 1:1 保 watchdog.ts:514-543 / startCommand；phase 1203 Step C: 统一 candidate 语义 ——
+ *  所有入口只 spawn candidate，单实例仲裁在被 spawn 子进程的目录 rename commit；
+ *  下方 poll 的成功条件是出现合法且 alive 的 active owner，不要求自己的 child 获胜 */
 export async function startCommand(
   fsFactory: (baseDir: string) => FileSystem,
   _deps?: WatchdogProcessDeps,

@@ -978,8 +978,6 @@
       "watchdog_circuit_reopened",
       "watchdog_contract_dir_scan_failed",
       "watchdog_crash",
-      "watchdog_ensure_lock_stale_recovered",
-      "watchdog_ensure_lock_timeout",
       "watchdog_gave_up",
       "watchdog_motion_stability_confirmed",
       "watchdog_orphan_sweep_failed",

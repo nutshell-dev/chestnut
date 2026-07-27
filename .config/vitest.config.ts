@@ -206,7 +206,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/fallback-drop-observability.test.ts',
   'tests/foundation/audit/multi-file-concurrent-write.test.ts',
   'tests/watchdog/audit-wired-in-cli.test.ts',
-  'tests/watchdog/ensure-singleton-lock.test.ts',
+  'tests/watchdog/ensure-directory-authority.test.ts',  // phase 1203 Step C: 原 ensure-singleton-lock 迁为目录 authority
   'tests/watchdog/watchdog-lifecycle-ownership.test.ts',  // phase 1203 Step B: vi.mock claw-instance-paths/config-load/timers/process-manager factories
   'tests/watchdog/foreign-workspace-fail-loud.test.ts',
   'tests/watchdog/notify-dedup-persist.test.ts',
