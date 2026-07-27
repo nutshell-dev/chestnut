@@ -45,4 +45,12 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   READY_CHECK_ISALIVE_THROW: 'process_ready_check_isalive_throw',
   CLEAN_STOP_SIGNALED: 'clean_stop_signaled',
   CLEAN_STOP_CLEARED: 'clean_stop_cleared',
+  GENERATION_PREPARED: 'process_generation_prepared', // ← NEW phase 1204 Step A
+  GENERATION_COMMITTED: 'process_generation_committed', // ← NEW phase 1204 Step A
+  GENERATION_COMMIT_LOST: 'process_generation_commit_lost', // ← NEW phase 1204 Step A
+  GENERATION_MALFORMED: 'process_generation_malformed', // ← NEW phase 1204 Step A
+  GENERATION_PID_WROTE: 'process_generation_pid_wrote', // ← NEW phase 1204 Step A
+  GENERATION_ACTIVATED: 'process_generation_activated', // ← NEW phase 1204 Step A
+  GENERATION_RETIRED: 'process_generation_retired', // ← NEW phase 1204 Step A
+  GENERATION_FAILED: 'process_generation_failed', // ← NEW phase 1204 Step A
 } as const;
