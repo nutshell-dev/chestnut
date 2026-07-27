@@ -21,7 +21,8 @@ import type { ToolRegistry } from '../../src/foundation/tools/index.js';
 import type { NotifyClawFn } from '../../src/core/contract/verification-types.js';
 import type { VerificationMutex } from '../../src/core/contract/verification-mutex.js';
 import type { ProgressData, ContractYaml, ArchiveState } from '../../src/core/contract/types.js';
-import type { VerificationAttemptTransition, VerificationGatewayResult } from '../../src/core/contract/verification-transition-types.js';
+import type { VerificationAttemptTransition } from '../../src/core/contract/verification-transition-types.js';
+import type { SyncCompletionGatewayResult, VerificationGatewayResult } from '../../src/core/contract/verification-types.js';
 
 type Internals = {
   fs: FileSystem;
@@ -38,7 +39,11 @@ type Internals = {
   contractDir: (id: ContractId) => Promise<string>;
   loadContractYaml: (id: ContractId) => Promise<ContractYaml | null>;
   getProgress: (id: ContractId) => Promise<ProgressData | null>;
-  saveProgress: (id: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
+  _submitSyncCompletion: (
+    id: ContractId,
+    stId: SubtaskId,
+    facts: { evidence: string; artifacts?: string[]; at: string },
+  ) => Promise<SyncCompletionGatewayResult>;
   checkAllCompleted: (id: ContractId, progress: ProgressData) => Promise<boolean>;
   /** Phase 1198 Step B: stable base directory for lifecycle intent store. */
   baseDir: string;
@@ -77,7 +82,7 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     contractDir: (id) => self.contractDir(id),
     loadContractYaml: (id) => self.loadContractYaml(id),
     getProgress: (id) => self.getProgress(id),
-    saveProgress: (id, p, knownDir) => self.saveProgress(id, p, knownDir),
+    submitSyncCompletion: (id, stId, facts) => self._submitSyncCompletion(id, stId, facts),
     checkAllSubtasksCompleted: (id, p) => self.checkAllCompleted(id, p),
     // Mirror manager._verificationCtx(): without this the abort throws TypeError
     // inside archiveAndEmit and pollutes the completed audit with a spurious

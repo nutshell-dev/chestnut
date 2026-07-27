@@ -198,9 +198,10 @@ async function applyVerificationOutcome(
 
   const failureCause = verificationConfig.type === 'script' ? 'script_failed' : 'llm_rejected';
   const maxAttempts = contractYaml.verification_attempts ?? DEFAULT_VERIFICATION_ATTEMPTS;
-  const priorRejected = subtask.retry_count ?? 0;
-  const forceAccept = priorRejected + 1 >= maxAttempts;
 
+  // Phase 1201 Step B: forceAccept 不再由 queue 外预读快照计算；transition 携带
+  // maxAttempts，queued mutation 基于 fresh retry_count 决定，本函数按 commit 后
+  // 的 updated progress 分支。
   const transitionResult = await ctx.transitionVerificationAttempt(
     contractId,
     subtaskId,
@@ -210,7 +211,7 @@ async function applyVerificationOutcome(
       at,
       feedback: result.feedback,
       cause: failureCause,
-      forceAccept,
+      maxAttempts,
     },
   );
   if (transitionResult.kind === 'late') {
@@ -229,7 +230,8 @@ async function applyVerificationOutcome(
 
   const updatedProgress = transitionResult.progress;
   const updatedSubtask = updatedProgress.subtasks[subtaskId];
-  const retryCount = updatedSubtask?.retry_count ?? priorRejected + 1;
+  const retryCount = updatedSubtask?.retry_count ?? 1;
+  const forceAccept = updatedSubtask?.force_accepted === true;
   const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
 
   if (forceAccept) {
@@ -402,7 +404,7 @@ export async function runVerificationPipeline(
   } finally {
     if (verificationConfig && !handedOff) {
       // verificationConfig 存在时 acquire 成功（!handedOff 表示 release 未交给 bg）
-      // sync 异常路径（transitionVerificationAttempt throw、saveProgress throw、其他 sync 异常）
+      // sync 异常路径（transitionVerificationAttempt throw、progress save throw、其他 sync 异常）
       // 必须在此处释放。
       ctx.verificationMutex.release(contractId, subtaskId);
     }
@@ -541,7 +543,7 @@ export async function runVerificationInBackground(
     } catch (auditErr) {
       process.stderr.write(`[verification] background failed audit error: ${formatErr(auditErr)}\n`);
     }
-    await writeVerificationError(ctx, contractId, subtaskId, err).then(async (result) => {
+    await writeVerificationError(ctx, contractId, subtaskId, err, attemptId).then(async (result) => {
       // phase 1399: writeVerificationError 内防嵌套锁未调 archiveAndEmit，此处补调
       if (result.archived === false) {
         const progressAfterLock = await ctx.getProgress(contractId);

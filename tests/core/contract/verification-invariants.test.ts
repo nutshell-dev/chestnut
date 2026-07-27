@@ -695,7 +695,7 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
     expect(transitionVerificationAttempt).toHaveBeenCalledWith(
       contractId,
       subtaskId,
-      expect.objectContaining({ kind: 'reject', cause: 'programming_bug', forceAccept: false }),
+      expect.objectContaining({ kind: 'reject', cause: 'programming_bug', maxAttempts: 3 }),
     );
     expect(updatedProgress.subtasks[subtaskId].status).toBe('todo');
     expect(updatedProgress.subtasks[subtaskId].retry_count).toBe(1);

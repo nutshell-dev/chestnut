@@ -8,7 +8,6 @@ import type { VerificationContext } from './verification-types.js';
 import type { VerificationResult, SubtaskId, ProgressData } from './types.js';
 import { activeContainerDir } from './locations.js';
 import { safeNotify } from './verification-notify.js';
-import { formatValidIds } from './verification-format.js';
 import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ContractId, ContractYaml } from './types.js';
@@ -203,15 +202,19 @@ export async function completeSubtaskSync(
   evidence: string,
   artifacts?: string[],
 ): Promise<VerificationResult> {
-  let allCompleted = false;
-  let result: VerificationResult = { passed: true, feedback: 'No verification criteria configured' };
   const contractYaml = await ctx.loadContractYaml(contractId);
   if (!contractYaml) {
     throw new ToolError(`Contract "${contractId}" unloadable: contract.yaml schema corruption`);
   }
 
-  // Phase 1132 Step D: lifecycle guard based on physical active path.
-  if (!(await isContractActive(ctx, contractId))) {
+  // Phase 1201 Step B: 整段 RMW 已进入 per-contract queue（ctx.submitSyncCompletion
+  // callback 内 fresh-read + validate + save）；此处只消费 commit 结果做 post-commit
+  // audit/notify/archive，不再直接读写 progress。
+  const at = new Date().toISOString();
+  const result = await ctx.submitSyncCompletion(contractId, subtaskId, { evidence, artifacts, at });
+
+  if (result.kind === 'not_active') {
+    // Phase 1132 Step D: lifecycle guard based on physical active path.
     emitContractVerificationResetFailed(
       ctx.audit,
       {
@@ -224,13 +227,7 @@ export async function completeSubtaskSync(
     return { passed: false, feedback: `Contract "${contractId}" is not active, cannot complete subtask "${subtaskId}".`, allCompleted: false };
   }
 
-  const progress = await ctx.getProgress(contractId);
-  if (!progress) {
-    throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
-  }
-
-  if (!progress.subtasks[subtaskId]) {
-    result = { passed: false, feedback: `Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}` };
+  if (result.kind === 'unknown_subtask') {
     emitContractProgressCorrupted(
       ctx.audit,
       {
@@ -240,39 +237,28 @@ export async function completeSubtaskSync(
         message: 'Unknown subtaskId',
       },
     );
-    return result;
+    return { passed: false, feedback: `Unknown subtask "${subtaskId}". Valid subtask IDs: ${result.validIds}` };
   }
 
-  const currentStatus = progress.subtasks[subtaskId].status;
-  if (currentStatus === 'in_progress') {
-    result = { passed: false, feedback: `Subtask "${subtaskId}" verification is already in progress — duplicate submit_subtask call ignored.` };
+  if (result.kind === 'duplicate') {
+    // 由 queued fresh-read 真实 status 决定（不由内存 mutex 抢先拒绝）。
     emitContractSubtaskDuplicateDone(ctx.audit, { contractId, subtaskId });
-    return result;
-  }
-  if (currentStatus === 'completed') {
-    result = { passed: false, feedback: `Subtask "${subtaskId}" is already completed.` };
-    emitContractSubtaskAlreadyCompleted(ctx.audit, { contractId, subtaskId });
-    return result;
+    return { passed: false, feedback: `Subtask "${subtaskId}" verification is already in progress — duplicate submit_subtask call ignored.` };
   }
 
-  progress.subtasks[subtaskId] = {
-    ...progress.subtasks[subtaskId],
-    status: 'completed',
-    completed_at: new Date().toISOString(),
-    evidence,
-    artifacts,
-  };
+  if (result.kind === 'already_completed') {
+    emitContractSubtaskAlreadyCompleted(ctx.audit, { contractId, subtaskId });
+    return { passed: false, feedback: `Subtask "${subtaskId}" is already completed.` };
+  }
+
+  // committed：post-commit side effects（不回滚 progress、不毒化 queue）。
+  const progress = result.progress;
+  const allCompleted = result.allCompleted;
   safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
   const subtaskTotal = contractYaml.subtasks.length;
   const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
 
-  allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-  if (allCompleted) {
-    progress.completed_at = new Date().toISOString();
-  }
-
-  await ctx.saveProgress(contractId, progress);
-  // Phase 968: emit completion audit AFTER saveProgress commits
+  // Phase 968: emit completion audit AFTER commit
   emitContractSubtaskCompleted(
     ctx.audit,
     {
@@ -292,13 +278,13 @@ export async function completeSubtaskSync(
   );
 
   if (allCompleted) {
-    // Phase 1132 Step D: contract may have been cancelled between lock release and now.
+    // Phase 1132 Step D: contract may have been cancelled between commit and now.
     if (!(await isContractActive(ctx, contractId))) {
       emitContractCompleteOnCancelled(ctx.audit, { contractId, subtaskId });
-      return { ...result, allCompleted: false };
+      return { passed: true, feedback: 'No verification criteria configured', allCompleted: false };
     }
     await archiveAndEmit(ctx, contractId, contractYaml, 'ContractSystem._completeSubtaskSync');
   }
 
-  return { ...result, allCompleted };
+  return { passed: true, feedback: 'No verification criteria configured', allCompleted };
 }

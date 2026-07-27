@@ -151,6 +151,7 @@ export async function handleVerificationErrorRetry(
   subtaskId: SubtaskId,
   cause: LastFailedFeedback['cause'],
   feedbackText: string,
+  attemptId?: string,
 ): Promise<{ archived?: boolean }> {
   let result: { archived?: boolean } = {};
   try {
@@ -181,19 +182,21 @@ export async function handleVerificationErrorRetry(
       throw new ToolError(`Contract "${contractId}" unloadable: contract.yaml schema corruption`);
     }
     const maxAttempts = contractYaml.verification_attempts ?? DEFAULT_VERIFICATION_ATTEMPTS;
-    const priorRejected = subtask.retry_count ?? 0;
-    const forceAccept = priorRejected + 1 >= maxAttempts;
+    // Phase 1201 Step B: attemptId 优先由 caller（background pipeline 已知自己的
+    // attempt）传入；缺失时退回 fresh-read 当前 attempt。forceAccept 由 queued
+    // mutation 基于 fresh retry_count 计算。
+    const effectiveAttemptId = attemptId ?? subtask.verification_attempt_id!;
 
     const transitionResult = await ctx.transitionVerificationAttempt(
       contractId,
       subtaskId,
       {
         kind: 'reject',
-        attemptId: subtask.verification_attempt_id!,
+        attemptId: effectiveAttemptId,
         at: new Date().toISOString(),
         feedback: feedbackText,
         cause,
-        forceAccept,
+        maxAttempts,
       },
     );
 
@@ -212,7 +215,8 @@ export async function handleVerificationErrorRetry(
 
     const updatedProgress = transitionResult.progress;
     const updatedSubtask = updatedProgress.subtasks[subtaskId];
-    const retryCount = updatedSubtask?.retry_count ?? priorRejected + 1;
+    const retryCount = updatedSubtask?.retry_count ?? 1;
+    const forceAccept = updatedSubtask?.force_accepted === true;
 
     if (forceAccept) {
       const lastFeedback = updatedSubtask?.last_failed_feedback?.feedback;
@@ -251,18 +255,26 @@ export async function handleVerificationErrorRetry(
       ctx.audit,
       { context: 'ContractSystem._writeVerificationError.resetStatus', error: formatErr(e) },
     );
-    // phase 521 (review-round4 Core M1): reset 失败时尝试 fallback 单独 lock 重置 in_progress→todo
+    // phase 521 (review-round4 Core M1): reset 失败时尝试 fallback 重置 in_progress→todo
     // 防 subtask 永卡 in_progress、后续 submit_subtask call 全报 "already in_progress"。
     // 若 fallback 也失败 → emit STUCK_IN_PROGRESS observability、需运维手动修
+    // Phase 1201 Step B: fallback 改 typed interrupt transition（queued + attempt guard），
+    // 不再 raw saveProgress。
     try {
       const fbProgress = await ctx.getProgress(contractId);
       const fbSubtask = fbProgress?.subtasks[subtaskId];
-      if (fbSubtask && fbSubtask.status === 'in_progress') {
+      if (fbSubtask && fbSubtask.status === 'in_progress' && fbSubtask.verification_attempt_id) {
         // Phase 969 / 1132 Step D: lifecycle guard based on active path, not persisted status.
         if (await isContractActive(ctx, contractId)) {
-          fbSubtask.status = 'todo';
-          delete fbSubtask.verification_attempt_id;
-          await ctx.saveProgress(contractId, fbProgress!);
+          await ctx.transitionVerificationAttempt(
+            contractId,
+            subtaskId,
+            {
+              kind: 'interrupt',
+              attemptId: fbSubtask.verification_attempt_id,
+              at: new Date().toISOString(),
+            },
+          );
         }
       }
     } catch (fbErr) {
@@ -288,6 +300,7 @@ export async function writeVerificationError(
   contractId: ContractId,
   subtaskId: SubtaskId,
   error: unknown,
+  attemptId?: string,
 ): Promise<{ archived?: boolean }> {
   const errorMsg = formatErr(error);
   const cause: LastFailedFeedback['cause'] =
@@ -298,6 +311,6 @@ export async function writeVerificationError(
       : `Acceptance verification crashed (system bug). Error: ${errorMsg}. 修代码后再 retry。`;
 
   notifyVerificationError(ctx, contractId, subtaskId, errorMsg);
-  return handleVerificationErrorRetry(ctx, contractId, subtaskId, cause, feedbackText);
+  return handleVerificationErrorRetry(ctx, contractId, subtaskId, cause, feedbackText, attemptId);
 }
 

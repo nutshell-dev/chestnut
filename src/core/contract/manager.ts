@@ -48,7 +48,7 @@ import {
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
-import { resolveContractLocation, resolveActiveContractLocation, listPhysicalActiveContractIds } from './locations.js';
+import { resolveContractLocation, resolveActiveContractLocation, listPhysicalActiveContractIds, type ActiveContractLocation } from './locations.js';
 import { type ClawId } from '../../foundation/claw-identity/index.js';
 
 import type {
@@ -78,7 +78,7 @@ import {
   reconcilePendingLifecycleIntents,
   type LifecycleContext,
 } from './lifecycle.js';
-import type { NotifyClawFn, VerificationGatewayResult } from './verification-types.js';
+import type { NotifyClawFn, VerificationGatewayResult, SyncCompletionGatewayResult } from './verification-types.js';
 import type { VerificationAttemptTransition } from './verification-transition-types.js';
 import type { ContractCorruptionEvidence } from './types.js';
 import {
@@ -90,6 +90,7 @@ import {
 } from './verification.js';
 import { buildSubmitSubtaskTool, type SubmitSubtaskParams } from './tools/submit-subtask.js';
 import { archiveAndEmit } from './verification-lifecycle.js';
+import { formatValidIds } from './verification-format.js';
 import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 
@@ -436,25 +437,52 @@ export class ContractSystem {
     subtaskId: SubtaskId,
     transition: VerificationAttemptTransition,
   ): Promise<VerificationGatewayResult> {
-    const activeLoc = await resolveActiveContractLocation({
-      fs: this.fs,
-      activeDir: this.activeDir,
+    // Phase 1201 Step B: 全部 attempt transition 经 per-contract queue 串行，
+    // callback 执行时 fresh-resolve active + fresh-read progress。
+    const kind = transition.kind === 'start'
+      ? 'attempt_start'
+      : transition.kind === 'pass'
+        ? 'attempt_pass'
+        : transition.kind === 'reject'
+          ? 'attempt_reject'
+          : 'attempt_interrupt';
+    return this._enqueueProgressMutation(
       contractId,
-    });
+      { mutationId: `${transition.kind}-${newShortUuid()}`, kind },
+      async () => {
+        const activeLoc = await resolveActiveContractLocation({
+          fs: this.fs,
+          activeDir: this.activeDir,
+          contractId,
+        });
 
-    if (activeLoc) {
-      return this.transitionLegacyVerificationAttempt(contractId, subtaskId, transition);
-    }
+        if (activeLoc) {
+          return this.transitionLegacyVerificationAttempt(contractId, subtaskId, transition, activeLoc);
+        }
 
-    return { kind: 'skipped', reason: `contract ${contractId} is not active` };
+        return { kind: 'skipped', reason: `contract ${contractId} is not active` };
+      },
+    );
   }
 
   private async transitionLegacyVerificationAttempt(
     contractId: ContractId,
     subtaskId: SubtaskId,
     transition: VerificationAttemptTransition,
+    activeLoc: ActiveContractLocation,
   ): Promise<VerificationGatewayResult> {
-    const progress = await this.getProgress(contractId);
+    // Phase 1201 Step B: active-only read —— queued callback 不得 fallback 读
+    // archive progress（rename 竞争时 getProgress 会读到 archive view）。
+    // rename 在 resolve 后胜出时 read ENOENT → fail-closed skipped。
+    let progress: ProgressData | null;
+    try {
+      progress = await this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
+    } catch (err) {
+      if (isFileNotFound(err)) {
+        return { kind: 'skipped', reason: `contract ${contractId} is not active` };
+      }
+      throw err;
+    }
     if (!progress) {
       return { kind: 'skipped', reason: `progress unavailable for ${contractId}` };
     }
@@ -482,9 +510,12 @@ export class ContractSystem {
       if (subtask.status !== 'in_progress' || subtask.verification_attempt_id !== transition.attemptId) {
         return { kind: 'skipped', reason: 'attempt id mismatch or subtask not in_progress' };
       }
+      // Phase 1201 Step B: forceAccept 由 queued mutation 基于 fresh retry_count 计算，
+      // 不由 caller 的 queue 外预读快照决定。
+      const forceAccept = (subtask.retry_count ?? 0) + 1 >= transition.maxAttempts;
       subtask.retry_count = (subtask.retry_count || 0) + 1;
       subtask.last_failed_feedback = { feedback: transition.feedback, cause: transition.cause };
-      if (transition.forceAccept) {
+      if (forceAccept) {
         subtask.status = 'completed';
         subtask.completed_at = transition.at;
         subtask.force_accepted = true;
@@ -499,8 +530,110 @@ export class ContractSystem {
       delete subtask.verification_attempt_id;
     }
 
-    await this.saveProgress(contractId, progress);
+    // Phase 1201 Step B: terminal rename 可与 queued mutation 竞争；写前 re-verify
+    // active，rename loser 不得在 archive 中写 progress。
+    const stillActive = await resolveActiveContractLocation({
+      fs: this.fs,
+      activeDir: this.activeDir,
+      contractId,
+    });
+    if (!stillActive) {
+      return { kind: 'skipped', reason: `contract ${contractId} is not active` };
+    }
+    try {
+      await this.saveProgress(contractId, progress, this.activeDir);
+    } catch (err) {
+      // rename 在 re-verify 后胜出：active 目录已消失，fail-closed 不写 archive。
+      if (isFileNotFound(err)) {
+        return { kind: 'skipped', reason: `contract ${contractId} is not active` };
+      }
+      throw err;
+    }
     return { kind: 'updated', progress };
+  }
+
+  /**
+   * Phase 1201 Step B: queued sync-completion capability。
+   * 整段 RMW（resolve active → fresh-read → validate → mutate → save）在
+   * per-contract queue callback 内完成；post-commit audit/notify/archive 由
+   * caller（verification-lifecycle.completeSubtaskSync）基于返回结果执行。
+   */
+  async _submitSyncCompletion(
+    contractId: ContractId,
+    subtaskId: SubtaskId,
+    facts: { evidence: string; artifacts?: string[]; at: string },
+  ): Promise<SyncCompletionGatewayResult> {
+    return this._enqueueProgressMutation(
+      contractId,
+      { mutationId: `sync-${newShortUuid()}`, kind: 'sync_complete' },
+      async () => {
+        const activeLoc = await resolveActiveContractLocation({
+          fs: this.fs,
+          activeDir: this.activeDir,
+          contractId,
+        });
+        if (!activeLoc) {
+          return { kind: 'not_active' };
+        }
+
+        // rename 在 resolve 后胜出时 read ENOENT → fail-closed not_active。
+        let progress: ProgressData | null;
+        try {
+          progress = await this._getLegacyActiveProgress(contractId, activeLoc.contractRoot);
+        } catch (err) {
+          if (isFileNotFound(err)) {
+            return { kind: 'not_active' };
+          }
+          throw err;
+        }
+        if (!progress) {
+          throw new ToolError(`Contract "${contractId}" progress unavailable: schema corruption`);
+        }
+
+        const subtask = progress.subtasks[subtaskId];
+        if (!subtask) {
+          return { kind: 'unknown_subtask', validIds: formatValidIds(progress) };
+        }
+        if (subtask.status === 'in_progress') {
+          return { kind: 'duplicate' };
+        }
+        if (subtask.status === 'completed') {
+          return { kind: 'already_completed' };
+        }
+
+        progress.subtasks[subtaskId] = {
+          ...subtask,
+          status: 'completed',
+          completed_at: facts.at,
+          evidence: facts.evidence,
+          artifacts: facts.artifacts,
+        };
+        const allCompleted = await this.checkAllCompleted(contractId, progress);
+        if (allCompleted) {
+          progress.completed_at = facts.at;
+        }
+
+        // 同 transition：写前 re-verify active（rename 竞争 fail-closed）。
+        const stillActive = await resolveActiveContractLocation({
+          fs: this.fs,
+          activeDir: this.activeDir,
+          contractId,
+        });
+        if (!stillActive) {
+          return { kind: 'not_active' };
+        }
+        try {
+          await this.saveProgress(contractId, progress, this.activeDir);
+        } catch (err) {
+          // rename 在 re-verify 后胜出：fail-closed 不写 archive。
+          if (isFileNotFound(err)) {
+            return { kind: 'not_active' };
+          }
+          throw err;
+        }
+        return { kind: 'completed', progress, allCompleted };
+      },
+    );
   }
 
   // ============================================================================
@@ -555,7 +688,7 @@ export class ContractSystem {
       contractDir: (id) => this.contractDir(id),
       loadContractYaml: (id) => this.loadContractYaml(id),
       getProgress: (id) => this.getProgress(id),
-      saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
+      submitSyncCompletion: (id, stId, facts) => this._submitSyncCompletion(id, stId, facts),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       baseDir: this.clawDir,
       activeDir: this.activeDir,

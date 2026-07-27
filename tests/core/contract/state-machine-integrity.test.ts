@@ -174,12 +174,14 @@ function makeAcceptanceCtx(
       const sub = current.subtasks[subtaskId] ?? { status: 'in_progress', retry_count: 0 };
       if (transition.kind === 'reject') {
         const retryCount = (sub.retry_count ?? 0) + 1;
+        // Phase 1201 Step B: forceAccept 由 queued mutation 基于 fresh retry_count 计算
+        const forceAccept = retryCount >= transition.maxAttempts;
         const updatedSub = {
           ...sub,
-          status: transition.forceAccept ? ('completed' as const) : ('todo' as const),
+          status: forceAccept ? ('completed' as const) : ('todo' as const),
           retry_count: retryCount,
-          ...(transition.forceAccept ? { force_accepted: true } : {}),
-          ...(transition.forceAccept ? {} : { last_failed_feedback: { feedback: transition.feedback, cause: transition.cause, at: transition.at } }),
+          ...(forceAccept ? { force_accepted: true } : {}),
+          ...(forceAccept ? {} : { last_failed_feedback: { feedback: transition.feedback, cause: transition.cause, at: transition.at } }),
         };
         const updatedProgress = {
           ...current,
@@ -272,7 +274,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
 
       const txCalls = (ctx.transitionVerificationAttempt as ReturnType<typeof vi.fn>).mock.calls;
       expect(txCalls.length).toBeGreaterThanOrEqual(1);
-      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', forceAccept: true });
+      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', maxAttempts: 3 });
       expect(storedProgress.c1.subtasks['st1'].force_accepted).toBe(true);
 
       expect(events).toContainEqual(expect.arrayContaining([
@@ -299,7 +301,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
 
       const txCalls = (ctx.transitionVerificationAttempt as ReturnType<typeof vi.fn>).mock.calls;
       expect(txCalls.length).toBeGreaterThanOrEqual(1);
-      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', forceAccept: false });
+      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', maxAttempts: 3 });
       expect(storedProgress.c2.subtasks['st1'].force_accepted).toBeUndefined();
     });
 
@@ -324,7 +326,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
 
       const txCalls = (ctx.transitionVerificationAttempt as ReturnType<typeof vi.fn>).mock.calls;
       expect(txCalls.length).toBeGreaterThanOrEqual(1);
-      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', forceAccept: true });
+      expect(txCalls[0][2]).toMatchObject({ kind: 'reject', maxAttempts: 3 });
       expect(storedProgress.c3.subtasks['st1'].force_accepted).toBe(true);
 
       expect(events).toContainEqual(expect.arrayContaining([

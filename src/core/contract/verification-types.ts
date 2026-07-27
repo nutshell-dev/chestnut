@@ -48,7 +48,16 @@ export interface VerificationContractContext {
   contractDir: (contractId: ContractId) => Promise<string>;
   loadContractYaml: (contractId: ContractId) => Promise<ContractYaml | null>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  saveProgress: (contractId: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
+  /**
+   * Phase 1201 Step B: typed queued sync-completion capability.
+   * 替换旧 raw `saveProgress`：verification helper 不再能直接写共享 progress，
+   * sync completion 整段 RMW 在 ContractSystem 的 per-contract queue 内 fresh-read。
+   */
+  submitSyncCompletion: (
+    contractId: ContractId,
+    subtaskId: SubtaskId,
+    facts: { evidence: string; artifacts?: string[]; at: string },
+  ) => Promise<SyncCompletionGatewayResult>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   /** Phase 1198 Step B: base directory for stable lifecycle intent store. */
   baseDir: string;
@@ -122,3 +131,16 @@ export type VerificationGatewayResult =
   | { kind: 'updated'; progress: ProgressData }
   | { kind: 'skipped'; reason: string }
   | { kind: 'late'; expectedAttemptId: string; actualAttemptId?: string };
+
+/**
+ * Phase 1201 Step B: result of the queued sync-completion capability.
+ * The mutation (fresh-read + validate + save) commits inside the ContractSystem
+ * per-contract queue; callers perform post-commit audit/notify/archive side
+ * effects based on this result without re-reading progress for decisions.
+ */
+export type SyncCompletionGatewayResult =
+  | { kind: 'completed'; progress: ProgressData; allCompleted: boolean }
+  | { kind: 'duplicate' }
+  | { kind: 'already_completed' }
+  | { kind: 'unknown_subtask'; validIds: string }
+  | { kind: 'not_active' };

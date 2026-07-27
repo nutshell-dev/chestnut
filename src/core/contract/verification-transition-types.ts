@@ -27,7 +27,12 @@ export type VerificationAttemptTransition =
       at: string;
       feedback: string;
       cause: 'llm_rejected' | 'script_failed' | 'programming_bug' | 'subagent_timeout';
-      forceAccept: boolean;
+      /**
+       * Phase 1201 Step B: caller supplies the attempt budget; the queued
+       * mutation computes forceAccept from the FRESH retry_count inside the
+       * queue (retry_count + 1 >= maxAttempts), never from a pre-read snapshot.
+       */
+      maxAttempts: number;
     }
   | {
       kind: 'interrupt';
