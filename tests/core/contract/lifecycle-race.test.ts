@@ -18,6 +18,13 @@ import { archiveAndEmit } from '../../../src/core/contract/verification-lifecycl
 import { createManagerVerificationContext } from '../../helpers/contract-subtask.js';
 import type { ArchiveState, LifecycleCommitOutcome } from '../../../src/core/contract/types.js';
 
+// Poll cadence for the filesystem barrier: short enough to keep race tests
+// fast, long enough to avoid busy-looping the shared tmpdir under CI load.
+const BARRIER_POLL_INTERVAL_MS = 5;
+// Peer-wait ceiling: barrier partners are released on the same tick, so any
+// wait beyond this means a hung racer, not slow I/O.
+const BARRIER_PEER_TIMEOUT_MS = 5_000;
+
 async function makeBarrier(baseDir: string, name: string) {
   const readyA = path.join(baseDir, `.barrier-${name}-a-ready`);
   const readyB = path.join(baseDir, `.barrier-${name}-b-ready`);
@@ -27,10 +34,10 @@ async function makeBarrier(baseDir: string, name: string) {
       const readyFile = role === 'a' ? readyA : readyB;
       const peerReady = role === 'a' ? readyB : readyA;
       await fs.writeFile(readyFile, role, 'utf-8');
-      const deadline = Date.now() + 5000;
+      const deadline = Date.now() + BARRIER_PEER_TIMEOUT_MS;
       while (!(await fileExists(peerReady))) {
         if (Date.now() > deadline) throw new Error('barrier peer timeout');
-        await new Promise(r => setTimeout(r, 5));
+        await new Promise(r => setTimeout(r, BARRIER_POLL_INTERVAL_MS));
       }
     },
   };
