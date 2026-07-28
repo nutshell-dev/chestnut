@@ -190,30 +190,38 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     nowSpy.mockRestore();
   });
 
-  it('aborts spawn when a stop intent exists before boot completes', async () => {
+  it('aborts spawn when a stop intent for this generation is recorded before boot completes', async () => {
     const { audit } = makeAudit();
     const clawId = `test-claw-stop-intent-${randomUUID()}`;
     const daemonDir = testClawDaemonDir(tempDir, clawId);
-
-    // Pre-record a stop intent: spawn must see it after writing child PID and abort.
-    const intentsDir = getStopIntentsDir(daemonDir);
-    await fs.mkdir(intentsDir, { recursive: true });
-    await fs.writeFile(
-      path.join(intentsDir, 'req-1.json'),
-      JSON.stringify({
-        schema_version: 1,
-        request_id: 'req-1',
-        daemon_dir: daemonDir,
-        created_at: new Date().toISOString(),
-      }),
-      'utf-8',
-    );
 
     const killSpy = vi.fn();
     const ctx = makeCtx({
       isReady: () => false,
       l1IsAlive: vi.fn().mockReturnValue(true),
       kill: killSpy,
+      // Inject a generation-bound stop intent after the spawning generation is committed
+      // but before the child PID is written. This exercises the barrier between
+      // writeChildPid and readiness wait.
+      spawnDetached: vi.fn().mockImplementation(() => {
+        const generationPath = path.join(getSpawningDir(daemonDir), GENERATION_FILE);
+        const generationJson = nodeFs.readSync(generationPath);
+        const generationId = (JSON.parse(generationJson) as { generation_id: string }).generation_id;
+        const intentsDir = getStopIntentsDir(daemonDir);
+        nodeFs.ensureDirSync(intentsDir);
+        nodeFs.writeAtomicSync(
+          path.join(intentsDir, 'req-1.json'),
+          JSON.stringify({
+            schema_version: 1,
+            request_id: 'req-1',
+            target_generation_id: generationId,
+            observed_location: 'spawning',
+            daemon_dir: daemonDir,
+            created_at: new Date().toISOString(),
+          }),
+        );
+        return { pid: FAKE_LIVE_PID };
+      }),
     });
 
     await expect(
@@ -226,6 +234,82 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
 
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
     // Spawning should have been retired by the abort path.
+    expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
+  });
+
+  it('does not abort fresh spawn when a stop intent targets a previous generation', async () => {
+    const { audit } = makeAudit();
+    const clawId = `test-claw-old-intent-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+
+    // Pre-record a stop intent bound to a different (old) generation.
+    const intentsDir = getStopIntentsDir(daemonDir);
+    nodeFs.ensureDirSync(intentsDir);
+    nodeFs.writeAtomicSync(
+      path.join(intentsDir, 'req-old.json'),
+      JSON.stringify({
+        schema_version: 1,
+        request_id: 'req-old',
+        target_generation_id: 'old-generation-id',
+        observed_location: 'spawning',
+        daemon_dir: daemonDir,
+        created_at: new Date().toISOString(),
+      }),
+    );
+
+    const ctx = makeCtx();
+
+    const pid = await spawnProcess(ctx, daemonDir, {
+      command: 'node',
+      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+    });
+
+    expect(pid).toBe(FAKE_LIVE_PID);
+    expect(nodeFs.existsSync(path.join(getSpawningDir(daemonDir), GENERATION_FILE))).toBe(true);
+  });
+
+  it('aborts spawn when a stop intent arrives after commit but before child spawn', async () => {
+    const { audit } = makeAudit();
+    const clawId = `test-claw-stop-intent-commit-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+
+    const killSpy = vi.fn();
+    const ctx = makeCtx({
+      isReady: () => false,
+      l1IsAlive: vi.fn().mockReturnValue(true),
+      kill: killSpy,
+      spawnDetached: vi.fn().mockImplementation(() => {
+        const generationPath = path.join(getSpawningDir(daemonDir), GENERATION_FILE);
+        const generationJson = nodeFs.readSync(generationPath);
+        const generationId = (JSON.parse(generationJson) as { generation_id: string }).generation_id;
+        const intentsDir = getStopIntentsDir(daemonDir);
+        nodeFs.ensureDirSync(intentsDir);
+        nodeFs.writeAtomicSync(
+          path.join(intentsDir, 'req-2.json'),
+          JSON.stringify({
+            schema_version: 1,
+            request_id: 'req-2',
+            target_generation_id: generationId,
+            observed_location: 'spawning',
+            daemon_dir: daemonDir,
+            created_at: new Date().toISOString(),
+          }),
+        );
+        return { pid: FAKE_LIVE_PID };
+      }),
+    });
+
+    await expect(
+      spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+      }),
+    ).rejects.toThrow(/stop intent/);
+
+    // In this path the child was spawned, so the abort path kills it.
+    expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
     expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
   });
 });

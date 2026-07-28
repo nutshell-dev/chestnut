@@ -363,6 +363,11 @@ async function activateOwnGeneration(
   ) {
     return { kind: 'error', reason: 'spawning startTime mismatch' };
   }
+  // Step F barrier：child 在写 ready / activate 前检查是否有绑定本 generation 的 stop intent。
+  if (processManager.hasStopIntentForGeneration(daemonDir, generationId)) {
+    processManager.retireGeneration(daemonDir, { generationId }, 'stopped', 'spawning');
+    return { kind: 'error', reason: 'stop intent recorded before activation' };
+  }
   const ready = await processManager.writeGenerationReady(daemonDir, spawning.record, process.pid, startTime);
   if (ready.kind !== 'written') {
     return { kind: 'error', reason: `ready fact write failed: ${ready.kind}` };

@@ -55,5 +55,9 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   GENERATION_RETIRED: 'process_generation_retired', // ← NEW phase 1204 Step A
   GENERATION_FAILED: 'process_generation_failed', // ← NEW phase 1204 Step A
   STOP_INTENT_RECORDED: 'process_stop_intent_recorded', // ← NEW phase 1204 Step D
+  STOP_INTENT_SCAN_FAILED: 'process_stop_intent_scan_failed', // ← NEW phase 1204 Step F
+  STOP_INTENT_MALFORMED: 'process_stop_intent_malformed', // ← NEW phase 1204 Step F
+  STOP_LATE_TARGET_MISMATCH: 'process_stop_late_target_mismatch', // ← NEW phase 1204 Step F
+  STOP_TARGET_RELOCATED: 'process_stop_target_relocated', // ← NEW phase 1204 Step F
   STOP_IDEMPOTENT: 'process_stop_idempotent', // ← NEW phase 1204 Step D
 } as const;

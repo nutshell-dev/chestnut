@@ -668,6 +668,8 @@ export function retireGeneration(
 export interface StopIntentRecord {
   schema_version: number;
   request_id: string;
+  target_generation_id: string;
+  observed_location: 'spawning' | 'active' | null;
   daemon_dir: string;
   created_at: string;
 }
@@ -675,6 +677,11 @@ export interface StopIntentRecord {
 export type WriteStopIntentResult =
   | { kind: 'written'; intent: StopIntentRecord }
   | { kind: 'retryable_failure'; cause: unknown };
+
+export type StopIntentScanResult =
+  | { kind: 'ok'; requestIds: string[] }
+  | { kind: 'malformed'; requestId: string; cause: unknown }
+  | { kind: 'unreadable'; cause: unknown };
 
 function stopIntentFileName(requestId: string): string {
   return `${requestId}.json`;
@@ -684,18 +691,36 @@ function getStopIntentPath(daemonDir: DaemonDir, requestId: string): string {
   return path.join(getStopIntentsDir(daemonDir), stopIntentFileName(requestId));
 }
 
+function isStopIntentRecord(parsed: unknown): parsed is StopIntentRecord {
+  if (typeof parsed !== 'object' || parsed === null) return false;
+  const p = parsed as Partial<StopIntentRecord>;
+  return (
+    p.schema_version === PROCESS_GENERATION_SCHEMA_VERSION &&
+    typeof p.request_id === 'string' && p.request_id.length > 0 &&
+    typeof p.target_generation_id === 'string' && p.target_generation_id.length > 0 &&
+    (p.observed_location === 'spawning' || p.observed_location === 'active' || p.observed_location === null) &&
+    typeof p.daemon_dir === 'string' && p.daemon_dir.length > 0 &&
+    typeof p.created_at === 'string'
+  );
+}
+
 /**
  * 持久化不可变的 stop intent。每个 stop request 写一个独立文件，request_id 由 caller
- * 生成（通常为 UUID）。失败时返回 retryable，不猜 winner。
+ * 生成（通常为 UUID）。intent 显式绑定调用时观察到的目标 generation，不得约束未来
+ * generation。失败时返回 retryable，不猜 winner。
  */
 export function writeStopIntent(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
   requestId: string,
+  targetGenerationId: string,
+  observedLocation: 'spawning' | 'active' | null = null,
 ): WriteStopIntentResult {
   const intent: StopIntentRecord = {
     schema_version: PROCESS_GENERATION_SCHEMA_VERSION,
     request_id: requestId,
+    target_generation_id: targetGenerationId,
+    observed_location: observedLocation,
     daemon_dir: daemonDir,
     created_at: new Date().toISOString(),
   };
@@ -709,33 +734,77 @@ export function writeStopIntent(
     PROCESS_MANAGER_AUDIT_EVENTS.STOP_INTENT_RECORDED,
     `daemon_dir=${daemonDir}`,
     `request_id=${requestId}`,
+    `target_generation=${targetGenerationId}`,
+    `observed_location=${observedLocation ?? 'none'}`,
   );
   return { kind: 'written', intent };
 }
 
-/** 列出当前 daemon 下所有 stop intent 的 request_id。 */
-export function listStopIntents(
-  fs: ProcessManagerContext['fs'],
+/**
+ * 扫描所有 stop intent，返回绑定到指定 target generation 的 request_id 列表。
+ * 畸形文件或目录不可读时返回 typed outcome，不吞异常、不当作空集合。
+ */
+export function scanStopIntentsForGeneration(
+  ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
-): string[] {
+  targetGenerationId: string,
+): StopIntentScanResult {
   const dir = getStopIntentsDir(daemonDir);
   let entries: { name: string }[];
   try {
-    entries = fs.listSync(dir, { includeDirs: false });
+    entries = ctx.fs.listSync(dir, { includeDirs: false });
   } catch (err) {
-    if (isFileNotFound(err)) return [];
-    return [];
+    if (isFileNotFound(err)) return { kind: 'ok', requestIds: [] };
+    return { kind: 'unreadable', cause: formatErr(err) };
   }
-  return entries
-    .map((e) => e.name)
-    .filter((n) => n.endsWith('.json'))
-    .map((n) => n.slice(0, -'.json'.length));
+
+  const requestIds: string[] = [];
+  for (const entry of entries) {
+    if (!entry.name.endsWith('.json')) continue;
+    const requestId = entry.name.slice(0, -'.json'.length);
+    const filePath = path.join(dir, entry.name);
+    let content: string;
+    try {
+      content = ctx.fs.readSync(filePath);
+    } catch (err) {
+      return { kind: 'unreadable', cause: formatErr(err) };
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (err) {
+      return { kind: 'malformed', requestId, cause: formatErr(err) };
+    }
+    if (!isStopIntentRecord(parsed)) {
+      return { kind: 'malformed', requestId, cause: 'stop_intent_shape_mismatch' };
+    }
+    if (parsed.target_generation_id === targetGenerationId) {
+      requestIds.push(requestId);
+    }
+  }
+  return { kind: 'ok', requestIds };
 }
 
-/** 是否存在任何 stop intent。 */
-export function hasStopIntent(
-  fs: ProcessManagerContext['fs'],
+/**
+ * 是否存在针对指定 generation 的 stop intent。扫描失败时按 fail-closed 返回 true
+ *（调用方应中止 spawn），同时写 audit。
+ */
+export function hasStopIntentForGeneration(
+  ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
+  targetGenerationId: string,
 ): boolean {
-  return listStopIntents(fs, daemonDir).length > 0;
+  const scan = scanStopIntentsForGeneration(ctx, daemonDir, targetGenerationId);
+  if (scan.kind === 'ok') {
+    return scan.requestIds.length > 0;
+  }
+  ctx.audit.write(
+    scan.kind === 'malformed'
+      ? PROCESS_MANAGER_AUDIT_EVENTS.STOP_INTENT_MALFORMED
+      : PROCESS_MANAGER_AUDIT_EVENTS.STOP_INTENT_SCAN_FAILED,
+    `daemon_dir=${daemonDir}`,
+    `target_generation=${targetGenerationId}`,
+    `reason=${ctx.audit.message(formatErr(scan.cause))}`,
+  );
+  return true;
 }

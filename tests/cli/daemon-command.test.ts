@@ -191,6 +191,7 @@ function makeMockInstances(overrides?: Partial<any>) {
       writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
       activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
       retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+      hasStopIntentForGeneration: vi.fn(() => false),
     },
     cronRunner: undefined,
     gateway: undefined,
@@ -375,6 +376,32 @@ describe('daemonCommand - A4a startup failure', () => {
       'module=pre_assemble',
       'phase=preconstruct',
       expect.stringMatching(/reason=.*mock assemble crash/),
+    );
+  });
+
+  it('it #4b: stop intent for own generation before activation → retire + exit 1 (Phase 1204 Step F)', async () => {
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({
+      clawId: 'test-claw',
+      processManager: {
+        inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
+        inspectSpawningPid: vi.fn(() => ({
+          status: 'ok',
+          record: { pid: process.pid, ...(getProcessStartTime(process.pid) !== undefined ? { start_time: getProcessStartTime(process.pid) } : {}) },
+        })),
+        writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
+        activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
+        retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+        hasStopIntentForGeneration: vi.fn(() => true),
+      },
+    }));
+
+    await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
+
+    expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
+      'assemble_failed',
+      'module=generation_activation',
+      'phase=post_assemble',
+      expect.stringMatching(/reason=.*stop intent/),
     );
   });
 

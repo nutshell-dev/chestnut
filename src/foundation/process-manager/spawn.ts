@@ -145,6 +145,21 @@ export async function spawnProcess(
     );
   }
 
+  // Step F barrier 1：commit spawning 后、spawn child 前检查本代 stop intent。
+  if (shouldAbortSpawningForStop(ctx, daemonDir, record.generation_id)) {
+    await writeFailureFact(ctx, record, 'stop intent recorded before child spawned');
+    retireGeneration(ctx, daemonDir, { generationId: record.generation_id }, 'stopped', 'spawning');
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `generation=${record.generation_id}`,
+      `reason=stop_intent_recorded_before_child_spawned`,
+    );
+    throw new Error(
+      `Spawn aborted for "${daemonDir}" generation ${record.generation_id} due to stop intent`,
+    );
+  }
+
   ctx.fs.ensureDirSync(path.dirname(options.logFile));
 
   return await spawnAndAwaitReady(ctx, daemonDir, options, startMs, record);
@@ -262,9 +277,8 @@ async function spawnAndAwaitReady(
       );
     }
 
-    // spawning 阶段若已存在 stop intent，立即 abort：kill child、写 failure 事实、
-    // retire spawning，避免继续 boot 一个已被要求停止的进程。
-    if (shouldAbortSpawningForStop(ctx, daemonDir)) {
+    // Step F barrier 2：写 PID 后再次检查本代 stop intent。
+    if (shouldAbortSpawningForStop(ctx, daemonDir, record.generation_id)) {
       try {
         (ctx.kill ?? defaultKill)(pid, 'TERM');
         await sleep(DAEMON_SHUTDOWN_GRACE_MS);

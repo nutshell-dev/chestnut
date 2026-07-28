@@ -32,6 +32,7 @@ import {
   writeReadyFact,
   inspectSpawning,
   inspectSpawningPid,
+  hasStopIntentForGeneration,
   type ActivateGeneration,
   type RetireGeneration,
   type ProcessGenerationRecord,
@@ -87,6 +88,9 @@ export class ProcessManager {
   }
   retireGeneration(daemonDir: DaemonDir, expected: { generationId: string }, reason: Parameters<typeof retireGeneration>[3], source: Parameters<typeof retireGeneration>[4]): RetireGeneration {
     return retireGeneration(this._ctx, daemonDir, expected, reason, source);
+  }
+  hasStopIntentForGeneration(daemonDir: DaemonDir, generationId: string): boolean {
+    return hasStopIntentForGeneration(this._ctx, daemonDir, generationId);
   }
 
   // lifecycle

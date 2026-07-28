@@ -58,6 +58,7 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
     writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
     activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
     retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+    hasStopIntentForGeneration: vi.fn(() => false),
   })),
   makeDaemonDir: (s: string) => s,
   STATUS_SUBDIR: 'status',
@@ -95,6 +96,7 @@ const mockProcessManager = {
   writeGenerationReady: vi.fn().mockResolvedValue({ kind: 'written' }),
   activateGeneration: vi.fn(() => ({ kind: 'activated', record: { generation_id: TEST_GENERATION_ID } })),
   retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
+  hasStopIntentForGeneration: vi.fn(() => false),
 };
 const mockAssemble = vi.fn().mockResolvedValue({
   runtime: { initialize: vi.fn().mockResolvedValue(undefined) },

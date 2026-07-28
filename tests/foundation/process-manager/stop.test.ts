@@ -174,4 +174,85 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     expect(result).toBe(false);
     expect(ctx.kill).not.toHaveBeenCalled();
   });
+
+  it('tracks generation across spawning → active relocation', async () => {
+    const { audit, events } = makeAudit();
+    const clawId = 'stop-relocate';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const generationId = 'gen-relocate';
+    const spawningDir = getSpawningDir(daemonDir);
+    await fs.mkdir(spawningDir, { recursive: true });
+    const record = {
+      schema_version: 1,
+      generation_id: generationId,
+      daemon_dir: daemonDir,
+      parent_pid: process.pid,
+      created_at: new Date().toISOString(),
+    };
+    await fs.writeFile(path.join(spawningDir, GENERATION_FILE), JSON.stringify(record), 'utf-8');
+    const pidRecord = {
+      schema_version: 1,
+      generation_id: generationId,
+      pid: FAKE_LIVE_PID,
+      created_at: new Date().toISOString(),
+    };
+    await fs.writeFile(path.join(spawningDir, PID_FILE), JSON.stringify(pidRecord), 'utf-8');
+
+    let moved = false;
+    let alive = true;
+    const killSpy = vi.fn((_pid: number, signal: string) => {
+      if (signal === 'TERM') alive = false;
+    });
+    const ctx = {
+      ...makeCtx(audit),
+      kill: killSpy,
+      l1IsAlive: () => {
+        if (!moved) {
+          // Simulate child activate between intent write and signal delivery.
+          nodeFs.moveSync(spawningDir, getActiveDir(daemonDir));
+          moved = true;
+        }
+        return alive;
+      },
+    };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toBe(true);
+    expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
+  });
+
+  it('fails closed when active slot generation identity is inconsistent', async () => {
+    const { audit, events } = makeAudit();
+    const clawId = 'stop-foreign-active';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const targetGenerationId = 'gen-expected';
+    const observedGenerationId = 'gen-foreign';
+    const activeDir = getActiveDir(daemonDir);
+    await fs.mkdir(activeDir, { recursive: true });
+    // Active directory names one generation but pid.json belongs to another.
+    const record = {
+      schema_version: 1,
+      generation_id: targetGenerationId,
+      daemon_dir: daemonDir,
+      parent_pid: process.pid,
+      created_at: new Date().toISOString(),
+    };
+    await fs.writeFile(path.join(activeDir, GENERATION_FILE), JSON.stringify(record), 'utf-8');
+    const pidRecord = {
+      schema_version: 1,
+      generation_id: observedGenerationId,
+      pid: FAKE_LIVE_PID,
+      created_at: new Date().toISOString(),
+    };
+    await fs.writeFile(path.join(activeDir, PID_FILE), JSON.stringify(pidRecord), 'utf-8');
+
+    const ctx = makeCtx(audit);
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toBe(false);
+    expect(ctx.kill).not.toHaveBeenCalled();
+  });
 });

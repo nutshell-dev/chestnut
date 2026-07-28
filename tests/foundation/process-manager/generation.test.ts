@@ -26,10 +26,14 @@ import {
   retireGeneration,
   inspectSpawning,
   inspectActive,
+  writeStopIntent,
+  scanStopIntentsForGeneration,
+  hasStopIntentForGeneration,
   getCandidateDir,
   getSpawningDir,
   getActiveDir,
   getRetiredDirFor,
+  getStopIntentsDir,
   GENERATION_FILE,
   PID_FILE,
   FAILURE_FILE,
@@ -370,6 +374,64 @@ describe('process generation store (Phase 1204 Step A)', () => {
       expect(inspectSpawning(ctx, daemonDir)).toEqual({ status: 'ok', record: recordA });
       expect(inspectSpawning(ctx, otherDir)).toEqual({ status: 'ok', record: recordB });
       await Promise.resolve(); // 隔离断言纯 sync、无需 IO 等待
+    });
+  });
+
+  describe('stop intents (Phase 1204 Step F)', () => {
+    it('writeStopIntent persists target_generation_id and observed_location', () => {
+      const outcome = writeStopIntent(ctx, daemonDir, 'req-1', 'gen-a', 'spawning');
+      expect(outcome.kind).toBe('written');
+      if (outcome.kind !== 'written') return;
+      expect(outcome.intent.target_generation_id).toBe('gen-a');
+      expect(outcome.intent.observed_location).toBe('spawning');
+      expect(outcome.intent.daemon_dir).toBe(daemonDir);
+
+      const filePath = path.join(getStopIntentsDir(daemonDir), 'req-1.json');
+      expect(nodeFs.existsSync(filePath)).toBe(true);
+      expect(events.map((e) => e[0])).toContain(PROCESS_MANAGER_AUDIT_EVENTS.STOP_INTENT_RECORDED);
+    });
+
+    it('scanStopIntentsForGeneration returns only matching request ids', () => {
+      writeStopIntent(ctx, daemonDir, 'req-a', 'gen-1', 'spawning');
+      writeStopIntent(ctx, daemonDir, 'req-b', 'gen-2', 'active');
+      writeStopIntent(ctx, daemonDir, 'req-c', 'gen-1', 'active');
+
+      const scan = scanStopIntentsForGeneration(ctx, daemonDir, 'gen-1');
+      expect(scan).toEqual({ kind: 'ok', requestIds: expect.arrayContaining(['req-a', 'req-c']) });
+      expect((scan as { kind: 'ok'; requestIds: string[] }).requestIds).toHaveLength(2);
+    });
+
+    it('hasStopIntentForGeneration is generation-scoped', () => {
+      writeStopIntent(ctx, daemonDir, 'req-x', 'gen-old', 'spawning');
+      expect(hasStopIntentForGeneration(ctx, daemonDir, 'gen-old')).toBe(true);
+      expect(hasStopIntentForGeneration(ctx, daemonDir, 'gen-new')).toBe(false);
+    });
+
+    it('malformed stop intent file fails closed for scan and hasStopIntentForGeneration', async () => {
+      const intentsDir = getStopIntentsDir(daemonDir);
+      await fs.mkdir(intentsDir, { recursive: true });
+      await fs.writeFile(path.join(intentsDir, 'bad.json'), 'not-json', 'utf-8');
+
+      const scan = scanStopIntentsForGeneration(ctx, daemonDir, 'gen-any');
+      expect(scan.kind).toBe('malformed');
+
+      // hasStopIntentForGeneration must fail-closed (treat as present) and audit.
+      expect(hasStopIntentForGeneration(ctx, daemonDir, 'gen-any')).toBe(true);
+      const malformedEvents = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.STOP_INTENT_MALFORMED);
+      expect(malformedEvents.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('missing target_generation_id in intent file is treated as malformed', async () => {
+      const intentsDir = getStopIntentsDir(daemonDir);
+      await fs.mkdir(intentsDir, { recursive: true });
+      await fs.writeFile(
+        path.join(intentsDir, 'legacy.json'),
+        JSON.stringify({ schema_version: 1, request_id: 'legacy', daemon_dir: daemonDir, created_at: new Date().toISOString() }),
+        'utf-8',
+      );
+
+      const scan = scanStopIntentsForGeneration(ctx, daemonDir, 'gen-any');
+      expect(scan.kind).toBe('malformed');
     });
   });
 });
