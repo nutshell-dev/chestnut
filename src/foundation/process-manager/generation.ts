@@ -661,3 +661,81 @@ export function retireGeneration(
   );
   return { kind: 'retired', record };
 }
+
+
+// === Stop intents ===
+
+export interface StopIntentRecord {
+  schema_version: number;
+  request_id: string;
+  daemon_dir: string;
+  created_at: string;
+}
+
+export type WriteStopIntentResult =
+  | { kind: 'written'; intent: StopIntentRecord }
+  | { kind: 'retryable_failure'; cause: unknown };
+
+function stopIntentFileName(requestId: string): string {
+  return `${requestId}.json`;
+}
+
+function getStopIntentPath(daemonDir: DaemonDir, requestId: string): string {
+  return path.join(getStopIntentsDir(daemonDir), stopIntentFileName(requestId));
+}
+
+/**
+ * 持久化不可变的 stop intent。每个 stop request 写一个独立文件，request_id 由 caller
+ * 生成（通常为 UUID）。失败时返回 retryable，不猜 winner。
+ */
+export function writeStopIntent(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  requestId: string,
+): WriteStopIntentResult {
+  const intent: StopIntentRecord = {
+    schema_version: PROCESS_GENERATION_SCHEMA_VERSION,
+    request_id: requestId,
+    daemon_dir: daemonDir,
+    created_at: new Date().toISOString(),
+  };
+  try {
+    ctx.fs.ensureDirSync(getStopIntentsDir(daemonDir));
+    ctx.fs.writeAtomicSync(getStopIntentPath(daemonDir, requestId), JSON.stringify(intent, null, 2));
+  } catch (err) {
+    return { kind: 'retryable_failure', cause: formatErr(err) };
+  }
+  ctx.audit.write(
+    PROCESS_MANAGER_AUDIT_EVENTS.STOP_INTENT_RECORDED,
+    `daemon_dir=${daemonDir}`,
+    `request_id=${requestId}`,
+  );
+  return { kind: 'written', intent };
+}
+
+/** 列出当前 daemon 下所有 stop intent 的 request_id。 */
+export function listStopIntents(
+  fs: ProcessManagerContext['fs'],
+  daemonDir: DaemonDir,
+): string[] {
+  const dir = getStopIntentsDir(daemonDir);
+  let entries: { name: string }[];
+  try {
+    entries = fs.listSync(dir, { includeDirs: false });
+  } catch (err) {
+    if (isFileNotFound(err)) return [];
+    return [];
+  }
+  return entries
+    .map((e) => e.name)
+    .filter((n) => n.endsWith('.json'))
+    .map((n) => n.slice(0, -'.json'.length));
+}
+
+/** 是否存在任何 stop intent。 */
+export function hasStopIntent(
+  fs: ProcessManagerContext['fs'],
+  daemonDir: DaemonDir,
+): boolean {
+  return listStopIntents(fs, daemonDir).length > 0;
+}

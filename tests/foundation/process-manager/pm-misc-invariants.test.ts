@@ -15,6 +15,7 @@ import { getAliveStatus } from '../../../src/foundation/process-manager/alive.js
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { LockConflictError, makeDaemonDir as makeDaemonDirFromTypes, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
+import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 
 describe('signal-clean-stop', () => {
   describe('signalCleanStop (phase 1373 sub-3)', () => {
@@ -54,10 +55,10 @@ describe('signal-clean-stop', () => {
 });
 
 /**
- * Phase 912 — alive.ts conservative liveness verdicts
+ * Phase 912 / Step E — alive.ts conservative liveness verdicts via generation.
  *
- * Verifies that EPERM (process exists but cannot be signalled) and unreadable
- * PID files are treated as alive, preventing duplicate daemon startup.
+ * Verifies that EPERM (process exists but cannot be signalled) is treated as
+ * alive, preventing duplicate daemon startup.
  */
 describe('alive-conservative', () => {
   let lastTempDir: string;
@@ -98,11 +99,7 @@ describe('alive-conservative', () => {
     it('returns alive=true on EPERM (process exists, cannot probe)', () => {
       const tempDir = makeTempDir();
       const daemonDir = makeDaemonDirAt(tempDir, 'claws', 'epid-claw');
-
-      // PID file points at some PID; L1 probe reports EPERM.
-      const pidFile = path.join(tempDir, 'claws', 'epid-claw', 'status', 'pid');
-      fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-      fs.writeFileSync(pidFile, '12345');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-epid', pid: 12345 });
 
       const l1IsAlive = vi.fn().mockImplementation(() => {
         const err = new Error('Operation not permitted') as NodeJS.ErrnoException;
@@ -113,28 +110,6 @@ describe('alive-conservative', () => {
       const result = getAliveStatus(makeCtx(tempDir, { l1IsAlive }), daemonDir);
       expect(result.alive).toBe(true);
       expect(result.reason).toContain('EPERM');
-    });
-
-    it('returns alive=true when PID file cannot be read', () => {
-      const tempDir = makeTempDir();
-      const daemonDir = makeDaemonDirAt(tempDir, 'claws', 'ioerr-claw');
-
-      // fs.readSync will throw EACCES on the legacy PID file, but active generation
-      // must appear absent so the legacy path is exercised (Phase 1204 Step C).
-      const nodeFs = new NodeFileSystem({ baseDir: tempDir });
-      vi.spyOn(nodeFs, 'readSync').mockImplementation((p: string) => {
-        if (p.includes('active/generation.json')) {
-          const err = new Error('not found') as NodeJS.ErrnoException;
-          err.code = 'ENOENT';
-          throw err;
-        }
-        const err = new Error('Permission denied') as NodeJS.ErrnoException;
-        err.code = 'EACCES';
-        throw err;
-      });
-
-      const result = getAliveStatus(makeCtx(tempDir, { fs: nodeFs }), daemonDir);
-      expect(result.alive).toBe(true);
     });
   });
 });

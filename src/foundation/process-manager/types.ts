@@ -1,6 +1,6 @@
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import type { ProcessStartTime } from '../process-exec/index.js';
+
 import type { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
 
 
@@ -57,8 +57,6 @@ export interface ProcessManagerContext {
   isAlive?: (daemonDir: DaemonDir) => boolean;
   /** Optional ready override (used by tests spying on ProcessManager.prototype.isReady) */
   isReady?: (daemonDir: DaemonDir) => boolean;
-  /** Optional readLockPid override (used by tests spying on ProcessManager.prototype.readLockPid) */
-  readLockPid?: (daemonDir: DaemonDir) => { pid: number; startTime?: ProcessStartTime } | null;
   /** Optional l1IsAlive override (used by tests injecting process-exec level liveness probe) */
   l1IsAlive?: typeof defaultL1IsAlive;
   /** Optional spawnDetached override (used by tests injecting process-exec level spawn) */

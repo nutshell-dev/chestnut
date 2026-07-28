@@ -1,12 +1,11 @@
 /**
- * ProcessManager 单元测试
+ * ProcessManager 单元测试（Phase 1204 Step E：generation 权威）
  *
  * 测试可隔离的纯逻辑单元（不涉及真实子进程启动）
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
-import { waitFor } from '../helpers/wait-for.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
@@ -14,6 +13,7 @@ import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
+import { writeActiveGenerationSync } from '../helpers/generation-fixtures.js';
 
 describe('ProcessManager', () => {
   let tempDir: string;
@@ -40,165 +40,125 @@ describe('ProcessManager', () => {
   });
 
   describe('isAlive', () => {
-    it('should return false when pid file does not exist', () => {
+    it('should return false when no active generation exists', () => {
       const result = processManager.isAlive(testClawDaemonDir(tempDir, 'nonexistent-claw'));
       expect(result).toBe(false);
     });
 
-    it('should return false when pid file contains invalid content', () => {
-      // 创建 pid 文件但内容不是有效数字
-      const statusDir = path.join(tempDir, 'claws', 'test-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), 'not-a-number');
+    it('should return false when active generation is malformed', () => {
+      const daemonDir = testClawDaemonDir(tempDir, 'malformed-claw');
+      const activeDir = path.join(daemonDir, 'status', 'process', 'active');
+      fs.mkdirSync(activeDir, { recursive: true });
+      fs.writeFileSync(path.join(activeDir, 'generation.json'), 'not-a-number');
 
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
+      const result = processManager.isAlive(daemonDir);
       expect(result).toBe(false);
     });
 
-    it('should return false when pid file contains empty content', () => {
-      const statusDir = path.join(tempDir, 'claws', 'test-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), '');
+    it('should return false when active pid record is missing', () => {
+      const daemonDir = testClawDaemonDir(tempDir, 'no-pid-claw');
+      const activeDir = path.join(daemonDir, 'status', 'process', 'active');
+      fs.mkdirSync(activeDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(activeDir, 'generation.json'),
+        JSON.stringify({ schema_version: 1, generation_id: 'gen-1', daemon_dir: daemonDir, parent_pid: process.pid, created_at: new Date().toISOString() }),
+      );
 
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
-      expect(result).toBe(false);
-    });
-
-    it('should return false when pid file contains whitespace only', () => {
-      const statusDir = path.join(tempDir, 'claws', 'test-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), '   \n  ');
-
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
+      const result = processManager.isAlive(daemonDir);
       expect(result).toBe(false);
     });
   });
 
   describe('stop', () => {
-    it('should return false when pid file does not exist', async () => {
+    it('should return false when no active generation exists', async () => {
       const result = await processManager.stop(testClawDaemonDir(tempDir, 'nonexistent-claw'));
       expect(result).toBe(false);
     });
 
-    it('probe 不删 stale pidfile（phase 879 M#1 单一职责）', async () => {
-      // 创建一个指向不存在进程的 pid 文件
-      const statusDir = path.join(tempDir, 'claws', 'test-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      const pidFile = path.join(statusDir, 'pid');
-      
-      // 使用一个不可能存在的 PID（Linux 的 PID 上限通常是 2^22，macOS 更低）
-      const fakePid = DEAD_PID;
-      fs.writeFileSync(pidFile, String(fakePid));
+    it('probe 不删 stale generation（phase 879 M#1 单一职责）', async () => {
+      const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: DEAD_PID });
 
-      // isAlive 应该返回 false（因为进程不存在）
-      expect(processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'))).toBe(false);
+      expect(processManager.isAlive(daemonDir)).toBe(false);
 
-      // pid 文件不应被 probe 清理（M#1 probe ≠ delete）
-      expect(fs.existsSync(pidFile)).toBe(true);
+      // generation 文件不应被 probe 清理（M#1 probe ≠ delete）
+      expect(fs.existsSync(path.join(daemonDir, 'status', 'process', 'active', 'generation.json'))).toBe(true);
     });
 
-    it('stop 直读 l1IsAlive 清理 stale pidfile 并返回 true（phase 879）', async () => {
-      // 创建一个指向不存在进程的 pid 文件
-      const statusDir = path.join(tempDir, 'claws', 'test-claw-2', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      const pidFile = path.join(statusDir, 'pid');
-      
-      const fakePid = DEAD_PID;
-      fs.writeFileSync(pidFile, String(fakePid));
+    it('stop 直读 l1IsAlive 并 retire dead active generation（phase 879）', async () => {
+      const daemonDir = testClawDaemonDir(tempDir, 'test-claw-2');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-2', pid: DEAD_PID });
 
-      // 直接调用 stop（不先调用 isAlive）
-      // stop 经 l1IsAlive(pid) 直读检测到进程不存在，清理 pid 文件，返回 true
-      const result = await processManager.stop(testClawDaemonDir(tempDir, 'test-claw-2'));
+      const result = await processManager.stop(daemonDir);
       expect(result).toBe(true);
-      
-      // pid 文件应该被 stop 清理
-      expect(fs.existsSync(pidFile)).toBe(false);
+
+      // active generation 应该被 stop 处置到 retired
+      expect(fs.existsSync(path.join(daemonDir, 'status', 'process', 'active', 'generation.json'))).toBe(false);
     });
   });
 
   describe('dirResolver', () => {
     it('should use default path (claws/{id}) when no resolver provided', () => {
-      // 使用默认构造函数（已在 beforeEach 中创建）
-      const statusDir = path.join(tempDir, 'claws', 'test-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), '12345');
+      const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: 12345 });
 
-      // isAlive 应该读取 claws/test-claw/status/pid
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
-      // 12345 进程大概率不存在，返回 false
+      const result = processManager.isAlive(daemonDir);
       expect(result).toBe(false);
     });
 
     it('should read motion daemonDir when caller resolves path', () => {
-      // phase 694: caller resolves daemonDir, PM no longer holds resolver
-      const motionStatusDir = path.join(tempDir, 'motion', 'status');
-      fs.mkdirSync(motionStatusDir, { recursive: true });
-      fs.writeFileSync(path.join(motionStatusDir, 'pid'), '12345');
+      const motionDir = testMotionDaemonDir(tempDir);
+      writeActiveGenerationSync(motionDir, { generationId: 'gen-motion', pid: 12345 });
 
-      const result = processManager.isAlive(testMotionDaemonDir(tempDir));
+      const result = processManager.isAlive(motionDir);
       expect(result).toBe(false);
     });
 
     it('should read claw daemonDir when caller resolves path', () => {
-      const clawStatusDir = path.join(tempDir, 'claws', 'test-claw', 'status');
-      fs.mkdirSync(clawStatusDir, { recursive: true });
-      fs.writeFileSync(path.join(clawStatusDir, 'pid'), '12345');
+      const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: 12345 });
 
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
+      const result = processManager.isAlive(daemonDir);
       expect(result).toBe(false);
     });
   });
 
   describe('getAliveStatus edge cases', () => {
-    it('空 PID 文件返回 alive:false，reason 含 "empty"', () => {
-      const statusDir = path.join(tempDir, 'claws', 'empty-pid-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), '   ');  // 空白
+    it('malformed active generation returns alive:false', () => {
+      const daemonDir = testClawDaemonDir(tempDir, 'bad-gen-claw');
+      const activeDir = path.join(daemonDir, 'status', 'process', 'active');
+      fs.mkdirSync(activeDir, { recursive: true });
+      fs.writeFileSync(path.join(activeDir, 'generation.json'), 'not-json');
 
-      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'empty-pid-claw'));
+      const result = processManager.getAliveStatus(daemonDir);
       expect(result.alive).toBe(false);
-      expect(result.reason).toMatch(/empty/i);
+      expect(result.reason).toMatch(/malformed/i);
     });
 
-    it('PID 文件内容非数字返回 alive:false，reason 含 "invalid"', () => {
-      const statusDir = path.join(tempDir, 'claws', 'bad-pid-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), 'not-a-number');
-
-      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'bad-pid-claw'));
+    it('missing active generation returns alive:false', () => {
+      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'no-gen-claw'));
       expect(result.alive).toBe(false);
-      expect(result.reason).toMatch(/invalid/i);
-    });
-
-    it('PID 文件不存在返回 alive:false，reason 含 "no PID file"', () => {
-      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'no-pid-file-claw'));
-      expect(result.alive).toBe(false);
-      expect(result.reason).toMatch(/no PID file/i);
+      expect(result.reason).toMatch(/no active generation/i);
     });
   });
 
   describe('isAlive with live process', () => {
-    it('should return true when pid file points to current process', () => {
-      // 使用当前进程 PID（肯定存在）
-      const statusDir = path.join(tempDir, 'claws', 'live-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), String(process.pid));
+    it('should return true when active generation points to current process', () => {
+      const daemonDir = testClawDaemonDir(tempDir, 'live-claw');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-live', pid: process.pid });
 
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'live-claw'));
+      const result = processManager.isAlive(daemonDir);
       expect(result).toBe(true);
     });
   });
 
   describe('spawn', () => {
-    it('should throw error when pid file already exists and process is alive', async () => {
-      // 预先创建 PID 文件，使用真实运行的进程 PID
-      const statusDir = path.join(tempDir, 'claws', 'existing-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      fs.writeFileSync(path.join(statusDir, 'pid'), String(process.pid));
+    it('should throw error when active generation is alive', async () => {
+      const daemonDir = testClawDaemonDir(tempDir, 'existing-claw');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-existing', pid: process.pid });
 
-      // spawn 应该抛出 already running 错误
       await expect(
-        processManager.spawn(testClawDaemonDir(tempDir, 'existing-claw'), {
+        processManager.spawn(daemonDir, {
           command: 'node',
           args: ['/fake/daemon-entry.js', 'existing-claw'],
           logFile: path.join(tempDir, 'claws', 'existing-claw', 'logs', 'daemon.log'),
@@ -208,13 +168,11 @@ describe('ProcessManager', () => {
     });
 
     it('should throw error with correct message when process is alive', async () => {
-      const statusDir = path.join(tempDir, 'claws', 'busy-claw', 'status');
-      fs.mkdirSync(statusDir, { recursive: true });
-      // 使用真实运行的进程 PID
-      fs.writeFileSync(path.join(statusDir, 'pid'), String(process.pid));
+      const daemonDir = testClawDaemonDir(tempDir, 'busy-claw');
+      writeActiveGenerationSync(daemonDir, { generationId: 'gen-busy', pid: process.pid });
 
       try {
-        await processManager.spawn(testClawDaemonDir(tempDir, 'busy-claw'), {
+        await processManager.spawn(daemonDir, {
           command: 'node',
           args: ['/fake/daemon-entry.js', 'busy-claw'],
           logFile: path.join(tempDir, 'claws', 'busy-claw', 'logs', 'daemon.log'),

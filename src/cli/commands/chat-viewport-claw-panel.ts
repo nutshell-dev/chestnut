@@ -16,7 +16,7 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
-import { isAlive } from '../../foundation/process-exec/index.js';
+
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 
@@ -77,7 +77,10 @@ export interface RescanClawsDirDeps {
   audit: AuditLog;
   agentDir: string;
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
-  pm: { readPid: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => Promise<import('../../foundation/process-manager/index.js').PidReadResult> };
+  pm: {
+    inspectSpawning: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => { status: string; record?: { generation_id: string } };
+    getAliveStatus: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => { alive: boolean; reason: string; pid?: number };
+  };
 }
 
 export function createRescanClawsDir(deps: RescanClawsDirDeps) {
@@ -101,19 +104,19 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           deps.clawTrackMap.set(clawId, t);
           let alive = false;
           try {
-            const stored = await deps.pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
-            if (stored.status === 'spawning') {
+            const daemonDir = resolveClawDaemonDir(makeClawId(clawId));
+            const spawning = deps.pm.inspectSpawning(daemonDir);
+            if (spawning.status === 'ok') {
               t.daemonStatus = 'starting';
-            } else if (stored.status === 'io_error' || stored.status === 'corrupt') {
+            } else if (spawning.status === 'malformed') {
               t.daemonStatus = 'error';
-            } else if (stored.status === 'missing') {
-              t.daemonStatus = 'stopped';
             } else {
-              alive = isAlive(stored.pid);
+              const status = deps.pm.getAliveStatus(daemonDir);
+              alive = status.alive;
               t.daemonStatus = alive ? 'running' : 'stopped';
             }
           } catch {
-            // silent: pid read failure → treat as not alive (fail-soft)
+            // silent: status read failure → treat as not alive (fail-soft)
             t.daemonStatus = 'error';
           }
           if (alive && t.daemonStatus === 'running') {

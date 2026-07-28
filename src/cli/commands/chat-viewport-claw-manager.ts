@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { isAlive } from '../../foundation/process-exec/index.js';
+
 import { getActiveContractTimestamp } from '../../core/contract/index.js';
 import { LLM_OUTPUT_EVENTS, parseStreamLines } from '../../foundation/stream/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
@@ -11,14 +11,17 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
-import type { DaemonDir, PidReadResult } from '../../foundation/process-manager/index.js';
+import type { DaemonDir } from '../../foundation/process-manager/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import { createChatViewportWatcher, type Watcher } from './chat-viewport-watcher.js';
 
 
 export interface ClawManagerDeps {
   fs: FileSystem;
-  pm: { readPid: (daemonDir: DaemonDir) => Promise<PidReadResult> };
+  pm: {
+    inspectSpawning: (daemonDir: DaemonDir) => { status: string; record?: { generation_id: string } };
+    getAliveStatus: (daemonDir: DaemonDir) => { alive: boolean; reason: string; pid?: number };
+  };
   audit: AuditLog;
   isMotion: boolean;
   clawTopology: ClawTopology;
@@ -222,24 +225,22 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       }
       const track = clawTrackMap.get(clawId)!;
       try {
-        const stored: PidReadResult = await pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
-        if (stored.status === 'spawning') {
+        const daemonDir = resolveClawDaemonDir(makeClawId(clawId));
+        const spawning = pm.inspectSpawning(daemonDir);
+        if (spawning.status === 'ok') {
           track.daemonStatus = 'starting';
           track.isAlive = false;
-        } else if (stored.status === 'io_error' || stored.status === 'corrupt') {
+        } else if (spawning.status === 'malformed') {
           track.daemonStatus = 'error';
           track.isAlive = false;
-          // don't misreport as dead — keep previous watcher if any
-        } else if (stored.status === 'missing') {
-          track.daemonStatus = 'stopped';
-          track.isAlive = false;
         } else {
-          track.isAlive = isAlive(stored.pid);
-          track.daemonStatus = track.isAlive ? 'running' : 'stopped';
+          const { alive } = pm.getAliveStatus(daemonDir);
+          track.isAlive = alive;
+          track.daemonStatus = alive ? 'running' : 'stopped';
         }
       } catch (e) {
         if (!isFileNotFound(e)) {
-          process.stderr.write(`[viewport] readPid failed: ${(e as Error).message}\n`);
+          process.stderr.write(`[viewport] status check failed: ${(e as Error).message}\n`);
         }
         track.daemonStatus = 'error';
         track.isAlive = false;

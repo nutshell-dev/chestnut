@@ -79,9 +79,10 @@ export async function streamCommand(
   const pm = createProcessManagerForCLI({ ...deps, baseDir });
   let initialDaemonPid: number | null = null;
   try {
-    const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(name)));
+    const daemonDir = resolveClawDaemonDir(makeClawId(name));
+    const { alive, pid } = pm.getAliveStatus(daemonDir);
     // phase 523 (review-round4 CLI M): argv-verify + alive 双校验、PID-reuse 防 tail 错进程
-    if (stored.status === 'valid' && isAlive(stored.pid) && isPidArgvMatching(stored.pid, name)) initialDaemonPid = stored.pid;
+    if (alive && pid !== undefined && isAlive(pid) && isPidArgvMatching(pid, name)) initialDaemonPid = pid;
     else process.stderr.write(`[stream] warning: daemon for "${name}" not running, tailing existing file only\n`);
   } catch {
     // silent: liveness probe failure is non-fatal; degrade to warn

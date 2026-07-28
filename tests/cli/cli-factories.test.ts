@@ -36,7 +36,7 @@ describe('createProcessManagerForCLI', () => {
     const baseDir = freshDir();
     const pm = createProcessManagerForCLI({ fsFactory, baseDir });
     expect(typeof pm.isAlive).toBe('function');
-    expect(typeof pm.acquireLock).toBe('function');
+    expect(typeof pm.getAliveStatus).toBe('function');
   });
 
   it('每次调用返回新实例（无缓存）', () => {

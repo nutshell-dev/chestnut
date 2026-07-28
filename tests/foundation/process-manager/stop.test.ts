@@ -1,5 +1,5 @@
 /**
- * stop.ts — sentinel / I/O guard / removePid result (Phase 1003)
+ * stop.ts — generation authority (Phase 1204 Step D/E)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
@@ -13,13 +13,55 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-ma
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 
-describe('stopProcess Phase 1003 guards', () => {
+import {
+  GENERATION_FILE,
+  PID_FILE,
+  READY_FILE,
+  getSpawningDir,
+  getActiveDir,
+  getRetiredDirFor,
+  getStopIntentsDir,
+} from '../../../src/foundation/process-manager/generation.js';
+
+async function writeGeneration(
+  baseDir: string,
+  daemonDir: string,
+  source: 'spawning' | 'active',
+  generationId: string,
+  pid: number,
+  startTime?: string,
+): Promise<void> {
+  const dir = source === 'spawning' ? getSpawningDir(daemonDir) : getActiveDir(daemonDir);
+  await fs.mkdir(dir, { recursive: true });
+  const record = {
+    schema_version: 1,
+    generation_id: generationId,
+    daemon_dir: daemonDir,
+    parent_pid: process.pid,
+    created_at: new Date().toISOString(),
+  };
+  await fs.writeFile(path.join(dir, GENERATION_FILE), JSON.stringify(record), 'utf-8');
+  const pidRecord = {
+    schema_version: 1,
+    generation_id: generationId,
+    pid,
+    ...(startTime ? { start_time: startTime } : {}),
+    created_at: new Date().toISOString(),
+  };
+  await fs.writeFile(path.join(dir, PID_FILE), JSON.stringify(pidRecord), 'utf-8');
+  if (source === 'active') {
+    const readyRecord = { ...pidRecord };
+    await fs.writeFile(path.join(dir, READY_FILE), JSON.stringify(readyRecord), 'utf-8');
+  }
+}
+
+describe('stopProcess generation authority (Phase 1204 Step D)', () => {
   let tempDir: string;
   let nodeFs: NodeFileSystem;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    tempDir = await createTrackedTempDir('stop-guard-');
+    tempDir = await createTrackedTempDir('stop-gen-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     vi.clearAllMocks();
@@ -33,82 +75,103 @@ describe('stopProcess Phase 1003 guards', () => {
     return {
       fs: nodeFs,
       audit,
-      l1IsAlive: vi.fn().mockReturnValue(false),
+      l1IsAlive: () => true,
       kill: vi.fn(),
     };
   }
 
-  async function writePidFile(clawId: string, content: string): Promise<void> {
-    const pidFile = path.join(tempDir, 'claws', clawId, 'status', 'pid');
-    await fs.mkdir(path.dirname(pidFile), { recursive: true });
-    await fs.writeFile(pidFile, content, 'utf-8');
-  }
-
-  it('does not kill when pid file contains spawning sentinel', async () => {
+  it('stops active generation and retires it', async () => {
     const { audit, events } = makeAudit();
-    const clawId = 'stop-spawning';
-    await writePidFile(clawId, JSON.stringify({ pid: 0 }));
+    const clawId = 'stop-active';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const generationId = 'gen-active-1';
+    await writeGeneration(tempDir, daemonDir, 'active', generationId, FAKE_LIVE_PID);
 
-    const ctx = makeCtx(audit);
-    const result = await stopProcess(ctx, testClawDaemonDir(tempDir, clawId));
+    let alive = false;
+    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive };
+
+    const result = await stopProcess(ctx, daemonDir);
 
     expect(result).toBe(true);
     expect(ctx.kill).not.toHaveBeenCalled();
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
 
-    const pidFile = path.join(tempDir, 'claws', clawId, 'status', 'pid');
-    const stillExists = await fs.stat(pidFile).then(() => true).catch(() => false);
-    expect(stillExists).toBe(false);
-
-    const stopFailed = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED);
-    expect(stopFailed).toHaveLength(0);
+    const stoppedEvents = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOPPED);
+    expect(stoppedEvents).toHaveLength(1);
   });
 
-  it('returns false on I/O error reading pidfile', async () => {
+  it('kills spawning generation with pid and retires it', async () => {
     const { audit, events } = makeAudit();
-    const clawId = 'stop-ioerr';
-    await writePidFile(clawId, JSON.stringify({ pid: FAKE_LIVE_PID }));
+    const clawId = 'stop-spawning-pid';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const generationId = 'gen-spawning-pid';
+    await writeGeneration(tempDir, daemonDir, 'spawning', generationId, FAKE_LIVE_PID);
 
-    vi.spyOn(nodeFs, 'read').mockRejectedValueOnce(
-      Object.assign(new Error('EIO'), { code: 'EIO' }),
-    );
+    let alive = true;
+    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive, kill: vi.fn(() => { alive = false; }) };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toBe(true);
+    expect(ctx.kill).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
+    expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
+  });
+
+  it('records stop intent when spawning generation has no pid yet', async () => {
+    const { audit, events } = makeAudit();
+    const clawId = 'stop-spawning-intent';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const generationId = 'gen-spawning-intent';
+    const spawningDir = getSpawningDir(daemonDir);
+    await fs.mkdir(spawningDir, { recursive: true });
+    const record = {
+      schema_version: 1,
+      generation_id: generationId,
+      daemon_dir: daemonDir,
+      parent_pid: process.pid,
+      created_at: new Date().toISOString(),
+    };
+    await fs.writeFile(path.join(spawningDir, GENERATION_FILE), JSON.stringify(record), 'utf-8');
 
     const ctx = makeCtx(audit);
-    const result = await stopProcess(ctx, testClawDaemonDir(tempDir, clawId));
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toBe(true);
+    expect(ctx.kill).not.toHaveBeenCalled();
+    const intentsDir = getStopIntentsDir(daemonDir);
+    const intentFiles = await fs.readdir(intentsDir);
+    expect(intentFiles.length).toBe(1);
+
+    const intentEvents = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.STOP_INTENT_RECORDED);
+    expect(intentEvents).toHaveLength(1);
+  });
+
+  it('returns false idempotently when no generation or pidfile exists', async () => {
+    const { audit, events } = makeAudit();
+    const clawId = 'stop-idempotent';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+
+    const ctx = makeCtx(audit);
+    const result = await stopProcess(ctx, daemonDir);
 
     expect(result).toBe(false);
     expect(ctx.kill).not.toHaveBeenCalled();
-
-    const stopFailed = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED);
-    expect(stopFailed).toHaveLength(1);
   });
 
-  it('returns false and does not kill on corrupt pidfile', async () => {
-    const { audit } = makeAudit();
-    const clawId = 'stop-corrupt';
-    await writePidFile(clawId, '-5');
+  it('returns false on malformed active generation', async () => {
+    const { audit, events } = makeAudit();
+    const clawId = 'stop-malformed';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const activeDir = getActiveDir(daemonDir);
+    await fs.mkdir(activeDir, { recursive: true });
+    await fs.writeFile(path.join(activeDir, GENERATION_FILE), 'not-json', 'utf-8');
 
     const ctx = makeCtx(audit);
-    const result = await stopProcess(ctx, testClawDaemonDir(tempDir, clawId));
+    const result = await stopProcess(ctx, daemonDir);
 
     expect(result).toBe(false);
     expect(ctx.kill).not.toHaveBeenCalled();
-  });
-
-  it('returns false when pidfile removal fails', async () => {
-    const { audit, events } = makeAudit();
-    const clawId = 'stop-rmfail';
-    await writePidFile(clawId, JSON.stringify({ pid: FAKE_LIVE_PID }));
-
-    vi.spyOn(nodeFs, 'delete').mockRejectedValueOnce(
-      Object.assign(new Error('EACCES'), { code: 'EACCES' }),
-    );
-
-    const ctx = makeCtx(audit);
-    const result = await stopProcess(ctx, testClawDaemonDir(tempDir, clawId));
-
-    expect(result).toBe(false);
-
-    const removeFailed = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED);
-    expect(removeFailed).toHaveLength(1);
   });
 });

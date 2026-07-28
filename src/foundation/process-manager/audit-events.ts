@@ -54,4 +54,6 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   GENERATION_ACTIVATED: 'process_generation_activated', // ← NEW phase 1204 Step A
   GENERATION_RETIRED: 'process_generation_retired', // ← NEW phase 1204 Step A
   GENERATION_FAILED: 'process_generation_failed', // ← NEW phase 1204 Step A
+  STOP_INTENT_RECORDED: 'process_stop_intent_recorded', // ← NEW phase 1204 Step D
+  STOP_IDEMPOTENT: 'process_stop_idempotent', // ← NEW phase 1204 Step D
 } as const;

@@ -11,8 +11,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import type { PidReadResult } from '../../foundation/process-manager/index.js';
-import { isAlive } from '../../foundation/process-exec/index.js';
+import { getActiveDir, PID_FILE } from '../../foundation/process-manager/generation.js';
 
 import { createDaemonLivenessMonitor } from './chat-viewport-daemon-liveness.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
@@ -385,7 +384,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     observability.recordShutdown('daemon_dead');
   };
   const daemonLivenessWatcher = createDaemonLivenessMonitor({
-    pidFilePath: pm.getPidFilePath(resolveClawDaemonDir(makeClawId(options.label))),
+    pidFilePath: path.join(getActiveDir(resolveClawDaemonDir(makeClawId(options.label))), PID_FILE),
     onDead: onDaemonDead,
     onError: (err) => process.stderr.write(`[viewport] daemon liveness watcher error: ${err.message}\n`),
   });
@@ -501,10 +500,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      const stored: PidReadResult = await pm.readPid(resolveClawDaemonDir(makeClawId(options.label)));
-      if (stored.status === 'missing') {
-        turnTracker.forceReset();
-      } else if (stored.status === 'valid' && !isAlive(stored.pid)) {
+      if (!pm.isAlive(resolveClawDaemonDir(makeClawId(options.label)))) {
         turnTracker.forceReset();
       }
       // spawning / io_error / corrupt → keep tracker (uncertain state)

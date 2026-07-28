@@ -153,13 +153,21 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   async function readPidField(clawName: string): Promise<FieldValue> {
     const daemonDir = resolveClawDaemonDir(makeClawId(clawName));
     try {
-      const pidResult = await processManager.readPid(daemonDir);
-      switch (pidResult.status) {
-        case 'valid':    return { kind: 'value', text: String(pidResult.pid) };
-        case 'spawning': return { kind: 'value', text: 'spawning' };
-        case 'missing':  return { kind: 'missing' };
-        case 'io_error': case 'corrupt':  return { kind: 'error', reason: pidResult.error };
+      const spawning = processManager.inspectSpawning(daemonDir);
+      if (spawning.status === 'ok') {
+        return { kind: 'value', text: 'spawning' };
       }
+      if (spawning.status === 'malformed') {
+        return { kind: 'error', reason: 'malformed spawning generation' };
+      }
+      const aliveStatus = processManager.getAliveStatus(daemonDir);
+      if (aliveStatus.alive) {
+        return { kind: 'value', text: String(aliveStatus.pid) };
+      }
+      if (aliveStatus.reason === 'no active generation') {
+        return { kind: 'missing' };
+      }
+      return { kind: 'error', reason: aliveStatus.reason };
     } catch (err) {
       return { kind: 'error', reason: formatErr(err) };
     }

@@ -1,36 +1,34 @@
 /**
- * ready marker — isReady / markReady / markNotReady (phase 1114)
+ * ready marker — isReady via generation active/ready.json (Phase 1204 Step E)
  *
  * 验证点：
- * 1. markReady → isReady true → markNotReady → isReady false
- * 2. 反向 1：mark 写完不 delete → isReady 持 true
- * 3. 反向 2：corrupt JSON → isReady false
- * 4. 反向 3：stale marker (PID mismatch) → isReady false + READY_MARK_STALE audit
+ * 1. active + ready + l1IsAlive true → isReady true
+ * 2. active + ready mismatch → isReady false + READY_MARK_STALE audit
+ * 3. active + missing ready → isReady false
+ * 4. corrupt ready.json → isReady false + GENERATION_MALFORMED audit
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
+import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { markReady, markNotReady, isReady } from '../../../src/foundation/process-manager/ready.js';
+import { isReady } from '../../../src/foundation/process-manager/ready.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
-import { FAKE_LIVE_PID, FAKE_LIVE_PID_STRING } from '../../helpers/test-pids.js';
-import { waitForPathGone } from '../../helpers/wait-for-file.js';
+import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 
-/** Stale marker self-cleanup safety budget (1s). phase 368: event-driven 替原 50ms × 20 polling. */
-const STALE_MARKER_BUDGET_MS = 1000;
-
-describe('isReady / markReady / markNotReady', () => {
+describe('isReady generation authority', () => {
   let tempDir: string;
   let nodeFs: NodeFileSystem;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    tempDir = await createTrackedTempDir('ready-test-');
+    tempDir = await createTrackedTempDir('ready-gen-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
   });
@@ -48,87 +46,66 @@ describe('isReady / markReady / markNotReady', () => {
     };
   }
 
-  async function writePidFile(clawId: string, pid: number): Promise<void> {
-    const pidFile = path.join(tempDir, 'claws', clawId, 'status', 'pid');
-    await fs.mkdir(path.dirname(pidFile), { recursive: true });
-    await fs.writeFile(pidFile, JSON.stringify({ pid }), 'utf-8');
-  }
-
-  it('markReady → isReady true → markNotReady → isReady false', async () => {
+  it('active + ready + alive → isReady true', () => {
     const ctx = makeCtx();
     const clawId = 'test-claw';
-    await writePidFile(clawId, process.pid);
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
-    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
-
-    await markReady(ctx, testClawDaemonDir(tempDir, clawId));
-    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
-
-    await markNotReady(ctx, testClawDaemonDir(tempDir, clawId));
-    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
+    expect(isReady(ctx, daemonDir)).toBe(true);
   });
 
-  it('反向 1：mark 写完不 delete → isReady 持 true', async () => {
+  it('missing active generation → isReady false', () => {
     const ctx = makeCtx();
-    const clawId = 'test-claw';
-    await writePidFile(clawId, process.pid);
+    const daemonDir = testClawDaemonDir(tempDir, 'no-gen');
 
-    await markReady(ctx, testClawDaemonDir(tempDir, clawId));
-    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
-
-    // 不调用 markNotReady，isReady 仍应为 true
-    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
+    expect(isReady(ctx, daemonDir)).toBe(false);
   });
 
-  it('反向 2：corrupt JSON → isReady false', async () => {
+  it('active + missing ready → isReady false', () => {
     const ctx = makeCtx();
-    const clawId = 'test-claw';
-    await writePidFile(clawId, process.pid);
+    const daemonDir = testClawDaemonDir(tempDir, 'no-ready');
+    writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
+    // remove ready.json
+    const readyPath = path.join(daemonDir, 'status', 'process', 'active', 'ready.json');
+    fsSync.rmSync(readyPath);
 
-    const readyFile = path.join(tempDir, 'claws', clawId, 'status', 'ready');
-    await fs.mkdir(path.dirname(readyFile), { recursive: true });
-    await fs.writeFile(readyFile, 'not-json', 'utf-8');
-
-    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
+    expect(isReady(ctx, daemonDir)).toBe(false);
   });
 
-  it('反向 3：stale marker (PID mismatch) → isReady false + READY_MARK_STALE audit + self-cleanup', async () => {
+  it('stale ready (generation mismatch) → isReady false + READY_MARK_STALE audit', () => {
     const { audit, events } = makeAudit();
-    const clawId = 'test-claw';
-    const nodeFsLocal = new NodeFileSystem({ baseDir: tempDir });
-    const ctx: ProcessManagerContext = {
-      fs: nodeFsLocal,
-      audit,
-      l1IsAlive: vi.fn().mockReturnValue(true),
-    };
-
-    // pidFile 写当前进程 PID
-    await writePidFile(clawId, process.pid);
-
-    // ready marker 写不同的 PID（模拟 stale）
-    const readyFile = path.join(tempDir, 'claws', clawId, 'status', 'ready');
-    await fs.mkdir(path.dirname(readyFile), { recursive: true });
-    await fs.writeFile(readyFile, JSON.stringify({ pid: FAKE_LIVE_PID }), 'utf-8');
-
-    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
-
-    const staleEvents = events.filter(
-      (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_STALE,
+    const daemonDir = testClawDaemonDir(tempDir, 'stale-ready');
+    writeActiveGenerationSync(daemonDir, { generationId: 'gen-active', pid: process.pid });
+    // overwrite ready.json with different generation_id
+    const readyPath = path.join(daemonDir, 'status', 'process', 'active', 'ready.json');
+    fsSync.writeFileSync(
+      readyPath,
+      JSON.stringify({
+        schema_version: 1,
+        generation_id: 'gen-stale',
+        pid: FAKE_LIVE_PID,
+        created_at: new Date().toISOString(),
+      }),
+      'utf-8',
     );
+
+    expect(isReady({ fs: nodeFs, audit, l1IsAlive: vi.fn().mockReturnValue(true) }, daemonDir)).toBe(false);
+
+    const staleEvents = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_STALE);
     expect(staleEvents).toHaveLength(1);
-    expect(staleEvents[0]).toEqual(
-      expect.arrayContaining([
-        PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_STALE,
-        expect.stringContaining('daemon_dir='),
-        expect.stringContaining(`ready_pid=${FAKE_LIVE_PID}`),
-        expect.stringContaining(`pid_file_pid=${process.pid}`),
-      ]),
-    );
+  });
 
-    // r127 C.1: stale marker self-cleanup — async delete (fire-and-forget in isReady).
-    // phase 368: file-watcher 'unlink' event 替原 polling.
-    await waitForPathGone(readyFile, STALE_MARKER_BUDGET_MS);
-    const markerStillExists = await fs.access(readyFile).then(() => true).catch(() => false);
-    expect(markerStillExists).toBe(false);
+  it('corrupt ready.json → isReady false + GENERATION_MALFORMED audit', () => {
+    const { audit, events } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'corrupt-ready');
+    writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
+    const readyPath = path.join(daemonDir, 'status', 'process', 'active', 'ready.json');
+    fsSync.writeFileSync(readyPath, 'not-json', 'utf-8');
+
+    expect(isReady({ fs: nodeFs, audit, l1IsAlive: vi.fn().mockReturnValue(true) }, daemonDir)).toBe(false);
+
+    const malformedEvents = events.filter((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_MALFORMED);
+    expect(malformedEvents.length).toBeGreaterThanOrEqual(1);
   });
 });

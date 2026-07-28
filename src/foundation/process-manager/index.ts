@@ -5,10 +5,11 @@ export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
  * @module L2a.ProcessManager
  * ProcessManager module (L2a 通用基础设施)
  *
- * 进程生命周期管理。spawn、stop、存活检查、PID 文件管理。
+ * 进程生命周期管理。spawn、stop、存活检查。
  * 依赖：FileSystem、AuditLog
  *
  * phase 694: 撤 ClawId / CLAWS_DIR 业务依赖、API take daemonDir: DaemonDir brand。
+ * Phase 1204 Step E: generation directory 是唯一权威；legacy lock/pidfile API 已删除。
  */
 
 export { ProcessManager, LockConflictError } from './manager.js';
@@ -22,6 +23,5 @@ export { createProcessManagerForCLI } from './factories.js';
 // 同 phase 1416 F1 form 复用、跨模块 caller (daemon/) 走 barrel
 // assembly/assemble.ts 装配根 by-design 保留 deep import (lint allowlist)。
 export { createAgentProcessManager } from './agent-factory.js';
-export type { PidReadResult } from './pid.js';
 export { STATUS_SUBDIR } from './paths.js';
 export { signalCleanStop, clearCleanStop } from './signal-clean-stop.js';

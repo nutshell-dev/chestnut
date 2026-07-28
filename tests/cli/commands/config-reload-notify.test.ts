@@ -13,13 +13,14 @@ import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { notifyRunningDaemons } from '../../../src/cli/commands/config.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { makeDaemonDir } from '../../../src/foundation/process-manager/index.js';
+import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-function writePidFile(rootDir: string, agentSubpath: string, pid: number) {
-  const statusDir = path.join(rootDir, '.chestnut', agentSubpath, 'status');
-  fs.mkdirSync(statusDir, { recursive: true });
-  fs.writeFileSync(path.join(statusDir, 'pid'), JSON.stringify({ pid }));
+function writeActiveGeneration(rootDir: string, agentSubpath: string, pid: number) {
+  const daemonDir = makeDaemonDir(path.join(rootDir, '.chestnut', agentSubpath));
+  writeActiveGenerationSync(daemonDir, { generationId: `gen-${agentSubpath.replace(/\//g, '-')}`, pid });
 }
 
 function listInbox(rootDir: string, agentSubpath: string): string[] {
@@ -50,7 +51,7 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
   });
 
   it('motion 存活 → reload 消息写入 motion inbox', () => {
-    writePidFile(tmpDir, 'motion', process.pid);
+    writeActiveGeneration(tmpDir, 'motion', process.pid);
 
     notifyRunningDaemons({ fsFactory }, 'set-primary');
 
@@ -71,9 +72,9 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
   });
 
   it('motion + 2 claws 都存活 → 三方 inbox 各有 1 条 reload 消息', () => {
-    writePidFile(tmpDir, 'motion', process.pid);
-    writePidFile(tmpDir, 'claws/foo', process.pid);
-    writePidFile(tmpDir, 'claws/bar', process.pid);
+    writeActiveGeneration(tmpDir, 'motion', process.pid);
+    writeActiveGeneration(tmpDir, 'claws/foo', process.pid);
+    writeActiveGeneration(tmpDir, 'claws/bar', process.pid);
 
     notifyRunningDaemons({ fsFactory }, 'set-primary');
 
@@ -83,9 +84,9 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
   });
 
   it('混合：motion 存活、1 claw 死 → 仅 motion 收到', () => {
-    writePidFile(tmpDir, 'motion', process.pid);
-    // 写一个不存在的 pid（pid 0 / 大概率 dead）
-    writePidFile(tmpDir, 'claws/dead', 999999);
+    writeActiveGeneration(tmpDir, 'motion', process.pid);
+    // 写一个 dead pid（isAlive 会返回 false）
+    writeActiveGeneration(tmpDir, 'claws/dead', 999999);
 
     notifyRunningDaemons({ fsFactory }, 'add');
 

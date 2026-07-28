@@ -1,29 +1,26 @@
-import { getLockFile, getPidFile } from './paths.js';
 import type { DaemonDir } from './types.js';
 import * as path from 'path';
-import { formatErr } from "../node-utils/index.js";
+import { formatErr } from '../node-utils/index.js';
 import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { ProcessListUnavailable } from './errors.js';
-import { isAliveByPidFile as checkAlive } from './alive.js';
 import { isReady as checkReady } from './ready.js';
-import { readLock } from './lock.js';
-import { removePid } from './pid.js';
-import type { PidFileContent } from './pid.js';
 import { findProcessesDetailed, commandContainsDaemonDirToken } from './find.js';
 import {
   newProcessGeneration,
   prepareGeneration,
   commitSpawning,
   inspectSpawning,
+  inspectActive,
+  inspectActivePid,
   writeChildPid,
   writeFailureFact,
   retireGeneration,
   PROCESS_GENERATION_ENV,
   type ProcessGenerationRecord,
 } from './generation.js';
-import { isFileNotFound } from '../fs/index.js';
+import { shouldAbortSpawningForStop } from './stop.js';
 
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
@@ -38,20 +35,19 @@ const sleep = (ms: number): Promise<void> =>
  * Spawn the daemon process for `daemonDir` and resolve with its PID once the
  * child has marked itself ready.
  *
- * Pipeline (Phase 1204 Step B — generation 目录提交协议，无 spawn lock / pid:0）：
- *   1. alive precheck       — legacy pidfile 判活（过渡；Step E 迁 generation 读路径）
+ * Pipeline (Phase 1204 Step E — generation 目录是排他原语，无 lock / pid:0 / legacy pidfile）：
+ *   1. active precheck      — 有 active generation 且进程仍活 → LockConflictError
  *   2. orphan cleanup       — SIGTERM matching processes from previous run
- *   3. lock cleanup         — drop stale legacy lockfile (kill live holder first)
- *   4. spawning precheck    — 已有 spawning generation → typed conflict / malformed fail-closed
- *   5. generation commit    — candidate → spawning（move winner 才可 spawn）
- *   6. child spawn          — `spawnDetached` + generation ID 显式注入 child env；
- *                             pid.json 写 spawning（existing-generation 语义）；
- *                             legacy status/pid 双写（派生 artifact，Step E 删除）
+ *   3. spawning precheck    — 已有 spawning generation → typed conflict / malformed fail-closed
+ *   4. generation commit    — candidate → spawning（move winner 才可 spawn）
+ *   5. child spawn          — `spawnDetached` + generation ID 显式注入 child env；
+ *                             pid.json 写 spawning（existing-generation 语义）
+ *   6. stop-intent check    — spawning 阶段存在 stop intent 立即 abort
  *   7. readiness wait       — poll until ready or child dies（l1IsAlive 直探 child PID，
  *                             event-driven + BOOT_DEADLINE_MS 兜底）
  *
- * @param ctx       Process manager context (fs + audit + resolveDir + optional this-seam)
- * @param daemonDir    Target claw
+ * @param ctx       Process manager context (fs + audit + optional this-seam)
+ * @param daemonDir Target daemon owner directory
  * @param options   Spawn options (command/args/env/cwd/logFile)
  * @returns         The spawned child's PID
  * @throws LockConflictError if a live process already owns the daemon or another
@@ -65,16 +61,37 @@ export async function spawnProcess(
   options: SpawnOptions,
 ): Promise<number> {
   const startMs = Date.now();
-  const isAliveByPidFile = ctx.isAlive ?? ((id: DaemonDir) => checkAlive(ctx, id));
-  if (isAliveByPidFile(daemonDir)) {
+
+  const active = inspectActive(ctx, daemonDir);
+  if (active.status === 'malformed') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_MALFORMED,
+      `daemon_dir=${daemonDir}`,
+      `dir=active`,
+      `ctx=spawn_precheck`,
+      `reason=${ctx.audit.message(formatErr(active.cause))}`,
+    );
     throw new LockConflictError(
       daemonDir,
-      `Claw "${daemonDir}" is already running (PID file exists)`,
+      `Cannot determine active generation state for "${daemonDir}" (malformed)`,
     );
+  }
+  if (active.status === 'ok') {
+    const activePid = inspectActivePid(ctx, daemonDir);
+    const pid = activePid.status === 'ok' ? activePid.record.pid : undefined;
+    const startTime = activePid.status === 'ok' ? activePid.record.start_time as ProcessStartTime | undefined : undefined;
+    if (pid !== undefined && (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, startTime)) {
+      throw new LockConflictError(
+        daemonDir,
+        `Another "${daemonDir}" daemon is already running (generation ${active.record.generation_id})`,
+      );
+    }
+    // active generation 存在但进程已死：旧 daemon 已退出，继续 spawn 会覆盖 active。
+    // 这里先 retire 旧 active，让新 generation 有干净的 active 目标。
+    retireGeneration(ctx, daemonDir, { generationId: active.record.generation_id }, 'confirmed_dead', 'active');
   }
 
   await cleanupOrphans(ctx, daemonDir, options);
-  await cleanupLock(ctx, daemonDir);
 
   // generation precheck：spawning 已被持 → typed conflict（不从异常猜 winner）；
   // malformed → fail-closed（不覆盖、不猜状态）。
@@ -202,65 +219,6 @@ async function cleanupOrphans(
   }
 }
 
-/**
- * Clear any stale lockfile from a previous run. If the holder is still alive
- * throw LockConflictError — never kill a live holder. Only stale (dead) locks
- * are removed. Errors are audited; non-ENOENT delete failures keep the pipeline
- * going (a later `writeExclusiveSync` will eventually surface conflicts).
- */
-async function cleanupLock(
-  ctx: ProcessManagerContext,
-  daemonDir: DaemonDir,
-): Promise<void> {
-  const result = readLock(ctx, daemonDir);
-  if (result.status === 'missing') {
-    return; // nothing to clean
-  }
-  if (result.status === 'io_error' || result.status === 'corrupt') {
-    // Cannot determine state — keep lock, don't remove
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-      `daemon_dir=${daemonDir}`,
-      `op=stale_cleanup`,
-      `reason=cannot_determine_state`,
-      `detail=${result.error}`,
-    );
-    return;
-  }
-  // result.status === 'valid' — check if holder is alive
-  const lockHolder = result.holder;
-  const lockStartTime = lockHolder.startTime;
-  if ((ctx.l1IsAlive ?? defaultL1IsAlive)(lockHolder.pid, lockStartTime)) {
-    // Holder is alive — throw, don't kill. Let the caller handle the conflict.
-    throw new LockConflictError(
-      daemonDir,
-      `Another "${daemonDir}" daemon is running (PID: ${lockHolder.pid})`,
-    );
-  }
-  // Holder is dead — safe to clean up stale lock
-  ctx.audit.write(
-    PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-    `daemon_dir=${daemonDir}`,
-    `op=stale_cleanup`,
-    `pid=${lockHolder.pid}`,
-    `reason=holder_dead`,
-  );
-  const lockFile = getLockFile(ctx, daemonDir);
-  try {
-    await ctx.fs.delete(lockFile);
-  } catch (err) {
-    if (!isFileNotFound(err)) {
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `op=delete`,
-        `path=${lockFile}`,
-        `reason=${formatErr(err)}`,
-      );
-    }
-  }
-}
-
 const BOOT_DEADLINE_MS = 30_000; // 30s for daemon to become ready
 
 /**
@@ -268,7 +226,7 @@ const BOOT_DEADLINE_MS = 30_000; // 30s for daemon to become ready
  * until ready or child death.
  *
  * 死亡检测直探 child PID（l1IsAlive(pid, startTime)），不经 pidfile probe ——
- * parent 不再写 status/pid  sentinel，磁盘 generation record 即可重建运行时句柄。
+ * 磁盘 generation record 即可重建运行时句柄。
  *
  * On failure: kill 精确 child（PID 属本 generation）、写 failure 事实、retire
  * spawning（无孤儿、无悬空 spawning），audit PROCESS_SPAWN_FAILED。
@@ -304,13 +262,40 @@ async function spawnAndAwaitReady(
       );
     }
 
-    // legacy status/pid 双写（过渡期派生 artifact：ready/alive 读路径尚未迁移，
-    // Step C 读路径 generation 化后删除，legacy 迁移归 Step E）。
-    const pidPayload: PidFileContent = {
-      pid,
-      ...(childStartTime !== undefined ? { startTime: childStartTime } : {}),
-    };
-    await ctx.fs.writeAtomic(getPidFile(ctx, daemonDir), JSON.stringify(pidPayload));
+    // spawning 阶段若已存在 stop intent，立即 abort：kill child、写 failure 事实、
+    // retire spawning，避免继续 boot 一个已被要求停止的进程。
+    if (shouldAbortSpawningForStop(ctx, daemonDir)) {
+      try {
+        (ctx.kill ?? defaultKill)(pid, 'TERM');
+        await sleep(DAEMON_SHUTDOWN_GRACE_MS);
+        const aliveAfterTerm = childStartTime !== undefined
+          ? (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, childStartTime)
+          : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
+        if (aliveAfterTerm) {
+          (ctx.kill ?? defaultKill)(pid, 'KILL');
+          await sleep(500);
+        }
+      } catch (killErr) {
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
+          `daemon_dir=${daemonDir}`,
+          `pid=${pid}`,
+          `ctx=spawn_stop_intent_abort`,
+          `reason=${formatErr(killErr)}`,
+        );
+      }
+      await writeFailureFact(ctx, record, 'stop intent recorded before boot completed');
+      retireGeneration(ctx, daemonDir, { generationId: record.generation_id }, 'stopped', 'spawning');
+      ctx.audit.write(
+        PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
+        `daemon_dir=${daemonDir}`,
+        `generation=${record.generation_id}`,
+        `reason=stop_intent_recorded_before_boot`,
+      );
+      throw new Error(
+        `Spawn aborted for "${daemonDir}" generation ${record.generation_id} due to stop intent`,
+      );
+    }
 
     const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
     const isReady = ctx.isReady ?? ((id: DaemonDir) => checkReady(ctx, id));
@@ -361,10 +346,10 @@ async function spawnAndAwaitReady(
         }
       } catch (killErr) {
         ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+          PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
           `daemon_dir=${daemonDir}`,
-          `op=spawn_failed_kill`,
           `pid=${pid}`,
+          `ctx=spawn_failed_kill`,
           `reason=${formatErr(killErr)}`,
         );
       }
@@ -373,22 +358,21 @@ async function spawnAndAwaitReady(
         : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
       if (stillAlive) {
         childSurvived = true;
-        // Child survived SIGTERM + SIGKILL. Keep PID file + generation for forensics.
+        // Child survived SIGTERM + SIGKILL. Keep generation for forensics.
         ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+          PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
           `daemon_dir=${daemonDir}`,
-          `op=spawn_failed_child_survived`,
           `pid=${pid}`,
+          `ctx=spawn_failed_child_survived`,
           `reason=child_still_alive_after_kill_attempts`,
         );
       }
     }
     if (!childSurvived) {
       // generation disposition：失败事实随 generation 持久化后整体 retire —
-      // 无孤儿、无悬空 spawning；legacy status/pid 双写清理（0 残留）。
+      // 无孤儿、无悬空 spawning。
       await writeFailureFact(ctx, record, formatErr(err));
       retireGeneration(ctx, daemonDir, { generationId: record.generation_id }, 'spawn_failed', 'spawning');
-      await removePid(ctx, daemonDir, 'spawn_cleanup');
     }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
