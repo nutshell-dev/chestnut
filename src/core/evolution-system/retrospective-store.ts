@@ -44,6 +44,11 @@ export interface RegisterRetrospectiveInput {
   shadowTaskId?: string;
 }
 
+export interface RegisterRetrospectiveResult {
+  taskId: FullTaskId;
+  createdAt: string;
+}
+
 export interface RetrospectiveWorkItemV1 {
   schema_version: 1;
   contract_id: ContractId;
@@ -105,7 +110,7 @@ export class RetrospectiveStore {
    * Register a retrospective work item. Returns the stable task_id.
    * Idempotent on producer input; fail-closed on mismatched re-registration.
    */
-  async register(input: RegisterRetrospectiveInput): Promise<{ taskId: FullTaskId; createdAt: string }> {
+  async register(input: RegisterRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
     await this.ensureDirs();
 
     const existing = await this._findAnyRow(input.contractId);

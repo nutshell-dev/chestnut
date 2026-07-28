@@ -11,8 +11,8 @@ import * as path from 'path';
 
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { listPendingRetrospectives, ackPendingRetrospective } from '../summon-system/index.js';
-import type { ContractId } from '../contract/types.js';
+import { type ContractId } from '../contract/types.js';
+import type { RegisterRetrospectiveInput, LegacyPendingRetrospective } from './retrospective-store.js';
 import type { FullTaskId, PreparedSubagentSchedule } from '../async-task-system/types.js';
 import {
   RetrospectiveStore,
@@ -67,7 +67,15 @@ export interface ClawFactories {
 }
 
 /** 调用方便组合：runRetroForContract 一次性收到 motion 资源 + claw factory 两组语义。 */
-export interface MotionReviewContext extends MotionResources, ClawFactories {}
+export interface MotionReviewContext extends MotionResources, ClawFactories {
+  /**
+   * Phase 1206 Step D: legacy pending-retrospective migration callbacks.
+   * EvolutionSystem delegates migration to RetrospectiveStore but does not
+   * import the legacy read/ack surface directly (architecture ratchet).
+   */
+  listLegacyPendingRetrospectives?: () => Promise<LegacyPendingRetrospective[]>;
+  ackLegacyPendingRetrospective?: (contractId: ContractId) => Promise<void>;
+}
 
 const LEGACY_STATE_FILE_PATH = '.evolution-system-state.json';
 
@@ -76,6 +84,15 @@ export class EvolutionSystem {
 
   constructor(private readonly deps: EvolutionSystemDeps) {
     this.store = new RetrospectiveStore({ fs: deps.fs, audit: deps.audit });
+  }
+
+  /**
+   * Phase 1206 Step D: public durable registration surface.
+   * Callers (e.g. summon post-processor) register a retrospective work item
+   * without knowing the disk layout. Success/failure only; the store owns ids.
+   */
+  async registerRetrospective(input: RegisterRetrospectiveInput): Promise<void> {
+    await this.store.register(input);
   }
 
   /**
@@ -187,8 +204,8 @@ export class EvolutionSystem {
     driven: number;
   }> {
     const migration = await this.store.migrateLegacyRows(
-      () => listPendingRetrospectives({ fs: ctx.motionFs }),
-      (contractId) => ackPendingRetrospective({ fs: ctx.motionFs, contractId, audit: ctx.motionAudit }),
+      ctx.listLegacyPendingRetrospectives ?? (() => Promise.resolve([])),
+      ctx.ackLegacyPendingRetrospective ?? (() => Promise.resolve()),
     );
 
     let recovered = 0;

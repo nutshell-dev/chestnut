@@ -33,6 +33,8 @@ export const RETRO_AUDIT_EVENTS = {
   RETRO_RECOVERY_FAILED: 'retro_recovery_failed',
   // Phase 1206 Step B: retrospective store lifecycle audits
   RETRO_REGISTRATION_COMMITTED: 'retro_registration_committed',
+  // Phase 1206 Step D: contract completion triggered a retro dispatch attempt
+  RETRO_TRIGGERED: 'retro_triggered',
   RETRO_STORE_REGISTRATION_CONFLICT: 'retro_store_registration_conflict',
   RETRO_DISPATCH_STARTED: 'retro_dispatch_started',
   RETRO_DISPATCH_SUBMITTED: 'retro_dispatch_submitted',

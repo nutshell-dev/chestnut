@@ -56,6 +56,8 @@ const CORE_ALLOW_LIST_SUFFIXES = [
   'src/foundation/cron/jobs/llm-stats.ts',
   'src/foundation/cron/jobs/git-gc-weekly-audit-events.ts',
   'src/core/evolution-system/retro-scheduler.ts',
+  'src/core/evolution-system/retrospective-store.ts',
+  'src/core/evolution-system/system.ts',
   'src/core/heartbeat/heartbeat.ts',
   'src/core/memory/random-dream.ts',
   'src/core/memory/tools/memory_search.ts',

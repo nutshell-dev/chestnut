@@ -35,6 +35,8 @@ import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
+import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/retro-audit-events.js';
+import { CONTRACT_AUDIT_EVENTS } from '../core/contract/audit-events.js';
 import type { AssembleConfig } from './types.js';
 import type { ContractId } from '../core/contract/types.js';
 
@@ -196,10 +198,25 @@ export async function createMotionAddons(
           fs: chestnutFs,
           motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
           notifyMotion: (msg) => routeNotifyClawAsync(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
-          // phase 821: 桥接 worker claw 契约完成 → evolutionSystem retro
+          // phase 821 / phase 1206 Step D: 桥接 worker claw 契约完成 → evolutionSystem retro
           onCompletedContract: business.evolutionSystem && business.motionReviewContext
             ? async (_clawId, contractId) => {
-                await business.evolutionSystem!.runRetroForContract(contractId as ContractId, business.motionReviewContext!);
+                try {
+                  const result = await business.evolutionSystem!.notifyContractCompleted(contractId as ContractId, business.motionReviewContext!);
+                  auditWriter.write(
+                    RETRO_AUDIT_EVENTS.RETRO_TRIGGERED,
+                    `contractId=${contractId}`,
+                    `source=contract_observer`,
+                    `status=${result.status}`,
+                  );
+                } catch (e) {
+                  auditWriter.write(
+                    CONTRACT_AUDIT_EVENTS.CONTRACT_COMPLETED_HANDLER_FAILED,
+                    `contractId=${contractId}`,
+                    `source=contract_observer`,
+                    `reason=${formatErr(e)}`,
+                  );
+                }
               }
             : undefined,
         }, globalConfig),

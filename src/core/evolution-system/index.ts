@@ -15,6 +15,7 @@ export { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 export {
   RetrospectiveStore,
   type RegisterRetrospectiveInput,
+  type RegisterRetrospectiveResult,
   type RetrospectiveWorkItem,
   type RetrospectiveWorkItemV1,
   type BeginDispatchDisposition,

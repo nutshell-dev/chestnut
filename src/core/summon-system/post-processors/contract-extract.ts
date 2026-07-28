@@ -4,11 +4,13 @@ import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
+import type { RegisterRetrospectiveInput } from '../../evolution-system/retrospective-store.js';
+import { makeContractId } from '../../contract/types.js';
 
 /**
  * post-processor 失败 audit 时附带的 raw output 最大字符数（diagnostic 截断 cap）.
  * Derivation: 2000 char ≈ 1-2 page LLM raw response / 足够诊断 contract 提取失败原因
- * 但不致 audit row 膨胀过大（audit.tsv 单行 ≈ 80 col × 25 line / 单 col 不超此）.
+ * 但不致 audit.tsv 单行膨胀过大（audit.tsv 单行 ≈ 80 col × 25 line / 单 col 不超此）.
  */
 const RAW_OUTPUT_DIAGNOSTIC_MAX = 2000;
 
@@ -129,10 +131,13 @@ function buildSuccessSummary(rawResult: string, evidence: ContractCreatedEvidenc
 }
 
 /**
- * summon-contract-extract PostProcessor
+ * summon-contract-extract PostProcessor factory.
  *
  * phase 1466 重写：判定 source 从 LLM marker（`[CONTRACT_DONE]{...}`）改 subagent audit
  * `tool_exec exec ok summary=Contract created: <id> for claw <name>` 系统真相凭证。
+ *
+ * phase 1206 Step D: 不再写 legacy `clawspace/pending-retrospective/by-contract`；
+ * 改为调用 EvolutionSystem 提供的 `registerRetrospective` 注册 durable retrospective。
  *
  * 应然原则：
  * - 不采用 LLM 自我声明（user 2026-05-30 ratify）
@@ -140,77 +145,67 @@ function buildSuccessSummary(rawResult: string, evidence: ContractCreatedEvidenc
  * - 每条 evidence 独立 retro trigger（多契约独立 ratify）
  * - shadow 主动放弃 ≡ 失败（二态 ratify、reason 经 raw output 透传）
  *
- * 判定 / by-contract 写入 / summary 构造：
+ * 判定 / 注册 / summary 构造：
  * - subAudit 读 `tasks/queues/results/<task.id>/audit.tsv`、grep `Contract created:` 行提 evidence
  * - 0 evidence → wrap framing + spawn 建议 + raw output diagnostic
- * - ≥1 evidence → 每条 evidence 独立 by-contract trigger 文件 + clean summary 附 [CONTRACTS_CREATED] 段
+ * - ≥1 evidence → 每条 evidence 调用 registerRetrospective + clean summary 附 [CONTRACTS_CREATED] 段
  *
  * 历史：
  * - phase 438 初立 marker 解析路径（寄生 LLM 文本）
  * - phase 1464 加 failure wrap framing（判 source 仍 LLM marker、根因未除）
  * - phase 1466 user reframe 重写 source / 判 source 改系统真相、保 wrap framing 复用
+ * - phase 1206 Step D 改由 factory 注入 registerRetrospective、消除 legacy by-contract 写
  */
-export const summonContractExtractPostProcessor: PostProcessor = async (
-  result, task, isError, fs, audit,
-) => {
-  if (isError) return result;  // 上游 error envelope 已 explicit、不再二次 wrap
+export function createSummonContractExtractPostProcessor(
+  registerRetrospective: (input: RegisterRetrospectiveInput) => Promise<void>,
+): PostProcessor {
+  return async (result, task, isError, _fs, audit) => {
+    if (isError) return result;  // 上游 error envelope 已 explicit、不再二次 wrap
 
-  const subAuditPath = `tasks/queues/results/${task.id}/audit.tsv`;
-  let evidence: ContractCreatedEvidence[];
-  try {
-    evidence = await scanSubAuditForContracts(fs, subAuditPath);
-  } catch (err) {
-    if (err instanceof SubAuditReadError) {
-      audit.write(
-        SUMMON_AUDIT_EVENTS.SUB_AUDIT_READ_FAILED,
-        `taskId=${task.id}`,
-        `path=${subAuditPath}`,
-        `error=${formatErr(err.cause)}`,
-      );
-      return wrapAuditReadFailureForMotion(result, subAuditPath);
-    }
-    throw err;
-  }
-  const mode: 'mining' | 'shadow' = task.callerType === SUMMON_CALLER_TYPES.MINER ? 'mining' : 'shadow';
-
-  if (evidence.length === 0) {
-    audit.write(SUMMON_AUDIT_EVENTS.NO_CONTRACT_CREATED, `taskId=${task.id}`);
-    return wrapFailureForMotion(result);
-  }
-
-  // ≥1 evidence: 写 retro trigger per evidence（多契约独立）
-  try {
-    await fs.ensureDir('clawspace/pending-retrospective/by-contract');
-  } catch (e) {
-    audit.write(
-      SUMMON_AUDIT_EVENTS.WRITE_BY_CONTRACT_FAILED,
-      `taskId=${task.id}`,
-      `phase=ensureDir`,
-      `error=${formatErr(e)}`,
-    );
-    return buildSuccessSummary(result, evidence);  // 即使 retro 注册失败、契约真创建了、不改判定
-  }
-
-  for (const { contractId, targetClaw } of evidence) {
+    const subAuditPath = `tasks/queues/results/${task.id}/audit.tsv`;
+    let evidence: ContractCreatedEvidence[];
     try {
-      await fs.writeAtomic(
-        `clawspace/pending-retrospective/by-contract/${contractId}.json`,
-        JSON.stringify({
-          contractId,
+      evidence = await scanSubAuditForContracts(_fs, subAuditPath);
+    } catch (err) {
+      if (err instanceof SubAuditReadError) {
+        audit.write(
+          SUMMON_AUDIT_EVENTS.SUB_AUDIT_READ_FAILED,
+          `taskId=${task.id}`,
+          `path=${subAuditPath}`,
+          `error=${formatErr(err.cause)}`,
+        );
+        return wrapAuditReadFailureForMotion(result, subAuditPath);
+      }
+      throw err;
+    }
+    const mode: 'mining' | 'shadow' = task.callerType === SUMMON_CALLER_TYPES.MINER ? 'mining' : 'shadow';
+
+    if (evidence.length === 0) {
+      audit.write(SUMMON_AUDIT_EVENTS.NO_CONTRACT_CREATED, `taskId=${task.id}`);
+      return wrapFailureForMotion(result);
+    }
+
+    // ≥1 evidence: durable registration per evidence（多契约独立）
+    for (const { contractId, targetClaw } of evidence) {
+      try {
+        await registerRetrospective({
+          contractId: makeContractId(contractId),
           targetClaw,
-          createdAt: new Date().toISOString(),
           mode,
           ...(mode === 'shadow' ? { shadowTaskId: task.id } : { miningTaskId: task.id }),
-        }),
-      );
-    } catch (e) {
-      audit.write(
-        SUMMON_AUDIT_EVENTS.WRITE_BY_CONTRACT_FAILED,
-        `contractId=${contractId}`,
-        `error=${formatErr(e)}`,
-      );
+        });
+      } catch (e) {
+        audit.write(
+          SUMMON_AUDIT_EVENTS.RETROSPECTIVE_REGISTRATION_FAILED,
+          `taskId=${task.id}`,
+          `contractId=${contractId}`,
+          `targetClaw=${targetClaw}`,
+          `error=${formatErr(e)}`,
+        );
+        // 契约已真创建：保留成功判定，继续处理下一条 evidence
+      }
     }
-  }
 
-  return buildSuccessSummary(result, evidence);
-};
+    return buildSuccessSummary(result, evidence);
+  };
+}

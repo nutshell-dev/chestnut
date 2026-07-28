@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { rmSync, mkdirSync, statSync } from 'node:fs';
 
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
@@ -78,16 +78,16 @@ describe('AsyncTaskSystem.schedulePrepared (Phase 1206 Step A)', () => {
   let system: AsyncTaskSystem;
   let audit: ReturnType<typeof makeAudit>;
 
-  beforeEach(() => {
-    baseDir = path.join(tmpdir(), `prepared-schedule-${randomUUID().slice(0, 8)}`);
+  beforeEach(async () => {
+    baseDir = await createTempDir('prepared-schedule-');
     mkdirSync(baseDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir });
     audit = makeAudit();
     system = createTestTaskSystem(baseDir, fs, audit.audit as import('../../../src/foundation/audit/writer.js').AuditWriter);
   });
 
-  afterEach(() => {
-    rmSync(baseDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
   });
 
   it('creates a new pending task when no existing file exists', async () => {

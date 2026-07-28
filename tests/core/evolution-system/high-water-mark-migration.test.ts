@@ -10,6 +10,7 @@ import { RetrospectiveStore, READY_DIR, SUBMITTED_DIR } from '../../../src/core/
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
+import { listPendingRetrospectives, ackPendingRetrospective } from '../../../src/core/summon-system/index.js';
 
 const { mockSkillFactory } = vi.hoisted(() => {
   const loadAll = vi.fn().mockResolvedValue(undefined);
@@ -67,6 +68,8 @@ async function setupFixtures(): Promise<TestFixtures> {
     motionBaseDir: motionDir,
     motionAudit: { write: vi.fn() } as any,
     clawsBaseDir,
+    listLegacyPendingRetrospectives: () => listPendingRetrospectives({ fs: motionFs }),
+    ackLegacyPendingRetrospective: (id) => ackPendingRetrospective({ fs: motionFs, contractId: id }),
     clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
     clawContractManagerFactory: vi.fn().mockReturnValue({
       readContractYamlRaw: vi.fn().mockResolvedValue(`contract_id: ${contractId}\nintent: test`),

@@ -13,7 +13,7 @@ export { AskMotionTool } from './tools/ask-motion.js';
 export { checkLegacySummonStateFiles } from './legacy-state-detection.js';
 
 export {
-  summonContractExtractPostProcessor,
+  createSummonContractExtractPostProcessor,
   SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
 } from './post-processors/contract-extract.js';
 

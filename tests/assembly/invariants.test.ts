@@ -152,13 +152,14 @@ vi.mock('../../src/foundation/tools/executor.js', () => ({
 }));
 
 vi.mock('../../src/core/evolution-system/index.js', () => ({
-  EvolutionSystem: vi.fn(() => ({ runRetroForContract: vi.fn().mockResolvedValue(undefined), init: vi.fn().mockResolvedValue(undefined) })),
+  EvolutionSystem: vi.fn(() => ({ notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }), init: vi.fn().mockResolvedValue(undefined) })),
   createEvolutionSystem: vi.fn(() => ({
-    runRetroForContract: vi.fn(async (_contractId: string, ctx: any) => {
+    notifyContractCompleted: vi.fn(async (_contractId: string, ctx: any) => {
       // Simulate the real path where factory is called (evolution-system/system.ts:232)
       ctx.clawContractManagerFactory('/tmp/test-claw', 'test-claw', {} as any);
-      return { status: 'ok' };
+      return { status: 'submitted' };
     }),
+    registerRetrospective: vi.fn().mockResolvedValue(undefined),
     init: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -428,10 +429,11 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
     await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).resolves.toBeDefined();
   });
 
-  it('still calls runRetroForContract when evolutionSystem present (regression)', async () => {
-    const mockRunRetro = vi.fn().mockResolvedValue(undefined);
+  it('still calls notifyContractCompleted when evolutionSystem present (phase 1206 Step D)', async () => {
+    const mockNotify = vi.fn().mockResolvedValue({ status: 'submitted' });
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
-      runRetroForContract: mockRunRetro,
+      notifyContractCompleted: mockNotify,
+      registerRetrospective: vi.fn().mockResolvedValue(undefined),
       init: vi.fn().mockResolvedValue(undefined),
     });
 
@@ -440,8 +442,37 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
     expect(capturedContractCallback).toBeDefined();
     await capturedContractCallback!('test-contract-id');
 
-    expect(mockRunRetro).toHaveBeenCalledTimes(1);
-    expect(mockRunRetro).toHaveBeenCalledWith('test-contract-id', expect.anything());
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledWith('test-contract-id', expect.anything());
+
+    // Phase 1206 Step D: contract completion triggers retro_triggered audit
+    expect(mockAuditWrite).toHaveBeenCalledWith(
+      'retro_triggered',
+      'contractId=test-contract-id',
+      'source=motion_self',
+      'status=submitted',
+    );
+  });
+
+  it('emits CONTRACT_COMPLETED_HANDLER_FAILED when notifyContractCompleted rejects (phase 1206 Step D)', async () => {
+    const mockNotify = vi.fn().mockRejectedValue(new Error('retro dispatch failed'));
+    (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      notifyContractCompleted: mockNotify,
+      registerRetrospective: vi.fn().mockResolvedValue(undefined),
+      init: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+
+    expect(capturedContractCallback).toBeDefined();
+    await expect(capturedContractCallback!('test-contract-id')).resolves.toBeUndefined();
+
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockAuditWrite).toHaveBeenCalledWith(
+      'contract_completed_handler_failed',
+      'contractId=test-contract-id',
+      expect.stringContaining('retro dispatch failed'),
+    );
   });
 });
 });

@@ -23,9 +23,19 @@ import {
 import { validateTaskShape } from '../core/async-task-system/task-corrupt-helpers.js';
 import type { SubAgentTask, TaskId } from '../core/async-task-system/types.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
-import { summonContractExtractPostProcessor, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, AskMotionTool, createSummonVerifyPolicy, SummonTool } from '../core/summon-system/index.js';
+import {
+  createSummonContractExtractPostProcessor,
+  SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
+  AskMotionTool,
+  createSummonVerifyPolicy,
+  SummonTool,
+  listPendingRetrospectives,
+  ackPendingRetrospective,
+} from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem, MotionReviewContext } from '../core/evolution-system/index.js';
+import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/retro-audit-events.js';
+import { CONTRACT_AUDIT_EVENTS } from '../core/contract/audit-events.js';
 
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
@@ -139,6 +149,29 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: AsyncTaskSystem construct failed: ${formatErr(e)}`, { cause: e });
   }
+  // --- 10. EvolutionSystem (motion only / phase411 Step B) ---
+  let evolutionSystem: EvolutionSystem | undefined;
+  let motionReviewContext: MotionReviewContext | undefined;
+  if (isMotion) {
+    try {
+      evolutionSystem = createEvolutionSystem({
+        fs: systemFs,
+        audit: auditWriter,
+        taskSystem,
+        contractManager,
+      });
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=construct`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: EvolutionSystem construct failed: ${formatErr(e)}`, { cause: e });
+    }
+  }
+
+  // Phase 1206 Step D: wire summon contract-extract post-processor to durable retrospective registration.
+  // Must happen after taskSystem and evolutionSystem are constructed.
+  const summonContractExtractPostProcessor = createSummonContractExtractPostProcessor(
+    evolutionSystem?.registerRetrospective.bind(evolutionSystem) ??
+      (async (_input) => { /* non-motion: no-op; summon should not run on claw */ }),
+  );
   taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
   taskSystem.addPostProcessor('dispatch-contract-extract', summonContractExtractPostProcessor);
 
@@ -164,59 +197,60 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   });
   contractManager.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 
-  // --- 10. EvolutionSystem (motion only / phase411 Step B) ---
-  let evolutionSystem: EvolutionSystem | undefined;
-  let motionReviewContext: MotionReviewContext | undefined;
-  if (isMotion) {
+  if (isMotion && evolutionSystem) {
+    motionReviewContext = {
+      motionFs: systemFs,
+      motionBaseDir: clawDir,
+      motionAudit: auditWriter,
+      clawsBaseDir: path.join(
+        resolveChestnutRoot(clawDir, true),
+        CLAWS_DIR
+      ),
+      clawFsFactory: fsFactory,
+      listLegacyPendingRetrospectives: () => listPendingRetrospectives({ fs: systemFs }),
+      ackLegacyPendingRetrospective: (contractId) =>
+        ackPendingRetrospective({ fs: systemFs, contractId, audit: auditWriter }),
+      clawContractManagerFactory: (d: string, id: string, fs: typeof systemFs) => {
+        const cr = resolveChestnutRoot(d, false);
+        const perClawAudit = createSystemAudit(fs, d);
+        return createContractSystem({
+          clawDir: d,
+          clawId: makeClawId(id),
+          fs,
+          audit: perClawAudit,
+          toolRegistry,
+          toolTimeoutMs,
+          fsFactory,
+          // phase 104: pre-bound notifyClaw
+          notifyClaw: (targetClawId, message) =>
+            notifyClawFn(fs, cr, MOTION_CLAW_ID, targetClawId, message, perClawAudit),
+        });
+      },
+    };
     try {
-      evolutionSystem = createEvolutionSystem({
-        fs: systemFs,
-        audit: auditWriter,
-        taskSystem,
-        contractManager,
-      });
+      await evolutionSystem.init(motionReviewContext);
     } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=construct`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: EvolutionSystem construct failed: ${formatErr(e)}`, { cause: e });
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=init`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
     }
-    if (evolutionSystem) {
-      motionReviewContext = {
-        motionFs: systemFs,
-        motionBaseDir: clawDir,
-        motionAudit: auditWriter,
-        clawsBaseDir: path.join(
-          resolveChestnutRoot(clawDir, true),
-          CLAWS_DIR
-        ),
-        clawFsFactory: fsFactory,
-        clawContractManagerFactory: (d: string, id: string, fs: typeof systemFs) => {
-          const cr = resolveChestnutRoot(d, false);
-          const perClawAudit = createSystemAudit(fs, d);
-          return createContractSystem({
-            clawDir: d,
-            clawId: makeClawId(id),
-            fs,
-            audit: perClawAudit,
-            toolRegistry,
-            toolTimeoutMs,
-            fsFactory,
-            // phase 104: pre-bound notifyClaw
-            notifyClaw: (targetClawId, message) =>
-              notifyClawFn(fs, cr, MOTION_CLAW_ID, targetClawId, message, perClawAudit),
-          });
-        },
-      };
+    contractManager.onContractCompleted(async (contractId) => {
+      if (!evolutionSystem || !motionReviewContext) return;
       try {
-        await evolutionSystem.init(motionReviewContext);
+        const result = await evolutionSystem.notifyContractCompleted(contractId, motionReviewContext);
+        auditWriter.write(
+          RETRO_AUDIT_EVENTS.RETRO_TRIGGERED,
+          `contractId=${contractId}`,
+          `source=motion_self`,
+          `status=${result.status}`,
+        );
       } catch (e) {
-        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=init`, `reason=${formatErr(e)}`);
-        throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
+        auditWriter.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_COMPLETED_HANDLER_FAILED,
+          `contractId=${contractId}`,
+          `reason=${formatErr(e)}`,
+        );
       }
-      contractManager.onContractCompleted(async (contractId) => {
-        if (!evolutionSystem) return;
-        await evolutionSystem.runRetroForContract(contractId, motionReviewContext!);
-      });
-    }
+    });
   }
 
   // --- 11. 工具注册 + toolExecutor + DialogStore + InboxReader + ContractAuditor + FormatterRegistry + GuidanceRegistry ---

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
@@ -47,8 +47,8 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
   let store: RetrospectiveStore;
   let taskIdSeq: number;
 
-  beforeEach(() => {
-    baseDir = path.join(tmpdir(), `retro-store-${randomUUID().slice(0, 8)}`);
+  beforeEach(async () => {
+    baseDir = await createTempDir('retro-store-');
     mkdirSync(baseDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir });
     audit = makeAudit();
@@ -60,8 +60,8 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
     });
   });
 
-  afterEach(() => {
-    rmSync(baseDir, { recursive: true, force: true });
+  afterEach(async () => {
+    await cleanupTempDir(baseDir);
   });
 
   it('register writes a ready row and returns stable task_id', async () => {
