@@ -20,6 +20,7 @@ import {
   findForbiddenLockReferences,
   findPidWriterReferences,
   findLoopEntryReferences,
+  findGlobalLockProtocolReferences,
 } from '../../helpers/watchdog-ownership-scanners.js';
 
 const { repoRoot } = RATCHET_PATHS;
@@ -103,5 +104,23 @@ describe('Phase 1203: watchdog ownership authority ratchet', () => {
     expect(findLoopEntryReferences(bad)).toHaveLength(1);
     const def = 'export async function runWatchdogLoop(fsFactory: X): Promise<void> {';
     expect(findLoopEntryReferences(def)).toHaveLength(0);
+  });
+
+  it('规则 4：src 全范围 0 claim-lock 协议/事件引用（zero production caller）', () => {
+    const scannerFile = RATCHET_PATHS.scannerHelperFile;
+    const hits = loadSources()
+      .filter(({ file }) => file !== scannerFile)
+      .flatMap(({ file, text }) => findGlobalLockProtocolReferences(text, file));
+    expect(hits).toEqual([]);
+  });
+
+  it('规则 4 反向 fixture：协议/事件字符串会被 scanner 检出', () => {
+    const bad = [
+      "import { tryAcquireClaim, releaseClaim } from '../foundation/fs/lock-protocol.js';",
+      "import { LOCK_AUDIT_EVENTS } from '../foundation/fs/lock-audit-events.js';",
+      "ctx.audit?.write('lock_claim_election_lost');",
+    ].join('\n');
+    expect(findGlobalLockProtocolReferences(bad)).toHaveLength(3);
+    expect(findGlobalLockProtocolReferences('const ok = 1;')).toHaveLength(0);
   });
 });

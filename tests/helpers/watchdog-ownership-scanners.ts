@@ -23,9 +23,17 @@ function matchingLines(text: string, pattern: RegExp, file: string): string[] {
 const LOCK_PATTERN =
   /lock-protocol|watchdog-lock|tryAcquireLock|releaseLock|ensurePromise|tryAcquireClaim|releaseClaim|ENSURE_LOCK_/;
 
+const GLOBAL_LOCK_PROTOCOL_PATTERN =
+  /lock-protocol|tryAcquireClaim|releaseClaim|LOCK_AUDIT_EVENTS|lock_claim_/;
+
 /** 规则 1：禁锁 —— watchdog 域 0 锁协议/单飞/legacy claim 引用 */
 export function findForbiddenLockReferences(text: string, file = '<text>'): string[] {
   return matchingLines(text, LOCK_PATTERN, file);
+}
+
+/** 规则 4：全 src 范围 0 claim-lock 协议/事件引用（Phase 1205 Step A zero-caller deletion ratchet） */
+export function findGlobalLockProtocolReferences(text: string, file = '<text>'): string[] {
+  return matchingLines(text, GLOBAL_LOCK_PROTOCOL_PATTERN, file);
 }
 
 /** 规则 2：禁 PID writer 回归 —— `writeWatchdogPid` 定义/调用均为 0（zero universe） */
