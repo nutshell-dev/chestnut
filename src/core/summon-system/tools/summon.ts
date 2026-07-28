@@ -1,4 +1,4 @@
-import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../dispatch-skills-paths.js';
+import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../../evolution-system/index.js';
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 

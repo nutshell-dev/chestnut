@@ -1,5 +1,3 @@
-// phase 470: dispatch-skills-paths barrel re-export
-export { DISPATCH_SKILLS_PATH, DISPATCH_SKILLS_SUBDIR } from './dispatch-skills-paths.js';
 
 /**
  * @module L4.SummonSystem

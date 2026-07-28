@@ -30,3 +30,5 @@ import { EvolutionSystem, type EvolutionSystemDeps } from './system.js';
 export function createEvolutionSystem(deps: EvolutionSystemDeps): EvolutionSystem {
   return new EvolutionSystem(deps);
 }
+
+export { DISPATCH_SKILLS_PATH, DISPATCH_SKILLS_SUBDIR } from './dispatch-skills-paths.js';

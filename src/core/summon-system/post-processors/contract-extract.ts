@@ -4,7 +4,7 @@ import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
-import type { RegisterRetrospectiveInput } from '../../evolution-system/retrospective-store.js';
+import type { RegisterRetrospectiveInput } from '../../evolution-system/index.js';
 import { makeContractId } from '../../contract/index.js';
 
 /**

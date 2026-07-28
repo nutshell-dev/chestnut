@@ -168,6 +168,8 @@ vi.mock('../../src/core/evolution-system/index.js', () => ({
     registerRetrospective: vi.fn().mockResolvedValue(undefined),
     init: vi.fn().mockResolvedValue(undefined),
   })),
+  DISPATCH_SKILLS_PATH: 'clawspace/dispatch-skills',
+  DISPATCH_SKILLS_SUBDIR: 'dispatch-skills',
 }));
 
 vi.mock('../../src/core/contract/manager.js', () => ({

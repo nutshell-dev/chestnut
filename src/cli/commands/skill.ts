@@ -5,7 +5,7 @@
  * Internal mode: install dispatch-skill to a specific claw
  */
 
-import { DISPATCH_SKILLS_SUBDIR } from '../../core/summon-system/index.js';
+import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
