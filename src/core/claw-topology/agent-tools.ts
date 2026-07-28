@@ -28,6 +28,10 @@ function buildTargetCtx(baseCtx: ExecContext, targetClawDir: string): ExecContex
     workspaceDir: path.join(targetClawDir, CLAWSPACE_DIR),
     fs: baseCtx.fsFactory(targetClawDir),
     readFileState: new Map(),
+    // Phase 1229 Step B: cross-claw target ctx must not persist read-state to target claw disk.
+    // The wrapped read only returns content; caller and target claw overwrite-gate states
+    // must not be polluted by a transient cross-claw Map.
+    persistReadFileState: false,
   };
 }
 

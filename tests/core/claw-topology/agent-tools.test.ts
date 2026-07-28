@@ -78,17 +78,18 @@ describe('createCrossClawReadTool', () => {
     expect(spy).toHaveBeenCalledWith({ path: 'test.txt' }, ctx);
   });
 
-  it('args.claw === "<id>" → 改 ctx 调 base、readFileState 不污染 caller', async () => {
+  it('args.claw === "<id>" → 改 ctx 调 base、readFileState 不污染 caller、persist 显式 false', async () => {
     const callerReadFileState = new Map();
     const spy = vi.spyOn(readTool, 'execute').mockImplementation(async (_args, passedCtx) => {
       expect(passedCtx.clawDir).toBe('/chestnut/claws/claw1');
       expect(passedCtx.workspaceDir).toBe('/chestnut/claws/claw1/clawspace');
       expect(passedCtx.readFileState).not.toBe(callerReadFileState);
+      expect(passedCtx.persistReadFileState).toBe(false);
       expect(passedCtx.fs).toBeDefined();
       return { success: true, content: 'cross-claw content' };
     });
     const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
-    const ctx = makeBaseCtx({ readFileState: callerReadFileState });
+    const ctx = makeBaseCtx({ readFileState: callerReadFileState, persistReadFileState: true });
     const result = await tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx);
     expect(result.success).toBe(true);
     expect(result.content).toBe('cross-claw content');
@@ -97,6 +98,8 @@ describe('createCrossClawReadTool', () => {
       expect.objectContaining({ path: 'test.txt' }),
       expect.anything(),
     );
+    // Caller ctx must remain unchanged.
+    expect(ctx.persistReadFileState).toBe(true);
   });
 
   it('args.claw === "*" → 拒（read 不支持 broadcast）', async () => {
