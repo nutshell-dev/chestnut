@@ -3,7 +3,6 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
-import { callerTypeToProfile } from '../permissions/index.js';
 
 import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/tools/index.js';
 import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
@@ -29,6 +28,12 @@ import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
+
+function callerTypeToProfile(ct: string) {
+  if (ct === 'miner_subagent') return 'miner';
+  if (ct === 'shadow_subagent') return 'full';
+  return 'subagent';
+}
 
 
 

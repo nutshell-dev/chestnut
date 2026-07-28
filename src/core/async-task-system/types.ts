@@ -14,7 +14,6 @@ import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
-import type { CallerType } from '../permissions/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { uuidToShort } from '../../foundation/node-utils/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
@@ -53,6 +52,9 @@ export function deriveShortIdFromTaskId(taskId: TaskId): ShortTaskId {
 export function taskShortId(task: { id: TaskId; shortId?: ShortTaskId | string }): ShortTaskId {
   return task.shortId ? makeShortTaskId(task.shortId) : deriveShortIdFromTaskId(task.id);
 }
+
+export type DispatchCallerType = 'shadow_subagent' | 'miner_subagent';
+export type CallerType = 'spawn_subagent' | 'verifier' | 'shadow_subagent' | 'miner_subagent';
 
 export interface ShortIdIndex {
   needsRebuild: boolean;

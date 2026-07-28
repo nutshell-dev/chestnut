@@ -28,7 +28,6 @@ import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 // phase 691 Step C: deep import dirs.ts leaf (避 barrel 触发 contract↔async-task 已有 type 链 cycle)
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
-import { callerTypeToProfile } from '../permissions/index.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 
@@ -110,7 +109,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     const subagentImpl = config.runSubagent ?? defaultRunSubagent;
     const { text, capturedResult } = await subagentImpl({
       agentId: config.agentId,
-      toolProfile: callerTypeToProfile('verifier'),
+      toolProfile: 'subagent',
       clawDir: config.clawDir,
       fs: config.fs,
       fsFactory: config.fsFactory,

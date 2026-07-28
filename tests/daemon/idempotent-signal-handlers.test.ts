@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import { createDaemonCommand, _resetDaemonSignalHandlers } from '../../src/daemon/daemon.js';
-import { PROCESS_GENERATION_ENV } from '../../src/foundation/process-manager/generation.js';
+import { PROCESS_GENERATION_ENV } from '../../src/foundation/process-manager/index.js';
 import { getProcessStartTime } from '../../src/foundation/process-exec/index.js';
 
 let stopFn: (() => void) | null = null;
@@ -60,6 +60,7 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
     retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
     hasStopIntentForGeneration: vi.fn(() => false),
   })),
+  PROCESS_GENERATION_ENV: 'CHESTNUT_PROCESS_GENERATION',
   makeDaemonDir: (s: string) => s,
   STATUS_SUBDIR: 'status',
   LockConflictError: class LockConflictError extends Error {},
