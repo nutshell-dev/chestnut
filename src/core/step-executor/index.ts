@@ -8,6 +8,7 @@
 export { executeStep } from './step-executor.js';
 export { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './signals.js';
 export { throwAbortError } from './abort-helpers.js';
+export { asFinalStopReason } from './types.js';
 export type {
   StepInput, StepResult, StepCallbacks, StepMeta, LLMCallInfo, FinalStopReason,
   ContextManagerRuntimeConfig,

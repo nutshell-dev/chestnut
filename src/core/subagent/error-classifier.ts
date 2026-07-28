@@ -17,7 +17,7 @@ import type { StreamEvent } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import type { AbortReason } from '../../foundation/llm-provider/index.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import { REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';

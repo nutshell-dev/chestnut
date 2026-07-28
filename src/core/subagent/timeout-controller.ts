@@ -13,7 +13,7 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import { makeExternalAbortError, type AbortReason } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
 

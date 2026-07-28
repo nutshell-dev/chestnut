@@ -18,7 +18,7 @@ import {
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_MAX_DELAY_MS,
 } from './constants.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import { LLMAllProvidersFailedError, classifyLLMError, LLMRateLimitError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,

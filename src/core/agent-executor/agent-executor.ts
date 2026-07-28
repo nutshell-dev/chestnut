@@ -15,7 +15,7 @@ import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.j
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
-import { asFinalStopReason } from '../step-executor/types.js';
+import { asFinalStopReason } from '../step-executor/index.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';
 import type { StreamCallbacks } from './stream-callbacks.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
