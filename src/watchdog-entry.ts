@@ -1,7 +1,7 @@
 import { NodeFileSystem } from './foundation/fs/node-fs.js';
 import type { FileSystem } from './foundation/fs/index.js';
 import { runWatchdogLoop, writeWatchdogCrash } from './watchdog/watchdog.js';
-import { DAEMON_LOG } from './daemon/constants.js';
+import { DAEMON_LOG } from './daemon/index.js';
 import { getAuditWriter } from './watchdog/watchdog-context.js';
 
 const errMsg = (reason: unknown): string =>

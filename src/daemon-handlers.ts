@@ -3,7 +3,7 @@ import type { FileSystem } from './foundation/fs/index.js';
 import { createSystemAudit, type AuditLog } from './foundation/audit/index.js';
 import { getClawDir, getNamedSubrootDir } from './core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from './core/claw-topology/index.js';
-import { DAEMON_AUDIT_EVENTS } from './daemon/audit-events.js';
+import { DAEMON_AUDIT_EVENTS } from './daemon/index.js';
 
 // shim 层：daemon-entry 启动早期的 audit sink + process handler 注册。
 // 与 daemon.ts 内层 handler 形成双层兜底（详 design/modules/l6_daemon.md §1）。

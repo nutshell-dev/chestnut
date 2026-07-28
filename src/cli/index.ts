@@ -29,7 +29,7 @@ import { contractCreateCommand, contractCreateFromDirCommand, contractShowComman
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
 import { runWatchdogLoop } from '../watchdog/watchdog.js';
 import { startCommand as watchdogStart, stopCommand as watchdogStop } from './commands/watchdog-cli.js';
-import { DAEMON_LOG } from '../daemon/constants.js';
+import { DAEMON_LOG } from '../daemon/index.js';
 import { createConfigCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
 import { statusCommand } from './commands/status.js';

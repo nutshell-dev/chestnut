@@ -20,7 +20,7 @@ import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
-import { DAEMON_LOG } from '../../daemon/constants.js';
+import { DAEMON_LOG } from '../../daemon/index.js';
 
 export type DaemonPM = Pick<ProcessManager, 'isAlive' | 'spawn'>;
 

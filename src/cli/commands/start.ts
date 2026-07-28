@@ -35,7 +35,7 @@ import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
-import { DAEMON_LOG } from '../../daemon/constants.js';
+import { DAEMON_LOG } from '../../daemon/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {

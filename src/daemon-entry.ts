@@ -1,6 +1,6 @@
 import { NodeFileSystem } from './foundation/fs/node-fs.js';
 import { constructShimAudit, registerShimHandlers } from './daemon-handlers.js';
-import { createDaemonCommand } from './daemon/daemon.js';
+import { createDaemonCommand } from './daemon/index.js';
 import { assemble, disassemble } from './assembly/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './assembly/index.js';
 import { isWatchdogAlive } from './watchdog/watchdog-pid.js';
