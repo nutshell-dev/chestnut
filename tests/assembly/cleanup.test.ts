@@ -4,8 +4,9 @@
  * phase 1395: merged from cleanup-narrow-enoent.test.ts (phase 1032 / 1106 reverse cases)
  * 历史：phase397 自 tests/foundation/fs.test.ts 物理迁。
  *
- * 两 describe block:
- *  - 'cleanupOrphanedTemp' — 真 fs 集成 case (clean / atomic write 保护)
+ * 三 describe block:
+ *  - 'cleanupOrphanedTemp' — 真 fs 集成 case (clean / atomic write 保护 / cutoff 两侧)
+ *  - 'cleanupOrphanedTemp cutoff contract' — mock 精确验证 `>=` 边界
  *  - 'cleanupOrphanedTemp FS_NOT_FOUND narrow' — mock-fs 反向 case (FS_NOT_FOUND swallow / 其它 throw)
  */
 
@@ -17,6 +18,47 @@ import { cleanupOrphanedTemp } from '../../src/assembly/cleanup.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem, FileEntry } from '../../src/foundation/fs/types.js';
 import { FileNotFoundError } from '../../src/foundation/fs/types.js';
+
+function makeMockFs(overrides?: Partial<FileSystem>): FileSystem {
+  return {
+    list: vi.fn().mockResolvedValue([]),
+    delete: vi.fn().mockResolvedValue(undefined),
+    read: vi.fn(),
+    writeAtomic: vi.fn(),
+    append: vi.fn(),
+    move: vi.fn(),
+    ensureDir: vi.fn(),
+    removeDir: vi.fn(),
+    realpath: vi.fn(),
+    exists: vi.fn(),
+    isDirectory: vi.fn(),
+    stat: vi.fn(),
+    writeAtomicSync: vi.fn(),
+    writeExclusiveSync: vi.fn(),
+    readSync: vi.fn(),
+    readBytesSync: vi.fn(),
+    appendSync: vi.fn(),
+    statSync: vi.fn(),
+    moveSync: vi.fn(),
+    existsSync: vi.fn(),
+    ensureDirSync: vi.fn(),
+    listSync: vi.fn(),
+    deleteSync: vi.fn(),
+    resolve: vi.fn((p: string) => p),
+    ...overrides,
+  } as unknown as FileSystem;
+}
+
+function makeEntry(name: string, isFile: boolean): FileEntry {
+  return {
+    name,
+    path: name,
+    isDirectory: !isFile,
+    isFile,
+    size: 0,
+    mtime: new Date(),
+  };
+}
 
 describe('cleanupOrphanedTemp', () => {
   let tempDir: string;
@@ -70,20 +112,21 @@ describe('cleanupOrphanedTemp', () => {
   });
 
   it('should skip temp files newer than olderThanMs to avoid runtime race', async () => {
-    const now = Date.now();
+    // Phase 1232: 显式把 old/new mtime 放到 cutoff 两侧，不依赖文件系统 clock precision。
+    const cutoff = Date.now();
     const oldTempFile = path.join(tempDir, '.tmp_orphaned_old');
     const newTempFile = path.join(tempDir, '.tmp_orphaned_new');
 
     await fs.writeFile(oldTempFile, 'old', 'utf-8');
-    // Force mtime clearly older than boundary
-    const oldMtime = new Date(now - 60_000);
+    const oldMtime = new Date(cutoff - 60_000);
     await fs.utimes(oldTempFile, oldMtime, oldMtime);
 
     await fs.writeFile(newTempFile, 'new', 'utf-8');
-    // Keep newTempFile mtime at now (>= olderThanMs)
+    const newMtime = new Date(cutoff + 60_000);
+    await fs.utimes(newTempFile, newMtime, newMtime);
 
     const nodeFs = new NodeFileSystem({ baseDir: tempDir });
-    const cleaned = await cleanupOrphanedTemp(nodeFs, tempDir, now);
+    const cleaned = await cleanupOrphanedTemp(nodeFs, tempDir, cutoff);
 
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0]).toBe(oldTempFile);
@@ -92,51 +135,29 @@ describe('cleanupOrphanedTemp', () => {
   });
 });
 
+// Cutoff contract: verify production >= boundary is deterministic.
+// Phase 1232: exact-cutoff case uses mock FileSystem to avoid real fs mtime precision loss.
+describe('cleanupOrphanedTemp cutoff contract', () => {
+  it('keeps file whose mtime equals olderThanMs (>= boundary)', async () => {
+    const cutoff = Date.now();
+    const mockFs = makeMockFs({
+      list: vi.fn().mockResolvedValue([makeEntry('.tmp_boundary', true)]),
+      stat: vi.fn().mockResolvedValue({
+        ...makeEntry('.tmp_boundary', true),
+        mtime: new Date(cutoff),
+      } as FileEntry),
+    });
+
+    const cleaned = await cleanupOrphanedTemp(mockFs, '/somedir', cutoff);
+    expect(cleaned).toHaveLength(0);
+    expect(mockFs.delete).not.toHaveBeenCalled();
+  });
+});
+
 // Reverse cases: verify cleanupOrphanedTemp only swallows FS_NOT_FOUND
 // and throws non-FS_NOT_FOUND errors so caller .catch + audit (assemble.ts:478-480)
 // can truly emit CLEANUP_TEMP_FILES_FAILED.
 describe('cleanupOrphanedTemp FS_NOT_FOUND narrow', () => {
-  function makeMockFs(overrides?: Partial<FileSystem>): FileSystem {
-    return {
-      list: vi.fn().mockResolvedValue([]),
-      delete: vi.fn().mockResolvedValue(undefined),
-      read: vi.fn(),
-      writeAtomic: vi.fn(),
-      append: vi.fn(),
-      move: vi.fn(),
-      ensureDir: vi.fn(),
-      removeDir: vi.fn(),
-      realpath: vi.fn(),
-      exists: vi.fn(),
-      isDirectory: vi.fn(),
-      stat: vi.fn(),
-      writeAtomicSync: vi.fn(),
-      writeExclusiveSync: vi.fn(),
-      readSync: vi.fn(),
-      readBytesSync: vi.fn(),
-      appendSync: vi.fn(),
-      statSync: vi.fn(),
-      moveSync: vi.fn(),
-      existsSync: vi.fn(),
-      ensureDirSync: vi.fn(),
-      listSync: vi.fn(),
-      deleteSync: vi.fn(),
-      resolve: vi.fn((p: string) => p),
-      ...overrides,
-    } as unknown as FileSystem;
-  }
-
-  function makeEntry(name: string, isFile: boolean): FileEntry {
-    return {
-      name,
-      path: name,
-      isDirectory: !isFile,
-      isFile,
-      size: 0,
-      mtime: new Date(),
-    };
-  }
-
   it('list FS_NOT_FOUND → resolves [] (first-run dir absent acceptable)', async () => {
     const mockFs = makeMockFs({
       list: vi.fn().mockRejectedValue(new FileNotFoundError('/nonexistent')),
