@@ -20,9 +20,9 @@ import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundat
 import type { ClawTopology } from '../../index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { runOutboxSummaryTick } from './tick.js';
-import type { CronJob } from '../../../../foundation/cron/runner.js';
-import { parseSchedule } from '../../../../foundation/cron/runner.js';
-import type { CronJobGlobalConfig } from '../../../../foundation/cron/runner.js';
+import type { CronJob } from '../../../../foundation/cron/index.js';
+import { parseSchedule } from '../../../../foundation/cron/index.js';
+import type { CronJobGlobalConfig } from '../../../../foundation/cron/index.js';
 
 /** Cron job timeout per M#2 (per-module business decides). 5s 充裕：dedup scan = meta parse only. */
 export const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;

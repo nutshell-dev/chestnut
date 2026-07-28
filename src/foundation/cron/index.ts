@@ -16,7 +16,7 @@ import type { CronJob } from './runner.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
 export { CronRunner, parseSchedule } from './runner.js';
-export type { CronSchedule, CronJob } from './runner.js';
+export type { CronSchedule, CronJob, CronJobGlobalConfig } from './runner.js';
 
 /**
  * 构造 CronRunner。
