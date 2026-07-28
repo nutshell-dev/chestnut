@@ -60,16 +60,6 @@ export function makeInboxPath(absoluteDir: string): InboxPath {
   return absoluteDir as InboxPath;
 }
 
-// Phase 1230: filename identity suffix reuses the same UUID that appears at the
-// end of envelope `id`. If the caller-provided id already ends with a UUID, use
-// it; otherwise generate a fresh UUID and rewrite `id` so envelope identity and
-// filename identity stay single-source.
-const UUID_V4_RE = /[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function extractMessageUuidFromId(id: string): string | undefined {
-  const match = id.match(UUID_V4_RE);
-  return match ? match[0] : undefined;
-}
-
 export class InboxWriter {
   private constructor(
     private readonly fs: FileSystem,
@@ -89,11 +79,9 @@ export class InboxWriter {
       // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
       assertMessageShape(msg, this.audit, 'inbox', 'write');
 
-      // Phase 1230: single UUID is the source of both envelope id and filename suffix.
-      const messageUuid = extractMessageUuidFromId(msg.id) ?? newUuid();
-      if (messageUuid !== msg.id) {
-        (msg as { id: string }).id = `${msg.type}-${messageUuid}`;
-      }
+      // Phase 1230: filename identity suffix is an independent storage UUID;
+      // caller-owned envelope (especially `id`) must be preserved unchanged.
+      const filenameUuid = newUuid();
 
       // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
       const encoded = encodeInbox(msg, extraFields);
@@ -116,7 +104,7 @@ export class InboxWriter {
       const timestamp = String(Date.now()).padStart(15, '0');
       const priority = msg.priority ?? 'normal';
       const source = sanitizeMessageIdentifier(msg.from || 'unknown', 'from');
-      filename = `${source}-${timestamp}_${priority}_${messageUuid}.md`;
+      filename = `${source}-${timestamp}_${priority}_${filenameUuid}.md`;
       const filePath = path.join(this.inboxDir, filename);
       await this.fs.writeAtomic(filePath, encoded);
       emitInboxWritten(this.audit, { file: filename as string, to: msg.to, contractId: msg.metadata?.contract_id });

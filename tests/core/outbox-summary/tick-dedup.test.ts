@@ -25,6 +25,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
+import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
@@ -143,6 +144,12 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     const summaries = await listSummaries(root, 'pending', fs);
     expect(summaries.length).toBe(1);
     expect(events.some(e => e[0] === 'cron_outbox_summary_written')).toBe(true);
+
+    // Phase 1230 Step B: async InboxWriter preserves caller-owned envelope id.
+    const summaryPath = path.join(root, 'motion/inbox/pending', summaries[0]);
+    const summaryContent = await fsAsync.readFile(summaryPath, 'utf-8');
+    const decoded = decodeInbox(summaryContent);
+    expect(decoded.id).toMatch(/^claw-outbox-summary-[0-9a-f]+-\d+$/);
   });
 
   it('re-tick same state → skip silently (pending hit)', async () => {

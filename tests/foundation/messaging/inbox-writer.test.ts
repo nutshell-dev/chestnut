@@ -67,33 +67,10 @@ describe('InboxWriter', () => {
     expect(files[0]).toMatch(new RegExp(`^sender-\\d{15}_high_${UUID_V4_RE}\\.md$`, 'i'));
   });
 
-  it('write reuses the UUID at the end of envelope id for filename suffix', async () => {
-    const messageUuid = randomUUID();
+  it('write preserves caller-owned id and uses an independent UUID filename suffix', async () => {
+    const callerId = `message-${randomUUID()}`;
     const msg: InboxMessage = {
-      id: `message-${messageUuid}`,
-      type: 'message',
-      from: 'sender',
-      to: 'claw',
-      content: 'Hello',
-      priority: 'normal',
-      timestamp: new Date().toISOString(),
-    };
-
-    await writer.write(msg);
-
-    const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
-    expect(files).toHaveLength(1);
-    const suffix = extractUuid(files[0]);
-    expect(suffix).toBe(messageUuid);
-
-    const content = await fs.readFile(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
-    const decoded = decodeInbox(content);
-    expect(decoded.id).toBe(`message-${messageUuid}`);
-  });
-
-  it('write generates a fresh UUID and rewrites id when caller id has no UUID', async () => {
-    const msg: InboxMessage = {
-      id: 'test-1',
+      id: callerId,
       type: 'message',
       from: 'sender',
       to: 'claw',
@@ -108,10 +85,33 @@ describe('InboxWriter', () => {
     expect(files).toHaveLength(1);
     const suffix = extractUuid(files[0]);
     expect(suffix).toBeDefined();
+    expect(suffix).not.toBe(callerId);
 
     const content = await fs.readFile(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
     const decoded = decodeInbox(content);
-    expect(decoded.id).toBe(`message-${suffix}`);
+    expect(decoded.id).toBe(callerId);
+  });
+
+  it('write does not mutate the input message object', async () => {
+    const msg: InboxMessage = {
+      id: 'legacy-caller-id',
+      type: 'message',
+      from: 'sender',
+      to: 'claw',
+      content: 'Hello',
+      priority: 'normal',
+      timestamp: new Date().toISOString(),
+    };
+    const snapshot = structuredClone(msg);
+
+    await writer.write(msg);
+
+    expect(msg).toEqual(snapshot);
+
+    const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
+    const content = await fs.readFile(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
+    const decoded = decodeInbox(content);
+    expect(decoded.id).toBe('legacy-caller-id');
   });
 
   it('write audits INBOX_WRITTEN on success', async () => {
