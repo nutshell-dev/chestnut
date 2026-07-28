@@ -7,7 +7,7 @@ import type { VerificationContext } from './verification-types.js';
 import type { ContractId } from './types.js';
 import type { SubtaskId } from './types.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { ToolError, ToolTimeoutError } from '../../foundation/tools/errors.js';
+import { ToolError, ToolTimeoutError } from '../../foundation/tools/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import type { LastFailedFeedback, AcceptanceFailedNotification } from './types.js';
 import {

@@ -20,7 +20,7 @@ export type { CallerType } from './core/permissions/caller-types.js';
 export {
   PermissionError, PathNotInClawSpaceError, WriteOperationForbiddenError,
 } from './core/permissions/errors.js';
-export { ToolError, ToolTimeoutError } from './foundation/tools/errors.js';
+export { ToolError, ToolTimeoutError } from './foundation/tools/index.js';
 export {
   LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError,
   LLMEmptyResponseError, LLMModelNotFoundError, LLMAllProvidersFailedError,
@@ -52,8 +52,8 @@ export type { LLMOrchestratorConfig, ProviderConfig, LLMCallOptions } from './fo
 // Re-export commonly used types
 export type { ToolResult } from './foundation/tool-protocol/index.js';
 export type { ExecContext, Tool } from './foundation/tools/index.js';
-export type { ToolRegistry, IToolExecutor } from './foundation/tools/executor.js';
-export { ToolRegistryImpl } from './foundation/tools/registry.js';
+export type { ToolRegistry, IToolExecutor } from './foundation/tools/index.js';
+export { ToolRegistryImpl } from './foundation/tools/index.js';
 export type { SkillMeta } from './foundation/skill-system/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
 export type { ProgressData, VerificationResult } from './core/contract/index.js';

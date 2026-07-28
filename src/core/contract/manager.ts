@@ -27,7 +27,7 @@ import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { Contract } from '../contract/types.js';
-import { ToolError } from '../../foundation/tools/errors.js';
+import { ToolError } from '../../foundation/tools/index.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
 import type { Tool, ToolRegistry } from '../../foundation/tools/index.js';
 

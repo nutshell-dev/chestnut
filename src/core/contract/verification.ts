@@ -6,7 +6,7 @@
 
 import * as path from 'path';
 import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
-import { ToolError } from '../../foundation/tools/errors.js';
+import { ToolError } from '../../foundation/tools/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import {

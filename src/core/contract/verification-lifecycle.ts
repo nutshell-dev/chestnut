@@ -8,7 +8,7 @@ import type { VerificationContext } from './verification-types.js';
 import type { VerificationResult, SubtaskId, ProgressData } from './types.js';
 import { activeContainerDir } from './locations.js';
 import { safeNotify } from './verification-notify.js';
-import { ToolError } from '../../foundation/tools/errors.js';
+import { ToolError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ContractId, ContractYaml } from './types.js';
 import { newShortUuid } from '../../foundation/node-utils/index.js';

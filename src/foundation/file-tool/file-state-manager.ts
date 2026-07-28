@@ -16,7 +16,7 @@
  * audit `READ_FILE_STATE_PERSIST_FAILED` but don't block tool result.
  */
 
-import type { ExecContext } from '../tools/types.js';
+import type { ExecContext } from '../tools/index.js';
 import { computeContentHash } from './file-hash.js';
 import { persistReadFileState } from './file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';

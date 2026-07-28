@@ -18,7 +18,7 @@ import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 
-import type { ExecContext, FileState } from '../tools/types.js';
+import type { ExecContext, FileState } from '../tools/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 

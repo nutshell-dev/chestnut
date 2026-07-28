@@ -12,7 +12,7 @@ import * as path from 'path';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { ToolError } from '../../foundation/tools/errors.js';
+import { ToolError } from '../../foundation/tools/index.js';
 import { CONTRACT_LIFECYCLE_INTENTS_DIR } from './dirs.js';
 import {
   ARCHIVE_STATES,

@@ -37,6 +37,7 @@ export type { ToolResult, ToolDescriptor } from '../tool-protocol/index.js';
 export type {
   Tool,
   ExecContext,
+  FileState,
   ToolRegistry,
   IToolExecutor,
   ExecuteOptions,
@@ -47,6 +48,9 @@ export type {
   ExecutionControl,
   ExecutionAudit,
 } from './types.js';
+
+export { ToolError, ToolTimeoutError } from './errors.js';
+export type { ToolErrorCode } from './errors.js';
 
 
 

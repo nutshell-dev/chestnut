@@ -10,7 +10,7 @@ import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../node-utils/index.js";
 import { parseFrontmatterFrame } from "../messaging/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { ToolError } from '../tools/errors.js';
+import { ToolError } from '../../foundation/tools/index.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
 
 // phase 1235 B.1: namespace pattern + duplicate reject
