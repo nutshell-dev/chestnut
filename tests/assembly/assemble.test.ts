@@ -90,6 +90,7 @@ vi.mock('../../src/foundation/stream/index.js', () => ({
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
   NodeFileSystem: vi.fn(({ baseDir }: { baseDir: string }) => ({
     ensureDir: vi.fn().mockResolvedValue(undefined),
+    exists: vi.fn().mockResolvedValue(false),
     existsSync: vi.fn((p: string) => fs.existsSync(path.join(baseDir, p))),
     statSync: vi.fn((p: string) => fs.statSync(path.join(baseDir, p))),
     readBytesSync: vi.fn((p: string, start: number, end: number) => {
@@ -97,6 +98,10 @@ vi.mock('../../src/foundation/fs/node-fs.js', () => ({
       return buf.subarray(start, end);
     }),
     listSync: vi.fn(() => []),
+    list: vi.fn().mockResolvedValue([]),
+    read: vi.fn().mockRejectedValue(new Error('ENOENT')),
+    writeAtomic: vi.fn().mockResolvedValue(undefined),
+    move: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 

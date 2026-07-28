@@ -217,7 +217,9 @@ describe('AsyncTaskSystem.schedulePrepared (Phase 1206 Step A)', () => {
     await placeTaskFile(fs, TASKS_QUEUES_PENDING_DIR, prepared.id, prepared.payload, prepared.createdAt);
 
     const beforeStat = statSync(path.join(baseDir, `${TASKS_QUEUES_PENDING_DIR}/${prepared.id}.json`));
-    await new Promise(r => setTimeout(r, 20));
+    // Allow filesystem timestamp to advance before re-checking mtime idempotency.
+    const MTIME_ADVANCE_WAIT_MS = 20;
+    await new Promise(r => setTimeout(r, MTIME_ADVANCE_WAIT_MS));
 
     await system.schedulePrepared('subagent', prepared);
 
