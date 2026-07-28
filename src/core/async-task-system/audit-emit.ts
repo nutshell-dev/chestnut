@@ -441,6 +441,37 @@ export function emitResultDeliveryFailed(
   );
 }
 
+// ─── PREPARED TASK IDENTITY ───────────────────────────────────────────────────
+export function emitPreparedTaskReplayConfirmed(
+  audit: AuditLog,
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; lifecycleDir: string },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.PREPARED_TASK_REPLAY_CONFIRMED,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+    `lifecycleDir=${opts.lifecycleDir}`,
+  );
+}
+
+export function emitPreparedTaskIdentityConflict(
+  audit: AuditLog,
+  opts: {
+    fullTaskId: FullTaskId;
+    shortTaskId: ShortTaskId;
+    lifecycleDir: string;
+    reason: string;
+  },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.PREPARED_TASK_IDENTITY_CONFLICT,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+    `lifecycleDir=${opts.lifecycleDir}`,
+    `reason=${opts.reason}`,
+  );
+}
+
 // ─── Legacy helper: format error and emit ─────────────────────────────────────
 // Re-export formatErr for callers that need to format errors before typed emit.
 export { formatErr };

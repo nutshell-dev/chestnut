@@ -17,7 +17,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { TaskSchema } from './task-schemas.js';
 
-export type SaveSource = 'schedule_subagent' | 'schedule_tool';
+export type SaveSource = 'schedule_subagent' | 'schedule_tool' | 'schedule_prepared';
 
 export function assertTaskShapeOnSave(
   task: unknown,

@@ -41,7 +41,8 @@ import { createPendingWatcher, type PendingWatcherHandle } from './pending-watch
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr } from './_helpers.js';
-import { assertTaskShapeOnSave } from './invariants.js';
+import { sha256Hex } from '../../foundation/node-utils/index.js';
+import { assertTaskShapeOnSave, type SaveSource } from './invariants.js';
 import { auditQueueCrossSource } from './queue-cross-source-audit.js';
 import {
   emitTaskScheduled,
@@ -57,9 +58,12 @@ import {
   emitParseFailed,
   emitShutdownTimeout,
   emitShutdownPendingCleanupsDrained,
+  emitPreparedTaskReplayConfirmed,
+  emitPreparedTaskIdentityConflict,
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
-import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
+import { SubAgentTaskSchema } from './task-schemas.js';
+import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult } from './types.js';
 import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 
 
@@ -479,11 +483,135 @@ export class AsyncTaskSystem {
       createdAt: new Date().toISOString(),
     } as SubAgentTask;
 
-    // Save to pending directory; watcher will pick up and dispatch
+    await this._persistSubagentTask(task, taskKind, 'schedule_subagent');
+    return shortId;
+  }
+
+  /**
+   * Phase 1206 Step A: prepared identity submission.
+   * Idempotent: same id + same payload returns existing task without rewrite.
+   * Fail-closed: same id + different payload, corrupt task, or duplicate
+   * lifecycle files throws.
+   */
+  async schedulePrepared(
+    taskKind: 'subagent',
+    prepared: PreparedSubagentSchedule,
+  ): Promise<PreparedScheduleResult> {
+    const fullId = prepared.id;
+    const shortId = deriveShortIdFromTaskId(fullId);
+
+    // Build canonical task first so we can validate shape before touching disk.
+    const task = {
+      ...prepared.payload,
+      id: fullId,
+      shortId,
+      createdAt: prepared.createdAt,
+    } as SubAgentTask;
+
+    assertTaskShapeOnSave(task, this.auditWriter, 'schedule_prepared');
+
+    const expectedHash = hashTaskPayload(prepared.payload);
+    const lifecycleDirs = [
+      TASKS_QUEUES_PENDING_DIR,
+      TASKS_QUEUES_RUNNING_DIR,
+      TASKS_QUEUES_DONE_DIR,
+      TASKS_QUEUES_FAILED_DIR,
+    ] as const;
+
+    const found: Array<{ dir: string; path: string }> = [];
+    for (const dir of lifecycleDirs) {
+      const filePath = `${dir}/${fullId}.json`;
+      if (await this.fs.exists(filePath)) {
+        found.push({ dir, path: filePath });
+      }
+    }
+
+    if (found.length > 1) {
+      const reason = `duplicate task files across ${found.map(f => f.dir).join(', ')}`;
+      emitPreparedTaskIdentityConflict(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        lifecycleDir: found.map(f => f.dir).join(';'),
+        reason,
+      });
+      throw new Error(`Prepared task identity conflict for ${fullId}: ${reason}`);
+    }
+
+    if (found.length === 1) {
+      const { dir, path: filePath } = found[0];
+      let raw: string;
+      try {
+        raw = await this.fs.read(filePath);
+      } catch (e) {
+        emitPreparedTaskIdentityConflict(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          lifecycleDir: dir,
+          reason: `cannot read existing task file: ${formatErr(e)}`,
+        });
+        throw new Error(`Prepared task identity conflict for ${fullId}: cannot read existing file`);
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        emitPreparedTaskIdentityConflict(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          lifecycleDir: dir,
+          reason: `existing task file is not valid JSON: ${formatErr(e)}`,
+        });
+        throw new Error(`Prepared task identity conflict for ${fullId}: existing file is corrupt JSON`);
+      }
+
+      const validated = SubAgentTaskSchema.safeParse(parsed);
+      if (!validated.success) {
+        emitPreparedTaskIdentityConflict(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          lifecycleDir: dir,
+          reason: `existing task file schema mismatch: ${validated.error.message}`,
+        });
+        throw new Error(`Prepared task identity conflict for ${fullId}: existing file schema mismatch`);
+      }
+
+      const existingTask = validated.data as SubAgentTask;
+      const existingPayload = stripTaskIdentityFields(existingTask);
+      const existingHash = hashTaskPayload(existingPayload);
+      if (existingHash !== expectedHash) {
+        emitPreparedTaskIdentityConflict(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          lifecycleDir: dir,
+          reason: 'payload hash mismatch',
+        });
+        throw new Error(`Prepared task identity conflict for ${fullId}: payload hash mismatch`);
+      }
+
+      emitPreparedTaskReplayConfirmed(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        lifecycleDir: dir,
+      });
+      return { taskId: fullId, disposition: 'existing' };
+    }
+
+    // No existing task — create it.
+    await this._persistSubagentTask(task, taskKind, 'schedule_prepared');
+    return { taskId: fullId, disposition: 'created' };
+  }
+
+  private async _persistSubagentTask(
+    task: SubAgentTask,
+    taskKind: 'subagent',
+    source: SaveSource,
+  ): Promise<void> {
+    const fullId = task.id as FullTaskId;
+    const shortId = taskShortId(task);
     const taskPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
 
-    // phase 239 Step A: schema invariant check（违例 emit audit、不 throw、不阻 save、Path #4）
-    assertTaskShapeOnSave(task, this.auditWriter, 'schedule_subagent');
+    assertTaskShapeOnSave(task, this.auditWriter, source);
 
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
 
@@ -535,9 +663,6 @@ export class AsyncTaskSystem {
       maxSteps: task.maxSteps,
       indexPersisted,
     });
-
-    // No push, no dispatch; watcher ingests asynchronously
-    return shortId;
   }
 
 
@@ -1583,4 +1708,27 @@ export class AsyncTaskSystem {
 
     return timedOut;
   }
+}
+
+// ─── Phase 1206 Step A: prepared identity helpers ─────────────────────────────
+
+function stripTaskIdentityFields(
+  task: SubAgentTask,
+): Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'> {
+  const { id: _id, shortId: _shortId, createdAt: _createdAt, ...rest } = task;
+  return rest as Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>;
+}
+
+function canonicalJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalJsonStringify).join(',') + ']';
+  }
+  const keys = Object.keys(value).sort();
+  const pairs = keys.map(k => `${JSON.stringify(k)}:${canonicalJsonStringify((value as Record<string, unknown>)[k])}`);
+  return '{' + pairs.join(',') + '}';
+}
+
+function hashTaskPayload(payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>): string {
+  return sha256Hex(canonicalJsonStringify(payload));
 }

@@ -164,6 +164,22 @@ export type SubAgentTask = CommonSubAgentTaskFields & { intent: string } & (
 );
 
 /**
+ * Phase 1206 Step A: prepared identity submission input.
+ * Caller provides the canonical full ID and payload; AsyncTaskSystem owns
+ * shortId derivation, canonical hash, and lifecycle directory lookup.
+ */
+export interface PreparedSubagentSchedule {
+  id: FullTaskId;
+  createdAt: string;
+  payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>;
+}
+
+export interface PreparedScheduleResult {
+  taskId: FullTaskId;
+  disposition: 'created' | 'existing';
+}
+
+/**
  * Discriminator union of task kinds.
  * Used as Record key for executor strategy table (phase 16 Step B).
  */

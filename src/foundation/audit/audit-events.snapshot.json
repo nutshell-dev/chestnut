@@ -194,6 +194,8 @@
       "async_task_queue_cross_source_mismatch",
       "async_task_queue_cross_source_skipped",
       "pending_ingest_failed",
+      "prepared_task_identity_conflict",
+      "prepared_task_replay_confirmed",
       "result_delivery_ensure_dir_failed",
       "short_id_collision",
       "short_id_index_load_failed",

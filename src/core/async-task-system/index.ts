@@ -14,7 +14,7 @@ import { AsyncTaskSystem } from './system.js';
 import type { AsyncTaskSystemOptions } from './types.js';
 
 export { AsyncTaskSystem } from './system.js';
-export type { AsyncTaskSystemOptions, SubAgentTask } from './types.js';
+export type { AsyncTaskSystemOptions, SubAgentTask, PreparedSubagentSchedule, PreparedScheduleResult } from './types.js';
 // TaskId types/functions intentionally NOT re-exported from barrel:
 // types.ts imports from contract, so barrel re-export creates
 // contract → verifier-job → barrel → types → contract cycle.
