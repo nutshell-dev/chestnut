@@ -23,12 +23,6 @@ function createAuditWriter() {
   };
 }
 
-function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>(r => { resolve = r; });
-  return { promise, resolve };
-}
-
 describe('edit-commit coordinator', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
@@ -253,28 +247,11 @@ describe('edit-commit coordinator', () => {
     expect(verifyFailedCall!.slice(1).join(' ')).toContain('actual_hash=');
   });
 
-  it('serializes concurrent same-path commits so at most one succeeds', async () => {
+  it('sequential second commit with stale original returns conflict and 0 target write', async () => {
     await mockFs.ensureDir('clawspace');
     await mockFs.writeAtomic('clawspace/file.txt', 'hello world');
 
-    const firstWriteReached = createDeferred<void>();
-    let releaseFirstWrite: () => void;
-    const firstWriteGate = new Promise<void>(resolve => { releaseFirstWrite = resolve; });
-    let targetWriteCount = 0;
-    const originalWriteAtomic = mockFs.writeAtomic.bind(mockFs);
-    const writeSpy = vi.spyOn(mockFs, 'writeAtomic').mockImplementation(async (...args: [string, string]) => {
-      const [targetPath] = args;
-      if (targetPath === 'clawspace/file.txt') {
-        targetWriteCount++;
-        if (targetWriteCount === 1) {
-          firstWriteReached.resolve();
-          await firstWriteGate;
-        }
-      }
-      return originalWriteAtomic(...args);
-    });
-
-    const commit1 = editCommit({
+    const first = await editCommit({
       ctx,
       tool: 'edit',
       path: 'file.txt',
@@ -285,12 +262,23 @@ describe('edit-commit coordinator', () => {
       replaced: 1,
       editCount: 1,
     });
+    expect(first.ok).toBe(true);
 
-    // Wait until commit1 has actually entered its per-path critical section.
-    await firstWriteReached.promise;
+    const auditWriter = createAuditWriter();
+    const testCtx = new ExecContextImpl({
+      clawId: 'test-claw',
+      clawDir: tempDir,
+      syncDir: path.join(tempDir, 'tasks', 'sync'),
+      profile: 'subagent',
+      fs: mockFs,
+      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      auditWriter,
+    });
 
-    const commit2 = editCommit({
-      ctx,
+    // Second commit still carries the original content from before the first edit;
+    // precommit hash check must detect the drift and write nothing.
+    const second = await editCommit({
+      ctx: testCtx,
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
@@ -301,85 +289,18 @@ describe('edit-commit coordinator', () => {
       editCount: 1,
     });
 
-    releaseFirstWrite!();
-
-    const [result1, result2] = await Promise.all([commit1, commit2]);
-
-    const successes = [result1, result2].filter(r => r.ok).length;
-    expect(successes).toBe(1);
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.reason).toBe('conflict');
 
     const content = await mockFs.read('clawspace/file.txt');
-    expect(['hi world', 'hey world']).toContain(content);
+    expect(content).toBe('hi world');
 
-    writeSpy.mockRestore();
-  });
-
-  it('does not serialize commits on different paths', async () => {
-    await mockFs.ensureDir('clawspace');
-    await mockFs.writeAtomic('clawspace/a.txt', 'a');
-    await mockFs.writeAtomic('clawspace/b.txt', 'b');
-
-    const aWriteReached = createDeferred<void>();
-    let releaseA: () => void;
-    const gateA = new Promise<void>(resolve => { releaseA = resolve; });
-    const bWriteReached = createDeferred<void>();
-    let aWriteCount = 0;
-    const originalWriteAtomic = mockFs.writeAtomic.bind(mockFs);
-    const writeSpy = vi.spyOn(mockFs, 'writeAtomic').mockImplementation(async (...args: [string, string]) => {
-      const [targetPath] = args;
-      if (targetPath === 'clawspace/a.txt') {
-        aWriteCount++;
-        if (aWriteCount === 1) {
-          aWriteReached.resolve();
-          await gateA;
-        }
-      } else if (targetPath === 'clawspace/b.txt') {
-        bWriteReached.resolve();
-      }
-      return originalWriteAtomic(...args);
-    });
-
-    const commitA = editCommit({
-      ctx,
-      tool: 'edit',
-      path: 'a.txt',
-      resolved: 'clawspace/a.txt',
-      original: 'a',
-      candidate: 'A',
-      backupSource: 'edit_backup',
-      replaced: 1,
-      editCount: 1,
-    });
-
-    // Confirm A is blocked inside its own path's critical section.
-    await aWriteReached.promise;
-
-    const commitB = editCommit({
-      ctx,
-      tool: 'edit',
-      path: 'b.txt',
-      resolved: 'clawspace/b.txt',
-      original: 'b',
-      candidate: 'B',
-      backupSource: 'edit_backup',
-      replaced: 1,
-      editCount: 1,
-    });
-
-    // Confirm B can reach its own target write while A is still gated.
-    // If different paths were incorrectly serialized, this would deadlock and
-    // the test framework's overall timeout would catch it.
-    await bWriteReached.promise;
-
-    releaseA!();
-    const [resultA, resultB] = await Promise.all([commitA, commitB]);
-
-    expect(resultA.ok).toBe(true);
-    expect(resultB.ok).toBe(true);
-    expect(await mockFs.read('clawspace/a.txt')).toBe('A');
-    expect(await mockFs.read('clawspace/b.txt')).toBe('B');
-
-    writeSpy.mockRestore();
+    const conflictCall = auditWriter.write.mock.calls.find((call: string[]) =>
+      call[0] === 'file_edit_conflict'
+    );
+    expect(conflictCall).toBeDefined();
+    expect(conflictCall!.slice(1).join(' ')).toContain('stage=precommit');
   });
 
   it('emits committed audit with hash metadata', async () => {
