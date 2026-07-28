@@ -90,7 +90,7 @@ describe('stop-flush-barrier', () => {
       return runtime;
     }
 
-    it('awaits active dialog operation before llm.close', async () => {
+    it('awaits active dialog operation before closing all dependencies (Phase 1218 Step D)', async () => {
       const mockDialogStore = {
         load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
         save: vi.fn().mockResolvedValue(undefined),
@@ -100,6 +100,10 @@ describe('stop-flush-barrier', () => {
       const runtime = makeRuntime(mockDialogStore);
       (runtime as any).initialized = true;
 
+      const taskSystemShutdown = vi.spyOn((runtime as any).taskSystem, 'shutdown');
+      const contractClose = vi.spyOn((runtime as any).contractManager, 'close');
+      const llmClose = vi.spyOn((runtime as any).llm, 'close');
+
       // Simulate an active operation still in flight when stop() is called.
       (runtime as any).activeDialogOperation = new Promise<void>((resolve) => {
         setTimeout(() => { operationResolved = true; resolve(); }, MOCK_OPERATION_SETTLE_MS);
@@ -108,7 +112,12 @@ describe('stop-flush-barrier', () => {
       await runtime.stop();
 
       expect(operationResolved).toBe(true);
-      expect(llmCloseCalled).toBe(true);
+      expect(taskSystemShutdown).toHaveBeenCalled();
+      expect(contractClose).toHaveBeenCalled();
+      expect(llmClose).toHaveBeenCalled();
+      // Phase 1218 Step D: active operation settle → taskSystem shutdown → contract close → llm close.
+      expect(taskSystemShutdown.mock.invocationCallOrder[0]).toBeLessThan(contractClose.mock.invocationCallOrder[0]);
+      expect(contractClose.mock.invocationCallOrder[0]).toBeLessThan(llmClose.mock.invocationCallOrder[0]);
     });
 
     it('does not throw when active operation rejects (barrier is best-effort)', async () => {

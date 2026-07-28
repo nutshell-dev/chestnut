@@ -360,17 +360,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // Phase 1218 Step A: reject new public operations and abort current turn
     this.stopping = true;
     this.abort();
-    const timedOut = await this.taskSystem.shutdown(120_000);
-    if (timedOut) {
-      // phase 1332 N4: timeout edge case abort path — ensure tasks are killed before llm.close
-      // 防 phase 1286 100M tokens cascade 后 task 长跑 1-2min / 子代理资源继承
-      this.taskSystem.abort();
-      this.auditWriter.write(
-        TASK_AUDIT_EVENTS.TASK_SHUTDOWN_TIMEOUT_HIT,
-        `timeout_ms=120000`,
-      );
-    }
-    // Phase 1218 Step A: await active dialog operation settle before closing dependencies.
+    // Phase 1218 Step D: await active dialog operation settle before shutting down
+    // dependencies that the operation may be using (taskSystem / contractManager / LLM).
     // The original operation promise still propagates its error to its caller;
     // join here is only for shutdown barrier. Failure to join is audited but does
     // not block closing downstream resources (best-effort barrier).
@@ -384,6 +375,16 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           `reason=${formatErr(e)}`,
         );
       }
+    }
+    const timedOut = await this.taskSystem.shutdown(120_000);
+    if (timedOut) {
+      // phase 1332 N4: timeout edge case abort path — ensure tasks are killed before llm.close
+      // 防 phase 1286 100M tokens cascade 后 task 长跑 1-2min / 子代理资源继承
+      this.taskSystem.abort();
+      this.auditWriter.write(
+        TASK_AUDIT_EVENTS.TASK_SHUTDOWN_TIMEOUT_HIT,
+        `timeout_ms=120000`,
+      );
     }
     // phase 324 H5: 关 ContractSystem、abort 仍活的 verifier AbortController 串、
     // await 其 termination promise。否则 SIGTERM 留 verifier LLM stream 泄漏
@@ -1030,7 +1031,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       const tools = this.getToolsForLLM();
       const systemPrompt = session.systemPrompt;
       let messages = [...session.messages, enrichedMsg];
-      messages = await this.proactiveTrimIfNeeded(messages, systemPrompt, tools);
+      messages = await this._proactiveTrimIfNeededImpl(messages, systemPrompt, tools);
 
       callbacks?.onTurnStart?.([]);
       // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
@@ -1199,8 +1200,25 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     return sha256Hex(canonicalJson(facts));
   }
 
-  /** Proactive context trim before a turn; returns the (possibly trimmed) messages. */
+  /**
+   * Public proactive context trim before a turn; returns the (possibly trimmed) messages.
+   *
+   * Phase 1218 Step D: this is a public mutation operation and must acquire the
+   * dialog operation authority. The internal implementation is used by
+   * `_processWithMessageImpl` while already holding authority.
+   */
   async proactiveTrimIfNeeded(
+    messages: Message[],
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+  ): Promise<Message[]> {
+    return this._withDialogOperation(() =>
+      this._proactiveTrimIfNeededImpl(messages, systemPrompt, toolsForLLM),
+    );
+  }
+
+  /** Phase 1218 Step D: internal proactive trim implementation. */
+  private async _proactiveTrimIfNeededImpl(
     messages: Message[],
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],

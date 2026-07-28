@@ -18,6 +18,10 @@ class AuthorityTestRuntime extends Runtime {
   public turnStarted = false;
   public turnShouldReject: Error | undefined;
 
+  public proactiveRelease: (() => void) | undefined;
+  public proactiveStarted = false;
+  public proactiveShouldBlock = false;
+
   protected override async _processTurnImpl(
     _messages: Message[],
     _systemPrompt: string,
@@ -41,6 +45,20 @@ class AuthorityTestRuntime extends Runtime {
   ): Promise<TurnResult> {
     // Bypass load/tools setup; just exercise the internal nested turn path.
     return this._processTurnImpl([], 'sp', [], _callbacks);
+  }
+
+  protected override async _proactiveTrimIfNeededImpl(
+    messages: Message[],
+    _systemPrompt: string,
+    _toolsForLLM: ToolDefinition[],
+  ): Promise<Message[]> {
+    if (this.proactiveShouldBlock) {
+      this.proactiveStarted = true;
+      await new Promise<void>((resolve) => {
+        this.proactiveRelease = resolve;
+      });
+    }
+    return messages;
   }
 }
 
@@ -222,5 +240,74 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
 
     runtime.turnRelease!();
     await first;
+  });
+
+  it('proactiveTrimIfNeeded is a public mutation operation (Phase 1218 Step D)', async () => {
+    const { runtime, auditEvents } = makeRuntime(makeMockDialogStore());
+    runtime.proactiveShouldBlock = true;
+
+    const first = runtime.proactiveTrimIfNeeded([], 'sp', []);
+    await vi.waitUntil(() => runtime.proactiveStarted, { timeout: 1000 });
+
+    await expect(runtime.processTurn([], 'sp', [])).rejects.toThrow('Concurrent dialog operation detected');
+
+    expect(auditEvents.some((e) => e[0] === RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_CONCURRENT)).toBe(true);
+
+    runtime.proactiveRelease!();
+    await first;
+  });
+
+  it('stopping rejects proactiveTrimIfNeeded with audit (Phase 1218 Step D)', async () => {
+    const { runtime, auditEvents } = makeRuntime(makeMockDialogStore());
+
+    runtime.stop();
+
+    await expect(runtime.proactiveTrimIfNeeded([], 'sp', [])).rejects.toThrow('Runtime is stopping');
+
+    expect(auditEvents.some((e) => e[0] === RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_WHILE_STOPPING)).toBe(true);
+  });
+
+  it('processWithMessage internal proactive trim does not double-acquire authority (Phase 1218 Step D)', async () => {
+    const { runtime, auditEvents } = makeRuntime(makeMockDialogStore());
+    runtime.proactiveShouldBlock = true;
+
+    const msg: Message = { role: 'user', content: 'hello' };
+    const turnPromise = runtime.processWithMessage(msg);
+    await vi.waitUntil(() => runtime.turnStarted, { timeout: 1000 });
+
+    // Internal path should call _proactiveTrimIfNeededImpl while already holding
+    // authority, without triggering a concurrent-acquire violation.
+    expect(auditEvents.some((e) => e[0] === RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_CONCURRENT)).toBe(false);
+
+    runtime.turnRelease!();
+    await turnPromise;
+  });
+
+  it('stop awaits active proactive trim before shutting down dependencies (Phase 1218 Step D)', async () => {
+    const { runtime } = makeRuntime(makeMockDialogStore());
+    runtime.proactiveShouldBlock = true;
+
+    const taskSystemShutdown = vi.spyOn((runtime as any).taskSystem, 'shutdown');
+    const contractClose = vi.spyOn((runtime as any).contractManager, 'close');
+    const llmClose = vi.spyOn((runtime as any).llm, 'close');
+
+    const trimPromise = runtime.proactiveTrimIfNeeded([], 'sp', []);
+    await vi.waitUntil(() => runtime.proactiveStarted, { timeout: 1000 });
+
+    const stopPromise = runtime.stop();
+
+    // Give stop() a chance to proceed; dependencies must remain open while the
+    // active dialog mutation operation is in flight.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(taskSystemShutdown).not.toHaveBeenCalled();
+    expect(contractClose).not.toHaveBeenCalled();
+    expect(llmClose).not.toHaveBeenCalled();
+
+    runtime.proactiveRelease!();
+    await Promise.all([trimPromise, stopPromise]);
+
+    expect(taskSystemShutdown).toHaveBeenCalled();
+    expect(contractClose).toHaveBeenCalled();
+    expect(llmClose).toHaveBeenCalled();
   });
 });
