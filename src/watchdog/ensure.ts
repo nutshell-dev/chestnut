@@ -9,7 +9,7 @@
  */
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isWatchdogAlive } from './watchdog-pid.js';
-import { startCommand as rawStartCommand } from './watchdog-cli.js';
+import { spawnWatchdogCandidate } from './spawn.js';
 import { ensureAuditWired } from './audit-wiring.js';
 export { ensureAuditWired };
 
@@ -25,5 +25,5 @@ export async function ensureWatchdog(
 ): Promise<void> {
   ensureAuditWired(fsFactory);
   if (isWatchdogAlive(fsFactory)) return; // throws WatchdogPidForeignWorkspaceError if foreign
-  await rawStartCommand(fsFactory);
+  await spawnWatchdogCandidate(fsFactory);
 }

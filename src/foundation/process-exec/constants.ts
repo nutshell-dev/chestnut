@@ -46,7 +46,7 @@ export const PROCESS_EXEC_DEFAULT_MAX_BUFFER = 1024 * 1024;
  *
  * Value: 1000 = POSIX 行业 SIGTERM grace period（systemd / kubelet / Docker
  * stack 最小 graceful 单位）.
- * 与 `WATCHDOG_SIGKILL_GRACE_MS = 500` (watchdog/watchdog-cli.ts) 故意值不同：
+ * 与 `WATCHDOG_SIGKILL_GRACE_MS = 500` (cli/commands/watchdog-cli.ts) 故意值不同：
  *   - EXEC:    1000ms — user process、POSIX 行业
  *   - WATCHDOG: 500ms — watchdog daemon、更快 cleanup
  */

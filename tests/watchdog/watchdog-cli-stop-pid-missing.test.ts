@@ -89,7 +89,7 @@ vi.mock('timers/promises', () => ({
 // ============================================================================
 // Imports (after mocks)
 // ============================================================================
-import { stopCommand } from '../../src/watchdog/watchdog-cli.js';
+import { stopCommand } from '../../src/cli/commands/watchdog-cli.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 

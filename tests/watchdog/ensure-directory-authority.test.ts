@@ -25,7 +25,7 @@ import {
   commitOwnership,
   WATCHDOG_ACTIVE_DIR,
 } from '../../src/watchdog/watchdog-ownership.js';
-import { startCommand } from '../../src/watchdog/watchdog-cli.js';
+import { spawnWatchdogCandidate } from '../../src/watchdog/spawn.js';
 
 let spawnCount = 0;
 
@@ -53,12 +53,13 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   buildLLMConfig: vi.fn(),
 }));
 
-vi.mock('../../src/watchdog/watchdog-cli.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-cli.js')>();
+vi.mock('../../src/watchdog/spawn.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/watchdog/spawn.js')>();
   return {
     ...actual,
-    startCommand: vi.fn().mockImplementation(async () => {
+    spawnWatchdogCandidate: vi.fn().mockImplementation(async () => {
       spawnCount++;
+      return process.pid;
     }),
   };
 });
@@ -70,15 +71,16 @@ describe('ensureWatchdog 目录 authority', () => {
   const originalRoot = process.env.CHESTNUT_ROOT;
   const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-  /** mock startCommand 模拟子进程 commit：winner 占 active、并发 loser 不改 active */
-  function mockStartCommandSimulatesChildCommit(): void {
+  /** mock spawnWatchdogCandidate 模拟子进程 commit：winner 占 active、并发 loser 不改 active */
+  function mockSpawnSimulatesChildCommit(): void {
     spawnCount = 0;
-    vi.mocked(startCommand).mockImplementation(async () => {
+    vi.mocked(spawnWatchdogCandidate).mockImplementation(async () => {
       spawnCount++;
       const chestnutFs = new NodeFileSystem({ baseDir: chestnutDir });
       const record = newWatchdogAttempt(process.pid);
       prepareCandidate(chestnutFs, record);
-      commitOwnership(chestnutFs, record); // foreign_owned 时不改 active
+      commitOwnership(chestnutFs, record);
+      return process.pid;
     });
   }
 
@@ -130,7 +132,7 @@ describe('ensureWatchdog 目录 authority', () => {
   });
 
   it('未活 → spawn candidate；子进程 commit 后出现唯一 active owner', async () => {
-    mockStartCommandSimulatesChildCommit();
+    mockSpawnSimulatesChildCommit();
 
     await ensureWatchdog(fsFactory);
 
@@ -139,7 +141,7 @@ describe('ensureWatchdog 目录 authority', () => {
   });
 
   it('并发 caller 可 spawn 多个短命 candidate、磁盘上仍恰好一个 active owner', async () => {
-    mockStartCommandSimulatesChildCommit();
+    mockSpawnSimulatesChildCommit();
 
     await Promise.all([ensureWatchdog(fsFactory), ensureWatchdog(fsFactory), ensureWatchdog(fsFactory)]);
 
@@ -157,7 +159,7 @@ describe('ensureWatchdog 目录 authority', () => {
     const { seedLegacyWatchdogCallerLock } = await import('../helpers/watchdog-legacy-fixtures.js');
     const legacy = seedLegacyWatchdogCallerLock(chestnutDir, process.pid);
 
-    mockStartCommandSimulatesChildCommit();
+    mockSpawnSimulatesChildCommit();
     await ensureWatchdog(fsFactory);
 
     expect(spawnCount).toBe(1);

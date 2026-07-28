@@ -91,11 +91,10 @@ import {
   isWatchdogAlive,
   getWatchdogEntryPath,
   runWatchdogLoop,
-  startCommand,
-  stopCommand,
   loadWatchdogState,
   saveWatchdogState,
 } from '../../src/watchdog/watchdog.js';
+import { startCommand, stopCommand } from '../../src/cli/commands/watchdog-cli.js';
 import { motionRestartStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';

@@ -10,7 +10,7 @@ import { isWatchdogAlive, WatchdogPidForeignWorkspaceError } from '../../src/wat
 import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, WATCHDOG_ACTIVE_DIR,
 } from '../../src/watchdog/watchdog-ownership.js';
-import { startCommand } from '../../src/watchdog/watchdog-cli.js';
+import { startCommand } from '../../src/cli/commands/watchdog-cli.js';
 import { setAuditWriter, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';

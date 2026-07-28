@@ -1,34 +1,26 @@
 /**
- * @module L6.Watchdog.Cli
+ * @module L6.CLI.WatchdogCli
  * Watchdog CLI subcommands — start + stop
  */
-
-import { getWorkspaceRoot } from '../core/claw-topology/index.js';
-import { spawnDetached, kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as defaultIsPidArgvMatching } from '../foundation/process-exec/index.js';
-import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
-import type { WatchdogProcessDeps } from './types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { setTimeout } from 'timers/promises';
-import type { FileSystem } from '../foundation/fs/index.js';
+import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
+import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as defaultIsPidArgvMatching } from '../../foundation/process-exec/index.js';
+import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
+import type { WatchdogProcessDeps } from '../../watchdog/types.js';
 import {
-  getWatchdogEntryPath,
-} from './watchdog-context.js';
+  getWatchdogEntryPath, getAuditWriter,
+} from '../../watchdog/watchdog-context.js';
 import {
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
-} from './watchdog-pid.js';
-import { CliError } from '../cli/errors.js';
-import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { getAuditWriter } from './watchdog-context.js';
-import { formatErr } from '../foundation/node-utils/index.js';
+} from '../../watchdog/watchdog-pid.js';
+import { WATCHDOG_AUDIT_EVENTS } from '../../watchdog/audit-events.js';
+import { spawnWatchdogCandidate } from '../../watchdog/spawn.js';
+import { CliError } from '../errors.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;
-
-/**
- * startCommand: 等 PID 文件写入的 poll attempts 上限.
- * Derivation: 100ms × 30 = 3s 总 timeout / 配 WATCHDOG_POLL_INTERVAL_MS=100 /
- * 比 LOCK_ACQUIRE_TIMEOUT_MS=3000 同值 / 给 daemon spawn 完成 PID 写入足够时间.
- */
-const WATCHDOG_START_MAX_ATTEMPTS = 30;
 
 /**
  * stopCommand: 等 SIGTERM 后 daemon 退出的 poll attempts 上限.
@@ -47,15 +39,12 @@ const WATCHDOG_STOP_MAX_ATTEMPTS = 50;
  */
 const WATCHDOG_SIGKILL_GRACE_MS = 500;
 
-/** 1:1 保 watchdog.ts:514-543 / startCommand；phase 1203 Step C: 统一 candidate 语义 ——
- *  所有入口只 spawn candidate，单实例仲裁在被 spawn 子进程的目录 rename commit；
- *  下方 poll 的成功条件是出现合法且 alive 的 active owner，不要求自己的 child 获胜 */
+/** Spawn watchdog candidate + CLI 外壳（console 输出 + CliError 错误格式）。
+ *  核心 spawn + poll 委托 spawnWatchdogCandidate（watchdog/spawn.ts）。 */
 export async function startCommand(
   fsFactory: (baseDir: string) => FileSystem,
   _deps?: WatchdogProcessDeps,
 ): Promise<void> {
-  const watchdogEntryPath = getWatchdogEntryPath(fsFactory);
-
   // 幂等：本 workspace 的 watchdog 已在运行则直接返回
   try {
     if (isWatchdogAlive(fsFactory)) {
@@ -74,43 +63,24 @@ export async function startCommand(
     throw err;
   }
 
-  // spawn watchdog，显式传 CHESTNUT_ROOT
-  const chestnutRoot = getWorkspaceRoot();
-  // phase 518 (review-round4 CLI M3、phase 458 gap 补完): 显式传 cwd 防子进程继承
-  // watchdog-cli process.cwd（test/multi-workspace 污染）。phase 458 只覆盖 motion
-  // restart spawn、本 phase 补 initial watchdog spawn 同款。
-  spawnDetached('node', [watchdogEntryPath], {
-    env: { ...process.env, CHESTNUT_ROOT: chestnutRoot },
-    cwd: chestnutRoot,
-  });
-
-  // 等待 PID 文件写入
-  let attempts = 0;
-  while (!isWatchdogAlive(fsFactory) && attempts < WATCHDOG_START_MAX_ATTEMPTS) {
-    await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
-    attempts++;
-  }
-
-  const pid = getWatchdogPid(fsFactory);
-  if (pid) {
+  try {
+    const pid = await spawnWatchdogCandidate(fsFactory);
     console.log(`Watchdog started (PID: ${pid})`);
-  } else {
-    // phase 324 H2: throw CliError 让 wrapper 映射真退出码、不再 exit 0 静默
+  } catch (err) {
     throw new CliError(
-      `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
-      `Check daemon log under .chestnut/logs/.`,
+      `Watchdog failed to start within 3s. Check daemon log under .chestnut/logs/.`,
       1,
     );
   }
 }
 
-/** 1:1 保 watchdog.ts:545-580 / stopCommand */
+/** Stop watchdog daemon. */
 export async function stopCommand(
   fsFactory: (baseDir: string) => FileSystem,
   deps?: WatchdogProcessDeps,
 ): Promise<void> {
   const pid = getWatchdogPid(fsFactory);
-  
+
   if (!pid || !isWatchdogAlive(fsFactory)) {
     // phase 804: PID file missing/stale → pgrep fallback to find running watchdog
     let actualPid: number | null = null;
@@ -167,9 +137,9 @@ export async function stopCommand(
     console.log('Watchdog stopped');
     return;
   }
-  
+
   console.log(`Stopping watchdog (PID: ${pid})...`);
-  
+
   try {
     (deps?.kill ?? defaultKill)(pid, 'TERM');
   } catch (err) {
@@ -177,14 +147,14 @@ export async function stopCommand(
     // phase 472 (review N3-L): observability — SIGTERM 失败 emit audit
     getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGTERM_FAILED, `pid=${pid}`, `error=${formatErr(err)}`);
   }
-  
+
   // Wait up to 5s
   let attempts = 0;
   while (isWatchdogAlive(fsFactory) && attempts < WATCHDOG_STOP_MAX_ATTEMPTS) {
     await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
     attempts++;
   }
-  
+
   if (isWatchdogAlive(fsFactory)) {
     console.log('Watchdog still alive, sending SIGKILL...');
     try {
@@ -196,7 +166,7 @@ export async function stopCommand(
     }
     await setTimeout(WATCHDOG_SIGKILL_GRACE_MS);
   }
-  
+
   // Phase 1203 Step E: 同上 —— 仅 legacy 输入兼容清理，active 目录留由 owner 自己 retire
   // （SIGKILL 未优雅退出时留作 stale，由下一 candidate generation-guarded recovery）。
   removeWatchdogPid(fsFactory);

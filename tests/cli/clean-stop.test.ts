@@ -29,7 +29,7 @@ describe('Phase 86: clean stop 生命周期修复', () => {
     'watchdog-log.ts',
     'watchdog-state.ts',
     'watchdog-cron.ts',
-    'watchdog-cli.ts',
+    'spawn.ts',
   ];
   const watchdogSource = watchdogFiles
     .map(f => fs.readFileSync(path.join(watchdogDir, f), 'utf-8'))

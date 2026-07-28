@@ -14,7 +14,7 @@ describe('eslint custom rule: no-console-in-business-path (phase 340)', () => {
       // allowlist: cli/**
       { code: 'console.log("hello");', filename: 'src/cli/commands/init.ts' },
       // allowlist: watchdog/**
-      { code: 'console.warn("warn");', filename: 'src/watchdog/watchdog-cli.ts' },
+      { code: 'console.warn("warn");', filename: 'src/cli/commands/watchdog-cli.ts' },
       // allowlist: foundation/audit/**
       { code: 'console.error("err");', filename: 'src/foundation/audit/writer.ts' },
       // allowlist: daemon-entry.ts

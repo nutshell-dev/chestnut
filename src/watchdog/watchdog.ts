@@ -13,7 +13,7 @@
  * - watchdog-log.ts       log + audit + inbox message（4 function）
  * - watchdog-state.ts     state 持久化（4 function）
  * - watchdog-cron.ts      maybeCronClawInactivity + maybeCronClawCrash（2 业务）
- * - watchdog-cli.ts       startCommand + stopCommand（2 cli）
+ * - spawn.ts             spawnWatchdogCandidate（spawn + poll 原语，不含 CLI）
  *
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
  */
@@ -566,7 +566,3 @@ export {
 export {
   maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
 } from './watchdog-cron.js';
-
-export {
-  startCommand, stopCommand,
-} from './watchdog-cli.js';

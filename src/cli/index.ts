@@ -27,7 +27,8 @@ import {
 } from './commands/motion.js';
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
-import { runWatchdogLoop, startCommand as watchdogStart, stopCommand as watchdogStop } from '../watchdog/watchdog.js';
+import { runWatchdogLoop } from '../watchdog/watchdog.js';
+import { startCommand as watchdogStart, stopCommand as watchdogStop } from './commands/watchdog-cli.js';
 import { DAEMON_LOG } from '../daemon/constants.js';
 import { createConfigCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
