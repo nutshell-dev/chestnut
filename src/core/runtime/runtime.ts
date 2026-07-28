@@ -18,7 +18,7 @@ import type { MessageFormatterRegistry } from '../../foundation/messaging/index.
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
 import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
-import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/index.js';
+import { loadReadFileState, clearReadFileState, persistReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
@@ -830,6 +830,10 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         },
         onStepComplete: async (stepCount) => {
           await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
+          // Phase 1229 Step A: after the complete step's dialog snapshot is saved, commit the
+          // aggregated read-state once. FileTool owns the entry/schema and persistence primitive;
+          // Runtime owns the boundary timing. Order is fixed: dialog → read-state.
+          await persistReadFileState(this.execContext);
           // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
           // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
           // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）

@@ -147,4 +147,33 @@ describe('file-state-persist', () => {
     expect(baseCtx.readFileState.size).toBe(0);
     // No disk delete attempt for subagent
   });
+
+  it('Phase 1229 Step A: sequential persists reflect the latest aggregated Map state', async () => {
+    baseCtx.readFileState.set('a.md', { hash: 'ha', timestamp: 1, isFullRead: true });
+    await persistReadFileState(baseCtx as ExecContext);
+
+    baseCtx.readFileState.set('b.md', { hash: 'hb', timestamp: 2, isFullRead: false });
+    await persistReadFileState(baseCtx as ExecContext);
+
+    const onDisk = await fs.readFile(path.join(tempDir, READ_STATE_FILE), 'utf-8');
+    const parsed = JSON.parse(onDisk);
+    expect(parsed.version).toBe(1);
+    expect(parsed.entries).toHaveProperty('a.md');
+    expect(parsed.entries).toHaveProperty('b.md');
+  });
+
+  it('Phase 1229 Step A: clear immediately after a non-awaited persist deletes the file (no drain needed)', async () => {
+    baseCtx.readFileState.set('a.md', { hash: 'h', timestamp: 1, isFullRead: true });
+
+    // Intentionally do not await persist before clear.
+    persistReadFileState(baseCtx as ExecContext);
+    await clearReadFileState(baseCtx as ExecContext);
+
+    // Because there is no background writer chain, clear deletes the disk file directly.
+    const exists = await fs.access(path.join(tempDir, READ_STATE_FILE))
+      .then(() => true)
+      .catch(() => false);
+    expect(exists).toBe(false);
+    expect(baseCtx.readFileState.size).toBe(0);
+  });
 });

@@ -1,8 +1,11 @@
 /**
- * phase 1452 (F-NEXT.3 治理): Runtime restart e2e — readFileState persist→load→gate 行为契约验证。
+ * phase 1452 (F-NEXT.3 治理) + Phase 1229 Step A: Runtime restart e2e — readFileState persist→load→gate 行为契约验证。
  *
- * 模拟 daemon 进程 A 持有 ctx A、read tool 触发 persist → 进程 A 终止 → 进程 B 启 ctx B + load 磁盘 →
- * write tool 在 ctx B 用 restored state 做 gate 决策、跨"restart"行为契约连续。
+ * 模拟 daemon 进程 A 持有 ctx A、read tool 更新 Map → 在完整 step 边界 persist → 进程 A 终止 →
+ * 进程 B 启 ctx B + load 磁盘 → write tool 在 ctx B 用 restored state 做 gate 决策、跨"restart"行为契约连续。
+ *
+ * Phase 1229 Step A: read tool no longer triggers its own persist. The test explicitly calls
+ * persistReadFileState once to simulate the Runtime step-boundary commit.
  *
  * 全 NodeFileSystem 真磁盘、非 mock = e2e 名副其实（per 编码规范「让代码经历从未走过的路径」）。
  */
@@ -71,11 +74,11 @@ describe('Runtime restart gate e2e (phase 1452 / F-NEXT.3)', () => {
   it('case 1: Runtime A read → disk persist → Runtime B load → state map matches', async () => {
     await fs.writeFile(path.join(clawDir, 'clawspace/small.md'), 'hello world');
 
-    // Runtime A：read 触发 persist (fire-and-forget in helper; await explicitly for deterministic e2e)
+    // Runtime A：read 只同步更新 Map；模拟 step 边界一次性 persist
     const { ctx: ctxA } = await makeCtx(clawDir, true);
     const readRes = await readTool.execute({ path: 'small.md' }, ctxA);
     expect(readRes.success).toBe(true);
-    await persistReadFileState(ctxA);  // flush async persist for test determinism
+    await persistReadFileState(ctxA);  // Runtime step-boundary commit
 
     const stateA = ctxA.readFileState.get('clawspace/small.md');
     expect(stateA?.isFullRead).toBe(true);
@@ -103,7 +106,7 @@ describe('Runtime restart gate e2e (phase 1452 / F-NEXT.3)', () => {
     // A: full read
     const { ctx: ctxA } = await makeCtx(clawDir, true);
     await readTool.execute({ path: 'x.md' }, ctxA);
-    await persistReadFileState(ctxA);  // flush
+    await persistReadFileState(ctxA);  // step-boundary commit
 
     // B: load + overwrite
     const { ctx: ctxB } = await makeCtx(clawDir, true);
@@ -122,7 +125,7 @@ describe('Runtime restart gate e2e (phase 1452 / F-NEXT.3)', () => {
     // A: read
     const { ctx: ctxA } = await makeCtx(clawDir, true);
     await readTool.execute({ path: 'y.md' }, ctxA);
-    await persistReadFileState(ctxA);  // flush
+    await persistReadFileState(ctxA);  // step-boundary commit
 
     // external modify between A teardown and B startup
     await new Promise(r => setTimeout(r, MTIME_TICK_GUARD_MS));  // mtime tick guard (cross-platform ms precision)
@@ -148,7 +151,7 @@ describe('Runtime restart gate e2e (phase 1452 / F-NEXT.3)', () => {
     // A: partial read (offset 10, limit 5 → not full)
     const { ctx: ctxA } = await makeCtx(clawDir, true);
     await readTool.execute({ path: 'long.md', offset: 10, limit: 5 }, ctxA);
-    await persistReadFileState(ctxA);  // flush
+    await persistReadFileState(ctxA);  // step-boundary commit
     const stateA = ctxA.readFileState.get('clawspace/long.md');
     expect(stateA?.isFullRead).toBe(false);
 

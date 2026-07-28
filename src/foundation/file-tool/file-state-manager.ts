@@ -5,22 +5,21 @@
  * Centralizes the overwrite-gate state mutations that were previously scattered across
  * read.ts / write.ts / edit.ts / multi_edit.ts. Each tool now calls exactly one helper
  * with semantics declared by the function name; the helper handles hash + map.set + any
- * prev-state inheritance rules + audit emission + persistence.
+ * prev-state inheritance rules + audit emission.
  *
  * Design constraint (per phase 1437): edit/multi_edit must NOT promote `isFullRead` —
  * the tool's internal full-file read is private; claw only saw what `read` returned.
  * This rule is encapsulated in `recordEditResult` and not duplicated at call sites.
  *
- * phase 1443: each mutation now emits `READ_FILE_STATE_RECORDED` audit and (best-effort)
- * persists the Map to `<clawDir>/read-state.json`. Persist is fire-and-forget — failures
- * audit `READ_FILE_STATE_PERSIST_FAILED` but don't block tool result.
+ * Phase 1229 Step A: Map mutation is synchronous and provisional within a step.
+ * Runtime calls FileTool's persistence primitive once after a complete step's
+ * dialog snapshot has been saved. No fire-and-forget persist or Promise-chain
+ * lives in this file.
  */
 
 import type { ExecContext } from '../tools/index.js';
 import { computeContentHash } from './file-hash.js';
-import { persistReadFileState } from './file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from '../node-utils/index.js';
 
 /**
  * Record a `read` tool invocation result into the gate state map.
@@ -50,14 +49,6 @@ export function recordReadResult(
     `path=${resolvedPath}`,
     `isFullRead=${isFullRead}`,
   );
-  persistReadFileState(ctx).catch(err =>
-    ctx.auditWriter?.write(
-      FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=read`,
-      `path=${resolvedPath}`,
-      `reason=${formatErr(err)}`,
-    )
-  );
 }
 
 /**
@@ -83,14 +74,6 @@ export function recordWriteResult(
     `op=write`,
     `path=${resolvedPath}`,
     `isFullRead=true`,
-  );
-  persistReadFileState(ctx).catch(err =>
-    ctx.auditWriter?.write(
-      FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=write`,
-      `path=${resolvedPath}`,
-      `reason=${formatErr(err)}`,
-    )
   );
 }
 
@@ -122,13 +105,5 @@ export function recordEditResult(
     `op=edit`,
     `path=${resolvedPath}`,
     `isFullRead=${isFullRead}`,
-  );
-  persistReadFileState(ctx).catch(err =>
-    ctx.auditWriter?.write(
-      FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=edit`,
-      `path=${resolvedPath}`,
-      `reason=${formatErr(err)}`,
-    )
   );
 }

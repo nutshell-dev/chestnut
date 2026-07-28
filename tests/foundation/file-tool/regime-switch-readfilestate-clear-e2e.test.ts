@@ -1,10 +1,14 @@
 /**
- * phase 1452 (F-NEXT.4 治理): performRegimeSwitch + readFileState clear hook 端到端验证。
+ * phase 1452 (F-NEXT.4 治理) + Phase 1229 Step A: performRegimeSwitch + readFileState clear hook 端到端验证。
  *
  * phase 1443 已落:
  *   - PerformRegimeSwitchOpts 新增 onSwitchComplete? callback
  *   - performRegimeSwitch 末尾 await onSwitchComplete?.()
  *   - Runtime._performRegimeSwitch 注入 () => clearReadFileState(this.execContext)
+ *
+ * Phase 1229 Step A: clear no longer drains a background Promise-chain. Tool mutations only
+ * update the in-memory Map; Runtime calls persist once per complete step. Therefore
+ * clearReadFileState can directly delete the disk file.
  *
  * 本 phase 验证:
  *   1. 当 performRegimeSwitch 成功提交时、onSwitchComplete 被调用

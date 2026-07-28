@@ -5,10 +5,14 @@
  * phase 1443 introduction:
  *   - Treats readFileState as run-time information that must survive daemon restart
  *     (M#4「持久化一切信息到磁盘、运行时句柄从磁盘信息重建」).
- *   - Triggered by FileStateManager helpers after every mutation (best-effort, audit on failure).
  *   - Loaded by Runtime.initialize() on startup.
  *   - Cleared by regime-switch hook (state is dialog-scoped from claw's perspective).
  *   - Skipped for subagent contexts (ctx.persistReadFileState !== true → early return).
+ *
+ * Phase 1229 Step A: persistence is no longer triggered by individual tool mutations.
+ * Runtime calls `persistReadFileState(ctx)` once after a complete step's dialog snapshot
+ * has been saved. This file therefore does not hold an in-flight Promise-chain or drain
+ * logic; clear can delete the disk file directly because there is no background writer.
  *
  * Format v1: JSON with `{ version, updated_at, entries: { <path>: FileState } }`.
  * Path: `read-state.json` relative to fs baseDir (Assembly wires baseDir = clawDir for main claw fs).
@@ -31,12 +35,9 @@ interface PersistFormatV1 {
   entries: Record<string, FileState>;
 }
 
-// phase 220 Step A: per-ctx in-flight persist tracker.
-// recordReadResult/recordWriteResult/recordEditResult fire persistReadFileState as fire-and-forget;
-// without serialization, a background persist can resolve AFTER clearReadFileState (called by
-// regime-switch hook), re-creating the on-disk file we just deleted.
-// All persist + clear ops chain through this WeakMap so clear awaits any pending persist.
-const inflightPersist = new WeakMap<ExecContext, Promise<void>>();
+// Phase 1229 Step A: no in-flight persist tracker. Tool mutations are synchronous Map updates;
+// Runtime calls this function once per complete step after dialog save. There is no background
+// writer that could re-create the file after clear.
 
 async function _doPersistReadFileState(ctx: ExecContext): Promise<void> {
   const payload: PersistFormatV1 = {
@@ -65,18 +66,13 @@ async function _doPersistReadFileState(ctx: ExecContext): Promise<void> {
  *
  * Subagent contexts (no `persistReadFileState` flag) skip entirely.
  *
- * phase 220: serialized per ctx via inflightPersist chain so clearReadFileState can drain
- * any pending writes before delete (prevents race where fire-and-forget resolves after clear).
+ * Phase 1229 Step A: this is the FileTool-owned persistence primitive. Runtime owns the
+ * timing and calls it once per complete step after dialog save. No Promise-chain is
+ * constructed here.
  */
 export async function persistReadFileState(ctx: ExecContext): Promise<void> {
   if (!ctx.persistReadFileState) return;
-  const prev = inflightPersist.get(ctx);
-  const next = (async () => {
-    if (prev) await prev.catch(() => { /* silent: prev persist's own error path already audits READ_FILE_STATE_PERSIST_FAILED in _doPersistReadFileState; we only need to serialize ordering, not re-report */ });
-    await _doPersistReadFileState(ctx);
-  })();
-  inflightPersist.set(ctx, next);
-  return next;
+  await _doPersistReadFileState(ctx);
 }
 
 /**
@@ -197,14 +193,6 @@ export async function clearReadFileState(ctx: ExecContext): Promise<void> {
     ctx.readFileState.clear();
   }
   if (!ctx.persistReadFileState) return;
-  // phase 220 Step A: drain any pending fire-and-forget persist before delete.
-  // Otherwise a persist started by recordReadResult earlier in the dialog may resolve
-  // AFTER our delete, re-creating read-state.json post-regime-switch.
-  const pending = inflightPersist.get(ctx);
-  if (pending) {
-    await pending.catch(() => { /* silent: pending persist failures already audit READ_FILE_STATE_PERSIST_FAILED inside _doPersistReadFileState; drain only needs ordering */ });
-    inflightPersist.delete(ctx);
-  }
   try {
     await ctx.fs.delete(READ_STATE_FILE);
   } catch (err) {
