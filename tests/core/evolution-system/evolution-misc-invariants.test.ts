@@ -218,9 +218,9 @@ describe('system-contract-factory', () => {
         clawContractManagerFactory: factorySpy,
       };
 
-      const result = await evolutionSystem.runRetroForContract(contractId, ctx);
+      const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
-      expect(result.status).toBe('finished');
+      expect(result.status).toBe('submitted');
       expect(factorySpy).toHaveBeenCalledTimes(1);
       expect(factorySpy).toHaveBeenCalledWith(
         path.join(clawsBaseDir, targetClaw),
@@ -231,7 +231,7 @@ describe('system-contract-factory', () => {
       await fs.rm(tmpBase, { recursive: true, force: true });
     });
 
-    it('factory error makes runRetroForContract reject (not silent swallow)', async () => {
+    it('factory error makes notifyContractCompleted reject (not silent swallow)', async () => {
       const fixtures = await setupFixtures();
       const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, evolutionSystem, store, tmpBase } = fixtures;
 
@@ -250,7 +250,7 @@ describe('system-contract-factory', () => {
         clawContractManagerFactory: factorySpy,
       };
 
-      await expect(evolutionSystem.runRetroForContract(contractId, ctx)).rejects.toThrow('contract-factory-fail');
+      await expect(evolutionSystem.notifyContractCompleted(contractId, ctx)).rejects.toThrow('contract-factory-fail');
       expect(factorySpy).toHaveBeenCalledTimes(1);
 
       await fs.rm(tmpBase, { recursive: true, force: true });
@@ -260,7 +260,7 @@ describe('system-contract-factory', () => {
 
 describe('system-clawfs-factory', () => {
   describe('EvolutionSystem — clawFsFactory injection path (caller DIP enforce)', () => {
-    it('runRetroForContract uses ctx.clawFsFactory to build clawFs (no bare new L1)', async () => {
+    it('notifyContractCompleted uses ctx.clawFsFactory to build clawFs (no bare new L1)', async () => {
       const fixtures = await setupFixtures();
       const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, targetClaw, evolutionSystem, store, tmpBase } = fixtures;
 
@@ -286,16 +286,16 @@ describe('system-clawfs-factory', () => {
         }),
       };
 
-      const result = await evolutionSystem.runRetroForContract(contractId, ctx);
+      const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
-      expect(result.status).toBe('finished');
+      expect(result.status).toBe('submitted');
       expect(factory).toHaveBeenCalledTimes(1);
       expect(factory).toHaveBeenCalledWith(path.join(clawsBaseDir, targetClaw));
 
       await fs.rm(tmpBase, { recursive: true, force: true });
     });
 
-    it('factory error makes runRetroForContract reject (not silent swallow)', async () => {
+    it('factory error makes notifyContractCompleted reject (not silent swallow)', async () => {
       const fixtures = await setupFixtures();
       const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, evolutionSystem, store, tmpBase } = fixtures;
 
@@ -323,7 +323,7 @@ describe('system-clawfs-factory', () => {
         }),
       };
 
-      await expect(evolutionSystem.runRetroForContract(contractId, ctx)).rejects.toThrow('factory-fail');
+      await expect(evolutionSystem.notifyContractCompleted(contractId, ctx)).rejects.toThrow('factory-fail');
       expect(factory).toHaveBeenCalledTimes(1);
 
       await fs.rm(tmpBase, { recursive: true, force: true });

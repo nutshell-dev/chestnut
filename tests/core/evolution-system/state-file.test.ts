@@ -146,15 +146,15 @@ describe('EvolutionSystem disk-state dispatch', () => {
     expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
   });
 
-  describe('runRetroForContract legacy mapping', () => {
-    it('submitted -> finished', async () => {
+  describe('notifyContractCompleted disk-state mapping', () => {
+    it('submitted is returned directly', async () => {
       fixtures = await setupFixtures();
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
       await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
 
-      const result = await evolutionSystem.runRetroForContract(contractId, ctx);
-      expect(result.status).toBe('finished');
+      const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
+      expect(result.status).toBe('submitted');
       expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
     });
 
@@ -163,19 +163,18 @@ describe('EvolutionSystem disk-state dispatch', () => {
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
       await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
-      await evolutionSystem.runRetroForContract(contractId, ctx);
+      await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
-      const result = await evolutionSystem.runRetroForContract(contractId, ctx);
+      const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
       expect(result.status).toBe('already_submitted');
     });
 
-    it('missing_work_item -> skipped_index_missing', async () => {
+    it('missing work item is returned directly', async () => {
       fixtures = await setupFixtures();
       const { contractId, ctx, evolutionSystem } = fixtures;
 
-      const result = await evolutionSystem.runRetroForContract(contractId, ctx);
-      expect(result.status).toBe('skipped_index_missing');
-      expect(result.detail).toBe('missing work item');
+      const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
+      expect(result.status).toBe('missing_work_item');
     });
   });
 

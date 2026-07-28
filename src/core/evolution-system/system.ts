@@ -30,16 +30,11 @@ export interface EvolutionSystemDeps {
 
 export interface RetroResult {
   status:
-    | 'finished'
-    | 'skipped_index_missing'
-    | 'skipped_missing_completed_at'
-    | 'error'
-    | 'blocked'
-    // Phase 1206 new disk-state dispositions
     | 'submitted'
     | 'already_submitted'
     | 'already_dispatching'
-    | 'missing_work_item';
+    | 'missing_work_item'
+    | 'error';
   detail?: string;
   taskId?: string;
   reason?: string;
@@ -66,7 +61,7 @@ export interface ClawFactories {
   clawContractManagerFactory: (clawDir: string, targetClaw: string, fs: FileSystem) => ContractSystem;
 }
 
-/** 调用方便组合：runRetroForContract 一次性收到 motion 资源 + claw factory 两组语义。 */
+/** Context for retrospective review: motion resources + claw factories. */
 export interface MotionReviewContext extends MotionResources, ClawFactories {
   /**
    * Phase 1206 Step D: legacy pending-retrospective migration callbacks.
@@ -140,55 +135,21 @@ export class EvolutionSystem {
       return { status: 'error', detail: 'dispatching_row_lost' };
     }
 
-    const prepared = await this._buildPreparedRetroTask(item, ctx);
-    let scheduled: { taskId: string; disposition: 'created' | 'existing' };
-    try {
-      scheduled = await this.deps.taskSystem.schedulePrepared('subagent', prepared);
-    } catch (e) {
-      this.deps.audit.write(
-        RETRO_AUDIT_EVENTS.SCHEDULE_FAILED,
-        `contractId=${contractId}`,
-        `taskId=${item.task_id}`,
-        `error=${formatErr(e)}`,
-      );
-      return { status: 'error', detail: 'schedule_failed' };
-    }
-
-    try {
-      await this.store.markSubmitted(contractId);
-    } catch (e) {
-      this.deps.audit.write(
-        RETRO_AUDIT_EVENTS.RETRO_DISPATCH_SUBMITTED_FAILED,
-        `contractId=${contractId}`,
-        `taskId=${scheduled.taskId}`,
-        `reason=${formatErr(e)}`,
-      );
-      return { status: 'error', detail: 'mark_submitted_failed' };
-    }
-
-    return { status: 'submitted', taskId: scheduled.taskId };
+    return this.submitDispatching(item, ctx);
   }
 
   /**
-   * Legacy entry point retained for backward compatibility during Step C.
-   * Maps new disk-state dispositions to the previous RetroResult shape.
+   * Single path for submitting a dispatching row. Keeps the row in dispatching
+   * on schedule/markSubmitted failure so recovery can retry.
    */
-  async runRetroForContract(
-    contractId: ContractId,
+  private async submitDispatching(
+    item: RetrospectiveWorkItemV1,
     ctx: MotionReviewContext,
   ): Promise<RetroResult> {
-    const result = await this.notifyContractCompleted(contractId, ctx);
-    // Compatibility mapping for existing callers/tests.
-    switch (result.status) {
-      case 'submitted':
-        return { ...result, status: 'finished' };
-      case 'already_dispatching':
-        return { status: 'blocked', reason: 'already_dispatching' };
-      case 'missing_work_item':
-        return { status: 'skipped_index_missing', detail: 'missing work item' };
-      default:
-        return result;
-    }
+    const prepared = await this._buildPreparedRetroTask(item, ctx);
+    const scheduled = await this.deps.taskSystem.schedulePrepared('subagent', prepared);
+    await this.store.markSubmitted(item.contract_id);
+    return { status: 'submitted', taskId: scheduled.taskId };
   }
 
   /**
@@ -209,14 +170,25 @@ export class EvolutionSystem {
     );
 
     let recovered = 0;
+    let failed = migration.failed;
     const dispatching = await this.store.listDispatching();
     for (const item of dispatching) {
       try {
-        const result = await this.notifyContractCompleted(item.contract_id, ctx);
+        const result = await this.submitDispatching(item, ctx);
         if (result.status === 'submitted' || result.status === 'already_submitted') {
           recovered++;
+        } else {
+          failed++;
+          this.deps.audit.write(
+            RETRO_AUDIT_EVENTS.RETRO_RECOVERY_FAILED,
+            `contractId=${item.contract_id}`,
+            `state=dispatching`,
+            `reason=${result.status}`,
+            `detail=${result.detail ?? ''}`,
+          );
         }
       } catch (e) {
+        failed++;
         this.deps.audit.write(
           RETRO_AUDIT_EVENTS.RETRO_RECOVERY_FAILED,
           `contractId=${item.contract_id}`,
@@ -234,9 +206,19 @@ export class EvolutionSystem {
           const result = await this.notifyContractCompleted(item.contract_id, ctx);
           if (result.status === 'submitted' || result.status === 'already_submitted') {
             driven++;
+          } else {
+            failed++;
+            this.deps.audit.write(
+              RETRO_AUDIT_EVENTS.RETRO_RECOVERY_FAILED,
+              `contractId=${item.contract_id}`,
+              `state=ready`,
+              `reason=${result.status}`,
+              `detail=${result.detail ?? ''}`,
+            );
           }
         }
       } catch (e) {
+        failed++;
         this.deps.audit.write(
           RETRO_AUDIT_EVENTS.RETRO_RECOVERY_FAILED,
           `contractId=${item.contract_id}`,
@@ -249,14 +231,14 @@ export class EvolutionSystem {
     this.deps.audit.write(
       RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
       `migrated=${migration.migrated}`,
-      `failed=${migration.failed}`,
+      `failed=${failed}`,
       `recovered=${recovered}`,
       `driven=${driven}`,
     );
 
     return {
       migrated: migration.migrated,
-      failed: migration.failed,
+      failed,
       recovered,
       driven,
     };

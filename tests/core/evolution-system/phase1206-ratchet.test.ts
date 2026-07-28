@@ -65,19 +65,16 @@ describe('phase1206 architecture ratchet', () => {
     expect(hits.trim()).toBe('');
   });
 
-  it('forbids runRetroForContract references outside evolution-system/system.ts', () => {
+  it('forbids runRetroForContract references anywhere in src', () => {
     const hits = grepRecurse([
       'runRetroForContract',
       'src',
     ]);
 
-    const allowedFile = 'src/core/evolution-system/system.ts';
-
     const violations = hits
       .split('\n')
       .map(relativeFileFromHit)
-      .filter(Boolean)
-      .filter(file => file !== allowedFile);
+      .filter(Boolean);
 
     expect(violations).toEqual([]);
   });
@@ -96,11 +93,11 @@ describe('phase1206 architecture ratchet', () => {
     const tmpDir = path.join(ROOT, 'src', '.ratchet-tmp');
     fs.mkdirSync(tmpDir, { recursive: true });
     const tmpFile = path.join(tmpDir, 'synthetic-violation.ts');
-    fs.writeFileSync(tmpFile, '// clawspace/pending-retrospective/by-contract/synthetic.json\n');
+    fs.writeFileSync(tmpFile, '// runRetroForContract\n');
 
     try {
       const hits = grepRecurse([
-        'clawspace/pending-retrospective/by-contract',
+        'runRetroForContract',
         'src/.ratchet-tmp',
       ]);
 

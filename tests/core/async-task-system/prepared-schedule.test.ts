@@ -51,7 +51,6 @@ function makePrepared(overrides?: Partial<PreparedSubagentSchedule>): PreparedSu
     createdAt: '2026-07-28T00:00:00.000Z',
     payload: { ...makeBasePayload(), ...overrides?.payload },
     ...overrides,
-    payload: { ...makeBasePayload(), ...overrides?.payload },
   };
 }
 

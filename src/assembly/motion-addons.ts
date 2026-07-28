@@ -216,6 +216,7 @@ export async function createMotionAddons(
                     `source=contract_observer`,
                     `reason=${formatErr(e)}`,
                   );
+                  throw e;
                 }
               }
             : undefined,

@@ -119,18 +119,24 @@ vi.mock('../../src/core/memory/index.js', () => ({
   MEMORY_DIR: 'memory',
 }));
 
+let capturedContractObserverDeps: any;
+const capturedTaskSystems: any[] = [];
+
 vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
   const mockRunContractObserver = vi.fn();
   return {
     runContractObserver: mockRunContractObserver,
     CONTRACT_OBSERVER_CRON_TIMEOUT_MS: 5 * 60_000,
-    createContractObserverJob: vi.fn((deps, globalConfig) => ({
-      name: 'contract-observer',
-      enabled: globalConfig.cron.jobs.contract_observer.enabled,
-      schedule: globalConfig.cron.jobs.contract_observer.schedule,
-      handler: (signal: AbortSignal) => mockRunContractObserver({ ...deps, signal }),
-      timeoutMs: 5 * 60_000,
-    })),
+    createContractObserverJob: vi.fn((deps, globalConfig) => {
+      capturedContractObserverDeps = deps;
+      return {
+        name: 'contract-observer',
+        enabled: globalConfig.cron.jobs.contract_observer.enabled,
+        schedule: globalConfig.cron.jobs.contract_observer.schedule,
+        handler: (signal: AbortSignal) => mockRunContractObserver({ ...deps, signal }),
+        timeoutMs: 5 * 60_000,
+      };
+    }),
   };
 });
 
@@ -155,7 +161,7 @@ vi.mock('../../src/core/evolution-system/index.js', () => ({
   EvolutionSystem: vi.fn(() => ({ notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }), init: vi.fn().mockResolvedValue(undefined) })),
   createEvolutionSystem: vi.fn(() => ({
     notifyContractCompleted: vi.fn(async (_contractId: string, ctx: any) => {
-      // Simulate the real path where factory is called (evolution-system/system.ts:232)
+      // Simulate the real path where factory is called (evolution-system/system.ts)
       ctx.clawContractManagerFactory('/tmp/test-claw', 'test-claw', {} as any);
       return { status: 'submitted' };
     }),
@@ -181,7 +187,11 @@ vi.mock('../../src/core/contract/manager.js', () => ({
 }));
 
 vi.mock('../../src/core/async-task-system/system.js', () => ({
-  AsyncTaskSystem: vi.fn(() => ({ initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() })),
+  AsyncTaskSystem: vi.fn(() => {
+    const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() };
+    capturedTaskSystems.push(instance);
+    return instance;
+  }),
 }));
 
 vi.mock('../../src/core/dialog/injector.js', () => ({
@@ -281,6 +291,7 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
     capturedContractCallback = undefined;
+    capturedContractObserverDeps = undefined;
     createContractSystemCalls = [];
   });
 
@@ -292,7 +303,7 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
 
     // There should be at least 2 createContractSystem calls:
     // 1. main contract manager (line 233)
-    // 2. factory call inside runRetroForContract
+    // 2. factory call inside notifyContractCompleted
     expect(createContractSystemCalls.length).toBeGreaterThanOrEqual(2);
 
     // Find the main call (deps.clawDir === clawDir)
@@ -421,6 +432,7 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
     capturedContractCallback = undefined;
+    capturedTaskSystems.length = 0;
   });
 
   it('does not throw when evolutionSystem missing (defensive guard)', async () => {
@@ -454,7 +466,7 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
     );
   });
 
-  it('emits CONTRACT_COMPLETED_HANDLER_FAILED when notifyContractCompleted rejects (phase 1206 Step D)', async () => {
+  it('rethrows the original error after audit when notifyContractCompleted rejects (phase 1206 Step E)', async () => {
     const mockNotify = vi.fn().mockRejectedValue(new Error('retro dispatch failed'));
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       notifyContractCompleted: mockNotify,
@@ -465,7 +477,7 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
     await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
 
     expect(capturedContractCallback).toBeDefined();
-    await expect(capturedContractCallback!('test-contract-id')).resolves.toBeUndefined();
+    await expect(capturedContractCallback!('test-contract-id')).rejects.toThrow('retro dispatch failed');
 
     expect(mockNotify).toHaveBeenCalledTimes(1);
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -473,8 +485,136 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
       'contractId=test-contract-id',
       expect.stringContaining('retro dispatch failed'),
     );
+
+    // Phase 1206 Step E: motion-only registration; post-processor bound to evolutionSystem
+    const taskSystem = capturedTaskSystems.at(-1);
+    expect(taskSystem).toBeDefined();
+    const retroPostProcessorCalls = taskSystem.addPostProcessor.mock.calls.filter(
+      (c: any[]) => c[0] === 'summon-contract-extract' || c[0] === 'dispatch-contract-extract',
+    );
+    expect(retroPostProcessorCalls.length).toBe(2);
+    const boundRegister = retroPostProcessorCalls[0][1];
+    expect(typeof boundRegister).toBe('function');
   });
 });
 });
 
 
+
+
+describe('assemble-evolution-stepE-boundaries', () => {
+  const baseClawConfig = {
+    max_steps: 30,
+    tool_profile: 'full',
+    subagent_max_steps: 10,
+    max_concurrent_tasks: 5,
+  };
+
+  const motionBaseConfig = {
+    identity: 'motion' as const,
+    clawId: 'motion',
+    clawDir: '/tmp/motion',
+    globalConfig: buildTestGlobalConfig({
+      cron: { enabled: true, tick_interval_ms: 1000 },
+      watchdog: { disk_warning_mb: 500 },
+      motion: {
+        heartbeat_interval_ms: 5000,
+        max_steps: 30,
+        max_concurrent_tasks: 5,
+      },
+      tool_timeout_ms: 30000,
+    }),
+    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
+  };
+
+  const clawBaseConfig = {
+    identity: 'claw' as const,
+    clawId: 'claw-a',
+    clawDir: '/tmp/claw-a',
+    globalConfig: buildTestGlobalConfig({
+      cron: { enabled: true, tick_interval_ms: 1000 },
+      watchdog: { disk_warning_mb: 500 },
+      motion: {
+        heartbeat_interval_ms: 5000,
+        max_steps: 30,
+        max_concurrent_tasks: 5,
+      },
+      tool_timeout_ms: 30000,
+    }),
+    clawConfig: baseClawConfig,
+  };
+
+  function makeEvolutionSystemMock(overrides?: { notifyContractCompleted?: any }) {
+    return {
+      notifyContractCompleted: overrides?.notifyContractCompleted ?? vi.fn().mockResolvedValue({ status: 'submitted' }),
+      registerRetrospective: vi.fn().mockResolvedValue(undefined),
+      init: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuditWrite.mockClear();
+    mockSnapshot.init.mockResolvedValue({ ok: true });
+    mockSnapshot.commit.mockResolvedValue({ ok: true });
+    capturedContractCallback = undefined;
+    capturedContractObserverDeps = undefined;
+    capturedTaskSystems.length = 0;
+    (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => makeEvolutionSystemMock());
+  });
+
+  afterEach(() => {
+    (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it('non-motion assembly does not register retrospective post-processor', async () => {
+    (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => undefined);
+
+    await assemble(clawBaseConfig, { createSkillSystem: mockSkillFactory });
+
+    const taskSystem = capturedTaskSystems.at(-1);
+    expect(taskSystem).toBeDefined();
+    const retroPostProcessorCalls = taskSystem.addPostProcessor.mock.calls.filter(
+      (c: any[]) => c[0] === 'summon-contract-extract' || c[0] === 'dispatch-contract-extract',
+    );
+    expect(retroPostProcessorCalls.length).toBe(0);
+  });
+
+  it('motion contractManager.onContractCompleted callback rethrows the original error', async () => {
+    const mockNotify = vi.fn().mockRejectedValue(new Error('motion self callback failed'));
+    (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      makeEvolutionSystemMock({ notifyContractCompleted: mockNotify }),
+    );
+
+    await assemble(motionBaseConfig, { createSkillSystem: mockSkillFactory });
+
+    expect(capturedContractCallback).toBeDefined();
+    await expect(capturedContractCallback!('test-contract-id')).rejects.toThrow('motion self callback failed');
+
+    expect(mockAuditWrite).toHaveBeenCalledWith(
+      'contract_completed_handler_failed',
+      'contractId=test-contract-id',
+      expect.stringContaining('motion self callback failed'),
+    );
+  });
+
+  it('contract observer bridge callback rethrows the original error', async () => {
+    const mockNotify = vi.fn().mockRejectedValue(new Error('observer bridge failed'));
+    (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      makeEvolutionSystemMock({ notifyContractCompleted: mockNotify }),
+    );
+
+    await assemble(motionBaseConfig, { createSkillSystem: mockSkillFactory });
+
+    expect(capturedContractObserverDeps).toBeDefined();
+    expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();
+    await expect(capturedContractObserverDeps.onCompletedContract('claw-a', 'test-contract-id')).rejects.toThrow('observer bridge failed');
+
+    expect(mockAuditWrite).toHaveBeenCalledWith(
+      'contract_completed_handler_failed',
+      'contractId=test-contract-id',
+      'source=contract_observer',
+      expect.stringContaining('observer bridge failed'),
+    );
+  });
+});

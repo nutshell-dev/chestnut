@@ -166,14 +166,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     }
   }
 
-  // Phase 1206 Step D: wire summon contract-extract post-processor to durable retrospective registration.
-  // Must happen after taskSystem and evolutionSystem are constructed.
-  const summonContractExtractPostProcessor = createSummonContractExtractPostProcessor(
-    evolutionSystem?.registerRetrospective.bind(evolutionSystem) ??
-      (async (_input) => { /* non-motion: no-op; summon should not run on claw */ }),
-  );
-  taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
-  taskSystem.addPostProcessor('dispatch-contract-extract', summonContractExtractPostProcessor);
 
   // Phase 230 / phase 281 Step B: wire SummonVerifyPolicy into ContractSystem
   // 必须在 AsyncTaskSystem 构造完成后注册，以便 policy 通过 taskSystem 加载 task metadata。
@@ -198,6 +190,14 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   contractManager.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 
   if (isMotion && evolutionSystem) {
+    // Phase 1206 Step D: wire summon contract-extract post-processor to durable retrospective registration.
+    // Motion-only: summon should not run on claw, so the post-processor is only registered here.
+    const summonContractExtractPostProcessor = createSummonContractExtractPostProcessor(
+      evolutionSystem.registerRetrospective.bind(evolutionSystem),
+    );
+    taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
+    taskSystem.addPostProcessor('dispatch-contract-extract', summonContractExtractPostProcessor);
+
     motionReviewContext = {
       motionFs: systemFs,
       motionBaseDir: clawDir,
@@ -249,6 +249,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
           `contractId=${contractId}`,
           `reason=${formatErr(e)}`,
         );
+        throw e;
       }
     });
   }
