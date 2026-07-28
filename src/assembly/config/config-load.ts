@@ -21,7 +21,7 @@ import {
   configExists,
 } from './config-loader.js';
 import { getGlobalConfigPath } from './global-config-path.js';
-import { toProviderConfig } from '../../foundation/llm-orchestrator/config-adapter.js';
+import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 

@@ -44,3 +44,5 @@ export type {
   ForumStatusDeps,
 } from './forum-aggregators.js';
 export { formatForumStatusView, humanizeUptime, humanizeAgo } from './forum-formatter.js';
+
+export { STATUS_AUDIT_EVENTS } from './audit-events.js';

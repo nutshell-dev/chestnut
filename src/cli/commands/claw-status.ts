@@ -36,7 +36,7 @@ import {
   formatTaskView,
   formatStorageView,
 } from '../../core/status-service/index.js';
-import { STATUS_AUDIT_EVENTS } from '../../core/status-service/audit-events.js';
+import { STATUS_AUDIT_EVENTS } from '../../core/status-service/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 interface ClawStatusOpts {

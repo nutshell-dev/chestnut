@@ -1,4 +1,4 @@
-import { NodeFileSystem } from './foundation/fs/node-fs.js';
+import { NodeFileSystem } from './foundation/fs/index.js';
 import type { FileSystem } from './foundation/fs/index.js';
 import { createSystemAudit, type AuditLog } from './foundation/audit/index.js';
 import { getClawDir, getNamedSubrootDir } from './core/claw-topology/index.js';

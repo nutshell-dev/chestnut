@@ -15,7 +15,7 @@ import { withCliErrorHandling } from './with-cli-error-handling.js';
 // + foundation/tools (combined ~10s vitest cold load), forcing every CLI subcommand
 // (e.g. `claw daemon`) to pay that cost. Lazy imports defer the cost to the user
 // who actually runs `start` or `init`.
-import { NodeFileSystem } from '../foundation/fs/node-fs.js';
+import { NodeFileSystem } from '../foundation/fs/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { dispatchClawSubcommand, renderClawTopHelp } from './commands/claw-router.js';
 

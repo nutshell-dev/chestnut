@@ -48,3 +48,4 @@ export {
 export { LLMAllProvidersFailedError, LLMTimeoutError, LLMContextExceededError, LLMInvalidRequestError, LLMAuthError, LLMRateLimitError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
+export { toProviderConfig } from './config-adapter.js';

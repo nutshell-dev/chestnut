@@ -2,7 +2,7 @@ import { findByPattern } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { ProcessListUnavailable } from './errors.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ProcessInfo } from '../process-exec/types.js';
+import type { ProcessInfo } from '../process-exec/index.js';
 
 export function findProcesses(ctx: ProcessManagerContext, pattern: string): number[] {
   const escaped = pattern.replace(/[\\.^$*+?()[\]{}|]/g, '\\$&');

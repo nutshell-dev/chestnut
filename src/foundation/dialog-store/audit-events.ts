@@ -5,7 +5,7 @@
  * 字符串值与 phase148 起 events.ts 中央注册表的 SESSION_* 系列等价 / 0 漂移。
  */
 
-import type { IdNamingEntry } from '../audit/types.js';
+import type { IdNamingEntry } from '../audit/index.js';
 
 export const DIALOG_AUDIT_EVENTS = {
   LOAD_FAILED: 'session_load_failed',

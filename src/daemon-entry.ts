@@ -1,4 +1,4 @@
-import { NodeFileSystem } from './foundation/fs/node-fs.js';
+import { NodeFileSystem } from './foundation/fs/index.js';
 import { constructShimAudit, registerShimHandlers } from './daemon-handlers.js';
 import { createDaemonCommand } from './daemon/index.js';
 import { assemble, disassemble } from './assembly/index.js';

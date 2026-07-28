@@ -23,7 +23,7 @@ import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
 } from './errors.js';
-import { PathGuardError } from '../../foundation/fs/types.js';
+import { PathGuardError } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { PERMISSION_AUDIT_EVENTS } from './audit-events.js';

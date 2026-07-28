@@ -22,7 +22,7 @@ import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
-import { toProviderConfig } from '../../foundation/llm-orchestrator/config-adapter.js';
+import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 
 /**

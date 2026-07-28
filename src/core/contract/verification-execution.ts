@@ -14,7 +14,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from './types.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { PathGuardError } from '../../foundation/fs/types.js';
+import { PathGuardError } from '../../foundation/fs/index.js';
 // phase 1490: 不再传 maxSteps、VerifierConfig.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 // phase 1376: contractAbsDir is clawDir, branded
 import {

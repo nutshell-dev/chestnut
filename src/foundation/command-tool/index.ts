@@ -34,3 +34,4 @@ export function createCommandTools(preExecGuard?: PreExecGuard): CommandToolModu
 export { createExecTool, createExecWithHandle, execTool } from './exec.js';
 export { EXEC_TOOL_NAME } from './exec.js';
 export type { ExecWithHandleArgs, PreExecGuard } from './exec.js';
+export { processExecErrorToToolResult } from './exec.js';

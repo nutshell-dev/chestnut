@@ -28,7 +28,7 @@ import {
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { STATUS_AUDIT_EVENTS } from '../../core/status-service/audit-events.js';
+import { STATUS_AUDIT_EVENTS } from '../../core/status-service/index.js';
 
 export async function statusCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
   loadGlobalConfig(deps);

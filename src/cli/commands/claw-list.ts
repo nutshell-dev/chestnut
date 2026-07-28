@@ -21,7 +21,7 @@ import {
   CONTRACT_ACTIVE_DIR,
   CONTRACT_YAML_FILE,
 } from '../../core/contract/index.js';
-import { listArchiveContractLocations, archiveContainerDir } from '../../core/contract/locations.js';
+import { listArchiveContractLocations, archiveContainerDir } from '../../core/contract/index.js';
 import type { ContractSubtaskStats, LegacyPausedContractRef } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
 import { getLastActiveMs } from './claw-shared.js';

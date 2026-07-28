@@ -1,4 +1,4 @@
-import { NodeFileSystem } from './foundation/fs/node-fs.js';
+import { NodeFileSystem } from './foundation/fs/index.js';
 import type { FileSystem } from './foundation/fs/index.js';
 import { runWatchdogLoop, writeWatchdogCrash } from './watchdog/watchdog.js';
 import { DAEMON_LOG } from './daemon/index.js';

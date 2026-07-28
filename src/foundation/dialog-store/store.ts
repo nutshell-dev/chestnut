@@ -19,8 +19,8 @@ import { isFileNotFound } from '../fs/index.js';
 
 import type { Message, ToolUseBlock, ToolResultBlock, ToolDefinition } from '../llm-provider/index.js';
 import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';
-import type { TraceId } from '../audit/types.js';
-import type { AuditLog } from '../audit/types.js';
+import type { TraceId } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid, newUuid, uuidToShort } from '../node-utils/index.js';
 import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';

@@ -4,7 +4,7 @@
  */
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
-import type { TraceId } from '../../foundation/audit/types.js';
+import type { TraceId } from '../../foundation/audit/index.js';
 import {
   estimateTextTokens,
   estimateToolsTokens,

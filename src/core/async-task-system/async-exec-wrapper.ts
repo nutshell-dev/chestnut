@@ -14,7 +14,7 @@ import { getProcessStartTime, ProcessExecError } from '../../foundation/process-
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
-import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
+import { processExecErrorToToolResult } from '../../foundation/command-tool/index.js';
 import { executeToolTask } from './tool-executor.js';
 import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
 import type { SendToolResult, SendFallbackError, WriteInboxAsync } from './result-delivery-types.js';
