@@ -12,7 +12,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
-import { callerTypeToProfile } from '../permissions/caller-types.js';
+import { callerTypeToProfile } from '../permissions/index.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';

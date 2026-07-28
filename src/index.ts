@@ -16,10 +16,10 @@ export type {
 export type { InboxMessage, OutboxMessage, Priority } from './foundation/messaging/index.js';
 export { PRIORITY_VALUES } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
-export type { CallerType } from './core/permissions/caller-types.js';
+export type { CallerType } from './core/permissions/index.js';
 export {
   PermissionError, PathNotInClawSpaceError, WriteOperationForbiddenError,
-} from './core/permissions/errors.js';
+} from './core/permissions/index.js';
 export { ToolError, ToolTimeoutError } from './foundation/tools/index.js';
 export {
   LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError,
