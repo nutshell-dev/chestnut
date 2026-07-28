@@ -9,6 +9,14 @@ import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 import { makeAudit } from '../helpers/audit.js';
+import { decodeOutbox } from '../../src/foundation/messaging/codec-outbox.js';
+
+const UUID_V4_RE = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+
+function extractUuid(filename: string): string | undefined {
+  const match = filename.match(new RegExp(`(${UUID_V4_RE})\\.md$`, 'i'));
+  return match?.[1];
+}
 
 describe('OutboxWriter', () => {
   let tmpDir: string;
@@ -84,12 +92,46 @@ describe('OutboxWriter', () => {
     expect(stat.isDirectory()).toBe(true);
   });
 
-  it('includes monotonic sequence in filename', async () => {
+  it('write uses a single UUID for envelope id and filename suffix', async () => {
     const { audit } = makeAudit();
     const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
 
     const filePath = await writer.write({ type: 'question', to: 'claw-b', content: '?' });
     const basename = path.basename(filePath);
-    expect(basename).toMatch(/^\d+_question_\d{10}_[a-f0-9]{6}\.md$/);
+    expect(basename).toMatch(new RegExp(`^\\d+_question_${UUID_V4_RE}\\.md$`, 'i'));
+
+    const suffix = extractUuid(basename);
+    expect(suffix).toBeDefined();
+
+    const content = await fsp.readFile(filePath, 'utf-8');
+    const decoded = decodeOutbox(content);
+    expect(decoded.id).toBe(`claw-a-${suffix}`);
+  });
+
+  it('concurrent writes with frozen timestamp produce distinct files and no overwrites', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1234567890123);
+    const { audit } = makeAudit();
+    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
+
+    const writes = Array.from({ length: 5 }, (_, i) =>
+      writer.write({ type: 'report', to: 'claw-b', content: `report ${i}` }),
+    );
+
+    await expect(Promise.all(writes)).resolves.not.toThrow();
+
+    const outboxDir = path.join(tmpDir, 'outbox', 'pending');
+    const files = await fsp.readdir(outboxDir);
+    expect(files).toHaveLength(5);
+
+    const suffixes = files.map(extractUuid);
+    expect(new Set(suffixes).size).toBe(5);
+
+    const contents: string[] = [];
+    for (const file of files) {
+      const content = await fsp.readFile(path.join(outboxDir, file), 'utf-8');
+      const decoded = decodeOutbox(content);
+      contents.push(decoded.content);
+    }
+    expect(contents.sort()).toEqual(['report 0', 'report 1', 'report 2', 'report 3', 'report 4']);
   });
 });

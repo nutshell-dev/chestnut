@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { formatErr, newShortUuid, newUuid } from "../node-utils/index.js";
+import { formatErr, newUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { encodeInbox, parseFrontmatter } from './codec-inbox.js';
@@ -19,8 +19,6 @@ import {
 } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import { sanitizeMessageIdentifier } from './sanitize.js';
-import { getSharedSequenceCounter, formatSeq } from './sequence-counter.js';
-import type { SequenceCounter } from './sequence-counter.js';
 type Result<T, E> =
   | { ok: true; value: T }
   | { ok: false; error: E };
@@ -62,36 +60,22 @@ export function makeInboxPath(absoluteDir: string): InboxPath {
   return absoluteDir as InboxPath;
 }
 
-function deriveClawDirFromInboxDir(inboxDir: string): string {
-  const normalized = path.normalize(inboxDir);
-  // phase 364 D3 (review-2026-06-13): 同 outbox-writer 修。保 leading `/`、
-  // 否则 split+filter+join 形成 doubled path 写错位置。
-  const isAbsolute = path.isAbsolute(normalized);
-  const parts = normalized.split(path.sep).filter(p => p.length > 0);
-  if (parts.length >= 2) {
-    const last = parts[parts.length - 1];
-    const secondLast = parts[parts.length - 2];
-    if (
-      (secondLast === 'inbox' && (last === 'pending' || last === 'dead-letter')) ||
-      (secondLast === 'outbox' && last === 'pending')
-    ) {
-      const joined = parts.slice(0, -2).join(path.sep) || '.';
-      return isAbsolute && joined !== '.' ? path.sep + joined : joined;
-    }
-  }
-  return normalized || '.';
+// Phase 1230: filename identity suffix reuses the same UUID that appears at the
+// end of envelope `id`. If the caller-provided id already ends with a UUID, use
+// it; otherwise generate a fresh UUID and rewrite `id` so envelope identity and
+// filename identity stay single-source.
+const UUID_V4_RE = /[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function extractMessageUuidFromId(id: string): string | undefined {
+  const match = id.match(UUID_V4_RE);
+  return match ? match[0] : undefined;
 }
 
 export class InboxWriter {
-  private readonly counter: SequenceCounter;
-
   private constructor(
     private readonly fs: FileSystem,
     private readonly inboxDir: InboxPath,
     private readonly audit: AuditLog,
-  ) {
-    this.counter = getSharedSequenceCounter(fs, deriveClawDirFromInboxDir(inboxDir));
-  }
+  ) {}
 
   /** Internal factory — only callable within the Messaging module. */
   static __internal_create(fs: FileSystem, inboxDir: InboxPath, audit: AuditLog): InboxWriter {
@@ -104,6 +88,12 @@ export class InboxWriter {
     try {
       // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
       assertMessageShape(msg, this.audit, 'inbox', 'write');
+
+      // Phase 1230: single UUID is the source of both envelope id and filename suffix.
+      const messageUuid = extractMessageUuidFromId(msg.id) ?? newUuid();
+      if (messageUuid !== msg.id) {
+        (msg as { id: string }).id = `${msg.type}-${messageUuid}`;
+      }
 
       // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
       const encoded = encodeInbox(msg, extraFields);
@@ -126,9 +116,7 @@ export class InboxWriter {
       const timestamp = String(Date.now()).padStart(15, '0');
       const priority = msg.priority ?? 'normal';
       const source = sanitizeMessageIdentifier(msg.from || 'unknown', 'from');
-      const seq = await this.counter.next();
-      const randomSuffix = newShortUuid().slice(0, 6);
-      filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
+      filename = `${source}-${timestamp}_${priority}_${messageUuid}.md`;
       const filePath = path.join(this.inboxDir, filename);
       await this.fs.writeAtomic(filePath, encoded);
       emitInboxWritten(this.audit, { file: filename as string, to: msg.to, contractId: msg.metadata?.contract_id });
@@ -146,8 +134,10 @@ export class InboxWriter {
     const timestamp = String(now.getTime()).padStart(15, '0');
     const idPrefix = opts.idPrefix ?? opts.type;
 
+    // Phase 1230: single UUID shared by envelope id and filename suffix.
+    const messageUuid = newUuid();
     const message: InboxMessage = {
-      id: `${idPrefix}-${newUuid()}`,
+      id: `${idPrefix}-${messageUuid}`,
       type: opts.type as InboxMessage['type'],
       from: opts.source,
       to: opts.to ?? '',
@@ -181,9 +171,7 @@ export class InboxWriter {
     try {
       this.fs.ensureDirSync(this.inboxDir);
       const source = sanitizeMessageIdentifier(opts.source || 'unknown', 'source');
-      const seq = this.counter.nextSync();
-      const randomSuffix = newShortUuid().slice(0, 6);
-      filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
+      filename = `${source}-${timestamp}_${priority}_${messageUuid}.md`;
       this.fs.writeAtomicSync(path.join(this.inboxDir, filename), encoded);
     } catch (e) {
       const reason = formatErr(e);

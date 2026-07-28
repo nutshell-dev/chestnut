@@ -5,14 +5,13 @@
  */
 
 import * as path from 'path';
-import { formatErr, newShortUuid, newUuid } from "../node-utils/index.js";
+import { formatErr, newUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { OutboxMessage } from '../messaging/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { encodeOutbox } from './codec-outbox.js';
 import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
-import { SequenceCounter, formatSeq } from './sequence-counter.js';
 import type { ClawId } from '../claw-identity/index.js';
 
 
@@ -48,39 +47,16 @@ export function makeOutboxPath(clawId: ClawId, clawDir: string): OutboxPath {
   return path.join(clawDir, 'outbox', 'pending') as OutboxPath;
 }
 
-function deriveClawDirFromOutboxDir(outboxDir: string): string {
-  const normalized = path.normalize(outboxDir);
-  // phase 364 D3 (review-2026-06-13): 保 leading `/` 给 POSIX absolute path、
-  // 否则 split+filter+join 会 strip 前导分隔符 → SequenceCounter 拿到 relative
-  // path → fs.resolve(baseDir + relative) 形成 doubled path
-  // (<clawDir>/<clawDir-without-slash>/.next-msg-seq)。
-  const isAbsolute = path.isAbsolute(normalized);
-  const parts = normalized.split(path.sep).filter(p => p.length > 0);
-  if (parts.length >= 2) {
-    const last = parts[parts.length - 1];
-    const secondLast = parts[parts.length - 2];
-    if (secondLast === 'outbox' && last === 'pending') {
-      const joined = parts.slice(0, -2).join(path.sep) || '.';
-      return isAbsolute && joined !== '.' ? path.sep + joined : joined;
-    }
-  }
-  return normalized || '.';
-}
-
 /**
  * Outbox message writer
  */
 export class OutboxWriter {
-  private readonly counter: SequenceCounter;
-
   private constructor(
     private readonly clawId: ClawId,
     private readonly outboxDir: OutboxPath,
     private readonly fs: FileSystem,
     private readonly audit: AuditLog,
-  ) {
-    this.counter = new SequenceCounter(fs, deriveClawDirFromOutboxDir(outboxDir));
-  }
+  ) {}
 
   /** Internal factory — only callable within the Messaging module. */
   static __internal_create(clawId: ClawId, outboxDir: OutboxPath, fs: FileSystem, audit: AuditLog): OutboxWriter {
@@ -92,16 +68,12 @@ export class OutboxWriter {
    * @returns Path to the written file
    */
   async write(options: OutboxWriteOptions): Promise<string> {
-    // phase 398 Step A (review N4): await async next() to serialize via
-    // promise chain; nextSync() let two concurrent writes race the
-    // read-modify-write on .next-msg-seq → duplicate seq → filename collision.
-    // try 块包 next() 起、因 next() 内部也调 fs.writeAtomic、失败时同样应 emit
-    // OUTBOX_SEND_FAILED（与 ensureDir/writeAtomic 失败语义一致）。
-    let messageId = `${this.clawId}-<no-seq>`;
+    // Phase 1230: single UUID is the source of both envelope id and filename suffix.
+    const messageUuid = newUuid();
+    let messageId = `${this.clawId}-${messageUuid}`;
     try {
-      const seq = await this.counter.next();
       const message: OutboxMessage = {
-        id: `${this.clawId}-${newUuid()}`,
+        id: messageId,
         type: options.type,
         from: this.clawId,
         to: options.to,
@@ -110,7 +82,6 @@ export class OutboxWriter {
         priority: options.priority ?? 'normal',
         metadata: options.metadata,
       };
-      messageId = message.id;
 
       // phase 273 Step A:
       assertMessageShape(message, this.audit, 'outbox', 'write');
@@ -132,11 +103,10 @@ export class OutboxWriter {
         throw new Error(`Outbox wire size ${wireSize} bytes exceeds cap ${maxBytes} (env CHESTNUT_OUTBOX_BODY_MAX_BYTES to override)`);
       }
 
-      // Generate filename: {timestamp}_{type}_{seq}_{randomSuffix}.md
+      // Generate filename: {timestamp}_{type}_{messageUuid}.md
       const timestamp = Date.now();
       const typeSlug = options.type.toLowerCase();
-      const randomSuffix = newShortUuid().slice(0, 6);
-      const filename = `${timestamp}_${typeSlug}_${formatSeq(seq)}_${randomSuffix}.md`;
+      const filename = `${timestamp}_${typeSlug}_${messageUuid}.md`;
       const filePath = path.join(this.outboxDir, filename);
 
       // Ensure directory exists

@@ -1,6 +1,6 @@
 /**
- * Migration test: legacy uuid8 filenames remain readable after phase 286
- * switches writers to monotonic sequence numbers.
+ * Migration test: legacy uuid8 filenames remain readable after Phase 1230
+ * switches writers to message-identity filenames.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -13,7 +13,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
 
-describe('migration: legacy uuid8 filenames remain readable (phase 286)', () => {
+describe('migration: legacy uuid8 filenames remain readable (Phase 1230)', () => {
   let testDir: string;
   let nfs: NodeFileSystem;
   const audit = { write: () => {} };

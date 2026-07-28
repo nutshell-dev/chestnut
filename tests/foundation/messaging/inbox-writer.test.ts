@@ -13,6 +13,14 @@ import { makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
+import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
+
+const UUID_V4_RE = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+
+function extractUuid(filename: string): string | undefined {
+  const match = filename.match(new RegExp(`(${UUID_V4_RE})\\.md$`, 'i'));
+  return match?.[1];
+}
 
 describe('InboxWriter', () => {
   let testDir: string;
@@ -43,7 +51,7 @@ describe('InboxWriter', () => {
 
   it('write creates a file with correct frontmatter', async () => {
     const msg: InboxMessage = {
-      id: 'test-1',
+      id: `test-${randomUUID()}`,
       type: 'message',
       from: 'sender',
       to: 'claw',
@@ -56,12 +64,59 @@ describe('InboxWriter', () => {
 
     const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^sender-\d+_high_\d{10}_[a-f0-9]{6}\.md$/);
+    expect(files[0]).toMatch(new RegExp(`^sender-\\d{15}_high_${UUID_V4_RE}\\.md$`, 'i'));
+  });
+
+  it('write reuses the UUID at the end of envelope id for filename suffix', async () => {
+    const messageUuid = randomUUID();
+    const msg: InboxMessage = {
+      id: `message-${messageUuid}`,
+      type: 'message',
+      from: 'sender',
+      to: 'claw',
+      content: 'Hello',
+      priority: 'normal',
+      timestamp: new Date().toISOString(),
+    };
+
+    await writer.write(msg);
+
+    const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
+    expect(files).toHaveLength(1);
+    const suffix = extractUuid(files[0]);
+    expect(suffix).toBe(messageUuid);
+
+    const content = await fs.readFile(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
+    const decoded = decodeInbox(content);
+    expect(decoded.id).toBe(`message-${messageUuid}`);
+  });
+
+  it('write generates a fresh UUID and rewrites id when caller id has no UUID', async () => {
+    const msg: InboxMessage = {
+      id: 'test-1',
+      type: 'message',
+      from: 'sender',
+      to: 'claw',
+      content: 'Hello',
+      priority: 'normal',
+      timestamp: new Date().toISOString(),
+    };
+
+    await writer.write(msg);
+
+    const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
+    expect(files).toHaveLength(1);
+    const suffix = extractUuid(files[0]);
+    expect(suffix).toBeDefined();
+
+    const content = await fs.readFile(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
+    const decoded = decodeInbox(content);
+    expect(decoded.id).toBe(`message-${suffix}`);
   });
 
   it('write audits INBOX_WRITTEN on success', async () => {
     const msg: InboxMessage = {
-      id: 'test-1', type: 'message', from: 'sender', to: 'claw',
+      id: `test-${randomUUID()}`, type: 'message', from: 'sender', to: 'claw',
       content: 'Hello', priority: 'normal', timestamp: new Date().toISOString(),
     };
     await writer.write(msg);
@@ -75,7 +130,7 @@ describe('InboxWriter', () => {
     await fs.chmod(pendingDir, 0o555);
 
     const msg: InboxMessage = {
-      id: 'test-1', type: 'message', from: 'sender', to: 'claw',
+      id: `test-${randomUUID()}`, type: 'message', from: 'sender', to: 'claw',
       content: 'Hello', priority: 'normal', timestamp: new Date().toISOString(),
     };
 
@@ -85,6 +140,40 @@ describe('InboxWriter', () => {
     } finally {
       await fs.chmod(pendingDir, 0o755);
     }
+  });
+
+  it('concurrent async writes with frozen timestamp produce distinct files and no overwrites', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1234567890123);
+
+    const writes = Array.from({ length: 5 }, (_, i) => {
+      const msg: InboxMessage = {
+        id: `test-${i}-${randomUUID()}`,
+        type: 'message',
+        from: 'sender',
+        to: 'claw',
+        content: `msg ${i}`,
+        priority: 'normal',
+        timestamp: new Date().toISOString(),
+      };
+      return writer.write(msg);
+    });
+
+    await expect(Promise.all(writes)).resolves.not.toThrow();
+
+    const pendingDir = path.join(testDir, 'inbox', 'pending');
+    const files = await fs.readdir(pendingDir);
+    expect(files).toHaveLength(5);
+
+    const suffixes = files.map(extractUuid);
+    expect(new Set(suffixes).size).toBe(5);
+
+    const contents: string[] = [];
+    for (const file of files) {
+      const content = await fs.readFile(path.join(pendingDir, file), 'utf-8');
+      const decoded = decodeInbox(content);
+      contents.push(decoded.content);
+    }
+    expect(contents.sort()).toEqual(['msg 0', 'msg 1', 'msg 2', 'msg 3', 'msg 4']);
   });
 
   // ─── .writeSync() ────────────────────────────────────────────────────────
@@ -99,7 +188,25 @@ describe('InboxWriter', () => {
 
     const files = fsSync.readdirSync(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^motion-\d{15}_high_\d{10}_[a-f0-9]{6}\.md$/);
+    expect(files[0]).toMatch(new RegExp(`^motion-\\d{15}_high_${UUID_V4_RE}\\.md$`, 'i'));
+  });
+
+  it('writeSync reuses a single UUID for envelope id and filename suffix', () => {
+    writer.writeSync({
+      type: 'ping',
+      source: 'motion',
+      priority: 'normal',
+      body: 'test',
+    });
+
+    const files = fsSync.readdirSync(path.join(testDir, 'inbox', 'pending'));
+    expect(files).toHaveLength(1);
+    const suffix = extractUuid(files[0]);
+    expect(suffix).toBeDefined();
+
+    const content = fsSync.readFileSync(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
+    const decoded = decodeInbox(content);
+    expect(decoded.id).toBe(`ping-${suffix}`);
   });
 
   it('writeSync audits INBOX_WRITTEN on success', () => {
@@ -143,7 +250,7 @@ describe('InboxWriter', () => {
 
   it('readMeta returns ok with meta for valid file', async () => {
     const msg: InboxMessage = {
-      id: 'meta-test', type: 'message', from: 's', to: 'c',
+      id: `meta-test-${randomUUID()}`, type: 'message', from: 's', to: 'c',
       content: 'Body', priority: 'critical', timestamp: new Date().toISOString(),
     };
     await writer.write(msg);
@@ -199,7 +306,7 @@ describe('InboxWriter boundary safety (phase 910)', () => {
 
   it('write rejects path traversal in from field', async () => {
     const msg: InboxMessage = {
-      id: 'x', type: 'message', from: '../../etc', to: 'claw',
+      id: `x-${randomUUID()}`, type: 'message', from: '../../etc', to: 'claw',
       content: 'x', priority: 'normal', timestamp: new Date().toISOString(),
     };
     await expect(writer.write(msg)).rejects.toThrow(/Invalid message identifier/);
@@ -211,3 +318,5 @@ describe('InboxWriter boundary safety (phase 910)', () => {
     ).toThrow(/Invalid message identifier/);
   });
 });
+
+

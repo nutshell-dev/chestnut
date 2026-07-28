@@ -127,8 +127,8 @@ describe('notifyClaw API', () => {
     const files = fsSync.readdirSync(motionInboxDir);
     expect(files.length).toBe(1);
 
-    // Filename convention: <source>-<timestamp>_<priority>_<seq>_<randomSuffix>.md
-    expect(files[0]).toMatch(/^priority_src-\d{15,}_high_\d{10}_[a-f0-9]{6}\.md$/);
+    // Filename convention: <source>-<timestamp>_<priority>_<messageUuid>.md
+    expect(files[0]).toMatch(/^priority_src-\d{15,}_high_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.md$/i);
   });
 
   it('dedup: multiple calls produce multiple distinct files', () => {

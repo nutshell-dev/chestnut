@@ -14,6 +14,8 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
 
+const UUID_V4_RE = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+
 describe('inbox filename source prefix (phase 1047)', () => {
   let testDir: string;
   let nfs: NodeFileSystem;
@@ -35,7 +37,7 @@ describe('inbox filename source prefix (phase 1047)', () => {
 
   it('write() filename contains source prefix from msg.from', async () => {
     const msg: InboxMessage = {
-      id: 'test-1',
+      id: `test-${randomUUID()}`,
       type: 'message',
       from: 'claw-a',
       to: 'claw-b',
@@ -48,7 +50,7 @@ describe('inbox filename source prefix (phase 1047)', () => {
 
     const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^claw-a-\d{15}_normal_\d{10}_[a-f0-9]{6}\.md$/);
+    expect(files[0]).toMatch(new RegExp(`^claw-a-\\d{15}_normal_${UUID_V4_RE}\\.md$`, 'i'));
   });
 
   it('writeSync() filename contains source prefix from opts.source', () => {
@@ -61,6 +63,6 @@ describe('inbox filename source prefix (phase 1047)', () => {
 
     const files = fsSync.readdirSync(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^motion-\d{15}_high_\d{10}_[a-f0-9]{6}\.md$/);
+    expect(files[0]).toMatch(new RegExp(`^motion-\\d{15}_high_${UUID_V4_RE}\\.md$`, 'i'));
   });
 });
