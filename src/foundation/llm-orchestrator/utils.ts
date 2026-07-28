@@ -6,9 +6,8 @@
  * 函数无 this 依赖、纯逻辑、易测试。
  */
 
-import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock } from '../llm-provider/types.js';
-import { makeExternalAbortError, type AbortReason } from '../llm-provider/abort-helper.js';
-import type { StreamChunk } from '../llm-provider/types.js';
+import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock, StreamChunk } from '../llm-provider/index.js';
+import { makeExternalAbortError, type AbortReason } from '../llm-provider/index.js';
 
 /**
  * AbortSignal-aware delay.

@@ -11,7 +11,7 @@ import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import type { Message } from '../llm-provider/types.js';
+import type { Message } from '../llm-provider/index.js';
 import type { SessionData, DialogMarker, RestoreResult } from './types.js';
 import { MarkerNotFoundError, detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';

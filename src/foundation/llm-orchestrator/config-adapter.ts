@@ -5,8 +5,8 @@
  * Content 与 foundation/config/adapters.ts 等同（迁不改）、import path 改自家。
  * phase 298: buildLLMConfig 迁 assembly/config-load.ts (root config 装配业务归 L6 Assembly)。
  */
-import type { ProviderConfig } from '../llm-provider/types.js';
-import { resolvePreset } from '../llm-provider/presets.js';
+import type { ProviderConfig } from '../llm-provider/index.js';
+import { resolvePreset } from '../llm-provider/index.js';
 import type { LLMProviderConfig } from './llm-provider-config-schema.js';
 
 // Convert snake_case to camelCase, resolve preset

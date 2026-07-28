@@ -17,7 +17,7 @@ import { formatErr } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 
-import type { Message, ToolUseBlock, ToolResultBlock, ToolDefinition } from '../llm-provider/types.js';
+import type { Message, ToolUseBlock, ToolResultBlock, ToolDefinition } from '../llm-provider/index.js';
 import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';
 import type { TraceId } from '../audit/types.js';
 import type { AuditLog } from '../audit/types.js';

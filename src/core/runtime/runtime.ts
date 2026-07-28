@@ -17,7 +17,7 @@ import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/ind
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
-import { resolveContextWindow } from '../../foundation/llm-provider/model-context-windows.js';
+import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
 import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/file-state-persist.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';

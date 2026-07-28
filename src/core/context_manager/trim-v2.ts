@@ -11,7 +11,7 @@ import type {
   ToolUseBlock,
   ToolResultBlock,
 } from '../../foundation/llm-provider/index.js';
-import { estimateMessagesTokens } from '../../foundation/llm-provider/token-estimator.js';
+import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
 import {
   CONTEXT_TRIM_STARTED,

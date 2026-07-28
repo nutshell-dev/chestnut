@@ -9,7 +9,7 @@
  * 不 throw（避免破坏 prod write 路径、Path #4 破坏论证）。
  */
 
-import type { Message } from '../llm-provider/types.js';
+import type { Message } from '../llm-provider/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 

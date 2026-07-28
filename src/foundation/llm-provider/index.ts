@@ -48,6 +48,13 @@ export type { InputTokenEstimateOptions, InputTokenEstimate } from './token-esti
 export type { ToolUseId } from './tool-use-id.js';
 export { makeToolUseId } from './tool-use-id.js';
 
+export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from './errors.js';
+export type { LLMErrorCode } from './errors.js';
+
+export { isAbortError } from './is-abort-error.js';
+
+export { resolveContextWindow, DEFAULT_MODEL_CONTEXT_WINDOW } from './model-context-windows.js';
+
 /**
  * LLMProvider interface — single provider call primitive
  *

@@ -7,7 +7,7 @@
  */
 
 
-import type { LLMResponse } from '../llm-provider/types.js';
+import type { LLMResponse } from '../llm-provider/index.js';
 import {
   LLMAllProvidersFailedError,
   LLMError,
@@ -35,7 +35,7 @@ import type { LLMOrchestrator } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { createLLMProvider, type LLMProvider, type AuditSink } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
-import { isAbortError } from '../llm-provider/is-abort-error.js';
+import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
 import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
 

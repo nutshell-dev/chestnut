@@ -7,7 +7,7 @@ import { buildAskMotionCloneFirstMessage } from '../../../templates/prompts/inde
 import { DialogStore } from '../../../foundation/dialog-store/index.js';
 
 import { formatErr } from '../../../foundation/node-utils/index.js';
-import { isAbortError } from '../../../foundation/llm-provider/is-abort-error.js';
+import { isAbortError } from '../../../foundation/llm-provider/index.js';
 export const ASK_MOTION_TOOL_NAME = 'ask_motion' as const;
 
 export const ASK_MOTION_TOOL_DESCRIPTION = `向 Motion 分身提问，获取 Motion 对用户意图、背景、偏好的判断。

@@ -8,7 +8,7 @@ import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import {
   estimateTextTokens,
   estimateToolsTokens,
-} from '../../foundation/llm-provider/token-estimator.js';
+} from '../../foundation/llm-provider/index.js';
 import { trimV2, type AuditWriter, type TrimPolicy, type ContextTrimOutcome } from './trim-v2.js';
 import { CONTEXT_TRIM_ARCHIVED } from './audit-events.js';
 

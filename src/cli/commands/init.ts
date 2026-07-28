@@ -9,7 +9,7 @@ import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
-import { PRESETS } from '../../foundation/llm-provider/presets.js';
+import { PRESETS } from '../../foundation/llm-provider/index.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,

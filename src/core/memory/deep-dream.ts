@@ -8,7 +8,7 @@ import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/in
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
 import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../foundation/messaging/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
-import { estimateTextTokens } from '../../foundation/llm-provider/token-estimator.js';
+import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';

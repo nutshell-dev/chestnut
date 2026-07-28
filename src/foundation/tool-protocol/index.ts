@@ -7,7 +7,7 @@
  * type-only / 无 runtime / 无 audit events
  */
 
-import type { JSONSchema7 } from '../llm-provider/types.js';
+import type { JSONSchema7 } from '../llm-provider/index.js';
 export type ToolProfile = string;
 export type { JSONSchema7 };
 
@@ -50,8 +50,8 @@ export interface ToolResult {
 // backward compat 表面、外部 caller 0 改动。
 // ============================================================================
 
-export type { ToolUseId } from '../llm-provider/tool-use-id.js';
-export { makeToolUseId } from '../llm-provider/tool-use-id.js';
+export type { ToolUseId } from '../llm-provider/index.js';
+export { makeToolUseId } from '../llm-provider/index.js';
 
 // ============================================================================
 // phase 457: PermissionChecker barrel re-export (M#7 接口稳定 / barrel-only)
@@ -64,7 +64,7 @@ export type { PermissionChecker } from './permission.js';
 // phase 1406: CallerSnapshot — caller deep context shape (lazy / declared opt-in)
 // ============================================================================
 
-import type { Message, ToolDefinition } from '../llm-provider/types.js';
+import type { Message, ToolDefinition } from '../llm-provider/index.js';
 
 /**
  * Caller deep context snapshot — system prompt + tool list + dialog messages.
