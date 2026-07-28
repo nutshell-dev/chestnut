@@ -9,6 +9,7 @@ import {
   inspectActivePid,
   inspectSpawning,
   inspectSpawningPid,
+  inspectRetiredGeneration,
   retireGeneration,
   writeStopIntent,
   hasStopIntentForGeneration,
@@ -110,57 +111,84 @@ function inspectTarget(
   | { kind: 'foreign'; expectedGenerationId: string; observedGenerationId: string }
   | { kind: 'malformed_active'; cause: unknown }
   | { kind: 'malformed_spawning'; cause: unknown } {
+  // 稳定空检测：状态只会从 spawning → active 单向移动。若第一次 active 为空后、
+  // spawning 也为空，必须再读一次 active，防止 generation 恰在两次读取间 move。
+  const active1 = inspectActiveLocation(ctx, daemonDir);
+  if (active1.kind !== 'none') return active1;
+
+  const spawning = inspectSpawningLocation(ctx, daemonDir);
+  if (spawning.kind !== 'none') return spawning;
+
+  const active2 = inspectActiveLocation(ctx, daemonDir);
+  return active2;
+}
+
+function inspectActiveLocation(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+):
+  | { kind: 'active'; source: 'active'; generationId: string; pid?: number; startTime?: ProcessStartTime }
+  | { kind: 'none' }
+  | { kind: 'foreign'; expectedGenerationId: string; observedGenerationId: string }
+  | { kind: 'malformed_active'; cause: unknown } {
   const active = inspectActive(ctx, daemonDir);
   if (active.status === 'malformed') return { kind: 'malformed_active', cause: active.cause };
-  if (active.status === 'ok') {
-    const pidFact = inspectActivePid(ctx, daemonDir);
-    if (pidFact.status === 'malformed') return { kind: 'malformed_active', cause: pidFact.cause };
-    if (pidFact.status === 'ok' && pidFact.record.generation_id === active.record.generation_id) {
-      return {
-        kind: 'active',
-        source: 'active',
-        generationId: active.record.generation_id,
-        pid: pidFact.record.pid,
-        startTime: pidFact.record.start_time as ProcessStartTime | undefined,
-      };
-    }
-    // active generation 存在但 pid fact 缺失/不匹配：按foreign处理，不猜状态
+  if (active.status === 'none') return { kind: 'none' };
+
+  const pidFact = inspectActivePid(ctx, daemonDir);
+  if (pidFact.status === 'malformed') return { kind: 'malformed_active', cause: pidFact.cause };
+  if (pidFact.status === 'ok' && pidFact.record.generation_id === active.record.generation_id) {
     return {
-      kind: 'foreign',
-      expectedGenerationId: active.record.generation_id,
-      observedGenerationId: pidFact.status === 'ok' ? pidFact.record.generation_id : 'missing_pid',
+      kind: 'active',
+      source: 'active',
+      generationId: active.record.generation_id,
+      pid: pidFact.record.pid,
+      startTime: pidFact.record.start_time as ProcessStartTime | undefined,
     };
   }
+  // active generation 存在但 pid fact 缺失/不匹配：按 foreign 处理，不猜状态
+  return {
+    kind: 'foreign',
+    expectedGenerationId: active.record.generation_id,
+    observedGenerationId: pidFact.status === 'ok' ? pidFact.record.generation_id : 'missing_pid',
+  };
+}
 
+function inspectSpawningLocation(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+):
+  | { kind: 'spawning'; source: 'spawning'; generationId: string; pid?: number; startTime?: ProcessStartTime }
+  | { kind: 'none' }
+  | { kind: 'foreign'; expectedGenerationId: string; observedGenerationId: string }
+  | { kind: 'malformed_spawning'; cause: unknown } {
   const spawning = inspectSpawning(ctx, daemonDir);
   if (spawning.status === 'malformed') return { kind: 'malformed_spawning', cause: spawning.cause };
-  if (spawning.status === 'ok') {
-    const pidFact = inspectSpawningPid(ctx, daemonDir);
-    if (pidFact.status === 'malformed') return { kind: 'malformed_spawning', cause: pidFact.cause };
-    if (pidFact.status === 'none') {
-      return {
-        kind: 'spawning',
-        source: 'spawning',
-        generationId: spawning.record.generation_id,
-      };
-    }
-    if (pidFact.record.generation_id === spawning.record.generation_id) {
-      return {
-        kind: 'spawning',
-        source: 'spawning',
-        generationId: spawning.record.generation_id,
-        pid: pidFact.record.pid,
-        startTime: pidFact.record.start_time as ProcessStartTime | undefined,
-      };
-    }
+  if (spawning.status === 'none') return { kind: 'none' };
+
+  const pidFact = inspectSpawningPid(ctx, daemonDir);
+  if (pidFact.status === 'malformed') return { kind: 'malformed_spawning', cause: pidFact.cause };
+  if (pidFact.status === 'none') {
     return {
-      kind: 'foreign',
-      expectedGenerationId: spawning.record.generation_id,
-      observedGenerationId: pidFact.record.generation_id,
+      kind: 'spawning',
+      source: 'spawning',
+      generationId: spawning.record.generation_id,
     };
   }
-
-  return { kind: 'none' };
+  if (pidFact.record.generation_id === spawning.record.generation_id) {
+    return {
+      kind: 'spawning',
+      source: 'spawning',
+      generationId: spawning.record.generation_id,
+      pid: pidFact.record.pid,
+      startTime: pidFact.record.start_time as ProcessStartTime | undefined,
+    };
+  }
+  return {
+    kind: 'foreign',
+    expectedGenerationId: spawning.record.generation_id,
+    observedGenerationId: pidFact.record.generation_id,
+  };
 }
 
 async function handleTarget(
@@ -182,6 +210,12 @@ async function handleTarget(
   // 写 intent 后重读目标位置（可能在 spawning → active 之间移动）。
   const current = locateGeneration(ctx, daemonDir, target.generationId);
   if (current.kind === 'retired') {
+    if (!retiredIdentityMatches(ctx, daemonDir, target.generationId)) {
+      return {
+        kind: 'failed',
+        reason: `target generation ${target.generationId} retired directory does not match identity`,
+      };
+    }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.STOP_TARGET_RELOCATED,
       `daemon_dir=${daemonDir}`,
@@ -210,9 +244,9 @@ async function handleTarget(
   }
 
   if (!l1IsAlive(current.pid, current.startTime)) {
-    const retired = retireGeneration(ctx, daemonDir, { generationId: target.generationId }, 'stopped', current.source);
-    if (retired.kind !== 'retired' && retired.kind !== 'collision' && retired.kind !== 'no_generation') {
-      return { kind: 'failed', reason: `retire already-dead target failed: ${retired.kind}` };
+    const disposition = retireStoppedGeneration(ctx, daemonDir, target.generationId, current.source);
+    if (disposition.kind !== 'retired') {
+      return disposition;
     }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOPPED,
@@ -274,6 +308,76 @@ function locateGeneration(
   return { kind: 'missing' };
 }
 
+function retiredIdentityMatches(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  generationId: string,
+): boolean {
+  const inspection = inspectRetiredGeneration(ctx, daemonDir, generationId);
+  return inspection.status === 'ok' && inspection.record.generation_id === generationId;
+}
+
+/**
+ * 将目标 generation retire 到 retired/<generation-id>。处理 locate 与 move 之间的
+ * spawning → active 单向移动：从 spawning retire 得到 no_generation 时，按 identity
+ * 重读 active 并再 retire；从 active retire 丢失或无 retired 证据时 fail-closed。
+ */
+function retireStoppedGeneration(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  generationId: string,
+  source: 'spawning' | 'active',
+): { kind: 'retired' } | { kind: 'failed'; reason: string } {
+  const first = retireGeneration(ctx, daemonDir, { generationId }, 'stopped', source);
+  if (first.kind === 'retired') {
+    return { kind: 'retired' };
+  }
+
+  if (first.kind === 'no_generation') {
+    if (source === 'spawning') {
+      // 唯一允许的后续移动是 spawning → active；重读一次 active。
+      const active = inspectActive(ctx, daemonDir);
+      if (active.status === 'ok' && active.record.generation_id === generationId) {
+        const pidFact = inspectActivePid(ctx, daemonDir);
+        if (pidFact.status === 'ok' && pidFact.record.generation_id === generationId) {
+          const second = retireGeneration(ctx, daemonDir, { generationId }, 'stopped', 'active');
+          if (second.kind === 'retired') {
+            return { kind: 'retired' };
+          }
+          if (second.kind === 'collision' && retiredIdentityMatches(ctx, daemonDir, generationId)) {
+            return { kind: 'retired' };
+          }
+          return { kind: 'failed', reason: `retire active after move failed: ${second.kind}` };
+        }
+      }
+      if (retiredIdentityMatches(ctx, daemonDir, generationId)) {
+        return { kind: 'retired' };
+      }
+      return {
+        kind: 'failed',
+        reason: `target generation ${generationId} moved out of spawning but not to active or retired`,
+      };
+    }
+    // source === 'active'：已定位到 active 后丢失，只能由 retired 证据证明成功。
+    if (retiredIdentityMatches(ctx, daemonDir, generationId)) {
+      return { kind: 'retired' };
+    }
+    return {
+      kind: 'failed',
+      reason: `target generation ${generationId} disappeared from active without retired evidence`,
+    };
+  }
+
+  if (first.kind === 'collision') {
+    if (retiredIdentityMatches(ctx, daemonDir, generationId)) {
+      return { kind: 'retired' };
+    }
+    return { kind: 'failed', reason: `retire collision and retired identity mismatch for ${generationId}` };
+  }
+
+  return { kind: 'failed', reason: `retire failed: ${first.kind}` };
+}
+
 async function stopAndRetire(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
@@ -330,6 +434,12 @@ async function stopAndRetire(
   // 信号发送后再次按 identity 定位目标，然后在真实位置 retire。
   const after = locateGeneration(ctx, daemonDir, generationId);
   if (after.kind === 'retired') {
+    if (!retiredIdentityMatches(ctx, daemonDir, generationId)) {
+      return {
+        kind: 'failed',
+        reason: `target generation ${generationId} retired directory does not match identity`,
+      };
+    }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.STOP_TARGET_RELOCATED,
       `daemon_dir=${daemonDir}`,
@@ -353,19 +463,15 @@ async function stopAndRetire(
       reason: `target generation ${generationId} disappeared after signal without retired evidence`,
     };
   } else {
-    const retired = retireGeneration(ctx, daemonDir, { generationId }, 'stopped', after.source);
-    if (
-      retired.kind !== 'retired' &&
-      retired.kind !== 'collision' &&
-      retired.kind !== 'no_generation'
-    ) {
+    const disposition = retireStoppedGeneration(ctx, daemonDir, generationId, after.source);
+    if (disposition.kind !== 'retired') {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
         `daemon_dir=${daemonDir}`,
         `pid=${current.pid}`,
-        `reason=retire_failed_${retired.kind}`,
+        `reason=retire_failed`,
       );
-      return { kind: 'failed', reason: `retire failed: ${retired.kind}` };
+      return disposition;
     }
   }
 

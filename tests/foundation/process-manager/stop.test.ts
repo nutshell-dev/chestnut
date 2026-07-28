@@ -255,4 +255,76 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     expect(result).toBe(false);
     expect(ctx.kill).not.toHaveBeenCalled();
   });
+
+  it('does not falsely report not_running when generation activates between active and spawning reads', async () => {
+    const { audit } = makeAudit();
+    const clawId = 'stop-lookup-race';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const generationId = 'gen-lookup-race';
+    await writeGeneration(tempDir, daemonDir, 'spawning', generationId, FAKE_LIVE_PID);
+
+    const activeGenerationPath = path.join(getActiveDir(daemonDir), GENERATION_FILE);
+    let moved = false;
+    const originalReadSync = nodeFs.readSync.bind(nodeFs);
+    vi.spyOn(nodeFs, 'readSync').mockImplementation((p) => {
+      if (p === activeGenerationPath && !moved) {
+        moved = true;
+        nodeFs.moveSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
+        const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      }
+      return originalReadSync(p as string);
+    });
+
+    let alive = false;
+    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toBe(true);
+    expect(ctx.kill).not.toHaveBeenCalled();
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
+    expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
+  });
+
+  it('retries retire from active when generation activates between locate and retire', async () => {
+    const { audit } = makeAudit();
+    const clawId = 'stop-retire-race';
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const generationId = 'gen-retire-race';
+    await writeGeneration(tempDir, daemonDir, 'spawning', generationId, FAKE_LIVE_PID);
+
+    const spawningGenerationPath = path.join(getSpawningDir(daemonDir), GENERATION_FILE);
+    let moved = false;
+    let readCount = 0;
+    const originalReadSync = nodeFs.readSync.bind(nodeFs);
+    vi.spyOn(nodeFs, 'readSync').mockImplementation((p) => {
+      if (p === spawningGenerationPath) {
+        readCount++;
+        // 第一次：inspectTarget 读 spawning generation
+        // 第二次：locateGeneration 读 spawning generation
+        // 第三次：retireGeneration 读 spawning generation（触发 move）
+        if (readCount === 3 && !moved) {
+          moved = true;
+          nodeFs.moveSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
+          const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+      }
+      return originalReadSync(p as string);
+    });
+
+    let alive = false;
+    const ctx = { ...makeCtx(audit), l1IsAlive: () => alive };
+
+    const result = await stopProcess(ctx, daemonDir);
+
+    expect(result).toBe(true);
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
+    expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
+    expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
+  });
 });

@@ -324,6 +324,15 @@ export function inspectActiveReady(ctx: ProcessManagerContext, daemonDir: Daemon
   return readReadyFile(ctx.fs, getActiveDir(daemonDir));
 }
 
+/** 读 retired/<generation-id>/generation.json；用于 stop 验证目标 generation 是否已被处置。 */
+export function inspectRetiredGeneration(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  generationId: string,
+): GenerationInspection {
+  return readGenerationFile(ctx.fs, getRetiredDirFor(daemonDir, generationId));
+}
+
 // === Commit (candidate → spawning) ===
 
 /**
