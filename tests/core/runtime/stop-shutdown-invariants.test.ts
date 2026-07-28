@@ -20,21 +20,22 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 
 describe('stop-flush-barrier', () => {
   /**
-   * runtime.stop() awaits pending dialogStore.save() flush (phase 1024 G.3)
+   * runtime.stop() awaits active dialog mutation operation before closing dependencies
+   * (Phase 1218 Step A).
    */
 
   /**
-   * Mock pending flush 完成延迟 (50ms): 等 runtime.stop 调用 getFlushPromise 后 settle.
-   * Derivation: > microtask flush / 给 stop barrier 真等 flush settle 的窗口.
+   * Mock active operation settle delay (50ms): give runtime.stop a window where
+   * it must wait for the active operation before llm.close.
    */
-  const MOCK_FLUSH_SETTLE_MS = 50;
+  const MOCK_OPERATION_SETTLE_MS = 50;
 
-  describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
-    let flushResolved: boolean;
+  describe('runtime.stop active operation barrier (Phase 1218 Step A)', () => {
+    let operationResolved: boolean;
     let llmCloseCalled: boolean;
 
     beforeEach(() => {
-      flushResolved = false;
+      operationResolved = false;
       llmCloseCalled = false;
     });
 
@@ -89,39 +90,42 @@ describe('stop-flush-barrier', () => {
       return runtime;
     }
 
-    it('awaits pending dialogStore.save before llm.close', async () => {
+    it('awaits active dialog operation before llm.close', async () => {
       const mockDialogStore = {
-        getFlushPromise: vi.fn().mockReturnValue(
-          new Promise<void>((resolve) => {
-            setTimeout(() => { flushResolved = true; resolve(); }, MOCK_FLUSH_SETTLE_MS);
-          }),
-        ),
         load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
         save: vi.fn().mockResolvedValue(undefined),
         archive: vi.fn().mockResolvedValue(undefined),
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
+      (runtime as any).initialized = true;
+
+      // Simulate an active operation still in flight when stop() is called.
+      (runtime as any).activeDialogOperation = new Promise<void>((resolve) => {
+        setTimeout(() => { operationResolved = true; resolve(); }, MOCK_OPERATION_SETTLE_MS);
+      });
 
       await runtime.stop();
 
-      expect(flushResolved).toBe(true);
+      expect(operationResolved).toBe(true);
       expect(llmCloseCalled).toBe(true);
-      expect(mockDialogStore.getFlushPromise).toHaveBeenCalled();
     });
 
-    it('does not throw when getFlushPromise rejects (barrier is best-effort)', async () => {
+    it('does not throw when active operation rejects (barrier is best-effort)', async () => {
       const mockDialogStore = {
-        getFlushPromise: vi.fn().mockRejectedValue(new Error('disk full')),
         load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
         save: vi.fn().mockResolvedValue(undefined),
         archive: vi.fn().mockResolvedValue(undefined),
       } as unknown as DialogStore;
 
       const runtime = makeRuntime(mockDialogStore);
+      (runtime as any).initialized = true;
+
+      // Simulate a rejecting active operation.
+      (runtime as any).activeDialogOperation = Promise.reject(new Error('disk full'));
 
       await expect(runtime.stop()).resolves.toBeUndefined();
-      expect(mockDialogStore.getFlushPromise).toHaveBeenCalled();
+      expect(llmCloseCalled).toBe(true);
     });
   });
 });
@@ -276,7 +280,6 @@ describe('shutdown-timeout', () => {
       };
 
       const mockDialogStore = {
-        getFlushPromise: vi.fn().mockResolvedValue(undefined),
         load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),
         save: vi.fn().mockResolvedValue(undefined),
         archive: vi.fn().mockResolvedValue(undefined),
@@ -389,7 +392,6 @@ describe('regime-switch-archive-fail', () => {
         }),
         save: vi.fn().mockResolvedValue(undefined),
         archive: vi.fn().mockResolvedValue(undefined),
-        getFlushPromise: vi.fn().mockResolvedValue(undefined),
         beginTurn: vi.fn().mockResolvedValue(undefined),
         commitTurn: vi.fn().mockResolvedValue(undefined),
         rollbackTurn: vi.fn().mockResolvedValue(undefined),

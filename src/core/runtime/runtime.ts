@@ -105,6 +105,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   /** phase 1343 α-6: current turn-level trace id for cross-module audit correlation */
   private currentTraceId?: TraceId;
 
+  /** Phase 1218 Step A: single active dialog mutation operation join handle */
+  private activeDialogOperation: Promise<unknown> | null = null;
+  /** Phase 1218 Step A: stop gate — once true, new public operations fail-fast */
+  private stopping = false;
+
   /** phase 1343 α-6: expose current trace id for daemon-loop stream callbacks */
   getCurrentTraceId(): TraceId | undefined { return this.currentTraceId; }
 
@@ -343,11 +348,17 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
   /**
    * Graceful shutdown
+   *
+   * Phase 1218 Step A: Runtime owns the active dialog operation lifecycle.
+   * Stop gate prevents new public operations; we abort the current turn,
+   * await the active operation settle, then close downstream dependencies.
    */
   async stop(): Promise<void> {
     // phase 522 C2: 幂等 guard — disassemble 路径 + 测试/异常路径可能重入
     if (this._stopped) return;
     this._stopped = true;
+    // Phase 1218 Step A: reject new public operations and abort current turn
+    this.stopping = true;
     this.abort();
     const timedOut = await this.taskSystem.shutdown(120_000);
     if (timedOut) {
@@ -359,11 +370,21 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         `timeout_ms=120000`,
       );
     }
-    // phase 1024 G.3: await pending dialogStore.save() flush before close
-    // 防 SIGTERM 时半写 dialog 落盘 / DP「外部信号到达不能丢失状态」
-    await this.sessionManager.getFlushPromise().catch(() => {
-      /* save error 已经 audit.SAVE_FAILED emit / barrier 不阻塞 stop */
-    });
+    // Phase 1218 Step A: await active dialog operation settle before closing dependencies.
+    // The original operation promise still propagates its error to its caller;
+    // join here is only for shutdown barrier. Failure to join is audited but does
+    // not block closing downstream resources (best-effort barrier).
+    const active = this.activeDialogOperation;
+    if (active) {
+      try {
+        await active;
+      } catch (e) {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_JOIN_FAILED,
+          `reason=${formatErr(e)}`,
+        );
+      }
+    }
     // phase 324 H5: 关 ContractSystem、abort 仍活的 verifier AbortController 串、
     // await 其 termination promise。否则 SIGTERM 留 verifier LLM stream 泄漏
     // —— 正是 phase 1332 N4 + close() 引入要防的。
@@ -371,6 +392,34 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       /* close error 已 audit emit / barrier 不阻塞 stop */
     });
     await this.llm.close();
+  }
+
+  /**
+   * Phase 1218 Step A: non-queuing dialog mutation operation guard.
+   *
+   * - Rejects new operations while stopping.
+   * - Rejects concurrent public operations (fail-fast + audit).
+   * - Stores the derived join handle so stop() can await the active operation.
+   * - Caller still awaits the original promise and receives its original error.
+   */
+  private async _withDialogOperation<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.stopping) {
+      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_WHILE_STOPPING);
+      throw new Error('Runtime is stopping');
+    }
+    if (this.activeDialogOperation) {
+      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_CONCURRENT);
+      throw new Error('Concurrent dialog operation detected');
+    }
+    const promise = operation();
+    this.activeDialogOperation = promise;
+    try {
+      return await promise;
+    } finally {
+      if (this.activeDialogOperation === promise) {
+        this.activeDialogOperation = null;
+      }
+    }
   }
 
   /**
@@ -871,6 +920,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    *
    * Phase 1158 Step B: transaction 全路径（begin/save/react/commit/rollback）
    * 失败均 resolve 为 TurnResult，不再因 transaction error reject。
+   *
+   * Phase 1218 Step A: public entry guarded by _withDialogOperation.
    */
   async processTurn(
     messages: Message[],
@@ -882,7 +933,21 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.initialized) {
       await this.initialize();
     }
+    return this._withDialogOperation(() => this._processTurnImpl(messages, systemPrompt, toolsForLLM, callbacks, reuseTraceId));
+  }
 
+  /**
+   * Phase 1218 Step A: internal turn implementation. Must only be invoked
+   * inside an active _withDialogOperation guard (either the public processTurn
+   * wrapper or the public processWithMessage wrapper).
+   */
+  private async _processTurnImpl(
+    messages: Message[],
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+    callbacks?: StreamCallbacks,
+    reuseTraceId?: TraceId,
+  ): Promise<TurnResult> {
     const { cleanup } = this._setupTurnContext(reuseTraceId);
     try {
       // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
@@ -937,11 +1002,23 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   /**
    * Process a single synthetic message directly (without draining inbox).
    * Used by daemon-loop for in-process startup trigger — message is never persisted to disk.
+   *
+   * Phase 1218 Step A: public entry guarded by _withDialogOperation. The internal
+   * turn implementation is invoked directly so the two public entries share a
+   * single authority acquisition instead of nesting guards.
    */
   async processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult> {
     if (!this.initialized) {
       await this.initialize();
     }
+    return this._withDialogOperation(() => this._processWithMessageImpl(msg, callbacks));
+  }
+
+  /**
+   * Phase 1218 Step A: internal processWithMessage implementation. Must only be
+   * invoked inside an active _withDialogOperation guard.
+   */
+  private async _processWithMessageImpl(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult> {
     const { traceId, cleanup } = this._setupTurnContext();
     try {
       const loadResult = await this.sessionManager.load();
@@ -960,7 +1037,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       // phase 722: 加 caller col 区分 with_message caller 路径
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-      return await this.processTurn(messages, systemPrompt, tools, callbacks, traceId);
+      return await this._processTurnImpl(messages, systemPrompt, tools, callbacks, traceId);
     } finally {
       cleanup();
     }
@@ -1145,8 +1222,18 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     return trimResult ? trimResult.newMessages : messages;
   }
 
-  /** Reactive context trim for the current session; returns stable outcome for EventLoop routing. */
+  /**
+   * Reactive context trim for the current session; returns stable outcome for EventLoop routing.
+   *
+   * Phase 1218 Step A: this is an independent public mutation operation and must
+   * acquire the dialog operation authority.
+   */
   async reactiveTrim(): Promise<ContextTrimOutcome> {
+    return this._withDialogOperation(() => this._reactiveTrimImpl());
+  }
+
+  /** Phase 1218 Step A: internal reactive trim implementation. */
+  private async _reactiveTrimImpl(): Promise<ContextTrimOutcome> {
     if (!this.contextManagerConfig || !this.sessionManager) {
       return {
         status: 'no_progress',

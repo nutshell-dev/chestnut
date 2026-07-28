@@ -73,6 +73,10 @@ export const RUNTIME_AUDIT_EVENTS = {
   MAX_TOKENS_STATE_A_ORPHAN_DROP: 'max_tokens_state_a_orphan_drop',
   // phase 227: turn_end cross-source completeness audit
   TURN_COMPLETENESS_MISMATCH: 'turn_completeness_mismatch',
+  // Phase 1218 Step A: Runtime dialog mutation authority violations
+  DIALOG_OPERATION_CONCURRENT: 'runtime_dialog_operation_concurrent',
+  DIALOG_OPERATION_WHILE_STOPPING: 'runtime_dialog_operation_while_stopping',
+  DIALOG_OPERATION_JOIN_FAILED: 'runtime_dialog_operation_join_failed',
   // NEW (raw migration phase 272 Step C)
   GUIDANCE_COMPOSER_FAILED: 'guidance_composer_failed',
   // phase 320: LLM config hot-reload via inbox `reload_llm_config` message
