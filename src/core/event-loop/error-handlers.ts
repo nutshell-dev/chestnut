@@ -25,7 +25,7 @@ import {
   WallTimeExceededError,
   ConsecutiveParseErrorsExceededError,
   ConsecutiveMaxTokensToolUseError,
-} from '../agent-executor/errors.js';
+} from '../agent-executor/index.js';
 
 /**
  * EventLoop catch 块状态、handler 可读写以驱动 retry 状态机

@@ -11,7 +11,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { getActiveDir, PID_FILE } from '../../foundation/process-manager/generation.js';
+import { getActiveDir, PID_FILE } from '../../foundation/process-manager/index.js';
 
 import { createDaemonLivenessMonitor } from './chat-viewport-daemon-liveness.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';

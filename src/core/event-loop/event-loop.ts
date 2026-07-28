@@ -14,7 +14,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { Runtime, TurnResult } from '../runtime/index.js';
-import type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';
+import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';

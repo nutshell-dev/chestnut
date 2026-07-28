@@ -6,7 +6,7 @@
 
 import type { Message, ToolDefinition } from '../llm-provider/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
-import type { TraceId } from '../audit/types.js';
+import type { TraceId } from '../audit/index.js';
 
 
 

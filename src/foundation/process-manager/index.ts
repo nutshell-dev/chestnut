@@ -25,3 +25,7 @@ export { createProcessManagerForCLI } from './factories.js';
 export { createAgentProcessManager } from './agent-factory.js';
 export { STATUS_SUBDIR } from './paths.js';
 export { signalCleanStop, clearCleanStop } from './signal-clean-stop.js';
+
+export { getActiveDir, PID_FILE, PROCESS_GENERATION_ENV } from './generation.js';
+export type { ProcessGenerationRecord } from './generation.js';
+export { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';

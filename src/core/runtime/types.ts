@@ -22,7 +22,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
 import type { ContextManagerRuntimeConfig } from '../step-executor/index.js';
-import type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';
+import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 
@@ -117,7 +117,7 @@ export interface RuntimeOptions {
   contextManagerConfig?: ContextManagerRuntimeConfig;
 }
 
-export type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';
+export type { StreamCallbacks } from '../agent-executor/index.js';
 
 export interface TurnResult {
   status: 'success' | 'failed' | 'interrupted';

@@ -13,7 +13,7 @@ import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWrite
 import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
 import { ProcessListUnavailable, PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';
-import { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from '../../foundation/process-manager/constants.js';
+import { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from '../../foundation/process-manager/index.js';
 import { kill, isPidArgvMatching, isAlive } from '../../foundation/process-exec/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
