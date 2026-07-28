@@ -10,7 +10,7 @@
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
-import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
+import { CLAWS_DIR } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { CONTRACT_ARCHIVE_DIR } from './dirs.js';
 import { listArchiveContractLocationsAsync, type ArchiveListEntry } from './locations.js';

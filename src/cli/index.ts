@@ -36,11 +36,11 @@ import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { createDirContext } from '../foundation/audit/index.js';
-import { getChestnutRoot, getClawDir } from '../core/claw-topology/claw-instance-paths.js';
+import { getChestnutRoot, getClawDir } from '../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../assembly/config/config-load.js';
 import { createSummonVerifyPolicy } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';
-import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { resolveChestnutRoot } from '../core/claw-topology/index.js';
 // CLAWS_DIR removed: phase 263
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
