@@ -4,7 +4,7 @@
 
 import type { Tool, ExecContext, ExecutionInfra } from '../../../foundation/tools/index.js';
 import { formatErr } from "../../../foundation/node-utils/index.js";
-import { parseFrontmatterFrame } from "../../../foundation/messaging/frontmatter-frame.js";
+import { parseFrontmatterFrame } from "../../../foundation/messaging/index.js";
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileEntry } from '../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
