@@ -2,9 +2,9 @@ import type { ContractYaml } from '../contract/index.js';
 import type { ContractCreatePolicy, CreatePolicyContext } from '../contract/types.js';
 import { ContractCreatePolicyViolationError } from '../contract/types.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
-import type { SubAgentTask } from '../async-task-system/types.js';
+import type { SubAgentTask } from '../async-task-system/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { makeTaskId, type TaskId } from '../async-task-system/types.js';
+import { makeTaskId, type TaskId } from '../async-task-system/index.js';
 
 // ============================================================================
 // Phase 230: SummonVerifyPolicy — ContractCreatePolicy implementation

@@ -12,7 +12,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
 import { TASKS_SYNC_SPAWN_DIR } from './constants.js';
 // phase 691 Step C: deep import dirs.ts leaf (避 barrel 触发已有 cycle / 同 verifier-job)
-import { TASKS_SYNC_DIR } from '../async-task-system/dirs.js';
+import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import { callerTypeToProfile } from '../permissions/caller-types.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../subagent/index.js';
 

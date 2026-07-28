@@ -1,4 +1,4 @@
-import type { PostProcessor } from '../../async-task-system/post-processors/types.js';
+import type { PostProcessor } from '../../async-task-system/index.js';
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';

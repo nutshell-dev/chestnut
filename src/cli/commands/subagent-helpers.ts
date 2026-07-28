@@ -24,8 +24,8 @@ import {
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
 import { AUDIT_FILE, auditFileContains, auditFileGetMtime, auditFirstTimestamp } from '../../foundation/audit/index.js';
-import type { ShortIdIndex } from '../../core/async-task-system/types.js';
-import { deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/types.js';
+import type { ShortIdIndex } from '../../core/async-task-system/index.js';
+import { deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
 
 
 

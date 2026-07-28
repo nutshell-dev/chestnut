@@ -19,7 +19,7 @@ import type { TurnTracker } from './chat-viewport-types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
-import { type TaskId, makeShortTaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/types.js';
+import { type TaskId, makeShortTaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/index.js';
 import type { DescriptorSink } from './viewport-render-descriptor.js';
 
 

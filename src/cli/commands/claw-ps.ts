@@ -13,7 +13,7 @@ import type {
   MigratedExecTaskInfo,
   TaskReadError,
 } from '../../core/async-task-system/index.js';
-import { deriveShortIdFromTaskId, makeShortTaskId } from '../../core/async-task-system/types.js';
+import { deriveShortIdFromTaskId, makeShortTaskId } from '../../core/async-task-system/index.js';
 
 export async function psCommand(
   deps: {

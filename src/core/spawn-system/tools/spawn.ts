@@ -7,7 +7,7 @@
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import { makeShortTaskId } from '../../async-task-system/types.js';
+import { makeShortTaskId } from '../../async-task-system/index.js';
 import { runSpawnSync, type RunSpawnSyncOptions } from '../system.js';
 import {
   resolveSpawnTemplate,

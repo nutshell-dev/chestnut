@@ -22,8 +22,8 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ContractId } from '../contract/types.js';
 import { makeContractId } from '../contract/types.js';
-import type { FullTaskId } from '../async-task-system/types.js';
-import { makeFullTaskId } from '../async-task-system/types.js';
+import type { FullTaskId } from '../async-task-system/index.js';
+import { makeFullTaskId } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 

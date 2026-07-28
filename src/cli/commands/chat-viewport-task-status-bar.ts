@@ -14,7 +14,7 @@
 
 import { fitLine } from '../utils/string.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
-import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/types.js';
+import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
 
 /** chat-viewport task line shortId 显示截断 cap（viewport UI 业务、与 UUID_SHORT_LEN=8 独立可变）*/
 const VIEWPORT_TASK_ID_DISPLAY_CHARS = 6;

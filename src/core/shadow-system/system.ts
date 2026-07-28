@@ -19,7 +19,7 @@ import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
 import { classifyTaskError } from '../async-task-system/index.js';
 // phase 691 Step C: deep import dirs.ts leaf (避 barrel cycle / 同 verifier-job 模式)
-import { TASKS_SYNC_DIR } from '../async-task-system/dirs.js';
+import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 import { type ToolUseId, makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
