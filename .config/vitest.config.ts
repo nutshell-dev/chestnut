@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 82 file (sync 2026-07-18 / phase 1125 Step C: register claw-stop; prior 85 count stale)
+ * 数量: 83 file (sync 2026-07-28 / Phase 1204 Step H: register stop-real-race.test.ts)
  * Invariant test: tests/design/invariants.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -167,6 +167,7 @@ const VI_MOCK_FILES = [
   // 'tests/foundation/process-manager/spawn-remove-pid-audit.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — kill mock remains but isAlive vi.mock removed.
   // 'tests/foundation/process/stop-race.test.ts',
+  'tests/foundation/process-manager/stop-real-race.test.ts',  // Phase 1204 Step H: vi.mock constants
   // phase 83 (SHA 5a4ca7a9): _stateMap module-level singleton
   // 已解散为 Snapshot instance private state (ML#3 治)，cross-reassemble 走
   // disk persist 唯一路径。snapshot 4 file 移出 ISOLATED。注释保留作历史。
