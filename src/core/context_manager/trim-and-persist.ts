@@ -4,7 +4,7 @@
  */
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
+import type { TraceId } from '../../foundation/audit/types.js';
 import {
   estimateTextTokens,
   estimateToolsTokens,
@@ -14,6 +14,21 @@ import { CONTEXT_TRIM_ARCHIVED } from './audit-events.js';
 
 export type TriggerKind = 'reactive_overflow' | 'proactive_cache_idle';
 
+/**
+ * Phase 1218 Step B: minimal DialogStore mutation capability borrowed by
+ * ContextManager helpers. Only archive() + save() are required; this prevents
+ * helpers from holding a full DialogStore reference as secondary writer.
+ */
+export interface DialogStoreMutationCapability {
+  archive(): Promise<void>;
+  save(snapshot: {
+    systemPrompt: string;
+    messages: Message[];
+    toolsForLLM: ToolDefinition[];
+    trace_id?: TraceId;
+  }): Promise<void>;
+}
+
 export interface TrimAndPersistInputs {
   messages: Message[];
   systemPrompt: string;
@@ -21,7 +36,7 @@ export interface TrimAndPersistInputs {
   contextWindow: number;
   recentWindowMs: number;
   previewBytes: number;
-  dialogStore: DialogStore;
+  dialogStore: DialogStoreMutationCapability;
   audit: AuditWriter;
   triggerKind: TriggerKind;
   policy: TrimPolicy;

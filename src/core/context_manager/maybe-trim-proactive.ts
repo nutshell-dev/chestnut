@@ -4,13 +4,12 @@
  */
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import {
   estimateTextTokens,
   estimateMessagesTokens,
   estimateToolsTokens,
 } from '../../foundation/llm-provider/index.js';
-import { trimAndPersist } from './trim-and-persist.js';
+import { trimAndPersist, type DialogStoreMutationCapability } from './trim-and-persist.js';
 import type { ContextTrimOutcome } from './trim-v2.js';
 import {
   CACHE_TTL_MS,
@@ -30,7 +29,7 @@ export interface MaybeTrimProactiveInputs {
   /** 上次 LLM 调用完成时刻 (ms epoch)；0 = 从未调用过 */
   lastLLMCallAt: number;
 
-  dialogStore: DialogStore;
+  dialogStore: DialogStoreMutationCapability;
   audit: AuditWriter;
 
   /** 注入测试用、默认 Date.now() */
