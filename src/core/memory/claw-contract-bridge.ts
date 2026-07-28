@@ -1,4 +1,4 @@
-import type { ContractId } from '../contract/types.js';
+import type { ContractId } from '../contract/index.js';
 import type { NotifyClawFn } from '../contract/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';

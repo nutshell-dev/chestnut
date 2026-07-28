@@ -1,6 +1,6 @@
 import type { ContractYaml } from '../contract/index.js';
-import type { ContractCreatePolicy, CreatePolicyContext } from '../contract/types.js';
-import { ContractCreatePolicyViolationError } from '../contract/types.js';
+import type { ContractCreatePolicy, CreatePolicyContext } from '../contract/index.js';
+import { ContractCreatePolicyViolationError } from '../contract/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 import type { SubAgentTask } from '../async-task-system/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

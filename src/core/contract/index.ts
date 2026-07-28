@@ -32,6 +32,8 @@ export { contractFootprint, type ContractFootprint, type ContractFootprintOption
 export { buildAuditorPrompt, type AuditorPromptInput } from './auditor-prompt.js';
 
 export {
+  type ContractId,
+  type Contract,
   type ProgressData,
   type VerificationResult,
   type VerifierConfig,
@@ -42,6 +44,7 @@ export {
   type CreateContractOptions,
   ContractCreatePolicyViolationError,
   ContractProgressInvariantViolatedError,
+  makeContractId,
 } from './types.js';
 
 // Phase 724: expose runtime Zod schema so CLI YAML validation uses the same source of truth

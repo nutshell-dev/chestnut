@@ -40,7 +40,7 @@ import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { listMigratedExecTasks } from '../../core/async-task-system/index.js';
 import { parseIntOption } from '../parse-int-option.js';
-import { makeContractId } from '../../core/contract/types.js';
+import { makeContractId } from '../../core/contract/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import { psCommand } from './claw-ps.js';

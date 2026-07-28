@@ -5,7 +5,7 @@ import { formatErr } from '../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
 import type { RegisterRetrospectiveInput } from '../../evolution-system/retrospective-store.js';
-import { makeContractId } from '../../contract/types.js';
+import { makeContractId } from '../../contract/index.js';
 
 /**
  * post-processor 失败 audit 时附带的 raw output 最大字符数（diagnostic 截断 cap）.

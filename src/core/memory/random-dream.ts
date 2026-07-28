@@ -9,7 +9,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { ProgressData } from '../contract/index.js';
-import type { ContractId } from '../contract/types.js';
+import type { ContractId } from '../contract/index.js';
 import { type TaskId, type FullTaskId, type ShortTaskId, type ShortIdIndex, makeShortTaskId } from '../async-task-system/index.js';
 import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';

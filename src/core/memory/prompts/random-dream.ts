@@ -25,7 +25,7 @@
  * ```
  */
 
-import type { ContractId } from '../../contract/types.js';
+import type { ContractId } from '../../contract/index.js';
 
 
 export const RANDOM_DREAM_SYSTEM_PROMPT = `\

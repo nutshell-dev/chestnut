@@ -6,12 +6,12 @@ import * as path from 'path';
 import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
 import { CONTRACT_YAML_FILE, getContractVerificationDir } from '../../core/contract/index.js';
 import type { ContractSystem } from '../../core/contract/index.js';
-import { ContractCreatePolicyViolationError } from '../../core/contract/types.js';
+import { ContractCreatePolicyViolationError } from '../../core/contract/index.js';
 import { getClawDir } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { makeContractId } from '../../core/contract/types.js';
+import { makeContractId } from '../../core/contract/index.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 import { CliError } from '../errors.js';
 

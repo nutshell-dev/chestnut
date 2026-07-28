@@ -15,7 +15,7 @@ import { CliError } from '../errors.js';
 import { getContractMetadata, readContractYamlLightweight } from '../../core/contract/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/index.js';
-import type { ContractId } from '../../core/contract/types.js';
+import type { ContractId } from '../../core/contract/index.js';
 
 /** claw-trace separator console.log 输出截断 cap（防 terminal 过长）*/
 const SEP_DISPLAY_CHARS = 50;

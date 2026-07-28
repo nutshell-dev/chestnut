@@ -29,7 +29,7 @@ import type { Message } from '../../foundation/llm-provider/index.js';
  */
 export const RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT = 10 * 60_000;
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
-import type { ContractId } from '../contract/types.js';
+import type { ContractId } from '../contract/index.js';
 
 
 

@@ -16,7 +16,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { CliError } from '../errors.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { makeContractId } from '../../core/contract/types.js';
+import { makeContractId } from '../../core/contract/index.js';
 // CLAWS_DIR and path removed: phase 263
 
 export async function contractCancelCommand(

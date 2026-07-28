@@ -15,7 +15,7 @@
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import type { Contract } from '../contract/types.js';
+import type { Contract } from '../contract/index.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { ContractSystem } from '../contract/index.js';
 import { FileNotFoundError } from '../../foundation/fs/index.js';

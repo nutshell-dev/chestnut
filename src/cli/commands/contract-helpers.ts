@@ -12,7 +12,7 @@ import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { ContractId } from '../../core/contract/types.js';
+import type { ContractId } from '../../core/contract/index.js';
 import { ContractValidationError } from '../../core/contract/index.js';
 
 export function parseAndValidateContractYaml(yamlContent: string): ContractYaml {

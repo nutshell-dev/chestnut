@@ -13,7 +13,7 @@ import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { makeContractId } from '../../core/contract/types.js';
+import { makeContractId } from '../../core/contract/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 

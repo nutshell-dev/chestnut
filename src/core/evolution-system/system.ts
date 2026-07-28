@@ -11,7 +11,7 @@ import * as path from 'path';
 
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { type ContractId } from '../contract/types.js';
+import { type ContractId } from '../contract/index.js';
 import type { RegisterRetrospectiveInput, LegacyPendingRetrospective } from './retrospective-store.js';
 import type { FullTaskId, PreparedSubagentSchedule } from '../async-task-system/index.js';
 import {
