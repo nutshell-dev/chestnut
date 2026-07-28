@@ -20,7 +20,7 @@ import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
 import type { ExecHandle } from '../process-exec/index.js';
 import { formatErr } from '../node-utils/index.js';
-import { truncateHeadTail } from '../file-tool/truncate-head-tail.js';
+import { truncateHeadTail } from '../file-tool/index.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 function toSafeNumber(v: unknown): number | undefined {
