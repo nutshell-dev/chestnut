@@ -5,19 +5,21 @@
  * 用 node:fs 原语实现 candidate→active / active→retired rename 协议
  * （仲裁单位 = rename syscall；本 fixture 证 OS 级单 winner）。
  *
- * usage: node ownership-race-child.mjs <chestnutDir> <barrierDir> <commit|recover>
+ * usage: node ownership-race-child.mjs <chestnutDir> <barrierDir> <commit|recover> [expectedOwnerJson]
+ *   recover 模式下 expectedOwnerJson 是父级提供的旧 generation owner record（attempt_id/owner_token/pid），
+ *   用于防迟到 reclaimer 误动 fresh active；与生产 retireOwnership 的 expected 检查等价。
  * stdout 协议（每行一条）：
  *   winner <pid> <token>            commit rename 成功
  *   loser <pid> <winnerPid>         commit collision（已写 candidate outcome.json）
  *   retired <pid> <oldToken>        stale retire rename 成功
  *   retire_lost <pid> <oldToken>    retire 竞争失败（含 active 已被移走）
- *   owner_alive <pid> <ownerPid>    active owner 仍活（不应发生 → exit 3）
  *   timeout <pid>                   barrier 超时（exit 2）
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const [chestnutDir, barrierDir, mode] = process.argv.slice(2);
+const [chestnutDir, barrierDir, mode, expectedOwnerJson] = process.argv.slice(2);
+const expectedOwner = mode === 'recover' && expectedOwnerJson ? JSON.parse(expectedOwnerJson) : null;
 const BARRIER_TIMEOUT_MS = 20000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -44,15 +46,6 @@ function ownerRecord(token) {
     workspace_root: chestnutDir,
     created_at: new Date().toISOString(),
   }, null, 2);
-}
-
-function alive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function commit() {
@@ -85,9 +78,21 @@ function recover() {
     commit();
     return;
   }
-  if (alive(owner.pid)) {
-    console.log(`owner_alive ${process.pid} ${owner.pid}`);
-    process.exit(3);
+  // 父级 runWave('commit') 已 await 所有 child close，旧 generation 已死；
+  // 这里不再用 PID existence 重判，避免 wave2 PID reuse 假阳性。
+  // 仿生产 retireOwnership：只有 active record 与 expected 旧 generation 完全匹配才执行 retire，
+  // 防止迟到 reclaimer 把 wave2 内部新产生的 fresh active 误移到 retired。
+  if (
+    expectedOwner &&
+    (
+      owner.attempt_id !== expectedOwner.attempt_id ||
+      owner.owner_token !== expectedOwner.owner_token ||
+      owner.pid !== expectedOwner.pid
+    )
+  ) {
+    console.log(`retire_lost ${process.pid} mismatch`);
+    commit();
+    return;
   }
   const retired = path.join(chestnutDir, 'watchdog', 'retired', owner.owner_token);
   try {

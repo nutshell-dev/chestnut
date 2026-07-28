@@ -47,18 +47,47 @@ async function waitForReady(barrierDir: string, n: number): Promise<void> {
   }
 }
 
-/** 放 n 个真实 child 经 barrier 并发执行 mode，返回 stdout 行集合 */
-async function runWave(mode: 'commit' | 'recover', n: number): Promise<string[]> {
+interface ChildResult {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}
+
+/** 放 n 个真实 child 经 barrier 并发执行 mode，返回 stdout 行集合。
+ *  每个 child 的 stdout/stderr 被完整收集；非零退出时 reject 包含输出供审计。
+ *  recover 模式可传入父级已确认的旧 generation owner record，防止迟到 reclaimer 误动 fresh active。 */
+async function runWave(
+  mode: 'commit' | 'recover',
+  n: number,
+  expectedOwner?: { attempt_id: string; owner_token: string; pid: number } | null,
+): Promise<string[]> {
   const barrierDir = path.join(tmpDir, `barrier-${mode}-${randomUUID()}`);
   fs.mkdirSync(barrierDir, { recursive: true });
   const lines: string[] = [];
   const children: ReturnType<typeof spawn>[] = [];
+  const results = new Map<ReturnType<typeof spawn>, ChildResult>();
+  const args = [CHILD_FIXTURE, chestnutDir, barrierDir, mode];
+  if (mode === 'recover' && expectedOwner) {
+    args.push(JSON.stringify(expectedOwner));
+  }
   for (let i = 0; i < n; i++) {
-    const child = spawn(process.execPath, [CHILD_FIXTURE, chestnutDir, barrierDir, mode], {
+    const child = spawn(process.execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    const result: ChildResult = { code: null, signal: null, stdout: '', stderr: '' };
+    results.set(child, result);
     child.stdout!.on('data', (d: Buffer) => {
-      lines.push(...d.toString().split('\n').map((s) => s.trim()).filter(Boolean));
+      const text = d.toString();
+      result.stdout += text;
+      lines.push(...text.split('\n').map((s) => s.trim()).filter(Boolean));
+    });
+    child.stderr!.on('data', (d: Buffer) => {
+      result.stderr += d.toString();
+    });
+    child.on('exit', (code, signal) => {
+      result.code = code;
+      result.signal = signal;
     });
     children.push(child);
   }
@@ -68,12 +97,22 @@ async function runWave(mode: 'commit' | 'recover', n: number): Promise<string[]>
     children.map(
       (c) =>
         new Promise<void>((resolve, reject) => {
-          let exitCode: number | null = null;
+          const result = results.get(c)!;
           // 'close' 在 stdio flush 后触发，保证 stdout 行全部收齐
-          c.on('exit', (code) => { exitCode = code; });
-          c.on('close', () =>
-            exitCode === 0 ? resolve() : reject(new Error(`child exit code ${exitCode}`)),
-          );
+          c.on('close', () => {
+            if (result.code === 0) {
+              resolve();
+              return;
+            }
+            const summary = [
+              `child exit code=${result.code} signal=${result.signal}`,
+              '--- stdout ---',
+              result.stdout || '(empty)',
+              '--- stderr ---',
+              result.stderr || '(empty)',
+            ].join('\n');
+            reject(new Error(summary));
+          });
         }),
     ),
   );
@@ -121,9 +160,14 @@ describe('真实多进程 ownership race', () => {
     const wave1 = await runWave('commit', WAVE_SIZE);
     const gen1Token = wave1.find((l) => l.startsWith('winner '))!.split(' ')[2];
     const gen1Pid = wave1.find((l) => l.startsWith('winner '))!.split(' ')[1];
-    // wave 1 child 已全部 exit（awaited）→ active owner dead
+    // wave 1 child 已全部 close（awaited）→ gen1 generation 已退出，这是旧 owner dead 的显式证明。
+    // 不再依赖 PID existence 重判，避免 OS 复用 PID 导致假阳性。
+    const gen1Owner = JSON.parse(fs.readFileSync(
+      path.join(chestnutDir, 'watchdog', 'active', 'owner.json'), 'utf-8'));
+    expect(String(gen1Owner.pid)).toBe(gen1Pid);
+    expect(gen1Owner.owner_token).toBe(gen1Token);
 
-    const wave2 = await runWave('recover', WAVE_SIZE);
+    const wave2 = await runWave('recover', WAVE_SIZE, gen1Owner);
 
     expect(wave2.filter((l) => l.startsWith('owner_alive')).length).toBe(0);
     expect(wave2.filter((l) => l.startsWith('retired ')).length).toBe(1);
