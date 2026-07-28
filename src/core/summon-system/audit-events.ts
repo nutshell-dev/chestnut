@@ -34,6 +34,7 @@ export const SUMMON_AUDIT_EVENTS = {
    * 与 NO_CONTRACT_CREATED 区分：audit 不可读时契约状态不确定、禁止盲目 mining 重试。
    */
   SUB_AUDIT_READ_FAILED: 'summon_sub_audit_read_failed',
+  LEGACY_RETRO_ACK_FAILED: 'summon_legacy_retro_ack_failed',
 } as const;
 
 export function emitSummonDispatched(audit: AuditLog, opts: {

@@ -18,6 +18,7 @@ export {
 } from './post-processors/contract-extract.js';
 
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -113,5 +114,30 @@ export async function readPendingRetrospective(opts: {
     shadowTaskId: typeof p.shadowTaskId === 'string' ? p.shadowTaskId : undefined,
     createdAt: typeof p.createdAt === 'string' ? p.createdAt : undefined,
   };
+}
+
+/**
+ * Phase 1206 Step B: legacy retrospective migration ack.
+ * EvolutionSystem calls this only after the new ready row has been published
+ * and re-read successfully. Non-FNF errors are propagated so migration can
+ * preserve the original legacy row.
+ */
+export async function ackPendingRetrospective(opts: {
+  fs: FileSystem;
+  contractId: ContractId;
+  audit?: AuditLog;
+}): Promise<void> {
+  const filePath = `${CLAWSPACE_DIR}/pending-retrospective/by-contract/${opts.contractId}.json`;
+  try {
+    await opts.fs.delete(filePath);
+  } catch (e) {
+    if (isFileNotFound(e)) return;
+    opts.audit?.write(
+      SUMMON_AUDIT_EVENTS.LEGACY_RETRO_ACK_FAILED,
+      `contractId=${opts.contractId}`,
+      `reason=${formatErr(e)}`,
+    );
+    throw e;
+  }
 }
 

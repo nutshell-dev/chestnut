@@ -31,4 +31,18 @@ export const RETRO_AUDIT_EVENTS = {
   // phase 450 (review-round3 §3): retroChain wait prev 超时（10 min 默认）后
   // 本次 retro 不再连累阻塞、emit STALLED audit + 进 impl（stall 后 prev 与本次并行、接受）
   RETRO_CHAIN_STALLED: 'evolution_retro_chain_stalled',
+
+  // Phase 1206 Step B: retrospective store lifecycle audits
+  RETRO_REGISTRATION_COMMITTED: 'retro_registration_committed',
+  RETRO_STORE_REGISTRATION_CONFLICT: 'retro_store_registration_conflict',
+  RETRO_DISPATCH_STARTED: 'retro_dispatch_started',
+  RETRO_DISPATCH_SUBMITTED: 'retro_dispatch_submitted',
+  RETRO_DISPATCH_MOVE_FAILED: 'retro_dispatch_move_failed',
+  RETRO_DISPATCH_SUBMITTED_FAILED: 'retro_dispatch_submitted_failed',
+  RETRO_STORE_CORRUPT: 'retro_store_corrupt',
+  RETRO_STORE_READ_FAILED: 'retro_store_read_failed',
+  RETRO_STORE_MULTI_STATE: 'retro_store_multi_state',
+  RETRO_STORE_FUTURE_VERSION: 'retro_store_future_version',
+  RETRO_LEGACY_MIGRATION_FAILED: 'retro_legacy_migration_failed',
+  RETRO_LEGACY_MIGRATION_SUMMARY: 'retro_legacy_migration_summary',
 } as const;
