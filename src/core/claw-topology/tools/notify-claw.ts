@@ -14,8 +14,8 @@ import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
-import type { InboxMessageOptionsBase } from '../../../foundation/messaging/inbox-writer.js';
-import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/audit-events.js';
+import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
+import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/index.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
 export interface NotifyClawDeps {

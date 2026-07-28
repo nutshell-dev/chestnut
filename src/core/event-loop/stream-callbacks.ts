@@ -11,7 +11,7 @@ import type { StreamLog } from '../../foundation/stream/index.js';
 import type { StreamCallbacks, Runtime } from '../runtime/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
-import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/tools/send-content-extractor.js';
+import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
 
 /**

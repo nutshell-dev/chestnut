@@ -11,9 +11,9 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { INBOX_PENDING_DIR, resolveDlqDir } from '../../foundation/messaging/index.js';
-import { notifyClaw } from '../../foundation/messaging/notify.js';
-import { InboxWriter, makeInboxPath } from '../../foundation/messaging/inbox-writer.js';
-import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
+import { notifyClaw } from '../../foundation/messaging/index.js';
+import { InboxWriter, makeInboxPath } from '../../foundation/messaging/index.js';
+import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 

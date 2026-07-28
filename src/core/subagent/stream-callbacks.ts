@@ -16,7 +16,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';
-import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/tools/send-content-extractor.js';
+import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
 
 
