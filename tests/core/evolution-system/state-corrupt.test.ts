@@ -5,161 +5,121 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 
 import { EvolutionSystem } from '../../../src/core/evolution-system/system.js';
-import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import type { MotionReviewContext } from '../../../src/core/evolution-system/system.js';
+import { RetrospectiveStore, SUBMITTED_DIR } from '../../../src/core/evolution-system/index.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
-// ============================================================================
-// Mock: SkillSystem
-// ============================================================================
-const { mockSkillRegistryLoadAll, mockSkillRegistryFormatForContext, mockSkillFactory } = vi.hoisted(() => {
+const { mockSkillFactory } = vi.hoisted(() => {
   const loadAll = vi.fn().mockResolvedValue(undefined);
   const format = vi.fn().mockReturnValue('No skills loaded');
   return {
-    mockSkillRegistryLoadAll: loadAll,
-    mockSkillRegistryFormatForContext: format,
     mockSkillFactory: vi.fn(() => ({ loadAll, formatForContext: format })),
   };
 });
 
-
-
-// ============================================================================
-// Mock: AsyncTaskSystem.schedule
-// ============================================================================
-const { mockSchedule } = vi.hoisted(() => ({
-  mockSchedule: vi.fn().mockResolvedValue('mock-task-id'),
+const { mockSchedulePrepared } = vi.hoisted(() => ({
+  mockSchedulePrepared: vi.fn().mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' }),
 }));
 
-// ============================================================================
-// Helpers
-// ============================================================================
-async function setupEvolutionSystem(stateFileContent?: string) {
+interface TestFixtures {
+  tmpBase: string;
+  motionDir: string;
+  clawsBaseDir: string;
+  contractId: string;
+  ctx: MotionReviewContext;
+  evolutionSystem: EvolutionSystem;
+  mockAudit: { write: ReturnType<typeof vi.fn> };
+  store: RetrospectiveStore;
+}
+
+async function setupFixtures(): Promise<TestFixtures> {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const tmpBase = path.join(os.tmpdir(), `phase840-${randomUUID()}`);
+  const tmpBase = path.join(os.tmpdir(), `phase1206-corrupt-${randomUUID()}`);
   const motionDir = path.join(tmpBase, 'motion');
-  await fs.mkdir(path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract'), { recursive: true });
-  await fs.mkdir(path.join(motionDir, 'clawspace', 'dispatch-skills'), { recursive: true });
+  const clawsBaseDir = path.join(tmpBase, 'claws');
+  const contractId = makeContractId('c-' + randomUUID());
 
-  if (stateFileContent !== undefined) {
-    await fs.writeFile(path.join(motionDir, '.evolution-system-state.json'), stateFileContent);
-  }
-
+  await fs.mkdir(motionDir, { recursive: true });
   const motionFs = new NodeFileSystem({ baseDir: motionDir });
-  const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+  const mockAudit = {
+    write: vi.fn(),
+    preview: vi.fn((s: string) => s),
+    message: vi.fn((s: string) => s),
+    summary: vi.fn((s: string) => s),
+  };
+
   const evolutionSystem = new EvolutionSystem({
     fs: motionFs,
     audit: mockAudit as any,
-    taskSystem: { schedule: mockSchedule } as any,
+    taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
     contractManager: {} as any,
     createSkillSystem: mockSkillFactory as any,
   });
 
-  return { tmpBase, motionDir, evolutionSystem, mockAudit };
+  const store = new RetrospectiveStore({ fs: motionFs, audit: mockAudit as any });
+
+  const ctx: MotionReviewContext = {
+    motionFs,
+    motionBaseDir: motionDir,
+    motionAudit: { write: vi.fn() } as any,
+    clawsBaseDir,
+    clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
+    clawContractManagerFactory: vi.fn().mockReturnValue({
+      readContractYamlRaw: vi.fn().mockResolvedValue(`contract_id: ${contractId}\nintent: test`),
+      getProgress: vi.fn().mockResolvedValue({ completed_at: new Date().toISOString() }),
+    }),
+  };
+
+  return { tmpBase, motionDir, motionFs, clawsBaseDir, contractId, ctx, evolutionSystem, mockAudit, store };
 }
 
-async function cleanup(tmpBase: string) {
+async function cleanupFixtures(tmpBase: string) {
   await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
-describe('EvolutionSystem _loadState corrupt path', () => {
+describe('EvolutionSystem legacy state file observed during init', () => {
+  let fixtures: TestFixtures;
   let auditSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  afterEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    mockSchedulePrepared.mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' });
   });
 
-  it('corrupt JSON: audits STATE_LOAD_FAILED + resets state + backup file exists', async () => {
-    const { tmpBase, motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem('not-valid-json{{{');
-    auditSpy = vi.spyOn(mockAudit, 'write');
-
-    // trigger _loadState via runRetroForContract (needs by-contract index to not ENOENT early)
-    const contractId = 'c-' + randomUUID();
-    const byContractPath = path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`);
-    await fs.writeFile(byContractPath, JSON.stringify({ targetClaw: 'claw-a', mode: 'shadow' }));
-
-    await evolutionSystem.runRetroForContract(contractId, {
-      motionFs: new NodeFileSystem({ baseDir: motionDir }),
-      motionBaseDir: motionDir,
-      motionAudit: { write: vi.fn() } as any,
-      clawsBaseDir: path.join(motionDir, 'claws'),
-      clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
-      clawContractManagerFactory: () => ({}) as any,
-    });
-
-    expect(auditSpy).toHaveBeenCalledWith(
-      RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
-      // phase 709: src 加 path col 第 1
-      expect.stringContaining('path='),
-      expect.stringContaining('backup='),
-      expect.stringContaining('move_ok=true'),
-      expect.stringContaining('reason='),
-    );
-
-    // backup file exists
-    const files = await fs.readdir(motionDir);
-    const backupFile = files.find(f => f.startsWith('.evolution-system-state.json.corrupt-'));
-    expect(backupFile).toBeDefined();
-
-    await cleanup(tmpBase);
+  afterEach(async () => {
+    auditSpy?.mockRestore();
+    if (fixtures?.tmpBase) {
+      await cleanupFixtures(fixtures.tmpBase);
+    }
   });
 
-  it('legacy processedContractIds schema: migration + backup + audit emit', async () => {
-    const { tmpBase, motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem(
-      JSON.stringify({ version: 1, processedContractIds: [123, 'abc'], lastProcessedAt: new Date().toISOString() })
+  it('legacy .evolution-system-state.json is observed but does not block new-store processing', async () => {
+    fixtures = await setupFixtures();
+    auditSpy = vi.spyOn(fixtures.mockAudit, 'write');
+    const { motionDir, motionFs, contractId, ctx, evolutionSystem, store } = fixtures;
+
+    // Pre-populate the legacy state file that is no longer authoritative.
+    await fs.writeFile(
+      path.join(motionDir, '.evolution-system-state.json'),
+      JSON.stringify({ version: 1, lastProcessedAt: 1717000000000 }),
     );
-    auditSpy = vi.spyOn(mockAudit, 'write');
 
-    const contractId = 'c-' + randomUUID();
-    const byContractPath = path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`);
-    await fs.writeFile(byContractPath, JSON.stringify({ targetClaw: 'claw-a', mode: 'shadow' }));
+    // Register a ready row in the new store.
+    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
 
-    await evolutionSystem.runRetroForContract(contractId, {
-      motionFs: new NodeFileSystem({ baseDir: motionDir }),
-      motionBaseDir: motionDir,
-      motionAudit: { write: vi.fn() } as any,
-      clawsBaseDir: path.join(motionDir, 'claws'),
-      clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
-      clawContractManagerFactory: () => ({ getProgress: async () => ({ completed_at: new Date().toISOString() }) }) as any,
-    });
+    // Boot reconcile observes the legacy file and then drives the ready row.
+    await evolutionSystem.init(ctx);
 
-    // phase 280: legacy schema 触发 migration audit（不再走 corrupt backup）
-    const migrationCall = auditSpy.mock.calls.find(
-      (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_LEGACY_SCHEMA_MIGRATED_RESET,
+    const observedCall = auditSpy.mock.calls.find(
+      (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_LEGACY_STATE_FILE_OBSERVED,
     );
-    expect(migrationCall).toBeDefined();
-    expect(migrationCall!.some((arg: unknown) => typeof arg === 'string' && arg.includes('legacy_field=processedContractIds'))).toBe(true);
+    expect(observedCall).toBeDefined();
+    expect(observedCall!.some((arg: unknown) => typeof arg === 'string' && arg.includes('path='))).toBe(true);
 
-    await cleanup(tmpBase);
-  });
-
-  it('ENOENT remains silent (no audit)', async () => {
-    const { tmpBase, motionDir, evolutionSystem, mockAudit } = await setupEvolutionSystem();
-    auditSpy = vi.spyOn(mockAudit, 'write');
-
-    const contractId = 'c-' + randomUUID();
-    const byContractPath = path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`);
-    await fs.writeFile(byContractPath, JSON.stringify({ targetClaw: 'claw-a', mode: 'shadow' }));
-
-    await evolutionSystem.runRetroForContract(contractId, {
-      motionFs: new NodeFileSystem({ baseDir: motionDir }),
-      motionBaseDir: motionDir,
-      motionAudit: { write: vi.fn() } as any,
-      clawsBaseDir: path.join(motionDir, 'claws'),
-      clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
-      clawContractManagerFactory: () => ({}) as any,
-    });
-
-    // No STATE_LOAD_FAILED audit for ENOENT
-    const loadFailedCalls = auditSpy.mock.calls.filter(c => c[0] === RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED);
-    expect(loadFailedCalls).toHaveLength(0);
-
-    await cleanup(tmpBase);
+    // Processing still works from the new store: contract was driven to submitted.
+    expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(true);
+    expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
   });
 });

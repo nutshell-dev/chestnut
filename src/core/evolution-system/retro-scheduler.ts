@@ -12,6 +12,7 @@ import { buildRetroPrompt } from '../../templates/prompts/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
+import type { SubAgentTask } from '../async-task-system/types.js';
 import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../summon-system/index.js';
 // phase 1490: 不再传 maxSteps、task.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
@@ -46,6 +47,55 @@ export interface RetroConfig {
   createSkillSystem?: typeof defaultCreateSkillSystem;
 }
 
+export interface RetroSubagentPayloadInput {
+  targetClaw: string;
+  contractId: ContractId;
+  contractYaml: string;
+  motionFs: FileSystem;
+  audit: AuditLog;
+  baseMessages?: Message[];
+  retroSubagentTimeoutMs?: number;
+  createSkillSystem?: typeof defaultCreateSkillSystem;
+}
+
+/**
+ * Build the canonical retro subagent payload (without identity fields).
+ * Shared between legacy schedule() and Phase 1206 prepared identity submission.
+ */
+export async function buildRetroSubagentPayload(
+  input: RetroSubagentPayloadInput,
+): Promise<Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>> {
+  // 加载 dispatch-skills（A.5 / best-effort）
+  let skillsSummary = '';
+  try {
+    const createSkillFn = input.createSkillSystem ?? defaultCreateSkillSystem;
+    const reg = createSkillFn(input.motionFs, DISPATCH_SKILLS_DIR, input.audit);
+    await reg.loadAll();
+    const formatted = reg.formatForContext();
+    if (!formatted.includes('No skills loaded')) {
+      skillsSummary = formatted;
+    }
+  } catch (e) {
+    input.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
+      `error=${formatErr(e)}`);
+  }
+
+  // 构建 retroPrompt（A.3）
+  const retroPrompt = buildRetroPrompt(
+    input.targetClaw, input.contractId, input.contractYaml, skillsSummary
+  );
+
+  return {
+    kind: 'subagent',
+    mode: 'standard',
+    intent: retroPrompt,
+    timeoutMs: input.retroSubagentTimeoutMs ?? RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
+    // phase 1490: maxSteps 不传、task.maxSteps optional / undefined → SubAgent boundary fallback
+    parentClawId: MOTION_CLAW_ID,
+    originClawId: MOTION_CLAW_ID,
+  };
+}
+
 /**
  * scheduleRetro
  *
@@ -54,33 +104,15 @@ export interface RetroConfig {
  * 边界：1:1 保留原 schedule body / 仅删 port abstraction wrapper
  */
 export async function scheduleRetro(config: RetroConfig): Promise<void> {
-  // 加载 dispatch-skills（A.5 / best-effort）
-  let skillsSummary = '';
-  try {
-    const createSkillFn = config.createSkillSystem ?? defaultCreateSkillSystem;
-    const reg = createSkillFn(config.motionFs, DISPATCH_SKILLS_DIR, config.audit);
-    await reg.loadAll();
-    const formatted = reg.formatForContext();
-    if (!formatted.includes('No skills loaded')) {
-      skillsSummary = formatted;
-    }
-  } catch (e) {
-    config.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
-      `error=${formatErr(e)}`);
-  }
-
-  // 构建 retroPrompt（A.3）
-  const retroPrompt = buildRetroPrompt(
-    config.targetClaw, config.contractId, config.contractYaml, skillsSummary
-  );
-  // 调度 retro subagent（A.4）
-  await config.taskSystem.schedule('subagent', {
-    kind: 'subagent',
-    mode: 'standard',
-    intent: retroPrompt,
-    timeoutMs: config.retroSubagentTimeoutMs ?? RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT,
-    // phase 1490: maxSteps 不传、task.maxSteps optional / undefined → SubAgent boundary fallback
-    parentClawId: MOTION_CLAW_ID,
-    originClawId: MOTION_CLAW_ID,
+  const payload = await buildRetroSubagentPayload({
+    targetClaw: config.targetClaw,
+    contractId: config.contractId,
+    contractYaml: config.contractYaml,
+    motionFs: config.motionFs,
+    audit: config.audit,
+    baseMessages: config.baseMessages,
+    retroSubagentTimeoutMs: config.retroSubagentTimeoutMs,
+    createSkillSystem: config.createSkillSystem,
   });
+  await config.taskSystem.schedule('subagent', payload);
 }

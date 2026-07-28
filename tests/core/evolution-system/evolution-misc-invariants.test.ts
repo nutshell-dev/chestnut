@@ -1,369 +1,212 @@
 /**
- * evolution misc invariants — mechanical merge of the following source files
- * (no assertion logic changed):
- *  - retro-chain-stall.test.ts
- *  - boot-reconcile.test.ts
- *  - system-contract-factory.test.ts
- *  - system-clawfs-factory.test.ts
- *  - retro-scheduler.test.ts
+ * evolution misc invariants — updated for Phase 1206 Step C disk-state architecture.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockSkillLoadAll, mockSkillFormat, mockSchedule, mockSkillFactory } = vi.hoisted(() => {
+const { mockSkillLoadAll, mockSkillFormat, mockSchedule, mockSchedulePrepared, mockSkillFactory } = vi.hoisted(() => {
   const loadAll = vi.fn().mockResolvedValue(undefined);
   const format = vi.fn().mockReturnValue('No skills loaded');
   return {
     mockSkillLoadAll: loadAll,
     mockSkillFormat: format,
     mockSchedule: vi.fn().mockResolvedValue('mock-task-id'),
+    mockSchedulePrepared: vi.fn().mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' }),
     mockSkillFactory: vi.fn(() => ({ loadAll, formatForContext: format })),
   };
 });
+
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
+
 import { EvolutionSystem } from '../../../src/core/evolution-system/system.js';
 import type { MotionReviewContext } from '../../../src/core/evolution-system/system.js';
-import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { RetrospectiveStore } from '../../../src/core/evolution-system/index.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
-import type { ContractId } from '../../../src/foundation/branded/contract-id.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
-import { randomUUID } from 'crypto';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { scheduleRetro } from '../../../src/core/evolution-system/retro-scheduler.js';
 import type { RetroConfig } from '../../../src/core/evolution-system/retro-scheduler.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../../src/core/subagent/constants.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
-describe('retro-chain-stall', () => {
-  /**
-   * Phase 450 (review-round3 §3): retroChain wait prev 超时反向测试。
-   *
-   * 验证：
-   * - 正常 chain 串行（无 stall、无 STALLED audit）
-   * - prev 永不 resolve → 超时后本次进 impl + emit RETRO_CHAIN_STALLED audit
-   */
+async function setupFixtures(overrides?: {
+  contractCompleted?: boolean;
+}) {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  const tmpBase = path.join(os.tmpdir(), `phase1206-misc-${randomUUID()}`);
+  const motionDir = path.join(tmpBase, 'motion');
+  const clawsBaseDir = path.join(tmpBase, 'claws');
+  const targetClaw = 'claw-a';
+  const targetClawDir = path.join(clawsBaseDir, targetClaw);
+  const contractId = makeContractId('c-' + randomUUID());
 
-  const RETRO_CHAIN_STALL_TIMEOUT_MS = 10 * 60 * 1000;
+  await fs.mkdir(motionDir, { recursive: true });
+  await fs.mkdir(path.join(targetClawDir, 'contract', 'active', contractId), { recursive: true });
 
-  describe('retroChain stall timeout (phase 450 review)', () => {
-    let testDir: string;
-    let clawDir: string;
-    let auditWrite: ReturnType<typeof vi.fn>;
+  const contractYamlPath = path.join(targetClawDir, 'contract', 'active', contractId, 'contract.yaml');
+  await fs.writeFile(contractYamlPath, 'contract_id: ' + contractId + '\nintent: test');
+  const progressPath = path.join(targetClawDir, 'contract', 'active', contractId, 'progress.json');
+  await fs.writeFile(
+    progressPath,
+    JSON.stringify({
+      schema_version: 1,
+      contract_id: contractId,
+      status: overrides?.contractCompleted === false ? 'active' : 'completed',
+      subtasks: {},
+      completed_at: overrides?.contractCompleted === false ? undefined : new Date().toISOString(),
+    }),
+  );
 
-    beforeEach(async () => {
-      testDir = path.join(
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-        os.tmpdir(),
-        `.test-retro-chain-stall-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
-      );
-      clawDir = path.join(testDir, 'motion');
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
-      await fs.mkdir(clawDir, { recursive: true });
-      auditWrite = vi.fn();
-    });
+  const motionFs = new NodeFileSystem({ baseDir: motionDir });
+  const motionAudit = { write: vi.fn() };
+  const mockAudit = {
+    write: vi.fn(),
+    preview: vi.fn((s: string) => s),
+    message: vi.fn((s: string) => s),
+    summary: vi.fn((s: string) => s),
+  };
 
-    afterEach(async () => {
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
-      vi.useRealTimers();
-      vi.restoreAllMocks();
-    });
-
-    function makeSystem(): EvolutionSystem {
-      const nodeFs = new NodeFileSystem({ baseDir: clawDir });
-      return new EvolutionSystem({
-        fs: nodeFs,
-        audit: { write: auditWrite, preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as never,
-        taskSystem: {} as never,
-        contractManager: {} as never,
-      });
-    }
-
-    it('正常 chain 串行 — 无 STALLED audit', async () => {
-      const sys = makeSystem();
-      // 替换 _runRetroForContractImpl 为快速返回 mock
-      const impl = vi.fn().mockResolvedValue({ status: 'finished' } as never);
-      (sys as unknown as { _runRetroForContractImpl: typeof impl })._runRetroForContractImpl = impl;
-
-      const r1 = await sys.runRetroForContract('c-1' as ContractId, {} as never);
-      const r2 = await sys.runRetroForContract('c-2' as ContractId, {} as never);
-
-      expect(r1.status).toBe('finished');
-      expect(r2.status).toBe('finished');
-      expect(impl).toHaveBeenCalledTimes(2);
-
-      const stallCalls = auditWrite.mock.calls.filter(c => c[0] === RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED);
-      expect(stallCalls).toHaveLength(0);
-    });
-
-    it('prev 永不 resolve → 超时后返回 blocked + emit RETRO_CHAIN_STALLED，不进入 impl', async () => {
-      vi.useFakeTimers();
-      const sys = makeSystem();
-
-      // 第一次 impl 永不 resolve
-      let resolveFirst: (() => void) | null = null;
-      const neverPromise = new Promise<{ status: 'finished' }>(res => {
-        resolveFirst = () => res({ status: 'finished' });
-      });
-      const impl = vi.fn()
-        .mockImplementationOnce(() => neverPromise)
-        .mockResolvedValueOnce({ status: 'finished' } as never);
-      (sys as unknown as { _runRetroForContractImpl: typeof impl })._runRetroForContractImpl = impl;
-
-      // 第一次 runRetroForContract — 不 await（卡在 impl）
-      void sys.runRetroForContract('c-1' as ContractId, {} as never);
-      // 推时间让 microtask flush
-      await Promise.resolve();
-
-      // 第二次 runRetroForContract — 应等 prev、但 prev 永不 resolve → 等 stall timeout
-      const p2 = sys.runRetroForContract('c-2' as ContractId, {} as never);
-
-      // 推进 stall timeout
-      await vi.advanceTimersByTimeAsync(RETRO_CHAIN_STALL_TIMEOUT_MS + 100);
-
-      const r2 = await p2;
-      expect(r2.status).toBe('blocked');
-      expect(r2.reason).toBe('previous_retro_stalled');
-      expect(impl).toHaveBeenCalledTimes(1);  // 第二次 impl 没有跑
-
-      const stallCalls = auditWrite.mock.calls.filter(c => c[0] === RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED);
-      expect(stallCalls).toHaveLength(1);
-      expect(stallCalls[0]).toContainEqual('contract_id=c-2');
-      expect(stallCalls[0]).toContainEqual(`timeout_ms=${RETRO_CHAIN_STALL_TIMEOUT_MS}`);
-
-      // cleanup: 解锁第一个 retro
-      resolveFirst?.();
-    });
-
-    it('phase 1078: stall 标志持续阻塞后续请求，直到原 prev 真实 settle', async () => {
-      vi.useFakeTimers();
-      const sys = makeSystem();
-
-      let resolveFirst: (() => void) | null = null;
-      const neverPromise = new Promise<{ status: 'finished' }>(res => {
-        resolveFirst = () => res({ status: 'finished' });
-      });
-      const impl = vi.fn()
-        .mockImplementationOnce(() => neverPromise)
-        .mockResolvedValue({ status: 'finished' } as never);
-      (sys as unknown as { _runRetroForContractImpl: typeof impl })._runRetroForContractImpl = impl;
-
-      // A: 卡住
-      const pA = sys.runRetroForContract('c-1' as ContractId, {} as never);
-      await Promise.resolve();
-
-      // B: 检测到 stall，返回 blocked
-      const pB = sys.runRetroForContract('c-2' as ContractId, {} as never);
-      await vi.advanceTimersByTimeAsync(RETRO_CHAIN_STALL_TIMEOUT_MS + 100);
-      const rB = await pB;
-      expect(rB.status).toBe('blocked');
-      expect(rB.reason).toBe('previous_retro_stalled');
-
-      // C: 在 A 未 settle 前到达，应被标志立即阻塞，不进入 impl，也不产生新 STALLED audit
-      const pC = sys.runRetroForContract('c-3' as ContractId, {} as never);
-      const rC = await pC;
-      expect(rC.status).toBe('blocked');
-      expect(rC.reason).toBe('previous_retro_stalled');
-      expect(impl).toHaveBeenCalledTimes(1); // 只有 A 调用了 impl
-
-      const stallCallsAfterC = auditWrite.mock.calls.filter(c => c[0] === RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED);
-      expect(stallCallsAfterC).toHaveLength(1); // C 不产生额外 audit
-
-      // A 真实 settle；等待 pA 完成以触发 prev.finally() 清除 blocked 标志
-      resolveFirst?.();
-      await pA;
-
-      // D: 原 prev 已 settle，应恢复执行
-      const rD = await sys.runRetroForContract('c-4' as ContractId, {} as never);
-      expect(rD.status).toBe('finished');
-      expect(impl).toHaveBeenCalledTimes(2); // A + D
-    });
-
-    it('phase 1089: B and C both enqueued before B timeout, both blocked', async () => {
-      vi.useFakeTimers();
-      const sys = makeSystem();
-
-      let resolveA: (() => void) | undefined;
-      const aPromise = new Promise<void>(r => { resolveA = r; });
-
-      // A: 作为当前 retroChain 永久卡住
-      (sys as any).retroChain = aPromise;
-
-      // B: 在 A 超时前入队
-      const bPromise = sys.runRetroForContract('c-1' as ContractId, {} as never);
-      // C: 也在 A/B 超时前入队
-      const cPromise = sys.runRetroForContract('c-2' as ContractId, {} as never);
-
-      // 推进到 B 超时
-      await vi.advanceTimersByTimeAsync(RETRO_CHAIN_STALL_TIMEOUT_MS + 100);
-
-      const [bResult, cResult] = await Promise.all([bPromise, cPromise]);
-
-      // B 超时返回 blocked
-      expect(bResult.status).toBe('blocked');
-      expect(bResult.reason).toBe('previous_retro_stalled');
-
-      // C 越过 Promise.race 后被双重检查拦截
-      expect(cResult.status).toBe('blocked');
-      expect(cResult.reason).toBe('previous_retro_stalled');
-
-      // A 仍未完成，阻塞标志保持
-      expect((sys as any).retroChainBlocked).toBe(true);
-
-      // A settle 后标志清除
-      resolveA!();
-      await aPromise;
-      await Promise.resolve();
-      expect((sys as any).retroChainBlocked).toBe(false);
-    });
+  const evolutionSystem = new EvolutionSystem({
+    fs: motionFs,
+    audit: mockAudit as any,
+    taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
+    contractManager: {} as any,
+    createSkillSystem: mockSkillFactory as any,
   });
-});
+
+  const store = new RetrospectiveStore({ fs: motionFs, audit: mockAudit as any });
+
+  return { motionDir, motionFs, clawsBaseDir, targetClawDir, targetClaw, contractId, motionAudit, mockAudit, evolutionSystem, store, tmpBase };
+}
+
+async function cleanupFixtures(tmpBase: string) {
+  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+}
 
 describe('boot-reconcile', () => {
-  /**
-   * @module tests/core/evolution-system/boot-reconcile
-   * Phase 1335 sub-2: EvolutionSystem.init() eager boot reconcile reverse test
-   */
-
   describe('EvolutionSystem.init() boot reconcile', () => {
-    let testDir: string;
-    let clawDir: string;
-    let auditWrite: ReturnType<typeof vi.fn>;
+    let fixtures: Awaited<ReturnType<typeof setupFixtures>>;
 
     beforeEach(async () => {
-      testDir = path.join(
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-        os.tmpdir(),
-        `.test-evolution-boot-reconcile-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
-      );
-      clawDir = path.join(testDir, 'motion');
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
-      await fs.mkdir(clawDir, { recursive: true });
-      auditWrite = vi.fn();
+      vi.clearAllMocks();
+      mockSchedulePrepared.mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' });
     });
 
     afterEach(async () => {
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
-      vi.restoreAllMocks();
+      if (fixtures?.tmpBase) {
+        await cleanupFixtures(fixtures.tmpBase);
+      }
     });
 
-    function makeSystem() {
-      const nodeFs = new NodeFileSystem({ baseDir: clawDir });
-      return new EvolutionSystem({
-        fs: nodeFs,
-        audit: { write: auditWrite , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any,
-        taskSystem: {} as any,
-        contractManager: {} as any,
-      });
+    function makeCtx(fixtures: Awaited<ReturnType<typeof setupFixtures>>, overrides?: { completed?: boolean }): MotionReviewContext {
+      return {
+        motionFs: fixtures.motionFs,
+        motionBaseDir: fixtures.motionDir,
+        motionAudit: fixtures.motionAudit as any,
+        clawsBaseDir: fixtures.clawsBaseDir,
+        clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
+        clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem({
+          clawDir,
+          clawId: targetClaw,
+          fs,
+          audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as any,
+          toolRegistry: createToolRegistry(),
+          fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+          clawsDir: '/tmp/test/claws',
+          notifyClaw: vi.fn(),
+        }),
+      };
     }
 
-    it('emits EVOLUTION_BOOT_RECONCILE + loads lastProcessedAt when state file exists', async () => {
+    it('emits EVOLUTION_BOOT_RECONCILE with disk-state counters when state file exists', async () => {
+      fixtures = await setupFixtures();
+      const { motionDir, evolutionSystem, mockAudit, contractId, store } = fixtures;
+
       await fs.writeFile(
-        path.join(clawDir, '.evolution-system-state.json'),
-        JSON.stringify({
-          version: 1,
-          lastProcessedAt: 1717000000000,
-        }),
+        path.join(motionDir, '.evolution-system-state.json'),
+        JSON.stringify({ version: 1, lastProcessedAt: 1717000000000 }),
       );
+      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
 
-      const sys = makeSystem();
-      await sys.init();
+      const ctx = makeCtx(fixtures);
+      await evolutionSystem.init(ctx);
 
-      const reconcileCall = auditWrite.mock.calls.find(
+      const reconcileCall = mockAudit.write.mock.calls.find(
         (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
       );
       expect(reconcileCall).toBeDefined();
-      expect(reconcileCall).toContainEqual('last_processed_at=1717000000000');
-      expect(reconcileCall).toContainEqual('high_water_mark_mode=true');
+      expect(reconcileCall).toContainEqual('migrated=0');
+      expect(reconcileCall).toContainEqual('failed=0');
+      expect(reconcileCall).toContainEqual('recovered=0');
+      expect(reconcileCall).toContainEqual('driven=1');
     });
 
-    it('emits EVOLUTION_BOOT_RECONCILE high_water_mark_mode when no state file', async () => {
-      const sys = makeSystem();
-      await sys.init();
+    it('emits EVOLUTION_BOOT_RECONCILE with zero counters when no state file and no ready rows', async () => {
+      fixtures = await setupFixtures();
+      const { evolutionSystem, mockAudit } = fixtures;
 
-      const reconcileCall = auditWrite.mock.calls.find(
+      const ctx = makeCtx(fixtures);
+      await evolutionSystem.init(ctx);
+
+      const reconcileCall = mockAudit.write.mock.calls.find(
         (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
       );
       expect(reconcileCall).toBeDefined();
-      expect(reconcileCall).toContainEqual('last_processed_at=0');
-      expect(reconcileCall).toContainEqual('high_water_mark_mode=true');
+      expect(reconcileCall).toContainEqual('migrated=0');
+      expect(reconcileCall).toContainEqual('failed=0');
+      expect(reconcileCall).toContainEqual('recovered=0');
+      expect(reconcileCall).toContainEqual('driven=0');
     });
 
-    it('corrupt state file triggers backup path + audit emit', async () => {
-      await fs.writeFile(
-        path.join(clawDir, '.evolution-system-state.json'),
-        'not-json',
+    it('corrupt legacy state file is observed but does not break reconcile', async () => {
+      fixtures = await setupFixtures();
+      const { motionDir, evolutionSystem, mockAudit, contractId, store } = fixtures;
+
+      await fs.writeFile(path.join(motionDir, '.evolution-system-state.json'), 'not-json');
+      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+
+      const ctx = makeCtx(fixtures);
+      await evolutionSystem.init(ctx);
+
+      const observedCall = mockAudit.write.mock.calls.find(
+        (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_LEGACY_STATE_FILE_OBSERVED,
       );
+      expect(observedCall).toBeDefined();
 
-      const sys = makeSystem();
-      await sys.init();
-
-      const loadFailedCall = auditWrite.mock.calls.find(
-        (c: any) => c[0] === RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
-      );
-      expect(loadFailedCall).toBeDefined();
-
-      const reconcileCall = auditWrite.mock.calls.find(
+      const reconcileCall = mockAudit.write.mock.calls.find(
         (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
       );
       expect(reconcileCall).toBeDefined();
-      expect(reconcileCall).toContainEqual('last_processed_at=0');
+      expect(reconcileCall).toContainEqual('driven=1');
     });
   });
 });
 
 describe('system-contract-factory', () => {
-  // ============================================================================
-  // Helpers
-  // ============================================================================
-  async function setupFixtures() {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    const tmpBase = path.join(os.tmpdir(), `phase619-${randomUUID()}`);
-    const motionDir = path.join(tmpBase, 'motion');
-    const clawsBaseDir = path.join(tmpBase, 'claws');
-    const targetClaw = 'claw-a';
-    const targetClawDir = path.join(clawsBaseDir, targetClaw);
-    const contractId = 'c-' + randomUUID();
-
-    await fs.mkdir(path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract'), { recursive: true });
-    await fs.mkdir(path.join(motionDir, 'clawspace', 'dispatch-skills'), { recursive: true });
-    await fs.mkdir(path.join(targetClawDir, 'contract', 'active', contractId), { recursive: true });
-
-    const byContractPath = path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`);
-    await fs.writeFile(byContractPath, JSON.stringify({ targetClaw, mode: 'shadow' }));
-
-    const contractYamlPath = path.join(targetClawDir, 'contract', 'active', contractId, 'contract.yaml');
-    await fs.writeFile(contractYamlPath, 'contract_id: ' + contractId + '\nintent: test');
-    const progressPath = path.join(targetClawDir, 'contract', 'active', contractId, 'progress.json');
-    await fs.writeFile(progressPath, JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'active', subtasks: {}, completed_at: new Date().toISOString() }));
-
-    const motionFs = new NodeFileSystem({ baseDir: motionDir });
-    const motionAudit = { write: vi.fn() };
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-
-    return { motionDir, clawsBaseDir, targetClawDir, contractId, motionFs, motionAudit, mockAudit, tmpBase };
-  }
-
-  // ============================================================================
-  // Tests
-  // ============================================================================
   describe('EvolutionSystem — clawContractManagerFactory injection (phase 619 caller-DIP)', () => {
     it('uses ctx.clawContractManagerFactory instead of new ContractSystem', async () => {
       const fixtures = await setupFixtures();
-      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase } = fixtures;
+      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, targetClaw, evolutionSystem, store, tmpBase } = fixtures;
 
-      const factorySpy = vi.fn().mockImplementation((clawDir: string, targetClaw: string, fs: NodeFileSystem) => {
+      await store.register({ contractId, targetClaw, mode: 'shadow' });
+
+      const factorySpy = vi.fn().mockImplementation((clawDir: string, targetClawName: string, fs: NodeFileSystem) => {
         return new ContractSystem({
           clawDir,
-          clawId: targetClaw,
+          clawId: targetClawName,
           fs,
-          audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
+          audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as any,
           toolRegistry: createToolRegistry(),
           fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      clawsDir: '/tmp/test/claws',
-      notifyClaw: vi.fn(),});
+          clawsDir: '/tmp/test/claws',
+          notifyClaw: vi.fn(),
+        });
       });
 
       const ctx: MotionReviewContext = {
@@ -374,70 +217,25 @@ describe('system-contract-factory', () => {
         clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
         clawContractManagerFactory: factorySpy,
       };
-
-      const evolutionSystem = new EvolutionSystem({
-        fs: motionFs,
-        audit: mockAudit as any,
-        taskSystem: { schedule: mockSchedule } as any,
-        contractManager: {} as any,
-      });
 
       const result = await evolutionSystem.runRetroForContract(contractId, ctx);
 
       expect(result.status).toBe('finished');
       expect(factorySpy).toHaveBeenCalledTimes(1);
       expect(factorySpy).toHaveBeenCalledWith(
-        path.join(clawsBaseDir, 'claw-a'),
-        'claw-a',
+        path.join(clawsBaseDir, targetClaw),
+        targetClaw,
         expect.any(NodeFileSystem),
       );
 
       await fs.rm(tmpBase, { recursive: true, force: true });
     });
 
-    it('does not directly construct ContractSystem (factory controls instantiation)', async () => {
+    it('factory error makes runRetroForContract reject (not silent swallow)', async () => {
       const fixtures = await setupFixtures();
-      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase } = fixtures;
+      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, evolutionSystem, store, tmpBase } = fixtures;
 
-      const factorySpy = vi.fn().mockImplementation((clawDir: string, targetClaw: string, fs: NodeFileSystem) => {
-        return new ContractSystem({
-          clawDir,
-          clawId: targetClaw,
-          fs,
-          audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
-          toolRegistry: createToolRegistry(),
-          fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      clawsDir: '/tmp/test/claws',
-      notifyClaw: vi.fn(),});
-      });
-
-      const ctx: MotionReviewContext = {
-        motionFs,
-        motionBaseDir: fixtures.motionDir,
-        motionAudit: motionAudit as any,
-        clawsBaseDir,
-        clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
-        clawContractManagerFactory: factorySpy,
-      };
-
-      const evolutionSystem = new EvolutionSystem({
-        fs: motionFs,
-        audit: mockAudit as any,
-        taskSystem: { schedule: mockSchedule } as any,
-        contractManager: {} as any,
-      });
-
-      await evolutionSystem.runRetroForContract(contractId, ctx);
-
-      // factorySpy 被调用即证明 DIP：业务层通过 ctx factory 获取实例，而非裸 new
-      expect(factorySpy).toHaveBeenCalledTimes(1);
-
-      await fs.rm(tmpBase, { recursive: true, force: true });
-    });
-
-    it('factory 抛错时 runRetroForContract 直接 reject（不 silent swallow）', async () => {
-      const fixtures = await setupFixtures();
-      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase } = fixtures;
+      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
 
       const factorySpy = vi.fn().mockImplementation(() => {
         throw new Error('contract-factory-fail');
@@ -452,13 +250,6 @@ describe('system-contract-factory', () => {
         clawContractManagerFactory: factorySpy,
       };
 
-      const evolutionSystem = new EvolutionSystem({
-        fs: motionFs,
-        audit: mockAudit as any,
-        taskSystem: { schedule: mockSchedule } as any,
-        contractManager: {} as any,
-      });
-
       await expect(evolutionSystem.runRetroForContract(contractId, ctx)).rejects.toThrow('contract-factory-fail');
       expect(factorySpy).toHaveBeenCalledTimes(1);
 
@@ -468,44 +259,12 @@ describe('system-contract-factory', () => {
 });
 
 describe('system-clawfs-factory', () => {
-  // ============================================================================
-  // Helpers
-  // ============================================================================
-  async function setupFixtures() {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    const tmpBase = path.join(os.tmpdir(), `phase609-${randomUUID()}`);
-    const motionDir = path.join(tmpBase, 'motion');
-    const clawsBaseDir = path.join(tmpBase, 'claws');
-    const targetClaw = 'claw-a';
-    const targetClawDir = path.join(clawsBaseDir, targetClaw);
-    const contractId = 'c-' + randomUUID();
-
-    await fs.mkdir(path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract'), { recursive: true });
-    await fs.mkdir(path.join(motionDir, 'clawspace', 'dispatch-skills'), { recursive: true });
-    await fs.mkdir(path.join(targetClawDir, 'contract', 'active', contractId), { recursive: true });
-
-    const byContractPath = path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`);
-    await fs.writeFile(byContractPath, JSON.stringify({ targetClaw, mode: 'shadow' }));
-
-    const contractYamlPath = path.join(targetClawDir, 'contract', 'active', contractId, 'contract.yaml');
-    await fs.writeFile(contractYamlPath, 'contract_id: ' + contractId + '\nintent: test');
-    const progressPath = path.join(targetClawDir, 'contract', 'active', contractId, 'progress.json');
-    await fs.writeFile(progressPath, JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'active', subtasks: {}, completed_at: new Date().toISOString() }));
-
-    const motionFs = new NodeFileSystem({ baseDir: motionDir });
-    const motionAudit = { write: vi.fn() };
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-
-    return { motionDir, clawsBaseDir, targetClawDir, contractId, motionFs, motionAudit, mockAudit, tmpBase };
-  }
-
-  // ============================================================================
-  // Tests
-  // ============================================================================
-  describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）', () => {
-    it('runRetroForContract 用 ctx.clawFsFactory 构 clawFs（不裸 new L1）', async () => {
+  describe('EvolutionSystem — clawFsFactory injection path (caller DIP enforce)', () => {
+    it('runRetroForContract uses ctx.clawFsFactory to build clawFs (no bare new L1)', async () => {
       const fixtures = await setupFixtures();
-      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase } = fixtures;
+      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, targetClaw, evolutionSystem, store, tmpBase } = fixtures;
+
+      await store.register({ contractId, targetClaw, mode: 'shadow' });
 
       const factory = vi.fn().mockImplementation((clawDir: string) => new NodeFileSystem({ baseDir: clawDir }));
 
@@ -515,36 +274,32 @@ describe('system-clawfs-factory', () => {
         motionAudit: motionAudit as any,
         clawsBaseDir,
         clawFsFactory: factory,
-        clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem({
+        clawContractManagerFactory: (clawDir, targetClawName, fs) => new ContractSystem({
           clawDir,
-          clawId: targetClaw,
+          clawId: targetClawName,
           fs,
-          audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
+          audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as any,
           toolRegistry: createToolRegistry(),
           fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      clawsDir: '/tmp/test/claws',
-      notifyClaw: vi.fn(),}),
+          clawsDir: '/tmp/test/claws',
+          notifyClaw: vi.fn(),
+        }),
       };
-
-      const evolutionSystem = new EvolutionSystem({
-        fs: motionFs,
-        audit: mockAudit as any,
-        taskSystem: { schedule: mockSchedule } as any,
-        contractManager: {} as any,
-      });
 
       const result = await evolutionSystem.runRetroForContract(contractId, ctx);
 
       expect(result.status).toBe('finished');
       expect(factory).toHaveBeenCalledTimes(1);
-      expect(factory).toHaveBeenCalledWith(path.join(clawsBaseDir, 'claw-a'));
+      expect(factory).toHaveBeenCalledWith(path.join(clawsBaseDir, targetClaw));
 
       await fs.rm(tmpBase, { recursive: true, force: true });
     });
 
-    it('factory 抛错时 runRetroForContract 直接 reject（不 silent swallow）', async () => {
+    it('factory error makes runRetroForContract reject (not silent swallow)', async () => {
       const fixtures = await setupFixtures();
-      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase } = fixtures;
+      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, evolutionSystem, store, tmpBase } = fixtures;
+
+      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
 
       const factory = vi.fn().mockImplementation(() => {
         throw new Error('factory-fail');
@@ -556,80 +311,20 @@ describe('system-clawfs-factory', () => {
         motionAudit: motionAudit as any,
         clawsBaseDir,
         clawFsFactory: factory,
-        clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem({
+        clawContractManagerFactory: (clawDir, targetClawName, fs) => new ContractSystem({
           clawDir,
-          clawId: targetClaw,
+          clawId: targetClawName,
           fs,
-          audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
+          audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as any,
           toolRegistry: createToolRegistry(),
           fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      clawsDir: '/tmp/test/claws',
-      notifyClaw: vi.fn(),}),
+          clawsDir: '/tmp/test/claws',
+          notifyClaw: vi.fn(),
+        }),
       };
-
-      const evolutionSystem = new EvolutionSystem({
-        fs: motionFs,
-        audit: mockAudit as any,
-        taskSystem: { schedule: mockSchedule } as any,
-        contractManager: {} as any,
-      });
 
       await expect(evolutionSystem.runRetroForContract(contractId, ctx)).rejects.toThrow('factory-fail');
       expect(factory).toHaveBeenCalledTimes(1);
-
-      await fs.rm(tmpBase, { recursive: true, force: true });
-    });
-
-    it('多次 runRetroForContract 各自调 factory（per-call dynamic）', async () => {
-      const fixtures = await setupFixtures();
-      const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase, motionDir, targetClawDir } = fixtures;
-
-      // 准备第二个 contract / 不同 targetClaw
-      const contractId2 = 'c2-' + randomUUID();
-      const targetClaw2 = 'claw-b';
-      const targetClawDir2 = path.join(clawsBaseDir, targetClaw2);
-      await fs.mkdir(path.join(targetClawDir2, 'contract', 'active', contractId2), { recursive: true });
-      const byContractPath2 = path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId2}.json`);
-      await fs.writeFile(byContractPath2, JSON.stringify({ targetClaw: targetClaw2, mode: 'shadow' }));
-      const contractYamlPath2 = path.join(targetClawDir2, 'contract', 'active', contractId2, 'contract.yaml');
-      await fs.writeFile(contractYamlPath2, 'contract_id: ' + contractId2 + '\nintent: test');
-      const progressPath2 = path.join(targetClawDir2, 'contract', 'active', contractId2, 'progress.json');
-      await fs.writeFile(progressPath2, JSON.stringify({ schema_version: 1, contract_id: contractId2, status: 'active', subtasks: {}, completed_at: new Date().toISOString() }));
-
-      const factory = vi.fn().mockImplementation((clawDir: string) => new NodeFileSystem({ baseDir: clawDir }));
-
-      const ctx: MotionReviewContext = {
-        motionFs,
-        motionBaseDir: motionDir,
-        motionAudit: motionAudit as any,
-        clawsBaseDir,
-        clawFsFactory: factory,
-        clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem({
-          clawDir,
-          clawId: targetClaw,
-          fs,
-          audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
-          toolRegistry: createToolRegistry(),
-          fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      clawsDir: '/tmp/test/claws',
-      notifyClaw: vi.fn(),}),
-      };
-
-      const evolutionSystem = new EvolutionSystem({
-        fs: motionFs,
-        audit: mockAudit as any,
-        taskSystem: { schedule: mockSchedule } as any,
-        contractManager: {} as any,
-      });
-
-      const result1 = await evolutionSystem.runRetroForContract(contractId, ctx);
-      const result2 = await evolutionSystem.runRetroForContract(contractId2, ctx);
-
-      expect(result1.status).toBe('finished');
-      expect(result2.status).toBe('finished');
-      expect(factory).toHaveBeenCalledTimes(2);
-      expect(factory).toHaveBeenNthCalledWith(1, path.join(clawsBaseDir, 'claw-a'));
-      expect(factory).toHaveBeenNthCalledWith(2, path.join(clawsBaseDir, 'claw-b'));
 
       await fs.rm(tmpBase, { recursive: true, force: true });
     });
@@ -637,29 +332,23 @@ describe('system-clawfs-factory', () => {
 });
 
 describe('retro-scheduler', () => {
-  /**
-   * retro-scheduler unit tests (phase 990 / r121 F fork)
-   *
-   * Tests scheduleRetro paths via mocked skill-system + prompt builder + pending writer.
-   */
-
   function makeConfig(overrides: Partial<RetroConfig> = {}): RetroConfig {
     return {
       targetClaw: 'claw-test',
-      contractId: 'c-1',
+      contractId: makeContractId('c-1'),
       contractYaml: 'yaml: true',
       motionFs: {} as unknown as FileSystem,
       motionAudit: { write: vi.fn() } as unknown as AuditLog,
       motionBaseDir: '/tmp/motion',
       baseMessages: [{ role: 'user', content: 'hi' }],
-      audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog,
+      audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog,
       taskSystem: { schedule: mockSchedule } as unknown as RetroConfig['taskSystem'],
       createSkillSystem: mockSkillFactory,
       ...overrides,
     };
   }
 
-  describe('scheduleRetro (phase 990)', () => {
+  describe('scheduleRetro (phase 990 / phase 1206)', () => {
     beforeEach(() => {
       mockSkillLoadAll.mockClear();
       mockSkillFormat.mockClear().mockReturnValue('No skills loaded');
@@ -675,7 +364,7 @@ describe('retro-scheduler', () => {
         expect.objectContaining({
           kind: 'subagent',
           intent: expect.stringContaining('yaml: true'),
-          timeoutMs: SUBAGENT_TIMEOUT_MS * 2,  // phase 1159: retro 任务 = 2 × subagent default timeout
+          timeoutMs: SUBAGENT_TIMEOUT_MS * 2,
           parentClawId: 'motion',
           originClawId: 'motion',
         }),

@@ -180,13 +180,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       throw new Error(`Assembly: EvolutionSystem construct failed: ${formatErr(e)}`, { cause: e });
     }
     if (evolutionSystem) {
-      try {
-        await evolutionSystem.init();
-      } catch (e) {
-        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=init`, `reason=${formatErr(e)}`);
-        throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
-      }
-
       motionReviewContext = {
         motionFs: systemFs,
         motionBaseDir: clawDir,
@@ -213,6 +206,12 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
           });
         },
       };
+      try {
+        await evolutionSystem.init(motionReviewContext);
+      } catch (e) {
+        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=init`, `reason=${formatErr(e)}`);
+        throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
+      }
       contractManager.onContractCompleted(async (contractId) => {
         if (!evolutionSystem) return;
         await evolutionSystem.runRetroForContract(contractId, motionReviewContext!);

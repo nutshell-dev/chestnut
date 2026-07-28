@@ -1,8 +1,3 @@
-/**
- * phase 280 — evolution-system high-water-mark migration tests
- *
- * 覆盖 legacy schema（processedContractIds + lastProcessedAt ISO string）→ 高水位线 silent reset + audit emit。
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as os from 'os';
@@ -10,125 +5,152 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 
 import { EvolutionSystem } from '../../../src/core/evolution-system/system.js';
+import type { MotionReviewContext } from '../../../src/core/evolution-system/system.js';
+import { RetrospectiveStore, READY_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/index.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
-import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
-function createMockAudit() {
+const { mockSkillFactory } = vi.hoisted(() => {
+  const loadAll = vi.fn().mockResolvedValue(undefined);
+  const format = vi.fn().mockReturnValue('No skills loaded');
   return {
+    mockSkillFactory: vi.fn(() => ({ loadAll, formatForContext: format })),
+  };
+});
+
+const { mockSchedulePrepared } = vi.hoisted(() => ({
+  mockSchedulePrepared: vi.fn().mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' }),
+}));
+
+interface TestFixtures {
+  tmpBase: string;
+  motionDir: string;
+  clawsBaseDir: string;
+  contractId: string;
+  ctx: MotionReviewContext;
+  evolutionSystem: EvolutionSystem;
+  mockAudit: { write: ReturnType<typeof vi.fn> };
+  store: RetrospectiveStore;
+}
+
+async function setupFixtures(): Promise<TestFixtures> {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  const tmpBase = path.join(os.tmpdir(), `phase1206-migration-${randomUUID()}`);
+  const motionDir = path.join(tmpBase, 'motion');
+  const clawsBaseDir = path.join(tmpBase, 'claws');
+  const contractId = makeContractId('c-' + randomUUID());
+
+  // Create legacy pending-retrospective directory.
+  await fs.mkdir(path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract'), { recursive: true });
+
+  const motionFs = new NodeFileSystem({ baseDir: motionDir });
+  const mockAudit = {
     write: vi.fn(),
     preview: vi.fn((s: string) => s),
     message: vi.fn((s: string) => s),
     summary: vi.fn((s: string) => s),
-    __brand: 'AuditLog' as const,
   };
-}
 
-async function setupEvolutionSystem(stateFileContent?: string) {
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const tmpBase = path.join(os.tmpdir(), `phase280-${randomUUID()}`);
-  const motionDir = path.join(tmpBase, 'motion');
-  await fs.mkdir(path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract'), { recursive: true });
-  await fs.mkdir(path.join(motionDir, 'clawspace', 'dispatch-skills'), { recursive: true });
-
-  if (stateFileContent !== undefined) {
-    await fs.writeFile(path.join(motionDir, '.evolution-system-state.json'), stateFileContent);
-  }
-
-  const motionFs = new NodeFileSystem({ baseDir: motionDir });
-  const mockAudit = createMockAudit();
   const evolutionSystem = new EvolutionSystem({
     fs: motionFs,
     audit: mockAudit as any,
-    taskSystem: { schedule: vi.fn().mockResolvedValue('mock-task-id') } as any,
+    taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
     contractManager: {} as any,
+    createSkillSystem: mockSkillFactory as any,
   });
 
-  return { motionDir, evolutionSystem, mockAudit };
+  const store = new RetrospectiveStore({ fs: motionFs, audit: mockAudit as any });
+
+  const ctx: MotionReviewContext = {
+    motionFs,
+    motionBaseDir: motionDir,
+    motionAudit: { write: vi.fn() } as any,
+    clawsBaseDir,
+    clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
+    clawContractManagerFactory: vi.fn().mockReturnValue({
+      readContractYamlRaw: vi.fn().mockResolvedValue(`contract_id: ${contractId}\nintent: test`),
+      getProgress: vi.fn().mockResolvedValue({ completed_at: new Date().toISOString() }),
+    }),
+  };
+
+  return { tmpBase, motionDir, motionFs, clawsBaseDir, contractId, ctx, evolutionSystem, mockAudit, store };
 }
 
-async function cleanup(tmpBase: string) {
+async function cleanupFixtures(tmpBase: string) {
   await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 }
 
-describe('evolution-system legacy schema migration (phase 280)', () => {
-  let fixtures: Awaited<ReturnType<typeof setupEvolutionSystem>>;
+describe('EvolutionSystem legacy pending-retrospective migration', () => {
+  let fixtures: TestFixtures;
+  let auditSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockSchedulePrepared.mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' });
+  });
 
   afterEach(async () => {
-    if (fixtures?.motionDir) {
-      await cleanup(path.dirname(fixtures.motionDir));
+    auditSpy?.mockRestore();
+    if (fixtures?.tmpBase) {
+      await cleanupFixtures(fixtures.tmpBase);
     }
   });
 
-  it('legacy state 含 processedContractIds → migrate to lastProcessedAt=0 + audit emit', async () => {
-    fixtures = await setupEvolutionSystem(JSON.stringify({
-      version: 1,
-      processedContractIds: ['c1', 'c2'],
-      lastProcessedAt: '2026-06-10T12:00:00Z',
-    }));
-    const { evolutionSystem, mockAudit } = fixtures;
+  it('recoverRetrospectives migrates legacy by-contract rows into the new ready store', async () => {
+    fixtures = await setupFixtures();
+    auditSpy = vi.spyOn(fixtures.mockAudit, 'write');
+    const { motionDir, motionFs, contractId, ctx, evolutionSystem } = fixtures;
 
-    await (evolutionSystem as any)._ensureStateLoaded();
+    const legacyRelPath = `clawspace/pending-retrospective/by-contract/${contractId}.json`;
+    const legacyPath = path.join(motionDir, legacyRelPath);
+    await fs.writeFile(legacyPath, JSON.stringify({ targetClaw: 'claw-a', mode: 'shadow' }));
 
-    const state = (evolutionSystem as any).state;
-    expect(state.lastProcessedAt).toBe(0);
-    expect(state.version).toBe(1);
+    // Make the contract appear not completed so the migrated row stays in ready.
+    ctx.clawContractManagerFactory = vi.fn().mockReturnValue({
+      readContractYamlRaw: vi.fn().mockResolvedValue(`contract_id: ${contractId}\nintent: test`),
+      getProgress: vi.fn().mockResolvedValue({ completed_at: undefined }),
+    });
 
-    const migrationCalls = mockAudit.write.mock.calls.filter(
-      (c: any[]) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_LEGACY_SCHEMA_MIGRATED_RESET
+    const result = await evolutionSystem.recoverRetrospectives(ctx);
+
+    expect(result.migrated).toBe(1);
+    expect(result.failed).toBe(0);
+
+    // Legacy row was acked (deleted).
+    expect(await motionFs.exists(legacyRelPath)).toBe(false);
+
+    // New ready row exists.
+    expect(await motionFs.exists(`${READY_DIR}/${contractId}.json`)).toBe(true);
+
+    const summaryCall = auditSpy.mock.calls.find(
+      (c: any) => c[0] === RETRO_AUDIT_EVENTS.RETRO_LEGACY_MIGRATION_SUMMARY,
     );
-    expect(migrationCalls).toHaveLength(1);
-    expect(migrationCalls[0]).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^legacy_field=processedContractIds$/),
-      expect.stringMatching(/^legacy_count=2$/),
-    ]));
+    expect(summaryCall).toBeDefined();
   });
 
-  it('新 schema → 0 migration 触发 + 正常加载', async () => {
-    fixtures = await setupEvolutionSystem(JSON.stringify({
-      version: 1,
-      lastProcessedAt: 1717000000000,
-    }));
-    const { evolutionSystem, mockAudit } = fixtures;
+  it('a migrated ready row is driven to submitted when its contract is completed', async () => {
+    fixtures = await setupFixtures();
+    auditSpy = vi.spyOn(fixtures.mockAudit, 'write');
+    const { motionDir, motionFs, contractId, ctx, evolutionSystem } = fixtures;
 
-    await (evolutionSystem as any)._ensureStateLoaded();
+    const legacyRelPath = `clawspace/pending-retrospective/by-contract/${contractId}.json`;
+    const legacyPath = path.join(motionDir, legacyRelPath);
+    await fs.writeFile(legacyPath, JSON.stringify({ targetClaw: 'claw-a', mode: 'shadow' }));
 
-    const state = (evolutionSystem as any).state;
-    expect(state.lastProcessedAt).toBe(1717000000000);
-    expect(state.version).toBe(1);
+    const result = await evolutionSystem.recoverRetrospectives(ctx);
 
-    const migrationCalls = mockAudit.write.mock.calls.filter(
-      (c: any[]) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_LEGACY_SCHEMA_MIGRATED_RESET
+    expect(result.migrated).toBe(1);
+    expect(result.driven).toBe(1);
+    expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
+
+    // Row ended up in submitted, not ready or dispatching.
+    expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(true);
+    expect(await motionFs.exists(`${READY_DIR}/${contractId}.json`)).toBe(false);
+
+    const reconcileCall = auditSpy.mock.calls.find(
+      (c: any) => c[0] === RETRO_AUDIT_EVENTS.EVOLUTION_BOOT_RECONCILE,
     );
-    expect(migrationCalls).toHaveLength(0);
-  });
-
-  it('文件不存在 → 默认 lastProcessedAt=0 + 0 audit', async () => {
-    fixtures = await setupEvolutionSystem();
-    const { evolutionSystem, mockAudit } = fixtures;
-
-    await (evolutionSystem as any)._ensureStateLoaded();
-
-    const state = (evolutionSystem as any).state;
-    expect(state.lastProcessedAt).toBe(0);
-    expect(mockAudit.write).not.toHaveBeenCalled();
-  });
-
-  it('损坏 JSON → backup + emit STATE_LOAD_FAILED', async () => {
-    fixtures = await setupEvolutionSystem('not-json');
-    const { motionDir, evolutionSystem, mockAudit } = fixtures;
-
-    await (evolutionSystem as any)._ensureStateLoaded();
-
-    const state = (evolutionSystem as any).state;
-    expect(state.lastProcessedAt).toBe(0);
-
-    const loadFailedCalls = mockAudit.write.mock.calls.filter(
-      (c: any[]) => c[0] === RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED
-    );
-    expect(loadFailedCalls.length).toBeGreaterThanOrEqual(1);
-
-    // corrupt backup 文件应存在
-    const files = await fs.readdir(motionDir);
-    expect(files.some(f => f.startsWith('.evolution-system-state.json.corrupt-'))).toBe(true);
+    expect(reconcileCall).toBeDefined();
   });
 });

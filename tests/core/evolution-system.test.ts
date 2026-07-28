@@ -4,167 +4,136 @@ import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 
-import { ContractSystem } from '../../src/core/contract/manager.js';
 import { EvolutionSystem } from '../../src/core/evolution-system/system.js';
 import type { MotionReviewContext } from '../../src/core/evolution-system/system.js';
+import { RetrospectiveStore, SUBMITTED_DIR } from '../../src/core/evolution-system/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { AuditWriter } from '../../src/foundation/audit/writer.js';
-import { createToolRegistry } from '../../src/foundation/tools/index.js';
+import { makeContractId } from '../../src/core/contract/types.js';
 
-// ============================================================================
-// Mock: SkillSystem
-// ============================================================================
-const { mockSkillRegistryLoadAll, mockSkillRegistryFormatForContext, mockSkillFactory } = vi.hoisted(() => {
+const { mockSkillFactory } = vi.hoisted(() => {
   const loadAll = vi.fn().mockResolvedValue(undefined);
   const format = vi.fn().mockReturnValue('No skills loaded');
   return {
-    mockSkillRegistryLoadAll: loadAll,
-    mockSkillRegistryFormatForContext: format,
     mockSkillFactory: vi.fn(() => ({ loadAll, formatForContext: format })),
   };
 });
 
-
-
-// ============================================================================
-// Mock: taskSystem.schedule
-// ============================================================================
-const { mockSchedule } = vi.hoisted(() => ({
-  mockSchedule: vi.fn().mockResolvedValue('mock-task-id'),
+const { mockSchedulePrepared } = vi.hoisted(() => ({
+  mockSchedulePrepared: vi.fn().mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' }),
 }));
 
-// ============================================================================
-// Helpers
-// ============================================================================
 interface TestFixtures {
+  tmpBase: string;
   motionDir: string;
   clawsBaseDir: string;
-  targetClawDir: string;
   contractId: string;
   ctx: MotionReviewContext;
   evolutionSystem: EvolutionSystem;
   mockAudit: { write: ReturnType<typeof vi.fn> };
+  store: RetrospectiveStore;
 }
 
 async function setupFixtures(): Promise<TestFixtures> {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-  const tmpBase = path.join(os.tmpdir(), `phase566-${randomUUID()}`);
+  const tmpBase = path.join(os.tmpdir(), `phase1206-system-${randomUUID()}`);
   const motionDir = path.join(tmpBase, 'motion');
   const clawsBaseDir = path.join(tmpBase, 'claws');
   const targetClaw = 'claw-a';
-  const targetClawDir = path.join(clawsBaseDir, targetClaw);
-  const contractId = 'c-' + randomUUID();
-
-  await fs.mkdir(path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract'), { recursive: true });
-  await fs.mkdir(path.join(motionDir, 'clawspace', 'dispatch-skills'), { recursive: true });
-  await fs.mkdir(path.join(targetClawDir, 'contract', 'active', contractId), { recursive: true });
-
-  const byContractPath = path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`);
-  await fs.writeFile(byContractPath, JSON.stringify({ targetClaw, mode: 'shadow' }));
-
-  const contractYamlPath = path.join(targetClawDir, 'contract', 'active', contractId, 'contract.yaml');
-  await fs.writeFile(contractYamlPath, 'contract_id: ' + contractId + '\nintent: test');
-  const progressPath = path.join(targetClawDir, 'contract', 'active', contractId, 'progress.json');
-  await fs.writeFile(progressPath, JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'completed', subtasks: {}, completed_at: '2026-06-10T12:00:00.000Z' }));
+  const contractId = makeContractId('c-' + randomUUID());
 
   const motionFs = new NodeFileSystem({ baseDir: motionDir });
-  const motionAudit = new AuditWriter(motionFs, 'audit.tsv');
-  const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+  const mockAudit = {
+    write: vi.fn(),
+    preview: vi.fn((s: string) => s),
+    message: vi.fn((s: string) => s),
+    summary: vi.fn((s: string) => s),
+  };
+
   const evolutionSystem = new EvolutionSystem({
     fs: motionFs,
     audit: mockAudit as any,
-    taskSystem: { schedule: mockSchedule } as any,
+    taskSystem: { schedulePrepared: mockSchedulePrepared } as any,
     contractManager: {} as any,
     createSkillSystem: mockSkillFactory as any,
   });
+
+  const store = new RetrospectiveStore({ fs: motionFs, audit: mockAudit as any });
+
   const ctx: MotionReviewContext = {
     motionFs,
     motionBaseDir: motionDir,
-    motionAudit,
+    motionAudit: { write: vi.fn() } as any,
     clawsBaseDir,
     clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
-    clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem({
-      clawDir,
-      clawId: targetClaw,
-      fs,
-      audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
-      toolRegistry: createToolRegistry(),
-      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-    clawsDir: '/tmp/test/claws',
-    notifyClaw: vi.fn(),}),
+    clawContractManagerFactory: vi.fn().mockReturnValue({
+      readContractYamlRaw: vi.fn().mockResolvedValue(`contract_id: ${contractId}\nintent: test`),
+      getProgress: vi.fn().mockResolvedValue({ completed_at: new Date().toISOString() }),
+    }),
   };
 
-  return { motionDir, clawsBaseDir, targetClawDir, contractId, ctx, evolutionSystem, mockAudit };
+  return { tmpBase, motionDir, motionFs, clawsBaseDir, contractId, ctx, evolutionSystem, mockAudit, store };
 }
 
 async function cleanupFixtures(tmpBase: string) {
   await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 }
 
-// ============================================================================
-// Tests: lazy load atomicity (phase 566 Step B α)
-// ============================================================================
-describe('EvolutionSystem - lazy load atomicity', () => {
+describe('EvolutionSystem - disk-state idempotency', () => {
   let fixtures: TestFixtures;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockSchedulePrepared.mockResolvedValue({ taskId: 'mock-task-id', disposition: 'created' });
   });
 
   afterEach(async () => {
-    if (fixtures?.motionDir) {
-      await cleanupFixtures(path.dirname(fixtures.motionDir));
+    if (fixtures?.tmpBase) {
+      await cleanupFixtures(fixtures.tmpBase);
     }
     vi.restoreAllMocks();
   });
 
-  it('concurrent runRetroForContract triggers _loadState once', async () => {
+  it('concurrent notifyContractCompleted on the same ready row schedules only once', async () => {
     fixtures = await setupFixtures();
-    const { contractId, ctx, evolutionSystem } = fixtures;
+    const { contractId, ctx, evolutionSystem, store } = fixtures;
 
-    const _loadStateSpy = vi.spyOn(evolutionSystem as any, '_loadState');
-
-    // 用同一 contractId 会导致第二个 skipped_duplicate，
-    // 但 _loadState 仍应在 Step 0 被触发；为更真实，用两个不同 contract
-    const contractId2 = 'c2-' + randomUUID();
-    const byContractPath2 = path.join(
-      fixtures.motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId2}.json`
-    );
-    await fs.writeFile(byContractPath2, JSON.stringify({ targetClaw: 'claw-a', mode: 'shadow' }));
-    const contractDir2 = path.join(fixtures.targetClawDir, 'contract', 'active', contractId2);
-    await fs.mkdir(contractDir2, { recursive: true });
-    const contractYamlPath2 = path.join(contractDir2, 'contract.yaml');
-    await fs.writeFile(contractYamlPath2, 'contract_id: ' + contractId2 + '\nintent: test');
-    const progressPath2 = path.join(contractDir2, 'progress.json');
-    await fs.writeFile(progressPath2, JSON.stringify({ schema_version: 1, contract_id: contractId2, status: 'completed', subtasks: {}, completed_at: '2026-06-10T12:00:00.000Z' }));
+    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
 
     const [r1, r2] = await Promise.all([
-      evolutionSystem.runRetroForContract(contractId, ctx),
-      evolutionSystem.runRetroForContract(contractId2, ctx),
+      evolutionSystem.notifyContractCompleted(contractId, ctx),
+      evolutionSystem.notifyContractCompleted(contractId, ctx),
     ]);
 
-    expect(_loadStateSpy).toHaveBeenCalledTimes(1);
-    expect([r1.status, r2.status]).toContain('finished');
+    // Exactly one successful submission; the other sees it already submitted.
+    const statuses = [r1.status, r2.status];
+    expect(statuses).toContain('submitted');
+    expect(statuses).toContain('already_dispatching');
+    expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
   });
 
-  it('already loaded then runRetroForContract skips promise cache path', async () => {
+  it('second runRetroForContract after submitted returns already_submitted without rescheduling', async () => {
     fixtures = await setupFixtures();
-    const { contractId, ctx, evolutionSystem } = fixtures;
+    const { contractId, ctx, evolutionSystem, store } = fixtures;
 
-    // 第一次调用，完成 lazy load
-    await evolutionSystem.runRetroForContract(contractId, ctx);
+    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
 
-    const _loadStateSpy = vi.spyOn(evolutionSystem as any, '_loadState');
+    const first = await evolutionSystem.runRetroForContract(contractId, ctx);
+    expect(first.status).toBe('finished');
+    expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
 
-    // 恢复 by-contract 索引
-    const byContractPath = path.join(
-      fixtures.motionDir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`
-    );
-    await fs.writeFile(byContractPath, JSON.stringify({ targetClaw: 'claw-a', mode: 'shadow' }));
+    const second = await evolutionSystem.runRetroForContract(contractId, ctx);
+    expect(second.status).toBe('already_submitted');
+    expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
+  });
 
-    const result = await evolutionSystem.runRetroForContract(contractId, ctx);
+  it('notifyContractCompleted persists the row to submitted and removes it from ready', async () => {
+    fixtures = await setupFixtures();
+    const { contractId, ctx, evolutionSystem, store, motionFs } = fixtures;
 
-    expect(result.status).toBe('skipped_duplicate');
-    expect(_loadStateSpy).not.toHaveBeenCalled();
+    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+
+    await evolutionSystem.notifyContractCompleted(contractId, ctx);
+
+    expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(true);
   });
 });

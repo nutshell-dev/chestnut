@@ -62,7 +62,7 @@ export type BeginDispatchDisposition = 'acquired' | 'submitted' | 'busy' | 'miss
 export interface LegacyPendingRetrospective {
   contractId: ContractId;
   targetClaw: string;
-  mode?: RetrospectiveMode;
+  mode?: string;
   miningTaskId?: string;
   shadowTaskId?: string;
   createdAt?: string;
@@ -484,10 +484,11 @@ function producerInputsEqual(input: RegisterRetrospectiveInput, item: Retrospect
 }
 
 function legacyToInput(row: LegacyPendingRetrospective): RegisterRetrospectiveInput {
+  const mode = row.mode === 'mining' || row.mode === 'shadow' ? row.mode : undefined;
   return {
     contractId: row.contractId,
     targetClaw: row.targetClaw,
-    mode: row.mode,
+    mode,
     miningTaskId: row.miningTaskId,
     shadowTaskId: row.shadowTaskId,
   };
