@@ -52,7 +52,6 @@ export class DialogStore {
   private readonly blockIdIndex: BlockIdIndex;
   private createdAt: string | null = null;
   private corruptedPoisoned: boolean = false;
-  private flushPromise: Promise<void> = Promise.resolve();
   private prevMessagesLength: number | undefined = undefined;
 
   // phase 1285: turn transaction snapshot (memory-based)
@@ -168,19 +167,6 @@ export class DialogStore {
     }
 
     return this.coldStart();
-  }
-
-  /**
-   * NEW pub method: await all pending save() flush
-   * phase 1024 G.2: expose flushPromise for barrier (runtime.stop / SIGTERM 不丢半写)
-   *
-   * 隐式契约（phase 1400 ratify）：返回的 promise 仅在链式 flush 全部 settled 时 resolve、
-   * 不传播 reject — save 失败由 phase 1024 G.2 chain wrapper swallow 防 chain 破裂。
-   * caller 需通过 `await store.save(...)` 直接感知单次 save 的 reject、`getFlushPromise()` 仅作
-   * barrier 等「全部 settled」信号、不可用于错误传播。
-   */
-  getFlushPromise(): Promise<void> {
-    return this.flushPromise;
   }
 
   /**
@@ -358,6 +344,9 @@ export class DialogStore {
   /**
    * Save session to current.json
    * phase 713: 扩 snapshot 参 / atomic write systemPrompt + messages + toolsForLLM 3 件
+   *
+   * Phase 1218 Step C: DialogStore no longer serializes concurrent saves. The
+   * single writer authority (Runtime / SubAgent) is responsible for ordering.
    */
   async save(
     snapshot: {
@@ -367,84 +356,67 @@ export class DialogStore {
       trace_id?: TraceId;
     },
   ): Promise<void> {
-    const doSave = async (): Promise<void> => {
-      // phase 227: schema invariant check（违例 emit audit、不 throw、不阻 save）
-      assertDialogShapeInvariants(snapshot.messages, this.audit);
+    // phase 227: schema invariant check（违例 emit audit、不 throw、不阻 save）
+    assertDialogShapeInvariants(snapshot.messages, this.audit);
 
-      // length 单调 check
-      const prev = this.prevMessagesLength;
-      if (prev !== undefined && Array.isArray(snapshot.messages) && snapshot.messages.length < prev) {
-        this.audit.write(
-          DIALOG_AUDIT_EVENTS.DIALOG_INVARIANT_VIOLATED,
-          `kind=length_regressed`,
-          `prev=${prev}`,
-          `curr=${snapshot.messages.length}`,
-        );
+    // length 单调 check
+    const prev = this.prevMessagesLength;
+    if (prev !== undefined && Array.isArray(snapshot.messages) && snapshot.messages.length < prev) {
+      this.audit.write(
+        DIALOG_AUDIT_EVENTS.DIALOG_INVARIANT_VIOLATED,
+        `kind=length_regressed`,
+        `prev=${prev}`,
+        `curr=${snapshot.messages.length}`,
+      );
+    }
+    this.prevMessagesLength = Array.isArray(snapshot.messages) ? snapshot.messages.length : undefined;
+
+    const now = new Date().toISOString();
+
+    // 给未分配 blockId 的块分配 ID
+    for (const msg of snapshot.messages) {
+      if (typeof msg.content === 'string') continue;
+      for (const block of msg.content) {
+        if (block.blockId !== undefined) continue;
+        const fullId = newUuid();
+        (block as Record<string, unknown>).blockId = fullId;
+        const shortId = uuidToShort(fullId);
+        // 碰撞检测：add 内部抛错
+        this.blockIdIndex.add(shortId, fullId);
       }
-      this.prevMessagesLength = Array.isArray(snapshot.messages) ? snapshot.messages.length : undefined;
+    }
 
-      const now = new Date().toISOString();
+    // Use cached createdAt if available, otherwise use now
+    if (!this.createdAt) {
+      this.createdAt = now;
+    }
 
-      // 给未分配 blockId 的块分配 ID
-      for (const msg of snapshot.messages) {
-        if (typeof msg.content === 'string') continue;
-        for (const block of msg.content) {
-          if (block.blockId !== undefined) continue;
-          const fullId = newUuid();
-          (block as Record<string, unknown>).blockId = fullId;
-          const shortId = uuidToShort(fullId);
-          // 碰撞检测：add 内部抛错
-          this.blockIdIndex.add(shortId, fullId);
-        }
-      }
-
-      // Use cached createdAt if available, otherwise use now
-      if (!this.createdAt) {
-        this.createdAt = now;
-      }
-
-      const data: SessionData = {
-        version: 2,
-        ...(this.clawId !== undefined && { clawId: this.clawId }),  // phase 450: 0 clawId 时 schema 不含此字段
-        createdAt: this.createdAt,
-        updatedAt: now,
-        systemPrompt: snapshot.systemPrompt,
-        messages: snapshot.messages,
-        toolsForLLM: snapshot.toolsForLLM,
-        ...(snapshot.trace_id && { trace_id: snapshot.trace_id }),
-      };
-
-      try {
-        await this.fs.writeAtomic(this.currentPath, JSON.stringify(data, null, 2));
-        // phase 988 (audit-2026-05-17 NEW.P1 G.1): reset corruptedPoisoned 防 sticky data loss
-        // save 写新 current.json → current.json 实然不再 corrupted、应然 align
-        this.corruptedPoisoned = false;
-        // Phase 1186: persist block-id index after successful dialog write
-        this.blockIdIndex.save();
-      } catch (err) {
-        this.audit.write(
-          DIALOG_AUDIT_EVENTS.SAVE_FAILED,
-          `path=${this.currentPath}`,
-          `reason=${formatErr(err)}`,
-        );
-        throw err;
-      }
+    const data: SessionData = {
+      version: 2,
+      ...(this.clawId !== undefined && { clawId: this.clawId }),  // phase 450: 0 clawId 时 schema 不含此字段
+      createdAt: this.createdAt,
+      updatedAt: now,
+      systemPrompt: snapshot.systemPrompt,
+      messages: snapshot.messages,
+      toolsForLLM: snapshot.toolsForLLM,
+      ...(snapshot.trace_id && { trace_id: snapshot.trace_id }),
     };
-    // phase 1024 G.2: serialize concurrent save() — chain into flushPromise / catch swallow per-link 防 chain 破裂
-    const next = this.flushPromise.then(doSave, doSave);  // 失败也继续 doSave / chain 不破
-    const wrapped = next.catch(() => {
-      // silent: chain serialize guard (phase 1024 G.2) — original error visible via `await next` to caller; swallow only prevents this.flushPromise chain from breaking for next save
-    });
-    this.flushPromise = wrapped;
-    // phase 1082: cap flushPromise chain growth — reset to resolved when quiescent
-    wrapped.then(() => {
-      if (this.flushPromise === wrapped) {
-        this.flushPromise = Promise.resolve();
-      }
-    }).catch((e) => {
-      this.audit.write(DIALOG_AUDIT_EVENTS.FLUSH_CHAIN_ERROR, `reason=${formatErr(e)}`);
-    });
-    return next;
+
+    try {
+      await this.fs.writeAtomic(this.currentPath, JSON.stringify(data, null, 2));
+      // phase 988 (audit-2026-05-17 NEW.P1 G.1): reset corruptedPoisoned 防 sticky data loss
+      // save 写新 current.json → current.json 实然不再 corrupted、应然 align
+      this.corruptedPoisoned = false;
+      // Phase 1186: persist block-id index after successful dialog write
+      this.blockIdIndex.save();
+    } catch (err) {
+      this.audit.write(
+        DIALOG_AUDIT_EVENTS.SAVE_FAILED,
+        `path=${this.currentPath}`,
+        `reason=${formatErr(err)}`,
+      );
+      throw err;
+    }
   }
 
   /**
@@ -500,70 +472,49 @@ export class DialogStore {
   /**
    * Archive current session (move to archive dir)
    *
-   * Phase 920: archive 必须排在 flushPromise 串行链之后，先 drain 所有 pending save，
-   * 再执行 move，防止 save() 与 archive() 重叠导致 "current.json 被 move 走后又被新 save
-   * 重建" 的竞态。同时完整重置新会话的状态缓存。
+   * Phase 1218 Step C: DialogStore no longer drains pending saves internally.
+   * The single writer authority orders save → archive. This method performs one
+   * atomic move and resets in-memory session state.
    */
   async archive(): Promise<void> {
-    // Phase 920: drain pending saves before archiving.
-    // Prevents race where a concurrent save() creates a new current.json
-    // after we move the old one.
-    await this.flushPromise;
+    // Ensure archive directory exists
+    await this.fs.ensureDir(this.archiveDir);
 
-    const doArchive = async (): Promise<void> => {
-      // Ensure archive directory exists
-      await this.fs.ensureDir(this.archiveDir);
-
-      // Phase 985: archive idempotency — current.json may already have been moved
-      // away by a prior attempt. Treat as no-op and reset the in-memory state so
-      // subsequent saves start a fresh session.
-      const currentExists = await this.fs.exists(this.currentPath);
-      if (!currentExists) {
-        this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_ALREADY_ARCHIVED, `path=${this.currentPath}`);
-        this.createdAt = null;
-        this.corruptedPoisoned = false;
-        this.prevMessagesLength = 0;
-        return;
-      }
-
-      // Generate archive filename with timestamp and UUID suffix to avoid collisions
-      const timestamp = Date.now();
-      const archivePath = path.join(this.archiveDir, `${timestamp}_${newShortUuid()}.json`);
-
-      // Move current.json to archive
-      await this.fs.move(this.currentPath, archivePath);
-
-      // Phase 920: 完整重置新会话状态缓存
-      this.createdAt = null;  // Reset so next save() starts a fresh session
-      // phase 988 (audit-2026-05-17 NEW.P1 G.2): reset corruptedPoisoned 防 sticky
-      // archive 移走 current.json → 下次 load cold start → 新 file 不继承 stale poisoned state
+    // Phase 985: archive idempotency — current.json may already have been moved
+    // away by a prior attempt. Treat as no-op and reset the in-memory state so
+    // subsequent saves start a fresh session.
+    const currentExists = await this.fs.exists(this.currentPath);
+    if (!currentExists) {
+      this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_ALREADY_ARCHIVED, `path=${this.currentPath}`);
+      this.createdAt = null;
       this.corruptedPoisoned = false;
-      // Phase 920: reset message length cache for new session
       this.prevMessagesLength = 0;
-    };
+      return;
+    }
 
-    // Chain archive after flushPromise to serialize with any new saves.
-    const next = this.flushPromise.then(doArchive, doArchive);
-    const wrapped = next.catch((err) => {
+    // Generate archive filename with timestamp and UUID suffix to avoid collisions
+    const timestamp = Date.now();
+    const archivePath = path.join(this.archiveDir, `${timestamp}_${newShortUuid()}.json`);
+
+    // Move current.json to archive
+    try {
+      await this.fs.move(this.currentPath, archivePath);
+    } catch (err) {
       this.audit.write(
         DIALOG_AUDIT_EVENTS.ARCHIVE_FAILED,
         `path=${this.currentPath}`,
         `reason=${formatErr(err)}`,
       );
-      // swallow: keep flushPromise chain alive for subsequent saves
-    });
-    this.flushPromise = wrapped;
+      throw err;
+    }
 
-    // phase 1082: cap flushPromise chain growth — reset to resolved when quiescent
-    wrapped.then(() => {
-      if (this.flushPromise === wrapped) {
-        this.flushPromise = Promise.resolve();
-      }
-    }).catch((e) => {
-      this.audit.write(DIALOG_AUDIT_EVENTS.FLUSH_CHAIN_ERROR, `reason=${formatErr(e)}`);
-    });
-
-    return next;
+    // Phase 920: 完整重置新会话状态缓存
+    this.createdAt = null;  // Reset so next save() starts a fresh session
+    // phase 988 (audit-2026-05-17 NEW.P1 G.2): reset corruptedPoisoned 防 sticky
+    // archive 移走 current.json → 下次 load cold start → 新 file 不继承 stale poisoned state
+    this.corruptedPoisoned = false;
+    // Phase 920: reset message length cache for new session
+    this.prevMessagesLength = 0;
   }
 
   /**

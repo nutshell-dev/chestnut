@@ -791,7 +791,6 @@
       "dialog_archive_empty",
       "dialog_clawid_mismatch",
       "dialog_cold_start",
-      "dialog_flush_chain_error",
       "dialog_invariant_failed",
       "dialog_invariant_violated",
       "dialog_lookup_io_error",

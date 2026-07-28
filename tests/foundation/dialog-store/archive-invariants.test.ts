@@ -12,6 +12,7 @@ import { DialogStore } from '../../../src/foundation/dialog-store/store.js';
 import { listArchiveDialogFiles } from '../../../src/foundation/dialog-store/list-archive.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
+import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -146,48 +147,14 @@ describe('phase920-archive-serialize', () => {
       await cleanupTempDir(tempDir);
     });
 
-    it('archive waits for pending save before moving', async () => {
-      const originalWrite = fs.writeAtomic.bind(fs);
-      const originalMove = fs.move.bind(fs);
-      const order: string[] = [];
-
-      let releaseSave!: () => void;
-      let saveEntered = false;
-
-      vi.spyOn(fs, 'writeAtomic').mockImplementation(async (filePath, content) => {
-        saveEntered = true;
-        order.push('save');
-        await new Promise<void>((resolve) => {
-          releaseSave = resolve;
-        });
-        return originalWrite(filePath, content);
-      });
-
-      vi.spyOn(fs, 'move').mockImplementation(async (fromPath, toPath) => {
-        order.push('archive');
-        return originalMove(fromPath, toPath);
-      });
-
-      const savePromise = store.save({
-        systemPrompt: 'during-save',
+    it('archive after ordered save moves current to archive (Phase 1218 Step C)', async () => {
+      await store.save({
+        systemPrompt: 'pre-archive',
         messages: [{ role: 'user', content: 'hello' }],
         toolsForLLM: [],
       });
 
-      // Ensure save has entered its serialized write before we call archive.
-      await vi.waitUntil(() => saveEntered, { timeout: 1000 });
-
-      const archivePromise = store.archive();
-
-      // Give archive a chance to run if it were not properly serialized.
-      const ARCHIVE_RACE_WINDOW_MS = 30; // derive: short enough for test speed, long enough for racy archive to execute
-      await new Promise((resolve) => setTimeout(resolve, ARCHIVE_RACE_WINDOW_MS));
-      expect(order).toEqual(['save']);
-
-      releaseSave();
-      await Promise.all([savePromise, archivePromise]);
-
-      expect(order).toEqual(['save', 'archive']);
+      await store.archive();
 
       // After archive, current.json must be gone (no duplicate left behind).
       const hasCurrent = await store.hasCurrent();
@@ -196,6 +163,20 @@ describe('phase920-archive-serialize', () => {
       // And exactly one archive file should exist.
       const archives = await store.listArchives();
       expect(archives).toHaveLength(1);
+    });
+
+    it('archive move failure rejects caller and emits ARCHIVE_FAILED (Phase 1218 Step C)', async () => {
+      await store.save({
+        systemPrompt: 'pre-archive',
+        messages: [{ role: 'user', content: 'hello' }],
+        toolsForLLM: [],
+      });
+
+      vi.spyOn(fs, 'move').mockRejectedValue(new Error('disk full'));
+
+      await expect(store.archive()).rejects.toThrow('disk full');
+
+      expect(audit.events.some((e) => e[0] === DIALOG_AUDIT_EVENTS.ARCHIVE_FAILED)).toBe(true);
     });
 
     it('resets prevMessagesLength after archive', async () => {

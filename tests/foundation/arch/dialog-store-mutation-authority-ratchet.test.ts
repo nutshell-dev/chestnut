@@ -30,12 +30,9 @@ function fileOf(line: string): string {
 }
 
 describe('Phase 1218 Step B: DialogStore mutation authority ratchet', () => {
-  it('getFlushPromise 仅允许在 DialogStore 实现与旧测试中出现（Step C 前临时）', () => {
+  it('getFlushPromise 已从 src 与 tests 中移除（Phase 1218 Step C）', () => {
     const lines = grep('getFlushPromise', `${srcRoot} ${testsRoot}`);
     const allowed = new Set<string>([
-      path.join(srcRoot, 'foundation', 'dialog-store', 'store.ts'),
-      path.join(testsRoot, 'foundation', 'file-tool', 'regime-switch-readfilestate-clear-e2e.test.ts'),
-      path.join(testsRoot, 'foundation', 'dialog-store', 'ds-misc-invariants.test.ts'),
       selfFile,
     ]);
     const offenders = lines.filter(line => !allowed.has(fileOf(line)));

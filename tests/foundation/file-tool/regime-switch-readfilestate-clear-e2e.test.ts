@@ -71,7 +71,6 @@ function makeMockDialogStore(): DialogStore {
     }),
     save: vi.fn().mockResolvedValue(undefined),
     archive: vi.fn().mockResolvedValue(undefined),
-    getFlushPromise: vi.fn().mockResolvedValue(undefined),
     beginTurn: vi.fn().mockResolvedValue(undefined),
     commitTurn: vi.fn().mockResolvedValue(undefined),
     rollbackTurn: vi.fn().mockResolvedValue(undefined),
