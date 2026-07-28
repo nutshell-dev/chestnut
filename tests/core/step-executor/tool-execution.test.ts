@@ -1,5 +1,7 @@
 /**
- * Phase 1227 Step A: StepExecutor write-ordering authority.
+ * Phase 1227 Step A/B: StepExecutor write-ordering authority.
+ *
+ * All ordering proofs use executor-issued reached barriers; no wall-clock sleep.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -35,9 +37,9 @@ function makeRegistry(readonlyNames: Set<string>): ToolRegistry {
   };
 }
 
-function createGate(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>(r => { resolve = r; });
+function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(r => { resolve = r; });
   return { promise, resolve };
 }
 
@@ -45,16 +47,18 @@ describe('executeToolCalls ordering', () => {
   const ctx = { signal: undefined } as unknown as ExecContext;
 
   it('write tools execute sequentially in tool-call order without overlap', async () => {
-    const calls: string[] = [];
-    const gate = createGate();
+    const events: string[] = [];
+    const writeAReached = createDeferred<void>();
+    const releaseWriteA = createDeferred<void>();
 
     const executor: IToolExecutor = {
       execute: vi.fn(async ({ toolName }: { toolName: string }) => {
-        calls.push(`enter:${toolName}`);
+        events.push(`enter:${toolName}`);
         if (toolName === 'write_a') {
-          await gate.promise;
+          writeAReached.resolve();
+          await releaseWriteA.promise;
         }
-        calls.push(`exit:${toolName}`);
+        events.push(`exit:${toolName}`);
         return { success: true, content: toolName } as ToolResult;
       }),
       executeParallel: vi.fn(),
@@ -67,21 +71,22 @@ describe('executeToolCalls ordering', () => {
       makeToolUseBlock('2', 'write_b'),
     ];
 
-    const promise = executeToolCalls(
+    const execution = executeToolCalls(
       toolCalls,
       executor,
       ctx,
       makeRegistry(new Set()),
     );
 
-    // Yield to let the first write enter its critical section.
-    await new Promise(r => setTimeout(r, 0));
-    expect(calls).toEqual(['enter:write_a']);
+    await writeAReached.promise;
+    // write_a has entered execute() and is awaiting the release gate;
+    // write_b must not have started yet because writes are sequential.
+    expect(events).toEqual(['enter:write_a']);
 
-    gate.resolve();
-    await promise;
+    releaseWriteA.resolve();
+    await execution;
 
-    expect(calls).toEqual([
+    expect(events).toEqual([
       'enter:write_a',
       'exit:write_a',
       'enter:write_b',
@@ -125,13 +130,15 @@ describe('executeToolCalls ordering', () => {
 
   it('mixed readonly + write runs readonly parallel first, then write sequentially', async () => {
     const events: string[] = [];
-    const writeGate = createGate();
+    const writeXReached = createDeferred<void>();
+    const releaseWriteX = createDeferred<void>();
 
     const executor: IToolExecutor = {
       execute: vi.fn(async ({ toolName }: { toolName: string }) => {
         events.push(`write-enter:${toolName}`);
         if (toolName === 'write_x') {
-          await writeGate.promise;
+          writeXReached.resolve();
+          await releaseWriteX.promise;
         }
         events.push(`write-exit:${toolName}`);
         return { success: true, content: toolName } as ToolResult;
@@ -154,18 +161,19 @@ describe('executeToolCalls ordering', () => {
       makeToolUseBlock('4', 'write_w'),
     ];
 
-    const promise = executeToolCalls(
+    const execution = executeToolCalls(
       toolCalls,
       executor,
       ctx,
       makeRegistry(new Set(['read_y', 'read_z'])),
     );
 
-    await new Promise(r => setTimeout(r, 0));
+    await writeXReached.promise;
+    // readonly batch must have completed before the first write entered.
     expect(events).toEqual(['readonly-batch', 'write-enter:write_x']);
 
-    writeGate.resolve();
-    await promise;
+    releaseWriteX.resolve();
+    await execution;
 
     expect(events).toEqual([
       'readonly-batch',
