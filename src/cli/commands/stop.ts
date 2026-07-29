@@ -9,7 +9,7 @@ import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';
-import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
+import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog.js';
 import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
 import { ProcessListUnavailable, PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';

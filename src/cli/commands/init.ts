@@ -21,7 +21,7 @@ import {
   WATCHDOG_INTERVAL_MS,
   DEFAULT_DISK_WARNING_MB,
   CLAW_INACTIVITY_TIMEOUT_MS,
-} from '../../watchdog/constants.js';
+} from '../../watchdog/watchdog.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index.js';
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';

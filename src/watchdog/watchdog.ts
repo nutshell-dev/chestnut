@@ -566,3 +566,11 @@ export {
 export {
   maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
 } from './watchdog-cron.js';
+
+export type { WatchdogProcessDeps } from './types.js';
+export { getAuditWriter, getChestnutFs, getGlobalConfig } from './watchdog-context.js';
+export { WatchdogPidForeignWorkspaceError } from './watchdog-pid.js';
+export { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+export { spawnWatchdogCandidate } from './spawn.js';
+export { WATCHDOG_INTERVAL_MS, DEFAULT_DISK_WARNING_MB, CLAW_INACTIVITY_TIMEOUT_MS } from './constants.js';
+export { writeSubscription, MAX_THRESHOLD_MS } from './subscription-store.js';

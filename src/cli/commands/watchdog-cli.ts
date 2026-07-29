@@ -8,15 +8,13 @@ import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as defaultIsPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import type { WatchdogProcessDeps } from '../../watchdog/types.js';
 import {
+  type WatchdogProcessDeps,
   getWatchdogEntryPath, getAuditWriter,
-} from '../../watchdog/watchdog-context.js';
-import {
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
-} from '../../watchdog/watchdog-pid.js';
-import { WATCHDOG_AUDIT_EVENTS } from '../../watchdog/audit-events.js';
-import { spawnWatchdogCandidate } from '../../watchdog/spawn.js';
+  WATCHDOG_AUDIT_EVENTS,
+  spawnWatchdogCandidate,
+} from '../../watchdog/watchdog.js';
 import { CliError } from '../errors.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔

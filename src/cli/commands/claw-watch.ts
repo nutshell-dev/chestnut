@@ -21,7 +21,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { parseDurationMs, DurationParseError } from '../utils/duration.js';
-import { writeSubscription, MAX_THRESHOLD_MS } from '../../watchdog/subscription-store.js';
+import { writeSubscription, MAX_THRESHOLD_MS } from '../../watchdog/watchdog.js';
 
 const DEFAULT_WATCH_DURATION = '5m';
 
