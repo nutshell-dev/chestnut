@@ -351,25 +351,12 @@ describe('daemonCommand - A4a startup failure', () => {
     vi.restoreAllMocks();
   });
 
-  it('it #3: assemble LockConflictError → audit module=pre_assemble + exit 1', async () => {
-    // Phase 1235: LockConflictError 已从 ProcessManager 删除；Assembly 死转导出面自 host
-    // （下一 phase 统一清退），此处改从 Assembly 定义文件直导（绕 barrel 避免 audit mock 缺导）。
-    const { LockConflictError } = await import('../../src/assembly/lock-conflict-error.js');
-    const lockErr = new LockConflictError('test-claw');
-    mockState.mockAssemble.mockRejectedValue(lockErr);
-
-    await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
-
-    expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
-      'assemble_failed',
-      'module=pre_assemble',
-      'phase=preconstruct',
-      expect.stringMatching(/reason=.*Lock conflict/),
-    );
-  });
-
-  it('it #4: assemble 其他失败 → audit module=pre_assemble + exit 1', async () => {
-    mockState.mockAssemble.mockRejectedValue(new Error('mock assemble crash'));
+  it('it #4: assemble 任意 error（不按错误名分支）→ audit module=pre_assemble + exit 1', async () => {
+    // Phase 1239: Assembly 兼容 lock 冲突错误类型已清退；daemon 不按错误名分支，
+    // 任意 pre-assemble error 统一写 assemble_failed。自定义 name 证明无名称分支。
+    const arbitraryErr = new Error('mock assemble crash');
+    arbitraryErr.name = 'TotallyUnrelatedError';
+    mockState.mockAssemble.mockRejectedValue(arbitraryErr);
 
     await expect(daemonCommand('test-claw')).rejects.toThrow('process.exit(1)');
 

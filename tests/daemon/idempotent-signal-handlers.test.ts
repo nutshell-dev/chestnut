@@ -64,7 +64,6 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
   PROCESS_GENERATION_ENV: 'CHESTNUT_PROCESS_GENERATION',
   makeDaemonDir: (s: string) => s,
   STATUS_SUBDIR: 'status',
-  LockConflictError: class LockConflictError extends Error {},
 }));
 
 const mockFs = {
