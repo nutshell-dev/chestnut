@@ -15,8 +15,8 @@ export default defineConfig([
   {
     entry: {
       cli: 'src/cli/index.ts',
-      'daemon-entry': 'src/daemon-entry.ts',
-      'watchdog-entry': 'src/watchdog-entry.ts',
+      'daemon-entry': 'src/daemon/daemon-entry.ts',
+      'watchdog-entry': 'src/watchdog/watchdog-entry.ts',
     },
     format: ['esm'],
     banner: {

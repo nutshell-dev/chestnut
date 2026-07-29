@@ -1,8 +1,8 @@
-import { NodeFileSystem } from './foundation/fs/index.js';
-import type { FileSystem } from './foundation/fs/index.js';
-import { runWatchdogLoop, writeWatchdogCrash } from './watchdog/watchdog.js';
-import { DAEMON_LOG } from './daemon/index.js';
-import { getAuditWriter } from './watchdog/watchdog-context.js';
+import { NodeFileSystem } from '../foundation/fs/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { runWatchdogLoop, writeWatchdogCrash } from './watchdog.js';
+import { DAEMON_LOG } from '../daemon/index.js';
+import { getAuditWriter } from './watchdog-context.js';
 
 const errMsg = (reason: unknown): string =>
   reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason);

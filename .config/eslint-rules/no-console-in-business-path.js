@@ -27,9 +27,9 @@ const ALLOWLIST_PREFIXES = [
 ];
 
 const ALLOWLIST_FILES = [
-  'src/daemon-entry.ts',
-  'src/daemon-handlers.ts',
-  'src/watchdog-entry.ts',
+  'src/daemon/daemon-entry.ts',
+  'src/daemon/daemon-handlers.ts',
+  'src/watchdog/watchdog-entry.ts',
   'src/assembly/llm-event-sink.ts',
 ];
 

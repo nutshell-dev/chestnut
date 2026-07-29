@@ -13,9 +13,9 @@
  *   - src/assembly/assemble.ts
  *   - src/assembly/core-infrastructure.ts
  *   - src/cli/index.ts
- *   - src/daemon-entry.ts
+ *   - src/daemon/daemon-entry.ts
  *   - src/daemon-handlers.ts
- *   - src/watchdog-entry.ts
+ *   - src/watchdog/watchdog-entry.ts
  *   - src/foundation/fs/ (NodeFileSystem 自身实现 dir)
  *
  * phase 359: 22nd src ESLint rule
@@ -32,9 +32,9 @@ const ALLOWLIST_PREFIXES = [
   'src/assembly/assemble.ts',
   'src/assembly/core-infrastructure.ts',
   'src/cli/index.ts',
-  'src/daemon-entry.ts',
+  'src/daemon/daemon-entry.ts',
   'src/daemon-handlers.ts',
-  'src/watchdog-entry.ts',
+  'src/watchdog/watchdog-entry.ts',
   'src/foundation/fs/',
 ];
 

@@ -14,12 +14,12 @@ describe('eslint custom rule: no-direct-new-nodefilesystem (phase 359)', () => {
       // allowlist: daemon-entry.ts
       {
         code: 'const fs = new NodeFileSystem({ baseDir });',
-        filename: 'src/daemon-entry.ts',
+        filename: 'src/daemon/daemon-entry.ts',
       },
       // allowlist: watchdog-entry.ts
       {
         code: 'const fs = new NodeFileSystem({ baseDir });',
-        filename: 'src/watchdog-entry.ts',
+        filename: 'src/watchdog/watchdog-entry.ts',
       },
       // allowlist: cli/index.ts
       {
