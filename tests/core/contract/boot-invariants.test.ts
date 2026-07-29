@@ -577,7 +577,7 @@ describe('phase 1405 Fix 3: boot migration archive skipped audit', () => {
     // phase 263: use static CONTRACT_AUDIT_EVENTS import at top
     expect(CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ARCHIVE_SKIPPED).toBe('contract_boot_migrate_archive_skipped');
 
-    const snapshotPath = path.join(__dirname, '../../../src/foundation/audit/audit-events.snapshot.json');
+    const snapshotPath = path.join(__dirname, '../../../src/cli/audit-events.snapshot.json');
     const snapshot = JSON.parse(nodeFs.readFileSync(snapshotPath, 'utf8')) as { modules: Record<string, string[]> };
     const all = Object.values(snapshot.modules).flat();
     expect(all).toContain('contract_boot_migrate_archive_skipped');

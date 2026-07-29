@@ -28,7 +28,7 @@ import { RUNTIME_FILE_ROUTING } from '../../../src/core/runtime/runtime-audit-ev
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = path.resolve(__dirname, '../../../src');
-const SNAPSHOT_PATH = path.join(SRC_ROOT, 'foundation/audit/audit-events.snapshot.json');
+const SNAPSHOT_PATH = path.join(SRC_ROOT, 'cli/audit-events.snapshot.json');
 
 interface ColSchema {
   name: string;

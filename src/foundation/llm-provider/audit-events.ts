@@ -2,7 +2,7 @@
  * LLM Provider audit event names.
  *
  * Module-owned event namespace per H1 design.
- * 字符串值与 foundation/audit/audit-events.snapshot.json 等价 / 0 漂移。
+ * 字符串值与 cli/audit-events.snapshot.json 等价 / 0 漂移。
  */
 
 export const LLM_PROVIDER_AUDIT_EVENTS = {
