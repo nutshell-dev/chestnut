@@ -2,11 +2,11 @@
  * Phase 1235 ratchet: ProcessManager spawn 错误 taxonomy 已分型为
  * ProcessSpawnConflictError（合法竞争：active_owner | spawn_in_progress | commit_lost）
  * 与 ProcessGenerationStateError（malformed generation state）。旧 lock 语义
- * （LockConflictError / lockPath / lock_conflict outcome）不得回流
- * ProcessManager 与 Watchdog production scope。
+ * （LockConflictError / lockPath / lock_conflict outcome）不得回流任何 production scope。
  *
- * scope 不含 src/assembly/ —— Assembly 死转导（LockConflictError 自 host +
- * ASSEMBLE_LOCK_CONFLICT 常量/routing）按计划保留至下一 phase 清退，不可误报。
+ * Phase 1239: Assembly 兼容面（LockConflictError 自 host + ASSEMBLE_LOCK_CONFLICT
+ * 常量/routing）已清退，ratchet scope 扩至全部 production `src/`，禁止任何模块重新引入
+ * 旧 taxonomy。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -14,12 +14,12 @@ import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 
 const FORBIDDEN_RE = 'LockConflictError|lockPath|lock_conflict';
-const SCOPES = ['src/foundation/process-manager', 'src/watchdog'];
+const SCOPES = ['src'];
 
 describe('process spawn error taxonomy ratchet (Phase 1235)', () => {
   const repoRoot = path.join(__dirname, '..', '..', '..');
 
-  it('ProcessManager + Watchdog production 无旧 lock 错误/字段/outcome', () => {
+  it('全部 production src 无旧 lock 错误/字段/outcome', () => {
     for (const scope of SCOPES) {
       const cmd = `grep -rEn '${FORBIDDEN_RE}' ${path.join(repoRoot, scope)} --include='*.ts' || true`;
       const out = execSync(cmd, { encoding: 'utf8' });

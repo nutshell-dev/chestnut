@@ -7,7 +7,6 @@
  */
 export const ASSEMBLY_AUDIT_EVENTS = {
   ASSEMBLE_FAILED: 'assemble_failed',
-  ASSEMBLE_LOCK_CONFLICT: 'assemble_lock_conflict',
   DAEMON_STARTED: 'daemon_started',
   DAEMON_START: 'daemon_start',
   DAEMON_STOP: 'daemon_stop',
@@ -26,7 +25,6 @@ export const ASSEMBLY_AUDIT_EVENTS = {
  */
 export const ASSEMBLY_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   assemble_failed: 'audit',
-  assemble_lock_conflict: 'audit',
   daemon_started: 'audit',
   daemon_start: 'audit',
   daemon_stop: 'audit',

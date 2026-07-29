@@ -2,7 +2,6 @@
   "modules": {
     "assembly_audit-events": [
       "assemble_failed",
-      "assemble_lock_conflict",
       "assembly_fallback_reconcile_failed",
       "cleanup_temp_files_failed",
       "daemon_crash",
