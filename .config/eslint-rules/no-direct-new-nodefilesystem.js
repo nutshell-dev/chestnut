@@ -14,7 +14,7 @@
  *   - src/assembly/core-infrastructure.ts
  *   - src/cli/index.ts
  *   - src/daemon/daemon-entry.ts
- *   - src/daemon-handlers.ts
+ *   - src/daemon/daemon-handlers.ts
  *   - src/watchdog/watchdog-entry.ts
  *   - src/foundation/fs/ (NodeFileSystem 自身实现 dir)
  *
@@ -33,7 +33,7 @@ const ALLOWLIST_PREFIXES = [
   'src/assembly/core-infrastructure.ts',
   'src/cli/index.ts',
   'src/daemon/daemon-entry.ts',
-  'src/daemon-handlers.ts',
+  'src/daemon/daemon-handlers.ts',
   'src/watchdog/watchdog-entry.ts',
   'src/foundation/fs/',
 ];
