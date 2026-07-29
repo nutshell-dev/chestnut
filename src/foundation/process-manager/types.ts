@@ -21,12 +21,68 @@ export function makeDaemonDir(s: string): DaemonDir {
 }
 
 
-export class LockConflictError extends Error {
-  readonly lockPath: string;
-  constructor(lockPath: string, message?: string) {
-    super(message ?? `Lock conflict: another process holds the lock at ${lockPath}`);
-    this.name = 'LockConflictError';
-    this.lockPath = lockPath;
+/**
+ * Phase 1235: spawn ownership conflict 的合法竞争原因（discriminant）。
+ * caller 不解析 message、reason 编译期可检。
+ *
+ * - active_owner:       active generation 对应进程仍活，磁盘 winner 是 active record
+ * - spawn_in_progress:  spawning generation 已被另一 spawn 持有（precheck）
+ * - commit_lost:        candidate → spawning move 输给 foreign generation
+ */
+export type ProcessSpawnConflictReason =
+  | 'active_owner'
+  | 'spawn_in_progress'
+  | 'commit_lost';
+
+/**
+ * Phase 1235: 合法 spawn ownership 竞争 —— 另一实例/另一 spawn generation 是
+ * 磁盘上的合法 winner。Watchdog 只对本类型清零 restart backoff。
+ */
+export class ProcessSpawnConflictError extends Error {
+  readonly daemonDir: DaemonDir;
+  readonly reason: ProcessSpawnConflictReason;
+  /** 磁盘 winner 的 generation ID（来源逐分支不同，见 spawn.ts 六分支映射） */
+  readonly generationId: string;
+  constructor(
+    daemonDir: DaemonDir,
+    reason: ProcessSpawnConflictReason,
+    generationId: string,
+    message?: string,
+  ) {
+    super(message ?? `Spawn conflict for "${daemonDir}" (${reason}, generation ${generationId})`);
+    this.name = 'ProcessSpawnConflictError';
+    this.daemonDir = daemonDir;
+    this.reason = reason;
+    this.generationId = generationId;
+  }
+}
+
+/**
+ * Phase 1235: generation 持久状态损坏（malformed）—— fail-closed，不得解释为
+ * 另一实例启动成功。携带原始损坏原因（Error cause option），Watchdog 归入
+ * failed/backoff 并写 PROCESS_SPAWN_FAILED。
+ */
+export class ProcessGenerationStateError extends Error {
+  readonly daemonDir: DaemonDir;
+  readonly location: 'active' | 'spawning';
+  readonly operation: 'inspect' | 'commit';
+  readonly cause: unknown;
+  constructor(
+    daemonDir: DaemonDir,
+    location: 'active' | 'spawning',
+    operation: 'inspect' | 'commit',
+    cause: unknown,
+    message?: string,
+  ) {
+    super(
+      message ?? `Malformed ${location} generation state for "${daemonDir}" (${operation})`,
+    );
+    this.name = 'ProcessGenerationStateError';
+    this.daemonDir = daemonDir;
+    this.location = location;
+    this.operation = operation;
+    // 显式 readonly 字段保留原始损坏原因（Error cause 语义），不覆盖、不丢失
+    this.cause = cause;
   }
 }
 

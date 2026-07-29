@@ -11,6 +11,12 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
+// Phase 1235: 从 types.js 直导（无 runtime 依赖链），避免与本文件 vi.mock hoist 环冲突
+import {
+  ProcessGenerationStateError,
+  ProcessSpawnConflictError,
+  makeDaemonDir,
+} from '../../src/foundation/process-manager/types.js';
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_ALT } from '../helpers/test-pids.js';
 
 // Mock config so getChestnutDir() and getGlobalConfig() return controllable values
@@ -696,6 +702,44 @@ describe('runWatchdogLoop', () => {
       nextAttemptAt: expect.any(Number),
       awaitingStability: false,
     });
+  });
+
+  it('phase 1235: ProcessGenerationStateError 走 failed/backoff + PROCESS_SPAWN_FAILED（不穿 catch 误分类）', async () => {
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.stop).mockResolvedValue(undefined);
+    vi.mocked(mockPm.spawn).mockRejectedValue(
+      new ProcessGenerationStateError(makeDaemonDir('motion'), 'spawning', 'inspect', new Error('malformed')),
+    );
+
+    await runLoopForOneTick();
+
+    // malformed generation state 不得清零 backoff：attempts +1
+    expect(motionRestartStateAPI.snapshot()).toEqual({
+      status: 'retrying',
+      consecutiveAttempts: 1,
+      nextAttemptAt: expect.any(Number),
+      awaitingStability: false,
+    });
+
+    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
+    expect(auditContent).toContain('process_spawn_failed');
+  });
+
+  it('phase 1235: ProcessSpawnConflictError 才清零 backoff（另一实例是合法 winner）', async () => {
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.stop).mockResolvedValue(undefined);
+    vi.mocked(mockPm.spawn).mockRejectedValue(
+      new ProcessSpawnConflictError(makeDaemonDir('motion'), 'spawn_in_progress', 'gen-winner'),
+    );
+
+    await runLoopForOneTick();
+
+    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+
+    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
+    expect(auditContent).not.toContain('process_spawn_failed');
   });
 
   it('phase 1164: hitting max attempts transitions to open circuit', async () => {

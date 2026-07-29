@@ -36,7 +36,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import { type AuditLog, createAuditWriter, AUDIT_FILE } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
-import { LockConflictError } from '../foundation/process-manager/index.js';
+import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 
@@ -312,7 +312,7 @@ async function attemptMotionRestart(
     // best-effort cleanup before respawn / per phase 636 ratify:
     //   - cleanup failure 可能源:
     //     (a) 真 stale PID 文件 → safe to ignore (audit captures)
-    //     (b) motion 仍活（race / 另 watchdog instance spawn 中）→ spawn 抛 LockConflictError、捕获后 reset 计数
+    //     (b) motion 仍活（race / 另 watchdog instance spawn 中）→ spawn 抛 ProcessSpawnConflictError、捕获后 reset 计数
     //   - cleanup 失败不阻塞 respawn / spawn 自身判 race / failure 仅 audit observability
     await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID)).catch((e) => {
       const msg = `[watchdog] Failed to clean up motion before restart: ${formatErr(e)}`;
@@ -337,11 +337,12 @@ async function attemptMotionRestart(
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, `claw=${MOTION_CLAW_ID}`, `pid=${pid}`);
     return { kind: 'spawned', pid };
   } catch (err) {
-    if (err instanceof LockConflictError) {
-      // phase 324 H3 锚：LockConflictError 重置 failures 是 intentional —— 失锁意味着另
-      // 一个 watchdog 实例赢了 race、不是本机 motion spawn 失败，所以不入失败计数。
+    if (err instanceof ProcessSpawnConflictError) {
+      // phase 324 H3 锚 + Phase 1235：合法 spawn ownership conflict 重置 failures 是
+      // intentional —— 另一实例赢了 race、不是本机 motion spawn 失败，所以不入失败计数。
+      // malformed generation（ProcessGenerationStateError）不属于此类，走 failed/backoff。
       log(fsFactory, `[watchdog] motion already started by another instance`);
-      return { kind: 'lock_conflict' };
+      return { kind: 'spawn_conflict', reason: err.reason };
     }
     // phase 716: raw MOTION_CLAW_ID 加 claw= prefix、与 spawn.ts:370 同 event 形态对齐
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED, `claw=${MOTION_CLAW_ID}`, `error=${formatErr(err)}`);

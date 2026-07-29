@@ -3,7 +3,9 @@
  * Assembly — 运行时依赖组装与注入。
  */
 
-export { LockConflictError } from '../foundation/process-manager/index.js';
+// Phase 1235: 死转导出面保留（production 零 caller），定义已自 host 于
+// assembly/lock-conflict-error.ts，下一 phase 连 ASSEMBLE_LOCK_CONFLICT 一并清退。
+export { LockConflictError } from './lock-conflict-error.js';
 export type { Identity, AssembleConfig, Instances } from './types.js';
 
 export { assemble } from './assemble.js';

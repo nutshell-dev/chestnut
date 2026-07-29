@@ -13,7 +13,7 @@ import { signalCleanStop } from '../../../src/foundation/process-manager/signal-
 import { makeDaemonDir } from '../../../src/foundation/process-manager/index.js';
 import { getAliveStatus } from '../../../src/foundation/process-manager/alive.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { LockConflictError, makeDaemonDir as makeDaemonDirFromTypes, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { ProcessGenerationStateError, ProcessSpawnConflictError, makeDaemonDir as makeDaemonDirFromTypes, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 
@@ -114,21 +114,55 @@ describe('alive-conservative', () => {
   });
 });
 
-describe('lock-conflict-error-message', () => {
-  describe('LockConflictError default message', () => {
-    it('does not contain "daemon" in the default message (M#5 generic)', () => {
-      const err = new LockConflictError('test-claw');
-      expect(err.message).not.toContain('daemon');
+describe('spawn-error-taxonomy (Phase 1235)', () => {
+  describe('ProcessSpawnConflictError fields', () => {
+    it('exposes daemonDir/reason/generationId with default message', () => {
+      const daemonDir = makeDaemonDirFromTypes('test-claw');
+      const err = new ProcessSpawnConflictError(daemonDir, 'active_owner', 'gen-1');
+      expect(err.name).toBe('ProcessSpawnConflictError');
+      expect(err.daemonDir).toBe(daemonDir);
+      expect(err.reason).toBe('active_owner');
+      expect(err.generationId).toBe('gen-1');
+      expect(err.message).toContain('active_owner');
+      expect(err.message).toContain('gen-1');
     });
 
-    it('contains generic "another process holds the lock" in the default message', () => {
-      const err = new LockConflictError('test-claw');
-      expect(err.message).toContain('another process holds the lock');
+    it('accepts all three conflict reasons', () => {
+      const daemonDir = makeDaemonDirFromTypes('test-claw');
+      expect(new ProcessSpawnConflictError(daemonDir, 'active_owner', 'g').reason).toBe('active_owner');
+      expect(new ProcessSpawnConflictError(daemonDir, 'spawn_in_progress', 'g').reason).toBe('spawn_in_progress');
+      expect(new ProcessSpawnConflictError(daemonDir, 'commit_lost', 'g').reason).toBe('commit_lost');
     });
 
     it('allows custom message override', () => {
-      const custom = 'custom lock message';
-      const err = new LockConflictError('test-claw', custom);
+      const custom = 'custom conflict message';
+      const err = new ProcessSpawnConflictError(makeDaemonDirFromTypes('test-claw'), 'commit_lost', 'gen-2', custom);
+      expect(err.message).toBe(custom);
+    });
+  });
+
+  describe('ProcessGenerationStateError fields', () => {
+    it('exposes location/operation and preserves original cause', () => {
+      const daemonDir = makeDaemonDirFromTypes('test-claw');
+      const cause = new SyntaxError('Unexpected token');
+      const err = new ProcessGenerationStateError(daemonDir, 'spawning', 'inspect', cause);
+      expect(err.name).toBe('ProcessGenerationStateError');
+      expect(err.daemonDir).toBe(daemonDir);
+      expect(err.location).toBe('spawning');
+      expect(err.operation).toBe('inspect');
+      expect(err.cause).toBe(cause);
+      expect(err.message).toContain('spawning');
+      expect(err.message).toContain('inspect');
+    });
+
+    it('is not a spawn conflict (distinct class per taxonomy)', () => {
+      const err = new ProcessGenerationStateError(makeDaemonDirFromTypes('test-claw'), 'active', 'commit', 'boom');
+      expect(err).not.toBeInstanceOf(ProcessSpawnConflictError);
+    });
+
+    it('allows custom message override', () => {
+      const custom = 'custom state message';
+      const err = new ProcessGenerationStateError(makeDaemonDirFromTypes('test-claw'), 'active', 'inspect', 'c', custom);
       expect(err.message).toBe(custom);
     });
   });

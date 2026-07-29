@@ -14,7 +14,8 @@ import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
-import { LockConflictError } from '../../../src/foundation/process-manager/types.js';
+import { ProcessSpawnConflictError } from '../../../src/foundation/process-manager/types.js';
+import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
@@ -57,6 +58,28 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
       ...overrides,
     };
   }
+
+  it('live active generation → ProcessSpawnConflictError(active_owner) with winner generation ID', async () => {
+    const { audit } = makeAudit();
+    const clawId = `test-claw-live-active-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const winnerGeneration = 'gen-live-owner';
+    writeActiveGenerationSync(daemonDir, { generationId: winnerGeneration, pid: FAKE_LIVE_PID });
+
+    const ctx = makeCtx({ l1IsAlive: vi.fn().mockReturnValue(true) });
+
+    const err = await spawnProcess(ctx, daemonDir, {
+      command: 'node',
+      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+    }).catch((e) => e);
+
+    // Phase 1235: 活 active owner 是合法竞争 —— conflict(active_owner) + 磁盘 winner ID
+    expect(err).toBeInstanceOf(ProcessSpawnConflictError);
+    expect(err.reason).toBe('active_owner');
+    expect(err.generationId).toBe(winnerGeneration);
+    expect(ctx.spawnDetached).not.toHaveBeenCalled();
+  });
 
   it('terminates child process when spawn fails after spawnDetached', async () => {
     const { audit } = makeAudit();

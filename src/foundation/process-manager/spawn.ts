@@ -23,7 +23,7 @@ import {
 import { shouldAbortSpawningForStop } from './stop.js';
 
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
-import { LockConflictError, type ProcessManagerContext } from './types.js';
+import { ProcessGenerationStateError, ProcessSpawnConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
 
 
@@ -36,9 +36,10 @@ const sleep = (ms: number): Promise<void> =>
  * child has marked itself ready.
  *
  * Pipeline (Phase 1204 Step E — generation 目录是排他原语，无 lock / pid:0 / legacy pidfile）：
- *   1. active precheck      — 有 active generation 且进程仍活 → LockConflictError
+ *   1. active precheck      — 有 active generation 且进程仍活 → ProcessSpawnConflictError(active_owner)
  *   2. orphan cleanup       — SIGTERM matching processes from previous run
- *   3. spawning precheck    — 已有 spawning generation → typed conflict / malformed fail-closed
+ *   3. spawning precheck    — 已有 spawning generation → ProcessSpawnConflictError(spawn_in_progress)
+ *                             / malformed → ProcessGenerationStateError fail-closed
  *   4. generation commit    — candidate → spawning（move winner 才可 spawn）
  *   5. child spawn          — `spawnDetached` + generation ID 显式注入 child env；
  *                             pid.json 写 spawning（existing-generation 语义）
@@ -50,10 +51,13 @@ const sleep = (ms: number): Promise<void> =>
  * @param daemonDir Target daemon owner directory
  * @param options   Spawn options (command/args/env/cwd/logFile)
  * @returns         The spawned child's PID
- * @throws LockConflictError if a live process already owns the daemon or another
- *                         spawn generation holds spawning
- * @throws Error              if the child dies during boot before becoming ready
- *                            (also written to audit as PROCESS_SPAWN_FAILED)
+ * @throws ProcessSpawnConflictError  if a live process already owns the daemon or another
+ *                                    spawn generation holds spawning（合法竞争，含 reason +
+ *                                    winner generation ID）
+ * @throws ProcessGenerationStateError if active/spawning generation 持久状态 malformed
+ *                                    （fail-closed，携带 location/operation/cause）
+ * @throws Error                       if the child dies during boot before becoming ready
+ *                                     (also written to audit as PROCESS_SPAWN_FAILED)
  */
 export async function spawnProcess(
   ctx: ProcessManagerContext,
@@ -71,8 +75,11 @@ export async function spawnProcess(
       `ctx=spawn_precheck`,
       `reason=${ctx.audit.message(formatErr(active.cause))}`,
     );
-    throw new LockConflictError(
+    throw new ProcessGenerationStateError(
       daemonDir,
+      'active',
+      'inspect',
+      active.cause,
       `Cannot determine active generation state for "${daemonDir}" (malformed)`,
     );
   }
@@ -81,8 +88,10 @@ export async function spawnProcess(
     const pid = activePid.status === 'ok' ? activePid.record.pid : undefined;
     const startTime = activePid.status === 'ok' ? activePid.record.start_time as ProcessStartTime | undefined : undefined;
     if (pid !== undefined && (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, startTime)) {
-      throw new LockConflictError(
+      throw new ProcessSpawnConflictError(
         daemonDir,
+        'active_owner',
+        active.record.generation_id,
         `Another "${daemonDir}" daemon is already running (generation ${active.record.generation_id})`,
       );
     }
@@ -104,8 +113,10 @@ export async function spawnProcess(
       `winner_generation=${spawningInspection.record.generation_id}`,
       `winner_parent_pid=${spawningInspection.record.parent_pid}`,
     );
-    throw new LockConflictError(
+    throw new ProcessSpawnConflictError(
       daemonDir,
+      'spawn_in_progress',
+      spawningInspection.record.generation_id,
       `Claw "${daemonDir}" spawn already in progress (generation ${spawningInspection.record.generation_id})`,
     );
   }
@@ -117,8 +128,11 @@ export async function spawnProcess(
       `ctx=spawn_precheck`,
       `reason=${ctx.audit.message(formatErr(spawningInspection.cause))}`,
     );
-    throw new LockConflictError(
+    throw new ProcessGenerationStateError(
       daemonDir,
+      'spawning',
+      'inspect',
+      spawningInspection.cause,
       `Cannot determine spawning generation state for "${daemonDir}" (malformed)`,
     );
   }
@@ -128,14 +142,19 @@ export async function spawnProcess(
   prepareGeneration(ctx, record);
   const commit = commitSpawning(ctx, record);
   if (commit.kind === 'foreign_spawning') {
-    throw new LockConflictError(
+    throw new ProcessSpawnConflictError(
       daemonDir,
+      'commit_lost',
+      commit.winner.generation_id,
       `Claw "${daemonDir}" spawn race lost to generation ${commit.winner.generation_id}`,
     );
   }
   if (commit.kind === 'malformed_spawning') {
-    throw new LockConflictError(
+    throw new ProcessGenerationStateError(
       daemonDir,
+      'spawning',
+      'commit',
+      commit.cause,
       `Cannot commit spawn generation for "${daemonDir}" (malformed spawning)`,
     );
   }

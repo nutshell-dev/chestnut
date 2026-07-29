@@ -164,15 +164,31 @@ describe('reduceMotionRestartOutcome', () => {
     });
   });
 
-  it('lock conflict -> closed attempts=0', () => {
+  it.each(['active_owner', 'spawn_in_progress', 'commit_lost'] as const)(
+    'spawn conflict(%s) -> closed attempts=0',
+    (reason) => {
+      const next = reduceMotionRestartOutcome(
+        retrying(5, 5_000, false),
+        { kind: 'spawn_conflict', reason },
+        10_000,
+        5_000,
+        300_000,
+      );
+      expect(next).toEqual(CLOSED);
+    },
+  );
+
+  it('generation state failure -> failed branch accumulates attempts (Phase 1235)', () => {
+    // malformed generation 不得解释为合法竞争：必须走 failed/backoff
     const next = reduceMotionRestartOutcome(
       retrying(5, 5_000, false),
-      { kind: 'lock_conflict' },
+      { kind: 'failed', error: new Error('malformed generation') },
       10_000,
       5_000,
       300_000,
     );
-    expect(next).toEqual(CLOSED);
+    expect(next.status).toBe('retrying');
+    expect(next.consecutiveAttempts).toBe(6);
   });
 
   it('backoff caps at maxBackoffMs', () => {

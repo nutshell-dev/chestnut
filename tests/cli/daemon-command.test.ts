@@ -352,7 +352,9 @@ describe('daemonCommand - A4a startup failure', () => {
   });
 
   it('it #3: assemble LockConflictError → audit module=pre_assemble + exit 1', async () => {
-    const { LockConflictError } = await import('../../src/foundation/process-manager/index.js');
+    // Phase 1235: LockConflictError 已从 ProcessManager 删除；Assembly 死转导出面自 host
+    // （下一 phase 统一清退），此处改从 Assembly 定义文件直导（绕 barrel 避免 audit mock 缺导）。
+    const { LockConflictError } = await import('../../src/assembly/lock-conflict-error.js');
     const lockErr = new LockConflictError('test-claw');
     mockState.mockAssemble.mockRejectedValue(lockErr);
 

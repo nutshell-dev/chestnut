@@ -7,6 +7,7 @@
  */
 
 import type { MotionRestartState } from './watchdog-context.js';
+import type { ProcessSpawnConflictReason } from '../foundation/process-manager/index.js';
 
 export type MotionRestartDecision =
   | { action: 'healthy'; state: MotionRestartState; recoveredAttempts: number }
@@ -63,7 +64,7 @@ export function decideMotionRestart(
 export type MotionSpawnOutcome =
   | { kind: 'spawned'; pid: number }
   | { kind: 'failed'; error: unknown }
-  | { kind: 'lock_conflict' };
+  | { kind: 'spawn_conflict'; reason: ProcessSpawnConflictReason };
 
 export function reduceMotionRestartOutcome(
   prior: MotionRestartState,
@@ -72,7 +73,9 @@ export function reduceMotionRestartOutcome(
   baseIntervalMs: number,
   maxBackoffMs: number,
 ): MotionRestartState {
-  if (outcome.kind === 'lock_conflict') {
+  // Phase 1235: 只有合法 spawn ownership conflict（另一实例是磁盘 winner）可清零
+  // backoff；malformed generation state 经 failed 分支累计 attempt。
+  if (outcome.kind === 'spawn_conflict') {
     return { status: 'closed', consecutiveAttempts: 0 };
   }
 

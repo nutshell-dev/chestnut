@@ -17,7 +17,7 @@ import { makeAudit } from '../../helpers/audit.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { DEAD_PID } from '../../helpers/dead-pid.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
-import { LockConflictError } from '../../../src/foundation/process-manager/types.js';
+import { ProcessGenerationStateError, ProcessSpawnConflictError } from '../../../src/foundation/process-manager/types.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
@@ -25,6 +25,7 @@ import {
   GENERATION_FILE,
   PID_FILE,
   FAILURE_FILE,
+  getActiveDir,
   getSpawningDir,
   getRetiredDirFor,
   getCandidateDir,
@@ -73,7 +74,7 @@ describe('spawn', () => {
       await cleanupTempDir(tempDir);
     });
 
-    it('throws LockConflictError when spawning generation is malformed', async () => {
+    it('throws ProcessGenerationStateError when spawning generation is malformed', async () => {
       const { audit, events } = makeAudit();
       const clawId = 'spawn-malformed';
       const daemonDir = testClawDaemonDir(tempDir, clawId);
@@ -82,16 +83,85 @@ describe('spawn', () => {
 
       const ctx = defaultCtx(nodeFs, audit);
 
-      await expect(
-        spawnProcess(ctx, daemonDir, {
-          command: 'node',
-          args: ['/fake/daemon-entry.js', clawId],
-          logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
-        }),
-      ).rejects.toBeInstanceOf(LockConflictError);
+      const err = await spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: ['/fake/daemon-entry.js', clawId],
+        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+      }).catch((e) => e);
+
+      // Phase 1235: malformed 是 generation state failure，不是合法 spawn 竞争
+      expect(err).toBeInstanceOf(ProcessGenerationStateError);
+      expect(err).not.toBeInstanceOf(ProcessSpawnConflictError);
+      expect(err.location).toBe('spawning');
+      expect(err.operation).toBe('inspect');
+      expect(err.cause).toBeDefined();
 
       expect(ctx.spawnDetached).not.toHaveBeenCalled();
       expect(events.map((e) => e[0])).toContain(PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_MALFORMED);
+    });
+
+    it('throws ProcessGenerationStateError(active+inspect) when active generation is malformed', async () => {
+      const { audit, events } = makeAudit();
+      const clawId = 'spawn-malformed-active';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+      await fs.mkdir(getActiveDir(daemonDir), { recursive: true });
+      await fs.writeFile(path.join(getActiveDir(daemonDir), GENERATION_FILE), '{not json', 'utf-8');
+
+      const ctx = defaultCtx(nodeFs, audit);
+
+      const err = await spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: ['/fake/daemon-entry.js', clawId],
+        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+      }).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ProcessGenerationStateError);
+      expect(err).not.toBeInstanceOf(ProcessSpawnConflictError);
+      expect(err.location).toBe('active');
+      expect(err.operation).toBe('inspect');
+      expect(err.cause).toBeDefined();
+
+      expect(ctx.spawnDetached).not.toHaveBeenCalled();
+      expect(events.map((e) => e[0])).toContain(PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_MALFORMED);
+    });
+
+    it('throws ProcessGenerationStateError(spawning+commit) when commit re-reads malformed spawning', async () => {
+      const { audit } = makeAudit();
+      const clawId = 'spawn-malformed-commit';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+
+      // 模拟并发：precheck 通过（无 spawning），另一进程在 move 前留下 malformed spawning
+      let moveCallCount = 0;
+      vi.spyOn(nodeFs, 'moveSync').mockImplementation((src: string, dest: string) => {
+        if (src.includes('/candidates/')) {
+          moveCallCount++;
+          if (moveCallCount === 1) {
+            const spawning = getSpawningDir(daemonDir);
+            fsSync.mkdirSync(spawning, { recursive: true });
+            fsSync.writeFileSync(path.join(spawning, GENERATION_FILE), '{not json', 'utf-8');
+            const err = new Error('ENOTEMPTY') as NodeJS.ErrnoException;
+            err.code = 'ENOTEMPTY';
+            throw err;
+          }
+        }
+        return (NodeFileSystem.prototype as any).moveSync.call(nodeFs, src, dest);
+      });
+
+      const ctx = defaultCtx(nodeFs, audit);
+
+      const err = await spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: ['/fake/daemon-entry.js', clawId],
+        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+      }).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ProcessGenerationStateError);
+      expect(err).not.toBeInstanceOf(ProcessSpawnConflictError);
+      expect(err.location).toBe('spawning');
+      expect(err.operation).toBe('commit');
+      expect(err.cause).toBeDefined();
+
+      expect(ctx.spawnDetached).not.toHaveBeenCalled();
     });
 
   });
@@ -422,13 +492,16 @@ describe('spawn', () => {
 
       const ctx = defaultCtx(nodeFs, audit);
 
-      await expect(
-        spawnProcess(ctx, daemonDir, {
-          command: 'node',
-          args: ['/fake/daemon-entry.js', clawId],
-          logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
-        }),
-      ).rejects.toBeInstanceOf(LockConflictError);
+      const err = await spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: ['/fake/daemon-entry.js', clawId],
+        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+      }).catch((e) => e);
+
+      // Phase 1235: 合法竞争 = spawn conflict(spawn_in_progress) + 磁盘 winner generation ID
+      expect(err).toBeInstanceOf(ProcessSpawnConflictError);
+      expect(err.reason).toBe('spawn_in_progress');
+      expect(err.generationId).toBe(foreignGeneration);
 
       expect(ctx.spawnDetached).not.toHaveBeenCalled();
       expect(events.map((e) => e[0])).toContain(PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST);
@@ -470,13 +543,16 @@ describe('spawn', () => {
 
       const ctx = defaultCtx(nodeFs, audit);
 
-      await expect(
-        spawnProcess(ctx, daemonDir, {
-          command: 'node',
-          args: ['/fake/daemon-entry.js', clawId],
-          logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
-        }),
-      ).rejects.toBeInstanceOf(LockConflictError);
+      const err = await spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: ['/fake/daemon-entry.js', clawId],
+        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+      }).catch((e) => e);
+
+      // Phase 1235: commit 输 foreign generation = spawn conflict(commit_lost) + winner ID
+      expect(err).toBeInstanceOf(ProcessSpawnConflictError);
+      expect(err.reason).toBe('commit_lost');
+      expect(err.generationId).toBe(foreignGeneration);
 
       expect(ctx.spawnDetached).not.toHaveBeenCalled();
       const spawningRecord = JSON.parse(nodeFs.readSync(path.join(getSpawningDir(daemonDir), GENERATION_FILE)));
