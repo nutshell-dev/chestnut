@@ -89,7 +89,7 @@ describe('Phase 1203: watchdog ownership authority ratchet', () => {
   it('规则 3：runWatchdogLoop 引用仅在定义/entry/CLI 装配三处', () => {
     const allowed = new Set([
       path.join(repoRoot, 'src', 'watchdog', 'watchdog.ts'),
-      path.join(repoRoot, 'src', 'watchdog-entry.ts'),
+      path.join(repoRoot, 'src', 'watchdog', 'watchdog-entry.ts'),
       path.join(repoRoot, 'src', 'cli', 'index.ts'),
     ]);
     // 逐文件扫描，hit 携带传入的绝对路径 file，不解析冒号字符串
