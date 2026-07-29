@@ -25,3 +25,4 @@ export type { CronSchedule, CronJob, CronJobGlobalConfig } from './runner.js';
 export function createCronRunner(jobs: CronJob[], audit: AuditLog): CronRunner {
   return new CronRunner(jobs, audit);
 }
+export { CRON_FILE_ROUTING } from './audit-events.js';

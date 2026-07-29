@@ -39,3 +39,4 @@ export function createStreamWriter(
 }
 
 export { PerResourceStreamWriter, createPerResourceStreamWriter } from './per-resource-writer.js';
+export { STREAM_FILE_ROUTING } from './audit-events.js';

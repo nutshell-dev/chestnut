@@ -10,3 +10,4 @@ export { MEMORY_DIR } from './memory-paths.js';
 export { MemorySystem } from './system.js';
 export { createMemorySystem } from './system.js';
 export { memorySearchTool } from './tools/memory_search.js';
+export { MEMORY_FILE_ROUTING } from './audit-events.js';

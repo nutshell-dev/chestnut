@@ -18,3 +18,4 @@ export type { DaemonAuditEvent } from './audit-events.js';
 export { createDaemonCommand } from './daemon.js';
 export type { DaemonCommandDeps } from './daemon.js';
 export type { DaemonInstances } from './types.js';
+export { DAEMON_FILE_ROUTING } from './audit-events.js';

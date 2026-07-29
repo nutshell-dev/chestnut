@@ -8,3 +8,4 @@ export type { ClawPermissionOptions } from './claw-permissions.js';
 export { PERMISSION_AUDIT_EVENTS } from './audit-events.js';
 export { PermissionError, PathNotInClawSpaceError, WriteOperationForbiddenError } from './errors.js';
 export type { PermissionErrorCode } from './errors.js';
+export { PERMISSIONS_FILE_ROUTING } from './audit-events.js';

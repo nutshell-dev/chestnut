@@ -154,3 +154,4 @@ export function createContractSystem(deps: ContractSystemDeps): ContractSystem {
   return new ContractSystem(deps);
 }
 export { listArchiveContractLocations, archiveContainerDir } from './locations.js';
+export { CONTRACT_FILE_ROUTING } from './audit-events.js';

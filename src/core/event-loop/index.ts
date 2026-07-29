@@ -21,3 +21,4 @@ export { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES, LOOP_INTERRUPT_CAUSES } f
 export { dispatchError, ERROR_HANDLERS } from './error-handlers.js';
 export { waitForInbox } from './inbox-watcher.js';
 export { createStreamCallbacks } from './stream-callbacks.js';
+export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';

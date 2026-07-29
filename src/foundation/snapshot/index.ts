@@ -20,3 +20,4 @@ export function createSnapshot(
 ): Snapshot {
   return new Snapshot(dir, fs, audit, ignorePatterns, syncCleanupDirs);
 }
+export { SNAPSHOT_FILE_ROUTING } from './audit-events.js';

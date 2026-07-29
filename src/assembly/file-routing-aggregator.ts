@@ -6,26 +6,26 @@
  */
 
 // phase 159 立
-import { CRON_FILE_ROUTING } from '../foundation/cron/audit-events.js';
-import { DAEMON_FILE_ROUTING } from '../daemon/audit-events.js';
-import { EVENTLOOP_FILE_ROUTING } from '../core/event-loop/audit-events.js';
+import { CRON_FILE_ROUTING } from '../foundation/cron/index.js';
+import { DAEMON_FILE_ROUTING } from '../daemon/index.js';
+import { EVENTLOOP_FILE_ROUTING } from '../core/event-loop/index.js';
 import { VIEWPORT_FILE_ROUTING } from '../cli/commands/viewport-audit-events.js';
 
 // phase 163 新加 14 业主
 import { ASSEMBLY_FILE_ROUTING } from './audit-events.js';
 import { ASSEMBLY_LLM_FILE_ROUTING } from './llm-audit-events.js';
 import { CLI_FILE_ROUTING } from '../cli/audit-events.js';
-import { CONTRACT_FILE_ROUTING } from '../core/contract/audit-events.js';
-import { GATEWAY_FILE_ROUTING } from '../core/gateway/audit-events.js';
-import { HEARTBEAT_FILE_ROUTING } from '../core/heartbeat/audit-events.js';
-import { MEMORY_FILE_ROUTING } from '../core/memory/audit-events.js';
-import { PERMISSIONS_FILE_ROUTING } from '../core/permissions/audit-events.js';
-import { SUBAGENT_FILE_ROUTING } from '../core/subagent/audit-events.js';
+import { CONTRACT_FILE_ROUTING } from '../core/contract/index.js';
+import { GATEWAY_FILE_ROUTING } from '../core/gateway/index.js';
+import { HEARTBEAT_FILE_ROUTING } from '../core/heartbeat/index.js';
+import { MEMORY_FILE_ROUTING } from '../core/memory/index.js';
+import { PERMISSIONS_FILE_ROUTING } from '../core/permissions/index.js';
+import { SUBAGENT_FILE_ROUTING } from '../core/subagent/index.js';
 import { MESSAGING_FILE_ROUTING } from '../foundation/messaging/index.js';
-import { SNAPSHOT_FILE_ROUTING } from '../foundation/snapshot/audit-events.js';
-import { STREAM_FILE_ROUTING } from '../foundation/stream/audit-events.js';
-import { TOOLS_FILE_ROUTING } from '../foundation/tools/audit-events.js';
-import { WATCHDOG_FILE_ROUTING } from '../watchdog/audit-events.js';
+import { SNAPSHOT_FILE_ROUTING } from '../foundation/snapshot/index.js';
+import { STREAM_FILE_ROUTING } from '../foundation/stream/index.js';
+import { TOOLS_FILE_ROUTING } from '../foundation/tools/index.js';
+import { WATCHDOG_FILE_ROUTING } from '../watchdog/watchdog.js';
 
 export type FileName = 'audit' | 'tick' | 'viewport';
 
