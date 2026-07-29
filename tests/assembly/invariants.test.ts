@@ -66,6 +66,7 @@ vi.mock('../../src/foundation/audit/writer.js', () => ({
 vi.mock('../../src/foundation/snapshot/index.js', () => ({
   Snapshot: vi.fn(() => mockSnapshot),
   createSnapshot: vi.fn(() => mockSnapshot),
+  SNAPSHOT_FILE_ROUTING: {},
 }));
 
 vi.mock('../../src/assembly/config/snapshot-patterns.js', () => ({
@@ -78,6 +79,7 @@ vi.mock('../../src/foundation/stream/writer.js', () => ({
 
 vi.mock('../../src/foundation/stream/index.js', () => ({
   createStreamWriter: vi.fn(() => mockStreamWriter),
+  STREAM_FILE_ROUTING: {},
 }));
 
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
@@ -117,6 +119,7 @@ vi.mock('../../src/core/memory/index.js', () => ({
   createMemorySystem: vi.fn(() => mockMemorySystem),
   memorySearchTool: { name: 'memory_search' },
   MEMORY_DIR: 'memory',
+  MEMORY_FILE_ROUTING: {},
 }));
 
 let capturedContractObserverDeps: any;

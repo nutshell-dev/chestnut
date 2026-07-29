@@ -69,6 +69,9 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
 
 vi.mock('../../src/watchdog/watchdog.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
+  getWatchdogPid: vi.fn().mockReturnValue(null),
+  isWatchdogAlive: vi.fn().mockReturnValue(false),
+  removeWatchdogPid: vi.fn(),
 }));
 
 // phase 880 Step C: orphan-sweep uses real timers + real kill in its fallback path;
