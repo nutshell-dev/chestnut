@@ -61,8 +61,8 @@ import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../watchdog/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/inbox-formatters.js';
 import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/inbox-formatter.js';
-import { DAEMON_INBOX_MESSAGE_TYPES } from '../daemon/inbox-formatter.js';
 import { MEMORY_INBOX_MESSAGE_TYPES } from '../core/memory/inbox-formatter.js';
+import type { AssemblyContributions } from './types.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
 import type { MotionGuidanceRegistry, GuidanceEntry } from './guidance/index.js';
 import type { MessageFormatterRegistry } from '../foundation/messaging/index.js';
@@ -75,6 +75,8 @@ import type { ToolRegistry } from '../foundation/tools/index.js';
 
 export interface BusinessSysInput {
   core: CoreInfraOutput;
+  /** phase 1243 Step B: external production contributions（inbox message type declarations 等） */
+  contributions?: AssemblyContributions;
 }
 
 export interface BusinessSysOutput {
@@ -112,6 +114,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     auditWriter, llm, contractManager, toolRegistry, skillRegistry,
     toolTimeoutMs, maxConcurrent, outboxWriter, maxSteps,
   } = core;
+  const { contributions } = input;
 
   // A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
   const permissionChecker = createClawPermissionChecker({
@@ -327,9 +330,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   registerInboxMessageTypes(formatterRegistry, CONTRACT_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, MEMORY_INBOX_MESSAGE_TYPES);
-  // phase 1243 Step B: Daemon declarations 由外部 caller（daemon-entry）作为 contributions 传入，
-  // 此处保留内部默认注册以兼容非 daemon 路径；external 后注册，last-win 语义与起步一致。
-  registerInboxMessageTypes(formatterRegistry, DAEMON_INBOX_MESSAGE_TYPES);
+  // phase 1243 Step B: Daemon 等外部 lifecycle caller 的 declarations 由 contributions 传入。
+  registerInboxMessageTypes(formatterRegistry, contributions?.inboxMessageTypes ?? []);
   if (isMotion) {
     formatterRegistry.register({
       type: 'heartbeat',

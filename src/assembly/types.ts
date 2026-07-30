@@ -9,11 +9,22 @@ import type { ClawGlobalConfig, ClawConfig } from './config/compose-config.js';
 import type { Gateway } from '../core/gateway/index.js';
 import type { EvolutionSystem } from '../core/evolution-system/index.js';
 import type { createSkillSystem as defaultCreateSkillSystem } from '../foundation/skill-system/index.js';
+import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';
+import type { AuditFileRoutingContribution } from '../foundation/audit/index.js';
 
 export type Identity = 'motion' | 'claw';
 
 export interface AssembleDeps {
   createSkillSystem?: typeof defaultCreateSkillSystem;
+}
+
+/**
+ * phase 1243 Step B: production contributions passed into Assembly by the external lifecycle caller.
+ * These are static declarations, not test overrides; they must not be mixed with AssembleDeps.
+ */
+export interface AssemblyContributions {
+  readonly auditFileRouting?: readonly AuditFileRoutingContribution[];
+  readonly inboxMessageTypes?: readonly InboxMessageTypeDeclaration[];
 }
 
 export interface AssembleConfig {

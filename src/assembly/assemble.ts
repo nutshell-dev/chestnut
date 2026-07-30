@@ -24,7 +24,7 @@ import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 
 import { cleanupOrphanedTemp } from './cleanup.js';
 
-import type { AssembleConfig, AssembleDeps, Instances } from './types.js';
+import type { AssembleConfig, AssembleDeps, AssemblyContributions, Instances } from './types.js';
 import { createCoreInfrastructure } from './core-infrastructure.js';
 import { createBusinessSystems } from './business-systems.js';
 import { createRuntimeAssembly } from './runtime-assembly.js';
@@ -73,7 +73,11 @@ export function detectUncleanExit(_auditDir: string, auditWriter: AuditLog, fs: 
 // phase 1382 audit-trail B-2 REFRAMED note: detectUncleanExit (above) returns void early on no-op
 // (file 0/empty/clean-stop) — NOT error path. assemble (below) throws on validation failure (real error).
 // Two functions = two patterns by-design; audit B-2 framing「throw + return error model mix」reframe-out.
-export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Promise<Instances> {
+export async function assemble(
+  config: AssembleConfig,
+  deps?: AssembleDeps,
+  contributions?: AssemblyContributions,
+): Promise<Instances> {
   const startTime = Date.now();
   const { identity, clawId, clawDir } = config;
   if (identity === 'claw' && !config.clawConfig) {
@@ -88,7 +92,11 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
   let disposeContractSystems: (() => Promise<void>) | undefined;
 
   try {
-    core = await createCoreInfrastructure({ config, createSkillSystem: deps?.createSkillSystem });
+    core = await createCoreInfrastructure({
+      config,
+      createSkillSystem: deps?.createSkillSystem,
+      contributions,
+    });
     const {
       systemFs,
       auditWriter, processManager,
@@ -96,7 +104,7 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
 
     // §A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
     // 详 src/assembly/business-systems.ts (phase 37 rename motionInbox{Dir} → selfInbox{Dir} 命名 hygiene)
-    const business = await createBusinessSystems({ core });
+    const business = await createBusinessSystems({ core, contributions });
     const {
       evolutionSystem,
     } = business;

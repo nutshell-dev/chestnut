@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createSystemAudit, type AuditLog } from '../../../src/foundation/audit/index.js';
-import { AggregatedFileRouting, lookupFileForType } from '../../../src/assembly/file-routing-aggregator.js';
+import {
+  AggregatedFileRouting,
+  createAggregatedFileRouting,
+  lookupFileForType,
+} from '../../../src/assembly/file-routing-aggregator.js';
+import { DAEMON_FILE_ROUTING } from '../../../src/daemon/index.js';
 import { _resetFallbackForTest } from '../../../src/foundation/audit/writer.js';
 
 describe('multi-file emit E2E (phase 159)', () => {
@@ -23,7 +28,8 @@ describe('multi-file emit E2E (phase 159)', () => {
 
   it('装配 DispatchingAuditWriter + emit tick 类 → 落到 tick.tsv', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
-    const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: AggregatedFileRouting });
+    const routing = createAggregatedFileRouting([DAEMON_FILE_ROUTING]);
+    const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: routing });
 
     audit.write('daemon_liveness_heartbeat', 'job=dream-trigger');
     audit.write('eventloop_iteration', 'reason=empty');
@@ -66,7 +72,8 @@ describe('multi-file emit E2E (phase 159)', () => {
 
   it('per-file seq 独立计数', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
-    const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: AggregatedFileRouting });
+    const routing = createAggregatedFileRouting([DAEMON_FILE_ROUTING]);
+    const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: routing });
 
     // 交叉 emit：tick + audit + tick + audit
     audit.write('daemon_liveness_heartbeat', 'job=a');

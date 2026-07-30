@@ -52,6 +52,14 @@ export interface IdNamingEntry {
 }
 
 /**
+ * Phase 1243: audit file routing contribution protocol.
+ * Owner modules declare `{ eventType: fileName }` records; Assembly aggregates them.
+ */
+export type AuditFileName = 'audit' | 'tick' | 'viewport';
+
+export type AuditFileRoutingContribution = Readonly<Record<string, AuditFileName>>;
+
+/**
  * Phase 140: per-event column schema entry for snapshot.json.
  */
 export interface ColSchemaEntry {

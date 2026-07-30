@@ -32,9 +32,16 @@ import { AuditWriter, AUDIT_FILE } from './writer.js';
 import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
 
-export type { AuditLog, IdNamingEntry, ColSchemaEntry, TraceId } from './types.js';
+export type {
+  AuditLog,
+  IdNamingEntry,
+  ColSchemaEntry,
+  TraceId,
+  AuditFileName,
+  AuditFileRoutingContribution,
+} from './types.js';
 export { makeTraceId } from './types.js';
-import type { AuditLog } from './types.js';
+import type { AuditFileName, AuditLog } from './types.js';
 
 export { AuditWriter, AUDIT_FILE, reconcileFallbackDumps } from './writer.js';
 
@@ -50,7 +57,7 @@ export { DispatchingAuditWriter };
 export function createSystemAudit(
   fs: FileSystem,
   baseDir: string,
-  options?: { typeToFile?: ReadonlyMap<string, string>; maxSizeMb?: number | null },
+  options?: { typeToFile?: ReadonlyMap<string, AuditFileName>; maxSizeMb?: number | null },
 ): AuditLog {
   if (options?.typeToFile && options.typeToFile.size > 0) {
     return new DispatchingAuditWriter(fs, baseDir, options.typeToFile, {

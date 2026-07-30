@@ -1,13 +1,15 @@
 /**
- * Phase 159 装配层 file 路由 aggregator.
+ * Phase 159 / 1243 装配层 file 路由 aggregator.
  *
  * 按 phase 122 §5.A 业主声明 file 归属、装配层 aggregate.
  * audit 模块自身不 own routing logic (M#5).
+ * phase 1243 Step B: Daemon routing 由外部 caller 作为 contribution 传入，删除 Assembly→Daemon import.
  */
+
+import type { AuditFileName, AuditFileRoutingContribution } from '../foundation/audit/index.js';
 
 // phase 159 立
 import { CRON_FILE_ROUTING } from '../foundation/cron/index.js';
-import { DAEMON_FILE_ROUTING } from '../daemon/index.js';
 import { EVENTLOOP_FILE_ROUTING } from '../core/event-loop/index.js';
 import { VIEWPORT_FILE_ROUTING } from '../cli/commands/viewport-audit-events.js';
 
@@ -27,44 +29,73 @@ import { STREAM_FILE_ROUTING } from '../foundation/stream/index.js';
 import { TOOLS_FILE_ROUTING } from '../foundation/tools/index.js';
 import { WATCHDOG_FILE_ROUTING } from '../watchdog/watchdog.js';
 
-export type FileName = 'audit' | 'tick' | 'viewport';
+export type FileName = AuditFileName;
 
 export const DEFAULT_FILE: FileName = 'audit';
 
-export const AggregatedFileRouting: ReadonlyMap<string, FileName> = new Map([
+const INTERNAL_FILE_ROUTING: Readonly<Record<string, FileName>> = {
   // phase 159 立
-  ...Object.entries(CRON_FILE_ROUTING),
-  ...Object.entries(DAEMON_FILE_ROUTING),
-  ...Object.entries(EVENTLOOP_FILE_ROUTING),
-  ...Object.entries(VIEWPORT_FILE_ROUTING),
+  ...CRON_FILE_ROUTING,
+  ...EVENTLOOP_FILE_ROUTING,
+  ...VIEWPORT_FILE_ROUTING,
   // phase 163 新加
-  ...Object.entries(ASSEMBLY_FILE_ROUTING),
-  ...Object.entries(ASSEMBLY_LLM_FILE_ROUTING),
-  ...Object.entries(CLI_FILE_ROUTING),
-  ...Object.entries(CONTRACT_FILE_ROUTING),
-  ...Object.entries(GATEWAY_FILE_ROUTING),
-  ...Object.entries(HEARTBEAT_FILE_ROUTING),
-  ...Object.entries(MEMORY_FILE_ROUTING),
-  ...Object.entries(PERMISSIONS_FILE_ROUTING),
-  ...Object.entries(SUBAGENT_FILE_ROUTING),
-  ...Object.entries(MESSAGING_FILE_ROUTING),
-  ...Object.entries(SNAPSHOT_FILE_ROUTING),
-  ...Object.entries(STREAM_FILE_ROUTING),
-  ...Object.entries(TOOLS_FILE_ROUTING),
-  ...Object.entries(WATCHDOG_FILE_ROUTING),
-] as [string, FileName][]);
+  ...ASSEMBLY_FILE_ROUTING,
+  ...ASSEMBLY_LLM_FILE_ROUTING,
+  ...CLI_FILE_ROUTING,
+  ...CONTRACT_FILE_ROUTING,
+  ...GATEWAY_FILE_ROUTING,
+  ...HEARTBEAT_FILE_ROUTING,
+  ...MEMORY_FILE_ROUTING,
+  ...PERMISSIONS_FILE_ROUTING,
+  ...SUBAGENT_FILE_ROUTING,
+  ...MESSAGING_FILE_ROUTING,
+  ...SNAPSHOT_FILE_ROUTING,
+  ...STREAM_FILE_ROUTING,
+  ...TOOLS_FILE_ROUTING,
+  ...WATCHDOG_FILE_ROUTING,
+} as const;
+
+/**
+ * 聚合内部 routing 与外部 caller 贡献的 routing。
+ * external 后写入，last-win 与起步行为一致。
+ */
+export function createAggregatedFileRouting(
+  external?: readonly AuditFileRoutingContribution[],
+): ReadonlyMap<string, FileName> {
+  const map = new Map<string, FileName>(Object.entries(INTERNAL_FILE_ROUTING));
+  if (external) {
+    for (const contribution of external) {
+      for (const [type, file] of Object.entries(contribution)) {
+        map.set(type, file);
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * 默认聚合（无外部 contribution），供独立测试/直接消费使用。
+ * 注意：phase 1243 后 daemon_liveness_heartbeat 等 Daemon 路由不在默认图中，
+ * 须由 daemon-entry 传入 contribution 后调用 createAggregatedFileRouting。
+ */
+export const AggregatedFileRouting: ReadonlyMap<string, FileName> = createAggregatedFileRouting();
 
 /**
  * Lookup file for a given event type.
  * Returns DEFAULT_FILE ('audit') if type not in aggregated routing.
  */
-export function lookupFileForType(type: string): FileName {
-  return AggregatedFileRouting.get(type) ?? DEFAULT_FILE;
+export function lookupFileForType(
+  type: string,
+  routing: ReadonlyMap<string, FileName> = AggregatedFileRouting,
+): FileName {
+  return routing.get(type) ?? DEFAULT_FILE;
 }
 
 /**
  * Get distinct file names in the routing (always includes DEFAULT_FILE).
  */
-export function getRoutedFileNames(): ReadonlySet<FileName> {
-  return new Set([DEFAULT_FILE, ...AggregatedFileRouting.values()]);
+export function getRoutedFileNames(
+  routing: ReadonlyMap<string, FileName> = AggregatedFileRouting,
+): ReadonlySet<FileName> {
+  return new Set([DEFAULT_FILE, ...routing.values()]);
 }

@@ -30,12 +30,14 @@ import { createOutboxWriter, type OutboxWriter } from '../foundation/messaging/i
 import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { AggregatedFileRouting } from './file-routing-aggregator.js';
-import type { AssembleConfig } from './types.js';
+import { createAggregatedFileRouting } from './file-routing-aggregator.js';
+import type { AssembleConfig, AssemblyContributions } from './types.js';
 
 export interface CoreInfraInput {
   config: AssembleConfig;
   createSkillSystem?: typeof defaultCreateSkillSystem;
+  /** phase 1243 Step B: external production contributions（audit file routing 等） */
+  contributions?: AssemblyContributions;
 }
 
 export interface CoreInfraOutput {
@@ -101,7 +103,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     // --- 1. AuditWriter (daemon.ts L100-104) ---
     try {
       auditWriter = createSystemAudit(systemFs, clawDir, {
-        typeToFile: AggregatedFileRouting,
+        typeToFile: createAggregatedFileRouting(input.contributions?.auditFileRouting),
         maxSizeMb: auditMaxSizeMb,
       });
     } catch (e) {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   AggregatedFileRouting,
+  createAggregatedFileRouting,
   lookupFileForType,
   getRoutedFileNames,
   DEFAULT_FILE,
@@ -9,11 +10,10 @@ import { CRON_FILE_ROUTING } from '../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../src/daemon/audit-events.js';
 import { VIEWPORT_FILE_ROUTING } from '../../src/cli/commands/viewport-audit-events.js';
 
-describe('file-routing-aggregator (phase 159)', () => {
-  it('AggregatedFileRouting contains all owner-declared types', () => {
+describe('file-routing-aggregator (phase 159 / 1243)', () => {
+  it('AggregatedFileRouting contains all internal owner-declared types', () => {
     const ownerRoutings = {
       ...CRON_FILE_ROUTING,
-      ...DAEMON_FILE_ROUTING,
       ...VIEWPORT_FILE_ROUTING,
     };
     for (const [type, file] of Object.entries(ownerRoutings)) {
@@ -22,12 +22,21 @@ describe('file-routing-aggregator (phase 159)', () => {
     }
   });
 
-  it('lookupFileForType returns correct file for known types', () => {
-    expect(lookupFileForType('daemon_liveness_heartbeat')).toBe('tick');
+  it('createAggregatedFileRouting merges external contributions (Daemon routing)', () => {
+    const routing = createAggregatedFileRouting([DAEMON_FILE_ROUTING]);
+    expect(routing.get('daemon_liveness_heartbeat')).toBe('tick');
+  });
+
+  it('lookupFileForType returns correct file for known internal types', () => {
     expect(lookupFileForType('eventloop_iteration')).toBe('tick');
     expect(lookupFileForType('viewport_render_batch')).toBe('viewport');
     expect(lookupFileForType('viewport_event_ingest')).toBe('viewport');
     expect(lookupFileForType('viewport_spinner_lifecycle')).toBe('viewport');
+  });
+
+  it('lookupFileForType with external routing returns correct file for contributed types', () => {
+    const routing = createAggregatedFileRouting([DAEMON_FILE_ROUTING]);
+    expect(lookupFileForType('daemon_liveness_heartbeat', routing)).toBe('tick');
   });
 
   it('lookupFileForType returns DEFAULT_FILE for unknown types', () => {
