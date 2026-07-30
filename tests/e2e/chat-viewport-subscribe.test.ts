@@ -9,6 +9,7 @@ import { makeAudit } from '../helpers/audit.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import { createMainTurnUI, createTaskEventHandler, type MainTurnUIController } from '../../src/cli/commands/chat-viewport.js';
+import { prefixLines } from '../../src/cli/utils/string.js';
 
 /**
  * Stream reader settle / events propagate 间隔 (150ms).
@@ -34,12 +35,7 @@ function dispatchMainEvent(ev: StreamEvent, mainUI: MainTurnUIController) {
       mainUI.flushThinking();
       mainUI.enterPhase('streaming_text');
       const buf = mainUI.appendToBuffer((ev as Record<string, unknown>).delta as string);
-      const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
-      const indent = '  ';
-      const preview = (buf + '▋')
-        .split('\n')
-        .map((line, i) => (i === 0 ? dotPrefix : indent) + line)
-        .join('\n');
+      const preview = prefixLines(buf + '▋', '\x1b[38;5;232m⏺\x1b[0m ', '  ');
       mainUI.setPreview(preview);
       break;
     }

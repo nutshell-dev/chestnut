@@ -16,6 +16,7 @@
 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import { prefixLines } from '../utils/string.js';
 
 
 export type TurnUIPhase =
@@ -224,16 +225,11 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
       deps.updateDisplay();   // NEW: mirror non-empty branch line 224 / 双 branch 对称 invariant
       return;
     }
-    const prefix = '⏺ ';
-    const indent = '  ';
     const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
-    const formatted = content
-      .split('\n')
-      .map((line, i) => (i === 0 ? prefix : indent) + line)
-      .join('\n');
+    const formatted = prefixLines(content, '⏺ ', '  ');
     streamingBuffer = '';
     preview = '';
-    deps.appendOutput('\x1b[2m', formatted, true, indent);
+    deps.appendOutput('\x1b[2m', formatted, true, '  ');
     deps.updateDisplay();
   };
 
@@ -244,16 +240,11 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
       deps.updateDisplay();
       return;
     }
-    const prefix = '➤ ';
-    const indent = '  ';
     const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
-    const formatted = content
-      .split('\n')
-      .map((line, i) => (i === 0 ? prefix : indent) + line)
-      .join('\n');
+    const formatted = prefixLines(content, '➤ ', '  ');
     streamingBuffer = '';
     preview = '';
-    deps.appendOutput('', formatted, true, indent);
+    deps.appendOutput('', formatted, true, '  ');
     deps.updateDisplay();
   };
 

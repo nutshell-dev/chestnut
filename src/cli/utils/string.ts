@@ -42,6 +42,17 @@ export function fitLine(s: string, cols?: number): string {
  * 正确处理 emoji / CJK 等宽字符。不截断内容。
  * @param hangIndent - 续行缩进前缀（默认空字符串），用于视觉上区分首行和续行
  */
+/**
+ * 将多行文本的每行加上前缀和续行缩进：首行加 prefix，续行加 indent。
+ * 用于 viewport 中 LLM 输出 / 用户回复的多行文本统一显示格式。
+ */
+export function prefixLines(text: string, prefix: string, indent: string): string {
+  return text
+    .split('\n')
+    .map((line, i) => (i === 0 ? prefix : indent) + line)
+    .join('\n');
+}
+
 export function wrapLine(s: string, cols?: number, hangIndent = ''): string[] {
   const width = cols ?? (process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH);
   if (stringWidth(s) <= width) return [s];

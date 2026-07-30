@@ -21,6 +21,7 @@ import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import { type TaskId, makeShortTaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/index.js';
 import type { DescriptorSink } from './viewport-render-descriptor.js';
+import { prefixLines } from '../utils/string.js';
 
 
 export interface TaskWatch {
@@ -127,12 +128,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushThinking();
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer(event.delta as string);
-        const prefix = '⏺ ';
-        const indent = '  ';
-        const previewText = (streamBuf + '▋')
-          .split('\n')
-          .map((line: string, i: number) => (i === 0 ? prefix : indent) + line)
-          .join('\n');
+        const previewText = prefixLines(streamBuf + '▋', '⏺ ', '  ');
         deps.mainUI.setPreview('\x1b[2m' + previewText + '\x1b[0m');
         break;
       }
@@ -141,13 +137,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer('');
         if (!streamBuf) break;
-        const prefix = '⏺ ';
-        const indent = '  ';
         const clean = streamBuf.endsWith('▋') ? streamBuf.slice(0, -1) : streamBuf;
-        const previewText = clean
-          .split('\n')
-          .map((line: string, i: number) => (i === 0 ? prefix : indent) + line)
-          .join('\n');
+        const previewText = prefixLines(clean, '⏺ ', '  ');
         deps.mainUI.setPreview('\x1b[2m' + previewText + '\x1b[0m');
         break;
       }
@@ -155,12 +146,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'user_reply_delta': {
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer(event.delta as string);
-        const prefix = '➤ ';
-        const indent = '  ';
-        const previewText = (streamBuf + '▋')
-          .split('\n')
-          .map((line: string, i: number) => (i === 0 ? prefix : indent) + line)
-          .join('\n');
+        const previewText = prefixLines(streamBuf + '▋', '➤ ', '  ');
         deps.mainUI.setPreview(previewText);
         break;
       }
@@ -176,7 +162,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushStreaming();
         const content = String(event.content ?? '');
         const msgType = String(event.msgType ?? 'report');
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[1;32m', text: `➤ [${msgType}] ${content}` });
+        const text = prefixLines(content, `➤ [${msgType}] `, '  ');
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[1;32m', text, wrap: true, hangIndent: '  ' });
         break;
       }
 

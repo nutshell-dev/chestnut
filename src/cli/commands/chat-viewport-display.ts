@@ -13,6 +13,8 @@ import type { createViewportObservability } from './chat-viewport-observability.
 import type { ClawTrack } from './chat-viewport-claw-line.js';
 import type { DescriptorSink, RenderDescriptor } from './viewport-render-descriptor.js';
 
+const PREVIEW_HANG_INDENT = '  ';
+
 export interface OutputLine {
   color: string;
   text: string;
@@ -70,7 +72,7 @@ export function createDisplay(deps: DisplayDeps) {
     const currentPreview = deps.mainUI ? deps.mainUI.getPreview() : '';
     // phase 1200: preview 需要 hangIndent（自动换行时保持缩进），status 不需要
     const statusLines = currentStatus ? currentStatus.split('\n').flatMap(line => wrapLine(line, cols)) : [];
-    const previewLines = currentPreview ? currentPreview.split('\n').flatMap(line => wrapLine(line, cols, '  ')) : [];
+    const previewLines = currentPreview ? currentPreview.split('\n').flatMap(line => wrapLine(line, cols, PREVIEW_HANG_INDENT)) : [];
     const suffixBody = [...statusLines, ...previewLines].join('\n');
 
     const full = suffixBody ? bodyCache + '\n' + suffixBody : bodyCache;

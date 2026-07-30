@@ -240,11 +240,12 @@ describe('chat-viewport Phase 72', () => {
       expect(sourceCode).toMatch(/wrapLine\(line, cols, hangIndent\)/);
     });
 
-    it('flushStreaming 传 indent 作为 hangIndent', () => {
+    it('flushStreaming 传 hangIndent 到 appendOutput', () => {
       const flushMatch = sourceCode.match(
         /const flushStreaming[\s\S]{0,700}?appendOutput\([^)]+\)/
       );
-      expect(flushMatch![0]).toMatch(/appendOutput\(.*indent\)/);
+      // 经过 prefixLines 提取后，hangIndent 直接传 '  ' 字面量，不再经过 indent 变量
+      expect(flushMatch![0]).toMatch(/appendOutput\([^)]*'  '\)/);
     });
 
     it('flushThinking 不再传 indent（直接 prefix + content，不拆分多行）', () => {
