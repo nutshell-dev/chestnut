@@ -38,6 +38,7 @@ const VI_MOCK_FILES = [
   // 'tests/core/contract/lock-retry-jitter.test.ts',
   'tests/cli/claw-send-confinement.test.ts',
   'tests/cli/claw-stop.test.ts',  // phase 1125 Step C: vi.mock clean-stop marker
+  'tests/cli/cli-supervision-policy.test.ts',  // phase 1247 Step C: vi.mock ensureWatchdog
   'tests/cli/commands/claw-health.test.ts',
   'tests/cli/commands/claw-list.test.ts',
   'tests/cli/commands/claw-stream.test.ts',
