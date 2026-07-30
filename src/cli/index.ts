@@ -9,7 +9,7 @@ if (!process.env.CHESTNUT_ROOT) {
 
 import { program, Help } from 'commander';
 import { CliError } from './errors.js';
-import { withCliErrorHandling } from './with-cli-error-handling.js';
+import { cliAction, type SupervisionPolicy } from './supervision-policy.js';
 // `initCommand` and `startCommand` are lazy-loaded inside their action handlers
 // (phase 1379): these modules transitively pull in llm-orchestrator + core/contract
 // + foundation/tools (combined ~10s vitest cold load), forcing every CLI subcommand
@@ -51,6 +51,13 @@ import { createFileTools } from '../foundation/file-tool/index.js';
 import { parseIntOption } from './parse-int-option.js';
 import { collectColFilter } from './commands/audit-query.js';
 
+function action<TArgs extends unknown[]>(
+  policy: SupervisionPolicy,
+  handler: (...args: TArgs) => Promise<void>,
+): (...args: TArgs) => Promise<void> {
+  return cliAction(policy, handler, { fsFactory });
+}
+
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 
 program
@@ -84,7 +91,7 @@ program.addCommand(createConfigCommand({ fsFactory }));
 program
   .command('stop')
   .description('Stop all chestnut processes (watchdog → motion → claws)')
-  .action(withCliErrorHandling(async () => {
+  .action(action('disabled', async () => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     await stopAllCommand({ fsFactory }, { audit });
   }));
@@ -93,7 +100,7 @@ program
 program
   .command('status')
   .description('Show status of all chestnut processes')
-  .action(withCliErrorHandling(async () => {
+  .action(action('observe_only', async () => {
     await statusCommand({ fsFactory });
   }));
 
@@ -101,7 +108,7 @@ program
 program
   .command('start')
   .description('Start the system (initializes if needed) and open Motion chat')
-  .action(withCliErrorHandling(async () => {
+  .action(action('required', async () => {
     const { startCommand } = await import('./commands/start.js');
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     await startCommand({ fsFactory }, { audit });
@@ -111,7 +118,7 @@ program
 program
   .command('init')
   .description('Initialize chestnut workspace')
-  .action(withCliErrorHandling(async () => {
+  .action(action('disabled', async () => {
     const { initCommand } = await import('./commands/init.js');
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     await initCommand({ fsFactory }, false, { audit });
@@ -138,7 +145,7 @@ const clawCommand = program
   .allowUnknownOption()
   .helpOption(false)
   .action(
-    withCliErrorHandling(async (subject: string | undefined, args: string[]) => {
+    action('disabled', async (subject: string | undefined, args: string[]) => {
       await dispatchClawSubcommand(subject, args, { fsFactory });
     }),
   );
@@ -154,7 +161,7 @@ const motionCmd = program
 motionCmd
   .command('init')
   .description('Initialize Motion configuration')
-  .action(withCliErrorHandling(async () => {
+  .action(action('disabled', async () => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     await motionInitCommand({ fsFactory }, false, { audit });
   }));
@@ -163,7 +170,7 @@ motionCmd
 motionCmd
   .command('chat')
   .description('Chat with Motion')
-  .action(withCliErrorHandling(async () => {
+  .action(action('required', async () => {
     await motionChatCommand({ fsFactory });
   }));
 
@@ -171,7 +178,7 @@ motionCmd
 motionCmd
   .command('stop')
   .description('Stop Motion daemon')
-  .action(withCliErrorHandling(async () => {
+  .action(action('disabled', async () => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     await motionStopCommand({ fsFactory }, { audit });
   }));
@@ -181,7 +188,7 @@ motionCmd
   .command('outbox')
   .description("Drain Motion's outbox (send tool messages)")
   .option('--limit <n>', 'Maximum messages to drain (default: 1)', '1')
-  .action(withCliErrorHandling(async (options: { limit: string }) => {
+  .action(action('required', async (options: { limit: string }) => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     const limit = parseIntOption(options.limit, '--limit must be a non-negative integer');
     await motionOutboxCommand({ fsFactory }, { limit }, { audit });
@@ -192,7 +199,7 @@ motionCmd
   .command('steps')
   .description('Show motion turn steps')
   .option('--no-hint', 'Suppress step <n> usage hint')
-  .action(withCliErrorHandling(async (opts: { hint?: boolean }) => {
+  .action(action('observe_only', async (opts: { hint?: boolean }) => {
     await motionStepsCommand({ fsFactory }, { noHint: opts.hint === false });
   }));
 
@@ -200,7 +207,7 @@ motionCmd
 motionCmd
   .command('step <n>')
   .description('Show full detail of a single motion turn')
-  .action(withCliErrorHandling(async (n: string) => {
+  .action(action('observe_only', async (n: string) => {
     await motionStepCommand({ fsFactory }, n);
   }));
 
@@ -208,7 +215,7 @@ motionCmd
 motionCmd
   .command('daemon')
   .description('Start Motion daemon (auto-backgrounds)')
-  .action(withCliErrorHandling(async () => {
+  .action(action('internal', async () => {
     const { motionDaemonCommand } = await import('./commands/motion-daemon.js');
     await motionDaemonCommand({ fsFactory });
   }));
@@ -234,7 +241,7 @@ contractCmd
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--file <path>', 'Path to contract YAML file')
   .option('--dir <path>', 'Directory containing contract.yaml and verification/ folder')
-  .action(withCliErrorHandling(async (opts: { claw: string; file?: string; dir?: string }) => {
+  .action(action('required', async (opts: { claw: string; file?: string; dir?: string }) => {
     loadGlobalConfig({ fsFactory });
     const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
     if (opts.file && opts.dir) {
@@ -286,7 +293,7 @@ contractCmd
   .description('Show contract state snapshot for a claw')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--contract <id>', 'Contract ID (default: active contract)')
-  .action(withCliErrorHandling(async (opts: { claw: string; contract?: string }) => {
+  .action(action('observe_only', async (opts: { claw: string; contract?: string }) => {
     await contractShowCommand({ fsFactory }, opts.claw, opts.contract);
   }));
 
@@ -296,7 +303,7 @@ contractCmd
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .requiredOption('--reason <text>', 'Cancel reason (recorded as immutable lifecycle intent)')
   .option('--contract <id>', 'Contract ID (default: active contract)')
-  .action(withCliErrorHandling(async (opts: { claw: string; reason: string; contract?: string }) => {
+  .action(action('required', async (opts: { claw: string; reason: string; contract?: string }) => {
     loadGlobalConfig({ fsFactory });
     const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
     await contractCancelCommand({ fsFactory }, opts.claw, opts.reason, opts.contract, { audit });
@@ -306,7 +313,7 @@ contractCmd
   .command('events <claw>')
   .description('Show contract events since a timestamp')
   .requiredOption('--since <timestamp>', 'Unix timestamp in milliseconds')
-  .action(withCliErrorHandling(async (claw: string, opts: { since: string }) => {
+  .action(action('observe_only', async (claw: string, opts: { since: string }) => {
     const since = parseIntOption(opts.since, '--since must be a Unix timestamp in milliseconds');
     await contractEventsCommand({ fsFactory }, claw, since);
   }));
@@ -330,7 +337,7 @@ skillCmd
   .description('Install a skill from local path, or install dispatch-skill to a claw (--claw)')
   .option('-c, --claw <id>', 'Target claw ID (internal mode: install from dispatch-skills to claw)')
   .option('--skill <name>', 'Skill name (required with --claw)')
-  .action(withCliErrorHandling(async (source: string | undefined, opts: { claw?: string; skill?: string }) => {
+  .action(action('required', async (source: string | undefined, opts: { claw?: string; skill?: string }) => {
     if (opts.claw) {
       if (!opts.skill) {
         throw new CliError('--skill <name> is required with --claw');
@@ -365,7 +372,7 @@ const watchdogCmd = program
 watchdogCmd
   .command('start')
   .description('Start watchdog')
-  .action(withCliErrorHandling(async () => {
+  .action(action('disabled', async () => {
     await watchdogStart(fsFactory);
   }));
 
@@ -373,7 +380,7 @@ watchdogCmd
 watchdogCmd
   .command('stop')
   .description('Stop watchdog')
-  .action(withCliErrorHandling(async () => {
+  .action(action('disabled', async () => {
     await watchdogStop(fsFactory);
   }));
 
@@ -381,7 +388,7 @@ watchdogCmd
 watchdogCmd
   .command('daemon')
   .description('Run watchdog daemon (internal)')
-  .action(withCliErrorHandling(async () => {
+  .action(action('internal', async () => {
     // phase 444 Step B DI：装配传入 daemon stdout log（M#5 watchdog 不直 import daemon）。
     await runWatchdogLoop(fsFactory, DAEMON_LOG);
   }));
@@ -423,7 +430,7 @@ auditCmd
   .option('--contract-id <id>', 'Filter by contract_id (exact match)')
   .option('--subtask-id <id>', 'Filter by subtask_id (exact match)')
   .option('--no-hint', 'Suppress 0 result hint to stderr')
-  .action(withCliErrorHandling(async (opts: {
+  .action(action('observe_only', async (opts: {
     claw: string;
     file: string;
     allFiles?: boolean;
@@ -464,7 +471,7 @@ auditCmd
   .option('--file <name>', "Audit file name (default 'audit'; multi-file aware)", 'audit')
   .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (--tool-use-id mode only)')
   .option('--json', 'Output as JSON')
-  .action(withCliErrorHandling(async (opts: {
+  .action(action('observe_only', async (opts: {
     claw: string;
     file: string;
     toolUseId?: string;
@@ -482,7 +489,7 @@ auditCmd
   .description('Show audit file metadata and schema routing')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--json', 'Output as JSON')
-  .action(withCliErrorHandling(async (opts: {
+  .action(action('observe_only', async (opts: {
     claw: string;
     json?: boolean;
   }) => {

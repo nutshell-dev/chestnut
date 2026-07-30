@@ -156,8 +156,6 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
       await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
     }
-    const { ensureWatchdog } = await import('../../watchdog/ensure.js');
-    await ensureWatchdog(deps.fsFactory);
     await motionChatCommand(deps);
     return;
   }
@@ -183,8 +181,6 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
     const language = await pickLanguage();
     await daemonReady;
-    const { ensureWatchdog } = await import('../../watchdog/ensure.js');
-    await ensureWatchdog(deps.fsFactory);
 
     const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
     const contractId = await manager.create({
@@ -211,10 +207,6 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
       await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
     }
-    const { ensureWatchdog } = await import('../../watchdog/ensure.js');
-    await ensureWatchdog(deps.fsFactory);
-
-    
     if (onboarding.state === 'not_found') {
       const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
       const contractId = await manager.create({

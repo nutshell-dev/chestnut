@@ -12,6 +12,7 @@ import { PRESETS } from '../../foundation/llm-provider/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 import { fitLine } from '../utils/string.js';
+import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
@@ -424,6 +425,13 @@ export function createConfigCommand(deps: { fsFactory: (baseDir: string) => File
   const configCommand = new Command('config')
     .description('Manage chestnut configuration');
 
+  function action<TArgs extends unknown[]>(
+    policy: SupervisionPolicy,
+    handler: (...args: TArgs) => Promise<void>,
+  ): (...args: TArgs) => Promise<void> {
+    return cliAction(policy, handler, { fsFactory: deps.fsFactory });
+  }
+
   // provider subcommand
   const providerCmd = new Command('provider')
     .description('Manage LLM providers');
@@ -431,27 +439,27 @@ export function createConfigCommand(deps: { fsFactory: (baseDir: string) => File
   providerCmd
     .command('add')
     .description('Add a new provider interactively')
-    .action(() => providerAdd(deps));
+    .action(action('required', () => providerAdd(deps)));
 
   providerCmd
     .command('list')
     .description('List all providers')
-    .action(() => providerList(deps));
+    .action(action('observe_only', () => providerList(deps)));
 
   providerCmd
     .command('remove <label>')
     .description('Remove a fallback provider')
-    .action((label: string) => providerRemove(deps, label));
+    .action(action('required', (label: string) => providerRemove(deps, label)));
 
   providerCmd
     .command('set-primary <label>')
     .description('Set a provider as primary (current primary becomes fallback)')
-    .action((label: string) => providerSetPrimary(deps, label));
+    .action(action('required', (label: string) => providerSetPrimary(deps, label)));
 
   providerCmd
     .command('move <label> <position>')
     .description('Move a fallback provider to a new position (1-based)')
-    .action((label: string, position: string) => providerMove(deps, label, position));
+    .action(action('required', (label: string, position: string) => providerMove(deps, label, position)));
 
   configCommand.addCommand(providerCmd);
   return configCommand;

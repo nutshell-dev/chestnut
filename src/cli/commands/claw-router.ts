@@ -36,6 +36,7 @@ import {
 } from './claw.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
+import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { listMigratedExecTasks } from '../../core/async-task-system/index.js';
@@ -57,6 +58,14 @@ import {
 
 export interface RouterDeps {
   fsFactory: (baseDir: string) => FileSystem;
+}
+
+function verbAction<TArgs extends unknown[]>(
+  policy: SupervisionPolicy,
+  handler: (...args: TArgs) => Promise<void>,
+  deps: RouterDeps,
+): (...args: TArgs) => Promise<void> {
+  return cliAction(policy, handler, { fsFactory: deps.fsFactory });
 }
 
 // ── Verb registry ───────────────────────────────────────────────────────────
@@ -215,23 +224,23 @@ export async function dispatchClawSubcommand(
   }
 
   switch (verb) {
-    case 'create': return runCreate(deps, name, verbArgs);
-    case 'chat': return runChat(deps, name, verbArgs);
-    case 'stop': return runStop(deps, name, verbArgs);
-    case 'health': return runHealth(deps, name, verbArgs);
-    case 'send': return runSend(deps, name, verbArgs);
-    case 'outbox': return runOutbox(deps, name, verbArgs);
-    case 'import': return runImport(deps, name, verbArgs);
-    case 'read': return runRead(deps, name, verbArgs);
-    case 'ls': return runLs(deps, name, verbArgs);
-    case 'steps': return runSteps(deps, name, verbArgs);
-    case 'step': return runStep(deps, name, verbArgs);
-    case 'daemon': return runDaemon(deps, name, verbArgs);
-    case 'trace': return runTrace(deps, name, verbArgs);
-    case 'status': return runStatus(deps, name, verbArgs);
-    case 'watch': return runWatch(deps, name, verbArgs);
-    case 'ps': return runPs(deps, name, verbArgs);
-    case 'stream': return runStreamFromArgs(deps, name, verbArgs);
+    case 'create': return verbAction('required', () => runCreate(deps, name, verbArgs), deps)();
+    case 'chat': return verbAction('required', () => runChat(deps, name, verbArgs), deps)();
+    case 'stop': return verbAction('disabled', () => runStop(deps, name, verbArgs), deps)();
+    case 'health': return verbAction('observe_only', () => runHealth(deps, name, verbArgs), deps)();
+    case 'send': return verbAction('required', () => runSend(deps, name, verbArgs), deps)();
+    case 'outbox': return verbAction('required', () => runOutbox(deps, name, verbArgs), deps)();
+    case 'import': return verbAction('required', () => runImport(deps, name, verbArgs), deps)();
+    case 'read': return verbAction('observe_only', () => runRead(deps, name, verbArgs), deps)();
+    case 'ls': return verbAction('observe_only', () => runLs(deps, name, verbArgs), deps)();
+    case 'steps': return verbAction('observe_only', () => runSteps(deps, name, verbArgs), deps)();
+    case 'step': return verbAction('observe_only', () => runStep(deps, name, verbArgs), deps)();
+    case 'daemon': return verbAction('internal', () => runDaemon(deps, name, verbArgs), deps)();
+    case 'trace': return verbAction('observe_only', () => runTrace(deps, name, verbArgs), deps)();
+    case 'status': return verbAction('observe_only', () => runStatus(deps, name, verbArgs), deps)();
+    case 'watch': return verbAction('required', () => runWatch(deps, name, verbArgs), deps)();
+    case 'ps': return verbAction('observe_only', () => runPs(deps, name, verbArgs), deps)();
+    case 'stream': return verbAction('required', () => runStreamFromArgs(deps, name, verbArgs), deps)();
   }
 }
 
