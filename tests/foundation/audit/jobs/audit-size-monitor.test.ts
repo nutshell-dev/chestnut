@@ -1,5 +1,6 @@
 /**
  * Phase 8 — audit-size-monitor viewport stream injection 反向测试
+ * Phase 1242 Step A: 测试归位 foundation/audit/jobs（monitor capability 不再依赖 Cron）
  *
  * (1) under threshold 不 emit
  * (2) over warn → emit THRESHOLD_EXCEEDED level=warn + streamLog dev_warning
@@ -38,7 +39,6 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const streamLog = { write: vi.fn() };
     await runAuditSizeMonitor({
       fs, audit,
-      chestnutRoot: '/tmp/test',
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
@@ -53,7 +53,6 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const streamLog = { write: vi.fn() };
     await runAuditSizeMonitor({
       fs, audit,
-      chestnutRoot: '/tmp/test',
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
@@ -76,7 +75,6 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const streamLog = { write: vi.fn() };
     await runAuditSizeMonitor({
       fs, audit,
-      chestnutRoot: '/tmp/test',
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
@@ -94,7 +92,6 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const fs = makeFsThrow(new FileNotFoundError('/tmp/test/motion/audit.tsv'));
     await runAuditSizeMonitor({
       fs, audit,
-      chestnutRoot: '/tmp/test',
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
       secondaryAuditPath: '/tmp/test/audit.tsv',
     });
@@ -107,7 +104,6 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const fsWarn = makeFsWithSize(600 * 1024 * 1024);
     await runAuditSizeMonitor({
       fs: fsWarn, audit,
-      chestnutRoot: '/tmp/test',
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
@@ -117,7 +113,6 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     // 同 level 二次跑 → 0 新 write
     await runAuditSizeMonitor({
       fs: fsWarn, audit,
-      chestnutRoot: '/tmp/test',
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
@@ -128,7 +123,6 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const fsCritical = makeFsWithSize(1200 * 1024 * 1024);
     await runAuditSizeMonitor({
       fs: fsCritical, audit,
-      chestnutRoot: '/tmp/test',
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,

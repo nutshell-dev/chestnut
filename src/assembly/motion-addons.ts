@@ -13,9 +13,10 @@ import { formatErr } from '../foundation/node-utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { createHeartbeat, type Heartbeat } from '../core/heartbeat/index.js';
 import type { Runtime } from '../core/runtime/index.js';
-import { createCronRunner, type CronRunner } from '../foundation/cron/index.js';
-// phase 697 Step B: audit-size-monitor 迁 foundation/audit/jobs/ (audit module sister 归属)
-import { createAuditSizeMonitorJob } from '../foundation/audit/jobs/audit-size-monitor.js';
+import { createCronRunner, parseSchedule, type CronJob, type CronRunner } from '../foundation/cron/index.js';
+// phase 1242 Step A: AuditLog 只暴露 monitor capability；Assembly 负责 CronJob descriptor 组合
+import { runAuditSizeMonitor, AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from '../foundation/audit/jobs/audit-size-monitor.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { createDreamTriggerJob } from '../core/memory/jobs/dream-trigger.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
@@ -46,6 +47,26 @@ interface MotionAddonsInput {
   runtime: Runtime;
   config: AssembleConfig;
   streamWriter: StreamWriter;
+}
+
+/** Phase 1242 Step A: Assembly-owned audit-size-monitor CronJob descriptor. */
+export function createAuditSizeMonitorCronJob(
+  deps: {
+    fs: FileSystem;
+    audit: Parameters<typeof runAuditSizeMonitor>[0]['audit'];
+    primaryAuditPath: string;
+    secondaryAuditPath: string;
+    streamLog?: Parameters<typeof runAuditSizeMonitor>[0]['streamLog'];
+  },
+  globalConfig: { cron: { jobs: { audit_size_monitor: { enabled: boolean; schedule: string } } } },
+): CronJob {
+  return {
+    name: 'audit-size-monitor',
+    enabled: globalConfig.cron.jobs.audit_size_monitor.enabled,
+    schedule: parseSchedule(globalConfig.cron.jobs.audit_size_monitor.schedule, deps.audit),
+    handler: (signal) => runAuditSizeMonitor({ ...deps, signal }),
+    timeoutMs: AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS,
+  } satisfies CronJob;
 }
 
 interface MotionAddonsOutput {
@@ -221,7 +242,7 @@ export async function createMotionAddons(
               }
             : undefined,
         }, globalConfig),
-        createAuditSizeMonitorJob({
+        createAuditSizeMonitorCronJob({
           fs: chestnutFs,
           audit: auditWriter,
           primaryAuditPath: path.join(chestnutRoot, 'motion', AUDIT_FILE),

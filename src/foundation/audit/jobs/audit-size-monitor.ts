@@ -2,9 +2,9 @@ import { formatErr } from "../../node-utils/index.js";
 /**
  * @module L2a.AuditLog.AuditSizeMonitor
  * @layer L2a
- * @depends L1.FileSystem, L2a.AuditLog, L2a.Cron (CronJob protocol)
+ * @depends L1.FileSystem, L2a.AuditLog
  *
- * Cron job: 周期 stat motion/audit.tsv + .chestnut/audit.tsv 大小、超阈值 emit audit + viewport stream notify (phase 8).
+ * AuditLog-owned monitor: 周期 stat motion/audit.tsv + .chestnut/audit.tsv 大小、超阈值 emit audit + viewport stream notify (phase 8).
  *
  * 阈值语义（phase 8 reframe）：informational only / 供开发者参考 / 无 motion action / 直接 viewport 显示提醒.
  *
@@ -20,9 +20,6 @@ import type { FileSystem } from '../../fs/index.js';
 import type { AuditLog } from '../index.js';
 type NotifySink = { write(event: Record<string, unknown>): void };
 import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from './audit-size-monitor-audit-events.js';
-import type { CronJob } from '../../cron/index.js';
-import { parseSchedule } from '../../cron/index.js';
-import type { CronJobGlobalConfig } from '../../cron/index.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
@@ -56,16 +53,6 @@ export interface AuditSizeMonitorOptions {
   criticalBytes?: number;
   streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
   signal?: AbortSignal;
-}
-
-export interface AuditSizeMonitorJobDeps {
-  fs: FileSystem;
-  audit: AuditLog;
-  primaryAuditPath: string;
-  secondaryAuditPath: string;
-  warnBytes?: number;
-  criticalBytes?: number;
-  streamLog?: NotifySink;
 }
 
 export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promise<void> {
@@ -127,17 +114,4 @@ export function __resetAuditSizeMonitorState(): void {
     throw new Error('__resetAuditSizeMonitorState is for tests only');
   }
   auditOverThreshold.clear();
-}
-
-export function createAuditSizeMonitorJob(
-  deps: AuditSizeMonitorJobDeps,
-  globalConfig: CronJobGlobalConfig<'audit_size_monitor'>,
-): CronJob {
-  return {
-    name: 'audit-size-monitor',
-    enabled: globalConfig.cron.jobs.audit_size_monitor.enabled,
-    schedule: parseSchedule(globalConfig.cron.jobs.audit_size_monitor.schedule, deps.audit),
-    handler: (signal) => runAuditSizeMonitor({ ...deps, signal }),
-    timeoutMs: AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS,
-  };
 }
