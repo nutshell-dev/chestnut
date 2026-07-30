@@ -23,12 +23,16 @@ import {
   prepareCandidate,
   commitOwnership,
   inspectActive,
+  inspectTerminal,
+  recordGenerationTerminal,
   retireOwnership,
   writeCandidateOutcome,
   WATCHDOG_ACTIVE_DIR,
   WATCHDOG_CANDIDATES_DIR,
   WATCHDOG_RETIRED_DIR,
+  WATCHDOG_TERMINAL_FILE,
   type WatchdogOwnerRecord,
+  type WatchdogGenerationTerminal,
 } from '../../src/watchdog/watchdog-ownership.js';
 
 let tmpDir: string;
@@ -276,5 +280,73 @@ describe('inspectActive', () => {
     prepareCandidate(chestnutFs, record);
     commitOwnership(chestnutFs, record);
     expect(inspectActive(chestnutFs).status).toBe('malformed');
+  });
+});
+
+describe('recordGenerationTerminal', () => {
+  function seedActive(): WatchdogOwnerRecord {
+    const record = makeRecord();
+    prepareCandidate(chestnutFs, record);
+    commitOwnership(chestnutFs, record);
+    return record;
+  }
+
+  const expectedOf = (r: WatchdogOwnerRecord) => ({
+    attemptId: r.attempt_id, ownerToken: r.owner_token, pid: r.pid,
+  });
+
+  it('为当前 generation 写 stopped terminal 并 exclusive 不可覆盖', () => {
+    const record = seedActive();
+    const terminal: WatchdogGenerationTerminal = {
+      kind: 'stopped', signal: 'SIGTERM', recorded_at: new Date().toISOString(),
+    };
+    const first = recordGenerationTerminal(chestnutFs, expectedOf(record), terminal);
+    expect(first.kind).toBe('recorded');
+
+    const second = recordGenerationTerminal(chestnutFs, expectedOf(record), {
+      kind: 'unclean', detected_at: new Date().toISOString(), detected_by_pid: 123,
+    });
+    expect(second.kind).toBe('already_recorded');
+    if (second.kind === 'already_recorded') expect(second.terminal.kind).toBe('stopped');
+
+    const read = inspectTerminal(chestnutFs);
+    expect(read.status).toBe('ok');
+    if (read.status === 'ok') expect(read.terminal.kind).toBe('stopped');
+  });
+
+  it('generation 不匹配 → mismatch，不动 active', () => {
+    const record = seedActive();
+    const other = makeRecord();
+    const result = recordGenerationTerminal(chestnutFs, expectedOf(other), {
+      kind: 'stopped', signal: 'SIGTERM', recorded_at: new Date().toISOString(),
+    });
+    expect(result.kind).toBe('mismatch');
+    expect(inspectTerminal(chestnutFs).status).toBe('none');
+    expect(JSON.parse(readActiveJson()).owner_token).toBe(record.owner_token);
+  });
+
+  it('无 active → no_active', () => {
+    const result = recordGenerationTerminal(chestnutFs, expectedOf(makeRecord()), {
+      kind: 'stopped', signal: 'SIGTERM', recorded_at: new Date().toISOString(),
+    });
+    expect(result.kind).toBe('no_active');
+  });
+
+  it('active 畸形 → malformed，不覆盖', () => {
+    fs.mkdirSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR), { recursive: true });
+    fs.writeFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'owner.json'), '{broken');
+    const result = recordGenerationTerminal(chestnutFs, expectedOf(makeRecord()), {
+      kind: 'stopped', signal: 'SIGTERM', recorded_at: new Date().toISOString(),
+    });
+    expect(result.kind).toBe('malformed');
+  });
+
+  it('terminal 文件已存在但畸形 → malformed，不覆盖', () => {
+    const record = seedActive();
+    fs.writeFileSync(path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, WATCHDOG_TERMINAL_FILE), 'NOT_JSON');
+    const result = recordGenerationTerminal(chestnutFs, expectedOf(record), {
+      kind: 'stopped', signal: 'SIGTERM', recorded_at: new Date().toISOString(),
+    });
+    expect(result.kind).toBe('malformed');
   });
 });

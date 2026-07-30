@@ -28,6 +28,7 @@ export const WATCHDOG_ACTIVE_DIR = 'watchdog/active';
 export const WATCHDOG_RETIRED_DIR = 'watchdog/retired';
 export const WATCHDOG_OWNER_FILE = 'owner.json';
 export const WATCHDOG_OUTCOME_FILE = 'outcome.json';
+export const WATCHDOG_TERMINAL_FILE = 'terminal.json';
 
 // === Records ===
 
@@ -95,6 +96,50 @@ export type RetireOwnership =
   | { kind: 'collision'; owner: WatchdogOwnerRecord }
   | { kind: 'retryable_failure'; cause: unknown };
 
+// === Generation terminal (Phase 1247 Step B) ===
+
+export type WatchdogGenerationTerminal =
+  | { kind: 'stopped'; signal: 'SIGTERM' | 'SIGINT'; recorded_at: string }
+  | { kind: 'crashed'; reason: string; recorded_at: string }
+  | { kind: 'unclean'; detected_at: string; detected_by_pid: number };
+
+export type RecordTerminalResult =
+  | { kind: 'recorded'; terminal: WatchdogGenerationTerminal }
+  | { kind: 'already_recorded'; terminal: WatchdogGenerationTerminal }
+  | { kind: 'no_active' }
+  | { kind: 'mismatch' }
+  | { kind: 'malformed'; cause: unknown }
+  | { kind: 'failed'; cause: unknown };
+
+export type TerminalInspection =
+  | { status: 'none' }
+  | { status: 'ok'; terminal: WatchdogGenerationTerminal }
+  | { status: 'malformed'; cause: unknown };
+
+function isTerminalRecord(parsed: unknown): parsed is WatchdogGenerationTerminal {
+  if (typeof parsed !== 'object' || parsed === null) return false;
+  const p = parsed as Partial<WatchdogGenerationTerminal> & Record<string, unknown>;
+  if (p.kind !== 'stopped' && p.kind !== 'crashed' && p.kind !== 'unclean') return false;
+  if (typeof p.recorded_at !== 'string' && typeof p.detected_at !== 'string') return false;
+  if (p.kind === 'stopped') {
+    return (
+      typeof p.recorded_at === 'string' &&
+      (p.signal === 'SIGTERM' || p.signal === 'SIGINT')
+    );
+  }
+  if (p.kind === 'crashed') {
+    return (
+      typeof p.recorded_at === 'string' &&
+      typeof p.reason === 'string'
+    );
+  }
+  // unclean
+  return (
+    typeof p.detected_at === 'string' &&
+    typeof p.detected_by_pid === 'number'
+  );
+}
+
 // === Attempt preparation ===
 
 /** 生成一次 startup attempt 的完整 record（写 candidate 前的事实全集）。 */
@@ -155,6 +200,75 @@ function isFsNotFound(err: unknown): boolean {
     return code === 'ENOENT' || code === 'FS_NOT_FOUND';
   }
   return false;
+}
+
+function isFsExists(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'EEXIST';
+  }
+  return false;
+}
+
+/**
+ * 读取 winner generation 的 terminal 终局。
+ * terminal 只存在于 active/retired 的 generation 目录内，candidate outcome 不是 terminal。
+ */
+export function inspectTerminal(fs: FileSystem): TerminalInspection {
+  let content: string;
+  try {
+    content = fs.readSync(`${WATCHDOG_ACTIVE_DIR}/${WATCHDOG_TERMINAL_FILE}`);
+  } catch (err) {
+    if (isFsNotFound(err)) return { status: 'none' };
+    return { status: 'malformed', cause: formatErr(err) };
+  }
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (!isTerminalRecord(parsed)) return { status: 'malformed', cause: 'terminal_shape_mismatch' };
+    return { status: 'ok', terminal: parsed };
+  } catch (err) {
+    return { status: 'malformed', cause: formatErr(err) };
+  }
+}
+
+/**
+ * 为当前 active winner generation 写 terminal 终局。
+ * - 先 generation-guard 匹配 active owner（attempt/token/pid）；
+ * - 用 exclusive 写保证 first terminal wins，已存在 terminal 时保留原事实；
+ * - 写失败返回 typed failure，caller 不得继续退役成“无证据”。
+ */
+export function recordGenerationTerminal(
+  fs: FileSystem,
+  expected: { attemptId: string; ownerToken: string; pid: number },
+  terminal: WatchdogGenerationTerminal,
+): RecordTerminalResult {
+  const inspection = inspectActive(fs);
+  if (inspection.status === 'none') return { kind: 'no_active' };
+  if (inspection.status === 'malformed') return { kind: 'malformed', cause: inspection.cause };
+  const owner = inspection.owner;
+  if (
+    owner.attempt_id !== expected.attemptId ||
+    owner.owner_token !== expected.ownerToken ||
+    owner.pid !== expected.pid
+  ) {
+    return { kind: 'mismatch' };
+  }
+  const terminalPath = `${WATCHDOG_ACTIVE_DIR}/${WATCHDOG_TERMINAL_FILE}`;
+  try {
+    fs.writeExclusiveSync(terminalPath, JSON.stringify(terminal, null, 2));
+    return { kind: 'recorded', terminal };
+  } catch (err) {
+    if (isFsExists(err)) {
+      try {
+        const existing = inspectTerminal(fs);
+        if (existing.status === 'ok') return { kind: 'already_recorded', terminal: existing.terminal };
+        return { kind: 'malformed', cause: existing.status === 'malformed' ? existing.cause : 'terminal_read_failed' };
+      } catch (readErr) {
+        return { kind: 'malformed', cause: formatErr(readErr) };
+      }
+    }
+    return { kind: 'failed', cause: formatErr(err) };
+  }
 }
 
 // === Commit (candidate → active) ===

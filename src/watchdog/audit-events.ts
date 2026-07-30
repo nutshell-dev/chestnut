@@ -60,6 +60,10 @@ export const WATCHDOG_AUDIT_EVENTS = {
   OWNERSHIP_MALFORMED_ACTIVE: 'watchdog_ownership_malformed_active',
   // phase 1203 Step D: dead/corrupt legacy watchdog.pid 保留证据迁移后放行
   OWNERSHIP_LEGACY_MIGRATED: 'watchdog_ownership_legacy_migrated',
+  // phase 1247 Step B: generation terminal outcomes
+  WATCHDOG_UNCLEAN_TERMINATION_DETECTED: 'watchdog_unclean_termination_detected',
+  WATCHDOG_TERMINAL_WRITE_FAILED: 'watchdog_terminal_write_failed',
+  WATCHDOG_TERMINAL_RECORDED: 'watchdog_terminal_recorded',
 } as const;
 
 
@@ -113,4 +117,7 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_ownership_retired: 'audit',
   watchdog_ownership_malformed_active: 'audit',
   watchdog_ownership_legacy_migrated: 'audit',
+  watchdog_unclean_termination_detected: 'audit',
+  watchdog_terminal_write_failed: 'audit',
+  watchdog_terminal_recorded: 'audit',
 } as const;

@@ -1034,7 +1034,10 @@
       "watchdog_ownership_lost",
       "watchdog_ownership_retired",
       "watchdog_ownership_malformed_active",
-      "watchdog_ownership_legacy_migrated"
+      "watchdog_ownership_legacy_migrated",
+      "watchdog_unclean_termination_detected",
+      "watchdog_terminal_write_failed",
+      "watchdog_terminal_recorded"
     ],
     "core_step-executor_audit-events": [
       "llm_empty_response",

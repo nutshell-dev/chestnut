@@ -44,7 +44,7 @@ import { resolveDaemonEntry } from '../assembly/spawn-entry.js';
 
 
 import {
-  getChestnutFs, getGlobalConfig, setAuditWriter,
+  getChestnutFs, getGlobalConfig, setAuditWriter, getAuditWriter,
   motionRestartStateAPI,
   type MotionRestartState,
 } from './watchdog-context.js';
@@ -54,8 +54,8 @@ import {
 } from './watchdog-pid.js';
 import {
   newWatchdogAttempt, prepareCandidate, commitOwnership, retireOwnership,
-  writeCandidateOutcome, inspectActive, WATCHDOG_ACTIVE_DIR,
-  type WatchdogOwnership, type WatchdogOwnerRecord,
+  writeCandidateOutcome, inspectActive, recordGenerationTerminal, WATCHDOG_ACTIVE_DIR,
+  type WatchdogOwnership, type WatchdogOwnerRecord, type WatchdogGenerationTerminal,
 } from './watchdog-ownership.js';
 import {
   log, logWithAudit,
@@ -192,6 +192,39 @@ export function acquireWatchdogOwnership(
       // dead owner（含 PID-reuse argv 不符）：无论历史 workspace，只按磁盘 record 的
       // 完整 generation identity retire，不用当前 candidate identity。
       log(fsFactory, `[watchdog] stale owner (PID=${owner.pid}) detected, retiring before commit...`);
+      // Phase 1247 Step B: 先补记 unclean terminal，再 generation-guarded retire；
+      // terminal 写失败时保留 active 证据，不伪装成功继续 commit。
+      const terminal: WatchdogGenerationTerminal = {
+        kind: 'unclean',
+        detected_at: new Date().toISOString(),
+        detected_by_pid: process.pid,
+      };
+      const terminalResult = recordGenerationTerminal(
+        fs,
+        { attemptId: owner.attempt_id, ownerToken: owner.owner_token, pid: owner.pid },
+        terminal,
+      );
+      const auditWriter = getAuditWriter();
+      if (terminalResult.kind === 'failed' || terminalResult.kind === 'malformed') {
+        auditWriter?.write(
+          WATCHDOG_AUDIT_EVENTS.WATCHDOG_TERMINAL_WRITE_FAILED,
+          `ctx=stale_recovery`,
+          `attempt=${owner.attempt_id}`,
+          `token=${owner.owner_token}`,
+          `pid=${owner.pid}`,
+          `error=${auditWriter?.message(formatErr(terminalResult.cause)) ?? formatErr(terminalResult.cause)}`,
+        );
+        return { kind: 'failed', error: terminalResult.cause };
+      }
+      if (terminalResult.kind === 'recorded') {
+        auditWriter?.write(
+          WATCHDOG_AUDIT_EVENTS.WATCHDOG_UNCLEAN_TERMINATION_DETECTED,
+          `attempt=${owner.attempt_id}`,
+          `token=${owner.owner_token}`,
+          `pid=${owner.pid}`,
+          `detected_by_pid=${process.pid}`,
+        );
+      }
       const retired = retireOwnership(
         fs,
         { attemptId: owner.attempt_id, ownerToken: owner.owner_token, pid: owner.pid },
@@ -252,6 +285,32 @@ export function shutdownWatchdog(
   if (shuttingDown) return;
   shuttingDown = true;
   log(fsFactory, `[watchdog] Received ${signal}, shutting down...`);
+  // Phase 1247 Step B: 在 retire 前写 stopped terminal；best-effort，失败仍继续 shutdown。
+  if (currentOwnership && (signal === 'SIGTERM' || signal === 'SIGINT')) {
+    const terminal: WatchdogGenerationTerminal = {
+      kind: 'stopped',
+      signal,
+      recorded_at: new Date().toISOString(),
+    };
+    const terminalResult = recordGenerationTerminal(
+      getChestnutFs(fsFactory),
+      {
+        attemptId: currentOwnership.attemptId,
+        ownerToken: currentOwnership.ownerToken,
+        pid: currentOwnership.pid,
+      },
+      terminal,
+    );
+    if (terminalResult.kind === 'recorded') {
+      auditWriter.write(
+        WATCHDOG_AUDIT_EVENTS.WATCHDOG_TERMINAL_RECORDED,
+        `attempt=${currentOwnership.attemptId}`,
+        `token=${currentOwnership.ownerToken}`,
+        `kind=stopped`,
+        `signal=${signal}`,
+      );
+    }
+  }
   let saveFailed: string | undefined;
   try {
     saveWatchdogState(fsFactory);

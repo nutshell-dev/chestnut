@@ -67,6 +67,7 @@ import {
   newWatchdogAttempt,
   prepareCandidate,
   commitOwnership,
+  inspectTerminal,
   WATCHDOG_ACTIVE_DIR,
   WATCHDOG_CANDIDATES_DIR,
   WATCHDOG_RETIRED_DIR,
@@ -322,6 +323,97 @@ describe('runWatchdogLoop ownership 门', () => {
     // active 已 retire（owner 为 null 因为 active 被移走）
     expect(owner).toBeNull();
     expect(fs.existsSync(path.join(chestnutDir, 'watchdog.pid'))).toBe(false);
+  });
+
+  it('graceful shutdown 在 retire 前写 stopped terminal，retired 目录保留 terminal', async () => {
+    const { setTimeout: setTimeoutP } = await import('timers/promises');
+    vi.mocked(setTimeoutP).mockImplementationOnce(async () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+      try { capturedHandlers['SIGTERM']?.(); } catch { /* exit mock throws */ }
+      exitSpy.mockRestore();
+    });
+    try {
+      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+    } catch { /* process.exit mock may throw */ }
+
+    const retiredDirs = fs.readdirSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR));
+    expect(retiredDirs.length).toBe(1);
+    const terminalPath = path.join(chestnutDir, WATCHDOG_RETIRED_DIR, retiredDirs[0], 'terminal.json');
+    const terminal = JSON.parse(fs.readFileSync(terminalPath, 'utf-8'));
+    expect(terminal.kind).toBe('stopped');
+    expect(terminal.signal).toBe('SIGTERM');
+  });
+});
+
+describe('stale recovery 补记 unclean terminal', () => {
+  it('dead owner 无 terminal 时，recovery 先写 unclean 再 retire 并接管', () => {
+    const stale = newWatchdogAttempt(DEAD_PID);
+    seedActive(stale);
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    const retiredPath = path.join(chestnutDir, WATCHDOG_RETIRED_DIR, stale.owner_token);
+    expect(fs.existsSync(retiredPath)).toBe(true);
+    const terminal = JSON.parse(fs.readFileSync(path.join(retiredPath, 'terminal.json'), 'utf-8'));
+    expect(terminal.kind).toBe('unclean');
+    expect(terminal.detected_by_pid).toBe(process.pid);
+    const audit = auditLines();
+    expect(audit).toContain('watchdog_unclean_termination_detected');
+    expect(audit).toContain('watchdog_ownership_retired');
+    expect(audit).toContain('reason=stale_recovery');
+  });
+
+  it('已有 crashed terminal 时，recovery 不覆盖为 unclean，仍 retire 并接管', () => {
+    const stale = newWatchdogAttempt(DEAD_PID);
+    seedActive(stale);
+    const chestnutFs = new NodeFileSystem({ baseDir: chestnutDir });
+    fs.writeFileSync(
+      path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'terminal.json'),
+      JSON.stringify({ kind: 'crashed', reason: 'test', recorded_at: new Date().toISOString() }),
+    );
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    const terminal = JSON.parse(fs.readFileSync(
+      path.join(chestnutDir, WATCHDOG_RETIRED_DIR, stale.owner_token, 'terminal.json'), 'utf-8'));
+    expect(terminal.kind).toBe('crashed');
+    expect(terminal.reason).toBe('test');
+  });
+
+  it('已有 stopped terminal 时，recovery 不覆盖为 unclean，仍 retire 并接管', () => {
+    const stale = newWatchdogAttempt(DEAD_PID);
+    seedActive(stale);
+    fs.writeFileSync(
+      path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'terminal.json'),
+      JSON.stringify({ kind: 'stopped', signal: 'SIGTERM', recorded_at: new Date().toISOString() }),
+    );
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    const terminal = JSON.parse(fs.readFileSync(
+      path.join(chestnutDir, WATCHDOG_RETIRED_DIR, stale.owner_token, 'terminal.json'), 'utf-8'));
+    expect(terminal.kind).toBe('stopped');
+  });
+
+  it('unclean terminal 已被另一 reclaimer 写下时，本 reclaimer 仍成功接管', () => {
+    const stale = newWatchdogAttempt(DEAD_PID);
+    seedActive(stale);
+    const chestnutFs = new NodeFileSystem({ baseDir: chestnutDir });
+    fs.writeFileSync(
+      path.join(chestnutDir, WATCHDOG_ACTIVE_DIR, 'terminal.json'),
+      JSON.stringify({ kind: 'unclean', detected_at: new Date().toISOString(), detected_by_pid: 111111 }),
+    );
+
+    const result = acquireWatchdogOwnership(fsFactory);
+
+    expect(result.kind).toBe('committed');
+    const terminal = JSON.parse(fs.readFileSync(
+      path.join(chestnutDir, WATCHDOG_RETIRED_DIR, stale.owner_token, 'terminal.json'), 'utf-8'));
+    expect(terminal.kind).toBe('unclean');
+    expect(terminal.detected_by_pid).toBe(111111);
   });
 });
 
