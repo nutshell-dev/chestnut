@@ -15,6 +15,7 @@ import type { Message, ToolDefinition } from '../../foundation/llm-provider/inde
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
+import { renderStandardInboxMessage } from '../../foundation/messaging/index.js';
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
 import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
@@ -445,18 +446,20 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     const ago = timestamp ? formatTimeAgo(timestamp) : '';
     const t = ago ? ` (${ago})` : '';
 
-    const formatter = this.formatterRegistry.resolve(type);
+    const rendering = this.formatterRegistry.resolve(type);
     let formatted: string;
-    if (!formatter) {
+    if (!rendering) {
       // DP 不静默：未注册 type 必 audit + 走默 fallback（不丢消息）
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.INBOX_UNKNOWN_TYPE,
         `type=${type}`,
         `from=${from}`,
       );
-      formatted = `[system message${t}] ${body}`;
+      formatted = renderStandardInboxMessage({ from, body, timestampSec: t }, 'system');
+    } else if (rendering.kind === 'standard') {
+      formatted = renderStandardInboxMessage({ from, body, timestampSec: t }, rendering.presentation);
     } else {
-      formatted = await formatter({ from, body, timestampSec: t });
+      formatted = await rendering.formatter({ from, body, timestampSec: t });
     }
 
     // phase 27 Step D P5: motion-side append guidance（motion 装配 guidanceCompose 必持 / claw undefined → 跳）

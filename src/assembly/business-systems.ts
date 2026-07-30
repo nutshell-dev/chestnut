@@ -51,14 +51,18 @@ import type { DialogStore } from '../foundation/dialog-store/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
 import { ContractAuditor } from '../core/contract/contract-auditor.js';
-import { createMessageFormatterRegistry, registerMessagingFormatters } from '../foundation/messaging/index.js';
-import { formatUserChat } from '../core/gateway/index.js';
-import { registerWatchdogFormatters } from '../watchdog/inbox-formatter.js';
+import {
+  createMessageFormatterRegistry,
+  registerInboxMessageTypes,
+  MESSAGING_INBOX_MESSAGE_TYPES,
+} from '../foundation/messaging/index.js';
+import { GATEWAY_INBOX_MESSAGE_TYPES } from '../core/gateway/index.js';
+import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../watchdog/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
-import { registerContractFormatters } from '../core/contract/inbox-formatters.js';
-import { registerAsyncTaskSystemFormatters } from '../core/async-task-system/inbox-formatter.js';
-import { registerDaemonFormatters } from '../daemon/inbox-formatter.js';
-import { registerMemoryFormatters } from '../core/memory/inbox-formatter.js';
+import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/inbox-formatters.js';
+import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/inbox-formatter.js';
+import { DAEMON_INBOX_MESSAGE_TYPES } from '../daemon/inbox-formatter.js';
+import { MEMORY_INBOX_MESSAGE_TYPES } from '../core/memory/inbox-formatter.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
 import type { MotionGuidanceRegistry, GuidanceEntry } from './guidance/index.js';
 import type { MessageFormatterRegistry } from '../foundation/messaging/index.js';
@@ -317,18 +321,23 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   }
 
   const formatterRegistry: MessageFormatterRegistry = createMessageFormatterRegistry();
-  registerMessagingFormatters(formatterRegistry);
-  formatterRegistry.register('user_chat', formatUserChat);
-  registerWatchdogFormatters(formatterRegistry);
-  registerContractFormatters(formatterRegistry);
-  registerAsyncTaskSystemFormatters(formatterRegistry);
-  registerDaemonFormatters(formatterRegistry);
-  registerMemoryFormatters(formatterRegistry);
+  registerInboxMessageTypes(formatterRegistry, MESSAGING_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, GATEWAY_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, WATCHDOG_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, CONTRACT_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, MEMORY_INBOX_MESSAGE_TYPES);
+  // phase 1243 Step B: Daemon declarations 由外部 caller（daemon-entry）作为 contributions 传入，
+  // 此处保留内部默认注册以兼容非 daemon 路径；external 后注册，last-win 语义与起步一致。
+  registerInboxMessageTypes(formatterRegistry, DAEMON_INBOX_MESSAGE_TYPES);
   if (isMotion) {
-    formatterRegistry.register(
-      'heartbeat',
-      createHeartbeatInboxFormatter({ systemFs, audit: auditWriter }),
-    );
+    formatterRegistry.register({
+      type: 'heartbeat',
+      rendering: {
+        kind: 'custom',
+        formatter: createHeartbeatInboxFormatter({ systemFs, audit: auditWriter }),
+      },
+    });
   }
 
   let guidanceRegistry: MotionGuidanceRegistry | undefined;

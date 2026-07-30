@@ -10,6 +10,9 @@
 // 保留 export 维持 test reachability、若未来 src 无 caller 浮出 0 增加可降为 deep import
 export { OutboxWriter, makeOutboxPath } from './outbox-writer.js';
 
+// phase 1243: Messaging 自家 inbox message type declarations
+export { MESSAGING_INBOX_MESSAGE_TYPES } from './inbox-formatters.js';
+
 // phase 42: outbox 读侧（业主入口、用于聚合查询如 outbox-summary 未读计数）
 export { OutboxReader } from './outbox-reader.js';
 export type { ClaimResult } from './outbox-reader.js';
@@ -50,8 +53,13 @@ export {
 // phase 1435 F8: audit events const re-export — 跨模块 (cli / daemon) 引用走 barrel。
 export { MESSAGING_AUDIT_EVENTS, MESSAGING_FILE_ROUTING } from './audit-events.js';
 
-// phase 1414: inbox 消息格式化协议（散到各业主自管）
-export { createMessageFormatterRegistry } from './formatter-registry.js';
+// phase 1243: inbox 消息 rendering 声明协议
+export {
+  createMessageFormatterRegistry,
+  createInboxMessageTypeRegistry,
+  renderStandardInboxMessage,
+  registerInboxMessageTypes,
+} from './formatter-registry.js';
 
 // phase 436: system/user 消息识别 helper
 export {
@@ -65,12 +73,10 @@ export { parseFrontmatterFrame } from './frontmatter-frame.js';
 export type {
   MessageFormatter,
   MessageFormatterRegistry,
+  InboxMessageRendering,
+  InboxMessageTypeDeclaration,
+  StandardMessagePresentation,
 } from './formatter-registry.js';
-// phase 128 M#8 ratify: formatUserInboxMessage production cross-module 0 caller、tests/assembly/ 5 file use only
-export {
-  formatUserInboxMessage,
-  registerMessagingFormatters,
-} from './inbox-formatters.js';
 
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';

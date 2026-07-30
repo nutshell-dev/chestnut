@@ -1,10 +1,10 @@
 /**
- * phase 1419 invariant: src/ 内任何 notifyClaw / notifyInbox
- * 调用的 `type: 'X'` 字面量必经 Assembly register（含业主 helper 内 register）。
+ * phase 1419 / 1243 invariant: src/ 内任何 notifyClaw / notifyInbox
+ * 调用的 `type: 'X'` 字面量必经 owner declaration 注册。
  *
- * 守 phase 1414 应然「业主自家管 message type formatter」+ DP「未经显式不静默」。
+ * 守 phase 1243 应然「业主自家管 message type rendering declaration」+ DP「未经显式不静默」。
  *
- * 反向：future 加新 type 必同步在 业主 inbox-formatter.ts + assemble.ts register /
+ * 反向：future 加新 type 必同步在 owner inbox-formatter.ts declaration 数组 /
  * 否则本测 fail（捕 INBOX_UNKNOWN_TYPE audit storm 回归）。
  */
 
@@ -16,36 +16,33 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.resolve(__dirname, '../../../src');
 
-const REGISTER_HELPER_FILES = [
+const DECLARATION_FILES = [
   'foundation/messaging/inbox-formatters.ts',
+  'core/gateway/inbox-formatter.ts',
   'watchdog/inbox-formatter.ts',
   'core/contract/inbox-formatters.ts',
   'daemon/inbox-formatter.ts',
   'core/memory/inbox-formatter.ts',
-  'core/async-task-system/inbox-formatter.ts', // phase 9: task_result + task_queue_overflow
+  'core/async-task-system/inbox-formatter.ts',
 ] as const;
 
 function extractRegisteredTypes(): Set<string> {
   const types = new Set<string>();
-  const assembleContent = fs.readFileSync(path.join(srcDir, 'assembly/assemble.ts'), 'utf-8');
-  const businessContent = fs.readFileSync(path.join(srcDir, 'assembly/business-systems.ts'), 'utf-8');
-  const assemblyContent = assembleContent + businessContent;
-  // (1) assembly 文件内 formatterRegistry.register('X', ...) 直接调
-  const directMatches = assemblyContent.matchAll(/formatterRegistry\.register\(\s*'([^']+)'/g);
-  for (const m of directMatches) types.add(m[1]);
-  // (2) 业主 helper：仅当 helper 实际被 assembly 文件调用时其 register('X', ...) 才生效
-  for (const rel of REGISTER_HELPER_FILES) {
+  // owner declarations
+  for (const rel of DECLARATION_FILES) {
     const fp = path.join(srcDir, rel);
     if (!fs.existsSync(fp)) continue;
     const content = fs.readFileSync(fp, 'utf-8');
-    // 提 helper file 内 export function registerXxxFormatters
-    const helperExports = [...content.matchAll(/export\s+function\s+(register\w+Formatters)\s*\(/g)].map(m => m[1]);
-    // 仅当对应 helper 在 assemble.ts 有调用时、其 register 才算生效
-    const liveHelpers = helperExports.filter(name => new RegExp(`\\b${name}\\s*\\(`).test(assemblyContent));
-    if (liveHelpers.length === 0) continue;
-    const matches = content.matchAll(/registry\.register\(\s*'([^']+)'/g);
+    // owner declaration 文件内 `type: 'X'` 即注册 type
+    const matches = content.matchAll(/type\s*:\s*'([^']+)'/g);
     for (const m of matches) types.add(m[1]);
   }
+  // Assembly 直接 register 调用（含 motion-only heartbeat custom formatter）
+  const assembleContent = fs.readFileSync(path.join(srcDir, 'assembly/assemble.ts'), 'utf-8');
+  const businessContent = fs.readFileSync(path.join(srcDir, 'assembly/business-systems.ts'), 'utf-8');
+  const assemblyContent = assembleContent + businessContent;
+  const directMatches = assemblyContent.matchAll(/formatterRegistry\.register\(\s*\{\s*type:\s*'([^']+)'/g);
+  for (const m of directMatches) types.add(m[1]);
   return types;
 }
 
@@ -103,7 +100,7 @@ function extractSenderTypes(): Map<string, string[]> {
   return byType;
 }
 
-describe('phase 1419: inbox formatter registry coverage invariant', () => {
+describe('phase 1419/1243: inbox message type registry coverage invariant', () => {
   it('every type literal in src/ notifyClaw|notifyInbox callers must be registered', () => {
     const registered = extractRegisteredTypes();
     const senderByType = extractSenderTypes();
@@ -116,9 +113,8 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
         .map(u => `  - '${u.type}' (sites: ${u.sites.join(', ')})`)
         .join('\n');
       throw new Error(
-        `phase 1419 invariant failed — ${unregistered.length} sender type(s) lack a formatter registration:\n${summary}\n` +
-          `Add the type to its owner module's inbox-formatter.ts + register helper, ` +
-          `then wire the helper in src/assembly/assemble.ts formatterRegistry setup.`,
+        `phase 1419/1243 invariant failed — ${unregistered.length} sender type(s) lack a rendering declaration:\n${summary}\n` +
+          `Add the type to its owner module's inbox-formatter.ts declaration array.`,
       );
     }
     expect(unregistered).toEqual([]);
@@ -134,7 +130,7 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
       'random_dream', 'deep_dream',
       // phase 9: 'message' catch-all 拆为 4 typed event
       'task_result', 'contract_created', 'contract_resume', 'contract_audit_feedback',
-      // 'heartbeat' is motion-only register, not in assemble unconditionally — accept missing
+      // 'heartbeat' is motion-only register, not in declaration files — accept missing
     ];
     const missing = expected.filter(t => !registered.has(t));
     expect(missing).toEqual([]);
@@ -143,16 +139,6 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
   /**
    * phase 1426: 在 phase 1419 base 上加 NEW assertion — notifyClaw/notifyInbox
    * call body 内 `type:` 字段不得为含 `${}` 插值的模板字符串。
-   *
-   * 触发：`src/watchdog/watchdog-log.ts:53 type: \`watchdog_${type}\`` 致 caller 传
-   * `'claw_inactivity'` wire 文件实然 type = `'watchdog_claw_inactivity'`（与 phase 1419
-   * 注册的 `claw_inactivity` 不匹配）/ phase 1419 invariant regex 仅匹配单引号字面量、
-   * 漏抓模板字符串站点 / 实然持续走 Runtime fallback + INBOX_UNKNOWN_TYPE audit。
-   *
-   * scope：仅拒「带 `${}` 插值的模板字符串」。其它形态（ternary 两 branch 字面量 / `??`
-   * 字面量 fallback / 单引号 / 双引号字面量）皆允（phase 1419 既有 type-coverage
-   * invariant 间接守 + 业主自家 register 时模板字符串本身不在已注册集合即触发 phase 1419
-   * fail / 识别表达式形态非本测责任）。
    */
   it('phase 1426: type field in notifyClaw|notifyInbox call body must not be an interpolated template literal', () => {
     type Violation = { site: string; preview: string };
@@ -181,7 +167,6 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
             const slice = content.slice(openIdx + 1, i - 1);
             for (const tm of slice.matchAll(/\btype\s*:\s*([^,}\n]+)/g)) {
               const raw = tm[1].trim();
-              // 仅拒含 `${}` 插值的模板字符串。其它形态（含纯模板字符串无插值）皆允。
               if (raw.startsWith('`') && raw.includes('${')) {
                 const before = content.slice(0, openIdx + 1 + (tm.index ?? 0));
                 const line = before.split('\n').length;
@@ -200,7 +185,7 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
       const summary = violations.map(v => `  - ${v.site}: ${v.preview}`).join('\n');
       throw new Error(
         `phase 1426 invariant failed — ${violations.length} interpolated template literal type value(s) in notifyXxx call body:\n${summary}\n` +
-          `Replace with a single-quoted string literal so phase 1419 registry-coverage invariant can verify formatter registration.`,
+          `Replace with a single-quoted string literal so phase 1419/1243 registry-coverage invariant can verify declaration registration.`,
       );
     }
     expect(violations).toEqual([]);

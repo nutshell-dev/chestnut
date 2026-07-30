@@ -229,13 +229,11 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
     createMessageFormatterRegistry: vi.fn(() => {
       const map = new Map();
       return {
-        register: vi.fn((type, fn) => { map.set(type, fn); }),
-        resolve: vi.fn((type) => map.get(type)),
+        register: vi.fn((declaration: { type: string; rendering: unknown }) => { map.set(declaration.type, declaration.rendering); }),
+        resolve: vi.fn((type: string) => map.get(type)),
       };
     }),
-    registerMessagingFormatters: vi.fn(),
-    formatUserInboxMessage: vi.fn(),
-    formatGenericMessage: vi.fn(),
+    registerInboxMessageTypes: vi.fn(),
   };
 });
 

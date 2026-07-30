@@ -223,17 +223,15 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
     makeInboxPath: vi.fn((dir: string) => dir),
     makeOutboxPath: vi.fn((_clawId: string, clawDir: string) => clawDir + '/outbox/pending'),
     readInboxFileMeta: vi.fn(),
-    // phase 1414: formatter registry + Messaging 自家 formatter mock
+    // phase 1243: formatter registry + Messaging 自家 declarations mock
     createMessageFormatterRegistry: vi.fn(() => {
       const map = new Map<string, unknown>();
       return {
-        register: vi.fn((type: string, fn: unknown) => { map.set(type, fn); }),
+        register: vi.fn((declaration: { type: string; rendering: unknown }) => { map.set(declaration.type, declaration.rendering); }),
         resolve: vi.fn((type: string) => map.get(type)),
       };
     }),
-    registerMessagingFormatters: vi.fn(),
-    formatUserInboxMessage: vi.fn(),
-    formatGenericMessage: vi.fn(),
+    registerInboxMessageTypes: vi.fn(),
   };
 });
 

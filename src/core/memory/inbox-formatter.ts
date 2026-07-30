@@ -1,28 +1,19 @@
 /**
  * @module L4.MemorySystem
- * phase 1419: MemorySystem 自家 2 dream inbox 消息 formatter（phase 1414
- * 落地完整化 sister）。
+ * phase 1243: MemorySystem 自家 inbox 消息 rendering declarations。
  *
- * 2 type 业务语义全归 MemorySystem：
+ * 业务语义全归 MemorySystem：
  *   - 'random_dream'  random-dream subagent 完成后向 motion 投递的 reflection
+ *   - 'random_dream_completed' random-dream subagent 完成通知
  *   - 'deep_dream'    deep-dream subagent 完成后自投 inbox 的 reflection
  *
- * 当前 trivial passthrough（dreamOutput 已自含业务措辞）— 措辞业主自定。
+ * 当前均使用标准 system presentation（dreamOutput 已自含业务措辞）。
  */
 
-import type { MessageFormatter, MessageFormatterRegistry } from '../../foundation/messaging/index.js';
+import type { InboxMessageTypeDeclaration } from '../../foundation/messaging/index.js';
 
-export const formatRandomDream: MessageFormatter = async ({ body, timestampSec }) =>
-  `[system message${timestampSec}] ${body}`;
-
-export const formatDeepDream: MessageFormatter = async ({ body, timestampSec }) =>
-  `[system message${timestampSec}] ${body}`;
-
-export const formatRandomDreamCompleted: MessageFormatter = async ({ body, timestampSec }) =>
-  `[system message${timestampSec}] ${body}`;
-
-export function registerMemoryFormatters(registry: MessageFormatterRegistry): void {
-  registry.register('random_dream', formatRandomDream);
-  registry.register('random_dream_completed', formatRandomDreamCompleted);
-  registry.register('deep_dream', formatDeepDream);
-}
+export const MEMORY_INBOX_MESSAGE_TYPES = [
+  { type: 'random_dream', rendering: { kind: 'standard', presentation: 'system' } },
+  { type: 'random_dream_completed', rendering: { kind: 'standard', presentation: 'system' } },
+  { type: 'deep_dream', rendering: { kind: 'standard', presentation: 'system' } },
+] as const satisfies readonly InboxMessageTypeDeclaration[];

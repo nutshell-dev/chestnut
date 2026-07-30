@@ -12,8 +12,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import {
   createMessageFormatterRegistry,
-  registerMessagingFormatters,
+  registerInboxMessageTypes,
 } from '../../../src/foundation/messaging/index.js';
+import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../../src/core/gateway/index.js';
 import type { MessageFormatterRegistry } from '../../../src/foundation/messaging/index.js';
 import type { InboxEntry, InboxHandle } from '../../../src/foundation/messaging/index.js';
 import { RUNTIME_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/runtime-audit-events.js';
@@ -41,7 +42,7 @@ interface BuildOpts {
 
 function build(opts: BuildOpts): TestRuntime {
   const registry = opts.formatterRegistry ?? createMessageFormatterRegistry();
-  registerMessagingFormatters(registry);
+  registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
   return new TestRuntime({
     clawId: 'test-claw',
     clawDir: '/tmp/test-claw',
@@ -156,7 +157,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const llm = { reloadConfig: reloadFn };
     const reloader = vi.fn(() => stubCfg);
     const registry = createMessageFormatterRegistry();
-    registry.register('user_chat', async ({ body }) => body);
+    registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
     const inboxReader = {
       init: vi.fn(),
       drainAndDeliver: vi.fn().mockResolvedValue({
