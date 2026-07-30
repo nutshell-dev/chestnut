@@ -299,7 +299,7 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
   });
 
   it('clawContractManagerFactory passes main toolRegistry to createContractSystem', async () => {
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(capturedContractCallback).toBeDefined();
     await capturedContractCallback!('test-contract-id');
@@ -371,7 +371,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
   it('handler returns early when memorySystem is undefined (non-motion claw)', async () => {
     (createMemorySystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(undefined);
 
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     const jobs = (CronRunner as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
     const dreamJob = jobs.find((j: any) => j.name === 'dream-trigger');
@@ -385,7 +385,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
   });
 
   it('handler invokes memorySystem methods when motion claw assembles', async () => {
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     const jobs = (CronRunner as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
     const dreamJob = jobs.find((j: any) => j.name === 'dream-trigger');
@@ -441,7 +441,7 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
   it('does not throw when evolutionSystem missing (defensive guard)', async () => {
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(undefined);
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).resolves.toBeDefined();
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).resolves.toBeDefined();
   });
 
   it('still calls notifyContractCompleted when evolutionSystem present (phase 1206 Step D)', async () => {
@@ -452,7 +452,7 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
       init: vi.fn().mockResolvedValue(undefined),
     });
 
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(capturedContractCallback).toBeDefined();
     await capturedContractCallback!('test-contract-id');
@@ -477,7 +477,7 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
       init: vi.fn().mockResolvedValue(undefined),
     });
 
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(capturedContractCallback).toBeDefined();
     await expect(capturedContractCallback!('test-contract-id')).rejects.toThrow('retro dispatch failed');
@@ -573,7 +573,7 @@ describe('assemble-evolution-stepE-boundaries', () => {
   it('non-motion assembly does not register retrospective post-processor', async () => {
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => undefined);
 
-    await assemble(clawBaseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(clawBaseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     const taskSystem = capturedTaskSystems.at(-1);
     expect(taskSystem).toBeDefined();
@@ -589,7 +589,7 @@ describe('assemble-evolution-stepE-boundaries', () => {
       makeEvolutionSystemMock({ notifyContractCompleted: mockNotify }),
     );
 
-    await assemble(motionBaseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(motionBaseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(capturedContractCallback).toBeDefined();
     await expect(capturedContractCallback!('test-contract-id')).rejects.toThrow('motion self callback failed');
@@ -607,7 +607,7 @@ describe('assemble-evolution-stepE-boundaries', () => {
       makeEvolutionSystemMock({ notifyContractCompleted: mockNotify }),
     );
 
-    await assemble(motionBaseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(motionBaseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(capturedContractObserverDeps).toBeDefined();
     expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();

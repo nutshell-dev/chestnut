@@ -295,7 +295,7 @@ describe('assemble', () => {
   // 分支穷尽
   // --------------------------------------------------------------------------
   it('motion + cron.enabled + heartbeat>0 → 含 cronRunner / heartbeat / gateway (offline)', async () => {
-    const result = await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    const result = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(result.cronRunner).toBe(mockCronRunner);
     expect(result.heartbeat).toBe(mockHeartbeat);
@@ -313,7 +313,7 @@ describe('assemble', () => {
         cron: { ...baseConfig.globalConfig.cron, enabled: false },
       },
     };
-    const result = await assemble(config, { createSkillSystem: mockSkillFactory });
+    const result = await assemble(config, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(result.cronRunner).toBeUndefined();
     expect(result.heartbeat).toBe(mockHeartbeat);
@@ -327,7 +327,7 @@ describe('assemble', () => {
         motion: { ...baseConfig.globalConfig.motion, heartbeat_interval_ms: 0 },
       },
     };
-    const result = await assemble(config, { createSkillSystem: mockSkillFactory });
+    const result = await assemble(config, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(result.heartbeat).toBeUndefined();
     expect(result.cronRunner).toBe(mockCronRunner);
@@ -345,7 +345,7 @@ describe('assemble', () => {
         max_concurrent_tasks: 3,
       },
     };
-    const result = await assemble(config, { createSkillSystem: mockSkillFactory });
+    const result = await assemble(config, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(result.cronRunner).toBeUndefined();
     expect(result.heartbeat).toBeUndefined();
@@ -357,7 +357,7 @@ describe('assemble', () => {
   // audit 事件
   // --------------------------------------------------------------------------
   it('成功路径末尾写 daemon_started', async () => {
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(mockAuditWrite).toHaveBeenCalledWith(
       'daemon_started',
@@ -368,7 +368,7 @@ describe('assemble', () => {
 
   it('启动清理在 writer 激活前 await 执行并传入 startTime', async () => {
     const before = Date.now();
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
     const after = Date.now();
 
     expect(cleanupOrphanedTemp).toHaveBeenCalledTimes(1);
@@ -391,7 +391,7 @@ describe('assemble', () => {
       error: { kind: 'git_error' },
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: Snapshot.init failed: git_error'
     );
 
@@ -409,7 +409,7 @@ describe('assemble', () => {
       error: { kind: 'commit_error' },
     });
 
-    const result = await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    const result = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(result).toBeDefined();
     expect(result.snapshot).toBe(mockSnapshot);
@@ -426,7 +426,7 @@ describe('assemble', () => {
       throw new Error('stream fail');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: StreamWriter construct failed: stream fail'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -442,7 +442,7 @@ describe('assemble', () => {
       throw new Error('cron fail');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: CronRunner construct failed: cron fail'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -458,7 +458,7 @@ describe('assemble', () => {
       throw new Error('start boom');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow();
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow();
     expect(mockStreamWriter.write).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'daemon_started' }),
     );
@@ -469,7 +469,7 @@ describe('assemble', () => {
       throw new Error('start boom');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: CronRunner start failed: start boom'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -485,7 +485,7 @@ describe('assemble', () => {
       throw new Error('llm cfg boom');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: buildLLMConfig failed: llm cfg boom'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -497,7 +497,7 @@ describe('assemble', () => {
   });
 
   it('contractNotifyCallback 注入后 streamWriter 收到 user_notify（构造期路径覆盖）', async () => {
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
     // 验证 daemon_started 时 streamWriter.write 被调用（含 user_notify 的 callback 已通过 deps 注入）
     expect(mockStreamWriter.write).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -512,7 +512,7 @@ describe('assemble', () => {
       throw new Error('pm fail');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: ProcessManager construct failed: pm fail'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -528,7 +528,7 @@ describe('assemble', () => {
       throw new Error('snapshot fail');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: Snapshot construct failed: snapshot fail'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -544,7 +544,7 @@ describe('assemble', () => {
       throw new Error('runtime fail');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: Runtime construct failed: runtime fail'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -560,7 +560,7 @@ describe('assemble', () => {
       throw new Error('heartbeat fail');
     });
 
-    await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
+    await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
       'Assembly: Heartbeat construct failed: heartbeat fail'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -572,7 +572,7 @@ describe('assemble', () => {
   });
 
   it('所有 CronRunner job handlers 应正确引用对应的 cron jobs', async () => {
-    await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+    await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
     const jobs = (CronRunner as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
 
     for (const job of jobs) {
@@ -611,7 +611,7 @@ describe('assemble', () => {
         '2026-04-19T11:00:00.000Z\tdaemon_stop\tsignal=sigterm\n',
       );
 
-      await assemble(configWithTmp, { createSkillSystem: mockSkillFactory });
+      await assemble(configWithTmp, undefined, { createSkillSystem: mockSkillFactory });
 
       expect(mockAuditWrite).not.toHaveBeenCalledWith(
         'daemon_unclean_exit',
@@ -626,7 +626,7 @@ describe('assemble', () => {
         '2026-04-19T11:00:00.000Z\tdaemon_crash\terr=boom\n',
       );
 
-      await assemble(configWithTmp, { createSkillSystem: mockSkillFactory });
+      await assemble(configWithTmp, undefined, { createSkillSystem: mockSkillFactory });
 
       expect(mockAuditWrite).not.toHaveBeenCalledWith(
         'daemon_unclean_exit',
@@ -641,7 +641,7 @@ describe('assemble', () => {
         '2026-04-19T11:00:00.000Z\tdaemon_unclean_exit\tlast_ts=2026-04-19T10:00:00.000Z\n',
       );
 
-      await assemble(configWithTmp, { createSkillSystem: mockSkillFactory });
+      await assemble(configWithTmp, undefined, { createSkillSystem: mockSkillFactory });
 
       expect(mockAuditWrite).not.toHaveBeenCalledWith(
         'daemon_unclean_exit',
@@ -656,7 +656,7 @@ describe('assemble', () => {
         '2026-04-19T11:00:00.000Z\tcontract_notify\ttype=review_request\n',
       );
 
-      await assemble(configWithTmp, { createSkillSystem: mockSkillFactory });
+      await assemble(configWithTmp, undefined, { createSkillSystem: mockSkillFactory });
 
       expect(mockAuditWrite).toHaveBeenCalledWith(
         'daemon_unclean_exit',
@@ -665,7 +665,7 @@ describe('assemble', () => {
     });
 
     it('audit.tsv 不存在 → 静默跳过', async () => {
-      await assemble(configWithTmp, { createSkillSystem: mockSkillFactory });
+      await assemble(configWithTmp, undefined, { createSkillSystem: mockSkillFactory });
 
       expect(mockAuditWrite).not.toHaveBeenCalledWith(
         'daemon_unclean_exit',
@@ -679,7 +679,7 @@ describe('assemble', () => {
   // --------------------------------------------------------------------------
   describe('Assembly construction order (phase155C)', () => {
     it('constructs L3-L5 modules in dependency-safe order', async () => {
-      await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+      await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
       const required = [
         'LLMOrchestratorImpl', 'ToolRegistryImpl',
@@ -702,7 +702,7 @@ describe('assemble', () => {
       const orders: string[][] = [];
       for (let i = 0; i < 3; i++) {
         callOrder.length = 0;
-        await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+        await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
         orders.push([...callOrder]);
       }
       expect(orders[1]).toEqual(orders[0]);
@@ -742,7 +742,7 @@ describe('assemble', () => {
       let thrown: Error | undefined;
       let throwTs = 0;
       try {
-        await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+        await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
       } catch (e) {
         thrown = e as Error;
         throwTs = Date.now();
@@ -783,7 +783,7 @@ describe('assemble', () => {
 
       let thrown: Error | undefined;
       try {
-        await assemble(baseConfig, { createSkillSystem: mockSkillFactory });
+        await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
       } catch (e) {
         thrown = e as Error;
       } finally {

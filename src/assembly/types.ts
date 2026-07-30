@@ -14,7 +14,7 @@ import type { AuditFileRoutingContribution } from '../foundation/audit/index.js'
 
 export type Identity = 'motion' | 'claw';
 
-export interface AssembleDeps {
+export interface AssembleOverrides {
   createSkillSystem?: typeof defaultCreateSkillSystem;
 }
 

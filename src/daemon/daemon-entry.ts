@@ -18,7 +18,7 @@ const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 // phase 1243 Step B: daemon-entry 作为 Daemon lifecycle 的 glue，将 Daemon-owned declarations
 // 作为通用数据传给 Assembly，删除 Assembly→Daemon 的 production import。
 async function assembleWithDaemonContributions(config: AssembleConfig): Promise<Instances> {
-  return assemble(config, undefined, {
+  return assemble(config, {
     auditFileRouting: [DAEMON_FILE_ROUTING],
     inboxMessageTypes: [...DAEMON_INBOX_MESSAGE_TYPES],
   });

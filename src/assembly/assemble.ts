@@ -24,7 +24,7 @@ import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 
 import { cleanupOrphanedTemp } from './cleanup.js';
 
-import type { AssembleConfig, AssembleDeps, AssemblyContributions, Instances } from './types.js';
+import type { AssembleConfig, AssembleOverrides, AssemblyContributions, Instances } from './types.js';
 import { createCoreInfrastructure } from './core-infrastructure.js';
 import { createBusinessSystems } from './business-systems.js';
 import { createRuntimeAssembly } from './runtime-assembly.js';
@@ -75,8 +75,8 @@ export function detectUncleanExit(_auditDir: string, auditWriter: AuditLog, fs: 
 // Two functions = two patterns by-design; audit B-2 framing「throw + return error model mix」reframe-out.
 export async function assemble(
   config: AssembleConfig,
-  deps?: AssembleDeps,
   contributions?: AssemblyContributions,
+  overrides?: AssembleOverrides,
 ): Promise<Instances> {
   const startTime = Date.now();
   const { identity, clawId, clawDir } = config;
@@ -94,7 +94,7 @@ export async function assemble(
   try {
     core = await createCoreInfrastructure({
       config,
-      createSkillSystem: deps?.createSkillSystem,
+      createSkillSystem: overrides?.createSkillSystem,
       contributions,
     });
     const {
