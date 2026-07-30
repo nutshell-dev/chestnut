@@ -28,7 +28,7 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
 // 注：phase 375 后不再需 mock assembly/config-load + daemon/daemon
 // （daemon-handlers 不引这两条 heavy 链）
 
-import { constructShimAudit, registerShimHandlers } from '../../src/daemon-handlers.js';
+import { constructShimAudit, registerShimHandlers } from '../../src/daemon/daemon-handlers.js';
 
 describe('daemon-handlers shim audit', () => {
   let errorSpy: vi.SpyInstance;

@@ -60,24 +60,24 @@ describe('phase 961: motion steps/step action uses withCliErrorHandling wrapper'
   beforeEach(() => {
     vi.restoreAllMocks();
   });
-  it('motion steps .action() 使用 withCliErrorHandling wrapper（phase 961 migration）', () => {
+  it('motion steps .action() 使用 supervision policy wrapper（phase 1247 Step C migration）', () => {
     const stepsIdx = indexSource.indexOf("motionCmd\n  .command('steps')");
     expect(stepsIdx).toBeGreaterThan(-1);
     const block = indexSource.slice(stepsIdx, stepsIdx + 400);
-    expect(block).toContain('.action(withCliErrorHandling(async (');
+    expect(block).toContain(".action(action('observe_only', async (");
     expect(block).toContain('await motionStepsCommand({ fsFactory }');
-    // phase 961: raw try/catch removed
+    // phase 961/1247: raw try/catch + handleCliError 已收敛到 action wrapper
     expect(block).not.toMatch(/try\s*\{/);
     expect(block).not.toContain('process.exitCode = handleCliError(error)');
   });
 
-  it('motion step .action() 使用 withCliErrorHandling wrapper（phase 961 migration）', () => {
+  it('motion step .action() 使用 supervision policy wrapper（phase 1247 Step C migration）', () => {
     const stepIdx = indexSource.indexOf("motionCmd\n  .command('step <n>')");
     expect(stepIdx).toBeGreaterThan(-1);
     const block = indexSource.slice(stepIdx, stepIdx + 400);
-    expect(block).toContain('.action(withCliErrorHandling(async (n: string) => {');
+    expect(block).toContain(".action(action('observe_only', async (n: string) => {");
     expect(block).toContain('await motionStepCommand({ fsFactory }, n);');
-    // phase 961: raw try/catch removed
+    // phase 961/1247: raw try/catch + handleCliError 已收敛到 action wrapper
     expect(block).not.toMatch(/try\s*\{/);
     expect(block).not.toContain('process.exitCode = handleCliError(error)');
   });

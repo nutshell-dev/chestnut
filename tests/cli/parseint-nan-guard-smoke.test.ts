@@ -101,6 +101,17 @@ function makeTempRoot(): string {
     path.join(dir, '.chestnut', 'config.yaml'),
     'llm:\n  primary:\n    api_key: test\n'
   );
+  // phase 1247 Step C: claw outbox is now supervised 'required' and spawns a
+  // detached watchdog. For this parseInt smoke test we switch to 'audit query',
+  // which is 'observe_only' and still exercises --limit wiring.
+  fs.writeFileSync(
+    path.join(dir, '.chestnut', 'claws', 'test-claw', 'config.yaml'),
+    'preset: anthropic\n'
+  );
+  fs.writeFileSync(
+    path.join(dir, '.chestnut', 'claws', 'test-claw', 'audit.tsv'),
+    '2026-07-30T12:00:00.000Z\tseq=1\tsmoke_event\n',
+  );
   return dir;
 }
 
@@ -122,7 +133,7 @@ describe('CLI smoke - parseInt NaN guard Layer B canary', () => {
 
   it('outbox --limit 10 → exit 0, no NaN error (Layer B integration canary)', async () => {
     const { stderr, exitCode } = await runCli(
-      ['claw', 'test-claw', 'outbox', '--limit', '10'],
+      ['audit', 'query', '-c', 'test-claw', '--limit', '10'],
       { CHESTNUT_ROOT: root }
     );
     expect(exitCode).toBe(0);

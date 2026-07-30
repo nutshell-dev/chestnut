@@ -55,6 +55,13 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
 // ── notifyRunningDaemons mock (avoid touching real process manager) ────────────
 vi.mock('../../src/cli/commands/config.js?notify', () => ({}));
 
+// phase 1247 Step C: config provider commands use action('required'), which calls
+// ensureWatchdog at the CLI boundary. These tests focus on provider probing, not
+// watchdog lifecycle, so we stub ensureWatchdog to avoid spawning real processes.
+vi.mock('../../src/watchdog/ensure.js', () => ({
+  ensureWatchdog: vi.fn().mockResolvedValue(undefined),
+}));
+
 const { createConfigCommand } = await import('../../src/cli/commands/config.js');
 const { loadGlobalConfig } = await import('../../src/assembly/config/config-load.js');
 
