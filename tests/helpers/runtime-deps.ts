@@ -25,7 +25,7 @@ import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/f
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 // phase 1243: formatter registry + 业主自家 rendering declarations
 import {
-  createMessageFormatterRegistry,
+  createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
   MESSAGING_INBOX_MESSAGE_TYPES,
 } from '../../src/foundation/messaging/index.js';
@@ -85,7 +85,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const permissionChecker = createClawPermissionChecker({ clawDir, strict: true, audit: auditWriter, fs: clawFs });
 
   // phase 1243: formatter registry + 业主 rendering declarations（test 装配 = motion 全开）
-  const formatterRegistry = createMessageFormatterRegistry();
+  const formatterRegistry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(formatterRegistry, MESSAGING_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, GATEWAY_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, WATCHDOG_INBOX_MESSAGE_TYPES);

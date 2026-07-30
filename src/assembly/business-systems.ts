@@ -52,7 +52,7 @@ import { createInboxReader } from '../foundation/messaging/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
 import { ContractAuditor } from '../core/contract/contract-auditor.js';
 import {
-  createMessageFormatterRegistry,
+  createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
   MESSAGING_INBOX_MESSAGE_TYPES,
 } from '../foundation/messaging/index.js';
@@ -65,7 +65,7 @@ import { MEMORY_INBOX_MESSAGE_TYPES } from '../core/memory/inbox-formatter.js';
 import type { AssemblyContributions } from './types.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
 import type { MotionGuidanceRegistry, GuidanceEntry } from './guidance/index.js';
-import type { MessageFormatterRegistry } from '../foundation/messaging/index.js';
+import type { InboxMessageTypeRegistry } from '../foundation/messaging/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
@@ -91,7 +91,7 @@ export interface BusinessSysOutput {
   sessionManager: DialogStore;
   makeDialogStore: () => DialogStore;
   inboxReader: InboxReader;
-  formatterRegistry: MessageFormatterRegistry;
+  formatterRegistry: InboxMessageTypeRegistry;
   guidanceRegistry?: MotionGuidanceRegistry;
   guidanceCompose: (type: string, state: Record<string, string>) => GuidanceEntry | null;
   /** phase 821: 供 motion-addons 桥接 worker claw 契约完成 → evolution retro */
@@ -323,7 +323,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     }
   }
 
-  const formatterRegistry: MessageFormatterRegistry = createMessageFormatterRegistry();
+  const formatterRegistry: InboxMessageTypeRegistry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(formatterRegistry, MESSAGING_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, GATEWAY_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, WATCHDOG_INBOX_MESSAGE_TYPES);

@@ -10,10 +10,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import {
-  createMessageFormatterRegistry,
+  createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
 } from '../../../src/foundation/messaging/index.js';
-import type { MessageFormatterRegistry } from '../../../src/foundation/messaging/index.js';
+import type { InboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
 import { MESSAGING_INBOX_MESSAGE_TYPES } from '../../../src/foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../../src/core/gateway/index.js';
 import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../../../src/watchdog/inbox-formatter.js';
@@ -29,7 +29,7 @@ class TestRuntime extends Runtime {
 
 interface MinOpts {
   audit: any;
-  formatterRegistry: MessageFormatterRegistry;
+  formatterRegistry: InboxMessageTypeRegistry;
 }
 
 function build(opts: MinOpts): TestRuntime {
@@ -78,7 +78,7 @@ function build(opts: MinOpts): TestRuntime {
 describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () => {
   it('user_chat → 透传 body（Gateway declaration）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
     const runtime = build({ audit, formatterRegistry: registry });
 
@@ -90,7 +90,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
 
   it('user_inbox_message → [user inbox message ...]\\nbody（Messaging declaration）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, MESSAGING_INBOX_MESSAGE_TYPES);
     const runtime = build({ audit, formatterRegistry: registry });
 
@@ -102,7 +102,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
 
   it('claw_crashed → "[system message<ts>] <body>"（Watchdog declaration / phase 4 drop preamble）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
     const runtime = build({ audit, formatterRegistry: registry });
 
@@ -117,7 +117,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const enoent: NodeJS.ErrnoException = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     const systemFs = { read: vi.fn().mockRejectedValue(enoent) } as any;
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     registry.register({
       type: 'heartbeat',
       rendering: { kind: 'custom', formatter: createHeartbeatInboxFormatter({ systemFs, audit: audit as any }) },
@@ -132,7 +132,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
 
   it('task_result → [system message ...] body（phase 9: was generic "message" → typed task_result）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
     const runtime = build({ audit, formatterRegistry: registry });
 
@@ -144,7 +144,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
 
   it('unknown type → 默 fallback + emit INBOX_UNKNOWN_TYPE audit（DP 不静默）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     // 不 register 任何 declaration
     const runtime = build({ audit, formatterRegistry: registry });
 

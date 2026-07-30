@@ -8,7 +8,7 @@ import type { GuidanceComposer, GuidanceEntry, MotionGuidanceRegistry } from './
 /**
  * 装配期一次性创建 / 业主 register / Runtime motion-side compose append。
  *
- * mirror phase 1414 createMessageFormatterRegistry 模板（last-win 装配序、运行期不可变）。
+ * mirror phase 1243 createInboxMessageTypeRegistry 模板（last-win 装配序、运行期不可变）。
  */
 export function createMotionGuidanceRegistry(): MotionGuidanceRegistry {
   const map = new Map<string, GuidanceComposer<unknown>>();

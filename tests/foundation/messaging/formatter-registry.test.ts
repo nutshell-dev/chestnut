@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  createMessageFormatterRegistry,
+  createInboxMessageTypeRegistry,
   renderStandardInboxMessage,
   registerInboxMessageTypes,
 } from '../../../src/foundation/messaging/index.js';
@@ -20,7 +20,7 @@ import { MESSAGING_INBOX_MESSAGE_TYPES } from '../../../src/foundation/messaging
 
 describe('phase 1243 InboxMessageTypeRegistry', () => {
   it('register + resolve custom formatter happy path', async () => {
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     const f: MessageFormatter = async ({ body }) => `[OK] ${body}`;
     registry.register({ type: 'my_type', rendering: { kind: 'custom', formatter: f } });
     const got = registry.resolve('my_type');
@@ -30,12 +30,12 @@ describe('phase 1243 InboxMessageTypeRegistry', () => {
   });
 
   it('unknown type resolve returns undefined', () => {
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     expect(registry.resolve('never_registered')).toBeUndefined();
   });
 
   it('repeated register last-win semantics (装配期 idempotent)', async () => {
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     const f1: MessageFormatter = async () => 'first';
     const f2: MessageFormatter = async () => 'second';
     registry.register({ type: 'shared', rendering: { kind: 'custom', formatter: f1 } });
@@ -62,7 +62,7 @@ describe('phase 1243 InboxMessageTypeRegistry', () => {
   });
 
   it('registerInboxMessageTypes 立 Messaging 自家 user_inbox_message declaration (phase 9: message catch-all 拆除)', () => {
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, MESSAGING_INBOX_MESSAGE_TYPES);
 
     const rendering = registry.resolve('user_inbox_message');

@@ -44,8 +44,6 @@ export interface InboxMessageTypeRegistry {
   resolve(type: string): InboxMessageRendering | undefined;
 }
 
-/** phase 1414 旧名兼容别名。 */
-export type MessageFormatterRegistry = InboxMessageTypeRegistry;
 
 export function createInboxMessageTypeRegistry(): InboxMessageTypeRegistry {
   const map = new Map<string, InboxMessageRendering>();
@@ -59,8 +57,6 @@ export function createInboxMessageTypeRegistry(): InboxMessageTypeRegistry {
   };
 }
 
-/** phase 1414 旧名兼容别名。 */
-export const createMessageFormatterRegistry = createInboxMessageTypeRegistry;
 
 /**
  * 标准 presentation renderer。同步纯函数、 exhaustive switch。

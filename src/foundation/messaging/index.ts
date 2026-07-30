@@ -55,7 +55,6 @@ export { MESSAGING_AUDIT_EVENTS, MESSAGING_FILE_ROUTING } from './audit-events.j
 
 // phase 1243: inbox 消息 rendering 声明协议
 export {
-  createMessageFormatterRegistry,
   createInboxMessageTypeRegistry,
   renderStandardInboxMessage,
   registerInboxMessageTypes,
@@ -72,7 +71,7 @@ export {
 export { parseFrontmatterFrame } from './frontmatter-frame.js';
 export type {
   MessageFormatter,
-  MessageFormatterRegistry,
+  InboxMessageTypeRegistry,
   InboxMessageRendering,
   InboxMessageTypeDeclaration,
   StandardMessagePresentation,

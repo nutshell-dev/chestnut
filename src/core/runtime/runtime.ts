@@ -14,7 +14,7 @@ import { type FileSystem } from '../../foundation/fs/index.js';
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
-import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
+import type { InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
 import { renderStandardInboxMessage } from '../../foundation/messaging/index.js';
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
@@ -146,7 +146,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   protected outboxWriter!: OutboxWriter;
   private snapshot!: Snapshot;
   // phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家）
-  private formatterRegistry!: MessageFormatterRegistry;
+  private formatterRegistry!: InboxMessageTypeRegistry;
   // phase 27 Step D P5: guidance compose callback hook
   private guidanceCompose?: import('./types.js').GuidanceCompose;
 

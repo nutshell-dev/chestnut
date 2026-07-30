@@ -9,7 +9,7 @@ import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/in
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Snapshot } from '../../foundation/snapshot/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
-import type { InboxReader, OutboxWriter, MessageFormatterRegistry } from '../../foundation/messaging/index.js';
+import type { InboxReader, OutboxWriter, InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
@@ -70,7 +70,7 @@ export interface RuntimeDependencies {
   readonly dialogStoreFactory: () => DialogStore;
 
   /** phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家 formatter）*/
-  readonly formatterRegistry: MessageFormatterRegistry;
+  readonly formatterRegistry: InboxMessageTypeRegistry;
 
   /** phase 69: L6 Assembly 装配期注入 claw 子目录列表（mkdir on init/regime switch） */
   readonly clawSubdirs: readonly string[];

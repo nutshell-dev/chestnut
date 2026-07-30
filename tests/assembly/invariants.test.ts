@@ -226,7 +226,7 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
     makeInboxPath: vi.fn((dir: string) => dir),
     makeOutboxPath: vi.fn((_clawId: string, clawDir: string) => clawDir + '/outbox/pending'),
     readInboxFileMeta: vi.fn(),
-    createMessageFormatterRegistry: vi.fn(() => {
+    createInboxMessageTypeRegistry: vi.fn(() => {
       const map = new Map();
       return {
         register: vi.fn((declaration: { type: string; rendering: unknown }) => { map.set(declaration.type, declaration.rendering); }),

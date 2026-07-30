@@ -11,11 +11,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import {
-  createMessageFormatterRegistry,
+  createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
 } from '../../../src/foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../../src/core/gateway/index.js';
-import type { MessageFormatterRegistry } from '../../../src/foundation/messaging/index.js';
+import type { InboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
 import type { InboxEntry, InboxHandle } from '../../../src/foundation/messaging/index.js';
 import { RUNTIME_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/runtime-audit-events.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
@@ -37,11 +37,11 @@ interface BuildOpts {
   inboxReader: any;
   llm: any;
   configReloader?: () => LLMOrchestratorConfig;
-  formatterRegistry?: MessageFormatterRegistry;
+  formatterRegistry?: InboxMessageTypeRegistry;
 }
 
 function build(opts: BuildOpts): TestRuntime {
-  const registry = opts.formatterRegistry ?? createMessageFormatterRegistry();
+  const registry = opts.formatterRegistry ?? createInboxMessageTypeRegistry();
   registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
   return new TestRuntime({
     clawId: 'test-claw',
@@ -156,7 +156,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const reloadFn = vi.fn();
     const llm = { reloadConfig: reloadFn };
     const reloader = vi.fn(() => stubCfg);
-    const registry = createMessageFormatterRegistry();
+    const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
     const inboxReader = {
       init: vi.fn(),
