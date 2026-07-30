@@ -6,7 +6,7 @@
  * @contract design/modules/l6_daemon.md
  *
  * 通用 daemon 事件循环 — motion 和 claw 共用。
- * 进程级职责：心跳、watchdog、interrupt watcher、启动检查。
+ * 进程级职责：心跳、interrupt watcher、启动检查。
  * 轮次调度逻辑全部委托 L5.EventLoop。
  */
 
@@ -30,12 +30,6 @@ import type { EventLoop } from '../core/event-loop/index.js';
 /** motion 专用扩展（claw daemon 整体省略此组） */
 interface DaemonMotionExtensions {
   heartbeat?: Heartbeat;
-  /**
-   * motion 自审 watchdog 存活探针（phase 324 H4 业务、phase 444 DI 化）。
-   * 装配方注入：通常 `() => isWatchdogAlive(fsFactory)` 等价语义。
-   * daemon 模块不直 import watchdog 模块（M#5 单向）。
-   */
-  watchdogAliveProbe: () => boolean;
 }
 
 export interface DaemonLoopOptions {
@@ -69,8 +63,6 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   let stopping = false;
   let startupFired = false;
   let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
-  // phase 324 H4: dedup motion 自审 watchdog audit。
-  let watchdogMissingAudited = false;
 
   // phase 1154 r+ derive: 60s liveness 心跳（B + 心跳混合方案）
   const LIVENESS_HEARTBEAT_MS = 60_000;
@@ -114,23 +106,6 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       // Heartbeat check (moved into daemon loop to avoid setInterval race conditions)
       if (heartbeat?.isDue()) {
         await heartbeat.fire();
-      }
-
-      // phase 324 H4: motion 自审 watchdog 存活、不活时 audit。
-      // 仅 motion daemon 检（claw daemon 无 supervisor 自审职责）。
-      // dedup：仅在 alive→dead 转折或首次观察时 audit、避免每 tick 灌日志。
-      if (motion && !motion.watchdogAliveProbe()) {
-        if (!watchdogMissingAudited) {
-          audit.write(
-            DAEMON_AUDIT_EVENTS.WATCHDOG_MISSING,
-            `pid=${process.pid}`,
-            `uptime_s=${Math.round(process.uptime())}`,
-          );
-          watchdogMissingAudited = true;
-        }
-      } else if (motion && watchdogMissingAudited) {
-        // watchdog 回来了，重置 dedup
-        watchdogMissingAudited = false;
       }
 
       let interruptWatcher: Watcher | null = null;

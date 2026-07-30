@@ -781,8 +781,7 @@
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
       "snapshot_commit_failed",
-      "snapshot_commit_uncategorized",
-      "watchdog_missing"
+      "snapshot_commit_uncategorized"
     ],
     "foundation_dialog-store_audit-events": [
       "dialog_archive_all_corrupted",

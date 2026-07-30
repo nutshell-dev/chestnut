@@ -67,12 +67,6 @@ export interface DaemonCommandDeps {
     daemonStart: string;
     daemonCrash: string;
   };
-  /**
-   * motion daemon 自审 watchdog 存活探针。isMotion=true 时 caller 必传；
-   * claw daemon 路径不进自审分支、不传亦不触。
-   * phase 444 DI：避免 daemon-loop 直 import watchdog 模块（M#5 单向）。
-   */
-  watchdogAliveProbe?: () => boolean;
 }
 
 export function createDaemonCommand(deps: DaemonCommandDeps) {
@@ -239,15 +233,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       clawId: clawId,
       label: isMotion ? '[motion daemon]' : '[daemon]',
       audit: auditWriter,
-      motion: isMotion
-        ? (() => {
-            // phase 521 (review-round4 CLI M): 非空断言改显式 throw、防 test 构造缺 probe + motion 分支致 undefined() crash
-            if (!deps.watchdogAliveProbe) {
-              throw new Error('daemon: deps.watchdogAliveProbe required for motion mode');
-            }
-            return { heartbeat: heartbeat ?? undefined, watchdogAliveProbe: deps.watchdogAliveProbe };
-          })()
-        : undefined,
+      motion: isMotion ? { heartbeat: heartbeat ?? undefined } : undefined,
     });
 
     /**
