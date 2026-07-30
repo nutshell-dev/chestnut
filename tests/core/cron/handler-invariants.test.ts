@@ -8,24 +8,23 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CronRunner } from '../../../src/foundation/cron/runner.js';
-import type { CronJob } from '../../../src/foundation/cron/runner.js';
+import type { CronJob, CronEventSink } from '../../../src/foundation/cron/runner.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
-import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import * as path from 'path';
 import { fileURLToPath } from 'node:url';
 
 describe('handler-sync-throw', () => {
-  function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
-    return { write: vi.fn() };
+  function makeMockSink(): CronEventSink {
+    return { write: vi.fn() } as unknown as CronEventSink;
   }
 
   describe('CronRunner handler sync throw', () => {
-    let audit: { write: ReturnType<typeof vi.fn> };
+    let sink: CronEventSink;
 
     beforeEach(() => {
       vi.useFakeTimers({ now: new Date(2026, 3, 21, 10, 30, 0) });
-      audit = makeMockAudit();
+      sink = makeMockSink();
     });
 
     afterEach(() => {
@@ -43,13 +42,13 @@ describe('handler-sync-throw', () => {
         schedule: { type: 'hourly' },
         handler,
       };
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const runner = new CronRunner([job], sink);
 
       runner.tick();
       await Promise.resolve();
       await vi.runAllTicks();
 
-      expect(audit.write).toHaveBeenCalledWith(
+      expect(sink.write).toHaveBeenCalledWith(
         CRON_AUDIT_EVENTS.JOB_ERROR,
         'job=sync-throw',
         expect.stringContaining('run_key='),
@@ -143,12 +142,12 @@ describe('handler-real-abort', () => {
   let overTimeoutRelease: (() => void) | undefined;
   let fastHandlerRelease: (() => void) | undefined;
 
-  function makeMockAudit() {
+  function makeMockSink(): CronEventSink & { events: Array<[string, ...string[]]> } {
     const events: Array<[string, ...string[]]> = [];
     return {
       write: vi.fn((type: string, ...cols: string[]) => events.push([type, ...cols])),
       events,
-    };
+    } as unknown as CronEventSink & { events: Array<[string, ...string[]]> };
   }
 
   describe('cron handler real abort (phase 1232 r132 C)', () => {
@@ -162,7 +161,7 @@ describe('handler-real-abort', () => {
 
     // 反向 1: timeout 后 signal.aborted === true + audit HANDLER_ABORTED context=timeout
     it('timeout 路径真 abort signal + audit HANDLER_ABORTED context=timeout', async () => {
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       let capturedSignal: AbortSignal | undefined;
       const job: CronJob = {
         name: 'slow-job',
@@ -174,13 +173,13 @@ describe('handler-real-abort', () => {
           await new Promise<void>(r => { overTimeoutRelease = r; });  // barrier: outlive timeoutMs
         },
       };
-      const runner = new CronRunner([job], audit as any);
+      const runner = new CronRunner([job], sink);
       runner.tick();
       await vi.advanceTimersByTimeAsync(100);  // 等 timeout fire
       expect(capturedSignal?.aborted).toBe(true);
       overTimeoutRelease!();
       expect(
-        audit.events.find(
+        sink.events.find(
           e => e[0] === CRON_AUDIT_EVENTS.HANDLER_ABORTED && e.some(c => c.includes('context=timeout'))
         )
       ).toBeDefined();
@@ -189,7 +188,7 @@ describe('handler-real-abort', () => {
 
     // 反向 2: Phase 1073 stuck watchdog 只 audit HANDLER_STUCK，不改变互斥状态、不清理 controller
     it('stuck watchdog 路径 audit HANDLER_STUCK + 标记 degraded + 不释放 controller', async () => {
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const job: CronJob = {
         name: 'stuck-job',
         enabled: true,
@@ -197,13 +196,13 @@ describe('handler-real-abort', () => {
         timeoutMs: 10,
         handler: async () => new Promise(() => {}),  // 永不 settle
       };
-      const runner = new CronRunner([job], audit as any);
+      const runner = new CronRunner([job], sink);
       runner.tick();
       // 等 timeout fire
       await vi.advanceTimersByTimeAsync(100);
       // 模拟 10+ ticks stuck 后 watchdog
       for (let i = 0; i < 12; i++) runner.tick();
-      const stuckEvents = audit.events.filter(
+      const stuckEvents = sink.events.filter(
         e => e[0] === CRON_AUDIT_EVENTS.HANDLER_STUCK
       );
       expect(stuckEvents.length).toBe(1);
@@ -217,7 +216,7 @@ describe('handler-real-abort', () => {
 
     // 反向 3: late settle 后 controller map 清干净
     it('late settle 路径 controller cleanup (no leak)', async () => {
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       let resolveHandler: () => void = () => {};
       const job: CronJob = {
         name: 'late-job',
@@ -226,7 +225,7 @@ describe('handler-real-abort', () => {
         timeoutMs: 10,
         handler: () => new Promise<void>(r => { resolveHandler = r; }),
       };
-      const runner = new CronRunner([job], audit as any);
+      const runner = new CronRunner([job], sink);
       runner.tick();
       await vi.advanceTimersByTimeAsync(100);  // timeout fire
       resolveHandler();  // late settle
@@ -244,7 +243,7 @@ describe('handler-real-abort', () => {
 
     // 反向 4: normal complete 后 controller map 清干净
     it('normal complete 路径 controller cleanup (no leak)', async () => {
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       let handlerRan = false;
       const job: CronJob = {
         name: 'fast-job',
@@ -255,7 +254,7 @@ describe('handler-real-abort', () => {
           await new Promise<void>(r => { fastHandlerRelease = r; });
         },
       };
-      const runner = new CronRunner([job], audit as any);
+      const runner = new CronRunner([job], sink);
       runner.tick();
       fastHandlerRelease!();
       await vi.advanceTimersByTimeAsync(50);  // 等 handler 完成

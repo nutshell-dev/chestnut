@@ -25,6 +25,10 @@ export const CRON_AUDIT_EVENTS = {
   // phase 6: 2 dev-side const + cron job 砍 — dev-side 信号不该走 motion inbox
 } as const;
 
+/** 由 CRON_AUDIT_EVENTS 派生的窄事件 union。 */
+export type CronAuditEvent =
+  (typeof CRON_AUDIT_EVENTS)[keyof typeof CRON_AUDIT_EVENTS];
+
 /**
  * Phase 159 业主声明 file 归属（phase 122 §5.A + §6.7）.
  *

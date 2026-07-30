@@ -9,17 +9,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
 import { CronRunner } from '../../../src/foundation/cron/runner.js';
-import type { CronJob } from '../../../src/foundation/cron/runner.js';
+import type { CronJob, CronEventSink } from '../../../src/foundation/cron/runner.js';
 import { CRON_TICK_INTERVAL_MS } from '../../../src/foundation/cron/constants.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 describe('runner-stop-drain', () => {
   // mock helper
-  function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
-    return { write: vi.fn() };
+  function makeMockSink(): CronEventSink {
+    return { write: vi.fn() } as unknown as CronEventSink;
   }
 
   describe('CronRunner.stop drain (phase 793 / P0.22)', () => {
@@ -37,12 +36,12 @@ describe('runner-stop-drain', () => {
         resolve();
       }, 200));
 
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'slow', enabled: true,
         schedule: { type: 'hourly' },
         handler: slowHandler,
-      }], audit as unknown as AuditLog);
+      }], sink);
 
       runner.start();
       runner.tick();  // 触发 schedule slowHandler
@@ -58,12 +57,12 @@ describe('runner-stop-drain', () => {
     it('drains with cap timeout when handler exceeds cap', async () => {
       const hangingHandler = () => new Promise<void>(() => { /* never resolve */ });
 
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'hang', enabled: true,
         schedule: { type: 'hourly' },
         handler: hangingHandler,
-      }], audit as unknown as AuditLog);
+      }], sink);
 
       runner.start();
       runner.tick();
@@ -72,8 +71,8 @@ describe('runner-stop-drain', () => {
       await vi.advanceTimersByTimeAsync(150);
       await stopPromise;
 
-      // 期 audit RUNNER_DRAIN_TIMEOUT 写
-      const calls = (audit.write as any).mock.calls;
+      // 期 sink RUNNER_DRAIN_TIMEOUT 写
+      const calls = (sink.write as any).mock.calls;
       const timeoutCalls = calls.filter((c: any) => c[0] === CRON_AUDIT_EVENTS.RUNNER_DRAIN_TIMEOUT);
       expect(timeoutCalls.length).toBe(1);
     });
@@ -82,8 +81,8 @@ describe('runner-stop-drain', () => {
 
 describe('runner-stop-drain-timer-cleanup', () => {
   // mock helper (mirror runner-stop-drain.test.ts)
-  function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
-    return { write: vi.fn() };
+  function makeMockSink(): CronEventSink {
+    return { write: vi.fn() } as unknown as CronEventSink;
   }
 
   describe('CronRunner.stop() drain timer cleanup (phase 872 / new.P1.1)', () => {
@@ -96,13 +95,13 @@ describe('runner-stop-drain-timer-cleanup', () => {
     });
 
     it('drain-success path clears setTimeout handle (no leak)', async () => {
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'quick',
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: () => Promise.resolve(),
-      }], audit as unknown as AuditLog);
+      }], sink);
 
       runner.start();
       runner.tick();
@@ -121,13 +120,13 @@ describe('runner-stop-drain-timer-cleanup', () => {
     it('drain-timeout path still emits audit + clears timer', async () => {
       const hangingHandler = () => new Promise<void>(() => { /* never resolve */ });
 
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'hang',
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: hangingHandler,
-      }], audit as unknown as AuditLog);
+      }], sink);
 
       runner.start();
       runner.tick();
@@ -137,7 +136,7 @@ describe('runner-stop-drain-timer-cleanup', () => {
       await stopPromise;
 
       // Verify RUNNER_DRAIN_TIMEOUT audit was emitted
-      const calls = (audit.write as any).mock.calls;
+      const calls = (sink.write as any).mock.calls;
       const timeoutCalls = calls.filter((c: any) => c[0] === CRON_AUDIT_EVENTS.RUNNER_DRAIN_TIMEOUT);
       expect(timeoutCalls.length).toBe(1);
 
@@ -146,13 +145,13 @@ describe('runner-stop-drain-timer-cleanup', () => {
     });
 
     it('no inflight handlers — drain block skipped, no timer created', async () => {
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'idle',
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: () => Promise.resolve(),
-      }], audit as unknown as AuditLog);
+      }], sink);
 
       // Never tick = no inflight handlers
       await runner.stop(30_000);
@@ -165,8 +164,8 @@ describe('runner-stop-drain-timer-cleanup', () => {
 
 describe('runner-drain-late-settle', () => {
   // mock helper (mirror runner-stop-drain.test.ts)
-  function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
-    return { write: vi.fn() };
+  function makeMockSink(): CronEventSink {
+    return { write: vi.fn() } as unknown as CronEventSink;
   }
 
   describe('CronRunner.stop drain late-settle audit (phase 867)', () => {
@@ -181,13 +180,13 @@ describe('runner-drain-late-settle', () => {
       let resolveHandler!: () => void;
       const handlerPromise = new Promise<void>(resolve => { resolveHandler = resolve; });
 
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'stuck-job',
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: () => handlerPromise,
-      }], audit as unknown as AuditLog);
+      }], sink);
 
       runner.start();
       runner.tick();
@@ -199,7 +198,7 @@ describe('runner-drain-late-settle', () => {
       await stopPromise;
 
       // Verify RUNNER_DRAIN_TIMEOUT was emitted
-      const calls = (audit.write as any).mock.calls;
+      const calls = (sink.write as any).mock.calls;
       const timeoutCalls = calls.filter((c: any) => c[0] === CRON_AUDIT_EVENTS.RUNNER_DRAIN_TIMEOUT);
       expect(timeoutCalls.length).toBe(1);
 
@@ -219,13 +218,13 @@ describe('runner-drain-late-settle', () => {
       let rejectHandler!: (err: Error) => void;
       const handlerPromise = new Promise<void>((_, reject) => { rejectHandler = reject; });
 
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const runner = new CronRunner([{
         name: 'stuck-error-job',
         enabled: true,
         schedule: { type: 'interval', minutes: 1 },
         handler: () => handlerPromise,
-      }], audit as unknown as AuditLog);
+      }], sink);
 
       runner.start();
       runner.tick();
@@ -237,7 +236,7 @@ describe('runner-drain-late-settle', () => {
       rejectHandler(new Error('late fail'));
       await vi.runAllTimersAsync();
 
-      const lateSettleCalls = (audit.write as any).mock.calls.filter(
+      const lateSettleCalls = (sink.write as any).mock.calls.filter(
         (c: any) => c[0] === CRON_AUDIT_EVENTS.RUNNER_DRAIN_LATE_SETTLE
       );
       expect(lateSettleCalls.length).toBe(1);
@@ -249,8 +248,8 @@ describe('runner-drain-late-settle', () => {
 
 describe('runner-abort-signal', () => {
   // mock helper (mirror runner-stop-drain.test.ts)
-  function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
-    return { write: vi.fn() };
+  function makeMockSink(): CronEventSink {
+    return { write: vi.fn() } as unknown as CronEventSink;
   }
 
   describe('phase 946: cron handler AbortSignal propagation', () => {
@@ -285,8 +284,8 @@ describe('runner-abort-signal', () => {
         },
       };
 
-      const audit = makeMockAudit();
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const sink = makeMockSink();
+      const runner = new CronRunner([job], sink);
       runner.start(10);
 
       // advance timers to fire tick → handler start
@@ -322,8 +321,8 @@ describe('runner-abort-signal', () => {
           });
         },
       };
-      const audit = makeMockAudit();
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const sink = makeMockSink();
+      const runner = new CronRunner([job], sink);
       runner.start(10);
 
       await vi.advanceTimersByTimeAsync(50);
@@ -352,8 +351,8 @@ describe('runner-abort-signal', () => {
           ranResolve();
         },
       };
-      const audit = makeMockAudit();
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const sink = makeMockSink();
+      const runner = new CronRunner([job], sink);
       runner.start(10);
 
       await vi.advanceTimersByTimeAsync(50);
@@ -383,7 +382,7 @@ describe('runner-handler-stuck', () => {
     });
 
     it('handler 永挂 + timeout + N ticks 后 audit HANDLER_STUCK 并标记 degraded，cancelling 继续阻塞同名 job', async () => {
-      const audit = new MockAudit();
+      const sink = new MockAudit();
       const stuckHandler = vi.fn(() => new Promise<void>(() => {})); // 永挂
       const job: CronJob = {
         name: 'stuck-job',
@@ -392,7 +391,7 @@ describe('runner-handler-stuck', () => {
         handler: stuckHandler,
         timeoutMs: 100,
       };
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const runner = new CronRunner([job], sink);
 
       runner.tick(); // 触发 handler 执行
       await vi.advanceTimersByTimeAsync(150); // timeoutMs 100 触发
@@ -406,7 +405,7 @@ describe('runner-handler-stuck', () => {
       }
 
       // 第 10 tick 触发 HANDLER_STUCK audit
-      const stuckAudits = audit.events.filter(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK);
+      const stuckAudits = sink.events.filter(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK);
       expect(stuckAudits.length).toBe(1);
       expect(stuckAudits[0]!.cols).toContain('job=stuck-job');
       expect(stuckAudits[0]!.cols.some(c => c.startsWith('ticks='))).toBe(true);
@@ -422,7 +421,7 @@ describe('runner-handler-stuck', () => {
     });
 
     it('handler 正常 settle 不触发 stuck watchdog', async () => {
-      const audit = new MockAudit();
+      const sink = new MockAudit();
       const okHandler = vi.fn(async () => {});
       const job: CronJob = {
         name: 'ok-job',
@@ -431,19 +430,19 @@ describe('runner-handler-stuck', () => {
         handler: okHandler,
         timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       };
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const runner = new CronRunner([job], sink);
 
       runner.tick();
       await vi.advanceTimersByTimeAsync(50); // 远未到 timeoutMs，handler 已 settle
 
       // 多次 tick / handler 已 settle / cancelling 0 / 永不入 stuck watchdog
       for (let i = 0; i < 15; i++) runner.tick();
-      expect(audit.events.filter(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK)).toEqual([]);
+      expect(sink.events.filter(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK)).toEqual([]);
     });
 
     it('handler late-settle 在 stuck audit 之前 不触发 stuck', async () => {
       let resolveFn: () => void = () => {};
-      const audit = new MockAudit();
+      const sink = new MockAudit();
       const lateHandler = vi.fn(() => new Promise<void>((r) => { resolveFn = r; }));
       const job: CronJob = {
         name: 'late-job',
@@ -452,7 +451,7 @@ describe('runner-handler-stuck', () => {
         handler: lateHandler,
         timeoutMs: 100,
       };
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const runner = new CronRunner([job], sink);
 
       runner.tick();
       await vi.advanceTimersByTimeAsync(150); // timeout 触发
@@ -472,14 +471,14 @@ describe('runner-handler-stuck', () => {
         runner.tick();
       }
 
-      expect(audit.events.filter(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK)).toEqual([]);
+      expect(sink.events.filter(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK)).toEqual([]);
       // late_after_timeout 也不应有（late-settle resolve 路径不 audit JOB_ERROR）
-      expect(audit.events.filter(e => e.type === CRON_AUDIT_EVENTS.JOB_ERROR)).toEqual([]);
+      expect(sink.events.filter(e => e.type === CRON_AUDIT_EVENTS.JOB_ERROR)).toEqual([]);
     });
 
     it('handler late-settle 在 stuck audit 之后 清除 stuckJobs 并允许再次调度', async () => {
       let resolveFn: () => void = () => {};
-      const audit = new MockAudit();
+      const sink = new MockAudit();
       const lateHandler = vi.fn(() => new Promise<void>((r) => { resolveFn = r; }));
       const job: CronJob = {
         name: 'recover-job',
@@ -488,7 +487,7 @@ describe('runner-handler-stuck', () => {
         handler: lateHandler,
         timeoutMs: 100,
       };
-      const runner = new CronRunner([job], audit as unknown as AuditLog);
+      const runner = new CronRunner([job], sink);
 
       runner.tick();
       await vi.advanceTimersByTimeAsync(150); // timeout 触发
@@ -497,7 +496,7 @@ describe('runner-handler-stuck', () => {
       for (let i = 0; i < 12; i++) {
         runner.tick();
       }
-      expect(audit.events.some(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK)).toBe(true);
+      expect(sink.events.some(e => e.type === CRON_AUDIT_EVENTS.HANDLER_STUCK)).toBe(true);
       expect((runner as unknown as { stuckJobs: Set<string> }).stuckJobs.has('recover-job')).toBe(true);
 
       // handler 最终 settle
@@ -505,7 +504,7 @@ describe('runner-handler-stuck', () => {
       await vi.runAllTicks();
 
       // Phase 1080: 应写 HANDLER_RECOVERED_AFTER_STUCK 审计并清 stuckJobs
-      const recoveredAudits = audit.events.filter(
+      const recoveredAudits = sink.events.filter(
         e => e.type === CRON_AUDIT_EVENTS.HANDLER_RECOVERED_AFTER_STUCK
       );
       expect(recoveredAudits.length).toBe(1);

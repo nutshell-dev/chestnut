@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
-import { CronRunner, type CronJob } from '../../../src/foundation/cron/runner.js';
+import { CronRunner, type CronJob, type CronEventSink } from '../../../src/foundation/cron/runner.js';
 
 /**
  * Promise barrier release for the quick handler under fake timers.
@@ -10,16 +9,16 @@ import { CronRunner, type CronJob } from '../../../src/foundation/cron/runner.js
 let handlerRelease: (() => void) | undefined;
 
 // mock helper
-function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
-  return { write: vi.fn() };
+function makeMockSink(): CronEventSink {
+  return { write: vi.fn() } as unknown as CronEventSink;
 }
 
 describe('CronRunner timeout escalation', () => {
-  let audit: { write: ReturnType<typeof vi.fn> };
+  let sink: CronEventSink;
 
   beforeEach(() => {
     vi.useFakeTimers({ now: new Date(2026, 3, 21, 10, 30, 0) });
-    audit = makeMockAudit();
+    sink = makeMockSink();
   });
 
   afterEach(() => {
@@ -36,14 +35,14 @@ describe('CronRunner timeout escalation', () => {
       handler,
       timeoutMs: 100,
     };
-    const runner = new CronRunner([job], audit as unknown as AuditLog);
+    const runner = new CronRunner([job], sink);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
     expect((runner as unknown as { running: Set<string> }).running.has('hang')).toBe(true);
 
     await vi.advanceTimersByTimeAsync(150);
 
-    expect(audit.write).toHaveBeenCalledWith(
+    expect(sink.write).toHaveBeenCalledWith(
       'cron_handler_timeout',
       'job=hang',
       expect.stringContaining('run_key='),
@@ -69,12 +68,12 @@ describe('CronRunner timeout escalation', () => {
       handler,
       timeoutMs: 200,
     };
-    const runner = new CronRunner([job], audit as unknown as AuditLog);
+    const runner = new CronRunner([job], sink);
     runner.tick();
     handlerRelease!();
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(audit.write).not.toHaveBeenCalledWith(
+    expect(sink.write).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.stringContaining('cron_handler_timeout'),
       expect.anything(),
@@ -95,17 +94,17 @@ describe('CronRunner timeout escalation', () => {
       handler,
       timeoutMs: 200,
     };
-    const runner = new CronRunner([job], audit as unknown as AuditLog);
+    const runner = new CronRunner([job], sink);
     runner.tick();
     await vi.advanceTimersByTimeAsync(50);
 
-    expect(audit.write).toHaveBeenCalledWith(
+    expect(sink.write).toHaveBeenCalledWith(
       CRON_AUDIT_EVENTS.JOB_ERROR,
       'job=thrower',
       expect.stringContaining('run_key='),
       'error=test',
     );
-    const timeoutCalls = audit.write.mock.calls.filter(
+    const timeoutCalls = sink.write.mock.calls.filter(
       (c: unknown[]) => c[0] === 'cron_handler_timeout'
     );
     expect(timeoutCalls).toHaveLength(0);
@@ -124,13 +123,13 @@ describe('CronRunner timeout escalation', () => {
       handler,
       // timeoutMs 未传
     };
-    const runner = new CronRunner([job], audit as unknown as AuditLog);
+    const runner = new CronRunner([job], sink);
     runner.tick();
     handlerRelease!();
 
     // 若误走 race 路径，setTimeout(undefined) → 0ms 立即触发 timeout audit
     await vi.advanceTimersByTimeAsync(10);
-    const timeoutCalls = audit.write.mock.calls.filter(
+    const timeoutCalls = sink.write.mock.calls.filter(
       (c: unknown[]) => c[0] === 'cron_handler_timeout'
     );
     expect(timeoutCalls).toHaveLength(0);
@@ -150,7 +149,7 @@ describe('CronRunner timeout escalation', () => {
       handler,
       timeoutMs: 100,
     };
-    const runner = new CronRunner([job], audit as unknown as AuditLog);
+    const runner = new CronRunner([job], sink);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
 
@@ -175,7 +174,7 @@ describe('CronRunner timeout escalation', () => {
       handler,
       timeoutMs: 100,
     };
-    const runner = new CronRunner([job], audit as unknown as AuditLog);
+    const runner = new CronRunner([job], sink);
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     runner.tick();
 
@@ -188,7 +187,7 @@ describe('CronRunner timeout escalation', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     // late error audit 必发 / context=late_after_timeout
-    const lateErrCalls = audit.write.mock.calls.filter(
+    const lateErrCalls = sink.write.mock.calls.filter(
       (c: unknown[]) => c[0] === CRON_AUDIT_EVENTS.JOB_ERROR
         && c.includes('context=late_after_timeout')
     );

@@ -3,10 +3,14 @@
  * 独立 setInterval，与 daemon-loop 主循环解耦，支持秒级精度
  */
 
-import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { CRON_AUDIT_EVENTS } from './audit-events.js';
+import { CRON_AUDIT_EVENTS, type CronAuditEvent } from './audit-events.js';
 import { CRON_TICK_INTERVAL_MS } from './constants.js';
+
+/** 由 Cron 消费方实现的最小事件 sink：只接受 Cron 自有审计事件。 */
+export interface CronEventSink {
+  write(event: CronAuditEvent, ...columns: string[]): void;
+}
 
 export type CronSchedule =
   | { type: 'daily'; time: string }       // "HH:MM"，每天固定时刻
@@ -55,16 +59,16 @@ export function parseScheduleRaw(s: string): ParseScheduleResult {
 /** 将配置字符串解析为 CronSchedule（backward-compat thin wrapper，含 audit）。
  * 新代码优先用 parseScheduleRaw 以获得纯解析语义。
  */
-export function parseSchedule(s: string, audit?: AuditLog): CronSchedule | null {
+export function parseSchedule(s: string, sink?: CronEventSink): CronSchedule | null {
   const r = parseScheduleRaw(s);
   if (r.ok) return r.schedule;
   switch (r.reason) {
     case 'invalid_daily_time':
     case 'invalid_interval':
-      audit?.write(CRON_AUDIT_EVENTS.PARSE_INVALID, `input=${s}`, `reason=${r.reason}`);
+      sink?.write(CRON_AUDIT_EVENTS.PARSE_INVALID, `input=${s}`, `reason=${r.reason}`);
       return null;
     case 'fallback_hourly':
-      audit?.write(CRON_AUDIT_EVENTS.PARSE_FALLBACK, `input=${s}`, 'fallback=hourly');
+      sink?.write(CRON_AUDIT_EVENTS.PARSE_FALLBACK, `input=${s}`, 'fallback=hourly');
       return { type: 'hourly' };
     default: {
       const _exhaustive: never = r.reason;
@@ -138,14 +142,14 @@ export class CronRunner {
 
   constructor(
     private readonly jobs: CronJob[],
-    private readonly audit: AuditLog,
+    private readonly sink: CronEventSink,
   ) {}
 
   /** 启动调度器，tickIntervalMs 决定检查粒度（默认 1 秒） */
   start(tickIntervalMs = CRON_TICK_INTERVAL_MS): void {
     if (this.timer) return;
     this.timer = setInterval(() => this.tick(), tickIntervalMs);
-    this.audit.write(CRON_AUDIT_EVENTS.RUNNER_STARTED, `jobs=${this.jobs.length}`);
+    this.sink.write(CRON_AUDIT_EVENTS.RUNNER_STARTED, `jobs=${this.jobs.length}`);
   }
 
   // phase 793: sync → async + drain inflight handlers with cap timeout 30s
@@ -178,7 +182,7 @@ export class CronRunner {
       const winner = await Promise.race([drainPromise, timeoutPromise]);
       if (drainTimer !== undefined) clearTimeout(drainTimer);
       if (winner === 'timeout') {
-        this.audit.write(
+        this.sink.write(
           CRON_AUDIT_EVENTS.RUNNER_DRAIN_TIMEOUT,
           `running=${[...this.running].join(',')}`,
           `timeout_ms=${drainTimeoutMs}`,
@@ -190,7 +194,7 @@ export class CronRunner {
         for (const [p, meta] of stuckSnapshot) {
           p.then(
             () => {
-              this.audit.write(
+              this.sink.write(
                 CRON_AUDIT_EVENTS.RUNNER_DRAIN_LATE_SETTLE,
                 `job=${meta.job}`,
                 `run_key=${meta.runKey}`,
@@ -199,7 +203,7 @@ export class CronRunner {
               );
             },
             err => {
-              this.audit.write(
+              this.sink.write(
                 CRON_AUDIT_EVENTS.RUNNER_DRAIN_LATE_SETTLE,
                 `job=${meta.job}`,
                 `run_key=${meta.runKey}`,
@@ -212,7 +216,7 @@ export class CronRunner {
       }
     }
 
-    this.audit.write(CRON_AUDIT_EVENTS.RUNNER_STOPPED, `jobs=${this.jobs.length}`);
+    this.sink.write(CRON_AUDIT_EVENTS.RUNNER_STOPPED, `jobs=${this.jobs.length}`);
   }
 
   /**
@@ -230,7 +234,7 @@ export class CronRunner {
       this.cancellingTicks.set(name, ticks);
       if (ticks >= CANCELLING_STUCK_TICKS && !this.stuckJobs.has(name)) {
         const job = this.jobs.find(j => j.name === name);
-        this.audit.write(CRON_AUDIT_EVENTS.HANDLER_STUCK,
+        this.sink.write(CRON_AUDIT_EVENTS.HANDLER_STUCK,
           `job=${name}`,
           `ticks=${ticks}`,
           `timeout_ms=${job?.timeoutMs ?? 'unknown'}`,
@@ -275,7 +279,7 @@ export class CronRunner {
         // 无 timeout 配置：保持原行为（兼容旧 job）
         handlerPromise
           .catch(err => {
-            this.audit.write(CRON_AUDIT_EVENTS.JOB_ERROR,
+            this.sink.write(CRON_AUDIT_EVENTS.JOB_ERROR,
               `job=${job.name}`,
               `run_key=${key}`,
               `error=${formatErr(err)}`,
@@ -296,7 +300,7 @@ export class CronRunner {
         timer = setTimeout(() => {
           timedOut = true;
           timeoutFiredAt = Date.now();  // NEW phase 758
-          this.audit.write(CRON_AUDIT_EVENTS.HANDLER_TIMEOUT,
+          this.sink.write(CRON_AUDIT_EVENTS.HANDLER_TIMEOUT,
             `job=${job.name}`,
             `run_key=${key}`,
             `timeout_ms=${job.timeoutMs}`,
@@ -309,7 +313,7 @@ export class CronRunner {
           const ctrl = this._activeAbortControllers.get(job.name);
           if (ctrl) {
             ctrl.abort();
-            this.audit.write(
+            this.sink.write(
               CRON_AUDIT_EVENTS.HANDLER_ABORTED,
               `job=${job.name}`,
               `run_key=${key}`,
@@ -324,7 +328,7 @@ export class CronRunner {
       handlerPromise.then(
         () => {
           if (timedOut) {
-            this.audit.write(  // NEW phase 758
+            this.sink.write(  // NEW phase 758
               CRON_AUDIT_EVENTS.JOB_LATE_SETTLED,
               `job=${job.name}`,
               `run_key=${key}`,
@@ -336,7 +340,7 @@ export class CronRunner {
             // Phase 1080: handler 真实 settle 后从 stuckJobs 恢复，避免永久禁用
             if (this.stuckJobs.has(job.name)) {
               this.stuckJobs.delete(job.name);
-              this.audit.write(
+              this.sink.write(
                 CRON_AUDIT_EVENTS.HANDLER_RECOVERED_AFTER_STUCK,
                 `job=${job.name}`,
                 `run_key=${key}`,
@@ -346,7 +350,7 @@ export class CronRunner {
         },
         err => {
           if (timedOut) {
-            this.audit.write(CRON_AUDIT_EVENTS.JOB_ERROR,
+            this.sink.write(CRON_AUDIT_EVENTS.JOB_ERROR,
               `job=${job.name}`,
               `run_key=${key}`,
               `error=${formatErr(err)}`,
@@ -358,7 +362,7 @@ export class CronRunner {
             // Phase 1080: handler 真实 settle 后从 stuckJobs 恢复，避免永久禁用
             if (this.stuckJobs.has(job.name)) {
               this.stuckJobs.delete(job.name);
-              this.audit.write(
+              this.sink.write(
                 CRON_AUDIT_EVENTS.HANDLER_RECOVERED_AFTER_STUCK,
                 `job=${job.name}`,
                 `run_key=${key}`,
@@ -377,7 +381,7 @@ export class CronRunner {
           if (timer !== undefined) clearTimeout(timer);
           if (result === 'timeout') return; // running 已在 timeout 内清 / handler 仍跑（异步泄漏可接受 / 见 R2）
           if (typeof result === 'object' && 'err' in result) {
-            this.audit.write(CRON_AUDIT_EVENTS.JOB_ERROR,
+            this.sink.write(CRON_AUDIT_EVENTS.JOB_ERROR,
               `job=${job.name}`,
               `run_key=${key}`,
               `error=${formatErr(result.err)}`,
