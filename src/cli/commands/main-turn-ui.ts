@@ -256,10 +256,9 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
   const flushThinking = () => {
     guardWrite('flushThinking');
     if (!thinkingBuffer) return;
-    const prefix = '⏺ [thinking] ';
     const content = deps.trimOutputNewlines ? thinkingBuffer.trim() : thinkingBuffer;
-    const formatted = prefix + content;
-    deps.appendOutput('\x1b[2m', formatted, true, '');
+    const formatted = prefixLines(content, '⏺ [thinking] ', '  ');
+    deps.appendOutput('\x1b[2m', formatted, true, '  ');
     thinkingBuffer = '';
   };
 

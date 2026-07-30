@@ -210,7 +210,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'turn_error': {
         deps.turnTracker.abort();
         const errorMsg = event.error;
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `✗ Error: ${typeof errorMsg === 'string' ? errorMsg : String(errorMsg)}` });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `✗ Error: ${typeof errorMsg === 'string' ? errorMsg : String(errorMsg)}`, wrap: true, hangIndent: '  ' });
         break;
       }
 
@@ -242,7 +242,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
             : errorClass === 'rate_limit' ? 'rate limited'
             : 'unknown error';
           const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} ${classLabel} (${errStr}) / suggestion: ${hint}\x1b[0m` });
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} ${classLabel} (${errStr}) / suggestion: ${hint}\x1b[0m`, wrap: true, hangIndent: '  ' });
         }
         break;
       }
@@ -250,7 +250,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'breaker_opened': {
         const providerName = event.provider as string;
         const failures = event.consecutiveFailures as number | undefined;
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m⚠\x1b[0m \x1b[2m${providerName} circuit breaker opened (${failures ?? '?'} consecutive failures), temporarily using fallback. Suggestion: check primary config / network / endpoint.\x1b[0m` });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m⚠\x1b[0m \x1b[2m${providerName} circuit breaker opened (${failures ?? '?'} consecutive failures), temporarily using fallback. Suggestion: check primary config / network / endpoint.\x1b[0m`, wrap: true, hangIndent: '  ' });
         break;
       }
 
@@ -266,7 +266,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerName = event.provider as string;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${errStr})\x1b[0m` });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${errStr})\x1b[0m`, wrap: true, hangIndent: '  ' });
         break;
       }
 
@@ -275,7 +275,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerModel = event.model as string;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${errStr}\x1b[0m` });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${errStr}\x1b[0m`, wrap: true, hangIndent: '  ' });
         break;
       }
 
@@ -314,7 +314,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
           const claw = (event.clawId as string) ?? '';
           const errMsg = (event.error as string) ?? '';
           const forClaw = claw ? ` (${claw})` : '';
-          deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}` });
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}`, wrap: true, hangIndent: '  ' });
         } else if (sub === 'dev_warning') {
           // phase 8: dev-attention 阈值警告（informational only / 不可 motion action / 供 developer 参考）
           // 来源：cron audit-size-monitor / 等

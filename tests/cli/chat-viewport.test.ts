@@ -248,14 +248,14 @@ describe('chat-viewport Phase 72', () => {
       expect(flushMatch![0]).toMatch(/appendOutput\([^)]*'  '\)/);
     });
 
-    it('flushThinking 不再传 indent（直接 prefix + content，不拆分多行）', () => {
+    it('flushThinking 用 prefixLines 统一缩进', () => {
       const flushMatch = sourceCode.match(
         /const flushThinking[\s\S]{0,500}?appendOutput\([^)]+\)/
       );
-      // thinking 不再 split/map 加缩进，直接 prefix + content
+      // phase 1245: flushThinking 改用 prefixLines，与 flushStreaming/flushStreamingNormal 一致
       const actual = flushMatch![0];
-      expect(actual).toContain("formatted = prefix + content");
-      expect(actual).toMatch(/appendOutput\([^)]*''\)/);
+      expect(actual).toContain('prefixLines(content,');
+      expect(actual).toMatch(/appendOutput\([^)]*'  '\)/);
     });
   });
 
