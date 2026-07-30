@@ -1,0 +1,79 @@
+import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+/**
+ * phase 1247 Step E ratchet: CLI supervision policy coverage.
+ *
+ * - Every Commander `.action(...)` registration in src/cli must go through the
+ *   supervision-policy wrapper (`action` / `cliAction` / `verbAction`).
+ * - `ensureWatchdog` must only appear inside `src/cli/supervision-policy.ts`;
+ *   no other CLI module is allowed to reach into Watchdog internals.
+ */
+describe('CLI supervision policy coverage ratchet (phase 1247)', () => {
+  const projectRoot = path.join(__dirname, '..', '..', '..');
+  const cliDir = path.join(projectRoot, 'src', 'cli');
+
+  function listCliTsFiles(): string[] {
+    const files: string[] = [];
+    function walk(current: string) {
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+          files.push(full);
+        }
+      }
+    }
+    walk(cliDir);
+    return files;
+  }
+
+  function relativePath(full: string): string {
+    return path.relative(projectRoot, full);
+  }
+
+  it('every .action registration is wrapped by the supervision-policy helper', () => {
+    const violations: string[] = [];
+    const allowedWrappers = new Set(['action', 'cliAction', 'verbAction']);
+
+    for (const file of listCliTsFiles()) {
+      const content = fs.readFileSync(file, 'utf-8');
+      // Match `.action( <identifier>( ... )` with optional whitespace/newlines.
+      const regex = /\.action\s*\(\s*(\w+)\s*\(/g;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(content)) !== null) {
+        const wrapper = match[1];
+        if (!allowedWrappers.has(wrapper)) {
+          const lines = content.slice(0, match.index).split('\n');
+          const line = lines.length;
+          violations.push(`${relativePath(file)}:${line}: .action(${wrapper}(...)`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('ensureWatchdog is only referenced in supervision-policy.ts', () => {
+    const violations: string[] = [];
+    const allowedFile = path.join(cliDir, 'supervision-policy.ts');
+
+    for (const file of listCliTsFiles()) {
+      if (file === allowedFile) continue;
+      const content = fs.readFileSync(file, 'utf-8');
+      if (content.includes('ensureWatchdog')) {
+        violations.push(relativePath(file));
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('claw router wraps the list path with supervision policy', () => {
+    const routerPath = path.join(cliDir, 'commands', 'claw-router.ts');
+    const content = fs.readFileSync(routerPath, 'utf-8');
+    expect(content).toMatch(/verbAction\('observe_only',\s*\(\)\s*=>\s*listCommand\(/);
+  });
+});

@@ -186,8 +186,7 @@ export async function dispatchClawSubcommand(
     if (opts.json && opts.summary) {
       throw new CliError("options '--json' and '--summary' are mutually exclusive");
     }
-    await listCommand(deps, opts);
-    return;
+    return verbAction('observe_only', () => listCommand(deps, opts), deps)();
   }
 
   // Path 2: `claw <name> <verb> [args...]`

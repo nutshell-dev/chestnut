@@ -349,4 +349,52 @@ describe('recordGenerationTerminal', () => {
     });
     expect(result.kind).toBe('malformed');
   });
+
+  it('late writer：active 已退休后无法再写 terminal，retired terminal 保持不变（overwrite fixture）', () => {
+    const record = seedActive();
+    const terminal: WatchdogGenerationTerminal = {
+      kind: 'stopped', signal: 'SIGTERM', recorded_at: new Date().toISOString(),
+    };
+    expect(recordGenerationTerminal(chestnutFs, expectedOf(record), terminal).kind).toBe('recorded');
+
+    const retireResult = retireOwnership(chestnutFs, expectedOf(record), 'shutdown');
+    expect(retireResult.kind).toBe('retired');
+
+    // 同一旧 generation 在 active 消失后尝试补写 → no_active，不会覆盖 retired 证据
+    const late = recordGenerationTerminal(chestnutFs, expectedOf(record), {
+      kind: 'unclean', detected_at: new Date().toISOString(), detected_by_pid: 999,
+    });
+    expect(late.kind).toBe('no_active');
+
+    const retiredTerminalPath = path.join(
+      chestnutDir, WATCHDOG_RETIRED_DIR, record.owner_token, WATCHDOG_TERMINAL_FILE);
+    const retiredTerminal = JSON.parse(fs.readFileSync(retiredTerminalPath, 'utf-8'));
+    expect(retiredTerminal.kind).toBe('stopped');
+    expect(retiredTerminal.signal).toBe('SIGTERM');
+  });
+
+  it('overwrite fixture：不同 terminal 内容不会覆盖已存在的合法 terminal', () => {
+    const record = seedActive();
+    const first: WatchdogGenerationTerminal = {
+      kind: 'crashed', reason: 'first crash', recorded_at: new Date().toISOString(),
+    };
+    expect(recordGenerationTerminal(chestnutFs, expectedOf(record), first).kind).toBe('recorded');
+
+    const second: WatchdogGenerationTerminal = {
+      kind: 'stopped', signal: 'SIGINT', recorded_at: new Date().toISOString(),
+    };
+    const result = recordGenerationTerminal(chestnutFs, expectedOf(record), second);
+    expect(result.kind).toBe('already_recorded');
+    if (result.kind === 'already_recorded') {
+      expect(result.terminal.kind).toBe('crashed');
+      expect(result.terminal.reason).toBe('first crash');
+    }
+
+    const read = inspectTerminal(chestnutFs);
+    expect(read.status).toBe('ok');
+    if (read.status === 'ok') {
+      expect(read.terminal.kind).toBe('crashed');
+      expect(read.terminal.reason).toBe('first crash');
+    }
+  });
 });
