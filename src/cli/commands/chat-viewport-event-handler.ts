@@ -179,6 +179,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'tool_result': {
+        deps.mainUI.flushThinking();
+        deps.mainUI.flushStreaming();
         deps.mainUI.enterPhase('idle');
         const icon = event.success ? '✓' : '✗';
         const step = event.step ?? '?';
