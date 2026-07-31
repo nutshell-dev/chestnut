@@ -198,6 +198,10 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
 
       case 'turn_interrupted': {
+        deps.mainUI.flushThinking();
+        deps.mainUI.flushStreaming();
+        deps.mainUI.enterPhase('idle');
+        deps.mainUI.clearPreview();
         const msg = (event as Record<string, unknown>).message;
         const interruptSrc = deps.turnTracker.getInterruptSource();
         const display = typeof msg === 'string' ? msg
