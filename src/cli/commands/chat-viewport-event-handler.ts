@@ -87,6 +87,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.turnTracker.begin();
         deps.mainUI.flushThinking();
         deps.mainUI.flushStreaming();
+        deps.mainUI.enterPhase('idle');
+        deps.mainUI.clearPreview();
         const srcs = event.sources as Array<{ text: string; type: string }> | undefined;
         const userCount = srcs?.filter(s => s.type === 'user_chat' || s.type === 'user_inbox_message').length ?? 0;
         deps.resolvePending(userCount);
@@ -144,6 +146,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'user_reply_delta': {
+        deps.mainUI.flushStreaming();
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer(event.delta as string);
         const previewText = prefixLines(streamBuf + '▋', '➤ ', '  ');
@@ -286,6 +289,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'user_notify': {
+        deps.mainUI.flushThinking();
+        deps.mainUI.flushStreaming();
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
         const sub = event.subtype as string;
