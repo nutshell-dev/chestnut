@@ -40,7 +40,7 @@ function isValidId(s: string): boolean {
   return ID_REGEX.test(s);
 }
 
-export const composer: GuidanceComposer<ContractEventsState> = (state): GuidanceEntry | null => {
+export const composer: GuidanceComposer<ContractEventsState> = ({ meta: state }): GuidanceEntry | null => {
   const pairs = parsePairs(state);
   if (pairs.length === 0) {
     // phase 366 L3 (review-2026-06-13): 不渲染 '<unknown>' 字面 CLI block、返 null

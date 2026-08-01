@@ -10,25 +10,33 @@
  * - sentinel NO_GUIDANCE 化解 M#8 vs DP「不静默」+ M#9 真冲突
  */
 
+import type { GuidanceEnvelope } from '../../core/runtime/index.js';
+
 export interface GuidanceEntry {
   /** 自由 markdown / 自然语言、含 CLI 字面（经 CLIProtocol renderClawInvocation / CONTRACT_COMMANDS 引用）+ 决策上下文 */
   text: string;
 }
 
-export type GuidanceComposer<S = Record<string, string>> = (state: S) => GuidanceEntry | null;
+/**
+ * phase 1256 Step B: composer 原样消费 Runtime envelope（type/from/meta 三字段全保真）。
+ * 现有 real composer 只从 `input.meta` 读取旧 state；唯一不安全擦除封装在 registry register 实现内部。
+ */
+export type GuidanceComposer<S = Readonly<Record<string, string>>> = (
+  input: GuidanceEnvelope & { readonly meta: S },
+) => GuidanceEntry | null;
 
 export interface MotionGuidanceRegistry {
   /**
    * 业主装配期显式 register 自家 type 的 composer（含 NO_GUIDANCE sentinel 表态 P3 类无 guidance）。
    * 装配期一次性调用、运行期不再改。
    */
-  register<S = Record<string, string>>(type: string, composer: GuidanceComposer<S>): void;
+  register<S = Readonly<Record<string, string>>>(type: string, composer: GuidanceComposer<S>): void;
   /**
-   * Runtime motion-side append 时调、按 type lookup composer 并执行。
+   * Runtime motion-side append 时调、按 envelope.type lookup composer 并原样传 envelope。
    * 未 register 返 null（Runtime fallback 仅 base body / 不 append guidance）。
-   * phase 1256 Step A: state 收窄为 readonly-compatible（envelope meta 直接传入、不复制不强转）。
+   * phase 1256 Step B: compose 直消费 envelope（不丢 from / 不重建对象）。
    */
-  compose(type: string, state: Readonly<Record<string, string>>): GuidanceEntry | null;
+  compose(input: GuidanceEnvelope): GuidanceEntry | null;
 }
 
 /**

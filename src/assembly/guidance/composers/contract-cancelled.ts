@@ -33,7 +33,7 @@ interface CancellationEntry {
  */
 const MAX_BATCH_RENDER = 10;
 
-export const composer: GuidanceComposer<ContractCancelledState> = (state): GuidanceEntry | null => {
+export const composer: GuidanceComposer<ContractCancelledState> = ({ meta: state }): GuidanceEntry | null => {
   const entries = parseEntries(state);
   if (entries.length === 0) {
     // phase 366 L3 (review-2026-06-13): state 缺关键字段时不渲染 '<unknown>' 字面 CLI block。

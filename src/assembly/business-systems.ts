@@ -350,8 +350,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     registerAllMotionGuidance(guidanceRegistry);
   }
 
-  // phase 1256 Step A: 中间适配 — 接 envelope、暂解包调旧 registry（Step B 删除解包、registry 直消费 envelope）
-  const guidanceCompose: GuidanceCompose = input => guidanceRegistry?.compose(input.type, input.meta) ?? null;
+  // phase 1256 Step B: envelope 原样透传 registry（Step A 中间解包已删）
+  const guidanceCompose: GuidanceCompose = input => guidanceRegistry?.compose(input) ?? null;
 
   return {
     taskSystem,

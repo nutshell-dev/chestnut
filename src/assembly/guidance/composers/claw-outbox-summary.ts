@@ -24,7 +24,7 @@ interface ClawOutboxSummaryState {
   counts: string;       // JSON stringified
 }
 
-export const composer: GuidanceComposer<ClawOutboxSummaryState> = (state): GuidanceEntry => {
+export const composer: GuidanceComposer<ClawOutboxSummaryState> = ({ meta: state }): GuidanceEntry => {
   const limit = Number(state.total_msgs);
   const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 10;
   // motion LLM 拿 <claw-id> 占位、按 body 中 counts breakdown 自家替换具体 id

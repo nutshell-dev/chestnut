@@ -19,7 +19,7 @@ interface TaskQueueOverflowState {
   queue_length?: string;
 }
 
-export const composer: GuidanceComposer<TaskQueueOverflowState> = (_state): GuidanceEntry => {
+export const composer: GuidanceComposer<TaskQueueOverflowState> = (): GuidanceEntry => {
   return {
     text: 'This is a system-level overload beyond agent control. Surface to the user immediately and ask them to report this to the developer. Do not retry dispatching new tasks.',
   };

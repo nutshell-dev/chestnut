@@ -145,9 +145,9 @@ export async function createRuntimeAssembly(
       skillRegistry,
       formatterRegistry,
       // phase 27 Step D P5: guidance compose callback hook（motion-only / claw 装配 undefined）
-      // phase 1256 Step A: 中间适配 — 接 envelope、暂解包调旧 registry（Step B 删除解包）
+      // phase 1256 Step B: envelope 原样透传 registry（Step A 中间解包已删）
       guidanceCompose: guidanceRegistry
-        ? (input: GuidanceEnvelope) => guidanceRegistry.compose(input.type, input.meta) ?? null
+        ? (input: GuidanceEnvelope) => guidanceRegistry.compose(input) ?? null
         : undefined,
     };
 

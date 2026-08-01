@@ -13,6 +13,14 @@ import { composer as contractEventsComposer } from '../../../src/assembly/guidan
 import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../src/cli-protocol/index.js';
 
 /**
+ * phase 1256 Step B: envelope fixture — 三字段（type/from/meta）完整，
+ * 防止未来再次丢字段（裸 state 调用由 TypeScript 拒绝）。
+ */
+function env<M extends Record<string, string>>(type: string, meta: M): { type: string; from: string; meta: M } {
+  return { type, from: 'test-source', meta };
+}
+
+/**
  * invariants — mechanical merge of the following source files
  * (no assertion logic changed):
  *  - task-queue-overflow-composer.test.ts
@@ -27,7 +35,7 @@ describe('task-queue-overflow-composer', () => {
 
   describe('task-queue-overflow composer (phase 7)', () => {
     it('returns escalation guidance pointing to user', () => {
-      const r = taskQueueOverflowComposer({ cap: '1000', queue_length: '1000' });
+      const r = taskQueueOverflowComposer(env('task_queue_overflow', { cap: '1000', queue_length: '1000' }));
       expect(r.text).toContain('system-level overload');
       expect(r.text).toContain('Surface to the user');
       expect(r.text).toContain('developer');
@@ -35,8 +43,8 @@ describe('task-queue-overflow-composer', () => {
     });
 
     it('returns same guidance regardless of state fields', () => {
-      const r1 = taskQueueOverflowComposer({});
-      const r2 = taskQueueOverflowComposer({ cap: '500', queue_length: '500' });
+      const r1 = taskQueueOverflowComposer(env('task_queue_overflow', {}));
+      const r2 = taskQueueOverflowComposer(env('task_queue_overflow', { cap: '500', queue_length: '500' }));
       expect(r1.text).toBe(r2.text);
     });
   });
@@ -49,34 +57,34 @@ describe('claw-outbox-summary-composer', () => {
 
   describe('phase 1476: claw-outbox-summary composer', () => {
     it('returns non-null guidance with subject-first CLI', () => {
-      const result = clawOutboxSummaryComposer({
+      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', {
         hash: 'abc123def456',
         total_claws: '2',
         total_msgs: '4',
         counts: JSON.stringify({ clawA: 3, clawB: 1 }),
-      });
+      }));
       expect(result.text).toContain('chestnut claw <claw-id> outbox');
       expect(result.text).toContain('--limit 4');
     });
 
     it('safe limit fallback if total_msgs is malformed', () => {
-      const result = clawOutboxSummaryComposer({
+      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', {
         hash: 'aaaaaaaaaaaa',
         total_claws: '1',
         total_msgs: 'NaN',
         counts: '{}',
-      });
+      }));
       expect(result.text).toContain('--limit 10');
     });
 
     it('total_msgs = 0 still returns guidance (caller decides to call or not)', () => {
       // composer is pure / doesn't second-guess scheduler — tick handler guards 0-unread case
-      const result = clawOutboxSummaryComposer({
+      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', {
         hash: 'aaaaaaaaaaaa',
         total_claws: '0',
         total_msgs: '0',
         counts: '{}',
-      });
+      }));
       expect(result.text).toContain('--limit 10'); // fallback when limit <= 0
     });
   });
@@ -90,14 +98,14 @@ describe('claw-outbox-summary-composer', () => {
 
 describe('claw-crashed composer', () => {
   it('active_unexpected → 2-line guidance: restart + diagnostic CLI (phase 4)', () => {
-    const r = clawCrashedComposer({ crash_class: 'active_unexpected', claw_id: 'clawA' });
+    const r = clawCrashedComposer(env('claw_crashed', { crash_class: 'active_unexpected', claw_id: 'clawA' }));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To restart: chestnut claw clawA daemon');
     expect(r.text).toContain('To inspect what the claw was doing before crash: chestnut claw clawA steps');
   });
 
   it('active_user_stopped → read-only inspect guidance (status + steps)、不附 restart 暗示 (phase 201)', () => {
-    const r = clawCrashedComposer({ crash_class: 'active_user_stopped', claw_id: 'clawA' });
+    const r = clawCrashedComposer(env('claw_crashed', { crash_class: 'active_user_stopped', claw_id: 'clawA' }));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To check current status: chestnut claw clawA status');
     expect(r.text).toContain('To inspect what the claw was doing: chestnut claw clawA steps');
@@ -105,13 +113,13 @@ describe('claw-crashed composer', () => {
   });
 
   it('unknown crash_class → fallback guidance (phase 201 删 null 旁路)', () => {
-    const r = clawCrashedComposer({ crash_class: 'mystery', claw_id: 'clawA' });
+    const r = clawCrashedComposer(env('claw_crashed', { crash_class: 'mystery', claw_id: 'clawA' }));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect: chestnut claw clawA steps');
   });
 
   it('missing claw_id → fallback <claw-id> placeholder', () => {
-    const r = clawCrashedComposer({ crash_class: 'active_unexpected', claw_id: '' });
+    const r = clawCrashedComposer(env('claw_crashed', { crash_class: 'active_unexpected', claw_id: '' }));
     expect(r.text).toContain('chestnut claw <claw-id> daemon');
     expect(r.text).toContain('chestnut claw <claw-id> steps');
   });
@@ -127,33 +135,33 @@ describe('claw-crashed composer', () => {
 
 describe('claw-inactivity composer', () => {
   it('daemon_silent → STEPS CLI (English)', () => {
-    const r = clawInactivityComposer({ failure_class: 'daemon_silent', claw_id: 'clawA' });
+    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_silent', claw_id: 'clawA' }));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect what the agent is stuck on: chestnut claw clawA steps');
   });
 
   it('daemon_errored → STEPS CLI (English)', () => {
-    const r = clawInactivityComposer({ failure_class: 'daemon_errored', claw_id: 'clawA' });
+    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_errored', claw_id: 'clawA' }));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect: chestnut claw clawA steps');
   });
 
   it('daemon_stopped → fallback guidance (phase 2 移出归 claw_crashed composer、phase 201 unknown 不静默)', () => {
-    const r = clawInactivityComposer({ failure_class: 'daemon_stopped', claw_id: 'clawA' });
+    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_stopped', claw_id: 'clawA' }));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect: chestnut claw clawA steps');
     expect(r.text).toContain('To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m');
   });
 
   it('unknown failure_class → fallback guidance (phase 201 删 null 旁路)', () => {
-    const r = clawInactivityComposer({ failure_class: 'mystery_class', claw_id: 'clawA' });
+    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'mystery_class', claw_id: 'clawA' }));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect: chestnut claw clawA steps');
     expect(r.text).toContain('To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m');
   });
 
   it('missing claw_id (daemon_silent) → fallback <claw-id> placeholder', () => {
-    const r = clawInactivityComposer({ failure_class: 'daemon_silent', claw_id: '' });
+    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_silent', claw_id: '' }));
     expect(r.text).toContain('chestnut claw <claw-id> steps');
   });
 });
@@ -167,11 +175,11 @@ describe('claw-inactivity composer', () => {
 
 describe('phase 63+190+198: contract_cancelled composer', () => {
   it('输出 trace + show CLI block、0 prescription', () => {
-    const result = contractCancelledComposer({
+    const result = contractCancelledComposer(env('contract_cancelled', {
       source_claw: 'worker',
       contract_id: 'c1',
       reason: 'user reason',
-    });
+    }));
     expect(result).not.toBeNull();
     const text = result!.text;
     expect(text).toContain('chestnut claw worker trace --contract c1');
@@ -185,7 +193,7 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
   });
 
   it('缺 reason 时正常输出 CLI block（reason 不渲染）', () => {
-    const result = contractCancelledComposer({ contract_id: 'c1' });
+    const result = contractCancelledComposer(env('contract_cancelled', { contract_id: 'c1' }));
     expect(result).not.toBeNull();
     const text = result!.text;
     expect(text).toContain('chestnut claw (unknown) trace --contract c1');
@@ -193,11 +201,11 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
   });
 
   it('phase 190: observer 路径无 contract_id 但有 cancellations → batch 渲染', () => {
-    const result = contractCancelledComposer({
+    const result = contractCancelledComposer(env('contract_cancelled', {
       cancellations: JSON.stringify([
         { source_claw: 'claw1', contract_id: 'c1', reason: 'r1' },
       ]),
-    });
+    }));
     expect(result).not.toBeNull();
     const text = result!.text;
     expect(text).toContain('chestnut claw claw1 trace --contract c1');
@@ -205,12 +213,12 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
   });
 
   it('phase 190: batch 多 entry 渲染', () => {
-    const result = contractCancelledComposer({
+    const result = contractCancelledComposer(env('contract_cancelled', {
       cancellations: JSON.stringify([
         { source_claw: 'claw1', contract_id: 'c1', reason: 'r1' },
         { source_claw: 'claw2', contract_id: 'c2', reason: 'r2' },
       ]),
-    });
+    }));
     expect(result).not.toBeNull();
     const text = result!.text;
     expect(text).toContain('claw1');
@@ -224,7 +232,7 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
       contract_id: `c${i}`,
       reason: `r${i}`,
     }));
-    const result = contractCancelledComposer({ cancellations: JSON.stringify(entries) });
+    const result = contractCancelledComposer(env('contract_cancelled', { cancellations: JSON.stringify(entries) }));
     expect(result).not.toBeNull();
     const text = result!.text;
     expect(text).toContain('(12 cancellations、显示前 10)');
@@ -233,7 +241,7 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
   });
 
   it('phase 190: cancellations 非法 JSON 时 fallback 到 single entry 或兜底', () => {
-    const result = contractCancelledComposer({ contract_id: 'c1', source_claw: 'worker', reason: 'bad json fallback', cancellations: 'not-json' });
+    const result = contractCancelledComposer(env('contract_cancelled', { contract_id: 'c1', source_claw: 'worker', reason: 'bad json fallback', cancellations: 'not-json' }));
     expect(result).not.toBeNull();
     const text = result!.text;
     expect(text).toContain('chestnut claw worker trace --contract c1');
@@ -242,7 +250,7 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
 
   // phase 366 L3 (review-2026-06-13): 空 state 改返 null、不再渲染 '<unknown>' 字面
   it('phase 366 L3: 空 state 返 null、不渲染 <unknown> 字面 CLI block', () => {
-    const result = contractCancelledComposer({});
+    const result = contractCancelledComposer(env('contract_cancelled', {}));
     expect(result).toBeNull();
   });
 });
@@ -255,7 +263,7 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
 
 describe('phase 205: contract-events composer', () => {
   it('A3 single path (source_claw + contract_id) → trace + show', () => {
-    const result = contractEventsComposer({ source_claw: 'motion', contract_id: 'abc-123' });
+    const result = contractEventsComposer(env('contract_events', { source_claw: 'motion', contract_id: 'abc-123' }));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('motion', 'trace')} --contract abc-123`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c motion --contract abc-123`);
@@ -263,19 +271,19 @@ describe('phase 205: contract-events composer', () => {
 
   // phase 366 L3 (review-2026-06-13): 缺关键字段改返 null、不再渲染 '<unknown>' 字面
   it('phase 366 L3: A3 path without contract_id → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer({ source_claw: 'motion' });
+    const result = contractEventsComposer(env('contract_events', { source_claw: 'motion' }));
     expect(result).toBeNull();
   });
 
   it('A4 batch path (1 pair) → trace + show with real ids', () => {
-    const result = contractEventsComposer({ problem_pairs: 'worker-1:1780-abcd' });
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'worker-1:1780-abcd' }));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
   });
 
   it('A4 batch path (2 pairs) → enumerate trace + show per pair', () => {
-    const result = contractEventsComposer({ problem_pairs: 'worker-1:1780-abcd,worker-2:1780-cdef' });
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'worker-1:1780-abcd,worker-2:1780-cdef' }));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
@@ -284,29 +292,29 @@ describe('phase 205: contract-events composer', () => {
   });
 
   it('phase 366 L3: empty state → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer({});
+    const result = contractEventsComposer(env('contract_events', {}));
     expect(result).toBeNull();
   });
 
   it('phase 366 L3: empty problem_pairs → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer({ problem_pairs: '' });
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: '' }));
     expect(result).toBeNull();
   });
 
   it('malformed pair (no colon) → skipped, others kept', () => {
-    const result = contractEventsComposer({ problem_pairs: 'malformed,worker-1:1780-abcd' });
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'malformed,worker-1:1780-abcd' }));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
     expect(result!.text).not.toContain('malformed');
   });
 
   it('phase 366 L3: all malformed pairs → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer({ problem_pairs: 'malformed1,malformed2' });
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'malformed1,malformed2' }));
     expect(result).toBeNull();
   });
 
   it('trims whitespace around pairs', () => {
-    const result = contractEventsComposer({ problem_pairs: ' worker-1:abc , worker-2:def ' });
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: ' worker-1:abc , worker-2:def ' }));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract abc`);
     expect(result!.text).toContain(`${renderClawInvocation('worker-2', 'trace')} --contract def`);
@@ -314,7 +322,7 @@ describe('phase 205: contract-events composer', () => {
 
   it('caps at MAX_PAIR_RENDER=10 and shows overflow hint', () => {
     const pairs = Array.from({ length: 12 }, (_, i) => `worker-${i}:c${i}`).join(',');
-    const result = contractEventsComposer({ problem_pairs: pairs });
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: pairs }));
     expect(result).not.toBeNull();
     expect(result!.text).toContain('(12 contract events、显示前 10)');
     // 只应出现前 10 个

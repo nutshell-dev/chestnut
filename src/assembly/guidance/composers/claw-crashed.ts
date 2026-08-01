@@ -37,7 +37,7 @@ function isCrashClass(s: string | undefined): s is CrashClass {
   return s === 'active_unexpected' || s === 'active_user_stopped';
 }
 
-export const composer: GuidanceComposer<ClawCrashedState> = (state): GuidanceEntry => {
+export const composer: GuidanceComposer<ClawCrashedState> = ({ meta: state }): GuidanceEntry => {
   const cls = state.crash_class;
   const id = state.claw_id || '<claw-id>';
   // phase 201: 删 unknown / user_stopped null 旁路
