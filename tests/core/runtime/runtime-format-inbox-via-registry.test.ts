@@ -26,7 +26,8 @@ import { composer as clawCrashedComposer } from '../../../src/assembly/guidance/
 import { composer as clawInactivityComposer } from '../../../src/assembly/guidance/composers/claw-inactivity.js';
 import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
-import { encodeContractEventsGuidance } from '../../../src/core/contract/index.js';
+import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
+import { encodeContractEventsGuidance, encodeContractCancelledGuidance } from '../../../src/core/contract/index.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 
@@ -495,6 +496,128 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
       'type=contract_events',
+      expect.stringContaining('schema_invalid'),
+    );
+  });
+
+  it('phase 1262 Step B: contract_cancelled 真实 codec 链 + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'contract_cancelled',
+      'system',
+      '[contract_cancelled] claw=worker-1 contractId=c1 reason=user cancelled',
+      undefined,
+      // 真实 owner encoder 产出 v1 wire（不手写 metadata）
+      { ...encodeContractCancelledGuidance([{ clawId: makeClawId('worker-1'), contractId: makeContractId('c1') }]) },
+    );
+
+    expect(result).toMatch(/^\[system message\d*\] \[contract_cancelled\] claw=worker-1 contractId=c1 reason=user cancelled$/m);
+    expect(result).toContain('chestnut claw worker-1 trace --contract c1');
+    expect(result).toContain('chestnut contract show -c worker-1 --contract c1');
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  it('phase 1262 Step B: contract_cancelled 合法 legacy batch → guidance append（历史消息仍可渲染）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'contract_cancelled',
+      'system',
+      '[contract_cancelled] claw=worker-1 contractId=c1 reason=user cancelled',
+      undefined,
+      {
+        cancellations: JSON.stringify([{ source_claw: 'worker-1', contract_id: 'c1', reason: 'user cancelled' }]),
+      },
+    );
+
+    expect(result).toContain('chestnut claw worker-1 trace --contract c1');
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  it('phase 1262 Step B: contract_cancelled malformed legacy wire → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（不追加部分 CLI guidance）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'contract_cancelled',
+      'system',
+      '[contract_cancelled] claw=worker-1 contractId=c1 reason=user cancelled',
+      undefined,
+      {
+        // legacy malformed wire：valid + invalid 混合 batch（缺 reason）→ 整条失败
+        cancellations: JSON.stringify([
+          { source_claw: 'worker-1', contract_id: 'c1', reason: 'user cancelled' },
+          { source_claw: 'worker-2', contract_id: 'c2' },
+        ]),
+      },
+    );
+
+    // malformed wire 不阻断 body 投递
+    expect(result).toMatch(/^\[system message\d*\] \[contract_cancelled\] claw=worker-1 contractId=c1 reason=user cancelled$/);
+    // formatted result 不含部分 guidance（不再跳过坏项渲染合法项、不再伪造 (unknown)）
+    expect(result).not.toContain('trace --contract');
+    expect(result).not.toContain('(unknown)');
+    // audit 含 type 与安全 reason（typed decode error / 不回显 metadata）
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
+      'type=contract_cancelled',
+      expect.stringContaining('schema_invalid'),
+    );
+  });
+
+  it('phase 1262 Step B: contract_cancelled malformed v1 wire（空 refs）→ GUIDANCE_COMPOSER_FAILED audit、仅投递原 body', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'contract_cancelled',
+      'system',
+      '[contract_cancelled] claw=worker-1 contractId=c1 reason=user cancelled',
+      undefined,
+      { guidance_schema_version: '1', cancelled_contract_refs: '[]' },  // v1 空 refs：无真实业务来源 → 损坏
+    );
+
+    expect(result).toMatch(/^\[system message\d*\] \[contract_cancelled\] claw=worker-1 contractId=c1 reason=user cancelled$/);
+    expect(result).not.toContain('trace --contract');
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
+      'type=contract_cancelled',
       expect.stringContaining('schema_invalid'),
     );
   });

@@ -120,13 +120,14 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     );
   });
 
-  it('contract_cancelled → stream camel payload + contract_cancelled self-inbox（含 reason extraField）', () => {
+  it('contract_cancelled → stream camel payload + contract_cancelled self-inbox（v1 guidance wire、reason 仅留 body/stream）', () => {
     emit({
       type: 'contract_cancelled',
       contractId: makeContractId('c1'),
       reason: 'user cancelled',
     });
 
+    // stream user_notify payload 保持（含 reason）
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
@@ -139,9 +140,15 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     const content = readOnlyInboxFile();
     expect(content).toContain('type: contract_cancelled');
     expect(content).toContain('priority: high');
-    expect(content).toMatch(/source_claw:\s*"?test-claw"?/);
-    expect(content).toMatch(/contract_id:\s*"?c1"?/);
-    expect(content).toMatch(/reason:\s*"?user cancelled"?/);
+    // phase 1262 Step B: v1 exact wire（guidance_schema_version + cancelled_contract_refs JSON），无 legacy keys
+    expect(content).toContain('guidance_schema_version: 1');
+    expect(content).toContain(
+      'cancelled_contract_refs: "[{\\"claw_id\\":\\"test-claw\\",\\"contract_id\\":\\"c1\\"}]"',
+    );
+    expect(content).not.toContain('source_claw:');
+    expect(content).not.toMatch(/^contract_id:/m);
+    expect(content).not.toMatch(/^reason:/m);
+    // body 仍持久化 reason（不随 metadata 删除）
     expect(content).toContain(
       '[contract_cancelled] claw=test-claw contractId=c1 reason=user cancelled',
     );

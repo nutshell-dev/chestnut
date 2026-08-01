@@ -22,6 +22,7 @@ import { notifyInbox } from '../foundation/messaging/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import {
   encodeContractEventsGuidance,
+  encodeContractCancelledGuidance,
   type ContractNotification,
   type ContractNotificationSink,
 } from '../core/contract/index.js';
@@ -73,17 +74,19 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
 
     // phase 63: contract_cancelled NEW
     if (event.type === 'contract_cancelled') {
+      // phase 1262 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
+      // （schema version + refs JSON 两 owner key；不再手写 legacy dialect keys ——
+      // 取消原因已由 body 与 stream 持久化、不重复跨边界）
       notifyInbox(deps.systemFs, {
         inboxDir: deps.selfInboxDir,
         type: 'contract_cancelled',
         source: 'system',
         priority: 'high',
         body: `[contract_cancelled] claw=${deps.clawId} ${formatNotifyData(data)}`,
-        extraFields: {
-          source_claw: deps.clawId,
-          contract_id: event.contractId,
-          reason: event.reason,
-        },
+        extraFields: encodeContractCancelledGuidance([{
+          clawId: makeClawId(deps.clawId),
+          contractId: event.contractId,
+        }]),
       }, deps.auditWriter);
     }
 

@@ -16,6 +16,10 @@ import {
   encodeContractEventsGuidance,
   type ContractEventGuidanceRef,
 } from '../contract-events-guidance.js';
+import {
+  encodeContractCancelledGuidance,
+  type ContractCancelledGuidanceRef,
+} from '../contract-cancelled-guidance.js';
 
 /** phase 101: DI callback - caller (装配期) bind fs + chestnutRoot + MOTION_CLAW_ID + audit */
 export type NotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
@@ -413,7 +417,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   // phase 1261 Step B: typed guidance refs（只收 hasFailure completed contract），
   // 由 owner encoder 统一写 v1 wire（不再手写 legacy CSV dialect）。
   const guidanceRefs: ContractEventGuidanceRef[] = [];
-  const cancellations: Array<{ source_claw: string; contract_id: string; reason: string }> = [];
+  // phase 1262 Step B: cancelled guidance 同样改 typed refs，由 owner encoder 统一写
+  // v1 wire（不再手写 cancellations JSON dialect；reason 已在 entry.body 持久化）。
+  const cancelledGuidanceRefs: ContractCancelledGuidanceRef[] = [];
 
   // phase 950: per-claw 复合游标水位；任一 claw 扫描不完整或失败 → 该 claw 水位不推进，其他 claw 独立推进。
   const nextClawWatermarks: Record<string, ClawWatermarkCursor> = { ...state.clawWatermarks };
@@ -546,10 +552,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                 const statusCursor = state.cancelledWatermarks[clawId];
                 if (shouldProcessEntry(entry, statusCursor)) {
                   cancelledEvents.push(entry.body);
-                  cancellations.push({
-                    source_claw: clawId,
-                    contract_id: entry.contractId,
-                    reason: entry.reason ?? '(no reason given)',
+                  cancelledGuidanceRefs.push({
+                    clawId: makeClawId(clawId),
+                    contractId: makeContractId(entry.contractId),
                   });
                   const current = batchCancelledCursors[clawId];
                   if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
@@ -645,9 +650,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
           source: 'system',
           priority: 'high',
           body: cancelledEvents.join('\n\n'),
-          extraFields: {
-            cancellations: JSON.stringify(cancellations),
-          },
+          // phase 1262 Step B: 投递条件保证 refs non-empty（一事件一 ref），
+          // encoder 仍做 boundary validation。
+          extraFields: encodeContractCancelledGuidance(cancelledGuidanceRefs),
         });
         for (const [clawId, cursor] of Object.entries(batchCancelledCursors)) {
           nextCancelledWatermarks[clawId] = cursor;

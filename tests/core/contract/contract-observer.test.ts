@@ -268,9 +268,11 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
       expect.objectContaining({
         type: 'contract_cancelled',
         body: expect.stringContaining('c2'),
-        extraFields: expect.objectContaining({
-          cancellations: expect.stringContaining('c2'),
-        }),
+        // phase 1262 Step B: v1 exact wire（typed refs 经 owner encoder），不再手写 cancellations JSON
+        extraFields: {
+          guidance_schema_version: '1',
+          cancelled_contract_refs: '[{"claw_id":"claw1","contract_id":"c2"}]',
+        },
       }),
     );
     expect(opts.notifyMotion).not.toHaveBeenCalledWith(
