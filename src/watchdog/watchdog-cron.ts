@@ -15,6 +15,7 @@ import {
   clawStateAPI,
 } from './watchdog-context.js';
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
+import { encodeClawCrashedGuidance } from './claw-crashed-guidance.js';
 import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
 import { listSubscriptions, consumeSubscription } from './subscription-store.js';
 import { getActiveContractTimestamp } from '../core/contract/index.js';
@@ -189,7 +190,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
 //   - Trigger 条件改：dead + activeContract + !notified（原 `(wasAlive‖everSpawned)` requirement 移除 / 覆盖 S7 从未 spawn）
 //   - legacy paused contract 永不通知（与 phase 1482 inactivity-legacy-paused-skip 一致 / DP「不打扰」）
 //   - 业主 own CrashClass enum (active_unexpected / active_user_stopped) by clean-stop marker
-//   - extraFields 透传 crash_class + 上下文 to motion guidance composer
+//   - extraFields 只经 owner codec (claw-crashed-guidance.ts) 产出（v1 wire / phase 1257）
 export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): void {
   const fs = getChestnutFs(fsFactory);
   // 枚举 claws 并清理已不存在的 claw 的 Map 条目
@@ -279,18 +280,21 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
       const chestnutRoot = makeChestnutRoot(path.dirname(getNamedSubrootDir('motion')));
+      // phase 1257 Step A: owned wire 只在 owner codec 中定义（producer 不再 inline 手写 metadata key）
+      const guidance = encodeClawCrashedGuidance({
+        clawId: rawClawId,
+        crashClass,
+        cleanStopMarker: cleanStop,
+        contract: snapshot.contract,
+        outboxPending: snapshot.outboxPending,
+        asOf: new Date().toISOString(),
+      });
       routeNotifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'claw_crashed',
-        source: rawClawId,
+        source: guidance.source,
         priority: 'normal',
         body,
-        extraFields: {
-          crash_class: crashClass,
-          clean_stop_marker: String(cleanStop),
-          contract: snapshot.contract,
-          outbox_pending: String(snapshot.outboxPending),
-          as_of: new Date().toISOString(),
-        },
+        extraFields: guidance.extraFields,
       }, motionAudit);
 
       clawStateAPI.clawPreviouslyNotified.set(rawClawId, Date.now());

@@ -197,7 +197,12 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
       expect.anything(),
       'motion',
       'motion',
-      expect.objectContaining({ type: 'claw_crashed', source: clawId }),
+      // phase 1257 Step A: re-emit 同走 owner codec v1 wire（非只看 type）
+      expect.objectContaining({
+        type: 'claw_crashed',
+        source: clawId,
+        extraFields: expect.objectContaining({ guidance_schema_version: '1' }),
+      }),
       expect.anything(),
     );
   });
