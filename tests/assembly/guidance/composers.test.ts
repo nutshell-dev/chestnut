@@ -12,6 +12,7 @@ import { composer as contractCancelledComposer } from '../../../src/assembly/gui
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
 import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../src/cli-protocol/index.js';
 import { ClawCrashedGuidanceDecodeError } from '../../../src/watchdog/claw-crashed-guidance.js';
+import { ClawInactivityGuidanceDecodeError } from '../../../src/watchdog/claw-inactivity-guidance.js';
 
 /**
  * phase 1256 Step B: envelope fixture — 三字段（type/from/meta）完整，
@@ -164,43 +165,84 @@ describe('claw-crashed composer', () => {
 });
 
 /**
- * phase 1482 + phase 2 reframe + phase 4 重写 + phase 201: claw-inactivity real composer unit test.
+ * phase 1482 + phase 2 reframe + phase 4 重写 + phase 201 + phase 1258 Step B: claw-inactivity real composer unit test.
  * daemon_stopped case 已移除（归 claw_crashed composer 覆盖）.
  * phase 4: guidance 字面英文化.
- * phase 201: unknown class 改 fallback guidance（非 null）.
+ * phase 1258 Step B: composer 只消费 Watchdog owner codec typed state —
+ *   `claw_id` 来自 owner metadata（envelope from 固定 watchdog = 发起模块业务语义）；
+ *   unknown class / 缺字段 / 错 from 由 decoder 抛 typed error（不再产 fallback / `<claw-id>` placeholder）。
  */
 
 
+/** 合法 v1 wire（production shape：from 固定 watchdog，claw_id 在 owner metadata）。 */
+function v1InactivityMeta(failureClass: string): Record<string, string> {
+  return {
+    guidance_schema_version: '1',
+    claw_id: 'clawA',
+    failure_class: failureClass,
+    inactive_ms: '300000',
+    contract: 'active:c1',
+    as_of: '2026-08-01T12:00:00.000Z',
+  };
+}
+
+/** 合法 legacy wire（缺 version 的旧 production shape）。 */
+function legacyInactivityMeta(failureClass: string): Record<string, string> {
+  const meta = v1InactivityMeta(failureClass);
+  delete meta.guidance_schema_version;
+  return meta;
+}
+
 describe('claw-inactivity composer', () => {
-  it('daemon_silent → STEPS CLI (English)', () => {
-    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_silent', claw_id: 'clawA' }));
+  it('daemon_silent v1 → STEPS CLI (English)', () => {
+    const r = clawInactivityComposer(env('claw_inactivity', v1InactivityMeta('daemon_silent'), 'watchdog'));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect what the agent is stuck on: chestnut claw clawA steps');
   });
 
-  it('daemon_errored → STEPS CLI (English)', () => {
-    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_errored', claw_id: 'clawA' }));
-    expect(r).not.toBeNull();
-    expect(r.text).toContain('To inspect: chestnut claw clawA steps');
-  });
-
-  it('daemon_stopped → fallback guidance (phase 2 移出归 claw_crashed composer、phase 201 unknown 不静默)', () => {
-    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_stopped', claw_id: 'clawA' }));
+  it('daemon_errored v1 → STEPS CLI + watch subscription CLI', () => {
+    const r = clawInactivityComposer(env('claw_inactivity', v1InactivityMeta('daemon_errored'), 'watchdog'));
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect: chestnut claw clawA steps');
     expect(r.text).toContain('To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m');
   });
 
-  it('unknown failure_class → fallback guidance (phase 201 删 null 旁路)', () => {
-    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'mystery_class', claw_id: 'clawA' }));
+  it('daemon_silent legacy production shape → 同 v1 输出（version 缺失不影响）', () => {
+    const r = clawInactivityComposer(env('claw_inactivity', legacyInactivityMeta('daemon_silent'), 'watchdog'));
     expect(r).not.toBeNull();
-    expect(r.text).toContain('To inspect: chestnut claw clawA steps');
-    expect(r.text).toContain('To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m');
+    expect(r.text).toContain('To inspect what the agent is stuck on: chestnut claw clawA steps');
   });
 
-  it('missing claw_id (daemon_silent) → fallback <claw-id> placeholder', () => {
-    const r = clawInactivityComposer(env('claw_inactivity', { failure_class: 'daemon_silent', claw_id: '' }));
-    expect(r.text).toContain('chestnut claw <claw-id> steps');
+  it('subscription production shape（含 source_path + last_error）→ 输出不变（composer 不重灌 body 事实）', () => {
+    const r = clawInactivityComposer(env('claw_inactivity', {
+      ...v1InactivityMeta('daemon_errored'),
+      source_path: 'subscription',
+      last_error: 'LLM timeout',
+    }, 'watchdog'));
+    expect(r).not.toBeNull();
+    expect(r.text).toContain('To inspect: chestnut claw clawA steps');
+  });
+
+  it('daemon_stopped → decoder throws typed error（不再产 fallback guidance）', () => {
+    expect(() => clawInactivityComposer(env('claw_inactivity', v1InactivityMeta('daemon_stopped'), 'watchdog')))
+      .toThrowError(ClawInactivityGuidanceDecodeError);
+  });
+
+  it('unknown failure_class → decoder throws typed error（不再产 fallback guidance）', () => {
+    expect(() => clawInactivityComposer(env('claw_inactivity', v1InactivityMeta('mystery_class'), 'watchdog')))
+      .toThrowError(ClawInactivityGuidanceDecodeError);
+  });
+
+  it('missing claw_id (daemon_silent) → decoder throws typed error（不再产 <claw-id> placeholder）', () => {
+    const meta = v1InactivityMeta('daemon_silent');
+    delete meta.claw_id;
+    expect(() => clawInactivityComposer(env('claw_inactivity', meta, 'watchdog')))
+      .toThrowError(ClawInactivityGuidanceDecodeError);
+  });
+
+  it('from 非 watchdog → decoder throws typed error（owner provenance 不可伪装）', () => {
+    expect(() => clawInactivityComposer(env('claw_inactivity', v1InactivityMeta('daemon_silent'), 'clawA')))
+      .toThrowError(ClawInactivityGuidanceDecodeError);
   });
 });
 
