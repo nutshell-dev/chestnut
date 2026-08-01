@@ -15,7 +15,7 @@
  *     不依赖物理路径）、no-orphans（warn、死代码警告）、no-root-constants-readd
  *     （phase 520 治理回退守）、no-unused-node-modules（防误 import）。
  *
- * **保留 rule 清单（9 条）**：
+ * **保留 rule 清单（12 条）**：
  *   - no-circular
  *   - fs-only-via-foundation-filesystem
  *   - crypto-only-from-foundation
@@ -25,6 +25,9 @@
  *   - no-unused-node-modules
  *   - no-orphans
  *   - no-root-constants-readd
+ *   - no-foundation-to-outside（phase 725：foundation 零上层依赖、lint 已验证 0 违反后守 invariant）
+ *   - no-cli-protocol-to-outside（phase 1253：CLIProtocol 零实现依赖、同型 precedent）
+ *   - no-assembly-to-cli-command-protocol-internals（phase 1253：窄范围、只禁已清退 command/help 路径回流）
  *
  * **本 config 不守的**：
  *
@@ -241,6 +244,36 @@ module.exports = {
       severity: 'error',
       from: { path: '^src/foundation/' },
       to: { path: '^src/(?!foundation/)' },
+    },
+    {
+      name: 'no-cli-protocol-to-outside',
+      comment: [
+        'M#5 单向依赖：CLIProtocol 是 L6 叶子协议模块（phase 1252 应然冻结）、零实现依赖。',
+        'phase 1253 Step D 立：claw command catalog / invocation / help renderer 归 CLIProtocol 后，',
+        'lint 守「CLIProtocol 只能依赖自身」、防反向 import CLIProcess / Assembly 实现模块。',
+        '同型 precedent：no-foundation-to-outside（phase 725）。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/cli-protocol/' },
+      to: { path: '^src/(?!cli-protocol/)' },
+    },
+    {
+      name: 'no-assembly-to-cli-command-protocol-internals',
+      comment: [
+        'phase 1253 Step D 立：Assembly 不得回流已清退的 CLIProcess command/help 内部路径',
+        '（src/cli/help/*、src/cli/utils/cli-commands.ts）；claw command 事实与 help 渲染',
+        '统一经 CLIProtocol public barrel（src/cli-protocol/index.js）消费。',
+        '窄范围规则：不提前禁止 viewport config / audit routing / status hint 等仍存在边',
+        '（留 Phase 1252 路径 B/C 治理、全禁规则届时另立）。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/assembly/' },
+      to: {
+        path: [
+          '^src/cli/help/',
+          '^src/cli/utils/cli-commands(\\.ts)?$',
+        ],
+      },
     },
     // phase 696 Step A 撤 2 layer rule (no-assembly-to-cli-shared-formatter / no-audit-to-dialog-store)
     // 由 code review 守、no-circular 守 cycle 类违反。

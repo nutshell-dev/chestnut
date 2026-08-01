@@ -172,6 +172,47 @@ describe('depcruise config top-level keys invariant (phase 659)', () => {
 });
 });
 
+describe('depcruise-cli-protocol-boundary-rules', () => {
+
+// @ts-ignore — CJS config loaded in ESM test context
+
+
+/**
+ * dependency-cruiser: CLIProtocol boundary rules（phase 1253 Step D）
+ *
+ * 反向 fixture：验证规则 from/to shape（不只验证 rule name 存在）——
+ * 若 future 静默改 from/to 范围（放宽或误伤 cli-protocol 内部 import），本组失败。
+ *
+ * 配对实测（phase 1253 Step D 验收时执行）：
+ * - 临时让 src/cli-protocol/* import '../assembly/index.js' → lint:arch 必失败
+ * - 临时让 src/assembly/* import 旧 '../cli/help/index.js' → 规则/不存在路径至少一道失败
+ */
+describe('dependency-cruiser: CLIProtocol boundary rules (phase 1253 Step D)', () => {
+  it('no-cli-protocol-to-outside present with exact from/to shape', () => {
+    const rule = config.forbidden.find(
+      (r: { name: string }) => r.name === 'no-cli-protocol-to-outside',
+    );
+    expect(rule).toBeDefined();
+    expect(rule.severity).toBe('error');
+    expect(rule.from.path).toBe('^src/cli-protocol/');
+    expect(rule.to.path).toBe('^src/(?!cli-protocol/)');
+  });
+
+  it('no-assembly-to-cli-command-protocol-internals present with exact from/to shape', () => {
+    const rule = config.forbidden.find(
+      (r: { name: string }) => r.name === 'no-assembly-to-cli-command-protocol-internals',
+    );
+    expect(rule).toBeDefined();
+    expect(rule.severity).toBe('error');
+    expect(rule.from.path).toBe('^src/assembly/');
+    expect(rule.to.path).toEqual([
+      '^src/cli/help/',
+      '^src/cli/utils/cli-commands(\\.ts)?$',
+    ]);
+  });
+});
+});
+
 describe('depcruise-tspre-and-orphan-config', () => {
 
 // @ts-ignore — CJS config loaded in ESM test context

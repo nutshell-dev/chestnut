@@ -9,10 +9,10 @@ const ruleTester = new RuleTester({
 describe('eslint custom rule: foundation-no-cli-verb-fact (phase 330)', () => {
   ruleTester.run('foundation-no-cli-verb-fact', foundationNoCliVerbFact, {
     valid: [
-      // out of foundation/
+      // out of foundation/ — 合法归属 CLIProtocol（phase 1253）
       {
-        code: 'export const CLAW_VERB_FACTS = {};',
-        filename: 'src/cli/help/verb-facts.ts',
+        code: 'export const CLAW_COMMAND_CATALOG = {};',
+        filename: 'src/cli-protocol/claw-command-catalog.ts',
       },
       {
         code: 'const v = VerbFact;',
@@ -45,6 +45,17 @@ describe('eslint custom rule: foundation-no-cli-verb-fact (phase 330)', () => {
       },
       {
         code: 'const v = VerbFact;',
+        filename: 'src/foundation/audit/events.ts',
+        errors: [{ messageId: 'verbFactSymbol' }],
+      },
+      // foundation/ + phase 1253 CLIProtocol  renamed symbol
+      {
+        code: 'const v = CLAW_COMMAND_CATALOG;',
+        filename: 'src/foundation/audit/events.ts',
+        errors: [{ messageId: 'verbFactSymbol' }],
+      },
+      {
+        code: 'const v = ClawCommandSpec;',
         filename: 'src/foundation/audit/events.ts',
         errors: [{ messageId: 'verbFactSymbol' }],
       },
