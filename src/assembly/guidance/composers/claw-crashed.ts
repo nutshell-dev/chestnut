@@ -21,7 +21,7 @@
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
-import { clawCmd, CLAW_VERBS } from '../../../cli/utils/cli-commands.js';
+import { renderClawInvocation } from '../../../cli-protocol/index.js';
 import type { CrashClass } from '../../../watchdog/claw-failure-classes.js';
 
 
@@ -45,7 +45,7 @@ export const composer: GuidanceComposer<ClawCrashedState> = (state): GuidanceEnt
   // - active_user_stopped → read-only inspect（保 design intent「不附 restart 暗示」、但出 status/steps 让 motion 可调研）
   if (!isCrashClass(cls)) {
     return {
-      text: `To inspect: ${clawCmd(id, CLAW_VERBS.STEPS)}`,
+      text: `To inspect: ${renderClawInvocation(id, 'steps')}`,
     };
   }
   switch (cls) {
@@ -53,12 +53,12 @@ export const composer: GuidanceComposer<ClawCrashedState> = (state): GuidanceEnt
       // phase 4: 2-line guidance — primary action (restart) + optional diagnostic (steps)
       // 不冲突 phase 1476 anti-pattern #5: restart vs steps 是 orthogonal (action vs investigation)、不是「motion 在等价选项中选 1」
       return {
-        text: `To restart: ${clawCmd(id, CLAW_VERBS.DAEMON)}\nTo inspect what the claw was doing before crash: ${clawCmd(id, CLAW_VERBS.STEPS)}`,
+        text: `To restart: ${renderClawInvocation(id, 'daemon')}\nTo inspect what the claw was doing before crash: ${renderClawInvocation(id, 'steps')}`,
       };
     case 'active_user_stopped':
       // phase 201: design intent「不暗示 restart」保留 → read-only inspect only
       return {
-        text: `To check current status: ${clawCmd(id, CLAW_VERBS.STATUS)}\nTo inspect what the claw was doing: ${clawCmd(id, CLAW_VERBS.STEPS)}`,
+        text: `To check current status: ${renderClawInvocation(id, 'status')}\nTo inspect what the claw was doing: ${renderClawInvocation(id, 'steps')}`,
       };
     default: {
       const _exhaustive: never = cls;

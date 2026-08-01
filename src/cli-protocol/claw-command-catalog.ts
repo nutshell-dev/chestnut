@@ -1,50 +1,52 @@
 /**
- * @module L6.CLI.Help.ClawVerbFacts
+ * @module L6.CLIProtocol.ClawCommandCatalog
  *
- * Phase 1477 立 / phase 1479 layering fix（从 foundation/cli-help 挪 cli/help）。
+ * Phase 1253 Step B 立：claw 命令族 catalog 单源。
  *
- * claw 命令族 verb-fact 单源。
- *
- * 单源原则：本表与 `cli/commands/claw-router.ts` 的 VERB_NAMES 一一对应、
- * 由 invariant test 守（`tests/cli/help/claw-verb-facts.test.ts`）。
- *
- * 添加新 verb / 改名时必须同步本表与 router VERB_NAMES，否则编译期类型 check
- * + 运行时 invariant 至少一道会报。
+ * 单源原则：claw command 的合法集合只由本 catalog 派生——
+ * - literal command id union 由 `as const satisfies` 编译期保留（M#9）
+ * - router 的 instance command 集合 = `CLAW_INSTANCE_COMMAND_IDS`（form === 'instance' 派生）
+ * - help renderer / invocation renderer 内用本 catalog、调用方不可注入另一份 command universe
  *
  * 形态约定：
- * - `list` / `help` 是 flat verb（无 `<claw-name>`、subject 直接是 verb 字面）
- * - 其余 verb 是 instance verb（subject = claw name / args[0] = verb）
- * - `help` 自身也纳入 fact 表（D5 ratify、防双源）但 composer 自己出 Usage 段
- *   已含 help 入口字面、不重复列「help」行于分组列表中。
+ * - `list` / `help` 是 flat command（无 `<claw-name>`、subject 直接是 command 字面），
+ *   不可传给 instance invocation renderer（类型层区分）
+ * - 其余 command 是 instance command（subject = claw name / args[0] = command）
+ * - `help` 自身也纳入 catalog（phase 1477 D5 ratify、防双源）但 help renderer 自己出
+ *   Usage 段已含 help 入口字面、不重复列「help」行于分组列表中。
+ *
+ * 历史：内容源自 phase 1477 `src/cli/help/claw-verb-facts.ts` CLAW_VERB_FACTS
+ * （19 项：17 instance + 2 flat）；phase 1253 迁 CLIProtocol 改 catalog、
+ * 字段 `name` → `id`，summary/options/examples 字面零行为变化。
  */
 
-import type { VerbFact } from './types.js';
+import type { ClawCommandSpec } from './command-spec.js';
 
-export const CLAW_VERB_FACTS: readonly VerbFact[] = [
+export const CLAW_COMMAND_CATALOG = [
   // ── Lifecycle ──────────────────────────────────────────────────────────
   {
-    name: 'create',
+    id: 'create',
     group: 'lifecycle',
     form: 'instance',
     summary: 'Create a new claw and start its daemon',
     examples: ['chestnut claw alice create'],
   },
   {
-    name: 'stop',
+    id: 'stop',
     group: 'lifecycle',
     form: 'instance',
     summary: 'Stop the claw daemon',
     examples: ['chestnut claw alice stop'],
   },
   {
-    name: 'daemon',
+    id: 'daemon',
     group: 'lifecycle',
     form: 'instance',
     summary: 'Start the claw daemon explicitly (auto-backgrounds)',
     examples: ['chestnut claw alice daemon'],
   },
   {
-    name: 'health',
+    id: 'health',
     group: 'lifecycle',
     form: 'instance',
     summary: 'Check claw daemon liveness',
@@ -52,7 +54,7 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     examples: ['chestnut claw alice health', 'chestnut claw alice health --json'],
   },
   {
-    name: 'status',
+    id: 'status',
     group: 'lifecycle',
     form: 'instance',
     summary: 'Show current runtime status of the claw',
@@ -60,7 +62,7 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     examples: ['chestnut claw alice status'],
   },
   {
-    name: 'watch',
+    id: 'watch',
     group: 'lifecycle',
     form: 'instance',
     summary: 'Subscribe to a one-shot notification if the claw remains inactive after a duration',
@@ -70,14 +72,14 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
 
   // ── Messaging ──────────────────────────────────────────────────────────
   {
-    name: 'chat',
+    id: 'chat',
     group: 'messaging',
     form: 'instance',
     summary: 'Open an interactive chat with the claw',
     examples: ['chestnut claw alice chat'],
   },
   {
-    name: 'send',
+    id: 'send',
     group: 'messaging',
     form: 'instance',
     summary: "Deliver a message to the claw's inbox",
@@ -95,7 +97,7 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     ],
   },
   {
-    name: 'outbox',
+    id: 'outbox',
     group: 'messaging',
     form: 'instance',
     summary: "Read the claw's outbox (pulled messages are marked consumed)",
@@ -103,7 +105,7 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     examples: ['chestnut claw alice outbox', 'chestnut claw alice outbox --limit 5'],
   },
   {
-    name: 'read',
+    id: 'read',
     group: 'messaging',
     form: 'instance',
     summary: "Read a file from the claw's clawspace",
@@ -115,7 +117,7 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     examples: ['chestnut claw alice read notes/today.md'],
   },
   {
-    name: 'import',
+    id: 'import',
     group: 'messaging',
     form: 'instance',
     summary: "Import an external file or directory into the claw's clawspace",
@@ -129,7 +131,7 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     ],
   },
   {
-    name: 'ls',
+    id: 'ls',
     group: 'messaging',
     form: 'instance',
     summary: "List files in the claw's clawspace",
@@ -145,7 +147,7 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     ],
   },
   {
-    name: 'stream',
+    id: 'stream',
     group: 'messaging',
     form: 'instance',
     summary: 'Tail the claw stream.jsonl as JSONL events to stdout (long-running)',
@@ -164,14 +166,14 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
 
   // ── Observation ────────────────────────────────────────────────────────
   {
-    name: 'steps',
+    id: 'steps',
     group: 'observation',
     form: 'instance',
     summary: 'List recorded LLM call steps for the claw',
     examples: ['chestnut claw alice steps'],
   },
   {
-    name: 'step',
+    id: 'step',
     group: 'observation',
     form: 'instance',
     summary: 'Show full detail of a single LLM step',
@@ -179,12 +181,12 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     examples: ['chestnut claw alice step 7'],
   },
   {
-    name: 'trace',
+    id: 'trace',
     group: 'observation',
     form: 'instance',
     summary: 'Show contract execution trace for a claw',
     options: [
-      // phase 1480: required: true → composer 顶层显此 flag 字面、避免 silent-X
+      // phase 1480: required: true → renderer 顶层显此 flag 字面、避免 silent-X
       { flag: '--contract <contractId>', desc: 'Contract ID', required: true },
       // phase 1484: N or N.x form, aligned with `claw step N.x`
       { flag: '--step <n>', desc: 'Show full content of step N or N.x (e.g. 5 or 5.a)' },
@@ -195,16 +197,16 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     ],
   },
   {
-    name: 'ps',
+    id: 'ps',
     group: 'observation',
     form: 'instance',
     summary: 'List background exec tasks running for the claw',
     examples: ['chestnut claw motion ps'],
   },
 
-  // ── Discovery (flat verbs) ─────────────────────────────────────────────
+  // ── Discovery (flat commands) ──────────────────────────────────────────
   {
-    name: 'list',
+    id: 'list',
     group: 'discovery',
     form: 'flat',
     summary: 'List all claws in the workspace',
@@ -212,16 +214,33 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     examples: ['chestnut claw list', 'chestnut claw list --json'],
   },
   {
-    name: 'help',
+    id: 'help',
     group: 'discovery',
     form: 'flat',
     summary: 'Show top-level help, or per-verb help when a verb name follows',
     args: [{ name: 'verb', required: false, desc: 'Verb name to describe in detail' }],
     examples: ['chestnut claw help', 'chestnut claw help send'],
   },
-] as const;
+] as const satisfies readonly ClawCommandSpec[];
 
-export type ClawVerbName = (typeof CLAW_VERB_FACTS)[number]['name'];
+/** 全部 claw command literal id（含 flat `list`/`help`）。 */
+export type ClawCommandId = (typeof CLAW_COMMAND_CATALOG)[number]['id'];
 
-/** verb 名集合（运行时 lookup / invariant 守同 router VERB_NAMES）。 */
-export const CLAW_VERB_NAMES: readonly ClawVerbName[] = CLAW_VERB_FACTS.map((f) => f.name) as readonly ClawVerbName[];
+/** instance command literal id（form === 'instance' 派生、flat 不可构造 invocation）。 */
+export type ClawInstanceCommandId = Extract<
+  (typeof CLAW_COMMAND_CATALOG)[number],
+  { form: 'instance' }
+>['id'];
+
+/**
+ * instance command id 集合（router dispatch 的合法集合运行时来源）。
+ * 派生 type guard/cast 集中在本 owner、调用方不得各自断言。
+ */
+export const CLAW_INSTANCE_COMMAND_IDS = CLAW_COMMAND_CATALOG
+  .filter((spec) => spec.form === 'instance')
+  .map((spec) => spec.id) as readonly ClawInstanceCommandId[];
+
+/** 按 id 查 command spec（大小写敏感）。未注册返回 undefined。 */
+export function getClawCommandSpec(id: string): ClawCommandSpec | undefined {
+  return CLAW_COMMAND_CATALOG.find((spec) => spec.id === id);
+}

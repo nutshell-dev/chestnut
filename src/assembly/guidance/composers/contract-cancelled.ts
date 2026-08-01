@@ -10,7 +10,7 @@
  * - 工具 / 路径静态清单归 motion-side chestnut-guide skill
  */
 
-import { clawCmd, CLAW_VERBS, CONTRACT_COMMANDS } from '../../../cli/utils/cli-commands.js';
+import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../cli-protocol/index.js';
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 
 interface ContractCancelledState {
@@ -80,7 +80,7 @@ function renderCliBlock(entries: CancellationEntry[]): string {
     lines.push(`(${entries.length} cancellations、显示前 ${MAX_BATCH_RENDER})`, ``);
   }
   for (const e of entries.slice(0, displayCount)) {
-    lines.push(`${clawCmd(e.source_claw, CLAW_VERBS.TRACE)} --contract ${e.contract_id}`);
+    lines.push(`${renderClawInvocation(e.source_claw, 'trace')} --contract ${e.contract_id}`);
     lines.push(`${CONTRACT_COMMANDS.SHOW} -c ${e.source_claw} --contract ${e.contract_id}`);
   }
   return lines.join('\n');

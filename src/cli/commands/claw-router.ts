@@ -46,14 +46,14 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import { psCommand } from './claw-ps.js';
 import {
-  CLAW_VERB_FACTS,
-  type ClawVerbName,
-  type VerbFact,
-} from '../help/index.js';
+  CLAW_COMMAND_CATALOG,
+  CLAW_INSTANCE_COMMAND_IDS,
+  getClawCommandSpec,
+  type ClawInstanceCommandId,
+} from '../../cli-protocol/index.js';
 import {
   composeClawHelp,
   composeClawVerbHelp,
-  findVerbFact,
 } from '../../assembly/cli-help/index.js';
 
 export interface RouterDeps {
@@ -70,16 +70,12 @@ function verbAction<TArgs extends unknown[]>(
 
 // ── Verb registry ───────────────────────────────────────────────────────────
 
-const INSTANCE_VERB_NAMES: readonly string[] = CLAW_VERB_FACTS
-  .filter((f) => f.form === 'instance')
-  .map((f) => f.name);
+// instance command 合法集合：CLIProtocol catalog 派生（单源、phase 1253）。
+const INSTANCE_VERB_NAMES: readonly string[] = CLAW_INSTANCE_COMMAND_IDS;
 
-type VerbName = ClawVerbName;
+type VerbName = ClawInstanceCommandId;
 
 const VERB_SET: ReadonlySet<string> = new Set(INSTANCE_VERB_NAMES);
-
-/** Test-only re-export of verb names so invariant tests can assert fact/router parity. */
-export const __TEST_VERB_NAMES_FROM_ROUTER: readonly string[] = INSTANCE_VERB_NAMES;
 
 // Verb names that ALSO appear as top-level subject (flat verbs).
 // Used to reject claw names that collide with reserved tokens.
@@ -100,21 +96,16 @@ function findHelpFlag(args: readonly string[]): boolean {
   return args.some((a) => a === '--help' || a === '-h');
 }
 
-/** Render top-level claw help (composer-driven, replaces commander default). */
+/** Render top-level claw help (CLIProtocol catalog + composer, replaces commander default). */
 export function renderClawTopHelp(): string {
-  return composeClawHelp(CLAW_VERB_FACTS);
+  return composeClawHelp(CLAW_COMMAND_CATALOG);
 }
 
 /** Render per-verb help. Returns undefined if verb name not registered. */
 export function renderClawVerbHelp(verbName: string): string | undefined {
-  const fact = findVerbFact(CLAW_VERB_FACTS, verbName);
-  if (!fact) return undefined;
-  return composeClawVerbHelp(fact);
-}
-
-/** Resolve a fact by verb name (test helper). */
-export function getClawVerbFact(verbName: string): VerbFact | undefined {
-  return findVerbFact(CLAW_VERB_FACTS, verbName);
+  const spec = getClawCommandSpec(verbName);
+  if (!spec) return undefined;
+  return composeClawVerbHelp(spec);
 }
 
 /**
@@ -241,6 +232,11 @@ export async function dispatchClawSubcommand(
     case 'ps': return verbAction('observe_only', () => runPs(deps, name, verbArgs), deps)();
     case 'stream': return verbAction('required', () => runStreamFromArgs(deps, name, verbArgs), deps)();
   }
+  // Exhaustiveness guard (phase 1253)：函数返回类型 Promise<void> 下 noImplicitReturns
+  // 不约束 switch 覆盖；catalog 新增 instance command 而 router 未加 case 时，
+  // 此处 verb 收窄不到 never → 编译失败。不得改为 default 静默吞掉 future command。
+  const _exhaustive: never = verb;
+  throw new CliError(`unhandled verb '${_exhaustive}'`);
 }
 
 // ── Per-verb handlers ───────────────────────────────────────────────────────

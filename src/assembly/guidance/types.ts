@@ -6,12 +6,12 @@
  * - motion 装配特化（per phase 1406 motion-config 第 4 件套）/ claw 装配不装
  * - 业主仅 own facts + structured state schema
  * - Assembly own guidance composer 物理（composers/<type>.ts、Assembly 自家写、不业主 export）
- * - composer 输出自由 text 单字段、含真实 CLI 字面（经 clawCmd + CLAW_VERBS / CONTRACT_COMMANDS typed const 引用）+ 决策上下文
+ * - composer 输出自由 text 单字段、含真实 CLI 字面（经 CLIProtocol renderClawInvocation / CONTRACT_COMMANDS typed 引用）+ 决策上下文
  * - sentinel NO_GUIDANCE 化解 M#8 vs DP「不静默」+ M#9 真冲突
  */
 
 export interface GuidanceEntry {
-  /** 自由 markdown / 自然语言、含 CLI 字面（经 clawCmd + CLAW_VERBS / CONTRACT_COMMANDS 引用）+ 决策上下文 */
+  /** 自由 markdown / 自然语言、含 CLI 字面（经 CLIProtocol renderClawInvocation / CONTRACT_COMMANDS 引用）+ 决策上下文 */
   text: string;
 }
 

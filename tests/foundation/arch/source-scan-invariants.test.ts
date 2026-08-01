@@ -163,7 +163,7 @@ describe('resource-owner-presence', () => {
    * or removes them without updating dependent rules, this catches it.
    *
    * phase 564 扩 (phase 520-554 follow-up): 加 5 entry 覆盖 motion-claw-id / agent-dir-resolver /
-   * claw-status-hints / claw-failure-classes / cli-commands。新 owner module 引入后未加 invariant、
+   * claw-status-hints / claw-failure-classes / cli-protocol。新 owner module 引入后未加 invariant、
    * 误删不 fail-loud。
    */
   describe('resource owner modules physical presence (phase 504 / phase 564 expanded)', () => {
@@ -180,7 +180,7 @@ describe('resource-owner-presence', () => {
       { name: 'core/claw-topology/agent-dir-resolver (phase 535: motion-vs-claw dir resolver)', rel: 'core/claw-topology/agent-dir-resolver.ts' },
       { name: 'cli/utils/claw-status-hints (phase 540/708)', rel: 'cli/utils/claw-status-hints.ts' },
       { name: 'watchdog/claw-failure-classes (phase 552/708)', rel: 'watchdog/claw-failure-classes.ts' },
-      { name: 'cli/utils/cli-commands (phase 554/708)', rel: 'cli/utils/cli-commands.ts' },
+      { name: 'cli-protocol (phase 1253: claw command catalog + invocation owner)', rel: 'cli-protocol/index.ts' },
     ];
 
     it.each(owners)('$name file exists at expected path: $rel', ({ rel }) => {

@@ -15,7 +15,7 @@
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
-import { clawCmd, CLAW_VERBS } from '../../../cli/utils/cli-commands.js';
+import { renderClawInvocation } from '../../../cli-protocol/index.js';
 import type { FailureClass } from '../../../watchdog/claw-failure-classes.js';
 
 
@@ -42,17 +42,17 @@ export const composer: GuidanceComposer<ClawInactivityState> = (state): Guidance
   // phase 201: 删 unknown class null 旁路、改 fallback guidance（state.claw_id 仍可用）
   const inspect = isFailureClass(cls)
     ? renderKnownInspect(cls, id)
-    : `To inspect: ${clawCmd(id, CLAW_VERBS.STEPS)}`;  // unknown fallback、与 daemon_errored 同型最小 hint
-  const watch = `To be notified if it remains stuck after intervention: ${clawCmd(id, CLAW_VERBS.WATCH)} --inactive-after 5m`;
+    : `To inspect: ${renderClawInvocation(id, 'steps')}`;  // unknown fallback、与 daemon_errored 同型最小 hint
+  const watch = `To be notified if it remains stuck after intervention: ${renderClawInvocation(id, 'watch')} --inactive-after 5m`;
   return { text: `${inspect}\n${watch}` };
 };
 
 function renderKnownInspect(cls: FailureClass, id: string): string {
   switch (cls) {
     case 'daemon_silent':
-      return `To inspect what the agent is stuck on: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
+      return `To inspect what the agent is stuck on: ${renderClawInvocation(id, 'steps')}`;
     case 'daemon_errored':
-      return `To inspect: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
+      return `To inspect: ${renderClawInvocation(id, 'steps')}`;
     default: {
       const _exhaustive: never = cls;
       return _exhaustive;

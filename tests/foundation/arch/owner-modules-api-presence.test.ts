@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
  * phase 574 扩 (phase 520-554 follow-up): 加 3 it block 覆盖新 owner module API:
  *   - core/claw-topology: MOTION_CLAW_ID + makeAgentDirResolver
  *   - cli/utils/claw-status-hints: 2 formatter
- *   - cli/utils/cli-commands: CLAW_VERBS + clawCmd + CONTRACT_COMMANDS
+ *   - cli-protocol: CLAW_COMMAND_CATALOG + renderClawInvocation + CONTRACT_COMMANDS (phase 1253)
  */
 describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
   it('foundation/node-utils/id exposes newUuid, newShortUuid, randomHex', async () => {
@@ -68,14 +68,16 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     expect(hintsMod.formatNoActiveContractHint('x', false)).toMatch(/No active contract for "x"/);
   });
 
-  it('cli/utils/cli-commands exposes CLAW_VERBS + clawCmd + CONTRACT_COMMANDS (phase 554/708)', async () => {
-    const cmdMod = await import('../../../src/cli/utils/cli-commands.js');
-    expect(typeof cmdMod.CLAW_VERBS).toBe('object');
-    expect(cmdMod.CLAW_VERBS.CHAT).toBe('chat');
-    expect(cmdMod.CLAW_VERBS.STOP).toBe('stop');
-    expect(typeof cmdMod.clawCmd).toBe('function');
-    expect(cmdMod.clawCmd('myclaw', cmdMod.CLAW_VERBS.CHAT)).toBe('chestnut claw myclaw chat');
-    expect(typeof cmdMod.CONTRACT_COMMANDS).toBe('object');
-    expect(cmdMod.CONTRACT_COMMANDS.SHOW).toBe('chestnut contract show');
+  it('cli-protocol exposes CLAW_COMMAND_CATALOG + renderClawInvocation + CONTRACT_COMMANDS (phase 1253)', async () => {
+    const protocol = await import('../../../src/cli-protocol/index.js');
+    expect(Array.isArray(protocol.CLAW_COMMAND_CATALOG)).toBe(true);
+    expect(protocol.CLAW_COMMAND_CATALOG.length).toBeGreaterThan(0);
+    expect(typeof protocol.getClawCommandSpec).toBe('function');
+    expect(protocol.getClawCommandSpec('chat')?.id).toBe('chat');
+    expect(protocol.getClawCommandSpec('nonexistent')).toBeUndefined();
+    expect(typeof protocol.renderClawInvocation).toBe('function');
+    expect(protocol.renderClawInvocation('myclaw', 'chat')).toBe('chestnut claw myclaw chat');
+    expect(typeof protocol.CONTRACT_COMMANDS).toBe('object');
+    expect(protocol.CONTRACT_COMMANDS.SHOW).toBe('chestnut contract show');
   });
 });

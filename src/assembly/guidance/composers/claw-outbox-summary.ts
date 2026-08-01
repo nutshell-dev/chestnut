@@ -15,7 +15,7 @@
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
-import { clawCmd, CLAW_VERBS } from '../../../cli/utils/cli-commands.js';
+import { renderClawInvocation } from '../../../cli-protocol/index.js';
 
 interface ClawOutboxSummaryState {
   hash: string;
@@ -28,7 +28,7 @@ export const composer: GuidanceComposer<ClawOutboxSummaryState> = (state): Guida
   const limit = Number(state.total_msgs);
   const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 10;
   // motion LLM 拿 <claw-id> 占位、按 body 中 counts breakdown 自家替换具体 id
-  const cmd = clawCmd('<claw-id>', CLAW_VERBS.OUTBOX);
+  const cmd = renderClawInvocation('<claw-id>', 'outbox');
   return {
     text: `查看具体内容： ${cmd} --limit ${safeLimit}`,
   };

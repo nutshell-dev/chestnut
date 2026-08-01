@@ -2,6 +2,8 @@
  * @module L6.Assembly.CliHelp.Composer
  *
  * Phase 1477：把命令族 verb-fact 拼成最终 CLI help 文本。
+ * Phase 1253 Step B：fact schema 改消费 CLIProtocol `ClawCommandSpec`（过渡态、
+ * Step C 本 renderer 整体迁 `src/cli-protocol/help.ts` 并删本目录）。
  *
  * 职责：
  * - 拥有 binary 字面 `chestnut`（Assembly 是装配方、本就需知部署形态）
@@ -10,24 +12,24 @@
  *
  * 应然边界：
  * - 不知 commander 实例（输出纯字符串、由 cli 层注入 commander helpInformation）
- * - 不知具体业主 module（仅消费 VerbFact[]）
+ * - 不知具体业主 module（仅消费 ClawCommandSpec[]）
  *
  * 同型参考：assembly/motion-guidance-composer.ts（phase 1472 同模式 + 本 phase γ-help 镜像）。
  */
 
-import type { VerbFact, VerbGroup } from '../../cli/help/index.js';
+import type { ClawCommandSpec, CommandGroup } from '../../cli-protocol/index.js';
 
 /** CLI binary 字面 —— 与 motion-guidance-composer 同源约定、Assembly 内 source of truth。 */
 const CLI_BINARY = 'chestnut';
 
-const GROUP_HEADERS: Record<VerbGroup, string> = {
+const GROUP_HEADERS: Record<CommandGroup, string> = {
   lifecycle: 'Lifecycle:',
   messaging: 'Messaging:',
   observation: 'Observation:',
   discovery: 'Discovery:',
 };
 
-const GROUP_ORDER: readonly VerbGroup[] = ['lifecycle', 'messaging', 'observation', 'discovery'];
+const GROUP_ORDER: readonly CommandGroup[] = ['lifecycle', 'messaging', 'observation', 'discovery'];
 
 /**
  * Pad a verb signature (col 1) to a fixed column so summaries align.
@@ -43,9 +45,9 @@ function padRight(s: string, n: number): string {
 }
 
 /** Render a verb's positional argument list (e.g., `<message>`, `[verb]`). Excludes options. */
-function renderArgList(fact: VerbFact): string {
-  if (!fact.args || fact.args.length === 0) return '';
-  return ' ' + fact.args.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ');
+function renderArgList(spec: ClawCommandSpec): string {
+  if (!spec.args || spec.args.length === 0) return '';
+  return ' ' + spec.args.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ');
 }
 
 /**
@@ -58,9 +60,9 @@ function renderArgList(fact: VerbFact): string {
  * without a required option (e.g. `--contract <id>`). Optional options stay
  * hidden at the top level — users discover them via `claw help <verb>`.
  */
-function renderTopLevelSignatureTail(fact: VerbFact): string {
-  const args = renderArgList(fact);
-  const requiredOpts = (fact.options ?? [])
+function renderTopLevelSignatureTail(spec: ClawCommandSpec): string {
+  const args = renderArgList(spec);
+  const requiredOpts = (spec.options ?? [])
     .filter((o) => o.required === true)
     .map((o) => ` ${o.flag}`)
     .join('');
@@ -68,15 +70,15 @@ function renderTopLevelSignatureTail(fact: VerbFact): string {
 }
 
 /** Render a single verb's one-line entry for the top-level group list. */
-function renderVerbLine(fact: VerbFact): string {
-  const signature = `  ${fact.name}${renderTopLevelSignatureTail(fact)}`;
-  return `${padRight(signature, SIGNATURE_COL)}${fact.summary}`;
+function renderVerbLine(spec: ClawCommandSpec): string {
+  const signature = `  ${spec.id}${renderTopLevelSignatureTail(spec)}`;
+  return `${padRight(signature, SIGNATURE_COL)}${spec.summary}`;
 }
 
-function renderGroup(group: VerbGroup, facts: readonly VerbFact[]): string[] {
-  const groupFacts = facts.filter((f) => f.group === group);
-  if (groupFacts.length === 0) return [];
-  return [GROUP_HEADERS[group], ...groupFacts.map(renderVerbLine), ''];
+function renderGroup(group: CommandGroup, specs: readonly ClawCommandSpec[]): string[] {
+  const groupSpecs = specs.filter((s) => s.group === group);
+  if (groupSpecs.length === 0) return [];
+  return [GROUP_HEADERS[group], ...groupSpecs.map(renderVerbLine), ''];
 }
 
 /**
@@ -87,7 +89,7 @@ function renderGroup(group: VerbGroup, facts: readonly VerbFact[]): string[] {
  * which is opaque to users (`<subject>` is a commander internal abstraction).
  * Per-verb examples live on `claw help <verb>`, not in the top-level summary.
  */
-export function composeClawHelp(facts: readonly VerbFact[]): string {
+export function composeClawHelp(specs: readonly ClawCommandSpec[]): string {
   const lines: string[] = [];
 
   // Usage — three forms, all surfaced.
@@ -99,7 +101,7 @@ export function composeClawHelp(facts: readonly VerbFact[]): string {
 
   // Groups.
   for (const group of GROUP_ORDER) {
-    lines.push(...renderGroup(group, facts));
+    lines.push(...renderGroup(group, specs));
   }
 
   // Trim trailing blank lines.
@@ -113,23 +115,23 @@ export function composeClawHelp(facts: readonly VerbFact[]): string {
  *
  * Layout: signature + summary + args + options + examples + note.
  */
-export function composeClawVerbHelp(fact: VerbFact): string {
+export function composeClawVerbHelp(spec: ClawCommandSpec): string {
   const lines: string[] = [];
 
   // Signature line — depends on form.
-  const verbSig = `${fact.name}${renderArgList(fact)}`;
-  if (fact.form === 'instance') {
+  const verbSig = `${spec.id}${renderArgList(spec)}`;
+  if (spec.form === 'instance') {
     lines.push(`Usage: ${CLI_BINARY} claw <claw-name> ${verbSig}`);
   } else {
     lines.push(`Usage: ${CLI_BINARY} claw ${verbSig}`);
   }
   lines.push('');
-  lines.push(fact.summary);
+  lines.push(spec.summary);
   lines.push('');
 
-  if (fact.args && fact.args.length > 0) {
+  if (spec.args && spec.args.length > 0) {
     lines.push('Arguments:');
-    for (const a of fact.args) {
+    for (const a of spec.args) {
       const bracket = a.required ? `<${a.name}>` : `[${a.name}]`;
       const desc = a.desc ? `  ${a.desc}` : '';
       lines.push(`  ${padRight(bracket, 20)}${desc}`);
@@ -137,9 +139,9 @@ export function composeClawVerbHelp(fact: VerbFact): string {
     lines.push('');
   }
 
-  if (fact.options && fact.options.length > 0) {
+  if (spec.options && spec.options.length > 0) {
     lines.push('Options:');
-    for (const o of fact.options) {
+    for (const o of spec.options) {
       const requiredMark = o.required === true ? ' (required)' : '';
       const defaultTail = o.defaultValue ? ` (default: ${o.defaultValue})` : '';
       lines.push(`  ${padRight(o.flag, 24)}${o.desc}${requiredMark}${defaultTail}`);
@@ -147,28 +149,20 @@ export function composeClawVerbHelp(fact: VerbFact): string {
     lines.push('');
   }
 
-  if (fact.examples && fact.examples.length > 0) {
+  if (spec.examples && spec.examples.length > 0) {
     lines.push('Examples:');
-    for (const e of fact.examples) {
+    for (const e of spec.examples) {
       lines.push(`  ${e}`);
     }
     lines.push('');
   }
 
-  if (fact.note) {
-    lines.push(`Note: ${fact.note}`);
+  if (spec.note) {
+    lines.push(`Note: ${spec.note}`);
   }
 
   // Trim trailing blank lines.
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
 
   return lines.join('\n');
-}
-
-/** Find a verb fact by name (case-sensitive). Returns undefined if not registered. */
-export function findVerbFact(
-  facts: readonly VerbFact[],
-  name: string,
-): VerbFact | undefined {
-  return facts.find((f) => f.name === name);
 }

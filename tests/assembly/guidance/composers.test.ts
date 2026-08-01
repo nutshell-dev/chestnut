@@ -10,7 +10,7 @@ import { composer as clawCrashedComposer } from '../../../src/assembly/guidance/
 import { composer as clawInactivityComposer } from '../../../src/assembly/guidance/composers/claw-inactivity.js';
 import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
-import { CLAW_VERBS, CONTRACT_COMMANDS } from '../../../src/cli/utils/cli-commands.js';
+import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../src/cli-protocol/index.js';
 
 /**
  * invariants — mechanical merge of the following source files
@@ -257,7 +257,7 @@ describe('phase 205: contract-events composer', () => {
   it('A3 single path (source_claw + contract_id) → trace + show', () => {
     const result = contractEventsComposer({ source_claw: 'motion', contract_id: 'abc-123' });
     expect(result).not.toBeNull();
-    expect(result!.text).toContain(`chestnut claw motion ${CLAW_VERBS.TRACE} --contract abc-123`);
+    expect(result!.text).toContain(`${renderClawInvocation('motion', 'trace')} --contract abc-123`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c motion --contract abc-123`);
   });
 
@@ -270,16 +270,16 @@ describe('phase 205: contract-events composer', () => {
   it('A4 batch path (1 pair) → trace + show with real ids', () => {
     const result = contractEventsComposer({ problem_pairs: 'worker-1:1780-abcd' });
     expect(result).not.toBeNull();
-    expect(result!.text).toContain(`chestnut claw worker-1 ${CLAW_VERBS.TRACE} --contract 1780-abcd`);
+    expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
   });
 
   it('A4 batch path (2 pairs) → enumerate trace + show per pair', () => {
     const result = contractEventsComposer({ problem_pairs: 'worker-1:1780-abcd,worker-2:1780-cdef' });
     expect(result).not.toBeNull();
-    expect(result!.text).toContain(`chestnut claw worker-1 ${CLAW_VERBS.TRACE} --contract 1780-abcd`);
+    expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
-    expect(result!.text).toContain(`chestnut claw worker-2 ${CLAW_VERBS.TRACE} --contract 1780-cdef`);
+    expect(result!.text).toContain(`${renderClawInvocation('worker-2', 'trace')} --contract 1780-cdef`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-2 --contract 1780-cdef`);
   });
 
@@ -296,7 +296,7 @@ describe('phase 205: contract-events composer', () => {
   it('malformed pair (no colon) → skipped, others kept', () => {
     const result = contractEventsComposer({ problem_pairs: 'malformed,worker-1:1780-abcd' });
     expect(result).not.toBeNull();
-    expect(result!.text).toContain(`chestnut claw worker-1 ${CLAW_VERBS.TRACE} --contract 1780-abcd`);
+    expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
     expect(result!.text).not.toContain('malformed');
   });
 
@@ -308,8 +308,8 @@ describe('phase 205: contract-events composer', () => {
   it('trims whitespace around pairs', () => {
     const result = contractEventsComposer({ problem_pairs: ' worker-1:abc , worker-2:def ' });
     expect(result).not.toBeNull();
-    expect(result!.text).toContain(`chestnut claw worker-1 ${CLAW_VERBS.TRACE} --contract abc`);
-    expect(result!.text).toContain(`chestnut claw worker-2 ${CLAW_VERBS.TRACE} --contract def`);
+    expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract abc`);
+    expect(result!.text).toContain(`${renderClawInvocation('worker-2', 'trace')} --contract def`);
   });
 
   it('caps at MAX_PAIR_RENDER=10 and shows overflow hint', () => {

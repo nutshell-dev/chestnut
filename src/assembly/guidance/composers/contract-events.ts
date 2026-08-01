@@ -12,7 +12,7 @@
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
-import { clawCmd, CLAW_VERBS, CONTRACT_COMMANDS } from '../../../cli/utils/cli-commands.js';
+import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../cli-protocol/index.js';
 
 interface ContractEventsState {
   source_claw?: string;
@@ -84,7 +84,7 @@ function renderCliBlock(pairs: ContractPair[]): string {
     lines.push(`(${pairs.length} contract events、显示前 ${MAX_PAIR_RENDER})`, '');
   }
   for (const p of pairs.slice(0, displayCount)) {
-    lines.push(`${clawCmd(p.claw, CLAW_VERBS.TRACE)} --contract ${p.contract}`);
+    lines.push(`${renderClawInvocation(p.claw, 'trace')} --contract ${p.contract}`);
     lines.push(`${CONTRACT_COMMANDS.SHOW} -c ${p.claw} --contract ${p.contract}`);
   }
   return lines.join('\n');

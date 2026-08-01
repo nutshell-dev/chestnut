@@ -2,19 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   composeClawHelp,
   composeClawVerbHelp,
-  findVerbFact,
 } from '../../../src/assembly/cli-help/index.js';
 import {
-  __TEST_VERB_NAMES_FROM_ROUTER,
   dispatchClawSubcommand,
   renderClawTopHelp,
   renderClawVerbHelp,
 } from '../../../src/cli/commands/claw-router.js';
 import { CliError } from '../../../src/cli/errors.js';
 import {
-  CLAW_VERB_FACTS,
-  CLAW_VERB_NAMES,
-} from '../../../src/cli/help/index.js';
+  CLAW_COMMAND_CATALOG,
+  CLAW_INSTANCE_COMMAND_IDS,
+  getClawCommandSpec,
+} from '../../../src/cli-protocol/index.js';
 
 /**
  * verb-fact 单源 invariants — phase 1477 Step B4.
@@ -34,49 +33,43 @@ import {
 // Router's authoritative verb list. Imported via the router module to assert
 // the two are kept in lockstep at type/runtime layer.
 
-describe('CLAW_VERB_FACTS invariants', () => {
-  it('every fact has required fields', () => {
-    for (const fact of CLAW_VERB_FACTS) {
-      expect(fact.name).toMatch(/^[a-z][a-z-]*$/);
-      expect(fact.summary.length).toBeGreaterThan(0);
-      expect(['lifecycle', 'messaging', 'observation', 'discovery']).toContain(fact.group);
-      expect(['instance', 'flat']).toContain(fact.form);
+describe('CLAW_COMMAND_CATALOG invariants', () => {
+  it('every spec has required fields', () => {
+    for (const spec of CLAW_COMMAND_CATALOG) {
+      expect(spec.id).toMatch(/^[a-z][a-z-]*$/);
+      expect(spec.summary.length).toBeGreaterThan(0);
+      expect(['lifecycle', 'messaging', 'observation', 'discovery']).toContain(spec.group);
+      expect(['instance', 'flat']).toContain(spec.form);
     }
   });
 
-  it('verb names are unique within the fact table', () => {
+  it('command ids are unique within the catalog', () => {
     const seen = new Set<string>();
-    for (const fact of CLAW_VERB_FACTS) {
-      expect(seen.has(fact.name)).toBe(false);
-      seen.add(fact.name);
+    for (const spec of CLAW_COMMAND_CATALOG) {
+      expect(seen.has(spec.id)).toBe(false);
+      seen.add(spec.id);
     }
   });
 
-  it('instance-form fact name set matches router VERB_NAMES (no double-source drift)', () => {
-    const instanceFactNames = CLAW_VERB_FACTS.filter((f) => f.form === 'instance')
-      .map((f) => f.name)
-      .sort();
-    const routerNames = [...__TEST_VERB_NAMES_FROM_ROUTER].sort();
-    expect(instanceFactNames).toEqual(routerNames);
+  it('CLAW_INSTANCE_COMMAND_IDS derives from catalog instance-form specs (single source)', () => {
+    const instanceSpecIds = CLAW_COMMAND_CATALOG.filter((s) => s.form === 'instance')
+      .map((s) => s.id);
+    expect(CLAW_INSTANCE_COMMAND_IDS).toEqual(instanceSpecIds);
   });
 
-  it('flat-form verbs are exactly [list, help]', () => {
-    const flatNames = CLAW_VERB_FACTS.filter((f) => f.form === 'flat')
-      .map((f) => f.name)
+  it('flat-form commands are exactly [list, help]', () => {
+    const flatIds = CLAW_COMMAND_CATALOG.filter((s) => s.form === 'flat')
+      .map((s) => s.id)
       .sort();
-    expect(flatNames).toEqual(['help', 'list']);
+    expect(flatIds).toEqual(['help', 'list']);
   });
 
   it('every example begins with `chestnut claw` (no verb-first regression)', () => {
-    for (const fact of CLAW_VERB_FACTS) {
-      for (const ex of fact.examples ?? []) {
+    for (const spec of CLAW_COMMAND_CATALOG) {
+      for (const ex of spec.examples ?? []) {
         expect(ex.startsWith('chestnut claw ')).toBe(true);
       }
     }
-  });
-
-  it('CLAW_VERB_NAMES mirrors CLAW_VERB_FACTS order/length', () => {
-    expect(CLAW_VERB_NAMES).toEqual(CLAW_VERB_FACTS.map((f) => f.name));
   });
 
 });
@@ -98,7 +91,7 @@ describe('CLAW_VERB_FACTS invariants', () => {
  */
 
 describe('composeClawHelp (top-level)', () => {
-  const help = composeClawHelp(CLAW_VERB_FACTS);
+  const help = composeClawHelp(CLAW_COMMAND_CATALOG);
 
   it('contains all four group headers', () => {
     expect(help).toContain('Lifecycle:');
@@ -114,9 +107,9 @@ describe('composeClawHelp (top-level)', () => {
   });
 
   it('contains every verb summary string', () => {
-    for (const fact of CLAW_VERB_FACTS) {
-      if (fact.name === 'help') continue; // help is described by the Usage block itself
-      expect(help).toContain(fact.summary);
+    for (const spec of CLAW_COMMAND_CATALOG) {
+      if (spec.id === 'help') continue; // help is described by the Usage block itself
+      expect(help).toContain(spec.summary);
     }
   });
 
@@ -149,41 +142,41 @@ describe('composeClawHelp (top-level)', () => {
 
 describe('composeClawVerbHelp (per-verb)', () => {
   it('instance form: Usage row carries `<claw-name>` placeholder', () => {
-    const fact = findVerbFact(CLAW_VERB_FACTS, 'send')!;
+    const fact = getClawCommandSpec('send')!;
     const out = composeClawVerbHelp(fact);
     expect(out).toContain('Usage: chestnut claw <claw-name> send <message>');
   });
 
   it('flat form: Usage row omits `<claw-name>`', () => {
-    const fact = findVerbFact(CLAW_VERB_FACTS, 'list')!;
+    const fact = getClawCommandSpec('list')!;
     const out = composeClawVerbHelp(fact);
     expect(out).toContain('Usage: chestnut claw list');
     expect(out).not.toContain('<claw-name>');
   });
 
   it('renders Arguments section when fact has args', () => {
-    const fact = findVerbFact(CLAW_VERB_FACTS, 'send')!;
+    const fact = getClawCommandSpec('send')!;
     const out = composeClawVerbHelp(fact);
     expect(out).toContain('Arguments:');
     expect(out).toContain('Message body');
   });
 
   it('renders Options section when fact has options', () => {
-    const fact = findVerbFact(CLAW_VERB_FACTS, 'outbox')!;
+    const fact = getClawCommandSpec('outbox')!;
     const out = composeClawVerbHelp(fact);
     expect(out).toContain('Options:');
     expect(out).toContain('--limit <n>');
   });
 
   it('renders Examples section when fact has examples', () => {
-    const fact = findVerbFact(CLAW_VERB_FACTS, 'create')!;
+    const fact = getClawCommandSpec('create')!;
     const out = composeClawVerbHelp(fact);
     expect(out).toContain('Examples:');
     expect(out).toContain('chestnut claw alice create');
   });
 
   it('handles fact with neither args nor options', () => {
-    const fact = findVerbFact(CLAW_VERB_FACTS, 'stop')!;
+    const fact = getClawCommandSpec('stop')!;
     const out = composeClawVerbHelp(fact);
     expect(out).toContain('Usage:');
     expect(out).toContain(fact.summary);
@@ -192,14 +185,14 @@ describe('composeClawVerbHelp (per-verb)', () => {
   });
 });
 
-describe('findVerbFact', () => {
+describe('getClawCommandSpec', () => {
   it('returns the fact for a registered verb', () => {
-    const fact = findVerbFact(CLAW_VERB_FACTS, 'send');
-    expect(fact?.name).toBe('send');
+    const spec = getClawCommandSpec('send');
+    expect(spec?.id).toBe('send');
   });
 
   it('returns undefined for unknown verb', () => {
-    expect(findVerbFact(CLAW_VERB_FACTS, 'nonexistent')).toBeUndefined();
+    expect(getClawCommandSpec('nonexistent')).toBeUndefined();
   });
 });
 
