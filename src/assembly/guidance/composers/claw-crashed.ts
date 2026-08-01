@@ -1,54 +1,33 @@
 /**
  * @module L6.Assembly.Guidance
- * phase 2 γ4 → phase 201:
- *   - 删 unknown / user_stopped null 旁路
- *   - active_user_stopped 改 read-only inspect (status + steps)、保 design intent「不附 restart 暗示」
- *   - unknown 走 fallback inspect (steps)（不静默吞）
+ * phase 2 γ4 → phase 201 → phase 1257 Step B:
+ *   - 删 local wire interface / 本地 crash-class guard / claw-id placeholder fallback
+ *   - composer 只消费 Watchdog owner codec 的 typed state（decodeClawCrashedGuidance）
+ *   - 真实 envelope `from` 直接成为 CLI target（合法消息不再产生 placeholder）
+ *   - unknown/malformed wire 由 decoder 抛 typed error → Runtime 写
+ *     GUIDANCE_COMPOSER_FAILED 并仅投递原 body（不再产看似可执行的假命令）
  *
- * 业主 (watchdog) own CrashClass enum + base body 字面 + clean-stop marker 探测。
- * Assembly 此处 own motion-side CLI 教学：按 enum switch 1 primary action per case
- * (DP「相关」derive / 反 phase 1476 anti-pattern #5「多 options」).
- *
- * State 接 via Runtime extraMeta wire (watchdog-log.ts writeClawCrashedInbox
- * extraFields → encodeInbox YAML → 收件方 extraMeta).
- *
- * 业主类型 CrashClass type-only import (peer L6↔L6 装配综合本职、不违 M#5).
+ * 业主 (watchdog) own CrashClass enum + wire schema + clean-stop marker 探测。
+ * Assembly 此处 own motion-side CLI 教学：按 typed CrashClass exhaustive switch
+ * 1 primary action per case (DP「相关」derive / 反 phase 1476 anti-pattern #5「多 options」).
  *
  * Sub-case 行为：
  *  - active_unexpected: 教 motion 重启 daemon (`chestnut claw <id> daemon`) + inspect (steps)
  *  - active_user_stopped: read-only inspect (status + steps)、不附 restart 暗示（保 design intent）
- *  - unknown: fallback inspect (steps)（phase 201 删 null 旁路、不静默吞）
+ *
+ * codec import 仅限 watchdog/claw-crashed-guidance.ts 这一稳定 protocol 文件
+ * （纯函数、零 Watchdog runtime resource），不放宽到 Watchdog 其他实现。
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { renderClawInvocation } from '../../../cli-protocol/index.js';
-import type { CrashClass } from '../../../watchdog/claw-failure-classes.js';
+import { decodeClawCrashedGuidance } from '../../../watchdog/claw-crashed-guidance.js';
 
 
-interface ClawCrashedState {
-  crash_class: string;        // serialized CrashClass enum
-  claw_id: string;
-  clean_stop_marker?: string;  // 'true' | 'false'
-  contract?: string;
-  outbox_pending?: string;
-}
-
-function isCrashClass(s: string | undefined): s is CrashClass {
-  return s === 'active_unexpected' || s === 'active_user_stopped';
-}
-
-export const composer: GuidanceComposer<ClawCrashedState> = ({ meta: state }): GuidanceEntry => {
-  const cls = state.crash_class;
-  const id = state.claw_id || '<claw-id>';
-  // phase 201: 删 unknown / user_stopped null 旁路
-  // - unknown → fallback inspect（与 Step A claw_inactivity 同型最小 hint）
-  // - active_user_stopped → read-only inspect（保 design intent「不附 restart 暗示」、但出 status/steps 让 motion 可调研）
-  if (!isCrashClass(cls)) {
-    return {
-      text: `To inspect: ${renderClawInvocation(id, 'steps')}`,
-    };
-  }
-  switch (cls) {
+export const composer: GuidanceComposer = (input): GuidanceEntry => {
+  const state = decodeClawCrashedGuidance(input);
+  const id = state.clawId;
+  switch (state.crashClass) {
     case 'active_unexpected':
       // phase 4: 2-line guidance — primary action (restart) + optional diagnostic (steps)
       // 不冲突 phase 1476 anti-pattern #5: restart vs steps 是 orthogonal (action vs investigation)、不是「motion 在等价选项中选 1」
@@ -61,7 +40,7 @@ export const composer: GuidanceComposer<ClawCrashedState> = ({ meta: state }): G
         text: `To check current status: ${renderClawInvocation(id, 'status')}\nTo inspect what the claw was doing: ${renderClawInvocation(id, 'steps')}`,
       };
     default: {
-      const _exhaustive: never = cls;
+      const _exhaustive: never = state.crashClass;
       return _exhaustive;
     }
   }
