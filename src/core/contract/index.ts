@@ -134,6 +134,18 @@ export {
   type ContractEventsGuidanceDecodeErrorReason,
 } from './contract-events-guidance.js';
 
+// phase 1262 Step A: ContractSystem-owned contract_cancelled persisted guidance codec
+export {
+  CONTRACT_CANCELLED_GUIDANCE_SCHEMA_VERSION,
+  ContractCancelledGuidanceDecodeError,
+  encodeContractCancelledGuidance,
+  decodeContractCancelledGuidance,
+  type ContractCancelledGuidanceRef,
+  type ContractCancelledGuidanceState,
+  type ContractCancelledGuidanceWire,
+  type ContractCancelledGuidanceDecodeErrorReason,
+} from './contract-cancelled-guidance.js';
+
 export {
   CONTRACT_DIR,
   CONTRACT_ACTIVE_DIR,
