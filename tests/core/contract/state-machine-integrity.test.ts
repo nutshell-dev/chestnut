@@ -16,6 +16,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 
 import type { VerificationContext } from '../../../src/core/contract/verification.js';
 import type { ProgressData } from '../../../src/core/contract/types.js';
+import type { ContractNotification } from '../../../src/core/contract/notification.js';
 
 function makeAudit() {
   const events: Array<[string, ...(string | number)[]]> = [];
@@ -117,9 +118,9 @@ function makeAcceptanceCtx(
     maxAttempts?: number;
     progress?: ProgressData;
   } = {},
-): { ctx: VerificationContext; events: Array<[string, ...(string | number)[]]>; notifyCalls: Array<{ type: string; data: Record<string, unknown> }> } {
+): { ctx: VerificationContext; events: Array<[string, ...(string | number)[]]>; notifyCalls: ContractNotification[] } {
   const { audit, events } = makeAudit();
-  const notifyCalls: Array<{ type: string; data: Record<string, unknown> }> = [];
+  const notifyCalls: ContractNotification[] = [];
 
   const storedProgress: Record<string, ProgressData> = {};
   const fsMock = createMockFs({ moveThrow: overrides.moveToArchiveThrows ? new Error('disk full') : undefined });
@@ -155,8 +156,8 @@ function makeAcceptanceCtx(
     }),
     checkAllSubtasksCompleted: vi.fn(async () => false),
     emitContractCompleted: vi.fn(async () => {}),
-    onNotify: (type: string, data: Record<string, unknown>) => {
-      notifyCalls.push({ type, data });
+    onNotify: (event: ContractNotification) => {
+      notifyCalls.push(event);
     },
     runScriptVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
     runLLMVerification: vi.fn(async () => ({ passed: true, feedback: '' })),

@@ -192,7 +192,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('5000');
     });
 
-    it('onNotify verification_failed payload schema = AcceptanceFailedNotification', async () => {
+    it('onNotify verification_failed payload = VerificationFailedNotification typed event', async () => {
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
@@ -221,18 +221,19 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
       await verifDoneP;
 
+      // phase 1260 Step A: typed event 精确断言（canonical camelCase / legacy snake 归 Assembly mapper）
       const notifyCall = onNotifySpy.mock.calls.find(
-        (call: any[]) => call[0] === 'verification_failed'
+        (call: any[]) => call[0].type === 'verification_failed'
       );
       expect(notifyCall).toBeDefined();
-      const payload = notifyCall![1];
-      expect(payload).toMatchObject({
-        contract_id: contractId,
-        subtask_id: 't1',
+      expect(notifyCall![0]).toEqual({
+        type: 'verification_failed',
+        contractId,
+        subtaskId: 't1',
         cause: 'llm_rejected',
         feedback: 'rejected by LLM',
-        retry_count: 1,
-        max_attempts: 3,
+        retryCount: 1,
+        maxAttempts: 3,
       });
     });
 
@@ -241,6 +242,8 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
+      const onNotifySpy = vi.fn();
+      testManager.setOnNotify(onNotifySpy);
 
       const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
@@ -286,6 +289,17 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=t1'),
       ]));
+
+      // phase 1260 Step A: force-accept subtask_completed typed event 精确断言
+      const forceAcceptedEvents = onNotifySpy.mock.calls
+        .map((call: any[]) => call[0])
+        .filter((e: any) => e?.type === 'subtask_completed' && e.forceAccepted === true);
+      expect(forceAcceptedEvents).toEqual([{
+        type: 'subtask_completed',
+        contractId,
+        subtaskId: 't1',
+        forceAccepted: true,
+      }]);
     });
 
     it('retry_count 跨多次失败递增', async () => {

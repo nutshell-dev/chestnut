@@ -1,0 +1,207 @@
+/**
+ * Phase 1260 Step A: ContractNotification transport adapter 行为测试。
+ *
+ * 锁死 legacy transport shape（stream user_notify payload + completed/cancelled
+ * self-inbox）：typed event 经 exhaustive mapper 恢复历史 camel/snake 混排输出，
+ * 逐字段（含 key 集合与 body 文本）保持现状，不归一化。
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { createContractNotifyCallback } from '../../../src/core/contract/contract-notify-callback.js';
+import type { ContractNotification } from '../../../src/core/contract/notification.js';
+import { makeContractId, makeSubtaskId } from '../../../src/core/contract/types.js';
+import type { StreamWriter } from '../../../src/foundation/stream/index.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { makeMockAudit } from '../../helpers/audit.js';
+
+const CLAW_ID = 'test-claw';
+
+describe('phase 1260 Step A: contract notify adapter legacy transport shape', () => {
+  let tempDir: string;
+  let selfInboxDir: string;
+  let streamWrite: ReturnType<typeof vi.fn>;
+  let emit: (event: ContractNotification) => void;
+
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('phase1260-notify-');
+    selfInboxDir = path.join(tempDir, 'inbox', 'pending');
+    fs.mkdirSync(selfInboxDir, { recursive: true });
+    streamWrite = vi.fn();
+    emit = createContractNotifyCallback({
+      streamWriter: { write: streamWrite } as unknown as StreamWriter,
+      clawId: CLAW_ID,
+      systemFs: new NodeFileSystem({ baseDir: tempDir }),
+      selfInboxDir,
+      auditWriter: makeMockAudit(),
+    });
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
+  });
+
+  function inboxFiles(): string[] {
+    return fs.readdirSync(selfInboxDir);
+  }
+
+  function readOnlyInboxFile(): string {
+    const files = inboxFiles();
+    expect(files).toHaveLength(1);
+    return fs.readFileSync(path.join(selfInboxDir, files[0]), 'utf8');
+  }
+
+  it('contract_created → stream camel payload / 无 inbox', () => {
+    emit({
+      type: 'contract_created',
+      contractId: makeContractId('c1'),
+      title: 'T',
+      subtaskCount: 2,
+    });
+
+    expect(streamWrite).toHaveBeenCalledTimes(1);
+    expect(streamWrite).toHaveBeenCalledWith({
+      ts: expect.any(Number),
+      type: 'user_notify',
+      subtype: 'contract_created',
+      contractId: 'c1',
+      title: 'T',
+      subtaskCount: 2,
+    });
+    expect(inboxFiles()).toHaveLength(0);
+  });
+
+  it('contract_completed → stream mixed payload + contract_events self-inbox（legacy shape 逐字段）', () => {
+    emit({
+      type: 'contract_completed',
+      contractId: makeContractId('c1'),
+      title: 'T',
+      goal: 'G',
+      subtasks: [
+        { id: makeSubtaskId('t1'), completedAt: '2026-08-01T00:00:00Z', forceAccepted: false },
+        { id: makeSubtaskId('t2'), completedAt: '2026-08-01T01:00:00Z', forceAccepted: true },
+      ],
+      completedAt: '2026-08-01T01:00:00Z',
+    });
+
+    expect(streamWrite).toHaveBeenCalledTimes(1);
+    expect(streamWrite).toHaveBeenCalledWith({
+      ts: expect.any(Number),
+      type: 'user_notify',
+      subtype: 'contract_completed',
+      contractId: 'c1',
+      title: 'T',
+      goal: 'G',
+      subtasks: [
+        { id: 't1', completed_at: '2026-08-01T00:00:00Z', force_accepted: false },
+        { id: 't2', completed_at: '2026-08-01T01:00:00Z', force_accepted: true },
+      ],
+      completed_at: '2026-08-01T01:00:00Z',
+    });
+
+    const content = readOnlyInboxFile();
+    expect(content).toContain('type: contract_events');
+    expect(content).toContain('priority: high');
+    expect(content).toMatch(/source_claw:\s*"?test-claw"?/);
+    expect(content).toMatch(/contract_id:\s*"?c1"?/);
+    expect(content).toContain(
+      '[contract_completed] claw=test-claw'
+      + ' contractId=c1 title=T goal=G'
+      + ' subtasks=[{"id":"t1","completed_at":"2026-08-01T00:00:00Z","force_accepted":false},'
+      + '{"id":"t2","completed_at":"2026-08-01T01:00:00Z","force_accepted":true}]'
+      + ' completed_at=2026-08-01T01:00:00Z',
+    );
+  });
+
+  it('contract_cancelled → stream camel payload + contract_cancelled self-inbox（含 reason extraField）', () => {
+    emit({
+      type: 'contract_cancelled',
+      contractId: makeContractId('c1'),
+      reason: 'user cancelled',
+    });
+
+    expect(streamWrite).toHaveBeenCalledTimes(1);
+    expect(streamWrite).toHaveBeenCalledWith({
+      ts: expect.any(Number),
+      type: 'user_notify',
+      subtype: 'contract_cancelled',
+      contractId: 'c1',
+      reason: 'user cancelled',
+    });
+
+    const content = readOnlyInboxFile();
+    expect(content).toContain('type: contract_cancelled');
+    expect(content).toContain('priority: high');
+    expect(content).toMatch(/source_claw:\s*"?test-claw"?/);
+    expect(content).toMatch(/contract_id:\s*"?c1"?/);
+    expect(content).toMatch(/reason:\s*"?user cancelled"?/);
+    expect(content).toContain(
+      '[contract_cancelled] claw=test-claw contractId=c1 reason=user cancelled',
+    );
+  });
+
+  it('subtask_completed（普通路径）→ stream camel payload / 无 inbox', () => {
+    emit({
+      type: 'subtask_completed',
+      contractId: makeContractId('c1'),
+      subtaskId: makeSubtaskId('t1'),
+    });
+
+    expect(streamWrite).toHaveBeenCalledTimes(1);
+    expect(streamWrite).toHaveBeenCalledWith({
+      ts: expect.any(Number),
+      type: 'user_notify',
+      subtype: 'subtask_completed',
+      contractId: 'c1',
+      subtaskId: 't1',
+    });
+    expect(inboxFiles()).toHaveLength(0);
+  });
+
+  it('subtask_completed（force-accept 路径）→ stream snake payload / 无 inbox', () => {
+    emit({
+      type: 'subtask_completed',
+      contractId: makeContractId('c1'),
+      subtaskId: makeSubtaskId('t1'),
+      forceAccepted: true,
+    });
+
+    expect(streamWrite).toHaveBeenCalledTimes(1);
+    expect(streamWrite).toHaveBeenCalledWith({
+      ts: expect.any(Number),
+      type: 'user_notify',
+      subtype: 'subtask_completed',
+      contract_id: 'c1',
+      subtask_id: 't1',
+      force_accepted: true,
+    });
+    expect(inboxFiles()).toHaveLength(0);
+  });
+
+  it('verification_failed → stream 全 snake payload / 无 inbox', () => {
+    emit({
+      type: 'verification_failed',
+      contractId: makeContractId('c1'),
+      subtaskId: makeSubtaskId('t1'),
+      cause: 'llm_rejected',
+      feedback: 'rejected by LLM',
+      retryCount: 1,
+      maxAttempts: 3,
+    });
+
+    expect(streamWrite).toHaveBeenCalledTimes(1);
+    expect(streamWrite).toHaveBeenCalledWith({
+      ts: expect.any(Number),
+      type: 'user_notify',
+      subtype: 'verification_failed',
+      contract_id: 'c1',
+      subtask_id: 't1',
+      cause: 'llm_rejected',
+      feedback: 'rejected by LLM',
+      retry_count: 1,
+      max_attempts: 3,
+    });
+    expect(inboxFiles()).toHaveLength(0);
+  });
+});

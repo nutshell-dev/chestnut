@@ -9,7 +9,8 @@ import type { SubtaskId } from './types.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { ToolError, ToolTimeoutError } from '../../foundation/tools/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
-import type { LastFailedFeedback, AcceptanceFailedNotification } from './types.js';
+import type { ContractNotification } from './notification.js';
+import type { LastFailedFeedback } from './types.js';
 import {
   emitContractNotifyFailed,
   emitContractSubtaskResetToTodo,
@@ -22,19 +23,16 @@ import {
   type SerializableErrorFact,
 } from './verification-outcome.js';
 
-type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed' | 'contract_cancelled';
-
 export function safeNotify(
   ctx: VerificationContext,
-  type: NotifyType,
-  data: Record<string, unknown>,
+  event: ContractNotification,
 ): void {
   try {
-    ctx.onNotify?.(type, data);
+    ctx.onNotify?.(event);
   } catch (err) {
     emitContractNotifyFailed(
       ctx.audit,
-      { notifyType: type, error: formatErr(err) },
+      { notifyType: event.type, error: formatErr(err) },
     );
   }
 }
@@ -245,9 +243,12 @@ export async function handleVerificationErrorRetry(
       emitSubtaskForceAccepted(ctx.audit, {
         contractId, subtaskId, retryCount, claw: ctx.clawId,
       });
-      safeNotify(ctx, 'subtask_completed', {
-        contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
-      });
+      safeNotify(ctx, {
+        type: 'subtask_completed',
+        contractId,
+        subtaskId,
+        forceAccepted: true,
+      } satisfies ContractNotification);
 
       const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
       // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
@@ -264,14 +265,15 @@ export async function handleVerificationErrorRetry(
     emitContractSubtaskResetToTodo(ctx.audit, {
       contractId, subtaskId, cause, retryCount, maxAttempts,
     });
-    safeNotify(ctx, 'verification_failed', {
-      contract_id: contractId,
-      subtask_id: subtaskId,
+    safeNotify(ctx, {
+      type: 'verification_failed',
+      contractId,
+      subtaskId,
       cause,
       feedback: feedbackText,
-      retry_count: retryCount,
-      max_attempts: maxAttempts,
-    } satisfies AcceptanceFailedNotification);
+      retryCount,
+      maxAttempts,
+    } satisfies ContractNotification);
   } catch (e) {
     emitContractVerificationResetFailed(
       ctx.audit,

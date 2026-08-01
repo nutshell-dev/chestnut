@@ -47,15 +47,6 @@ export interface LastFailedFeedback {
   cause: 'llm_rejected' | 'programming_bug' | 'subagent_timeout' | 'script_failed';
 }
 
-export interface AcceptanceFailedNotification {
-  contract_id: ContractId;
-  subtask_id: string;
-  cause: 'llm_rejected' | 'programming_bug' | 'subagent_timeout' | 'script_failed';
-  feedback: string;
-  retry_count: number;
-  max_attempts: number;
-}
-
 export interface SubTask {
   id: string;
   description: string;

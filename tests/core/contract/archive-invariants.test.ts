@@ -114,7 +114,7 @@ describe('moveContractToArchive concurrent lifecycle (phase 1191)', () => {
     // Observe every success side effect: abort, completed handler,
     // completed audit, contract_completed notify.
     const notifyTypes: string[] = [];
-    manager.setOnNotify((type) => notifyTypes.push(type));
+    manager.setOnNotify((event) => notifyTypes.push(event.type));
     const completedHandler = vi.fn(async () => {});
     manager.onContractCompleted(completedHandler);
 

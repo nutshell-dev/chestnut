@@ -16,6 +16,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
+import type { ContractNotification } from '../../../src/core/contract/notification.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
@@ -236,9 +237,9 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
   });
 
   it('phase 63: cancelContract triggers safeNotify("contract_cancelled")', async () => {
-    const notifyCalls: Array<{ type: string; data: Record<string, unknown> }> = [];
-    manager.setOnNotify((type, data) => {
-      notifyCalls.push({ type, data });
+    const notifyCalls: ContractNotification[] = [];
+    manager.setOnNotify((event) => {
+      notifyCalls.push(event);
     });
 
     const contractId = await manager.create(makeContractYaml({
@@ -247,17 +248,24 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
+
+    // phase 1260 Step A: contract_created typed event 精确断言（create commit 后 emit）
+    expect(notifyCalls).toEqual([{
+      type: 'contract_created',
+      contractId,
+      title: 'Cancel Notify Test',
+      subtaskCount: 1,
+    }]);
     // create triggers contract_created notify, clear to only verify cancel
     notifyCalls.length = 0;
 
     await manager.cancel(contractId, 'user cancelled');
 
-    expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0].type).toBe('contract_cancelled');
-    expect(notifyCalls[0].data).toMatchObject({
+    expect(notifyCalls).toEqual([{
+      type: 'contract_cancelled',
       contractId,
       reason: 'user cancelled',
-    });
+    }]);
   });
 
   // 反向 1: happy path — cancelContract archives contract via intent; no pre-rename progress mutation.

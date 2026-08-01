@@ -20,6 +20,7 @@ import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { ContractNotification } from '../../../src/core/contract/notification.js';
 import { ToolError } from '../../../src/foundation/tools/errors.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
 import * as path from 'path';
@@ -341,7 +342,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
   let clawDir: string;
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
-  let notifyCalls: Array<{ type: string; data: Record<string, unknown> }>;
+  let notifyCalls: ContractNotification[];
   let auditWrites: string[][];
 
   beforeEach(async () => {
@@ -365,8 +366,8 @@ describe('phase 1121 Step C: markCorrupted', () => {
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
-    manager.setOnNotify((type, data) => {
-      notifyCalls.push({ type, data });
+    manager.setOnNotify((event) => {
+      notifyCalls.push(event);
     });
   });
 

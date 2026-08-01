@@ -5,7 +5,8 @@
  */
 
 import * as path from 'path';
-import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
+import type { ContractYaml, VerificationResult, SubtaskId } from './types.js';
+import type { ContractNotification } from './notification.js';
 import { ToolError } from '../../foundation/tools/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
@@ -186,7 +187,11 @@ async function applyVerificationOutcome(
     }
     const updatedProgress = transitionResult.progress;
     const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
-    safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
+    safeNotify(ctx, {
+      type: 'subtask_completed',
+      contractId,
+      subtaskId,
+    } satisfies ContractNotification);
     const subtaskTotal = contractYaml.subtasks.length;
     const completedCount = Object.values(updatedProgress.subtasks).filter(s => s.status === 'completed').length;
 
@@ -255,9 +260,12 @@ async function applyVerificationOutcome(
 
   if (forceAccept) {
     const lastFeedback = updatedSubtask?.last_failed_feedback?.feedback;
-    safeNotify(ctx, 'subtask_completed', {
-      contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
-    });
+    safeNotify(ctx, {
+      type: 'subtask_completed',
+      contractId,
+      subtaskId,
+      forceAccepted: true,
+    } satisfies ContractNotification);
 
     // Phase 968: emit force-accept audit AFTER transition commits
     emitSubtaskForceAccepted(ctx.audit, {
@@ -272,14 +280,15 @@ async function applyVerificationOutcome(
   }
 
   // retry_count < maxAttempts: 保留 retry 路径
-  safeNotify(ctx, 'verification_failed', {
-    contract_id: contractId,
-    subtask_id: subtaskId,
+  safeNotify(ctx, {
+    type: 'verification_failed',
+    contractId,
+    subtaskId,
     cause: failureCause,
     feedback: result.feedback,
-    retry_count: retryCount,
-    max_attempts: maxAttempts,
-  } satisfies AcceptanceFailedNotification);
+    retryCount,
+    maxAttempts,
+  } satisfies ContractNotification);
   // phase 425: retry path transition 完成 audit、tests 用此 event 等 state settle
   emitContractSubtaskResetToTodo(ctx.audit, {
     contractId, subtaskId, cause: failureCause, retryCount, maxAttempts,

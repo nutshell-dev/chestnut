@@ -188,7 +188,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
 
       // phase 738 reverse 3: contract_completed notify NOT emitted on archive failure
       const completedEvents = onNotifySpy.mock.calls.filter(
-        (call: any[]) => call[0] === 'contract_completed'
+        (call: any[]) => call[0].type === 'contract_completed'
       );
       expect(completedEvents).toHaveLength(0);
 

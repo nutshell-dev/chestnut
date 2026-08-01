@@ -11,7 +11,7 @@ export type {
 } from './foundation/llm-provider/index.js';
 export type {
   DerivableStatus, SubtaskStatus, LastFailedFeedback,
-  AcceptanceFailedNotification, SubTask, Contract,
+  SubTask, Contract,
 } from './core/contract/types.js';
 export type { InboxMessage, OutboxMessage, Priority } from './foundation/messaging/index.js';
 export { PRIORITY_VALUES } from './foundation/messaging/index.js';

@@ -3,8 +3,13 @@
  * @layer L6 装配层
  * @consumers L6.Assembly.assemble
  *
- * Contract event → outbox notify 回调工厂、按 type 分发 / formatNotifyData 序列化 / outbox.write 发出。
+ * ContractNotification → transport adapter：接 ContractSystem-owned typed event，
+ * exhaustive mapper 显式恢复 legacy stream/inbox shape（camel/snake 历史混排是
+ * 持久化观察协议事实，本 adapter 逐字段保持、不归一化），formatNotifyData 序列化 /
+ * stream user_notify + completed/cancelled self-inbox 发出。
+ *
  * 抽出动机：assemble() M#1/SRP 治理（assembly-auditor §六.4 follow-up）。
+ * phase 1260 Step A：typed protocol 接入；Step B 物理归位 src/assembly/ 并删除 Runtime 中转。
  *
  * phase 37：variable `motionInboxDir` → `selfInboxDir` 命名 hygiene + 注释 calibration（详 §A.6）。
  */
@@ -13,6 +18,10 @@ import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
+import type {
+  ContractNotification,
+  ContractNotificationSink,
+} from './notification.js';
 
 export interface ContractNotifyDeps {
   streamWriter: StreamWriter;
@@ -32,15 +41,14 @@ export interface ContractNotifyDeps {
   auditWriter: AuditLog;
 }
 
-export type ContractNotifyCallback = (type: string, data: Record<string, unknown>) => void;
-
-export function createContractNotifyCallback(deps: ContractNotifyDeps): ContractNotifyCallback {
-  return (type: string, data: Record<string, unknown>) => {
-    deps.streamWriter.write({ ts: Date.now(), type: 'user_notify', subtype: type, ...data });
+export function createContractNotifyCallback(deps: ContractNotifyDeps): ContractNotificationSink {
+  return (event: ContractNotification) => {
+    const data = toLegacyNotifyData(event);
+    deps.streamWriter.write({ ts: Date.now(), type: 'user_notify', subtype: event.type, ...data });
 
     // §A.6 双链路：本 daemon 自家 inbox 接契约终态事件（决策点）
     // subtask_completed / verification_failed 仅 streamWriter（viewport 可见、决策无用）
-    if (type === 'contract_completed') {
+    if (event.type === 'contract_completed') {
       // phase 1487: 透传 source_claw 给 motion guidance composer
       //   - composer 见 source_claw == MOTION_CLAW_ID → null (motion 自家、session 已含上下文)
       // phase 37: 写 selfInboxDir（本 daemon 自家、详 deps.selfInboxDir doc）
@@ -52,17 +60,16 @@ export function createContractNotifyCallback(deps: ContractNotifyDeps): Contract
         type: 'contract_events',
         source: 'system',
         priority: 'high',
-        body: `[${type}] claw=${deps.clawId} ${formatNotifyData(data)}`,
+        body: `[${event.type}] claw=${deps.clawId} ${formatNotifyData(data)}`,
         extraFields: {
           source_claw: deps.clawId,
-          contract_id: String(data.contractId ?? ''),
+          contract_id: event.contractId,
         },
       }, deps.auditWriter);
     }
 
     // phase 63: contract_cancelled NEW
-    if (type === 'contract_cancelled') {
-      const reason = typeof data.reason === 'string' ? data.reason : '';
+    if (event.type === 'contract_cancelled') {
       notifyInbox(deps.systemFs, {
         inboxDir: deps.selfInboxDir,
         type: 'contract_cancelled',
@@ -71,13 +78,62 @@ export function createContractNotifyCallback(deps: ContractNotifyDeps): Contract
         body: `[contract_cancelled] claw=${deps.clawId} ${formatNotifyData(data)}`,
         extraFields: {
           source_claw: deps.clawId,
-          contract_id: String(data.contractId ?? ''),
-          reason,
+          contract_id: event.contractId,
+          reason: event.reason,
         },
       }, deps.auditWriter);
     }
 
   };
+}
+
+/**
+ * phase 1260 Step A: typed event → legacy transport data shape（逐 variant exhaustive）。
+ *
+ * 恢复历史 emitter 手写的 Record shape，key 集合与插入序逐字段保持：
+ * - created / cancelled / 普通 subtask_completed：camelCase；
+ * - contract_completed：`completed_at` + subtask 内 `completed_at`/`force_accepted`；
+ * - forceAccepted subtask_completed：`contract_id`/`subtask_id`/`force_accepted` snake；
+ * - verification_failed：全 snake keys。
+ *
+ * 新增 ContractNotification variant 时本 switch 编译失败（never exhaustive）。
+ */
+function toLegacyNotifyData(event: ContractNotification): Record<string, unknown> {
+  switch (event.type) {
+    case 'contract_created':
+      return { contractId: event.contractId, title: event.title, subtaskCount: event.subtaskCount };
+    case 'contract_completed':
+      return {
+        contractId: event.contractId,
+        title: event.title,
+        goal: event.goal,
+        subtasks: event.subtasks.map((st) => ({
+          id: st.id,
+          completed_at: st.completedAt,
+          force_accepted: st.forceAccepted,
+        })),
+        completed_at: event.completedAt,
+      };
+    case 'contract_cancelled':
+      return { contractId: event.contractId, reason: event.reason };
+    case 'subtask_completed':
+      return event.forceAccepted === true
+        ? { contract_id: event.contractId, subtask_id: event.subtaskId, force_accepted: true }
+        : { contractId: event.contractId, subtaskId: event.subtaskId };
+    case 'verification_failed':
+      return {
+        contract_id: event.contractId,
+        subtask_id: event.subtaskId,
+        cause: event.cause,
+        feedback: event.feedback,
+        retry_count: event.retryCount,
+        max_attempts: event.maxAttempts,
+      };
+    default: {
+      const exhaustive: never = event;
+      throw new Error(`unknown contract notification variant: ${JSON.stringify(exhaustive)}`);
+    }
+  }
 }
 
 function formatNotifyData(data: Record<string, unknown>): string {

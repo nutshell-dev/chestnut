@@ -58,6 +58,7 @@ import type {
   LifecycleCommitOutcome,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
+import type { ContractNotification, ContractNotificationSink } from './notification.js';
 
 import { loadActiveContract, type DiscoveryContext } from './discovery.js';
 import {
@@ -160,7 +161,7 @@ export class ContractSystem {
   private activeDir = CONTRACT_ACTIVE_DIR;
   private pausedDir = CONTRACT_PAUSED_DIR;
   private archiveDir: ArchiveDir = makeArchiveDir(CONTRACT_ARCHIVE_DIR);
-  onNotify?: (type: string, data: Record<string, unknown>) => void;
+  onNotify?: ContractNotificationSink;
 
   // phase 1424: contract auditor 周期 LLM 对照 expectations 检查 + inbox 高优反馈
   private auditor?: ContractAuditor;
@@ -274,8 +275,8 @@ export class ContractSystem {
 
   }
 
-  setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
-    this.onNotify = cb;
+  setOnNotify(sink: ContractNotificationSink): void {
+    this.onNotify = sink;
   }
 
   // ============================================================================
@@ -780,7 +781,7 @@ export class ContractSystem {
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
       // phase 438: lazy thunk、setOnNotify 后的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
-      onNotify: (type, data) => this.onNotify?.(type, data),
+      onNotify: (event) => this.onNotify?.(event),
     };
   }
 
@@ -809,7 +810,7 @@ export class ContractSystem {
       getContractRoot: (id) => this.getContractRoot(id),
       transitionVerificationAttempt: (id, stId, t) => this.transitionVerificationAttempt(id, stId, t),
       // phase 438: lazy thunk、同 _lifecycleCtx
-      onNotify: (type, data) => this.onNotify?.(type, data),
+      onNotify: (event) => this.onNotify?.(event),
       // Phase 965: propagate cancellation signal to verification execution
       signal,
       runScriptVerification: function(scriptFile: string, contractAbsDir: string) {
@@ -1332,7 +1333,12 @@ export class ContractSystem {
     }
 
     try {
-      this.onNotify?.('contract_created', { contractId, title: contractYaml.title, subtaskCount: contractYaml.subtasks.length });
+      this.onNotify?.({
+        type: 'contract_created',
+        contractId,
+        title: contractYaml.title,
+        subtaskCount: contractYaml.subtasks.length,
+      } satisfies ContractNotification);
     } catch (err) {
       emitContractNotifyFailed(
         this.audit,

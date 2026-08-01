@@ -18,6 +18,7 @@ import {
   emitContractCorrupted,
   emitContractNotifyFailed,
 } from './audit-emit.js';
+import type { ContractNotification, ContractNotificationSink } from './notification.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 import { type ArchiveDir } from './types.js';
@@ -44,8 +45,8 @@ export interface LifecycleContext {
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   /** phase 1020 (r124 C fork): cancelContract abort propagation to active verifier subagents */
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
-  /** phase 63: onNotify callback for contract terminal state alerts */
-  onNotify?: (type: string, data: Record<string, unknown>) => void;
+  /** phase 63: onNotify sink for contract terminal state alerts（phase 1260: typed event） */
+  onNotify?: ContractNotificationSink;
 }
 
 function makeRequestId(prefix: string): string {
@@ -54,13 +55,12 @@ function makeRequestId(prefix: string): string {
 
 function safeNotify(
   ctx: LifecycleContext,
-  type: 'contract_cancelled',
-  data: Record<string, unknown>,
+  event: ContractNotification,
 ): void {
   try {
-    ctx.onNotify?.(type, data);
+    ctx.onNotify?.(event);
   } catch (err) {
-    emitContractNotifyFailed(ctx.audit, { notifyType: type, error: formatErr(err) });
+    emitContractNotifyFailed(ctx.audit, { notifyType: event.type, error: formatErr(err) });
   }
 }
 
@@ -93,7 +93,11 @@ export async function cancelContract(
       abortVerifierFailed = formatErr(abortErr);
     }
     emitContractCancelled(ctx.audit, { contractId, reason, abortVerifierFailed });
-    safeNotify(ctx, 'contract_cancelled', { contractId, reason });
+    safeNotify(ctx, {
+      type: 'contract_cancelled',
+      contractId,
+      reason,
+    } satisfies ContractNotification);
     return outcome;
   }
 

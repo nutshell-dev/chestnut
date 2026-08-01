@@ -16,6 +16,7 @@ import { writeForceAcceptInbox, writeVerificationInbox, writeVerificationError }
 import * as verificationNotifyMod from '../../../src/core/contract/verification-notify.js';  // phase 263: hoist
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { VerificationContext } from '../../../src/core/contract/verification-types.js';
+import type { ContractNotification } from '../../../src/core/contract/notification.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
@@ -386,9 +387,9 @@ describe('no verification path', () => {
       }),
     );
 
-    const notifyCalls: Array<{ type: string; data: Record<string, unknown> }> = [];
-    manager.setOnNotify((type, data) => {
-      notifyCalls.push({ type, data });
+    const notifyCalls: ContractNotification[] = [];
+    manager.setOnNotify((event) => {
+      notifyCalls.push(event);
     });
 
     await completeSubtask(manager, {
@@ -397,13 +398,13 @@ describe('no verification path', () => {
       evidence: 'done',
     });
 
-    // Assert onNotify was called with subtask_completed
+    // Assert onNotify was called with subtask_completed（phase 1260: 精确 typed event）
     const subtaskCompletedCalls = notifyCalls.filter((c) => c.type === 'subtask_completed');
-    expect(subtaskCompletedCalls.length).toBeGreaterThanOrEqual(1);
-    expect(subtaskCompletedCalls[0].data).toMatchObject({
+    expect(subtaskCompletedCalls).toEqual([{
+      type: 'subtask_completed',
       contractId,
       subtaskId: 'task-1',
-    });
+    }]);
   });
 });
 

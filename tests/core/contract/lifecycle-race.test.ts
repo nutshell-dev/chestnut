@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
+import type { ContractNotification } from '../../../src/core/contract/notification.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -57,8 +58,8 @@ interface RaceFixture {
   clawDir: string;
   managerA: ContractSystem;
   managerB: ContractSystem;
-  notifyA: Array<{ type: string; data: Record<string, unknown> }>;
-  notifyB: Array<{ type: string; data: Record<string, unknown> }>;
+  notifyA: ContractNotification[];
+  notifyB: ContractNotification[];
 }
 
 async function setupRace(): Promise<RaceFixture> {
@@ -66,8 +67,8 @@ async function setupRace(): Promise<RaceFixture> {
   const clawDir = path.join(tempDir, 'claws', 'race-claw');
   await fs.mkdir(clawDir, { recursive: true });
 
-  const notifyA: Array<{ type: string; data: Record<string, unknown> }> = [];
-  const notifyB: Array<{ type: string; data: Record<string, unknown> }> = [];
+  const notifyA: ContractNotification[] = [];
+  const notifyB: ContractNotification[] = [];
 
   const makeManager = () => {
     const manager = new ContractSystem({
@@ -85,8 +86,8 @@ async function setupRace(): Promise<RaceFixture> {
 
   const managerA = makeManager();
   const managerB = makeManager();
-  managerA.setOnNotify((type, data) => notifyA.push({ type, data }));
-  managerB.setOnNotify((type, data) => notifyB.push({ type, data }));
+  managerA.setOnNotify((event) => notifyA.push(event));
+  managerB.setOnNotify((event) => notifyB.push(event));
 
   return { tempDir, clawDir, managerA, managerB, notifyA, notifyB };
 }

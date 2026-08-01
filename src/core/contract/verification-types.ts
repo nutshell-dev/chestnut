@@ -19,6 +19,7 @@ import type {
   PersistVerificationOutcomeResult,
   VerificationOutcomeIntent,
 } from './verification-outcome.js';
+import type { ContractNotificationSink } from './notification.js';
 
 /**
  * phase 95: pre-bound notifyClaw — caller (Manager) binds fs + chestnutRoot + audit.
@@ -120,7 +121,8 @@ export interface VerificationExecutionContext {
   registerController?: (contractId: ContractId, controller: AbortController, promise: Promise<unknown>) => void;
   /** Phase 965: unregister a verifier AbortController */
   unregisterController?: (contractId: ContractId, controller: AbortController) => void;
-  onNotify?: (type: string, data: Record<string, unknown>) => void;
+  /** phase 1260: ContractSystem-owned typed notification sink */
+  onNotify?: ContractNotificationSink;
 }
 
 export type VerificationContext =

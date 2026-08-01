@@ -6,6 +6,8 @@
 import * as path from 'path';
 import type { VerificationContext } from './verification-types.js';
 import type { VerificationResult, SubtaskId, ProgressData } from './types.js';
+import { makeSubtaskId } from './types.js';
+import type { ContractNotification } from './notification.js';
 import { activeContainerDir } from './locations.js';
 import { safeNotify } from './verification-notify.js';
 import { ToolError } from '../../foundation/tools/index.js';
@@ -133,20 +135,21 @@ export async function archiveAndEmit(
 
     const subtasksSummary = Object.entries(progress.subtasks)
       .filter(([, st]) => st.status === 'completed')
-      .map(([id, st]) => ({ id, completed_at: st.completed_at ?? '', force_accepted: !!st.force_accepted }));
+      .map(([id, st]) => ({ id: makeSubtaskId(id), completedAt: st.completed_at ?? '', forceAccepted: !!st.force_accepted }));
     const completedAt = Object.values(progress.subtasks)
       .reduce((max, s) => {
         if (!s.completed_at) return max;
         return s.completed_at > max ? s.completed_at : max;
       }, '');
 
-    safeNotify(ctx, 'contract_completed', {
+    safeNotify(ctx, {
+      type: 'contract_completed',
       contractId,
       title: contractYaml.title,
       goal: contractYaml.goal,
       subtasks: subtasksSummary,
-      completed_at: completedAt,
-    });
+      completedAt,
+    } satisfies ContractNotification);
 
     return { archived: true, state: 'completed' };
   }
@@ -254,7 +257,11 @@ export async function completeSubtaskSync(
   // committed：post-commit side effects（不回滚 progress、不毒化 queue）。
   const progress = result.progress;
   const allCompleted = result.allCompleted;
-  safeNotify(ctx, 'subtask_completed', { contractId, subtaskId });
+  safeNotify(ctx, {
+    type: 'subtask_completed',
+    contractId,
+    subtaskId,
+  } satisfies ContractNotification);
   const subtaskTotal = contractYaml.subtasks.length;
   const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
 

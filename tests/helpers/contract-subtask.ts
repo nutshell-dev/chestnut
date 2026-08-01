@@ -19,6 +19,7 @@ import type { ClawId } from '../../src/foundation/claw-identity/index.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/index.js';
 import type { NotifyClawFn } from '../../src/core/contract/verification-types.js';
+import type { ContractNotificationSink } from '../../src/core/contract/notification.js';
 import type { ProgressData, ContractYaml, ArchiveState } from '../../src/core/contract/types.js';
 import type { VerificationAttemptTransition } from '../../src/core/contract/verification-transition-types.js';
 import type { SyncCompletionGatewayResult, VerificationGatewayResult } from '../../src/core/contract/verification-types.js';
@@ -99,7 +100,7 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
     isActiveContract: (id) => self.isActiveContract(id),
     getContractRoot: (id) => self.getContractRoot(id),
     transitionVerificationAttempt: (id, stId, t) => self.transitionVerificationAttempt(id, stId, t),
-    onNotify: (type, data) => (manager as unknown as { onNotify?: (type: string, data: Record<string, unknown>) => void }).onNotify?.(type, data),
+    onNotify: (event) => (manager as unknown as { onNotify?: ContractNotificationSink }).onNotify?.(event),
     signal,
     runScriptVerification: function(scriptFile: string, contractAbsDir: string) {
       return self.runScriptVerification(scriptFile, contractAbsDir, this.signal);

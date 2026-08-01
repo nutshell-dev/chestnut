@@ -371,13 +371,18 @@ describe('ContractSystem', () => {
     await expect(fs.access(activePath)).rejects.toThrow();
 
     // phase 738: contract_completed notify emitted on archive success
+    // phase 1260 Step A: typed event 精确断言（含 subtasks summary / completedAt）
     const completedEvents = onNotifySpy.mock.calls.filter(
-      (call: any[]) => call[0] === 'contract_completed'
+      (call: any[]) => call[0].type === 'contract_completed'
     );
     expect(completedEvents).toHaveLength(1);
-    expect(completedEvents[0][1]).toMatchObject({
-      contractId: expect.any(String),
+    expect(completedEvents[0][0]).toEqual({
+      type: 'contract_completed',
+      contractId,
       title: 'AllCompleted Test',
+      goal: 'Test',
+      subtasks: [{ id: 't1', completedAt: expect.any(String), forceAccepted: false }],
+      completedAt: expect.any(String),
     });
   });
 
