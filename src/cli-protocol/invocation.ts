@@ -15,9 +15,9 @@
  * 升档条件：Phase 1252 guidance 迁移需要 typed contract action，或 contract help/catalog
  * 单独治理。本 phase 不宣称 contract catalog 已完成。
  *
- * 历史：源自 phase 554/708 `src/cli/utils/cli-commands.ts`（clawCmd + CLAW_VERBS +
- * CONTRACT_COMMANDS）。phase 1253 删 `CLAW_VERBS` 第二单源（与 catalog 漂移：缺 ls/ps、
- * 含孤儿 `read-state`），调用方改用 literal command id。
+ * 历史：源自 phase 554/708 `src/cli/utils/cli-commands.ts`（claw invocation helper +
+ * 手写 verb 表 + CONTRACT_COMMANDS）。phase 1253 删手写 verb 表这个第二单源
+ * （与 catalog 漂移：缺 ls/ps、含孤儿 `read-state`），调用方改用 literal command id。
  */
 
 import type { ClawInstanceCommandId } from './claw-command-catalog.js';
