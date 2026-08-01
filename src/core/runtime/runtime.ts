@@ -178,9 +178,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (deps.parentStreamLog) {
       deps.taskSystem.setParentStreamLog(deps.parentStreamLog);
     }
-    if (deps.contractNotifyCallback) {
-      deps.contractManager.setOnNotify(deps.contractNotifyCallback);
-    }
   }
 
   /** phase 1343 α-6: set/clear turn-level trace id on audit writer */

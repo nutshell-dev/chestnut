@@ -1,7 +1,7 @@
 /**
- * @module L6.Assembly.ContractNotifyCallback
+ * @module L6.Assembly.ContractNotificationAdapter
  * @layer L6 装配层
- * @consumers L6.Assembly.assemble
+ * @consumers L6.Assembly.RuntimeAssembly
  *
  * ContractNotification → transport adapter：接 ContractSystem-owned typed event，
  * exhaustive mapper 显式恢复 legacy stream/inbox shape（camel/snake 历史混排是
@@ -9,21 +9,22 @@
  * stream user_notify + completed/cancelled self-inbox 发出。
  *
  * 抽出动机：assemble() M#1/SRP 治理（assembly-auditor §六.4 follow-up）。
- * phase 1260 Step A：typed protocol 接入；Step B 物理归位 src/assembly/ 并删除 Runtime 中转。
+ * phase 1260 Step B：物理归位 Assembly（原 core/contract/contract-notify-callback.ts），
+ * runtime-assembly 构造后直接 attach 到 contractManager，Runtime 中转依赖已删除。
  *
  * phase 37：variable `motionInboxDir` → `selfInboxDir` 命名 hygiene + 注释 calibration（详 §A.6）。
  */
 
-import type { StreamWriter } from '../../foundation/stream/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import { notifyInbox } from '../../foundation/messaging/index.js';
+import type { StreamWriter } from '../foundation/stream/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { notifyInbox } from '../foundation/messaging/index.js';
 import type {
   ContractNotification,
   ContractNotificationSink,
-} from './notification.js';
+} from '../core/contract/index.js';
 
-export interface ContractNotifyDeps {
+export interface ContractNotificationAdapterDeps {
   streamWriter: StreamWriter;
   clawId: string;
   systemFs: FileSystem;
@@ -41,7 +42,7 @@ export interface ContractNotifyDeps {
   auditWriter: AuditLog;
 }
 
-export function createContractNotifyCallback(deps: ContractNotifyDeps): ContractNotificationSink {
+export function createContractNotificationAdapter(deps: ContractNotificationAdapterDeps): ContractNotificationSink {
   return (event: ContractNotification) => {
     const data = toLegacyNotifyData(event);
     deps.streamWriter.write({ ts: Date.now(), type: 'user_notify', subtype: event.type, ...data });

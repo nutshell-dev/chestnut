@@ -92,19 +92,9 @@ describe('Runtime Init', () => {
       expect(spy).toHaveBeenCalledWith(mockStreamLog);
     });
 
-    it('deps.contractNotifyCallback 构造期注入 → contractManager.setOnNotify 已调', async () => {
-      const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
-      const spy = vi.spyOn(deps.contractManager, 'setOnNotify');
-      const cb = vi.fn();
-      (deps as any).contractNotifyCallback = cb;
-      const runtime = trackRuntime(new Runtime({
-        clawId: 'test-claw',
-        clawDir,
-        llmConfig: createMockLLMConfig(),
-        dependencies: deps,
-      }));
-      expect(spy).toHaveBeenCalledWith(cb);
-    });
+    // phase 1260 Step B: contractNotifyCallback 中转已删除；notification sink 由 Assembly
+    // 直接 attach 到 contractManager（正向 coverage 见 tests/assembly/assemble.test.ts），
+    // Runtime 不再知 notification（静态边界见 contract-notification-boundary ratchet）。
   });
 
   describe('Runtime AsyncTaskSystem business actions (phase155C)', () => {

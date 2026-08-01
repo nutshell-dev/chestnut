@@ -16,7 +16,7 @@ import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { type Runtime, type RuntimeDependencies, type GuidanceEnvelope } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
-import { createContractNotifyCallback } from '../core/contract/index.js';
+import { createContractNotificationAdapter } from './contract-notification-adapter.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
@@ -100,14 +100,17 @@ export async function createRuntimeAssembly(
   }
 
   try {
-    // contractNotify callback 在 Runtime 构造前形成（注入 deps 而非 setter）
-    const contractNotifyCallback = createContractNotifyCallback({
+    // phase 1260 Step B: Assembly own transport adapter、构造后直接 attach 到 contractManager。
+    // 必须在 createRuntime 之前完成 attach（无短窗口漏 event）；ContractManager setter
+    // 只赋 sink、不主动 fire，attach 时无业务副作用。
+    const contractNotificationSink = createContractNotificationAdapter({
       streamWriter,
       clawId,
       systemFs,
       selfInboxDir,
       auditWriter,
     });
+    contractManager.setOnNotify(contractNotificationSink);
 
     // === RuntimeDependencies 分组构造（assembly-auditor §六.5 follow-up / 可读性） ===
     const messagingDeps = {
@@ -164,7 +167,6 @@ export async function createRuntimeAssembly(
       contractManager,
       taskSystem,
       permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造
-      contractNotifyCallback,
       // phase 521: regime switch coordination / Assembly own factory / closure capture 5 const
       dialogStoreFactory: makeDialogStore,
       // phase 69: L6 Assembly 装配期注入 claw 子目录列表

@@ -30,6 +30,9 @@ const mockCronRunner = {
 };
 const mockHeartbeat = {};
 
+// phase 1260 Step B: capture ContractSystem instances for direct-attach assertions
+const capturedContractManagers: Array<{ setOnNotify: ReturnType<typeof vi.fn> }> = [];
+
 // ============================================================================
 // Construction order tracking (phase155C)
 // ============================================================================
@@ -184,7 +187,11 @@ vi.mock('../../src/foundation/tools/executor.js', () => {
 });
 
 vi.mock('../../src/core/contract/manager.js', () => ({
-  ContractSystem: trackCtor('ContractSystem', () => ({ setOnNotify: vi.fn(), loadPaused: vi.fn(), resume: vi.fn(), onContractCompleted: vi.fn(() => () => {}), init: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), registerCreatePolicy: vi.fn(), createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })) })),
+  ContractSystem: trackCtor('ContractSystem', () => {
+    const instance = { setOnNotify: vi.fn(), loadPaused: vi.fn(), resume: vi.fn(), onContractCompleted: vi.fn(() => () => {}), init: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), registerCreatePolicy: vi.fn(), createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })) };
+    capturedContractManagers.push(instance);
+    return instance;
+  }),
 }));
 
 vi.mock('../../src/core/async-task-system/system.js', () => ({
@@ -286,6 +293,7 @@ describe('assemble', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     callOrder.length = 0;
+    capturedContractManagers.length = 0;
     mockAuditWrite.mockClear();
     mockSnapshot.init.mockResolvedValue({ ok: true });
     mockSnapshot.commit.mockResolvedValue({ ok: true });
@@ -496,13 +504,44 @@ describe('assemble', () => {
     );
   });
 
-  it('contractNotifyCallback 注入后 streamWriter 收到 user_notify（构造期路径覆盖）', async () => {
+  it('phase 1260 Step B: Assembly 直接 attach notification sink 到 contractManager（先 attach 后 createRuntime）', async () => {
     await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
-    // 验证 daemon_started 时 streamWriter.write 被调用（含 user_notify 的 callback 已通过 deps 注入）
+
+    // 原 daemon_started 构造期路径覆盖保留
     expect(mockStreamWriter.write).toHaveBeenCalledWith(
       expect.objectContaining({
         ts: expect.any(Number),
         type: 'daemon_started',
+      })
+    );
+
+    // Runtime 中转已删除：sink 由 runtime-assembly 构造并直接 setOnNotify
+    expect(capturedContractManagers.length).toBeGreaterThan(0);
+    const manager = capturedContractManagers[0];
+    expect(manager.setOnNotify).toHaveBeenCalledTimes(1);
+    const sink = manager.setOnNotify.mock.calls[0][0] as unknown;
+    expect(typeof sink).toBe('function');
+
+    // attach 必须先于 createRuntime（无短窗口漏 event）
+    const attachOrder = manager.setOnNotify.mock.invocationCallOrder[0];
+    const runtimeOrder = (createRuntime as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(runtimeOrder).toBeDefined();
+    expect(attachOrder).toBeLessThan(runtimeOrder);
+
+    // transport 行为：typed event → stream user_notify legacy shape（详细逐字段 shape 见
+    // tests/assembly/contract-notification-adapter.test.ts）
+    (sink as (event: unknown) => void)({
+      type: 'contract_cancelled',
+      contractId: 'c1',
+      reason: 'user cancelled',
+    });
+    expect(mockStreamWriter.write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ts: expect.any(Number),
+        type: 'user_notify',
+        subtype: 'contract_cancelled',
+        contractId: 'c1',
+        reason: 'user cancelled',
       })
     );
   });

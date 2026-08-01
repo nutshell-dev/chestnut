@@ -127,7 +127,7 @@ export async function writeInboxAsync(
  * self-inbox 写（claw 写自家 inbox / daemon 写自家 inbox）不属 notifyClaw scope
  * （不需 chestnutRoot / targetClawId / DLQ），仍是 by-design use of notifyInbox SoT。
  * 当前 self-inbox by-design caller：deep-dream.ts / heartbeat.ts callback /
- * contract-notify-callback.ts × 3 / daemon-loop.ts。
+ * assembly/contract-notification-adapter.ts × 3 / daemon-loop.ts。
  */
 export function notifyInbox(
   fs: FileSystem,

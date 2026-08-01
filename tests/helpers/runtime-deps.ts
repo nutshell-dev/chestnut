@@ -103,7 +103,6 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     skillRegistry, contractManager, taskSystem,
     permissionChecker,
     parentStreamLog: undefined,
-    contractNotifyCallback: undefined,
     // phase 521 mock
     dialogStoreFactory: (systemPrompt: string) => {
       return createDialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);

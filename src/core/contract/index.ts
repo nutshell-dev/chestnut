@@ -7,8 +7,9 @@ import { ContractSystem, type ContractSystemDeps } from './manager.js';
 
 export { ContractSystem, type ContractSystemDeps } from './manager.js';
 
-// phase 767: contract event notification callback (moved from L6 Assembly)
 // phase 1260 Step A: ContractSystem-owned typed notification protocol
+// （Step B：transport adapter 已物理归位 src/assembly/contract-notification-adapter.ts，
+//   barrel 不再 export Assembly 实现）
 export type {
   ContractNotification,
   ContractNotificationSink,
@@ -19,8 +20,6 @@ export type {
   VerificationFailedNotification,
   CompletedSubtaskNotification,
 } from './notification.js';
-export { createContractNotifyCallback } from './contract-notify-callback.js';
-export type { ContractNotifyDeps } from './contract-notify-callback.js';
 
 // phase 1424: contract auditor exports
 export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type AuditorDrift, type AuditRequest, type AuditOutcome, parseVerdict } from './contract-auditor.js';

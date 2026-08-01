@@ -1,5 +1,6 @@
 /**
- * Phase 1260 Step A: ContractNotification transport adapter 行为测试。
+ * Phase 1260: ContractNotification transport adapter 行为测试。
+ * （Step B：adapter 物理归位 src/assembly/contract-notification-adapter.ts）
  *
  * 锁死 legacy transport shape（stream user_notify payload + completed/cancelled
  * self-inbox）：typed event 经 exhaustive mapper 恢复历史 camel/snake 混排输出，
@@ -8,17 +9,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { createContractNotifyCallback } from '../../../src/core/contract/contract-notify-callback.js';
-import type { ContractNotification } from '../../../src/core/contract/notification.js';
-import { makeContractId, makeSubtaskId } from '../../../src/core/contract/types.js';
-import type { StreamWriter } from '../../../src/foundation/stream/index.js';
-import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeMockAudit } from '../../helpers/audit.js';
+import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import { createContractNotificationAdapter } from '../../src/assembly/contract-notification-adapter.js';
+import type { ContractNotification } from '../../src/core/contract/index.js';
+import { makeContractId, makeSubtaskId } from '../../src/core/contract/types.js';
+import type { StreamWriter } from '../../src/foundation/stream/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { makeMockAudit } from '../helpers/audit.js';
 
 const CLAW_ID = 'test-claw';
 
-describe('phase 1260 Step A: contract notify adapter legacy transport shape', () => {
+describe('phase 1260: contract notification adapter legacy transport shape', () => {
   let tempDir: string;
   let selfInboxDir: string;
   let streamWrite: ReturnType<typeof vi.fn>;
@@ -29,7 +30,7 @@ describe('phase 1260 Step A: contract notify adapter legacy transport shape', ()
     selfInboxDir = path.join(tempDir, 'inbox', 'pending');
     fs.mkdirSync(selfInboxDir, { recursive: true });
     streamWrite = vi.fn();
-    emit = createContractNotifyCallback({
+    emit = createContractNotificationAdapter({
       streamWriter: { write: streamWrite } as unknown as StreamWriter,
       clawId: CLAW_ID,
       systemFs: new NodeFileSystem({ baseDir: tempDir }),
