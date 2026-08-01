@@ -21,6 +21,7 @@ import { randomUUID } from 'crypto';
 import { runOutboxSummaryTick } from '../../../src/core/claw-topology/jobs/outbox-summary/tick.js';
 import { SUMMARY_INBOX_TYPE } from '../../../src/core/claw-topology/jobs/outbox-summary/write.js';
 import { DEDUP_DONE_WINDOW_MS } from '../../../src/core/claw-topology/jobs/outbox-summary/dedup.js';
+import { decodeOutboxSummaryGuidance } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
@@ -150,6 +151,26 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     const summaryContent = await fsAsync.readFile(summaryPath, 'utf-8');
     const decoded = decodeInbox(summaryContent);
     expect(decoded.id).toMatch(/^claw-outbox-summary-[0-9a-f]+-\d+$/);
+
+    // Phase 1259 Step A: writer 只经 owner codec 写 v1 精确五字段 metadata —
+    // 旧 `hash`（与 summary-hash 重复的双源）/ `failed_claws` / `incomplete` 退役。
+    // （decodeInbox 将非 base key 归入 metadata pass-through。）
+    expect(decoded.metadata).toEqual({
+      guidance_schema_version: '1',
+      'summary-hash': expect.stringMatching(/^[0-9a-f]{12}$/),
+      counts: JSON.stringify({ clawA: 1 }),
+      total_claws: '1',
+      total_msgs: '1',
+    });
+    // decode 回来的 typed state 与 scan state 一致（round-trip 回归）。
+    const state = decodeOutboxSummaryGuidance({
+      type: decoded.type,
+      from: decoded.from,
+      meta: decoded.metadata!,
+    });
+    expect(state.counts).toEqual({ clawA: 1 });
+    expect(state.totalClaws).toBe(1);
+    expect(state.totalMsgs).toBe(1);
   });
 
   it('re-tick same state → skip silently (pending hit)', async () => {

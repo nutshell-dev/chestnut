@@ -4,6 +4,8 @@
  *
  * hash 放 InboxMessage.extraMeta（经 InboxWriter.write extraFields 落 frontmatter）、
  * dedup 查询不再依赖文件名 schema。
+ * phase 1259 Step A: extra 只经 owner codec（guidance-state.ts）产出 v1 最小
+ * metadata — 手工平铺 serializer + hash 双源退役（M#7/M#8）。
  */
 
 import type { AuditLog } from '../../../../foundation/audit/index.js';
@@ -11,8 +13,7 @@ import type { InboxWriter } from '../../../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../../../foundation/messaging/index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from '../../index.js';
-import { SUMMARY_HASH_META_KEY } from './dedup.js';
-import { toExtraMeta } from './types.js';
+import { encodeOutboxSummaryGuidance } from './guidance-state.js';
 import type { OutboxSummaryState } from './types.js';
 
 export const SUMMARY_INBOX_TYPE = 'claw_outbox_summary';
@@ -29,7 +30,7 @@ export async function writeNewSummary(
 ): Promise<void> {
   const now = deps.now?.() ?? Date.now();
   const body = formatBody(state);
-  const extra = { ...toExtraMeta(state), [SUMMARY_HASH_META_KEY]: state.hash };
+  const extra = encodeOutboxSummaryGuidance(state);
   const msg: InboxMessage = {
     id: `claw-outbox-summary-${state.hash}-${now}`,
     type: SUMMARY_INBOX_TYPE,

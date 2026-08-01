@@ -5,7 +5,7 @@
  * 业主 own facts + state schema (M#2 + M#5):
  * - 仅 own claw outbox/pending 计数 + 文件身份
  * - 不知 motion CLI / 不预设 guidance 字面（归 Assembly composer）
- * - Assembly composer 经 Runtime extraMeta 接 stringified 字段
+ * - wire metadata 由 owner codec（guidance-state.ts, phase 1259）独占产出
  */
 
 export const PREVIEW_MAX_CHARS = 40 as const;
@@ -32,16 +32,4 @@ export interface OutboxSummaryState {
   failed_claws: string[];
   /** phase 938 NEW: true if any claw failed to scan (hash/counts may be incomplete). */
   incomplete: boolean;
-}
-
-/** Per-tick state for guidance extraMeta（Record<string,string> only / serialized）. */
-export function toExtraMeta(state: OutboxSummaryState): Record<string, string> {
-  return {
-    hash: state.hash,
-    total_claws: String(state.total_claws),
-    total_msgs: String(state.total_msgs),
-    counts: JSON.stringify(state.counts),
-    failed_claws: JSON.stringify(state.failed_claws),
-    incomplete: String(state.incomplete),
-  };
 }
