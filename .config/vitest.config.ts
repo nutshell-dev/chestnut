@@ -184,6 +184,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/misc-invariants.test.ts',
   'tests/watchdog/cron-crash-invariants.test.ts',
+  'tests/watchdog/cron-inactivity-invariants.test.ts',  // phase 1258 Step A: vi.mock claw-instance-paths/config-load/watchdog-utils factories
   'tests/watchdog/shutdown-invariants.test.ts',
   'tests/watchdog/state-invariants.test.ts',
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
