@@ -19,9 +19,11 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
-import type {
-  ContractNotification,
-  ContractNotificationSink,
+import { makeClawId } from '../foundation/claw-identity/index.js';
+import {
+  encodeContractEventsGuidance,
+  type ContractNotification,
+  type ContractNotificationSink,
 } from '../core/contract/index.js';
 
 export interface ContractNotificationAdapterDeps {
@@ -50,8 +52,8 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
     // §A.6 双链路：本 daemon 自家 inbox 接契约终态事件（决策点）
     // subtask_completed / verification_failed 仅 streamWriter（viewport 可见、决策无用）
     if (event.type === 'contract_completed') {
-      // phase 1487: 透传 source_claw 给 motion guidance composer
-      //   - composer 见 source_claw == MOTION_CLAW_ID → null (motion 自家、session 已含上下文)
+      // phase 1261 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
+      // （schema version + refs JSON 两 owner key；不再手写 legacy wire keys）
       // phase 37: 写 selfInboxDir（本 daemon 自家、详 deps.selfInboxDir doc）
       //   - motion daemon: 写 motion 自家 inbox
       //   - worker daemon: 写 worker 自家 inbox
@@ -62,10 +64,10 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
         source: 'system',
         priority: 'high',
         body: `[${event.type}] claw=${deps.clawId} ${formatNotifyData(data)}`,
-        extraFields: {
-          source_claw: deps.clawId,
-          contract_id: event.contractId,
-        },
+        extraFields: encodeContractEventsGuidance([{
+          clawId: makeClawId(deps.clawId),
+          contractId: event.contractId,
+        }]),
       }, deps.auditWriter);
     }
 

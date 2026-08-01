@@ -32,7 +32,7 @@ interface ContractObserverInitialStateV5 {
 type ContractObserverInitialState = ContractObserverInitialStateV3 | ContractObserverInitialStateV5;
 
 function makeFsMock(
-  scenario: 'empty' | 'completed' | 'mixed' | 'recovery' | 'old_and_new',
+  scenario: 'empty' | 'completed' | 'completed_with_failure' | 'mixed' | 'recovery' | 'old_and_new',
   writes?: Map<string, string>,
   initialState?: ContractObserverInitialState,
 ): FileSystem {
@@ -59,6 +59,20 @@ function makeFsMock(
       status: 'completed',
       subtasks: {
         st1: { completed_at: new Date(now).toISOString() },
+      },
+    }));
+  }
+
+  if (scenario === 'completed_with_failure') {
+    files.set('/tmp/test/claws/claw1/contract/archive/contract-f/progress.json', JSON.stringify({ schema_version: 1,
+      contract_id: 'contract-f',
+      status: 'completed',
+      subtasks: {
+        st1: {
+          status: 'completed',
+          completed_at: new Date(now).toISOString(),
+          last_failed_feedback: { feedback: 'flaky suite' },
+        },
       },
     }));
   }
@@ -110,6 +124,11 @@ function makeFsMock(
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
     dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
     dirs.set('/tmp/test/claws/claw1/contract/archive', [{ name: 'contract-a', isDirectory: true, size: 0 }]);
+  } else if (scenario === 'completed_with_failure') {
+    dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
+    dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
+    dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
+    dirs.set('/tmp/test/claws/claw1/contract/archive', [{ name: 'contract-f', isDirectory: true, size: 0 }]);
   } else if (scenario === 'mixed') {
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
@@ -193,6 +212,41 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
     await runContractObserver(opts);
     expect(opts.notifyMotion).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'contract_events' }),
+    );
+  });
+
+  it('phase 1261 Step B: completed 无失败契约 → v1 空 refs wire（正文仍投递、watermark 推进）', async () => {
+    const writes = new Map<string, string>();
+    const opts = makeOpts({ fs: makeFsMock('completed', writes) });
+    await runContractObserver(opts);
+
+    // 精确 v1 wire：guidance_schema_version + contract_refs=[]，无 legacy problem_pairs
+    expect(opts.notifyMotion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'contract_events',
+        extraFields: {
+          guidance_schema_version: '1',
+          contract_refs: '[]',
+        },
+      }),
+    );
+    const state = parseState(writes);
+    expect(state?.completedWatermarks.claw1).toBeDefined();
+  });
+
+  it('phase 1261 Step B: completed 有失败契约 → v1 batch refs wire（typed refs 经 owner encoder）', async () => {
+    const opts = makeOpts({ fs: makeFsMock('completed_with_failure') });
+    await runContractObserver(opts);
+
+    expect(opts.notifyMotion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'contract_events',
+        body: expect.stringContaining('contract-f'),
+        extraFields: {
+          guidance_schema_version: '1',
+          contract_refs: '[{"claw_id":"claw1","contract_id":"contract-f"}]',
+        },
+      }),
     );
   });
 

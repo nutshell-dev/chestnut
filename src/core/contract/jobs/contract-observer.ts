@@ -11,6 +11,11 @@ import {
 } from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
 import { ARCHIVE_STATES } from '../types.js';
+import { makeContractId } from '../types.js';
+import {
+  encodeContractEventsGuidance,
+  type ContractEventGuidanceRef,
+} from '../contract-events-guidance.js';
 
 /** phase 101: DI callback - caller (装配期) bind fs + chestnutRoot + MOTION_CLAW_ID + audit */
 export type NotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
@@ -405,7 +410,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   const completedEvents: string[] = [];
   const cancelledEvents: string[] = [];
   // recoveryEvents / crashedEvents 删除（phase 197/1121: 不再投 motion、改 emit audit）
-  const allProblemPairs: string[] = [];
+  // phase 1261 Step B: typed guidance refs（只收 hasFailure completed contract），
+  // 由 owner encoder 统一写 v1 wire（不再手写 legacy CSV dialect）。
+  const guidanceRefs: ContractEventGuidanceRef[] = [];
   const cancellations: Array<{ source_claw: string; contract_id: string; reason: string }> = [];
 
   // phase 950: per-claw 复合游标水位；任一 claw 扫描不完整或失败 → 该 claw 水位不推进，其他 claw 独立推进。
@@ -489,7 +496,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       for (const entry of sortedEntries) {
         try {
           // phase 324 H11: 验 claw / contract id 字符集，防 `:` `,` `` ` `` `\n` 注入。
-          // 不合规 id 跳过、不入 problem_pairs / dedup set；audit 一条 OBSERVER_EVENT_FAILED。
+          // 不合规 id 跳过、不入 guidance refs / dedup set；audit 一条 OBSERVER_EVENT_FAILED。
           if (!/^[A-Za-z0-9_-]{1,64}$/.test(clawId) || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.contractId)) {
             motionAudit.write(
               CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
@@ -510,7 +517,12 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                 const statusCursor = state.completedWatermarks[clawId];
                 if (shouldProcessEntry(entry, statusCursor)) {
                   completedEvents.push(entry.body);
-                  if (entry.hasFailure) allProblemPairs.push(`${clawId}:${entry.contractId}`);
+                  if (entry.hasFailure) {
+                    guidanceRefs.push({
+                      clawId: makeClawId(clawId),
+                      contractId: makeContractId(entry.contractId),
+                    });
+                  }
                   const current = batchCompletedCursors[clawId];
                   if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
                     batchCompletedCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
@@ -608,9 +620,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
           source: 'system',
           priority: 'high',
           body: completedEvents.join('\n\n'),
-          extraFields: {
-            problem_pairs: allProblemPairs.join(','),
-          },
+          // phase 1261 Step B: 空 refs 合法（正文覆盖全部 completed events，
+          // guidance 只含 hasFailure 契约），照常投递与推进 watermark。
+          extraFields: encodeContractEventsGuidance(guidanceRefs),
         });
         for (const [clawId, cursor] of Object.entries(batchCompletedCursors)) {
           nextCompletedWatermarks[clawId] = cursor;

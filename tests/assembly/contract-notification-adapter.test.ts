@@ -104,8 +104,13 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     const content = readOnlyInboxFile();
     expect(content).toContain('type: contract_events');
     expect(content).toContain('priority: high');
-    expect(content).toMatch(/source_claw:\s*"?test-claw"?/);
-    expect(content).toMatch(/contract_id:\s*"?c1"?/);
+    // phase 1261 Step B: v1 exact wire（guidance_schema_version + contract_refs JSON），无 legacy keys
+    expect(content).toContain('guidance_schema_version: 1');
+    expect(content).toContain(
+      'contract_refs: "[{\\"claw_id\\":\\"test-claw\\",\\"contract_id\\":\\"c1\\"}]"',
+    );
+    expect(content).not.toContain('source_claw:');
+    expect(content).not.toMatch(/^contract_id:/m);
     expect(content).toContain(
       '[contract_completed] claw=test-claw'
       + ' contractId=c1 title=T goal=G'

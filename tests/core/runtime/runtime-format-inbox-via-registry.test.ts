@@ -25,6 +25,10 @@ import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/reg
 import { composer as clawCrashedComposer } from '../../../src/assembly/guidance/composers/claw-crashed.js';
 import { composer as clawInactivityComposer } from '../../../src/assembly/guidance/composers/claw-inactivity.js';
 import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
+import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
+import { encodeContractEventsGuidance } from '../../../src/core/contract/index.js';
+import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
 class TestRuntime extends Runtime {
   async testFormatInboxMessage(
@@ -406,6 +410,91 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
       'type=claw_outbox_summary',
+      expect.stringContaining('schema_invalid'),
+    );
+  });
+
+  it('phase 1261 Step B: contract_events 真实 codec 链 + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('contract_events', contractEventsComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'contract_events',
+      'system',
+      '[contract_completed] claw=worker-1 contract=1780-abcd',
+      undefined,
+      // 真实 owner encoder 产出 v1 wire（不手写 metadata）
+      { ...encodeContractEventsGuidance([{ clawId: makeClawId('worker-1'), contractId: makeContractId('1780-abcd') }]) },
+    );
+
+    expect(result).toMatch(/^\[system message\d*\] \[contract_completed\] claw=worker-1 contract=1780-abcd$/m);
+    expect(result).toContain('chestnut claw worker-1 trace --contract 1780-abcd');
+    expect(result).toContain('chestnut contract show -c worker-1 --contract 1780-abcd');
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  it('phase 1261 Step B: contract_events v1 空 refs → 仅投递正文、不追加 guidance、无 audit（合法 owner state）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('contract_events', contractEventsComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'contract_events',
+      'system',
+      '[contract_completed] claw=worker-1 contract=1780-abcd',
+      undefined,
+      { ...encodeContractEventsGuidance([]) },
+    );
+
+    expect(result).toMatch(/^\[system message\d*\] \[contract_completed\] claw=worker-1 contract=1780-abcd$/);
+    expect(result).not.toContain('trace --contract');
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  it('phase 1261 Step B: contract_events legacy malformed pair → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（不再部分提示）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('contract_events', contractEventsComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'contract_events',
+      'system',
+      '[contract_completed] claw=worker-1 contract=1780-abcd',
+      undefined,
+      { problem_pairs: 'malformed,worker-1:1780-abcd' },  // legacy malformed wire：任一坏 pair 整条失败
+    );
+
+    // malformed wire 不阻断 body 投递
+    expect(result).toMatch(/^\[system message\d*\] \[contract_completed\] claw=worker-1 contract=1780-abcd$/);
+    // formatted result 不含部分 guidance（不再跳过坏项渲染合法项）
+    expect(result).not.toContain('trace --contract');
+    // audit 含 type 与安全 reason（typed decode error / 不回显 metadata）
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
+      'type=contract_events',
       expect.stringContaining('schema_invalid'),
     );
   });

@@ -14,6 +14,13 @@ import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../src/cli-protoc
 import { ClawCrashedGuidanceDecodeError } from '../../../src/watchdog/claw-crashed-guidance.js';
 import { ClawInactivityGuidanceDecodeError } from '../../../src/watchdog/claw-inactivity-guidance.js';
 import { OutboxSummaryGuidanceDecodeError } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
+import {
+  ContractEventsGuidanceDecodeError,
+  encodeContractEventsGuidance,
+  type ContractEventGuidanceRef,
+} from '../../../src/core/contract/index.js';
+import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
 /**
  * phase 1256 Step B: envelope fixture — 三字段（type/from/meta）完整，
@@ -374,32 +381,34 @@ describe('phase 63+190+198: contract_cancelled composer', () => {
 /**
  * phase 1487 γ5: contract-events real composer unit test.
  * phase 205: 3 旁路删 + 主路精简（state-driven CLI block + 兜底 <unknown>）
+ * phase 1261 Step B: composer 只消费 ContractSystem owner codec typed state —
+ *   v1 输入经真实 encoder 构造；legacy single/batch production shape 仍可读；
+ *   malformed wire 由 decoder 抛 typed error（不再逐项静默过滤 / 不再返部分结果）。
  */
 
 
-describe('phase 205: contract-events composer', () => {
-  it('A3 single path (source_claw + contract_id) → trace + show', () => {
-    const result = contractEventsComposer(env('contract_events', { source_claw: 'motion', contract_id: 'abc-123' }));
+/** typed ref → v1 wire（经真实 owner encoder；production from 固定 system）。 */
+function v1EventsMeta(refs: readonly { claw: string; contract: string }[]): Record<string, string> {
+  const typedRefs: ContractEventGuidanceRef[] = refs.map(r => ({
+    clawId: makeClawId(r.claw),
+    contractId: makeContractId(r.contract),
+  }));
+  return { ...encodeContractEventsGuidance(typedRefs) };
+}
+
+describe('phase 205 + phase 1261: contract-events composer', () => {
+  it('v1 single（真实 encoder）→ trace + show', () => {
+    const result = contractEventsComposer(env('contract_events', v1EventsMeta([{ claw: 'motion', contract: 'abc-123' }]), 'system'));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('motion', 'trace')} --contract abc-123`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c motion --contract abc-123`);
   });
 
-  // phase 366 L3 (review-2026-06-13): 缺关键字段改返 null、不再渲染 '<unknown>' 字面
-  it('phase 366 L3: A3 path without contract_id → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer(env('contract_events', { source_claw: 'motion' }));
-    expect(result).toBeNull();
-  });
-
-  it('A4 batch path (1 pair) → trace + show with real ids', () => {
-    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'worker-1:1780-abcd' }));
-    expect(result).not.toBeNull();
-    expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
-    expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
-  });
-
-  it('A4 batch path (2 pairs) → enumerate trace + show per pair', () => {
-    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'worker-1:1780-abcd,worker-2:1780-cdef' }));
+  it('v1 batch（真实 encoder 2 refs）→ enumerate trace + show per ref', () => {
+    const result = contractEventsComposer(env('contract_events', v1EventsMeta([
+      { claw: 'worker-1', contract: '1780-abcd' },
+      { claw: 'worker-2', contract: '1780-cdef' },
+    ]), 'system'));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
@@ -407,41 +416,83 @@ describe('phase 205: contract-events composer', () => {
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-2 --contract 1780-cdef`);
   });
 
-  it('phase 366 L3: empty state → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer(env('contract_events', {}));
+  it('phase 1261: v1 空 refs → null（observer 正文覆盖全部 completed events、无失败契约；不追加 CLI guidance）', () => {
+    const result = contractEventsComposer(env('contract_events', v1EventsMeta([]), 'system'));
     expect(result).toBeNull();
   });
 
-  it('phase 366 L3: empty problem_pairs → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer(env('contract_events', { problem_pairs: '' }));
-    expect(result).toBeNull();
+  it('legacy single（source_claw + contract_id）→ 同 v1 single 输出', () => {
+    const result = contractEventsComposer(env('contract_events', { source_claw: 'motion', contract_id: 'abc-123' }, 'system'));
+    expect(result).not.toBeNull();
+    expect(result!.text).toContain(`${renderClawInvocation('motion', 'trace')} --contract abc-123`);
+    expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c motion --contract abc-123`);
   });
 
-  it('malformed pair (no colon) → skipped, others kept', () => {
-    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'malformed,worker-1:1780-abcd' }));
+  it('legacy batch（problem_pairs 1 pair）→ 同 v1 输出', () => {
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'worker-1:1780-abcd' }, 'system'));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
-    expect(result!.text).not.toContain('malformed');
+    expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
   });
 
-  it('phase 366 L3: all malformed pairs → null（不渲染 <unknown>）', () => {
-    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'malformed1,malformed2' }));
+  it('legacy batch（2 pairs）→ enumerate trace + show per pair', () => {
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: 'worker-1:1780-abcd,worker-2:1780-cdef' }, 'system'));
+    expect(result).not.toBeNull();
+    expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract 1780-abcd`);
+    expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-1 --contract 1780-abcd`);
+    expect(result!.text).toContain(`${renderClawInvocation('worker-2', 'trace')} --contract 1780-cdef`);
+    expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-2 --contract 1780-cdef`);
+  });
+
+  it('legacy 空 problem_pairs → null（不渲染 <unknown>）', () => {
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: '' }, 'system'));
     expect(result).toBeNull();
   });
 
-  it('trims whitespace around pairs', () => {
-    const result = contractEventsComposer(env('contract_events', { problem_pairs: ' worker-1:abc , worker-2:def ' }));
+  it('legacy batch trims whitespace around pairs', () => {
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: ' worker-1:abc , worker-2:def ' }, 'system'));
     expect(result).not.toBeNull();
     expect(result!.text).toContain(`${renderClawInvocation('worker-1', 'trace')} --contract abc`);
     expect(result!.text).toContain(`${renderClawInvocation('worker-2', 'trace')} --contract def`);
   });
 
-  it('caps at MAX_PAIR_RENDER=10 and shows overflow hint', () => {
-    const pairs = Array.from({ length: 12 }, (_, i) => `worker-${i}:c${i}`).join(',');
-    const result = contractEventsComposer(env('contract_events', { problem_pairs: pairs }));
+  it('phase 1261: legacy malformed pair → decoder typed throw（不再跳过坏项保留其余）', () => {
+    expect(() => contractEventsComposer(env('contract_events', { problem_pairs: 'malformed,worker-1:1780-abcd' }, 'system')))
+      .toThrowError(ContractEventsGuidanceDecodeError);
+  });
+
+  it('phase 1261: legacy all malformed pairs → decoder typed throw（不再返 null）', () => {
+    expect(() => contractEventsComposer(env('contract_events', { problem_pairs: 'malformed1,malformed2' }, 'system')))
+      .toThrowError(ContractEventsGuidanceDecodeError);
+  });
+
+  it('phase 1261: legacy single 缺 contract_id → decoder typed throw（不再返 null）', () => {
+    expect(() => contractEventsComposer(env('contract_events', { source_claw: 'motion' }, 'system')))
+      .toThrowError(ContractEventsGuidanceDecodeError);
+  });
+
+  it('phase 1261: 空 state → decoder typed throw（缺 version 且无任一 legacy owner key）', () => {
+    expect(() => contractEventsComposer(env('contract_events', {}, 'system')))
+      .toThrowError(ContractEventsGuidanceDecodeError);
+  });
+
+  it('caps at MAX_PAIR_RENDER=10 and shows overflow hint（v1 真实 encoder）', () => {
+    const refs = Array.from({ length: 12 }, (_, i) => ({ claw: `worker-${i}`, contract: `c${i}` }));
+    const result = contractEventsComposer(env('contract_events', v1EventsMeta(refs), 'system'));
     expect(result).not.toBeNull();
     expect(result!.text).toContain('(12 contract events、显示前 10)');
     // 只应出现前 10 个
+    expect(result!.text).toContain('worker-0');
+    expect(result!.text).toContain('worker-9');
+    expect(result!.text).not.toContain('worker-10');
+    expect(result!.text).not.toContain('worker-11');
+  });
+
+  it('caps at MAX_PAIR_RENDER=10（legacy batch 同 cap）', () => {
+    const pairs = Array.from({ length: 12 }, (_, i) => `worker-${i}:c${i}`).join(',');
+    const result = contractEventsComposer(env('contract_events', { problem_pairs: pairs }, 'system'));
+    expect(result).not.toBeNull();
+    expect(result!.text).toContain('(12 contract events、显示前 10)');
     expect(result!.text).toContain('worker-0');
     expect(result!.text).toContain('worker-9');
     expect(result!.text).not.toContain('worker-10');

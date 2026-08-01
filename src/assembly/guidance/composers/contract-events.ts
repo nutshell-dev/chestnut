@@ -2,28 +2,22 @@
  * @module L6.Assembly.Guidance
  * phase 1469 立 / phase 1487 γ5 real composer 替 NO_GUIDANCE 占位.
  * phase 205 Step B: 3 旁路删 + 主路精简（state-driven CLI block）
- *
- * state schema（业主侧 wire）：
- *   - source_claw?: string   A3 path (assemble.ts:550 callback) 透传 = 当前 claw id
- *   - contract_id?: string   A3 path extraFields（Step A 补）
- *   - problem_pairs?: string A4 path 聚合 `<claw>:<contract>` 逗号分隔（有 last_failure 的 entries）
+ * phase 1261 Step B: 只消费 ContractSystem owner codec typed state —
+ *   persisted state schema（v1 refs JSON 与两套 legacy dialect）、ID 规则与
+ *   malformed 分类全部归 src/core/contract/contract-events-guidance.ts；
+ *   本 composer 不再声明 Contract metadata interface、CSV parser 或 ID regex，
+ *   decoder 坏 wire typed throw（Runtime catch 后 audit + 仅投递正文，
+ *   不再逐项静默过滤）。
  *
  * composer 单一 logic：state-driven CLI block 出 trace + show per contract。
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../cli-protocol/index.js';
-
-interface ContractEventsState {
-  source_claw?: string;
-  contract_id?: string;
-  problem_pairs?: string;
-}
-
-interface ContractPair {
-  claw: string;
-  contract: string;
-}
+import {
+  decodeContractEventsGuidance,
+  type ContractEventGuidanceRef,
+} from '../../../core/contract/index.js';
 
 /**
  * Maximum claw-contract pair render count（guidance composer 内 contract events 展示上限）.
@@ -32,60 +26,25 @@ interface ContractPair {
  */
 const MAX_PAIR_RENDER = 10;
 
-// phase 324 H11: 严格 id 字符集、拒含 `:` `,` `` ` `` `\n` 等可注入 CLI / markdown 的字符。
-// 上下游一致：producer (contract-observer) + consumer (本 composer) 都校验、防单边漏。
-const ID_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
-
-function isValidId(s: string): boolean {
-  return ID_REGEX.test(s);
-}
-
-export const composer: GuidanceComposer<ContractEventsState> = ({ meta: state }): GuidanceEntry | null => {
-  const pairs = parsePairs(state);
-  if (pairs.length === 0) {
+export const composer: GuidanceComposer = (input): GuidanceEntry | null => {
+  const { contractRefs } = decodeContractEventsGuidance(input);
+  if (contractRefs.length === 0) {
     // phase 366 L3 (review-2026-06-13): 不渲染 '<unknown>' 字面 CLI block、返 null
+    // phase 1261: observer 空 refs（正文覆盖全部 completed events、无失败契约）是合法 owner state
     return null;
   }
-  return { text: renderCliBlock(pairs) };
+  return { text: renderCliBlock(contractRefs) };
 };
 
-function parsePairs(state: ContractEventsState): ContractPair[] {
-  // A4 observer 路径：problem_pairs CSV、每 pair `<claw>:<contract>`
-  if (state.problem_pairs) {
-    return state.problem_pairs
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean)
-      .map(pair => {
-        const sepIdx = pair.indexOf(':');
-        if (sepIdx <= 0 || sepIdx >= pair.length - 1) return null;
-        const claw = pair.slice(0, sepIdx);
-        const contract = pair.slice(sepIdx + 1);
-        // phase 324 H11: 拒含非法字符的 id（防 contract id 嵌 `:` 伪造额外 pair / 注入 motion prompt）
-        if (!isValidId(claw) || !isValidId(contract)) return null;
-        return { claw, contract };
-      })
-      .filter((p): p is ContractPair => p !== null);
-  }
-  // A3 path：single source_claw + contract_id
-  if (state.source_claw && state.contract_id
-    && isValidId(state.source_claw) && isValidId(state.contract_id)) {
-    return [{ claw: state.source_claw, contract: state.contract_id }];
-  }
-  return [];
-}
-
-function renderCliBlock(pairs: ContractPair[]): string {
-  // phase 366 L3 (review-2026-06-13): unreachable empty-pairs branch removed。
-  // composer 在 pairs.length===0 处已返 null、本函数不再被空 pairs 调。
+function renderCliBlock(refs: readonly ContractEventGuidanceRef[]): string {
   const lines: string[] = [];
-  const displayCount = Math.min(pairs.length, MAX_PAIR_RENDER);
-  if (pairs.length > MAX_PAIR_RENDER) {
-    lines.push(`(${pairs.length} contract events、显示前 ${MAX_PAIR_RENDER})`, '');
+  const displayCount = Math.min(refs.length, MAX_PAIR_RENDER);
+  if (refs.length > MAX_PAIR_RENDER) {
+    lines.push(`(${refs.length} contract events、显示前 ${MAX_PAIR_RENDER})`, '');
   }
-  for (const p of pairs.slice(0, displayCount)) {
-    lines.push(`${renderClawInvocation(p.claw, 'trace')} --contract ${p.contract}`);
-    lines.push(`${CONTRACT_COMMANDS.SHOW} -c ${p.claw} --contract ${p.contract}`);
+  for (const ref of refs.slice(0, displayCount)) {
+    lines.push(`${renderClawInvocation(ref.clawId, 'trace')} --contract ${ref.contractId}`);
+    lines.push(`${CONTRACT_COMMANDS.SHOW} -c ${ref.clawId} --contract ${ref.contractId}`);
   }
   return lines.join('\n');
 }
