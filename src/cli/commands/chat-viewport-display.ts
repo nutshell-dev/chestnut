@@ -46,14 +46,18 @@ export function createDisplay(deps: DisplayDeps) {
 
   const invalidateBodyCache = () => { bodyCache = null; };
 
+  const refreshStatusTexts = (cols: number) => {
+    deps.spawnText.setText(deps.taskStatusBar.renderSpawn(cols));
+    deps.shadowText.setText(deps.taskStatusBar.renderShadow(cols));
+    deps.migratedExecText.setText(deps.taskStatusBar.renderMigratedExec(cols));
+  };
+
   const updateDisplay = () => {
     const startNow = performance.now();
     const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
 
     // task status bar texts 每次 display 刷新时重算，确保 migratedExec 等的时间标签实时更新
-    deps.spawnText.setText(deps.taskStatusBar.renderSpawn(cols));
-    deps.shadowText.setText(deps.taskStatusBar.renderShadow(cols));
-    deps.migratedExecText.setText(deps.taskStatusBar.renderMigratedExec(cols));
+    refreshStatusTexts(cols);
 
     // body 重算：cache miss 或 cols 变才重算
     if (bodyCache === null || bodyCacheCols !== cols) {
@@ -100,9 +104,7 @@ export function createDisplay(deps: DisplayDeps) {
   const onResize = () => {
     deps.updateClawPanel(deps.clawTrackMap);
     const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
-    deps.spawnText.setText(deps.taskStatusBar.renderSpawn(cols));
-    deps.shadowText.setText(deps.taskStatusBar.renderShadow(cols));
-    deps.migratedExecText.setText(deps.taskStatusBar.renderMigratedExec(cols));
+    refreshStatusTexts(cols);
     updateDisplay();
   };
 
@@ -152,5 +154,6 @@ export function createDisplay(deps: DisplayDeps) {
     resolvePending,
     onResize,
     descriptorSink,
+    refreshStatusTexts,
   };
 }

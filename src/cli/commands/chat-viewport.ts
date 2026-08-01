@@ -182,9 +182,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       process.nextTick(() => {
         taskBarUpdateScheduled = false;
         const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
-        spawnText.setText(taskStatusBar.renderSpawn(cols));
-        shadowText.setText(taskStatusBar.renderShadow(cols));
-        migratedExecText.setText(taskStatusBar.renderMigratedExec(cols));
+        displayWithHolder.refreshStatusTexts(cols);
         tui.requestRender();
       });
     },
@@ -365,9 +363,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const STATUS_BAR_REFRESH_MS = 30_000;
   const statusBarRefreshInterval = setInterval(() => {
     const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
-    spawnText.setText(taskStatusBar.renderSpawn(cols));
-    shadowText.setText(taskStatusBar.renderShadow(cols));
-    migratedExecText.setText(taskStatusBar.renderMigratedExec(cols));
+    displayWithHolder.refreshStatusTexts(cols);
     tui.requestRender();
   }, STATUS_BAR_REFRESH_MS);
   statusBarRefreshInterval.unref();
