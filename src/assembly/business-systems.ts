@@ -64,7 +64,8 @@ import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system
 import { MEMORY_INBOX_MESSAGE_TYPES } from '../core/memory/inbox-formatter.js';
 import type { AssemblyContributions } from './types.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
-import type { MotionGuidanceRegistry, GuidanceEntry } from './guidance/index.js';
+import type { MotionGuidanceRegistry } from './guidance/index.js';
+import type { GuidanceCompose } from '../core/runtime/index.js';
 import type { InboxMessageTypeRegistry } from '../foundation/messaging/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
@@ -93,7 +94,8 @@ export interface BusinessSysOutput {
   inboxReader: InboxReader;
   formatterRegistry: InboxMessageTypeRegistry;
   guidanceRegistry?: MotionGuidanceRegistry;
-  guidanceCompose: (type: string, state: Record<string, string>) => GuidanceEntry | null;
+  /** phase 1256 Step A: 引用 Runtime callback port 单一 type-only export（禁双源手写签名） */
+  guidanceCompose: GuidanceCompose;
   /** phase 821: 供 motion-addons 桥接 worker claw 契约完成 → evolution retro */
   motionReviewContext?: MotionReviewContext;
 }
@@ -348,7 +350,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     registerAllMotionGuidance(guidanceRegistry);
   }
 
-  const guidanceCompose = (type: string, state: Record<string, string>) => guidanceRegistry?.compose(type, state) ?? null;
+  // phase 1256 Step A: 中间适配 — 接 envelope、暂解包调旧 registry（Step B 删除解包、registry 直消费 envelope）
+  const guidanceCompose: GuidanceCompose = input => guidanceRegistry?.compose(input.type, input.meta) ?? null;
 
   return {
     taskSystem,

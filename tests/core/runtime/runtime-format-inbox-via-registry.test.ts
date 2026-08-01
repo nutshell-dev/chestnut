@@ -14,6 +14,7 @@ import {
   registerInboxMessageTypes,
 } from '../../../src/foundation/messaging/index.js';
 import type { InboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
+import type { GuidanceCompose } from '../../../src/core/runtime/index.js';
 import { MESSAGING_INBOX_MESSAGE_TYPES } from '../../../src/foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../../src/core/gateway/index.js';
 import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../../../src/watchdog/inbox-formatter.js';
@@ -22,14 +23,22 @@ import { createHeartbeatInboxFormatter } from '../../../src/core/heartbeat/index
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 
 class TestRuntime extends Runtime {
-  async testFormatInboxMessage(type: string, from: string, body: string, timestamp?: string): Promise<string> {
-    return this.formatInboxMessage(type, from, body, timestamp);
+  async testFormatInboxMessage(
+    type: string,
+    from: string,
+    body: string,
+    timestamp?: string,
+    extraMeta?: Record<string, string>,
+  ): Promise<string> {
+    return this.formatInboxMessage(type, from, body, timestamp, extraMeta);
   }
 }
 
 interface MinOpts {
   audit: any;
   formatterRegistry: InboxMessageTypeRegistry;
+  /** phase 1256 Step A: callback spy 注入（envelope 保真断言） */
+  guidanceCompose?: GuidanceCompose;
 }
 
 function build(opts: MinOpts): TestRuntime {
@@ -71,6 +80,7 @@ function build(opts: MinOpts): TestRuntime {
       contractNotifyCallback: undefined,
       dialogStoreFactory: vi.fn(),
       formatterRegistry: opts.formatterRegistry,
+      guidanceCompose: opts.guidanceCompose,
     },
   });
 }
@@ -156,5 +166,45 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
       'type=mystery_type',
       'from=src',
     );
+  });
+
+  it('phase 1256 Step A: guidance callback 收到完整 envelope（type/from/meta 保真、不从 meta 猜测 from）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
+    const spy = vi.fn().mockReturnValue({ text: 'GUIDANCE-TAIL' });
+    const runtime = build({ audit, formatterRegistry: registry, guidanceCompose: spy });
+
+    const result = await runtime.testFormatInboxMessage(
+      'claw_crashed',
+      'claw-a',
+      'exit code 1',
+      undefined,
+      { crash_class: 'active_unexpected', claw_id: 'clawA' },
+    );
+
+    // 同一个调用同时保留 type / from / 指定 meta 字段
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({
+      type: 'claw_crashed',
+      from: 'claw-a',
+      meta: { crash_class: 'active_unexpected', claw_id: 'clawA' },
+    });
+    // callback 返回 guidance text 时，原 body + append 行为不变
+    expect(result).toMatch(/^\[system message\d*\] exit code 1$/m);
+    expect(result).toContain('\n\nGUIDANCE-TAIL');
+  });
+
+  it('phase 1256 Step A: 无 extraMeta 时 callback 收到空 meta + 真实 from', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
+    const spy = vi.fn().mockReturnValue(null);
+    const runtime = build({ audit, formatterRegistry: registry, guidanceCompose: spy });
+
+    const result = await runtime.testFormatInboxMessage('claw_crashed', 'claw-b', 'boom');
+
+    expect(spy).toHaveBeenCalledWith({ type: 'claw_crashed', from: 'claw-b', meta: {} });
+    expect(result).toMatch(/^\[system message\d*\] boom$/);
   });
 });

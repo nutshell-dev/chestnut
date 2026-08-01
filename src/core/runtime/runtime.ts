@@ -465,7 +465,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // phase 27 Step D P5: motion-side append guidance（motion 装配 guidanceCompose 必持 / claw undefined → 跳）
     if (this.guidanceCompose) {
       try {
-        const g = this.guidanceCompose(type, extraMeta ?? {});
+        // phase 1256 Step A: 唯一 envelope 构造点 — type/from/meta 一次性交给 Assembly、不丢 from
+        const g = this.guidanceCompose({ type, from, meta: extraMeta ?? {} });
         if (g) formatted += '\n\n' + g.text;
       } catch (e) {
         // 不可预期失败暴露 / audit emit / 不破 message 投递（fallback graceful、仅缺 guidance 追加）

@@ -29,10 +29,23 @@ import type { InboxMessage } from '../../foundation/messaging/index.js';
 
 
 /**
+ * phase 1256 Step A: guidance envelope — Runtime 格式化 inbox 时一次性持有的最小输入。
+ *
+ * 持久化消息已有的 `{ type, from, meta }` 原样穿过 Runtime callback boundary；
+ * Assembly 不得从 meta 猜测或补写 from。字段 readonly（M#9 显式表达）。
+ */
+export interface GuidanceEnvelope {
+  readonly type: string;
+  readonly from: string;
+  readonly meta: Readonly<Record<string, string>>;
+}
+
+/**
  * phase 27 Step D P5: guidance compose callback hook、替代直接 import L6 type。
  * Assembly 注入实际 composer（基于 MotionGuidanceRegistry）、Runtime 仅调用 callback。
+ * phase 1256 Step A: 收窄为单一 envelope 入参（替 positional (type, state)、消除 from 丢失）。
  */
-export type GuidanceCompose = (type: string, state: Record<string, string>) => { text: string } | null;
+export type GuidanceCompose = (input: GuidanceEnvelope) => { text: string } | null;
 
 /** 1:1 保 runtime.ts:47-72 body */
 export interface RuntimeDependencies {

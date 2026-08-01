@@ -14,7 +14,7 @@ import { createSnapshot } from '../foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
-import { type Runtime, type RuntimeDependencies } from '../core/runtime/index.js';
+import { type Runtime, type RuntimeDependencies, type GuidanceEnvelope } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
 import { createContractNotifyCallback } from '../core/contract/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
@@ -145,8 +145,9 @@ export async function createRuntimeAssembly(
       skillRegistry,
       formatterRegistry,
       // phase 27 Step D P5: guidance compose callback hook（motion-only / claw 装配 undefined）
+      // phase 1256 Step A: 中间适配 — 接 envelope、暂解包调旧 registry（Step B 删除解包）
       guidanceCompose: guidanceRegistry
-        ? (type: string, state: Record<string, string>) => guidanceRegistry.compose(type, state) ?? null
+        ? (input: GuidanceEnvelope) => guidanceRegistry.compose(input.type, input.meta) ?? null
         : undefined,
     };
 

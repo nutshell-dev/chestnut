@@ -16,7 +16,7 @@ export function createMotionGuidanceRegistry(): MotionGuidanceRegistry {
     register<S>(type: string, composer: GuidanceComposer<S>): void {
       map.set(type, composer as GuidanceComposer<unknown>);
     },
-    compose(type: string, state: Record<string, string>): GuidanceEntry | null {
+    compose(type: string, state: Readonly<Record<string, string>>): GuidanceEntry | null {
       const composer = map.get(type);
       if (!composer) return null;
       // 不可预期失败暴露 / 不吞没 / Runtime 兜底 audit emit

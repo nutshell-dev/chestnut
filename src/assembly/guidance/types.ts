@@ -26,8 +26,9 @@ export interface MotionGuidanceRegistry {
   /**
    * Runtime motion-side append 时调、按 type lookup composer 并执行。
    * 未 register 返 null（Runtime fallback 仅 base body / 不 append guidance）。
+   * phase 1256 Step A: state 收窄为 readonly-compatible（envelope meta 直接传入、不复制不强转）。
    */
-  compose(type: string, state: Record<string, string>): GuidanceEntry | null;
+  compose(type: string, state: Readonly<Record<string, string>>): GuidanceEntry | null;
 }
 
 /**
