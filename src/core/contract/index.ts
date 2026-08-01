@@ -122,6 +122,18 @@ export type { ContractSummary, ContractMetadata, ContractSubtaskStats, LegacyPau
 
 export { collectContractEvents } from './jobs/event-collector.js';
 
+// phase 1261 Step A: ContractSystem-owned contract_events persisted guidance codec
+export {
+  CONTRACT_EVENTS_GUIDANCE_SCHEMA_VERSION,
+  ContractEventsGuidanceDecodeError,
+  encodeContractEventsGuidance,
+  decodeContractEventsGuidance,
+  type ContractEventGuidanceRef,
+  type ContractEventsGuidanceState,
+  type ContractEventsGuidanceWire,
+  type ContractEventsGuidanceDecodeErrorReason,
+} from './contract-events-guidance.js';
+
 export {
   CONTRACT_DIR,
   CONTRACT_ACTIVE_DIR,
