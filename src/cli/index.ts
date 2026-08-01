@@ -17,7 +17,8 @@ import { cliAction, type SupervisionPolicy } from './supervision-policy.js';
 // who actually runs `start` or `init`.
 import { NodeFileSystem } from '../foundation/fs/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { dispatchClawSubcommand, renderClawTopHelp } from './commands/claw-router.js';
+import { dispatchClawSubcommand } from './commands/claw-router.js';
+import { renderClawHelp } from '../cli-protocol/index.js';
 
 import {
   initCommand as motionInitCommand,
@@ -149,8 +150,8 @@ const clawCommand = program
       await dispatchClawSubcommand(subject, args, { fsFactory });
     }),
   );
-// Replace commander's default help output with composer-driven text.
-clawCommand.helpInformation = () => `${renderClawTopHelp()}\n`;
+// Replace commander's default help output with CLIProtocol-driven text.
+clawCommand.helpInformation = () => `${renderClawHelp()}\n`;
 
 // motion command group
 const motionCmd = program

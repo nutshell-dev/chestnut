@@ -1,25 +1,27 @@
 /**
- * @module L6.Assembly.CliHelp.Composer
+ * @module L6.CLIProtocol.Help
  *
- * Phase 1477：把命令族 verb-fact 拼成最终 CLI help 文本。
- * Phase 1253 Step B：fact schema 改消费 CLIProtocol `ClawCommandSpec`（过渡态、
- * Step C 本 renderer 整体迁 `src/cli-protocol/help.ts` 并删本目录）。
+ * Phase 1253 Step C：claw help renderer 归 CLIProtocol（迁自
+ * `src/assembly/cli-help/composer.ts` phase 1477，输出逐字兼容）。
  *
  * 职责：
- * - 拥有 binary 字面 `chestnut`（Assembly 是装配方、本就需知部署形态）
- * - 拥有分组顺序、格式约定、缩进对齐等渲染选择
- * - 输出两形态：顶层 help（全 verb 分组）+ 单 verb help（详尽参数）
+ * - 拥有 binary 字面 `chestnut`、分组顺序、格式约定、缩进对齐等渲染选择
+ *   （全部 file-private、调用方只见 barrel 的 render API）
+ * - 输出两形态：顶层 help（全 command 分组）+ 单 command help（详尽参数）
  *
  * 应然边界：
- * - 不知 commander 实例（输出纯字符串、由 cli 层注入 commander helpInformation）
- * - 不知具体业主 module（仅消费 ClawCommandSpec[]）
- *
- * 同型参考：assembly/motion-guidance-composer.ts（phase 1472 同模式 + 本 phase γ-help 镜像）。
+ * - renderer 固定读取 CLIProtocol owner catalog；调用方不能注入另一份 command universe
+ * - 不知 commander 实例（输出纯字符串、由 CLIProcess 注入 commander helpInformation）
+ * - 零实现依赖：不 import CLIProcess / Assembly（M#5、dependency-cruiser ratchet 守）
  */
 
-import type { ClawCommandSpec, CommandGroup } from '../../cli-protocol/index.js';
+import {
+  CLAW_COMMAND_CATALOG,
+  getClawCommandSpec,
+} from './claw-command-catalog.js';
+import type { ClawCommandSpec, CommandGroup } from './command-spec.js';
 
-/** CLI binary 字面 —— 与 motion-guidance-composer 同源约定、Assembly 内 source of truth。 */
+/** CLI binary 字面 —— CLIProtocol 内 file-private。 */
 const CLI_BINARY = 'chestnut';
 
 const GROUP_HEADERS: Record<CommandGroup, string> = {
@@ -44,21 +46,21 @@ function padRight(s: string, n: number): string {
   return s + ' '.repeat(n - s.length);
 }
 
-/** Render a verb's positional argument list (e.g., `<message>`, `[verb]`). Excludes options. */
+/** Render a command's positional argument list (e.g., `<message>`, `[verb]`). Excludes options. */
 function renderArgList(spec: ClawCommandSpec): string {
   if (!spec.args || spec.args.length === 0) return '';
   return ' ' + spec.args.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ');
 }
 
 /**
- * Render the verb signature tail for the **top-level** help row.
+ * Render the command signature tail for the **top-level** help row.
  *
  * = positional args + required-option flag literals (phase 1480).
  *
  * Surfacing required options prevents the silent-X where the top-level help
- * row shows just the verb name (e.g. `trace`), but the verb refuses to run
+ * row shows just the command name (e.g. `trace`), but the command refuses to run
  * without a required option (e.g. `--contract <id>`). Optional options stay
- * hidden at the top level — users discover them via `claw help <verb>`.
+ * hidden at the top level — users discover them via `claw help <command>`.
  */
 function renderTopLevelSignatureTail(spec: ClawCommandSpec): string {
   const args = renderArgList(spec);
@@ -69,8 +71,8 @@ function renderTopLevelSignatureTail(spec: ClawCommandSpec): string {
   return `${args}${requiredOpts}`;
 }
 
-/** Render a single verb's one-line entry for the top-level group list. */
-function renderVerbLine(spec: ClawCommandSpec): string {
+/** Render a single command's one-line entry for the top-level group list. */
+function renderCommandLine(spec: ClawCommandSpec): string {
   const signature = `  ${spec.id}${renderTopLevelSignatureTail(spec)}`;
   return `${padRight(signature, SIGNATURE_COL)}${spec.summary}`;
 }
@@ -78,18 +80,18 @@ function renderVerbLine(spec: ClawCommandSpec): string {
 function renderGroup(group: CommandGroup, specs: readonly ClawCommandSpec[]): string[] {
   const groupSpecs = specs.filter((s) => s.group === group);
   if (groupSpecs.length === 0) return [];
-  return [GROUP_HEADERS[group], ...groupSpecs.map(renderVerbLine), ''];
+  return [GROUP_HEADERS[group], ...groupSpecs.map(renderCommandLine), ''];
 }
 
 /**
  * Compose top-level `chestnut claw --help` text.
  *
- * Layout: Usage block + verb groups.
+ * Layout: Usage block + command groups.
  * Replaces commander's default `Usage: chestnut claw [options] <subject> [args...]`
  * which is opaque to users (`<subject>` is a commander internal abstraction).
- * Per-verb examples live on `claw help <verb>`, not in the top-level summary.
+ * Per-command examples live on `claw help <command>`, not in the top-level summary.
  */
-export function composeClawHelp(specs: readonly ClawCommandSpec[]): string {
+function composeClawHelp(specs: readonly ClawCommandSpec[]): string {
   const lines: string[] = [];
 
   // Usage — three forms, all surfaced.
@@ -111,19 +113,19 @@ export function composeClawHelp(specs: readonly ClawCommandSpec[]): string {
 }
 
 /**
- * Compose per-verb help: `chestnut claw help <verb>` or `claw <name> <verb> --help`.
+ * Compose per-command help: `chestnut claw help <command>` or `claw <name> <command> --help`.
  *
  * Layout: signature + summary + args + options + examples + note.
  */
-export function composeClawVerbHelp(spec: ClawCommandSpec): string {
+function composeClawCommandHelp(spec: ClawCommandSpec): string {
   const lines: string[] = [];
 
   // Signature line — depends on form.
-  const verbSig = `${spec.id}${renderArgList(spec)}`;
+  const cmdSig = `${spec.id}${renderArgList(spec)}`;
   if (spec.form === 'instance') {
-    lines.push(`Usage: ${CLI_BINARY} claw <claw-name> ${verbSig}`);
+    lines.push(`Usage: ${CLI_BINARY} claw <claw-name> ${cmdSig}`);
   } else {
-    lines.push(`Usage: ${CLI_BINARY} claw ${verbSig}`);
+    lines.push(`Usage: ${CLI_BINARY} claw ${cmdSig}`);
   }
   lines.push('');
   lines.push(spec.summary);
@@ -165,4 +167,19 @@ export function composeClawVerbHelp(spec: ClawCommandSpec): string {
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
 
   return lines.join('\n');
+}
+
+/** Render top-level claw help（固定读取 CLIProtocol owner catalog）。 */
+export function renderClawHelp(): string {
+  return composeClawHelp(CLAW_COMMAND_CATALOG);
+}
+
+/**
+ * Render per-command help. 内部 query catalog；unknown id 返回 undefined
+ * （router 依赖此语义转 CliError、不得改 throw）。
+ */
+export function renderClawCommandHelp(id: string): string | undefined {
+  const spec = getClawCommandSpec(id);
+  if (!spec) return undefined;
+  return composeClawCommandHelp(spec);
 }

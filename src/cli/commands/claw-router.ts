@@ -46,15 +46,11 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import { psCommand } from './claw-ps.js';
 import {
-  CLAW_COMMAND_CATALOG,
   CLAW_INSTANCE_COMMAND_IDS,
-  getClawCommandSpec,
+  renderClawHelp,
+  renderClawCommandHelp,
   type ClawInstanceCommandId,
 } from '../../cli-protocol/index.js';
-import {
-  composeClawHelp,
-  composeClawVerbHelp,
-} from '../../assembly/cli-help/index.js';
 
 export interface RouterDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -96,18 +92,6 @@ function findHelpFlag(args: readonly string[]): boolean {
   return args.some((a) => a === '--help' || a === '-h');
 }
 
-/** Render top-level claw help (CLIProtocol catalog + composer, replaces commander default). */
-export function renderClawTopHelp(): string {
-  return composeClawHelp(CLAW_COMMAND_CATALOG);
-}
-
-/** Render per-verb help. Returns undefined if verb name not registered. */
-export function renderClawVerbHelp(verbName: string): string | undefined {
-  const spec = getClawCommandSpec(verbName);
-  if (!spec) return undefined;
-  return composeClawVerbHelp(spec);
-}
-
 /**
  * Make a fresh commander Command for an ad-hoc verb-scoped option parse.
  * exitOverride() so option errors throw instead of triggering process exit;
@@ -133,7 +117,7 @@ export async function dispatchClawSubcommand(
   // than commander's `error: missing required argument 'subject'`. Same
   // intent as `claw help` / `claw --help`.
   if (subject === undefined) {
-    writeHelp(renderClawTopHelp());
+    writeHelp(renderClawHelp());
     return;
   }
 
@@ -141,7 +125,7 @@ export async function dispatchClawSubcommand(
   // these tokens flow through as `subject` (passThroughOptions). Treat them
   // as alias of `claw help`.
   if (subject === '--help' || subject === '-h') {
-    writeHelp(renderClawTopHelp());
+    writeHelp(renderClawHelp());
     return;
   }
 
@@ -150,10 +134,10 @@ export async function dispatchClawSubcommand(
   if (subject === 'help') {
     const verbToken = args[0];
     if (!verbToken) {
-      writeHelp(renderClawTopHelp());
+      writeHelp(renderClawHelp());
       return;
     }
-    const verbHelp = renderClawVerbHelp(verbToken);
+    const verbHelp = renderClawCommandHelp(verbToken);
     if (!verbHelp) {
       throw new CliError(
         `unknown verb '${verbToken}'. available: ${INSTANCE_VERB_NAMES.join(', ')}`,
@@ -205,8 +189,8 @@ export async function dispatchClawSubcommand(
   // → render per-verb help and short-circuit before per-verb option parser
   //   (commander would otherwise error on unknown option / required arg).
   if (findHelpFlag(verbArgs)) {
-    const verbHelp = renderClawVerbHelp(verb);
-    // Guarded by VERB_SET above; renderClawVerbHelp must succeed.
+    const verbHelp = renderClawCommandHelp(verb);
+    // Guarded by VERB_SET above; renderClawCommandHelp must succeed.
     if (verbHelp) {
       writeHelp(verbHelp);
       return;

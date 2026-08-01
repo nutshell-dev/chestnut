@@ -1,37 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  composeClawHelp,
-  composeClawVerbHelp,
-} from '../../../src/assembly/cli-help/index.js';
-import {
-  dispatchClawSubcommand,
-  renderClawTopHelp,
-  renderClawVerbHelp,
-} from '../../../src/cli/commands/claw-router.js';
-import { CliError } from '../../../src/cli/errors.js';
+import { dispatchClawSubcommand } from '../../src/cli/commands/claw-router.js';
+import { CliError } from '../../src/cli/errors.js';
 import {
   CLAW_COMMAND_CATALOG,
   CLAW_INSTANCE_COMMAND_IDS,
   getClawCommandSpec,
-} from '../../../src/cli-protocol/index.js';
+  renderClawHelp,
+  renderClawCommandHelp,
+} from '../../src/cli-protocol/index.js';
 
 /**
- * verb-fact 单源 invariants — phase 1477 Step B4.
+ * claw command catalog 单源 invariants — phase 1477 Step B4 立 / phase 1253 Step C
+ * 迁 CLIProtocol（原 tests/cli/help/help-invariants.test.ts、行为断言保留）。
  *
  * Covers:
- * - 每 fact 含必填字段 (name / group / form / summary)
- * - name 在 fact 表内唯一
- * - instance-form fact 名集合 = router VERB_NAMES（防双源 silent-X drift）
+ * - 每 spec 含必填字段 (id / group / form / summary)
+ * - id 在 catalog 内唯一
+ * - CLAW_INSTANCE_COMMAND_IDS 由 catalog instance-form spec 派生（单源）
  * - flat-form 含且仅含 ['list', 'help']（β 基础设施约定）
  * - example 字面以 `chestnut claw` 起头（防漂移到旧 verb-first 形态）
  *
- * 反向 1：故意改一个 fact name → router VERB_NAMES 同步检查应失败
- * 反向 2：fact 表新增 instance verb 但 router 未加 → 失败
- * 反向 3：example 字面写 `chestnut claw create alice`（旧 verb-first）→ 失败
+ * 反向 1：catalog 新增 instance command 但 router 未加 case → router switch
+ *   exhaustiveness guard（`const _exhaustive: never = verb`）编译失败（phase 1253 实测）
+ * 反向 2：example 字面写 `chestnut claw create alice`（旧 verb-first）→ 失败
  */
-
-// Router's authoritative verb list. Imported via the router module to assert
-// the two are kept in lockstep at type/runtime layer.
 
 describe('CLAW_COMMAND_CATALOG invariants', () => {
   it('every spec has required fields', () => {
@@ -75,23 +67,23 @@ describe('CLAW_COMMAND_CATALOG invariants', () => {
 });
 
 /**
- * Assembly composer 渲染契约 — phase 1477 Step B4.
+ * CLIProtocol help renderer 渲染契约 — phase 1477 Step B4 立 / phase 1253 Step C 迁。
  *
  * Covers:
  * - 顶层 help 含 4 个 group header + Usage 三行 + Examples 段 + Notes 段（含 cp 退役提示）
- * - 顶层 help 含每 verb 的 summary 字面（防 composer 漏渲染）
+ * - 顶层 help 含每 command 的 summary 字面（防 renderer 漏渲染）
  * - 顶层 help 不出现 commander 内部抽象 `<subject>` 字面（替代 commander 默认 Usage 的契约）
  * - 顶层 help 不包含旧 verb-first 形态字面 `claw create <name>` 等（防回归）
  * - per-verb help (instance form) 含 `chestnut claw <claw-name> <verb>` Usage 行
  * - per-verb help (flat form) 含 `chestnut claw <verb>` Usage 行（无 <claw-name>）
  * - per-verb help 含 args / options / examples 段（当 fact 提供时）
  *
- * 反向 1：composer 输出含 `chestnut` binary 字面（确认 Assembly 物理拼装）
+ * 反向 1：renderer 输出含 `chestnut` binary 字面（确认 CLIProtocol 物理拼装、phase 1253）
  * 反向 2：顶层 help 含 `claw help [<verb>]` 入口字面（α 路由文档化）
  */
 
-describe('composeClawHelp (top-level)', () => {
-  const help = composeClawHelp(CLAW_COMMAND_CATALOG);
+describe('renderClawHelp (top-level)', () => {
+  const help = renderClawHelp();
 
   it('contains all four group headers', () => {
     expect(help).toContain('Lifecycle:');
@@ -135,51 +127,45 @@ describe('composeClawHelp (top-level)', () => {
     expect(help).not.toMatch(/claw send <name>/);
   });
 
-  it('includes the `chestnut` binary literal (composer is the assembly point)', () => {
+  it('includes the `chestnut` binary literal (CLIProtocol owns help rendering, phase 1253)', () => {
     expect(help).toContain('chestnut');
   });
 });
 
-describe('composeClawVerbHelp (per-verb)', () => {
+describe('renderClawCommandHelp (per-command)', () => {
   it('instance form: Usage row carries `<claw-name>` placeholder', () => {
-    const fact = getClawCommandSpec('send')!;
-    const out = composeClawVerbHelp(fact);
+    const out = renderClawCommandHelp('send')!;
     expect(out).toContain('Usage: chestnut claw <claw-name> send <message>');
   });
 
   it('flat form: Usage row omits `<claw-name>`', () => {
-    const fact = getClawCommandSpec('list')!;
-    const out = composeClawVerbHelp(fact);
+    const out = renderClawCommandHelp('list')!;
     expect(out).toContain('Usage: chestnut claw list');
     expect(out).not.toContain('<claw-name>');
   });
 
-  it('renders Arguments section when fact has args', () => {
-    const fact = getClawCommandSpec('send')!;
-    const out = composeClawVerbHelp(fact);
+  it('renders Arguments section when spec has args', () => {
+    const out = renderClawCommandHelp('send')!;
     expect(out).toContain('Arguments:');
     expect(out).toContain('Message body');
   });
 
-  it('renders Options section when fact has options', () => {
-    const fact = getClawCommandSpec('outbox')!;
-    const out = composeClawVerbHelp(fact);
+  it('renders Options section when spec has options', () => {
+    const out = renderClawCommandHelp('outbox')!;
     expect(out).toContain('Options:');
     expect(out).toContain('--limit <n>');
   });
 
-  it('renders Examples section when fact has examples', () => {
-    const fact = getClawCommandSpec('create')!;
-    const out = composeClawVerbHelp(fact);
+  it('renders Examples section when spec has examples', () => {
+    const out = renderClawCommandHelp('create')!;
     expect(out).toContain('Examples:');
     expect(out).toContain('chestnut claw alice create');
   });
 
-  it('handles fact with neither args nor options', () => {
-    const fact = getClawCommandSpec('stop')!;
-    const out = composeClawVerbHelp(fact);
+  it('handles spec with neither args nor options', () => {
+    const out = renderClawCommandHelp('stop')!;
     expect(out).toContain('Usage:');
-    expect(out).toContain(fact.summary);
+    expect(out).toContain(getClawCommandSpec('stop')!.summary);
     expect(out).not.toContain('Arguments:');
     expect(out).not.toContain('Options:');
   });
@@ -207,7 +193,7 @@ describe('getClawCommandSpec', () => {
  * - `claw <name> <verb> --help` → per-verb help short-circuit (before option parser)
  * - `help` reserved as subject (cannot be claw name in `claw <name> <verb>` form)
  *
- * 反向 1：renderClawVerbHelp 与 composer findVerbFact 共源 → 改 fact 名后两个都会失败
+ * 反向 1：renderClawCommandHelp 与 catalog query 共源 → 改 spec id 后两个都会失败
  */
 
 
@@ -291,18 +277,18 @@ describe('claw help routing', () => {
 });
 
 describe('renderers are pure (no side effects)', () => {
-  it('renderClawTopHelp returns a non-empty string', () => {
-    const out = renderClawTopHelp();
+  it('renderClawHelp returns a non-empty string', () => {
+    const out = renderClawHelp();
     expect(out.length).toBeGreaterThan(50);
     expect(out).toContain('Lifecycle:');
   });
 
-  it('renderClawVerbHelp returns string for known verb', () => {
-    expect(renderClawVerbHelp('send')).toContain('Usage:');
+  it('renderClawCommandHelp returns string for known command', () => {
+    expect(renderClawCommandHelp('send')).toContain('Usage:');
   });
 
-  it('renderClawVerbHelp returns undefined for unknown verb', () => {
-    expect(renderClawVerbHelp('nonexistent')).toBeUndefined();
+  it('renderClawCommandHelp returns undefined for unknown command', () => {
+    expect(renderClawCommandHelp('nonexistent')).toBeUndefined();
   });
 });
 

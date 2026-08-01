@@ -26,3 +26,7 @@ export {
   CONTRACT_COMMANDS,
   type ContractCommand,
 } from './invocation.js';
+export {
+  renderClawHelp,
+  renderClawCommandHelp,
+} from './help.js';
