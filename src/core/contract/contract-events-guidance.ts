@@ -170,13 +170,15 @@ function decodeV1Refs(raw: string): ContractEventGuidanceRef[] {
   return refs;
 }
 
-/** legacy batch CSV：空 string → 空 refs；非空每项必须恰是 `<claw>:<contract>`，任一坏项整条 throw。 */
+/** legacy batch CSV：仅整个 `problem_pairs === ''` 合法返空 refs；非空 CSV 每个 segment 必须恰是 `<claw>:<contract>`，任一坏项（含多余逗号产生的空 segment）整条 throw，禁止部分过滤。 */
 function decodeLegacyPairs(raw: string): ContractEventGuidanceRef[] {
   if (raw.length === 0) return [];
   const refs: ContractEventGuidanceRef[] = [];
   for (const segment of raw.split(',')) {
     const pair = segment.trim();
-    if (pair.length === 0) continue; // 与历史 parser 一致：空 segment（多余逗号/空白）跳过
+    if (pair.length === 0) {
+      fail(LEGACY_KEYS.problemPairs, 'legacy pair segment must not be empty (stray comma)');
+    }
     const parts = pair.split(':');
     if (parts.length !== 2) {
       fail(LEGACY_KEYS.problemPairs, 'legacy pair must be exactly <claw>:<contract>');

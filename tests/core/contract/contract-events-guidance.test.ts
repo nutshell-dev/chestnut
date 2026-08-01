@@ -225,6 +225,18 @@ describe('contract-events guidance codec (phase 1261)', () => {
         .toThrowError(ContractEventsGuidanceDecodeError);
     });
 
+    it('legacy batch 多余逗号产生空 segment → 整条 typed throw（禁止静默忽略）', () => {
+      // 反向 fixture：尾逗号 / 头逗号 / 双逗号 / 纯空白 segment 均不得静默跳过
+      expect(() => decodeContractEventsGuidance(wire({ problem_pairs: 'worker-1:c1,' })))
+        .toThrowError(ContractEventsGuidanceDecodeError);
+      expect(() => decodeContractEventsGuidance(wire({ problem_pairs: ',worker-1:c1' })))
+        .toThrowError(ContractEventsGuidanceDecodeError);
+      expect(() => decodeContractEventsGuidance(wire({ problem_pairs: 'worker-1:c1,,worker-2:c2' })))
+        .toThrowError(ContractEventsGuidanceDecodeError);
+      expect(() => decodeContractEventsGuidance(wire({ problem_pairs: 'worker-1:c1, ,worker-2:c2' })))
+        .toThrowError(ContractEventsGuidanceDecodeError);
+    });
+
     it('legacy batch 多个 colon → 整条 typed throw', () => {
       expect(() => decodeContractEventsGuidance(wire({ problem_pairs: 'worker-1:a:b' })))
         .toThrowError(ContractEventsGuidanceDecodeError);
