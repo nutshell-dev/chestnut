@@ -24,6 +24,7 @@ import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-ev
 import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
 import { composer as clawCrashedComposer } from '../../../src/assembly/guidance/composers/claw-crashed.js';
 import { composer as clawInactivityComposer } from '../../../src/assembly/guidance/composers/claw-inactivity.js';
+import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
 
 class TestRuntime extends Runtime {
   async testFormatInboxMessage(
@@ -339,6 +340,72 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).toHaveBeenCalledWith(
       RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
       'type=claw_inactivity',
+      expect.stringContaining('schema_invalid'),
+    );
+  });
+
+  it('phase 1259 Step B: claw_outbox_summary 真实 registry + 合法 v1 wire → guidance append（真实 limit）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    registry.register({ type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('claw_outbox_summary', clawOutboxSummaryComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'claw_outbox_summary',
+      'system',
+      '[system] outbox 未读：共 2 个 claw 4 条消息',
+      undefined,
+      {
+        guidance_schema_version: '1',
+        'summary-hash': 'abc123def456',
+        counts: JSON.stringify({ clawA: 3, clawB: 1 }),
+        total_claws: '2',
+        total_msgs: '4',
+      },
+    );
+
+    expect(result).toMatch(/^\[system message\d*\] \[system\] outbox 未读：共 2 个 claw 4 条消息$/m);
+    expect(result).toContain('chestnut claw <claw-id> outbox');
+    expect(result).toContain('--limit 4');
+    expect(audit.write).not.toHaveBeenCalled();
+  });
+
+  it('phase 1259 Step B: claw_outbox_summary decoder 失败 → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（无 fallback guidance）', async () => {
+    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
+    const registry = createInboxMessageTypeRegistry();
+    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    registry.register({ type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
+    const guidanceRegistry = createMotionGuidanceRegistry();
+    guidanceRegistry.register('claw_outbox_summary', clawOutboxSummaryComposer);
+    const runtime = build({
+      audit,
+      formatterRegistry: registry,
+      guidanceCompose: (input) => guidanceRegistry.compose(input),
+    });
+
+    const result = await runtime.testFormatInboxMessage(
+      'claw_outbox_summary',
+      'system',
+      '[system] outbox 未读：共 1 个 claw 1 条消息',
+      undefined,
+      { total_msgs: 'NaN', counts: '{}' },  // malformed wire：缺 owned fields + 非法 total
+    );
+
+    // malformed wire 不阻断 body 投递
+    expect(result).toMatch(/^\[system message\d*\] \[system\] outbox 未读：共 1 个 claw 1 条消息$/);
+    // formatted result 不含任何 fallback guidance（NaN/0 不再静默变 --limit 10）
+    expect(result).not.toContain('查看具体内容');
+    expect(result).not.toContain('--limit 10');
+    // audit 含 type 与安全 reason（typed decode error / 不回显 metadata）
+    expect(audit.write).toHaveBeenCalledWith(
+      RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
+      'type=claw_outbox_summary',
       expect.stringContaining('schema_invalid'),
     );
   });

@@ -13,6 +13,7 @@ import { composer as contractEventsComposer } from '../../../src/assembly/guidan
 import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../src/cli-protocol/index.js';
 import { ClawCrashedGuidanceDecodeError } from '../../../src/watchdog/claw-crashed-guidance.js';
 import { ClawInactivityGuidanceDecodeError } from '../../../src/watchdog/claw-inactivity-guidance.js';
+import { OutboxSummaryGuidanceDecodeError } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
 
 /**
  * phase 1256 Step B: envelope fixture — 三字段（type/from/meta）完整，
@@ -55,39 +56,74 @@ describe('task-queue-overflow-composer', () => {
 describe('claw-outbox-summary-composer', () => {
   /**
    * phase 1476: claw-outbox-summary composer unit test (γ2 first real composer).
+   * phase 1259 Step B: composer 只消费 ClawTopology owner codec typed state —
+   *   v1/legacy 完整 production fixture 合法；NaN/0/inconsistent/malformed wire 由
+   *   decoder 抛 typed error（不再静默 fallback `--limit 10`）；
+   *   `<claw-id>` placeholder 保留为当前显式 presentation decision。
    */
 
-  describe('phase 1476: claw-outbox-summary composer', () => {
-    it('returns non-null guidance with subject-first CLI', () => {
-      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', {
-        hash: 'abc123def456',
-        total_claws: '2',
-        total_msgs: '4',
-        counts: JSON.stringify({ clawA: 3, clawB: 1 }),
-      }));
+  /** 合法 v1 wire（production shape：from 固定 system）。 */
+  function v1SummaryMeta(): Record<string, string> {
+    return {
+      guidance_schema_version: '1',
+      'summary-hash': 'abc123def456',
+      counts: JSON.stringify({ clawA: 3, clawB: 1 }),
+      total_claws: '2',
+      total_msgs: '4',
+    };
+  }
+
+  /** 合法 legacy wire（缺 version 的旧完整 production shape）。 */
+  function legacySummaryMeta(): Record<string, string> {
+    const meta = v1SummaryMeta();
+    delete meta.guidance_schema_version;
+    return {
+      hash: 'abc123def456',
+      ...meta,
+      failed_claws: '[]',
+      incomplete: 'false',
+    };
+  }
+
+  describe('phase 1476 + phase 1259: claw-outbox-summary composer', () => {
+    it('v1 合法 → non-null guidance with subject-first CLI（真实 limit）', () => {
+      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', v1SummaryMeta(), 'system'));
       expect(result.text).toContain('chestnut claw <claw-id> outbox');
       expect(result.text).toContain('--limit 4');
     });
 
-    it('safe limit fallback if total_msgs is malformed', () => {
-      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', {
-        hash: 'aaaaaaaaaaaa',
-        total_claws: '1',
-        total_msgs: 'NaN',
-        counts: '{}',
-      }));
-      expect(result.text).toContain('--limit 10');
+    it('legacy production shape → 同 v1 输出（version 缺失不影响）', () => {
+      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', legacySummaryMeta(), 'system'));
+      expect(result.text).toContain('chestnut claw <claw-id> outbox');
+      expect(result.text).toContain('--limit 4');
     });
 
-    it('total_msgs = 0 still returns guidance (caller decides to call or not)', () => {
-      // composer is pure / doesn't second-guess scheduler — tick handler guards 0-unread case
-      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', {
-        hash: 'aaaaaaaaaaaa',
+    it('total_msgs malformed（NaN）→ decoder throws typed error（不再 fallback --limit 10）', () => {
+      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', {
+        ...v1SummaryMeta(),
+        total_msgs: 'NaN',
+      }, 'system'))).toThrowError(OutboxSummaryGuidanceDecodeError);
+    });
+
+    it('total_msgs = 0 → decoder throws typed error（0 不是合法 wire / tick fail-closed 守门）', () => {
+      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', {
+        ...v1SummaryMeta(),
         total_claws: '0',
         total_msgs: '0',
         counts: '{}',
-      }));
-      expect(result.text).toContain('--limit 10'); // fallback when limit <= 0
+      }, 'system'))).toThrowError(OutboxSummaryGuidanceDecodeError);
+    });
+
+    it('counts 与 totals 派生不一致 → decoder throws typed error', () => {
+      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', {
+        ...v1SummaryMeta(),
+        total_msgs: '5',
+      }, 'system'))).toThrowError(OutboxSummaryGuidanceDecodeError);
+    });
+
+    it('from 非 system → decoder throws typed error（owner provenance 不可伪装）', () => {
+      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', v1SummaryMeta(), 'clawA')))
+        .toThrowError(OutboxSummaryGuidanceDecodeError);
     });
   });
 });
