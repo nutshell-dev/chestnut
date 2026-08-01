@@ -16,6 +16,7 @@ import {
 } from './watchdog-context.js';
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
 import { encodeClawCrashedGuidance } from './claw-crashed-guidance.js';
+import type { FailureClass } from './claw-failure-classes.js';
 import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
 import { listSubscriptions, consumeSubscription } from './subscription-store.js';
 import { getActiveContractTimestamp } from '../core/contract/index.js';
@@ -58,11 +59,12 @@ interface FireInactivityOpts {
   inactiveMin: number;
   inactiveMs: number;
   lastError: string | null;
-  sourcePath?: string;
+  /** 仅 subscription 触发路径传入 typed literal；普通 timeout 缺失。 */
+  sourcePath?: 'subscription';
   audit?: AuditLog;
 }
 
-function fireInactivityNotification(opts: FireInactivityOpts): { failureClass: string } {
+function fireInactivityNotification(opts: FireInactivityOpts): { failureClass: FailureClass } {
   const { rawClawId, clawId, clawDir, fsFactory, pm, inactiveMin, inactiveMs, lastError, sourcePath, audit } = opts;
   const snapshot = gatherClawSnapshot(clawDir, fsFactory, pm, clawId, audit);
   const failureClass = deriveFailureClass({
@@ -77,15 +79,20 @@ function fireInactivityNotification(opts: FireInactivityOpts): { failureClass: s
     lastError,
   });
 
+  // phase 1258 Step A: 不再声明 wire key — 传 typed facts 给 writer，
+  // extraFields 只经 owner codec (claw-inactivity-guidance.ts) 产出（v1 wire）。
+  // asOf 此处单次生成、writer 内不再取时间（body/audit/wire 观察点不漂移）。
   writeClawInactivityInbox(fsFactory, {
-    message: body,
-    claw_id: rawClawId,
-    inactive_ms: inactiveMs,
-    contract: snapshot.contract,
-    as_of: new Date().toISOString(),
-    failure_class: failureClass,
-    ...(sourcePath ? { source_path: sourcePath } : {}),
-    ...(lastError ? { last_error: lastError } : {}),
+    body,
+    guidance: {
+      clawId: rawClawId,
+      failureClass,
+      inactiveMs,
+      contract: snapshot.contract,
+      asOf: new Date().toISOString(),
+      ...(sourcePath ? { sourcePath } : {}),
+      ...(lastError ? { lastError } : {}),
+    },
   });
 
   return { failureClass };
