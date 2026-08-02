@@ -8,6 +8,11 @@
  *    transport adapter（notifyInbox self-inbox 写归 Assembly）；
  *  - Assembly 物理持有 adapter（assembly/contract-notification-adapter.ts），
  *    只 import ContractSystem-owned protocol types + Messaging/Stream capabilities。
+ *
+ * Phase 1262 Step D：`ContractNotification` type-only 判定兼容两种合法形态——
+ * 整条 `import type { ... }` 与 mixed import 中的 `type ContractNotification`
+ * specifier（Phase 1262 Step B 引入 owner encoder value + notification type 的
+ * 合法 mixed import）；value-only import 与 deep import 仍拒绝。
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -32,6 +37,22 @@ function findOffenders(dir: string, pattern: RegExp): string[] {
     if (pattern.test(text)) offenders.push(path.relative(srcRoot, file));
   }
   return offenders;
+}
+
+/**
+ * phase 1262 Step D: `ContractNotification` 必须从 ContractSystem 稳定 barrel 以
+ * type-only 方式导入的两种合法形态。两个明确 pattern、不用可选 `(?:type\s+)?`
+ * 包住 specifier（否则 `import { ContractNotification }` 会误通过）；`[^}]*`
+ * 天然跨行，保留 `s` flag 与 word boundary 防相似类型名误配；mixed import 内
+ * specifier 顺序不依赖。
+ */
+const CONTRACT_NOTIFICATION_TYPE_IMPORTS = [
+  /import\s+type\s+\{[^}]*\bContractNotification\b[^}]*\}\s+from\s+'\.\.\/core\/contract\/index\.js'/s,
+  /import\s+\{[^}]*\btype\s+ContractNotification\b[^}]*\}\s+from\s+'\.\.\/core\/contract\/index\.js'/s,
+] as const;
+
+function hasContractNotificationTypeImport(text: string): boolean {
+  return CONTRACT_NOTIFICATION_TYPE_IMPORTS.some(pattern => pattern.test(text));
 }
 
 describe('phase 1260 Step B: contract notification owner boundary', () => {
@@ -61,10 +82,34 @@ describe('phase 1260 Step B: contract notification owner boundary', () => {
     expect(fs.existsSync(adapterPath)).toBe(true);
     const text = fs.readFileSync(adapterPath, 'utf8');
     expect(text).toContain('@module L6.Assembly');
-    expect(text).toMatch(/import type \{[^}]*ContractNotification[^}]*\} from '\.\.\/core\/contract\/index\.js'/s);
+    expect(hasContractNotificationTypeImport(text)).toBe(true);
     expect(text).toContain('createContractNotificationAdapter');
     // 旧物理位置不得残留 shim/兼容 re-export
     expect(fs.existsSync(path.join(srcRoot, 'core', 'contract', 'contract-notify-callback.ts'))).toBe(false);
+  });
+
+  it('反向 fixture：type-only 判定接受 type-only/mixed、拒绝 value-only/deep import', () => {
+    expect(hasContractNotificationTypeImport(
+      "import type { ContractNotification } from '../core/contract/index.js';",
+    )).toBe(true);
+    expect(hasContractNotificationTypeImport(
+      "import { encodeX, type ContractNotification } from '../core/contract/index.js';",
+    )).toBe(true);
+    expect(hasContractNotificationTypeImport(
+      "import { type ContractNotificationSink, type ContractNotification } from '../core/contract/index.js';",
+    )).toBe(true);
+    // value-only import 不得通过
+    expect(hasContractNotificationTypeImport(
+      "import { ContractNotification } from '../core/contract/index.js';",
+    )).toBe(false);
+    // deep import（非稳定 barrel）不得通过
+    expect(hasContractNotificationTypeImport(
+      "import type { ContractNotification } from '../core/contract/notification.js';",
+    )).toBe(false);
+    // 缺失 import 不得通过
+    expect(hasContractNotificationTypeImport(
+      "import { notifyInbox } from '../foundation/messaging/index.js';",
+    )).toBe(false);
   });
 
   it('反向 fixture：scanner 能检出 runtime 中转与 contract 目录 adapter 回流', () => {
