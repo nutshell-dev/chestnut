@@ -17,6 +17,16 @@
  *
  * 本文件不 import Runtime、Assembly 或任一 owner（M#5/M#6：CLIProtocol 零实现依赖）。
  * truncation 只表达 presentation 事实（total/shown/subject），不截断或复制 owner state。
+ *
+ * Phase 1263 Step B 立：generic-correlated binding + 最小 registrar + 注册 helper。
+ * - `CliGuidanceInput` / `CliGuidanceRegistrar` 是最小结构协议：CLIProtocol 不 import
+ *   Runtime `GuidanceEnvelope` 或 Assembly `GuidanceEntry`，也不持 registry handle
+ *   （M#8： registrar 只暴露 register，无 compose/get/map/unregister）。
+ * - `defineCliGuidanceBinding<State>` 保持 owner decoded state 与 adapter 的 generic
+ *   相关性（禁 unknown/any/cast）；CLIProtocol 不解释 state、不列举任何消息 type。
+ * - `registerCliGuidance` 发起 decode→adapt→render→register；duplicate type 在调
+ *   registrar 前完整 preflight fail-fast（不能注册一半才发现冲突）；decoder/adapter/
+ *   renderer error 原样传播（不 catch、不包装成 null，Runtime 现有 audit 边界处理）。
  */
 
 import { renderClawInvocation, CONTRACT_COMMANDS } from './invocation.js';
@@ -196,4 +206,77 @@ export function renderCliGuidanceDocument(document: CliGuidanceDocument): string
     parts.push(`${LABEL_PREFIX[line.label]}${renderCliGuidanceAction(line.action)}`);
   }
   return parts.join('\n');
+}
+
+/**
+ * 最小结构化输入 — 与 Runtime envelope `{ type, from, meta }` 结构兼容，
+ * 但 CLIProtocol 不向下 import Runtime（M#5/M#6）。
+ */
+export interface CliGuidanceInput {
+  readonly type: string;
+  readonly from: string;
+  readonly meta: Readonly<Record<string, string>>;
+}
+
+/**
+ * 最小 registrar port — Assembly registry 的结构适配面。只暴露 register；
+ * CLIProtocol 不接管 registry resource、不认识 generic guidance / NO_GUIDANCE。
+ */
+export interface CliGuidanceRegistrar {
+  register(
+    type: string,
+    composer: (input: CliGuidanceInput) => { text: string } | null,
+  ): void;
+}
+
+/**
+ * owner decoded state → typed document 的 cross-protocol binding。
+ * decode/toDocument 用 method 签名声明：heterogeneous binding 数组经
+ * `CliGuidanceBinding<unknown>` 受控擦除时由方法 bivariance 放行，
+ * 而单个 factory 调用内 State 的相关性仍由 generic 推断锁定（M#9）。
+ */
+export interface CliGuidanceBinding<State> {
+  readonly type: string;
+  decode(input: CliGuidanceInput): State;
+  toDocument(state: State): CliGuidanceDocument | null;
+}
+
+/**
+ * binding factory：保留 `State` 推断（decode 返回与 toDocument 参数类型相关），
+ * 禁止 `unknown`/`any`/cast 掩盖错配。CLIProtocol 不解释 state。
+ */
+export function defineCliGuidanceBinding<State>(
+  binding: CliGuidanceBinding<State>,
+): CliGuidanceBinding<State> {
+  return binding;
+}
+
+/**
+ * CLIProtocol 发起的注册控制流：对每个 binding 注册闭包
+ * `input → decode（throw 原样传播）→ toDocument（null = 合法显式无 affordance）
+ * → renderCliGuidanceDocument → { text }`。
+ *
+ * duplicate type 在调用 registrar 前完整 preflight fail-fast（避免 registrar 的
+ * last-win 静默覆盖 / 注册一半才发现冲突）；bindings 顺序不改变；空列表合法 no-op。
+ * 不 catch decoder/adapter/renderer error — Runtime 现有 audit 边界处理。
+ */
+export function registerCliGuidance(
+  registrar: CliGuidanceRegistrar,
+  bindings: readonly CliGuidanceBinding<unknown>[],
+): void {
+  const seen = new Set<string>();
+  for (const binding of bindings) {
+    if (seen.has(binding.type)) {
+      throw new CliGuidanceRenderError(`duplicate cli guidance binding type: ${binding.type}`);
+    }
+    seen.add(binding.type);
+  }
+  for (const binding of bindings) {
+    registrar.register(binding.type, (input) => {
+      const state = binding.decode(input);
+      const document = binding.toDocument(state);
+      if (document === null) return null;
+      return { text: renderCliGuidanceDocument(document) };
+    });
+  }
 }

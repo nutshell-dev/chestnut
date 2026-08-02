@@ -22,6 +22,10 @@ import {
   type CliGuidanceSubject,
   type CliGuidanceDocument,
   type CliGuidanceDocumentLine,
+  type CliGuidanceInput,
+  type CliGuidanceBinding,
+  defineCliGuidanceBinding,
+  registerCliGuidance,
 } from '../../src/cli-protocol/index.js';
 
 const clawA: CliGuidanceTarget = { kind: 'claw', id: 'clawA' };
@@ -262,5 +266,198 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
     expect(lines).toHaveLength(1);
     expect(doc.truncation).toBe(truncation);
     expect(doc.lines).toBe(lines);
+  });
+});
+
+
+/**
+ * Phase 1263 Step B: generic-correlated binding + 最小 registrar + 注册 helper tests.
+ *
+ * 覆盖（计划 §4.4 测试矩阵）：
+ * - fake state 字段被 adapter 以具体类型消费，`@ts-expect-error` 锁错配；
+ * - single / multiple binding 注册 type 与顺序；
+ * - input identity 传给 decoder；document 渲成 entry；null 保持 null；
+ * - decoder、adapter、renderer throw 均原样暴露；
+ * - duplicate type 在调用 registrar 前 throw；空 bindings 零注册；
+ * - registrar 结构兼容（fake object 直传，不 import / instantiate Assembly registry）。
+ */
+
+interface FakeState {
+  readonly clawId: string;
+  readonly count: number;
+}
+
+function fakeInput(type = 'fake_type', from = 'fake-from'): CliGuidanceInput {
+  return { type, from, meta: { k: 'v' } };
+}
+
+/** fake registrar：记录调用序 + 按 type 取 composer（结构兼容断言、非 Assembly 实现）。 */
+function createFakeRegistrar() {
+  const calls: string[] = [];
+  const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
+  const registrar: CliGuidanceRegistrar = {
+    register(type, composer) {
+      calls.push(type);
+      composers.set(type, composer);
+    },
+  };
+  return { registrar, calls, composers };
+}
+
+describe('phase 1263 Step B: defineCliGuidanceBinding generic correlation', () => {
+  it('decoder state 与 adapter 参数类型相关：字段以具体类型消费、错配编译失败', () => {
+    const binding = defineCliGuidanceBinding({
+      type: 'fake_typed',
+      decode: () => ({ clawId: 'clawA', count: 42 }),
+      toDocument: (state) => {
+        // State 从对象字面推断（无显式宽泛 annotation）：具体类型消费
+        const id: string = state.clawId;
+        const n: number = state.count;
+        void id; void n;
+        // @ts-expect-error count 是 number、不是 string
+        const bad: string = state.count;
+        void bad;
+        // @ts-expect-error decode 不产出 missing 字段
+        void state.missing;
+        return null;
+      },
+    });
+    expect(binding.type).toBe('fake_typed');
+    expect(binding.toDocument(binding.decode(fakeInput()))).toBeNull();
+  });
+
+  it('factory 原样返回 binding、不包装修饰', () => {
+    const literal = {
+      type: 'fake_identity',
+      decode: () => ({ clawId: 'clawA', count: 1 }),
+      toDocument: () => null,
+    };
+    expect(defineCliGuidanceBinding(literal)).toBe(literal);
+  });
+});
+
+describe('phase 1263 Step B: registerCliGuidance', () => {
+  function fakeBinding(overrides?: {
+    toDocument?: (state: FakeState) => CliGuidanceDocument | null;
+  }): CliGuidanceBinding<FakeState> {
+    return defineCliGuidanceBinding({
+      type: 'fake_type',
+      decode: (input) => ({ clawId: input.from, count: 1 }),
+      toDocument: overrides?.toDocument ?? ((state) => ({
+        lines: [
+          { label: 'inspect-current-work', action: { kind: 'claw.steps', target: { kind: 'claw', id: state.clawId } } },
+        ],
+      })),
+    });
+  }
+
+  it('single binding：注册 type、input identity 传给 decoder、document 渲成 entry', () => {
+    const { registrar, calls, composers } = createFakeRegistrar();
+    const seen: CliGuidanceInput[] = [];
+    const binding = defineCliGuidanceBinding({
+      type: 'fake_type',
+      decode: (input) => {
+        seen.push(input);
+        return { clawId: input.from, count: 1 };
+      },
+      toDocument: (state) => ({
+        lines: [
+          { label: 'inspect-current-work', action: { kind: 'claw.steps', target: { kind: 'claw', id: state.clawId } } },
+        ],
+      }),
+    });
+    registerCliGuidance(registrar, [binding]);
+    expect(calls).toEqual(['fake_type']);
+
+    const input = fakeInput('fake_type', 'claw-real');
+    const entry = composers.get('fake_type')!(input);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBe(input); // identity：不重建对象
+    expect(entry).toEqual({ text: 'To inspect what the claw was doing: chestnut claw claw-real steps' });
+  });
+
+  it('multiple bindings：按给定顺序注册、各自独立 compose', () => {
+    const { registrar, calls, composers } = createFakeRegistrar();
+    const a = defineCliGuidanceBinding({
+      type: 'fake_a',
+      decode: () => ({ clawId: 'clawA', count: 1 }),
+      toDocument: (state) => ({
+        lines: [{ label: 'inspect-current-work', action: { kind: 'claw.steps', target: { kind: 'claw', id: state.clawId } } }],
+      }),
+    });
+    const b = defineCliGuidanceBinding({
+      type: 'fake_b',
+      decode: () => ({ clawId: 'clawB', count: 2 }),
+      toDocument: (state) => ({
+        lines: [{ label: 'read-outbox', action: { kind: 'claw.outbox', target: { kind: 'claw', id: state.clawId }, limit: state.count } }],
+      }),
+    });
+    registerCliGuidance(registrar, [a, b]);
+    expect(calls).toEqual(['fake_a', 'fake_b']);
+    expect(composers.get('fake_a')!(fakeInput('fake_a')))
+      .toEqual({ text: 'To inspect what the claw was doing: chestnut claw clawA steps' });
+    expect(composers.get('fake_b')!(fakeInput('fake_b')))
+      .toEqual({ text: '查看具体内容： chestnut claw clawB outbox --limit 2' });
+  });
+
+  it('toDocument null = 合法显式无 affordance → composer 返 null（不经 renderer）', () => {
+    const { registrar, composers } = createFakeRegistrar();
+    registerCliGuidance(registrar, [fakeBinding({ toDocument: () => null })]);
+    expect(composers.get('fake_type')!(fakeInput())).toBeNull();
+  });
+
+  it('decoder throw 原样传播（不 catch、不包装成 null）', () => {
+    const { registrar, composers } = createFakeRegistrar();
+    const failure = new Error('owner decode failure');
+    const binding = defineCliGuidanceBinding({
+      type: 'fake_type',
+      decode: (): FakeState => { throw failure; },
+      toDocument: () => null,
+    });
+    registerCliGuidance(registrar, [binding]);
+    expect(() => composers.get('fake_type')!(fakeInput())).toThrowError(failure);
+  });
+
+  it('adapter throw 原样暴露', () => {
+    const { registrar, composers } = createFakeRegistrar();
+    const failure = new Error('adapter failure');
+    registerCliGuidance(registrar, [fakeBinding({
+      toDocument: () => { throw failure; },
+    })]);
+    expect(() => composers.get('fake_type')!(fakeInput())).toThrowError(failure);
+  });
+
+  it('renderer throw 原样暴露（非法 document 不被吞）', () => {
+    const { registrar, composers } = createFakeRegistrar();
+    registerCliGuidance(registrar, [fakeBinding({
+      toDocument: () => ({
+        lines: [{ label: 'read-outbox', action: { kind: 'claw.outbox', target: { kind: 'claw', id: 'clawA' }, limit: 0 } }],
+      }),
+    })]);
+    expect(() => composers.get('fake_type')!(fakeInput())).toThrowError(CliGuidanceRenderError);
+  });
+
+  it('duplicate type 在调用 registrar 前 fail-fast（preflight 完整扫描、零注册）', () => {
+    const { registrar, calls } = createFakeRegistrar();
+    const first = fakeBinding();
+    const second = defineCliGuidanceBinding({
+      type: 'fake_type',
+      decode: () => ({ clawId: 'clawB', count: 1 }),
+      toDocument: () => null,
+    });
+    const third = defineCliGuidanceBinding({
+      type: 'fake_other',
+      decode: () => ({ clawId: 'clawC', count: 1 }),
+      toDocument: () => null,
+    });
+    expect(() => registerCliGuidance(registrar, [first, second, third]))
+      .toThrowError(/duplicate cli guidance binding type: fake_type/);
+    expect(calls).toEqual([]); // 不能注册一半才发现冲突
+  });
+
+  it('空 bindings 合法 no-op（零注册）', () => {
+    const { registrar, calls } = createFakeRegistrar();
+    registerCliGuidance(registrar, []);
+    expect(calls).toEqual([]);
   });
 });

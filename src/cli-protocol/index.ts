@@ -41,4 +41,9 @@ export {
   type CliGuidanceDocumentLine,
   type CliGuidanceTruncation,
   type CliGuidanceDocument,
+  type CliGuidanceInput,
+  type CliGuidanceRegistrar,
+  type CliGuidanceBinding,
+  defineCliGuidanceBinding,
+  registerCliGuidance,
 } from './guidance.js';
