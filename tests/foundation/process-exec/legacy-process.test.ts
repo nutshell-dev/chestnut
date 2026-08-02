@@ -48,9 +48,18 @@ describe('phase 1269 Step E: legacy single-process probe', () => {
     expect(probeLegacyProcess(DEAD_PID)).toEqual({ kind: 'gone' });
   });
 
-  it('without a start time, liveness alone decides', () => {
+  it('without a start time, ownership is unprovable — indeterminate, never alive', () => {
     const child = spawnSleep('30');
-    expect(probeLegacyProcess(child.pid!)).toEqual({ kind: 'alive' });
+    expect(probeLegacyProcess(child.pid!)).toEqual({ kind: 'indeterminate', reason: 'start_time_unavailable' });
+  });
+
+  it('terminate without a start time refuses to signal (indeterminate)', async () => {
+    const child = spawnSleep('30');
+    const pid = child.pid!;
+    const outcome = await terminateLegacyProcess(pid); // expectedStartTime undefined
+    expect(outcome.status).toBe('indeterminate');
+    expect(outcome.reason).toBe('start_time_unavailable');
+    expect(isAlive(pid)).toBe(true); // never signalled a PID whose ownership is unproven
   });
 });
 
@@ -80,7 +89,9 @@ describe('phase 1269 Step E: legacy single-process termination', () => {
     });
 
     const startedAt = Date.now();
-    const outcome = await terminateLegacyProcess(pid, undefined, { graceMs: 200, confirmMs: 2000 });
+    // Real start time: this test exercises the KILL escalation path, not the
+    // ownership check — ownership is verified by the caller-provided start time.
+    const outcome = await terminateLegacyProcess(pid, getProcessStartTime(pid), { graceMs: 200, confirmMs: 2000 });
 
     expect(outcome.status).toBe('gone');
     expect(outcome.termSent).toBe(true);

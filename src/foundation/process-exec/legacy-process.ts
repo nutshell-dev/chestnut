@@ -42,13 +42,22 @@ export type LegacyProcessRecoveryState =
 /**
  * Probe whether a legacy persisted PID still refers to the original process.
  * Pure probe — never signals.
+ * Conservative alignment (phase 1271): a missing start time yields
+ * indeterminate, never alive — without ownership evidence a reused PID would
+ * otherwise be signalled.
  */
 export function probeLegacyProcess(
   pid: number,
   expectedStartTime?: string,
 ): LegacyProcessRecoveryState {
   if (!isAlive(pid)) return { kind: 'gone' };
-  if (expectedStartTime === undefined) return { kind: 'alive' };
+  // Conservative alignment with execution-group probes: a missing start time
+  // cannot distinguish the original process from a reused PID — never report
+  // alive without ownership evidence. Legacy tasks with a missing start time
+  // follow the indeterminate path (L4 deadline fallback notification).
+  if (expectedStartTime === undefined) {
+    return { kind: 'indeterminate', reason: 'start_time_unavailable' };
+  }
   const actual = getProcessStartTime(pid);
   if (actual === undefined) return { kind: 'indeterminate', reason: 'start_time_unreadable' };
   if (actual !== expectedStartTime) return { kind: 'gone' }; // PID reused — original is gone
