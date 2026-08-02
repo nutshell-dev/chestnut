@@ -211,3 +211,23 @@ describe('phase 1269 Step B: process-exec group termination invariants', () => {
     expect(indexSrc).not.toContain('KillEscalator');
   });
 });
+
+/**
+ * Phase 1269 Step C — abort 所有权静态断言：AbortSignal 不得再交回 spawn
+ * （Node native signal 路径会提前 AbortError settle 并撤销清理），必须由 L1
+ * 自己的 listener 走统一 terminate 状态机。
+ */
+describe('phase 1269 Step C: exec abort ownership invariants', () => {
+  const SRC_ROOT = fileURLToPath(new URL('../../../src', import.meta.url));
+
+  it('exec.ts never hands AbortSignal to spawn and owns abort via listener', () => {
+    const execSrc = readFileSync(`${SRC_ROOT}/foundation/process-exec/exec.ts`, 'utf8');
+    expect(execSrc).not.toContain('signal: options.signal');
+    expect(execSrc).toContain("addEventListener('abort'");
+  });
+
+  it('ProcessExecError carries structured termination facts (no message re-parsing needed)', () => {
+    const errorsSrc = readFileSync(`${SRC_ROOT}/foundation/process-exec/errors.ts`, 'utf8');
+    expect(errorsSrc).toContain('termination?: ExecutionTerminationFact');
+  });
+});

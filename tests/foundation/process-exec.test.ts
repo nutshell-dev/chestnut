@@ -7,7 +7,7 @@
  * - Error paths: command not found, non-zero exit, timeout, AbortSignal
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import * as fs from 'fs';
@@ -79,9 +79,17 @@ describe('ProcessExec exec', () => {
   // ── error paths ─────────────────────────────────────────────────────────
 
   it.concurrent('should throw ProcessExecError on non-existent command', async () => {
-    await expect(
-      exec('nonexistent_command_xyz_12345', [], { cwd: workDir }),
-    ).rejects.toThrow(ProcessExecError);
+    try {
+      await exec('nonexistent_command_xyz_12345', [], { cwd: workDir });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      // phase 1269 Step C (反向 5): spawn ENOENT is an OS spawn error, not a
+      // termination event — no termination facts, not reported as killed.
+      expect(error.termination).toBeUndefined();
+      expect(error.killed).toBe(false);
+    }
   });
 
   it.concurrent('should throw ProcessExecError on non-zero exit code', async () => {
@@ -90,7 +98,10 @@ describe('ProcessExec exec', () => {
       expect.fail('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ProcessExecError);
+      // phase 1269 Step C (反向 5): plain exit 1/42 is a command result, not
+      // an abort/termination cleanup.
       expect((err as ProcessExecError).exitCode).toBe(42);
+      expect((err as ProcessExecError).termination).toBeUndefined();
     }
   });
 
@@ -129,9 +140,22 @@ describe('ProcessExec exec', () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(
-      exec('echo', ['should-not-run'], { cwd: workDir, signal: controller.signal }),
-    ).rejects.toThrow();
+    try {
+      await exec('echo', ['should-not-run'], { cwd: workDir, signal: controller.signal });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      // phase 1269 Step C: no OS process was ever spawned → explicit
+      // not_started fact, and no fabricated identity (反向 3).
+      expect(error.termination).toBeDefined();
+      expect(error.termination!.status).toBe('gone');
+      expect(error.termination!.trigger).toBe('abort');
+      expect(error.termination!.reason).toBe('not_started');
+      expect(error.termination!.identity).toBeUndefined();
+      expect(error.termination!.termSent).toBe(false);
+      expect(error.termination!.killSent).toBe(false);
+    }
   });
 
   // ── interleaved stdout+stderr ordering ───────────────────────────────────
@@ -378,4 +402,107 @@ describe('findByPattern', () => {
     expect(typeof r[0]!.pid).toBe('number');
     expect(typeof r[0]!.command).toBe('string');
   });
+});
+
+/**
+ * Phase 1269 Step C — abort 收敛：L1 自己 own AbortSignal，走同一组终止状态机
+ */
+describe('phase 1269 Step C: exec abort convergence', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  const workDir = tmpdir();
+
+  it.concurrent('mid-flight abort terminates the group and rejects with trigger=abort facts', async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    let leaderPid: number | undefined;
+    let sleepPid: number | undefined;
+    try {
+      const p = exec('sh', ['-c', 'echo LEADER:$$; sleep 30 & echo SLEEP_PID:$!; wait'], {
+        cwd: workDir,
+        signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 200);
+      await p;
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      expect(error.termination).toBeDefined();
+      expect(error.termination!.trigger).toBe('abort');
+      expect(error.termination!.status).toBe('gone');
+      expect(error.termination!.termSent).toBe(true);
+      expect(error.termination!.identity).toBeDefined();
+      leaderPid = error.termination!.identity!.leaderPid;
+      sleepPid = Number(error.output.match(/SLEEP_PID:(\d+)/)![1]);
+    }
+    const elapsed = Date.now() - started;
+    // Settles after abort + bounded cleanup, never after the natural 30s.
+    expect(elapsed).toBeLessThan(15_000);
+    expect(isAlive(leaderPid!)).toBe(false);
+    expect(isAlive(sleepPid!)).toBe(false);
+  }, 20_000);
+
+  it.concurrent('abort on SIGTERM-ignoring process must not settle before KILL/liveness conclusion (反向 1)', async () => {
+    const controller = new AbortController();
+    const GRACE_MS = 300;
+    const started = Date.now();
+    try {
+      const p = exec(
+        'node',
+        ['-e', `process.on('SIGTERM', () => {}); setTimeout(() => {}, ${SUBPROC_HANG_MS})`],
+        {
+          cwd: workDir,
+          signal: controller.signal,
+          __testMinTimeoutMs: 100,
+          __testSigkillGraceMs: GRACE_MS,
+        },
+      );
+      setTimeout(() => controller.abort(), 200);
+      await p;
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      // The promise must NOT have settled at abort time with a premature
+      // AbortError: escalation ran its full course and the facts say so.
+      expect(error.termination!.trigger).toBe('abort');
+      expect(error.termination!.killSent).toBe(true);
+      expect(error.termination!.status).toBe('gone');
+    }
+    const elapsed = Date.now() - started;
+    // abort at ~200ms + grace 300ms + KILL confirm — settling earlier than
+    // ~500ms would prove premature settle.
+    expect(elapsed).toBeGreaterThanOrEqual(200 + GRACE_MS);
+  }, 20_000);
+
+  it.concurrent('abort and timeout racing do not produce a second TERM sequence nor rewrite the first trigger (反向 2)', async () => {
+    const controller = new AbortController();
+    const killSpy = vi.spyOn(process, 'kill');
+    let leaderPid: number | undefined;
+    let firstTrigger: string | undefined;
+    try {
+      const p = exec('node', ['-e', `setTimeout(() => {}, ${SUBPROC_HANG_MS})`], {
+        cwd: workDir,
+        signal: controller.signal,
+        timeout: 200,
+        __testMinTimeoutMs: 100,
+        __testSigkillGraceMs: 100,
+      });
+      // Fire abort at the same moment the timeout fires.
+      setTimeout(() => controller.abort(), 200);
+      await p;
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      firstTrigger = error.termination!.trigger;
+      expect(['timeout', 'abort']).toContain(firstTrigger);
+      leaderPid = error.termination!.identity!.leaderPid;
+    }
+    const groupTerms = killSpy.mock.calls.filter(
+      ([pid, sig]) => pid === -leaderPid! && sig === 'SIGTERM',
+    );
+    expect(groupTerms).toHaveLength(1);
+    killSpy.mockRestore();
+  }, 20_000);
 });

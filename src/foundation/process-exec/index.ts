@@ -15,6 +15,7 @@ export type {
   ExecutionIdentity,
   ExecutionTerminationTrigger,
   ExecutionTerminationOutcome,
+  ExecutionTerminationFact,
 } from './types.js';
 export { terminateExecutionGroup, isProcessGroupAlive } from './execution-group.js';
 export type { GroupTerminationOptions } from './execution-group.js';

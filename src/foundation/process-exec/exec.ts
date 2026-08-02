@@ -22,6 +22,7 @@ import type {
   ExecResult,
   ExecHandle,
   ExecutionIdentity,
+  ExecutionTerminationFact,
   ExecutionTerminationOutcome,
   ExecutionTerminationTrigger,
 } from './types.js';
@@ -143,14 +144,34 @@ export function execWithHandle(
   const maxBuffer = Math.max(1, options.maxBuffer ?? PROCESS_EXEC_DEFAULT_MAX_BUFFER);
   const env = buildChildEnv(options);
 
+  // Pre-aborted signal: never spawn an OS process. The error is explicit
+  // (trigger='abort', status='gone', reason='not_started') and no PID/PGID
+  // is fabricated — no execution unit was ever created.
+  if (options.signal?.aborted) {
+    throw new ProcessExecError({
+      message: 'Command not started: abort signal already aborted',
+      exitCode: null,
+      killed: true,
+      termination: {
+        status: 'gone',
+        trigger: 'abort',
+        termSent: false,
+        killSent: false,
+        reason: 'not_started',
+      },
+    });
+  }
+
   // detached: true — every normal exec is an isolated POSIX process-group
   // leader (PGID = leader PID), so termination can target the whole group
   // instead of only the direct shell. NOT unref'd: pipe/handle lifetime still
   // binds the child to this process. spawnDetached() daemons are a different
   // resource class and do not reuse this state machine.
+  // NOTE: the AbortSignal is deliberately NOT handed to spawn. Node's native
+  // signal path settles with a premature AbortError and disarms cleanup while
+  // the process may still be alive; L1 owns abort via terminate('abort').
   const proc = spawn(command, args, {
     cwd: options.cwd,
-    signal: options.signal,
     env,
     detached: true,
   });
@@ -206,6 +227,7 @@ export function execWithHandle(
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
+      options.signal?.removeEventListener('abort', onAbort);
     }
 
     proc.stdout?.on('data', (chunk: Buffer) => collector.pushStdout(chunk));
@@ -216,8 +238,20 @@ export function execWithHandle(
       terminate('timeout');
     }, timeout);
 
+    // Mid-flight abort: the listener only starts the shared termination
+    // state machine (first trigger wins); it never rejects directly and
+    // never signals the leader PID on its own.
+    const onAbort = (): void => {
+      terminate('abort');
+    };
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    // Race: the signal may have aborted between the pre-spawn check and the
+    // listener registration; addEventListener does not fire retroactively.
+    if (options.signal?.aborted) onAbort();
+
     proc.on('error', (err) => {
       if (settled) return; // guard: close may arrive first
+      if (terminationPromise !== undefined) return; // never preempt an in-flight termination via the error event
       settle();
       reject(new ProcessExecError({
         message: err.message,
@@ -248,14 +282,25 @@ export function execWithHandle(
           if (settled) return;
           settle();
 
+          const termination: ExecutionTerminationFact = {
+            status: outcome.status,
+            trigger: outcome.trigger,
+            termSent: outcome.termSent,
+            killSent: outcome.killSent,
+            identity: outcome.identity,
+            ...(outcome.status === 'indeterminate' ? { reason: outcome.reason } : {}),
+          };
+
           // System termination reasons take precedence over exit code interpretation.
           if (timedOut) {
             reject(new ProcessExecError({
               message: `Command timed out after ${timeout}ms`,
               output,
               exitCode: code ?? null,
+              signal: signal ?? undefined,
               killed: true,
               stderr,
+              termination,
             }));
             return;
           }
@@ -265,18 +310,23 @@ export function execWithHandle(
               message: `Command output exceeded ${maxBuffer / 1024 / 1024} MB limit`,
               output,
               exitCode: code ?? null,
+              signal: signal ?? undefined,
               maxBufferExceeded: true,
               stderr,
+              termination,
             }));
             return;
           }
 
           reject(new ProcessExecError({
-            message: `Command terminated (${outcome.trigger}, cleanup: ${outcome.status})`,
+            message: `Command terminated (${outcome.trigger}, cleanup: ${outcome.status})` +
+              (outcome.status === 'indeterminate' ? `, reason: ${outcome.reason}` : ''),
             output,
             exitCode: code ?? null,
+            signal: signal ?? undefined,
             killed: true,
             stderr,
+            termination,
           }));
         });
         return;

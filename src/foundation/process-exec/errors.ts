@@ -4,6 +4,8 @@
  * Error types raised by external process execution.
  */
 
+import type { ExecutionTerminationFact } from './types.js';
+
 /**
  * Error thrown when process execution fails.
  * Carries raw output for consumer diagnostics.
@@ -16,6 +18,13 @@ export class ProcessExecError extends Error {
   readonly killed: boolean;
   readonly maxBufferExceeded: boolean;
   readonly stderr?: string;
+  /**
+   * Structured termination facts when this error resulted from the L1
+   * termination state machine (timeout / maxBuffer / abort / caller
+   * requested). Absent for plain spawn errors and natural non-zero exits —
+   * those are not termination events.
+   */
+  readonly termination?: ExecutionTerminationFact;
 
   constructor(options: {
     message: string;
@@ -26,6 +35,7 @@ export class ProcessExecError extends Error {
     killed?: boolean;
     maxBufferExceeded?: boolean;
     stderr?: string;
+    termination?: ExecutionTerminationFact;
   }) {
     super(options.message);
     this.name = 'ProcessExecError';
@@ -36,6 +46,7 @@ export class ProcessExecError extends Error {
     this.killed = options.killed ?? false;
     this.maxBufferExceeded = options.maxBufferExceeded ?? false;
     this.stderr = options.stderr;
+    this.termination = options.termination;
   }
 }
 

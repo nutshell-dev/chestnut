@@ -202,3 +202,65 @@ function waitForMatch(
     handle.child.on('close', () => reject(new Error(`closed before match: ${pattern}`)));
   });
 }
+
+/**
+ * Phase 1269 Step C — promise settle 与 termination outcome 一致性
+ */
+describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  const workDir = os.tmpdir();
+
+  it('mid-flight abort: promise rejection carries the same facts as the termination outcome', async () => {
+    const controller = new AbortController();
+    const handle = execWithHandle('sh', ['-c', 'sleep 30'], {
+      cwd: workDir,
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 100);
+    const err = await handle.promise.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProcessExecError);
+    const error = err as ProcessExecError;
+    expect(error.termination).toBeDefined();
+    expect(error.termination!.trigger).toBe('abort');
+    expect(error.termination!.status).toBe('gone');
+    expect(error.termination!.identity).toEqual(handle.identity);
+    // A late terminate() reuses the concluded run: same facts, no new signals.
+    const outcome = await handle.terminate();
+    expect(outcome.trigger).toBe('abort'); // first trigger wins, not caller_requested
+    expect(outcome.status).toBe('gone');
+  }, 20_000);
+
+  it('pre-aborted signal throws synchronously with not_started facts and never spawns', () => {
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      execWithHandle('sh', ['-c', 'echo SHOULD_NOT_RUN'], {
+        cwd: workDir,
+        signal: controller.signal,
+      });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      expect(error.termination!.trigger).toBe('abort');
+      expect(error.termination!.reason).toBe('not_started');
+      expect(error.termination!.identity).toBeUndefined();
+    }
+  });
+
+  it('SIGKILL close signal is surfaced on the error, not parsed from the message', async () => {
+    const handle = execWithHandle(
+      'node',
+      ['-e', `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, 60000)`],
+      { cwd: workDir, __testSigkillGraceMs: 100 },
+    );
+    await waitForMatch(handle, /READY/);
+    const outcome = await handle.terminate();
+    expect(outcome.killSent).toBe(true);
+    const err = await handle.promise.catch((e: unknown) => e);
+    const error = err as ProcessExecError;
+    expect(error.signal).toBe('SIGKILL');
+    expect(error.termination!.status).toBe('gone');
+    expect(error.termination!.killSent).toBe(true);
+  }, 20_000);
+});

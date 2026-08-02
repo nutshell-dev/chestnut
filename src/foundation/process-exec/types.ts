@@ -103,6 +103,23 @@ export type ExecutionTerminationOutcome =
     };
 
 /**
+ * Error-facing termination fact carried by ProcessExecError. Same facts as
+ * ExecutionTerminationOutcome, flattened for cross-layer diagnostics, plus
+ * the not-started case (pre-aborted signal): no execution unit — and thus no
+ * identity — ever existed, and none is fabricated.
+ */
+export interface ExecutionTerminationFact {
+  status: 'gone' | 'still_alive' | 'indeterminate';
+  trigger: ExecutionTerminationTrigger;
+  termSent: boolean;
+  killSent: boolean;
+  /** Present for real execution units; absent only when nothing was started. */
+  identity?: ExecutionIdentity;
+  /** Present when status is 'indeterminate' or the unit never started. */
+  reason?: string;
+}
+
+/**
  * Handle returned by execWithHandle: exposes the settled promise, the live
  * ChildProcess (streams/unref only — callers MUST NOT use child.kill; OS
  * signal semantics stay L1-owned via `terminate()`), the execution identity,
