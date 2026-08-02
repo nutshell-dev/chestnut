@@ -233,6 +233,40 @@ describe('phase 1269 Step E: async-task-system termination ownership', () => {
 });
 
 /**
+ * Phase 1269 Step F — persisted-identity 归属证明静态锁：v1 identity 的
+ * verified_alive 只能来自创建不变量（detached spawn ⇒ PGID === leader PID）
+ * + leader 存活/start time 匹配，禁止重新引入任何 OS PGID 查询 API
+ * （Node v20 不存在该 API，Step E 的类型逃逸在生产恒 indeterminate）。
+ *
+ * 注意：本文件自身不得包含被禁字面量（验收反向 grep 覆盖 tests/），故拼接。
+ */
+describe('phase 1269 Step F: persisted identity ownership proof invariants', () => {
+  const SRC_ROOT = fileURLToPath(new URL('../../../src', import.meta.url));
+
+  it('L1 recovery path contains no OS PGID query API', () => {
+    const forbidden = ['get', 'pgid'].join('');
+    const files = [
+      `${SRC_ROOT}/foundation/process-exec/execution-group.ts`,
+      `${SRC_ROOT}/foundation/process-exec/legacy-process.ts`,
+      `${SRC_ROOT}/foundation/process-exec/exec.ts`,
+    ];
+    const offenders = files.filter((file) => readFileSync(file, 'utf8').includes(forbidden));
+    expect(offenders).toEqual([]);
+  });
+
+  it('v1 identity runtime guard enforces the creation invariant (PGID === leader PID)', () => {
+    const src = readFileSync(`${SRC_ROOT}/foundation/process-exec/execution-group.ts`, 'utf8');
+    expect(src).toContain('leaderPid === processGroupId');
+    expect(src).toContain('invalid_execution_identity');
+  });
+
+  it('disk schema enforces the creation invariant as a second guard layer', () => {
+    const src = readFileSync(`${SRC_ROOT}/core/async-task-system/task-schemas.ts`, 'utf8');
+    expect(src).toContain('e.processGroupId === e.leaderPid');
+  });
+});
+
+/**
  * Phase 1269 Step C — abort 所有权静态断言：AbortSignal 不得再交回 spawn
  * （Node native signal 路径会提前 AbortError settle 并撤销清理），必须由 L1
  * 自己的 listener 走统一 terminate 状态机。

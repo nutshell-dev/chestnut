@@ -83,4 +83,36 @@ describe('phase 1269 Step E: ToolTaskSchema migrated execution identity', () => 
     expect(ToolTaskSchema.safeParse(makeBaseTask()).success).toBe(true);
     expect(ToolTaskSchema.safeParse(makeBaseTask({ mode: 'fresh' })).success).toBe(true);
   });
+
+  // Phase 1269 Step F: the disk schema enforces the v1 creation invariant —
+  // safe integers, > 1, and PGID === leader PID.
+  it('rejects v1 identity with processGroupId !== leaderPid', () => {
+    const task = makeBaseTask({
+      mode: 'migrated',
+      migratedExecution: { version: 1, leaderPid: 12345, processGroupId: 12346 },
+    });
+    expect(ToolTaskSchema.safeParse(task).success).toBe(false);
+  });
+
+  it('rejects non-integer and unsafe identity values', () => {
+    expect(ToolTaskSchema.safeParse(makeBaseTask({
+      mode: 'migrated',
+      migratedExecution: { version: 1, leaderPid: 123.5, processGroupId: 123.5 },
+    })).success).toBe(false);
+
+    const unsafe = Number.MAX_SAFE_INTEGER + 1;
+    expect(ToolTaskSchema.safeParse(makeBaseTask({
+      mode: 'migrated',
+      migratedExecution: { version: 1, leaderPid: unsafe, processGroupId: unsafe },
+    })).success).toBe(false);
+  });
+
+  it('rejects dangerous small values (<= 1) even when equal', () => {
+    for (const pid of [0, 1, -5]) {
+      expect(ToolTaskSchema.safeParse(makeBaseTask({
+        mode: 'migrated',
+        migratedExecution: { version: 1, leaderPid: pid, processGroupId: pid },
+      })).success).toBe(false);
+    }
+  });
 });

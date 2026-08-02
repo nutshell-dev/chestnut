@@ -105,12 +105,17 @@ export const ToolTaskSchema = z.object({
   migratedStartTime: z.string().optional(),
   // Phase 1269: versioned execution-group identity (new migrated writes).
   // Unknown/future versions fail parsing — fail-observable, never guessed.
+  // Step F: enforce the v1 creation invariant on disk — safe integers, > 1,
+  // and PGID === leader PID (detached spawn makes the leader its own group).
   migratedExecution: z.object({
     version: z.literal(1),
-    leaderPid: z.number(),
-    processGroupId: z.number(),
+    leaderPid: z.number().int().safe().gt(1),
+    processGroupId: z.number().int().safe().gt(1),
     leaderStartTime: z.string().optional(),
-  }).optional(),
+  }).refine(
+    (e) => e.processGroupId === e.leaderPid,
+    { message: 'v1 execution identity requires processGroupId === leaderPid (detached group leader)' },
+  ).optional(),
   // Phase 906: absolute deadline (ms) for migrated process hard timeout
   migratedDeadlineMs: z.number().optional(),
   // Phase 874: persisted terminal intent for recovery routing

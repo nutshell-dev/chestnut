@@ -138,19 +138,50 @@ export type ExecutionGroupRecoveryState =
   | { kind: 'indeterminate'; reason: string };
 
 /**
+ * Creation invariant of the v1 execution identity (phase 1269 Step F).
+ *
+ * `execWithHandle` is the ONLY creator of v1 identities and always spawns
+ * with `detached: true`, so at creation the leader IS its process group
+ * (PGID === leader PID). A POSIX session/group leader cannot migrate into
+ * another process group while alive. Therefore a live leader whose start
+ * time matches, on an identity satisfying this invariant, is provably the
+ * original detached leader — no second OS PGID query is needed (and Node
+ * v20 exposes none).
+ *
+ * Identities violating the invariant are NOT v1 identities: never verify
+ * them, never signal them.
+ */
+function isValidV1ExecutionIdentity(identity: ExecutionIdentity): boolean {
+  const { leaderPid, processGroupId } = identity;
+  return (
+    Number.isSafeInteger(leaderPid) &&
+    Number.isSafeInteger(processGroupId) &&
+    leaderPid > 1 &&
+    processGroupId > 1 &&
+    leaderPid === processGroupId
+  );
+}
+
+/**
  * Probe whether a persisted execution identity still refers to a provably
  * owned execution unit. Pure probe — never signals.
  *
- * - verified_alive: leader alive, start time matches, PGID consistent → the
- *   caller may terminate the group via terminateExecutionGroup().
+ * - verified_alive: identity satisfies the v1 creation invariant, leader
+ *   alive, start time matches → the caller may terminate the group via
+ *   terminateExecutionGroup().
  * - gone: leader dead (or provably reused) AND the group no longer responds.
- * - indeterminate: ownership cannot be proven (leader gone but group still
- *   responds, unreadable/missing start time, or PGID mismatch).
+ * - indeterminate: ownership cannot be proven (identity violates the
+ *   creation invariant, leader gone but group still responds,
+ *   unreadable/missing start time).
  */
 export function probeExecutionGroup(
   identity: ExecutionIdentity,
   leaderStartTime?: string,
 ): ExecutionGroupRecoveryState {
+  if (!isValidV1ExecutionIdentity(identity)) {
+    return { kind: 'indeterminate', reason: 'invalid_execution_identity' };
+  }
+
   const leaderAlive = isAlive(identity.leaderPid);
   if (!leaderAlive) {
     return isProcessGroupAlive(identity.processGroupId)
@@ -173,24 +204,9 @@ export function probeExecutionGroup(
       : { kind: 'gone' };
   }
 
-  // Leader verified. A setsid'd group leader cannot re-join another group,
-  // so its PGID must still equal the persisted one.
-  // process.getpgid is POSIX-only and missing from some @types/node versions.
-  const getpgid = (process as unknown as { getpgid?: (pid: number) => number }).getpgid;
-  if (getpgid === undefined) {
-    return { kind: 'indeterminate', reason: 'getpgid_unsupported' };
-  }
-  let currentPgid: number | undefined;
-  try {
-    currentPgid = getpgid(identity.leaderPid);
-  } catch {
-    // silent: ESRCH race — leader exited between isAlive and getpgid; the
-    // undefined PGID falls through to pgid_mismatch → honest indeterminate.
-    currentPgid = undefined;
-  }
-  if (currentPgid !== identity.processGroupId) {
-    return { kind: 'indeterminate', reason: 'pgid_mismatch' };
-  }
+  // Leader alive with matching start time on a valid v1 identity: by the
+  // creation invariant the live leader is still the original detached
+  // session/group leader. verified without any additional OS query.
   return { kind: 'verified_alive' };
 }
 
@@ -215,6 +231,12 @@ export async function terminateExecutionGroup(
   const confirmMs = options?.confirmMs ?? PROCESS_EXEC_GROUP_KILL_CONFIRM_MS;
   let termSent = false;
   let killSent = false;
+
+  // Runtime guard independent of the disk schema (phase 1269 Step F): only
+  // identities satisfying the v1 creation invariant may be signalled.
+  if (!isValidV1ExecutionIdentity(identity)) {
+    return indeterminateOutcome(identity, trigger, termSent, killSent, 'invalid_execution_identity');
+  }
 
   if (!isGroupSignalSafe(pgid)) {
     return indeterminateOutcome(identity, trigger, termSent, killSent, 'unsafe_process_group_id');

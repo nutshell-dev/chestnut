@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { execWithHandle, ProcessExecError, isProcessGroupAlive } from '../../../src/foundation/process-exec/index.js';
+import { execWithHandle, ProcessExecError, isProcessGroupAlive, probeExecutionGroup, terminateExecutionGroup, getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
 import * as os from 'os';
 
 describe('execWithHandle', () => {
@@ -262,5 +262,130 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
     expect(error.signal).toBe('SIGKILL');
     expect(error.termination!.status).toBe('gone');
     expect(error.termination!.killSent).toBe(true);
+  }, 20_000);
+});
+
+/**
+ * Phase 1269 Step F — persisted-identity recovery probe against the REAL OS.
+ *
+ * These tests must not mock probeExecutionGroup: they create a genuine
+ * detached execution group, persist+rehydrate the identity (JSON round-trip),
+ * and drive the production probe/terminate path end to end.
+ */
+describe('persisted identity recovery probe (phase 1269 Step F, real OS)', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  const workDir = os.tmpdir();
+
+  it('production probe verifies a live persisted v1 identity after JSON round-trip', async () => {
+    const handle = execWithHandle('sh', ['-c', 'sleep 30'], { cwd: workDir });
+    const identity = handle.identity!;
+    // Attach the rejection handler up front: terminating via the L1 group
+    // entry rejects the promise asynchronously, and a late attach reads as an
+    // unhandled rejection.
+    const settled = handle.promise.then(() => null, (e: unknown) => e);
+    try {
+      // Simulate daemon restart: identity survives only as JSON on disk.
+      const persisted = JSON.parse(JSON.stringify(identity)) as typeof identity;
+      const leaderStartTime = getProcessStartTime(persisted.leaderPid);
+      expect(leaderStartTime).toBeDefined();
+
+      expect(probeExecutionGroup(persisted, leaderStartTime)).toEqual({ kind: 'verified_alive' });
+    } finally {
+      const outcome = await terminateExecutionGroup(identity, 'caller_requested');
+      expect(outcome.status).toBe('gone');
+    }
+    expect(await settled).toBeInstanceOf(ProcessExecError);
+  });
+
+  it('identity violating the creation invariant (PGID !== leader PID) is never verified nor signalled', async () => {
+    const handle = execWithHandle('sh', ['-c', 'sleep 30'], { cwd: workDir });
+    const identity = handle.identity!;
+    const settled = handle.promise.then(() => null, (e: unknown) => e);
+    try {
+      const leaderStartTime = getProcessStartTime(identity.leaderPid);
+      const bogus = { leaderPid: identity.leaderPid, processGroupId: identity.leaderPid + 1 };
+
+      expect(probeExecutionGroup(bogus, leaderStartTime)).toEqual({
+        kind: 'indeterminate',
+        reason: 'invalid_execution_identity',
+      });
+
+      // The termination path applies the same runtime guard — no signal at all.
+      const outcome = await terminateExecutionGroup(bogus, 'caller_requested');
+      expect(outcome.status).toBe('indeterminate');
+      if (outcome.status === 'indeterminate') {
+        expect(outcome.reason).toBe('invalid_execution_identity');
+      }
+      expect(outcome.termSent).toBe(false);
+      expect(outcome.killSent).toBe(false);
+
+      // The genuine leader must be completely untouched.
+      expect(probeExecutionGroup(identity, leaderStartTime)).toEqual({ kind: 'verified_alive' });
+    } finally {
+      await terminateExecutionGroup(identity, 'caller_requested');
+    }
+    expect(await settled).toBeInstanceOf(ProcessExecError);
+  });
+
+  it('unsafe small values and non-integers are invalid identities', () => {
+    expect(probeExecutionGroup({ leaderPid: 1, processGroupId: 1 }, 'any')).toEqual({
+      kind: 'indeterminate',
+      reason: 'invalid_execution_identity',
+    });
+    expect(probeExecutionGroup({ leaderPid: 0, processGroupId: 0 }, 'any')).toEqual({
+      kind: 'indeterminate',
+      reason: 'invalid_execution_identity',
+    });
+    expect(probeExecutionGroup({ leaderPid: 1.5, processGroupId: 1.5 }, 'any')).toEqual({
+      kind: 'indeterminate',
+      reason: 'invalid_execution_identity',
+    });
+    const unsafe = Number.MAX_SAFE_INTEGER + 1;
+    expect(probeExecutionGroup({ leaderPid: unsafe, processGroupId: unsafe }, 'any')).toEqual({
+      kind: 'indeterminate',
+      reason: 'invalid_execution_identity',
+    });
+  });
+
+  it('live leader with mismatched start time is not verified (PID reuse defense)', async () => {
+    const handle = execWithHandle('sh', ['-c', 'sleep 30'], { cwd: workDir });
+    const identity = handle.identity!;
+    const settled = handle.promise.then(() => null, (e: unknown) => e);
+    try {
+      // Start time mismatch → provably not our leader; the group still
+      // responds, so ownership is indeterminate and must not be signalled.
+      expect(probeExecutionGroup(identity, 'Mon Jan 01 00:00:00 1999')).toEqual({
+        kind: 'indeterminate',
+        reason: 'leader_reused_group_alive',
+      });
+    } finally {
+      await terminateExecutionGroup(identity, 'caller_requested');
+    }
+    expect(await settled).toBeInstanceOf(ProcessExecError);
+  });
+
+  it('leader gone but group still responding stays indeterminate — equality never short-circuits to kill', async () => {
+    // Leader exits immediately; a background descendant (fully redirected so
+    // it holds no pipes) keeps the process group alive.
+    const handle = execWithHandle(
+      'sh',
+      ['-c', 'sleep 30 </dev/null >/dev/null 2>&1 & exit 0'],
+      { cwd: workDir },
+    );
+    const identity = handle.identity!;
+    await handle.promise; // leader exits 0; descendant lingers in the group
+
+    // The group genuinely still responds — this is the PGID-reuse ambiguity.
+    expect(isProcessGroupAlive(identity.processGroupId)).toBe(true);
+    expect(probeExecutionGroup(identity, undefined)).toEqual({
+      kind: 'indeterminate',
+      reason: 'leader_gone_group_alive',
+    });
+
+    // Cleanup: this test created the group seconds ago, so ownership here is
+    // certain — terminate it to avoid leaking the descendant.
+    const outcome = await terminateExecutionGroup(identity, 'caller_requested');
+    expect(outcome.status).toBe('gone');
+    expect(isProcessGroupAlive(identity.processGroupId)).toBe(false);
   }, 20_000);
 });

@@ -1301,4 +1301,31 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(sendToolResult.mock.calls[0][3]).toBe('complete output');
     expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
   });
+
+  // Phase 1269 Step F: an on-disk identity violating the v1 creation
+  // invariant must be rejected by the schema at load — before any probe —
+  // so the mocked L4分流 tests above can never mask an invalid identity.
+  it('identity with PGID !== leader PID is rejected at load (task_corrupt), never probed', async () => {
+    const mocks = await importProcessExecMocks();
+
+    const task = makeV1MigratedTask();
+    (task.migratedExecution as { processGroupId: number }).processGroupId = LEADER_PID + 1;
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+
+    const { audit, events } = makeMockAudit();
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+    expect(mocks.probeExecutionGroup).not.toHaveBeenCalled();
+    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled();
+    expect(mocks.probeLegacyProcess).not.toHaveBeenCalled();
+
+    const corruptEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_CORRUPT);
+    expect(corruptEvents.length).toBe(1);
+    // Original file moved aside to a .corrupt-* backup — never routed into
+    // migrated recovery, never moved to done/failed.
+    expect(await mockFs.exists(taskFile)).toBe(false);
+    expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(false);
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(false);
+  });
 });
