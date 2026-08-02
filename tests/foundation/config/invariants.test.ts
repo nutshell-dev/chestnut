@@ -7,6 +7,8 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { getClawDir } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { viewportConfigSchema } from '../../../src/cli/commands/chat-viewport/config-schema.js';
 import { EXEC_MAX_OUTPUT } from '../../../src/foundation/command-tool/constants.js';
+import { llmOrchestratorConfigSchema } from '../../../src/foundation/llm-orchestrator/config-schema.js';
+import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 
 /**
  * Path getters tests
@@ -102,6 +104,48 @@ describe('viewportConfigSchema user_input_inline_max_chars (phase 142)', () => {
     expect(() => viewportConfigSchema.parse({ user_input_inline_max_chars: 0 })).toThrow();
     expect(() => viewportConfigSchema.parse({ user_input_inline_max_chars: -1 })).toThrow();
     expect(() => viewportConfigSchema.parse({ user_input_inline_max_chars: 1.5 })).toThrow();
+  });
+});
+
+describe('Phase 1268 Step E — llmOrchestratorConfigSchema circuit breaker defaults', () => {
+  const primary = { preset: 'anthropic', api_key: 'test-key', model: 'claude-test' };
+
+  it('缺段 circuit_breaker 时物化为默认对象', () => {
+    const cfg = llmOrchestratorConfigSchema.parse({ primary });
+    expect(cfg.circuit_breaker).toEqual({
+      failure_threshold: 3,
+      reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
+    });
+  });
+
+  it('空 object circuit_breaker 时同样物化默认子字段', () => {
+    const cfg = llmOrchestratorConfigSchema.parse({ primary, circuit_breaker: {} });
+    expect(cfg.circuit_breaker).toEqual({
+      failure_threshold: 3,
+      reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
+    });
+  });
+
+  it('显式 threshold/reset 保持不被默认覆盖', () => {
+    const cfg = llmOrchestratorConfigSchema.parse({
+      primary,
+      circuit_breaker: { failure_threshold: 5, reset_timeout_ms: 120_000 },
+    });
+    expect(cfg.circuit_breaker).toEqual({
+      failure_threshold: 5,
+      reset_timeout_ms: 120_000,
+    });
+  });
+
+  it('拒绝非法 threshold / reset 值', () => {
+    expect(() => llmOrchestratorConfigSchema.parse({
+      primary,
+      circuit_breaker: { failure_threshold: 0, reset_timeout_ms: 60_000 },
+    })).toThrow();
+    expect(() => llmOrchestratorConfigSchema.parse({
+      primary,
+      circuit_breaker: { failure_threshold: 3, reset_timeout_ms: 500 },
+    })).toThrow();
   });
 });
 

@@ -24,6 +24,8 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
+import { buildLLMConfig } from '../../../src/assembly/config/config-load.js';
+import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];
@@ -119,7 +121,43 @@ function attachEventSpy(service: LLMOrchestratorImpl) {
   return emitted;
 }
 
+describe('Phase 1268 Step E: circuit breaker default enabled', () => {
+  it('缺段配置经 load/build 后装配 primary+2 fallbacks 的 breakers', () => {
+    const globalConfig = createGlobalConfigSchema().parse({
+      llm: {
+        primary: { preset: 'anthropic', api_key: 'sk-p', model: 'claude-test' },
+        fallbacks: [
+          { preset: 'openai', api_key: 'sk-f1', model: 'gpt-test' },
+          { preset: 'moonshot', api_key: 'sk-f2', model: 'kimi-test' },
+        ],
+      },
+    });
+    const llmConfig = buildLLMConfig(globalConfig);
 
+    const primary = createMockProvider('anthropic');
+    const fb1 = createMockProvider('openai');
+    const fb2 = createMockProvider('moonshot');
+    const findAdapter = (cfg: ProviderConfig) => {
+      if (cfg.name === primary.name) return primary;
+      if (cfg.name === fb1.name) return fb1;
+      return fb2;
+    };
+
+    const { sink, emitted } = createMockSink();
+    const service = new LLMOrchestratorImpl({
+      ...llmConfig,
+      events: sink,
+      createAnthropicAdapter: (cfg) => findAdapter(cfg),
+    });
+
+    expect((service as any).breakers).toHaveLength(3);
+    // default threshold=3, 需要连续 3 次 failure 才会触发 breaker_opened
+    for (let i = 0; i < 3; i++) {
+      forceBreakerOpen(service, 0, 'transient');
+    }
+    expect(emitted.some(e => e.type === 'breaker_opened' && e.provider === 'anthropic')).toBe(true);
+  });
+});
 
 describe('LLMOrchestratorImpl Phase 896 fixes', () => {
   beforeEach(() => {

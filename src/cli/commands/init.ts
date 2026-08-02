@@ -14,6 +14,7 @@ import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,
   DEFAULT_RETRY_DELAY_MS,
+  DEFAULT_RESET_TIMEOUT_MS,
   INIT_LLM_IDLE_TIMEOUT_MS,
 } from '../../foundation/llm-orchestrator/index.js';
 
@@ -290,6 +291,11 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
         },
         retry_attempts: DEFAULT_LLM_RETRY_ATTEMPTS,
         retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+        // Phase 1268 Step E: 默认启用 circuit breaker，显式落盘便于用户观察。
+        circuit_breaker: {
+          failure_threshold: 3,
+          reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
+        },
       },
       tool_timeout_ms: 60_000,
       watchdog: {

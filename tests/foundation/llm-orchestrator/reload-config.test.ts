@@ -4,6 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
+import { buildLLMConfig } from '../../../src/assembly/config/config-load.js';
+import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 import type {
   LLMEventSink,
   LLMEvent,
@@ -132,6 +134,31 @@ describe('phase 320 Step A: reloadConfig', () => {
     });
     const eventsAfter = (orch as any).events;
     expect(eventsAfter).toBe(eventsBefore);
+  });
+
+  it('Phase 1268 Step E: reloadConfig 沿用 circuit breaker 默认语义', () => {
+    const { sink } = createSink();
+    const cfgA = createGlobalConfigSchema().parse({
+      llm: {
+        primary: { preset: 'anthropic', api_key: 'kA', model: 'mA' },
+      },
+    });
+    const orch = new LLMOrchestratorImpl({ ...buildLLMConfig(cfgA), events: sink });
+    expect((orch as any).breakers).toHaveLength(1);
+    const firstBreaker = (orch as any).breakers[0];
+    expect(firstBreaker.threshold).toBe(3);
+    expect(firstBreaker.resetTimeoutMs).toBe(60_000);
+
+    const cfgB = createGlobalConfigSchema().parse({
+      llm: {
+        primary: { preset: 'openai', api_key: 'kB', model: 'mB' },
+        fallbacks: [
+          { preset: 'anthropic', api_key: 'kA', model: 'mA' },
+        ],
+      },
+    });
+    orch.reloadConfig({ ...buildLLMConfig(cfgB), events: sink });
+    expect((orch as any).breakers).toHaveLength(2);
   });
 
   it('Phase 899: reloadConfig 淘汰不在新 config 中的旧 provider', () => {

@@ -89,6 +89,23 @@ function clearKnownVars(): void {
 
 // ── tests ──────────────────────────────────────────────────────────────────────
 
+describe('initCommand — default circuit breaker (phase 1268 Step E)', () => {
+  beforeEach(setupTempDir);
+  afterEach(teardownTempDir);
+
+  it('生成配置包含默认 circuit_breaker 段', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env-test');
+    rlAnswers.queue = ['1', '1', ''];
+
+    await initCommand({ fsFactory }, true);
+    const config = loadGlobalConfig({ fsFactory });
+    expect(config.llm.circuit_breaker).toEqual({
+      failure_threshold: 3,
+      reset_timeout_ms: 60_000,
+    });
+  });
+});
+
 describe('initCommand — Branch 1: 扫描环境变量', () => {
   beforeEach(() => {
     setupTempDir();
