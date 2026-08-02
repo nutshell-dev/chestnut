@@ -1,7 +1,12 @@
 /**
  * @module L6.CLIProtocol.Invocation
  *
- * Phase 1253 Step B 立：CLI invocation renderer + 过渡性 contract invocation 常量。
+ * Phase 1253 Step B 立：CLI invocation renderer + contract invocation 常量。
+ * Phase 1270 Step A：两个 file-level export 退役为 CLIProtocol 模块内部实现 ——
+ * 仅供同模块 `guidance.ts` 相对 import，不再经 `src/cli-protocol/index.ts`
+ * public barrel 对模块外公开（CLI affordance 公共入口为 typed guidance
+ * action/document/register API）；CLIProtocol 外源码禁止 deep-import 本文件
+ * （tests/foundation/assembly/guidance-cli-typed-const.test.ts 反向 scanner）。
  *
  * 职责：
  * - `renderClawInvocation(clawId, command)` 拼 `chestnut claw <id> <command>` 完整
@@ -10,10 +15,10 @@
  * - `CONTRACT_COMMANDS`：contract 命令族 invocation 常量（subject 已是 contract /
  *   verb-first 子命令、不走 subject-first 转换）
  *
- * **过渡状态登记（B 类偏差）**：`CONTRACT_COMMANDS` 是 contract 命令的过渡性局部单源，
+ * **局部单源登记（B 类偏差）**：`CONTRACT_COMMANDS` 是 contract 命令的过渡性局部单源，
  * 尚非完整 contract catalog（contract command 无 claw 同型 facts/router/help 结构）。
- * 升档条件：Phase 1252 guidance 迁移需要 typed contract action，或 contract help/catalog
- * 单独治理。本 phase 不宣称 contract catalog 已完成。
+ * 升档为完整 catalog 属独立 design phase（contract help/catalog 单独治理）；
+ * 本文件不宣称 contract catalog 已完成。
  *
  * 历史：源自 phase 554/708 `src/cli/utils/cli-commands.ts`（claw invocation helper +
  * 手写 verb 表 + CONTRACT_COMMANDS）。phase 1253 删手写 verb 表这个第二单源
@@ -51,5 +56,3 @@ export const CONTRACT_COMMANDS = {
   // PAUSE: 'chestnut contract pause',     // -c <claw> [--contract <id>] [--reason <text>]
   // RESUME: 'chestnut contract resume',   // -c <claw> [--contract <id>]
 } as const;
-
-export type ContractCommand = typeof CONTRACT_COMMANDS[keyof typeof CONTRACT_COMMANDS];

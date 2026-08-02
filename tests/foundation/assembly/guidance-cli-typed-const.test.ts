@@ -6,6 +6,10 @@
  * + `CONTRACT_COMMANDS.X` typed const（contract 子命令保 verb-first）.
  * phase 1253: helper/const owner 迁 CLIProtocol — `renderClawInvocation(id, '<command>')`
  * + `CONTRACT_COMMANDS.X`（from src/cli-protocol/index.js）.
+ * phase 1270 Step A: 旧 helper/const 从 public barrel 退役为 CLIProtocol 模块内部实现
+ * （仅供同模块 guidance.ts import）；CLIProtocol 外 deep-import invocation.js 由本文件
+ * scanner 反向锁定。composer 不再建议旧 API — CLI affordance 一律 typed binding →
+ * CliGuidanceDocument → CLIProtocol 注册/渲染。
  *
  * phase 193 Step A: regex 改抓嵌入式字面（不要求整个 string literal 是 chestnut X Y）
  * + 加 stripComments 排除注释行误报.
@@ -64,15 +68,26 @@ const STEP_B_PENDING_ALLOW = new Set([
   // 'chestnut claw' 字面是 CLI 启动命令、属业务文案；M#5 严格扫由本 allowlist 承认 pure formatter
   // 持 CLI literal 的 by-design 例外（cli/commands/claw-shared.ts 旧 owner 同型未触碰本 rule）
   'cli/utils/claw-status-hints.ts::chestnut claw',
-  // phase 554 / phase 708 / phase 1253: registry 迁 CLIProtocol、由 assembly guidance composer 共享
-  // 本 typed CLI command registry 是 phase 1469 invariant 的合法源 (composers MUST use this const + renderer)
-  // 持 chestnut claw + chestnut contract 字面 by-design — registry 本就该有 CLI literal、否则失语义
+  // phase 554 / phase 708 / phase 1253 / phase 1270: invocation.ts 是 CLIProtocol 内部唯一
+  // CLI 字面 owner（claw invocation + contract 命令族），仅供同模块 guidance.ts 使用、
+  // 不经 public barrel 公开；持字面 by-design — 唯一实现处本就该有 CLI literal、否则失语义
   'cli-protocol/invocation.ts::chestnut claw',
   'cli-protocol/invocation.ts::chestnut contract',
 ]);
 
 const SCAN_DIRS = ['core', 'foundation'];
 const EXCLUDE_PATTERNS = [/^\/cli\//, /^\/assembly\//, /^\/prompts\//, /^\/watchdog\//, /\.test\./];
+
+/**
+ * import/export ... from 语句的 module specifier（含 mixed 与 type-only 形态）。
+ * global flag：只供 matchAll 使用，禁止以 .test() 复用（lastIndex 漂移）。
+ */
+const IMPORT_SPECIFIER_RE = /(?:import|export)\s+(?:type\s+)?(?:[\w*{][^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+
+/** CLIProtocol 内部 invocation 文件 specifier 判定：任何相对/深链路径形态命中。 */
+function isInvocationSpecifier(specifier: string): boolean {
+  return /(?:^|\/)cli-protocol\/invocation\.js$/.test(specifier);
+}
 
 // 日志 prefix 模式：`[chestnut <namespace>]` 不抓（namespace 标识、非 CLI 命令）
 const LOG_PREFIX_RE = /\[chestnut\s+\w+\]/;
@@ -102,7 +117,7 @@ function collectBareCliLiterals(dir: string, exclude: Set<string>): Array<{ file
   return violations;
 }
 
-describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS typed const', () => {
+describe('phase 1469: guidance composer 禁裸 CLI 字面（CLI affordance 经 typed binding/document）', () => {
   it('composer files contain no bare `chestnut X Y` string literals (embedded or whole)', () => {
     const violations = collectBareCliLiterals(composersDir, new Set(['index.ts']));
 
@@ -112,7 +127,7 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
         .join('\n');
       throw new Error(
         `phase 1469 invariant failed — ${violations.length} bare 'chestnut X Y' literal(s) in composer files:\n${summary}\n` +
-          `Replace with renderClawInvocation(id, '<command>') or CONTRACT_COMMANDS.X typed const (from src/cli-protocol/index.js).`,
+          `CLI affordance 已迁 typed binding/document：Assembly binding 产 CliGuidanceDocument 并经 CLIProtocol 注册/渲染，不再直接引用 invocation helper/constants。`,
       );
     }
     expect(violations).toEqual([]);
@@ -173,5 +188,55 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
       );
     }
     expect(filtered).toEqual([]);
+  });
+
+  it('phase 1270 Step A: CLIProtocol 外源码不得 deep-import cli-protocol/invocation.js', () => {
+    const cliProtocolDir = path.join(projectSrc, 'cli-protocol');
+    const violations: string[] = [];
+    walkTsFiles(projectSrc, file => {
+      if (file.startsWith(cliProtocolDir + path.sep)) return; // 模块内协作（guidance.ts → invocation.ts）合法
+      const content = stripComments(fs.readFileSync(file, 'utf-8'));
+      for (const m of content.matchAll(IMPORT_SPECIFIER_RE)) {
+        if (isInvocationSpecifier(m[1])) {
+          violations.push(`${path.relative(projectSrc, file)}: '${m[1]}'`);
+        }
+      }
+    });
+
+    if (violations.length > 0) {
+      const summary = violations.map(v => `  - ${v}`).join('\n');
+      throw new Error(
+        `phase 1270 invariant failed — ${violations.length} deep import(s) of CLIProtocol-internal invocation.js outside src/cli-protocol:\n${summary}\n` +
+          `renderClawInvocation/CONTRACT_COMMANDS 已退役为 CLIProtocol 内部实现；CLI affordance 必经 typed guidance binding/document（src/cli-protocol/index.js 的 registerCliGuidance 等 barrel API）。`,
+      );
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('phase 1270 Step A 反向 fixture：deep-import scanner 识别 mixed/type-only/re-export 形态、不误放合法 specifier', () => {
+    const bad = [
+      "import { renderClawInvocation } from '../cli-protocol/invocation.js';",
+      "import type { Foo } from '../../cli-protocol/invocation.js';",
+      "import { type Foo, bar } from '../cli-protocol/invocation.js';",
+      "export { CONTRACT_COMMANDS } from '../cli-protocol/invocation.js';",
+      "export * from './cli-protocol/invocation.js';",
+      "import * as inv from '../cli-protocol/invocation.js';",
+      "import '../cli-protocol/invocation.js';",
+    ];
+    for (const s of bad) {
+      const m = [...s.matchAll(IMPORT_SPECIFIER_RE)];
+      expect(m, s).toHaveLength(1);
+      expect(isInvocationSpecifier(m[0][1]), s).toBe(true);
+    }
+    const good = [
+      "import { renderCliGuidanceDocument } from '../cli-protocol/index.js';",
+      "import { renderClawInvocation } from './invocation.js';",
+      "import type { CliGuidanceDocument } from '../../cli-protocol/guidance.js';",
+    ];
+    for (const s of good) {
+      const m = [...s.matchAll(IMPORT_SPECIFIER_RE)];
+      expect(m, s).toHaveLength(1);
+      expect(isInvocationSpecifier(m[0][1]), s).toBe(false);
+    }
   });
 });

@@ -6,14 +6,16 @@
  * - motion 装配特化（per phase 1406 motion-config 第 4 件套）/ claw 装配不装
  * - 业主仅 own facts + structured state schema
  * - Assembly own guidance composer 物理（composers/<type>.ts、Assembly 自家写、不业主 export）
- * - composer 输出自由 text 单字段、含真实 CLI 字面（经 CLIProtocol renderClawInvocation / CONTRACT_COMMANDS typed 引用）+ 决策上下文
+ * - composer 输出自由 text 单字段 + 决策上下文；CLI affordance 不由 composer 拼字面，
+ *   由 Assembly typed binding 产 CliGuidanceDocument、经 CLIProtocol 注册/渲染
+ *   （phase 1263—1267；旧 renderClawInvocation / CONTRACT_COMMANDS 已退役为 CLIProtocol 内部实现）
  * - sentinel NO_GUIDANCE 化解 M#8 vs DP「不静默」+ M#9 真冲突
  */
 
 import type { GuidanceEnvelope } from '../../core/runtime/index.js';
 
 export interface GuidanceEntry {
-  /** 自由 markdown / 自然语言、含 CLI 字面（经 CLIProtocol renderClawInvocation / CONTRACT_COMMANDS 引用）+ 决策上下文 */
+  /** registry 通用最终 text 载体：自由 markdown / 自然语言 + 决策上下文；CLI affordance 经 Assembly typed binding 产 CliGuidanceDocument 由 CLIProtocol 渲染，不在此拼 CLI 字面 */
   text: string;
 }
 

@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * phase 503: invariant test for foundation/uuid + foundation/hash owner module APIs.
@@ -10,7 +15,9 @@ import { describe, it, expect } from 'vitest';
  * phase 574 扩 (phase 520-554 follow-up): 加 3 it block 覆盖新 owner module API:
  *   - core/claw-topology: MOTION_CLAW_ID + makeAgentDirResolver
  *   - cli/utils/claw-status-hints: 2 formatter
- *   - cli-protocol: CLAW_COMMAND_CATALOG + renderClawInvocation + CONTRACT_COMMANDS (phase 1253)
+ *   - cli-protocol: CLAW_COMMAND_CATALOG + getClawCommandSpec + typed guidance API (phase 1253)
+ *     phase 1270 Step A: 旧 invocation 符号（renderClawInvocation / CONTRACT_COMMANDS /
+ *     ContractCommand）从 barrel 退役 — 反向断言 namespace 不可见 + 源码无 ContractCommand 残留
  */
 describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
   it('foundation/node-utils/id exposes newUuid, newShortUuid, randomHex', async () => {
@@ -68,16 +75,30 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     expect(hintsMod.formatNoActiveContractHint('x', false)).toMatch(/No active contract for "x"/);
   });
 
-  it('cli-protocol exposes CLAW_COMMAND_CATALOG + renderClawInvocation + CONTRACT_COMMANDS (phase 1253)', async () => {
+  it('cli-protocol barrel 公开 catalog/query/typed guidance API（phase 1253 / 1263—1267）', async () => {
     const protocol = await import('../../../src/cli-protocol/index.js');
     expect(Array.isArray(protocol.CLAW_COMMAND_CATALOG)).toBe(true);
     expect(protocol.CLAW_COMMAND_CATALOG.length).toBeGreaterThan(0);
     expect(typeof protocol.getClawCommandSpec).toBe('function');
     expect(protocol.getClawCommandSpec('chat')?.id).toBe('chat');
     expect(protocol.getClawCommandSpec('nonexistent')).toBeUndefined();
-    expect(typeof protocol.renderClawInvocation).toBe('function');
-    expect(protocol.renderClawInvocation('myclaw', 'chat')).toBe('chestnut claw myclaw chat');
-    expect(typeof protocol.CONTRACT_COMMANDS).toBe('object');
-    expect(protocol.CONTRACT_COMMANDS.SHOW).toBe('chestnut contract show');
+    // typed guidance 核心 API（phase 1263—1267 后的 CLI affordance 公共入口）
+    expect(typeof protocol.renderCliGuidanceAction).toBe('function');
+    expect(typeof protocol.renderCliGuidanceDocument).toBe('function');
+    expect(typeof protocol.registerCliGuidance).toBe('function');
+    expect(typeof protocol.defineCliGuidanceBinding).toBe('function');
+    expect(typeof protocol.CliGuidanceRenderError).toBe('function');
+  });
+
+  it('cli-protocol barrel 不再公开旧 invocation 符号（phase 1270 Step A 反向断言）', async () => {
+    const protocol = await import('../../../src/cli-protocol/index.js');
+    expect('renderClawInvocation' in protocol).toBe(false);
+    expect('CONTRACT_COMMANDS' in protocol).toBe(false);
+    // ContractCommand 是 type export、dynamic import 不可见，必须做源码 negative assertion
+    const cliProtocolDir = path.resolve(__dirname, '../../../src/cli-protocol');
+    for (const file of ['index.ts', 'invocation.ts']) {
+      const text = fs.readFileSync(path.join(cliProtocolDir, file), 'utf8');
+      expect(text.includes('ContractCommand'), `${file} must not reference ContractCommand`).toBe(false);
+    }
   });
 });

@@ -22,11 +22,6 @@ export {
   type ClawInstanceCommandId,
 } from './claw-command-catalog.js';
 export {
-  renderClawInvocation,
-  CONTRACT_COMMANDS,
-  type ContractCommand,
-} from './invocation.js';
-export {
   renderClawHelp,
   renderClawCommandHelp,
 } from './help.js';
