@@ -8,6 +8,7 @@
  * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 inbox type 显式 register 各 composer.
  * 当前结构：13 NO_GUIDANCE sentinel + 6 real composer（claw_outbox_summary by phase 1476 γ2 + contract_cancelled by phase 63 γ）。
  * phase 1264 Step A: claw_inactivity 迁入 typed binding（aggregate 注释不再逐个列举 CLI composer）。
+ * phase 1265 Step A: claw_outbox_summary 迁入同一次 typed bindings 聚合（第三个迁移的 CLI binding）。
  *
  * DP「不静默」+ M#9 显式表达：每 sender type 必显式 register / 漏注由
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.
@@ -18,6 +19,7 @@ import type { MotionGuidanceRegistry } from '../types.js';
 import { registerCliGuidance } from '../../../cli-protocol/index.js';
 import { clawCrashedGuidanceBinding } from '../bindings/claw-crashed.js';
 import { clawInactivityGuidanceBinding } from '../bindings/claw-inactivity.js';
+import { clawOutboxSummaryGuidanceBinding } from '../bindings/claw-outbox-summary.js';
 import { composer as contractEvents } from './contract-events.js';
 import { composer as verificationResult } from './verification-result.js';
 import { composer as verificationRejection } from './verification-rejection.js';
@@ -29,7 +31,6 @@ import { composer as startupCheck } from './startup-check.js';
 import { composer as taskQueueOverflow } from './task-queue-overflow.js';
 import { composer as userChat } from './user-chat.js';
 import { composer as userInboxMessage } from './user-inbox-message.js';
-import { composer as clawOutboxSummary } from './claw-outbox-summary.js';
 import { composer as taskResult } from './task-result.js';
 import { composer as contractCreated } from './contract-created.js';
 import { composer as contractResume } from './contract-resume.js';
@@ -38,12 +39,14 @@ import { composer as contractCancelled } from './contract-cancelled.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
   // phase 1263 Step C: claw_crashed 经 CLIProtocol typed binding 注册（首个迁移的 CLI binding）；
-  // phase 1264 Step A: claw_inactivity 加入同一次 registerCliGuidance 聚合调用（第二个迁移的 CLI binding），
-  // 数组只是 Assembly contribution 聚合、两 binding 本身独立；duplicate preflight 覆盖全部 CLI binding。
-  // 其余三个待迁 CLI composer 与 generic composer 保持 direct register。
+  // phase 1264 Step A: claw_inactivity 加入同一次 registerCliGuidance 聚合调用（第二个迁移的 CLI binding）；
+  // phase 1265 Step A: claw_outbox_summary 加入同一聚合（第三个迁移的 CLI binding）。
+  // 数组只是 Assembly contribution 聚合、各 binding 本身独立；duplicate preflight 覆盖全部 CLI binding。
+  // 其余两个待迁 CLI composer 与 generic composer 保持 direct register。
   registerCliGuidance(registry, [
     clawCrashedGuidanceBinding,
     clawInactivityGuidanceBinding,
+    clawOutboxSummaryGuidanceBinding,
   ]);
   registry.register('contract_events', contractEvents);
   registry.register('verification_result', verificationResult);
@@ -57,7 +60,6 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('task_queue_overflow', taskQueueOverflow);
   registry.register('user_chat', userChat);
   registry.register('user_inbox_message', userInboxMessage);
-  registry.register('claw_outbox_summary', clawOutboxSummary);  // phase 1476 γ2 real composer
   // phase 9: 'message' catch-all 拆为 4 typed event
   registry.register('task_result', taskResult);
   registry.register('contract_created', contractCreated);

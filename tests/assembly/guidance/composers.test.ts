@@ -5,11 +5,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { composer as taskQueueOverflowComposer } from '../../../src/assembly/guidance/composers/task-queue-overflow.js';
-import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
 import { clawCrashedGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-crashed.js';
 import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
 import { registerAllMotionGuidance } from '../../../src/assembly/guidance/composers/index.js';
 import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
+import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
 import { renderClawInvocation, CONTRACT_COMMANDS, registerCliGuidance, type CliGuidanceInput } from '../../../src/cli-protocol/index.js';
@@ -65,13 +65,16 @@ describe('task-queue-overflow-composer', () => {
   });
 });
 
-describe('claw-outbox-summary-composer', () => {
+describe('claw-outbox-summary typed binding (phase 1265 Step A)', () => {
   /**
    * phase 1476: claw-outbox-summary composer unit test (γ2 first real composer).
    * phase 1259 Step B: composer 只消费 ClawTopology owner codec typed state —
    *   v1/legacy 完整 production fixture 合法；NaN/0/inconsistent/malformed wire 由
    *   decoder 抛 typed error（不再静默 fallback `--limit 10`）；
    *   `<claw-id>` placeholder 保留为当前显式 presentation decision。
+   * phase 1265 Step A: composer 原子迁为 Assembly typed binding —
+   *   Assembly 只把 totalMsgs 映射成单个 placeholder outbox document；CLIProtocol
+   *   发起注册并渲染。最终文本、placeholder、limit 与 typed decode failure 全部不变。
    */
 
   /** 合法 v1 wire（production shape：from 固定 system）。 */
@@ -97,44 +100,76 @@ describe('claw-outbox-summary-composer', () => {
     };
   }
 
-  describe('phase 1476 + phase 1259: claw-outbox-summary composer', () => {
-    it('v1 合法 → non-null guidance with subject-first CLI（真实 limit）', () => {
-      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', v1SummaryMeta(), 'system'));
-      expect(result.text).toContain('chestnut claw <claw-id> outbox');
-      expect(result.text).toContain('--limit 4');
+  /** 经 CLIProtocol register helper + binding 的真实注册路径 compose。 */
+  function composeOutboxSummary(meta: Record<string, string>, from: string): { text: string } | null {
+    const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
+    registerCliGuidance({ register: (type, composer) => composers.set(type, composer) }, [clawOutboxSummaryGuidanceBinding]);
+    const composer = composers.get('claw_outbox_summary');
+    if (!composer) throw new Error('claw_outbox_summary binding was not registered');
+    return composer(env('claw_outbox_summary', meta, from));
+  }
+
+  const OUTBOX_EXACT = '查看具体内容： chestnut claw <claw-id> outbox --limit 4';
+
+  describe('phase 1476 + phase 1259 + phase 1265: claw-outbox-summary typed binding', () => {
+    it('v1 合法 → exact placeholder CLI guidance（真实 limit）', () => {
+      expect(composeOutboxSummary(v1SummaryMeta(), 'system')).toEqual({ text: OUTBOX_EXACT });
     });
 
-    it('legacy production shape → 同 v1 输出（version 缺失不影响）', () => {
-      const result = clawOutboxSummaryComposer(env('claw_outbox_summary', legacySummaryMeta(), 'system'));
-      expect(result.text).toContain('chestnut claw <claw-id> outbox');
-      expect(result.text).toContain('--limit 4');
+    it('legacy production shape → 同 v1 exact 输出（version 缺失不影响）', () => {
+      expect(composeOutboxSummary(legacySummaryMeta(), 'system')).toEqual({ text: OUTBOX_EXACT });
+    });
+
+    it('binding 只产 typed document：placeholder target + 真实 limit，不消费 hash/counts/totalClaws', () => {
+      expect(clawOutboxSummaryGuidanceBinding.type).toBe('claw_outbox_summary');
+      const state = clawOutboxSummaryGuidanceBinding.decode(env('claw_outbox_summary', v1SummaryMeta(), 'system'));
+      expect(clawOutboxSummaryGuidanceBinding.toDocument(state)).toEqual({
+        lines: [{
+          label: 'read-outbox',
+          action: { kind: 'claw.outbox', target: { kind: 'placeholder', name: 'claw-id' }, limit: 4 },
+        }],
+      });
     });
 
     it('total_msgs malformed（NaN）→ decoder throws typed error（不再 fallback --limit 10）', () => {
-      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', {
+      expect(() => composeOutboxSummary({
         ...v1SummaryMeta(),
         total_msgs: 'NaN',
-      }, 'system'))).toThrowError(OutboxSummaryGuidanceDecodeError);
+      }, 'system')).toThrowError(OutboxSummaryGuidanceDecodeError);
     });
 
     it('total_msgs = 0 → decoder throws typed error（0 不是合法 wire / tick fail-closed 守门）', () => {
-      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', {
+      expect(() => composeOutboxSummary({
         ...v1SummaryMeta(),
         total_claws: '0',
         total_msgs: '0',
         counts: '{}',
-      }, 'system'))).toThrowError(OutboxSummaryGuidanceDecodeError);
+      }, 'system')).toThrowError(OutboxSummaryGuidanceDecodeError);
     });
 
     it('counts 与 totals 派生不一致 → decoder throws typed error', () => {
-      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', {
+      expect(() => composeOutboxSummary({
         ...v1SummaryMeta(),
         total_msgs: '5',
-      }, 'system'))).toThrowError(OutboxSummaryGuidanceDecodeError);
+      }, 'system')).toThrowError(OutboxSummaryGuidanceDecodeError);
     });
 
     it('from 非 system → decoder throws typed error（owner provenance 不可伪装）', () => {
-      expect(() => clawOutboxSummaryComposer(env('claw_outbox_summary', v1SummaryMeta(), 'clawA')))
+      expect(() => composeOutboxSummary(v1SummaryMeta(), 'clawA'))
+        .toThrowError(OutboxSummaryGuidanceDecodeError);
+    });
+
+    it('真实 registry end-to-end：createMotionGuidanceRegistry + registerAllMotionGuidance + compose 合法 fixture exact 输出', () => {
+      const registry = createMotionGuidanceRegistry();
+      registerAllMotionGuidance(registry);
+      expect(registry.compose(env('claw_outbox_summary', v1SummaryMeta(), 'system')))
+        .toEqual({ text: OUTBOX_EXACT });
+    });
+
+    it('真实 registry end-to-end：malformed wire typed throw 穿透（Runtime 前错误传播不变）', () => {
+      const registry = createMotionGuidanceRegistry();
+      registerAllMotionGuidance(registry);
+      expect(() => registry.compose(env('claw_outbox_summary', { ...v1SummaryMeta(), total_msgs: 'NaN' }, 'system')))
         .toThrowError(OutboxSummaryGuidanceDecodeError);
     });
   });

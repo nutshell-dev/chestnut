@@ -1,5 +1,8 @@
 /**
  * Phase 1264 Step B: cli-guidance-boundary.test.ts 的共享数据/扫描原语。
+ * Phase 1265 Step A: 新增第三个 case（claw_outbox_summary）；`exhaustive` 改
+ * optional — 仅 owner state 带 discriminated business union 的 case 配置，无 union
+ * 的纯映射 case 不伪造穷尽检查。
  *
  * 只为同目录单一 architecture invariant 服务：提供 binding case 配置、路径常量
  * 与 scanner helpers；验收决策（expect/assertion）全部留在 .test.ts，本文件不含
@@ -15,14 +18,16 @@ const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
  * 已迁 typed binding 的边界 case（逐 case 明确 owner codec / prose / forbidden
  * fields，禁止宽化成「任意 Watchdog import」）。
  * prose：该 binding 旧 composer 曾产的 presentation 前缀字面（迁后必消失）；
- * forbiddenFields：不参与 CLI affordance 的 owner state 字段（不得跨边界消费）。
+ * forbiddenFields：不参与 CLI affordance 的 owner state 字段（不得跨边界消费），
+ * 使用带 `state.` 的精确 token（避免 owner import 路径/注释普通单词误报）。
  */
 export interface CliGuidanceBindingBoundaryCase {
   readonly file: string;
   readonly type: string;
   readonly ident: string;
   readonly decoder: string;
-  readonly exhaustive: string;
+  /** owner state 的 discriminated union 字段；无业务 union 的 case 省略（不伪造 switch）。 */
+  readonly exhaustive?: string;
   readonly ownerCodec: string;
   readonly prose: string;
   readonly forbiddenFields: readonly string[];
@@ -48,6 +53,15 @@ export const CLI_GUIDANCE_BINDINGS: readonly CliGuidanceBindingBoundaryCase[] = 
     ownerCodec: '../../../watchdog/claw-inactivity-guidance.js',
     prose: 'To inspect',
     forbiddenFields: ['inactiveMs', 'sourcePath', 'lastError'],
+  },
+  {
+    file: 'claw-outbox-summary.ts',
+    type: 'claw_outbox_summary',
+    ident: 'clawOutboxSummaryGuidanceBinding',
+    decoder: 'decodeOutboxSummaryGuidance',
+    ownerCodec: '../../../core/claw-topology/jobs/outbox-summary/guidance-state.js',
+    prose: '查看具体内容',
+    forbiddenFields: ['state.hash', 'state.counts', 'state.totalClaws'],
   },
 ];
 

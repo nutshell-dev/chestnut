@@ -1,14 +1,13 @@
 /**
- * Phase 1263 Step C + Phase 1264 Step A/B: CLI guidance typed boundary ratchet.
+ * Phase 1263 Step C + Phase 1264 Step A/B + Phase 1265 Step A: CLI guidance typed boundary ratchet.
  *
- * 锁定 `claw_crashed`（首个）与 `claw_inactivity`（第二个）typed binding 纵向切片的边界
- * （总览反向验收 2/3/4）：
+ * 锁定已迁 typed binding 纵向切片（claw_crashed / claw_inactivity / claw_outbox_summary）的边界
+ *（总览反向验收 2/3/4）：
  *  - CLIProtocol（src/cli-protocol/**）零实现依赖；
- *  - Assembly typed binding 纯 typed：factory + owner decoder + exhaustive never；
- *    无自由 text、CLI literal、presentation prose、renderer 调用或无关 owner state；
- *  - composers aggregate 不 direct register 已迁 type，两个 binding 同一次 helper 注册；
+ *  - Assembly typed binding 纯 typed：factory + owner decoder；exhaustive never 仅业务 union
+ *    case（optional，无 union 不伪造）；无自由 text/CLI literal/prose/renderer/无关 owner state；
+ *  - composers aggregate 不 direct register 已迁 type，全部 binding 同一次 helper 注册；
  *  - 旧 composer 文件物理删除，无 shim / compat re-export。
- *
  * scanner 沿用 Phase 1262 Step D 教训：识别 mixed / type-only import 形态，配正反
  * fixture 自证。数据/扫描原语在 cli-guidance-boundary-helpers.ts（phase 1264 Step B），
  * 全部验收决策显式留在本文件。
@@ -31,7 +30,7 @@ import {
   walkTsFiles,
 } from './cli-guidance-boundary-helpers.js';
 
-describe('phase 1263 Step C + phase 1264 Step A: cli guidance typed boundary', () => {
+describe('phase 1263 Step C + phase 1264 Step A + phase 1265 Step A: cli guidance typed boundary', () => {
   it('CLIProtocol 零实现依赖：所有 import 解析后仍在 src/cli-protocol 内', () => {
     const violations: string[] = [];
     for (const file of walkTsFiles(CLI_PROTOCOL_DIR)) {
@@ -51,11 +50,13 @@ describe('phase 1263 Step C + phase 1264 Step A: cli guidance typed boundary', (
   });
 
   for (const binding of CLI_GUIDANCE_BINDINGS) {
-    it(`${binding.type} binding 经 binding factory + owner decoder + exhaustive never`, () => {
+    it(`${binding.type} binding 经 binding factory + owner decoder（有业务 union 时 + exhaustive never）`, () => {
       const text = fs.readFileSync(bindingPath(binding.file), 'utf8');
       expect(text).toContain('defineCliGuidanceBinding');
       expect(text).toContain(binding.decoder);
-      expect(text).toMatch(new RegExp(`never\\s*=\\s*state\\.${binding.exhaustive}`));
+      if (binding.exhaustive !== undefined) {
+        expect(text).toMatch(new RegExp(`never\\s*=\\s*state\\.${binding.exhaustive}`));
+      }
       expect(text).toMatch(new RegExp(`type:\\s*'${binding.type}'`));
     });
 
@@ -64,7 +65,7 @@ describe('phase 1263 Step C + phase 1264 Step A: cli guidance typed boundary', (
       expect(text).not.toMatch(bindingForbiddenRe(binding));
     });
 
-    it(`${binding.type} binding 只从两侧稳定 protocol import（CLIProtocol barrel + 对应 Watchdog owner codec）`, () => {
+    it(`${binding.type} binding 只从两侧稳定 protocol import（CLIProtocol barrel + 对应 owner codec）`, () => {
       const text = fs.readFileSync(bindingPath(binding.file), 'utf8');
       const specifiers = [...text.matchAll(IMPORT_SPECIFIER_RE)].map(m => m[1]).sort();
       expect(specifiers).toEqual(['../../../cli-protocol/index.js', binding.ownerCodec].sort());
@@ -83,12 +84,12 @@ describe('phase 1263 Step C + phase 1264 Step A: cli guidance typed boundary', (
     });
   }
 
-  it('composers aggregate 不再 direct register 两个 typed type，必经同一次 CLIProtocol helper 聚合调用', () => {
+  it('composers aggregate 不再 direct register 已迁 typed type，必经同一次 CLIProtocol helper 聚合调用', () => {
     const text = fs.readFileSync(COMPOSERS_INDEX, 'utf8');
     for (const binding of CLI_GUIDANCE_BINDINGS) {
       expect(text).not.toMatch(new RegExp(`\\.register\\(\\s*['"]${binding.type}['"]`));
     }
-    // 两个 typed binding 在同一次 registerCliGuidance 调用中（contribution 聚合，duplicate
+    // 全部已迁 typed binding 在同一次 registerCliGuidance 调用中（contribution 聚合，duplicate
     // preflight 覆盖全部 CLI binding）；不得分散成多次 helper 调用。
     const calls = [...text.matchAll(/registerCliGuidance\(\s*registry\s*,\s*\[([^\]]*)\]/g)];
     expect(calls).toHaveLength(1);
@@ -128,6 +129,10 @@ describe('phase 1263 Step C + phase 1264 Step A: cli guidance typed boundary', (
     expect(inactivityRe.test('state.inactiveMs > 0')).toBe(true);
     expect(inactivityRe.test('state.sourcePath')).toBe(true);
     expect(inactivityRe.test('state.lastError')).toBe(true);
+    const outboxRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[2]);
+    expect(outboxRe.test('state.counts')).toBe(true);
+    expect(outboxRe.test('state.totalClaws')).toBe(true);
+    expect(outboxRe.test("import { decodeOutboxSummaryGuidance } from '../../../core/claw-topology/jobs/outbox-summary/guidance-state.js';")).toBe(false);
     // 合法 typed binding 形态不误报（含 typed action value '5m'、label/discriminant 字面）
     expect(crashRe.test("defineCliGuidanceBinding({ type: 'claw_crashed', decode, toDocument })")).toBe(false);
     expect(crashRe.test("return { lines: [{ label: 'restart', action }] };")).toBe(false);

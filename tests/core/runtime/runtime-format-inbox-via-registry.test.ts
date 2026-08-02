@@ -24,8 +24,8 @@ import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-ev
 import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
 import { clawCrashedGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-crashed.js';
 import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
+import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { registerCliGuidance } from '../../../src/cli-protocol/index.js';
-import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
 import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
 import { encodeContractEventsGuidance, encodeContractCancelledGuidance } from '../../../src/core/contract/index.js';
@@ -350,12 +350,12 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     );
   });
 
-  it('phase 1259 Step B: claw_outbox_summary 真实 registry + 合法 v1 wire → guidance append（真实 limit）', async () => {
+  it('phase 1259 Step B + phase 1265 Step A: claw_outbox_summary 真实 typed binding + 合法 v1 wire → guidance append（真实 limit）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registry.register({ type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('claw_outbox_summary', clawOutboxSummaryComposer);
+    registerCliGuidance(guidanceRegistry, [clawOutboxSummaryGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -382,13 +382,13 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('phase 1259 Step B: claw_outbox_summary decoder 失败 → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（无 fallback guidance）', async () => {
+  it('phase 1259 Step B + phase 1265 Step A: claw_outbox_summary decoder 失败 → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（无 fallback guidance）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
     registry.register({ type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('claw_outbox_summary', clawOutboxSummaryComposer);
+    registerCliGuidance(guidanceRegistry, [clawOutboxSummaryGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
