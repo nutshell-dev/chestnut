@@ -343,7 +343,7 @@ describe('phase 63+190+198 + phase 1262: contract_cancelled composer', () => {
     const result = contractCancelledComposer(env('contract_cancelled', v1CancelledMeta(refs), 'system'));
     expect(result).not.toBeNull();
     const text = result!.text;
-    expect(text).toContain('(12 cancelled contracts、显示前 10)');
+    expect(text).toContain('(12 cancellations、显示前 10)');
     expect(text).toContain('claw0');
     expect(text).toContain('claw9');
     expect(text).not.toContain('claw10'); // 截断
@@ -396,7 +396,7 @@ describe('phase 63+190+198 + phase 1262: contract_cancelled composer', () => {
     const result = contractCancelledComposer(env('contract_cancelled', { cancellations: JSON.stringify(entries) }, 'system'));
     expect(result).not.toBeNull();
     const text = result!.text;
-    expect(text).toContain('(12 cancelled contracts、显示前 10)');
+    expect(text).toContain('(12 cancellations、显示前 10)');
     expect(text).toContain('claw0');
     expect(text).not.toContain('claw10'); // 截断
   });

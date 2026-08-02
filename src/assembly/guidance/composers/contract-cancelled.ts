@@ -10,7 +10,9 @@
  *   过滤、fallback 或伪默认占位符；
  *   decoder 坏 wire typed throw（Runtime catch 后 audit + 仅投递正文）。
  *   decoder 保证 refs non-empty，composer 不再有 null path。
- *   超 cap 提示文案同步去 legacy wire key 字面（cancelled contracts、显示前 10）。
+ *   超 cap 提示文本中的 cancellations 是纯 presentation 字面，与同名 legacy
+ *   wire key 无协议关系；architecture ratchet 按 raw wire 访问语境判定、
+ *   不扫自然语言字面。
  *
  * 设计原则: state-driven CLI just-in-time 注入（仅省 motion 一步推理、不重灌 motion 已知静态知识）
  * - 事实段归 body（observer formatCancelled / safeNotify path）
@@ -41,7 +43,7 @@ function renderCliBlock(refs: readonly ContractCancelledGuidanceRef[]): string {
   const lines: string[] = [];
   const displayCount = Math.min(refs.length, MAX_BATCH_RENDER);
   if (refs.length > MAX_BATCH_RENDER) {
-    lines.push(`(${refs.length} cancelled contracts、显示前 ${MAX_BATCH_RENDER})`, ``);
+    lines.push(`(${refs.length} cancellations、显示前 ${MAX_BATCH_RENDER})`, ``);
   }
   for (const ref of refs.slice(0, displayCount)) {
     lines.push(`${renderClawInvocation(ref.clawId, 'trace')} --contract ${ref.contractId}`);
