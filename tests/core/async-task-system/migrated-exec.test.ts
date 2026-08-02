@@ -529,6 +529,35 @@ describe('createAsyncExecWrapper', () => {
     expect(leaderPid).toBeGreaterThan(0);
     expect(isAlive(leaderPid)).toBe(false);
   });
+
+  it('persist-ok but short-id-index save failure removes the running task file', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const deleteSpy = vi.spyOn(nodeFs, 'delete');
+    // Task file write succeeds (persistRunningTask), the index save fails
+    // (shortIdIndex.save is synchronous) — the F5 duplicate-notification path.
+    const saveSpy = vi.spyOn(InMemoryShortIdIndex.prototype, 'save').mockImplementation(() => {
+      throw new Error('index write failed');
+    });
+
+    try {
+      const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+      const result = await tool.execute({ command: 'sleep 30' }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('Failed to persist migrated exec task');
+      // catch branch removes the just-persisted running task file so restart
+      // recovery never re-notifies "exited without producing output".
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      expect(String(deleteSpy.mock.calls[0][0])).toContain(TASKS_QUEUES_RUNNING_DIR);
+    } finally {
+      saveSpy.mockRestore();
+    }
+  });
 });
 
 describe('timeoutMs dual-mode (Phase 776)', () => {

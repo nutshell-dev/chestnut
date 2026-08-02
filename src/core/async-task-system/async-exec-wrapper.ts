@@ -339,6 +339,20 @@ export function createAsyncExecWrapper(
         shortIdIndex.add(shortId, fullId);
         shortIdIndex.save();
       } catch (persistErr) {
+        // If persistRunningTask succeeded but shortIdIndex.save() failed, the
+        // task file is already on disk in running/. The process is about to be
+        // terminated and the task can never be recovered — remove the file so
+        // restart recovery does not re-notify "exited without producing
+        // output". Removal failure is audited; the residue is then safely
+        // handled by recovery's fallback marker (no duplicate notification).
+        await fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`).catch((cleanupErr) => {
+          auditWriter.write(
+            TASK_AUDIT_EVENTS.HANDLER_FAILED,
+            `taskId=${task.id}`,
+            'context=async_exec_wrapper_persist_cleanup_failed',
+            `error=${formatErr(cleanupErr)}`,
+          );
+        });
         // Migration persistence failed: terminate the execution group via L1,
         // wait for the outcome, and audit it before reporting the error.
         // L1 has no 'persist_failed' word — caller_requested is the correct L1

@@ -623,20 +623,47 @@ export async function recoverMigratedToolTask(
   }
 
   // 3. Process is dead and no result exists: output is unrecoverable.
-  const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output', resultDeliveryDeps)
-    .then(() => true)
-    .catch((e) => {
+  //    Marker-guarded like the result path: a move failure must never cause a
+  //    duplicate notification on the next recovery pass.
+  const fallbackMarkerPath = `${resultDir}/result.txt.manual`;
+  let fallbackAlreadyNotified = false;
+  try {
+    fallbackAlreadyNotified = await fs.exists(fallbackMarkerPath);
+  } catch (err) {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_fallback_marker_read_failed',
+      error: formatErr(err),
+    });
+    return 0;
+  }
+
+  if (!fallbackAlreadyNotified) {
+    const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output', resultDeliveryDeps)
+      .then(() => true)
+      .catch((e) => {
+        emitRecoveryFailed(auditWriter, {
+          taskId: task.id,
+          context: 'migrated_fallback_error_failed',
+          error: formatErr(e),
+        });
+        return false;
+      });
+
+    if (!fallbackSent) {
+      // Keep in running — retry notification on next recovery
+      return 0;
+    }
+
+    try {
+      await fs.writeAtomic(fallbackMarkerPath, '1');
+    } catch (err) {
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
-        context: 'migrated_fallback_error_failed',
-        error: formatErr(e),
+        context: 'migrated_fallback_marker_write_failed',
+        error: formatErr(err),
       });
-      return false;
-    });
-
-  if (!fallbackSent) {
-    // Keep in running — retry notification on next recovery
-    return 0;
+    }
   }
 
   await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)

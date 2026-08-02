@@ -1336,6 +1336,27 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
   });
 
+  it('dead-no-result fallback followed by move failure re-notifies only once (marker guard)', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.probeExecutionGroup.mockReturnValue({ kind: 'gone' });
+
+    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const task = makeV1MigratedTask();
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+    mockFs.move = vi.fn().mockRejectedValue(new Error('move failed'));
+
+    const { audit } = makeMockAudit();
+    const deps = { fs: mockFs, auditWriter: audit, sendResult: vi.fn(), sendFallbackError, sendToolResult: vi.fn() };
+    await recoverTasks(deps);
+    await recoverTasks(deps);
+
+    // Two recovery passes, both move attempts fail — the notification is
+    // delivered exactly once thanks to the fallback marker.
+    expect(sendFallbackError).toHaveBeenCalledTimes(1);
+    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual`)).toBe(true);
+  });
+
   it('legacy gone probe (PID reused) delivers result without ever signalling', async () => {
     const mocks = await importProcessExecMocks();
     mocks.probeLegacyProcess.mockReturnValue({ kind: 'gone' });
