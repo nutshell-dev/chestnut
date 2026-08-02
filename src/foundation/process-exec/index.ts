@@ -32,4 +32,7 @@ export { ProcessExecError, ProcessListUnavailable } from './errors.js';
 export {
   PROCESS_EXEC_TIMEOUT_MIN_MS,
   PROCESS_EXEC_DEFAULT_TIMEOUT_MS,
+  // Needed by command-tool to render the overflow message with the same
+  // limit that L1 enforces (phase 1271 F6).
+  PROCESS_EXEC_DEFAULT_MAX_BUFFER,
 } from './constants.js';

@@ -17,7 +17,7 @@ import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME, EXEC_COMMAND_PLACEHOLDER_CHARS
 
 import { exec, execWithHandle } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
-import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
+import { PROCESS_EXEC_DEFAULT_MAX_BUFFER, PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
 import type { ExecHandle, ExecutionTerminationFact } from '../process-exec/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/index.js';
@@ -253,14 +253,14 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
             const truncated = relPath
               ? truncateHeadTail(error.output, relPath)
               : truncate(error.output, EXEC_MAX_OUTPUT);
-            return { success: false, content: `Error: command output exceeded 1 MB limit.\n[output]: ${truncated}` };
+            return { success: false, content: `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit.\n[output]: ${truncated}` };
           }
           const partial = error.output
             ? `\n[partial output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
             : '';
           return {
             success: false,
-            content: `Error: command output exceeded 1 MB limit. Use head/tail to truncate, or redirect to a file.${partial}`,
+            content: `Error: command output exceeded ${PROCESS_EXEC_DEFAULT_MAX_BUFFER / 1024 / 1024} MB limit. Use head/tail to truncate, or redirect to a file.${partial}`,
           };
         }
 
