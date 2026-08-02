@@ -7,6 +7,8 @@ export const COMMAND_TOOL_AUDIT_EVENTS = {
   EXEC_MOTION_SELF_KILL_BLOCKED: 'exec_motion_self_kill_blocked',
   // NEW phase 272 Step B: raw audit emit migration to const SoT
   OVERFLOW_PERSIST_FAILED: 'overflow_persist_failed',
+  // NEW phase 1269 Step D: structured exec termination conclusion (L1 facts)
+  EXEC_TERMINATION: 'exec_termination',
 } as const;
 
 /**
@@ -14,4 +16,5 @@ export const COMMAND_TOOL_AUDIT_EVENTS = {
  */
 export const COMMAND_TOOL_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   overflow_persist_failed: 'audit',
+  exec_termination: 'audit',
 } as const;

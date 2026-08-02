@@ -22,7 +22,7 @@ import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { AbortReason } from '../llm-provider/index.js';
-import { DEFAULT_TOOL_TIMEOUT_MS } from './constants.js';
+import { DEFAULT_TOOL_TIMEOUT_MS, TOOL_EXEC_CLEANUP_BUDGET_MS } from './constants.js';
 import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 import type {
   ToolRegistry,
@@ -33,6 +33,17 @@ import type {
 
 const CALLER_SNAPSHOT_ACCESS_GATE_SITE =
   'site=tools/executor:caller_snapshot_access_gate';
+
+/**
+ * Discriminated race outcome for one tool execution (phase 1269 Step D).
+ * `timeout` means the executor's own timeout controller fired — the tool
+ * execution may still be unwinding and is awaited through a bounded cleanup
+ * barrier before the timeout result is returned.
+ */
+type ExecutionWinner =
+  | { kind: 'completed'; result: ToolResult }
+  | { kind: 'failed'; error: unknown }
+  | { kind: 'timeout'; error: ToolTimeoutError };
 
 // Re-export types from ./types.js for caller compat (18 caller 0 改)
 export type {
@@ -107,15 +118,12 @@ export class ToolExecutorImpl implements IToolExecutor {
       ? timeoutController.signal
       : AbortSignal.any([...upstreamSignals, timeoutController.signal]);
 
-    const timeoutPromise = new Promise<never>((_, reject) => {
+    const timeoutWinner = new Promise<ExecutionWinner>((resolve) => {
       timeoutController.signal.addEventListener(
         'abort',
-        () => reject(new ToolTimeoutError(toolName, timeoutMs)),
+        () => resolve({ kind: 'timeout', error: new ToolTimeoutError(toolName, timeoutMs) }),
         { once: true },
       );
-    });
-    timeoutPromise.catch(() => {
-      // silent: race loser — timeoutPromise rejects (ToolTimeoutError) when main execution wins; real error path is executionPromise.catch above
     });
 
     const ctxWithSignal = cloneExecContext(ctx, { signal: mergedSignal, currentToolUseId: options.toolUseId });
@@ -184,16 +192,55 @@ export class ToolExecutorImpl implements IToolExecutor {
     });
 
     let result: ToolResult | undefined;
+    let cleanupState: 'settled' | 'pending' | undefined;
     try {
-      result = await Promise.race([executionPromise, timeoutPromise]);
-    } catch (err) {
-      result = {
-        success: false,
-        content: formatErr(err),
-      };
+      const winner: ExecutionWinner = await Promise.race([
+        executionPromise.then(
+          (r): ExecutionWinner => ({ kind: 'completed', result: r }),
+          (err): ExecutionWinner => ({ kind: 'failed', error: err }),
+        ),
+        timeoutWinner,
+      ]);
+
+      if (winner.kind === 'completed') {
+        result = winner.result;
+      } else if (winner.kind === 'failed') {
+        result = { success: false, content: formatErr(winner.error) };
+      } else {
+        // Timeout won: the merged controller is already aborted (that is
+        // what fired the winner) — make the abort explicit here instead of
+        // relying on the finally block's implicit control flow — then wait
+        // a bounded cleanup barrier for the execution loser to settle. The
+        // user-facing result stays the original ToolTimeoutError no matter
+        // how the loser settles afterwards.
+        timeoutController.abort();
+        cleanupState = await Promise.race([
+          executionPromise.then(
+            () => 'settled' as const,
+            () => 'settled' as const,
+          ),
+          new Promise<'pending'>((resolve) =>
+            setTimeout(() => resolve('pending'), TOOL_EXEC_CLEANUP_BUDGET_MS),
+          ),
+        ]);
+        executionPromise.then(
+          (lateResult) => {
+            // A late result after a timeout must neither overwrite the
+            // timeout result nor pass silently.
+            ctx.auditWriter?.write(
+              TOOL_AUDIT_EVENTS.TOOL_EXEC_RACE_LOSER,
+              toolName,
+              lateResult.success ? 'ok' : 'err',
+              'context=execution_after_timeout',
+              'late_result_ignored',
+            );
+          },
+          () => { /* error loser is already audited by the unconditional catch above */ },
+        );
+        result = { success: false, content: formatErr(winner.error) };
+      }
     } finally {
       clearTimeout(timeoutId);
-      timeoutController.abort(); // signal execution to stop / prevent promise leak
 
       const duration = Date.now() - startTime;
       const auditResult = result ?? { success: false, content: 'unknown' };
@@ -204,6 +251,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         toolName,
         auditResult.success ? 'ok' : 'err',
         `elapsed_ms=${duration}`,
+        ...(cleanupState !== undefined ? [`cleanup=${cleanupState}`] : []),
         `summary=${ctx.auditWriter?.message(auditResult.content ?? '') ?? (auditResult.content ?? '')}`,
       );
     }

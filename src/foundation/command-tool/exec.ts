@@ -18,7 +18,7 @@ import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME, EXEC_COMMAND_PLACEHOLDER_CHARS
 import { exec, execWithHandle } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
-import type { ExecHandle } from '../process-exec/index.js';
+import type { ExecHandle, ExecutionTerminationFact } from '../process-exec/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/index.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
@@ -83,6 +83,38 @@ function formatNoOutput(command: string): string {
   return `(no output)\n[command]: ${short}`;
 }
 
+/**
+ * Short, stable cleanup wording derived from structured L1 termination facts
+ * (never parsed back out of error messages). Returns null when the error is
+ * not a termination event (plain spawn error / natural non-zero exit).
+ */
+function formatTerminationCleanup(t: ExecutionTerminationFact): string {
+  if (t.reason === 'not_started') return 'not_started';
+  switch (t.status) {
+    case 'gone':
+      return t.killSent ? 'gone after SIGKILL' : 'gone after SIGTERM';
+    case 'still_alive':
+      return 'still_alive after SIGKILL';
+    case 'indeterminate':
+      return `indeterminate (${t.reason ?? 'unknown'})`;
+  }
+}
+
+function auditExecTermination(ctx: ExecContext, t: ExecutionTerminationFact): void {
+  ctx.auditWriter?.write(
+    COMMAND_TOOL_AUDIT_EVENTS.EXEC_TERMINATION,
+    `clawId=${ctx.clawId}`,
+    `status=${t.status}`,
+    `trigger=${t.trigger}`,
+    `term_sent=${t.termSent}`,
+    `kill_sent=${t.killSent}`,
+    ...(t.identity !== undefined
+      ? [`leader_pid=${t.identity.leaderPid}`, `process_group_id=${t.identity.processGroupId}`]
+      : []),
+    ...(t.reason !== undefined ? [`reason=${t.reason}`] : []),
+  );
+}
+
 export function processExecErrorToToolResult(
   error: ProcessExecError,
   command: string,
@@ -93,12 +125,15 @@ export function processExecErrorToToolResult(
     : command;
 
   if (isRealFailure) {
+    const cleanupSuffix = error.termination !== undefined
+      ? `\n[cleanup]: ${formatTerminationCleanup(error.termination)}`
+      : '';
     const outputSuffix = error.output
       ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
       : '';
     return {
       success: false,
-      content: `Error: ${error.message}\n[command]: ${short}${outputSuffix}`,
+      content: `Error: ${error.message}\n[command]: ${short}${cleanupSuffix}${outputSuffix}`,
     };
   }
 
@@ -210,6 +245,9 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
 
         // maxBuffer exceeded
         if (error.maxBufferExceeded) {
+          if (error.termination !== undefined) {
+            auditExecTermination(ctx, error.termination);
+          }
           if (error.output.length > EXEC_MAX_OUTPUT) {
             const relPath = await persistOverflow(ctx, error.output);
             const truncated = relPath
@@ -227,6 +265,9 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
         }
 
         // phase 1417 + phase 809: isRealFailure 判据单源在 processExecErrorToToolResult
+        if (error.termination !== undefined) {
+          auditExecTermination(ctx, error.termination);
+        }
         return processExecErrorToToolResult(error, command);
       }
     },

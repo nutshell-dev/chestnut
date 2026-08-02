@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { createExecWithHandle } from '../../../src/foundation/command-tool/exec.js';
+import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 
 describe('createExecWithHandle', () => {
@@ -65,4 +66,29 @@ describe('createExecWithHandle', () => {
     }
     expect(threw).toBe(true);
   });
+});
+
+/**
+ * Phase 1269 Step D — createExecWithHandle identity/terminate 透传不丢字段
+ */
+describe('createExecWithHandle execution identity passthrough (phase 1269)', () => {
+  it('handle carries identity and L1-owned terminate through the L2 factory', async () => {
+    const execWithHandle = createExecWithHandle();
+    const ctx = makeExecContext({ workspaceDir: process.cwd() });
+    const handle = await execWithHandle({ command: 'sleep 30' }, ctx);
+
+    expect(handle.identity).toBeDefined();
+    expect(handle.identity!.leaderPid).toBe(handle.child.pid);
+    expect(handle.identity!.processGroupId).toBe(handle.identity!.leaderPid);
+
+    const outcome = await handle.terminate();
+    expect(outcome.status).toBe('gone');
+    expect(outcome.trigger).toBe('caller_requested');
+    expect(outcome.identity).toEqual(handle.identity);
+
+    const err = await handle.promise.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProcessExecError);
+    expect((err as ProcessExecError).termination!.status).toBe('gone');
+    expect((err as ProcessExecError).termination!.identity).toEqual(handle.identity);
+  }, 15_000);
 });

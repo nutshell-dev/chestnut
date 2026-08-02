@@ -932,6 +932,7 @@
     ],
     "foundation_command-tool_audit-events": [
       "exec_motion_self_kill_blocked",
+      "exec_termination",
       "overflow_persist_failed"
     ],
     "foundation_tools_audit-events": [

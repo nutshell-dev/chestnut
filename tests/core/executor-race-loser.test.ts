@@ -84,8 +84,11 @@ describe('executor race-loser audit (phase 816 B2)', () => {
     const auditContent = await fs.readFile(auditPath, 'utf-8');
     const rows = auditContent.trim().split('\n');
 
-    // winner row
-    const winnerRow = rows.find(r => r.includes('tool_exec') && r.includes('slow-throw'));
+    // winner row (TSV column-exact: 'tool_exec_race_loser' also contains the
+    // substring 'tool_exec', and is now guaranteed to be written first
+    // because the executor awaits the loser through the cleanup barrier
+    // before writing its own tool_exec row — phase 1269 Step D)
+    const winnerRow = rows.find(r => r.includes('\ttool_exec\t') && r.includes('slow-throw'));
     expect(winnerRow).toBeDefined();
     expect(winnerRow).toContain('err');
     expect(winnerRow).toContain('execution limit');
