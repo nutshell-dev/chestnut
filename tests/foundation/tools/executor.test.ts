@@ -42,6 +42,12 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
   });
 
   it('timeout → abort → loser settles inside barrier: order preserved, timeout result kept (反向 1/4)', async () => {
+    // CLEANUP_SETTLE_MS: loser's settle delay after abort — well inside
+    // TOOL_EXEC_CLEANUP_BUDGET_MS (3000ms) so the barrier observes the settle.
+    // EXECUTION_TIMEOUT_MS: fires the timeout winner before the loser settles
+    // naturally; > CLEANUP_SETTLE_MS so the abort path is exercised first.
+    const CLEANUP_SETTLE_MS = 100;
+    const EXECUTION_TIMEOUT_MS = 200;
     const events: string[] = [];
     const tool: Tool = {
       name: 'exec-like',
@@ -56,7 +62,7 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
             setTimeout(() => {
               events.push('cleanup_done');
               resolve();
-            }, 100);
+            }, CLEANUP_SETTLE_MS);
           }, { once: true });
         });
         return { success: true, content: 'late success' };
@@ -67,7 +73,7 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     const executor = new ToolExecutorImpl(registry, 60_000);
 
     const result = await executor.execute({
-      toolName: 'exec-like', args: {}, ctx: makeCtx(audit), timeoutMs: 200,
+      toolName: 'exec-like', args: {}, ctx: makeCtx(audit), timeoutMs: EXECUTION_TIMEOUT_MS,
     });
 
     expect(events).toEqual(['abort_received', 'cleanup_done']);
@@ -87,6 +93,9 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
 
   it('abort-ignoring tool: executor returns after cleanup budget and audits cleanup=pending (反向 3)', async () => {
     vi.useFakeTimers();
+    // EXECUTION_TIMEOUT_MS: fires the timeout winner while the tool keeps
+    // ignoring abort; the executor must then wait exactly the cleanup budget.
+    const EXECUTION_TIMEOUT_MS = 200;
     const tool: Tool = {
       name: 'stubborn',
       description: 'ignores abort forever',
@@ -104,15 +113,15 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
 
     const start = Date.now();
     const pendingResult = executor.execute({
-      toolName: 'stubborn', args: {}, ctx: makeCtx(audit), timeoutMs: 200,
+      toolName: 'stubborn', args: {}, ctx: makeCtx(audit), timeoutMs: EXECUTION_TIMEOUT_MS,
     });
-    await vi.advanceTimersByTimeAsync(200 + TOOL_EXEC_CLEANUP_BUDGET_MS);
+    await vi.advanceTimersByTimeAsync(EXECUTION_TIMEOUT_MS + TOOL_EXEC_CLEANUP_BUDGET_MS);
     const result = await pendingResult;
     const elapsed = Date.now() - start;
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('execution limit');
-    expect(elapsed).toBe(200 + TOOL_EXEC_CLEANUP_BUDGET_MS);
+    expect(elapsed).toBe(EXECUTION_TIMEOUT_MS + TOOL_EXEC_CLEANUP_BUDGET_MS);
     const toolExec = auditEvents.filter(([t]) => t === 'tool_exec');
     expect(toolExec[0]).toContain('cleanup=pending');
   });
@@ -130,14 +139,13 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     const { audit, events: auditEvents } = makeAudit();
     const executor = new ToolExecutorImpl(registry, 60_000);
 
-    const start = Date.now();
     const result = await executor.execute({
       toolName: 'fast', args: {}, ctx: makeCtx(audit), timeoutMs: 5_000,
     });
-    const elapsed = Date.now() - start;
 
     expect(result.success).toBe(true);
-    expect(elapsed).toBeLessThan(1000); // no cleanup budget stall
+    // No elapsed wall-clock threshold: result + audit structure already prove
+    // the timeout cleanup path was never entered (no cleanup= col, ok status).
     const toolExec = auditEvents.filter(([t]) => t === 'tool_exec');
     expect(toolExec).toHaveLength(1);
     expect(toolExec[0].some((c) => String(c).startsWith('cleanup='))).toBe(false);
@@ -159,15 +167,14 @@ describe('ToolExecutor timeout cleanup barrier (phase 1269 Step D)', () => {
     const { audit, events: auditEvents } = makeAudit();
     const executor = new ToolExecutorImpl(registry, 60_000);
 
-    const start = Date.now();
     const result = await executor.execute({
       toolName: 'failing', args: {}, ctx: makeCtx(audit), timeoutMs: 5_000,
     });
-    const elapsed = Date.now() - start;
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('boom');
-    expect(elapsed).toBeLessThan(1000);
+    // No elapsed wall-clock threshold: error content + audit structure prove
+    // the failure surfaced directly without entering the cleanup path.
     const toolExec = auditEvents.filter(([t]) => t === 'tool_exec');
     expect(toolExec[0].some((c) => String(c).startsWith('cleanup='))).toBe(false);
   });

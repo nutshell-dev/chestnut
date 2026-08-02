@@ -24,6 +24,15 @@ import { DEAD_PID } from '../helpers/dead-pid.js';
 const SUBPROC_HANG_MS = 60_000;
 
 /**
+ * Mid-flight abort schedule (phase 1269 Step C tests): lets the child finish
+ * spawn/startup and print its leader/descendant markers, still far earlier
+ * than the natural 30s/SUBPROC_HANG exit — the abort always lands mid-flight.
+ * Derivation: 200ms ≫ realistic sh/node startup, ≪ 30_000ms natural exit;
+ * ≥ __testMinTimeoutMs clamps used below so racing timeouts can also fire.
+ */
+const ABORT_AFTER_START_MS = 200;
+
+/**
  * Subprocess short sleep: below MIN timeout clamp (1000ms), so the test exec returns success.
  * Derivation: 100ms < PROCESS_EXEC_TIMEOUT_MIN_MS=1000ms → exec finishes before clamp deadline.
  */
@@ -421,7 +430,7 @@ describe('phase 1269 Step C: exec abort convergence', () => {
         cwd: workDir,
         signal: controller.signal,
       });
-      setTimeout(() => controller.abort(), 200);
+      setTimeout(() => controller.abort(), ABORT_AFTER_START_MS);
       await p;
       expect.fail('should have thrown');
     } catch (err) {
@@ -457,7 +466,7 @@ describe('phase 1269 Step C: exec abort convergence', () => {
           __testSigkillGraceMs: GRACE_MS,
         },
       );
-      setTimeout(() => controller.abort(), 200);
+      setTimeout(() => controller.abort(), ABORT_AFTER_START_MS);
       await p;
       expect.fail('should have thrown');
     } catch (err) {
@@ -470,9 +479,9 @@ describe('phase 1269 Step C: exec abort convergence', () => {
       expect(error.termination!.status).toBe('gone');
     }
     const elapsed = Date.now() - started;
-    // abort at ~200ms + grace 300ms + KILL confirm — settling earlier than
-    // ~500ms would prove premature settle.
-    expect(elapsed).toBeGreaterThanOrEqual(200 + GRACE_MS);
+    // abort at ~ABORT_AFTER_START_MS + grace GRACE_MS + KILL confirm —
+    // settling earlier than their sum would prove premature settle.
+    expect(elapsed).toBeGreaterThanOrEqual(ABORT_AFTER_START_MS + GRACE_MS);
   }, 20_000);
 
   it.concurrent('abort and timeout racing do not produce a second TERM sequence nor rewrite the first trigger (反向 2)', async () => {
@@ -484,12 +493,14 @@ describe('phase 1269 Step C: exec abort convergence', () => {
       const p = exec('node', ['-e', `setTimeout(() => {}, ${SUBPROC_HANG_MS})`], {
         cwd: workDir,
         signal: controller.signal,
-        timeout: 200,
+        // Race point: the exec timeout fires at the same moment as the abort
+        // schedule below (single semantic source — no numeric drift).
+        timeout: ABORT_AFTER_START_MS,
         __testMinTimeoutMs: 100,
         __testSigkillGraceMs: 100,
       });
       // Fire abort at the same moment the timeout fires.
-      setTimeout(() => controller.abort(), 200);
+      setTimeout(() => controller.abort(), ABORT_AFTER_START_MS);
       await p;
       expect.fail('should have thrown');
     } catch (err) {

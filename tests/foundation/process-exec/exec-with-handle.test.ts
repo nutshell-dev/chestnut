@@ -9,6 +9,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { execWithHandle, ProcessExecError, isProcessGroupAlive, probeExecutionGroup, terminateExecutionGroup, getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
 import * as os from 'os';
 
+/**
+ * Subprocess one-minute hang: keeps the child alive far beyond every test
+ * budget so termination always comes from the test's own terminate/abort,
+ * never from natural exit. Derivation: 60s ≫ it-level timeout 20s.
+ */
+const SUBPROCESS_HANG_MS = 60_000;
+
 describe('execWithHandle', () => {
   it('should resolve with output for successful command', async () => {
     const handle = execWithHandle('sh', ['-c', 'echo hello'], {
@@ -143,18 +150,23 @@ describe('execWithHandle execution identity and terminate (phase 1269)', () => {
   it('repeat terminate() does not send a second TERM/KILL sequence nor extend the earliest deadline', async () => {
     // Leader traps SIGTERM so the full TERM→grace→KILL sequence runs; a
     // second terminate() mid-flight must not re-signal or shift the deadline.
+    // SIGKILL_GRACE_MS: short grace so the escalation completes fast in-test.
+    // MID_GRACE_DELAY_MS = grace / 2: the second terminate() lands strictly
+    // inside the grace window — single semantic source, no 100/50 drift.
+    const SIGKILL_GRACE_MS = 100;
+    const MID_GRACE_DELAY_MS = SIGKILL_GRACE_MS / 2;
     const killSpy = vi.spyOn(process, 'kill');
     const handle = execWithHandle(
       'node',
-      ['-e', `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, 60000)`],
-      { cwd: workDir, __testSigkillGraceMs: 100 },
+      ['-e', `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, ${SUBPROCESS_HANG_MS})`],
+      { cwd: workDir, __testSigkillGraceMs: SIGKILL_GRACE_MS },
     );
     const pgid = handle.identity!.processGroupId;
     // Wait until the SIGTERM trap is installed; terminating before node
     // boots would hit the default TERM action instead of the escalation path.
     await waitForMatch(handle, /READY/);
     const p1 = handle.terminate();
-    await new Promise((resolve) => setTimeout(resolve, 50)); // mid-grace
+    await new Promise((resolve) => setTimeout(resolve, MID_GRACE_DELAY_MS));
     const p2 = handle.terminate();
     expect(p2).toBe(p1);
     const outcome = await p1;
@@ -211,12 +223,16 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
   const workDir = os.tmpdir();
 
   it('mid-flight abort: promise rejection carries the same facts as the termination outcome', async () => {
+    // ABORT_AFTER_START_MS: lets the child finish spawn/startup, still far
+    // earlier than the natural sleep-30 exit — the abort always lands
+    // mid-flight, never before exec begins nor after completion.
+    const ABORT_AFTER_START_MS = 100;
     const controller = new AbortController();
     const handle = execWithHandle('sh', ['-c', 'sleep 30'], {
       cwd: workDir,
       signal: controller.signal,
     });
-    setTimeout(() => controller.abort(), 100);
+    setTimeout(() => controller.abort(), ABORT_AFTER_START_MS);
     const err = await handle.promise.catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ProcessExecError);
     const error = err as ProcessExecError;
@@ -251,7 +267,7 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
   it('SIGKILL close signal is surfaced on the error, not parsed from the message', async () => {
     const handle = execWithHandle(
       'node',
-      ['-e', `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, 60000)`],
+      ['-e', `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, ${SUBPROCESS_HANG_MS})`],
       { cwd: workDir, __testSigkillGraceMs: 100 },
     );
     await waitForMatch(handle, /READY/);
