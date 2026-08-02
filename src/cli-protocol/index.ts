@@ -30,3 +30,15 @@ export {
   renderClawHelp,
   renderClawCommandHelp,
 } from './help.js';
+export {
+  renderCliGuidanceAction,
+  renderCliGuidanceDocument,
+  CliGuidanceRenderError,
+  type CliGuidanceTarget,
+  type CliGuidanceAction,
+  type CliGuidanceLabel,
+  type CliGuidanceSubject,
+  type CliGuidanceDocumentLine,
+  type CliGuidanceTruncation,
+  type CliGuidanceDocument,
+} from './guidance.js';
