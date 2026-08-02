@@ -293,10 +293,11 @@ export function createAsyncExecWrapper(
       }
 
       // 5. Abort: terminate the execution group via L1 and wait for the
-      //    outcome before reporting back to the caller.
+      //    outcome before reporting back to the caller. The L1 trigger is the
+      //    real termination word ('abort'); L4 scene lives in the audit context.
       if (winner.type === 'abort') {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
-        const outcome = await handle.terminate('caller_requested');
+        const outcome = await handle.terminate('abort');
         emitMigratedExecTermination(auditWriter, {
           taskId: 'n/a', // no task file exists before migration
           context: 'caller_abort',
@@ -340,6 +341,9 @@ export function createAsyncExecWrapper(
       } catch (persistErr) {
         // Migration persistence failed: terminate the execution group via L1,
         // wait for the outcome, and audit it before reporting the error.
+        // L1 has no 'persist_failed' word — caller_requested is the correct L1
+        // trigger here (the wrapper requested termination); L4 scene is the
+        // audit context column.
         const outcome = await handle.terminate('caller_requested');
         emitMigratedExecTermination(auditWriter, {
           taskId: task.id,
@@ -430,7 +434,10 @@ export function createAsyncExecWrapper(
           // indeterminate outcome must never be described as cleaned up.
           let cleanupSuffix = '';
           if (timedOut) {
-            const outcome = await handle.terminate('caller_requested');
+            // The exec's internal 30s timeout fires long before the 30min
+            // migrated hard deadline, so the shared outcome trigger is already
+            // 'timeout' — pass the same word instead of caller_requested.
+            const outcome = await handle.terminate('timeout');
             emitMigratedExecTermination(auditWriter, {
               taskId: task.id,
               context: 'hard_timeout',

@@ -133,8 +133,11 @@ export interface ExecHandle {
   /**
    * Idempotent: concurrent/repeat calls share the first in-flight run; the
    * first trigger and earliest SIGKILL deadline always win.
+   * The trigger is the L1 termination word (default 'caller_requested'); L4
+   * business reasons stay in the caller's own audit context, never in this
+   * parameter.
    */
-  terminate(trigger?: 'caller_requested'): Promise<ExecutionTerminationOutcome>;
+  terminate(trigger?: ExecutionTerminationTrigger): Promise<ExecutionTerminationOutcome>;
 }
 
 export interface ProcessInfo {

@@ -371,7 +371,12 @@ export function execWithHandle(
     });
   });
 
-  return { promise, child: proc, identity, terminate: () => terminate('caller_requested') };
+  return {
+    promise,
+    child: proc,
+    identity,
+    terminate: (trigger?: ExecutionTerminationTrigger) => terminate(trigger ?? 'caller_requested'),
+  };
 }
 
 /**
