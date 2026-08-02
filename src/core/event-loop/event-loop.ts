@@ -240,7 +240,7 @@ export class EventLoop {
         ? this._resolveRateLimitRetryDelayMs(error)
         : this.llmRetryDelayMs;
       const resumeAt = new Date(nowMs + delayMs).toISOString();
-      this.llmRetryWaiting = {
+      const waiting: LLMRetryWaitingState = {
         kind: 'retry',
         requestFingerprint,
         errorClass,
@@ -250,6 +250,7 @@ export class EventLoop {
         resumeAt,
         error: errorText,
       };
+      this.llmRetryWaiting = waiting;
       this._saveLlmRetryState();
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.LLM_RETRY,
@@ -262,12 +263,13 @@ export class EventLoop {
         `error_class=${errorClass}`,
         `error=${errorText}`,
       );
+      this._writeLlmRetryWaitingStream(waiting, 'scheduled', delayMs);
       return;
     }
 
     const cooldownMs = this._resolveCooldownMs(error);
     const resumeAt = new Date(nowMs + cooldownMs).toISOString();
-    this.llmRetryWaiting = {
+    const cooldownWaiting: LLMRetryWaitingState = {
       kind: 'cooldown',
       requestFingerprint,
       errorClass,
@@ -277,6 +279,7 @@ export class EventLoop {
       resumeAt,
       error: errorText,
     };
+    this.llmRetryWaiting = cooldownWaiting;
     this._saveLlmRetryState();
     this.audit.write(
       EVENTLOOP_AUDIT_EVENTS.COOLDOWN,
@@ -289,6 +292,38 @@ export class EventLoop {
       `error_class=${errorClass}`,
       `error=${errorText}`,
     );
+    this._writeLlmRetryWaitingStream(cooldownWaiting, 'scheduled', cooldownMs);
+  }
+
+  /**
+   * Phase 1268 Step D: waiting 状态写结构化 stream（presentation 实时渲染用）。
+   * stream 写失败不阻断调度（fail-observable audit）。
+   */
+  private _writeLlmRetryWaitingStream(
+    waiting: LLMRetryWaitingState,
+    action: 'scheduled' | 'gated' | 'released',
+    delayMs: number,
+  ): void {
+    if (!this.streamWriter) return;
+    try {
+      this.streamWriter.write({
+        ts: Date.now(),
+        type: 'llm_retry_waiting',
+        stage: waiting.kind,
+        action,
+        attempt: waiting.kind === 'retry' ? waiting.attempt : waiting.attempts,
+        maxAttempts: waiting.maxAttempts,
+        delayMs,
+        resumeAt: waiting.resumeAt,
+        errorClass: waiting.errorClass,
+      });
+    } catch (error) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=writeLlmRetryWaitingStream`,
+        `reason=${formatErr(error)}`,
+      );
+    }
   }
 
   /**
@@ -324,6 +359,7 @@ export class EventLoop {
         `remaining_ms=${remainingMs}`,
         `fingerprint=${waiting.requestFingerprint}`,
       );
+      this._writeLlmRetryWaitingStream(waiting, 'gated', remainingMs);
       // 等 deadline 或新 inbox 文件（新消息可能改变 fingerprint 提前释放）。
       await Promise.race([
         this._sleep(remainingMs, this.waitAbortController?.signal),
@@ -388,6 +424,7 @@ export class EventLoop {
       `old=${waiting.requestFingerprint}`,
       `new=${newFingerprint}`,
     );
+    this._writeLlmRetryWaitingStream(waiting, 'released', 0);
   }
 
   /**

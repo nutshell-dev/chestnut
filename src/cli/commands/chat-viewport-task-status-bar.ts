@@ -13,6 +13,7 @@
  */
 
 import { fitLine } from '../utils/string.js';
+import { formatIsoClock } from '../utils/time.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
 import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
 
@@ -29,6 +30,8 @@ export interface TaskTrack {
   step: number;
   maxSteps: number;
   lastError: string | null;
+  /** Phase 1268 Step D: llm_retry_waiting 调度摘要（release/turn_end 清空）；taskId 由行首 label 承担 */
+  waitingLabel: string | null;
 }
 
 export function makeTaskTrack(taskId: TaskId, taskKind: 'spawn_subagent' | 'shadow_subagent'): TaskTrack {
@@ -42,6 +45,7 @@ export function makeTaskTrack(taskId: TaskId, taskKind: 'spawn_subagent' | 'shad
     step: 0,
     maxSteps: 0,
     lastError: null,
+    waitingLabel: null,
   };
 }
 
@@ -64,7 +68,8 @@ export function buildTaskLine(t: TaskTrack, cols: number): string {
     return `\x1b[38;5;147m[${label}] ${icon} ${t.currentTool}\x1b[0m`;
   }
   const inner = t.textBuffer ? t.textBuffer.trimStart().replace(/\n/g, ' ') : '';
-  return `\x1b[38;5;147m${fitLine(`[${label}] ⊙ (${inner})`, cols)}\x1b[0m`;
+  const waitingSuffix = t.waitingLabel ? ` ⏳ ${t.waitingLabel}` : '';
+  return `\x1b[38;5;147m${fitLine(`[${label}] ⊙ (${inner})${waitingSuffix}`, cols)}\x1b[0m`;
 }
 
 export interface TaskStatusBarDeps {
@@ -155,6 +160,25 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
       case 'turn_interrupted':
         // 立即移除（GView-5 ε、不延迟淡出）
         removeTrack(taskId);
+        return;
+      case 'llm_retry_waiting': {
+        // Phase 1268 Step D: task 流内 EventLoop waiting 调度 → 状态行摘要。
+        // 只渲染 owner 结构化字段；release 清空。
+        if (event.action === 'released') {
+          tr.waitingLabel = null;
+          break;
+        }
+        const attempt = typeof event.attempt === 'number' ? event.attempt : '?';
+        const maxAttempts = typeof event.maxAttempts === 'number' ? event.maxAttempts : '?';
+        const delaySec = typeof event.delayMs === 'number' ? Math.round(event.delayMs / 1000) : '?';
+        tr.waitingLabel = event.stage === 'cooldown'
+          ? `cooldown, probe at ${formatIsoClock(event.resumeAt)}`
+          : `retry ${attempt}/${maxAttempts} in ${delaySec}s`;
+        break;
+      }
+      case 'provider_attempt_failed':
+      case 'retry_scheduled':
+        // task 流不消费 provider 级事件（owner 写主 stream）；不落入 UNKNOWN audit。
         return;
       default:
         return;

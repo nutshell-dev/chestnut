@@ -48,6 +48,14 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
         break;
       }
 
+      case 'llm_retry_waiting':
+      case 'provider_attempt_failed':
+      case 'retry_scheduled': {
+        // Phase 1268 Step D: task 流内 LLM 调度/重试事件 → 状态条摘要（不落 UNKNOWN audit）
+        deps.taskStatusBar.updateTrack(taskId, event);
+        break;
+      }
+
       default: {
         deps.audit?.write(
           VIEWPORT_AUDIT_EVENTS.UNKNOWN_EVENT,

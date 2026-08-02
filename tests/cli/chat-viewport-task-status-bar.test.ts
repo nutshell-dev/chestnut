@@ -186,3 +186,56 @@ describe('buildTaskLine', () => {
     expect(line).toContain('some output');
   });
 });
+
+/**
+ * Phase 1268 Step D: task 流 llm_retry_waiting → 状态行 waitingLabel（带 taskId label）
+ */
+describe('Phase 1268 Step D: task llm_retry_waiting status bar', () => {
+  const makeDeps = () => {
+    const updateRender = vi.fn();
+    return { updateRender, bar: createTaskStatusBar({ updateRender }) };
+  };
+
+  it('retry waiting 显示 retry attempt/max 与等待，行首含 taskId label', () => {
+    const { bar } = makeDeps();
+    bar.addTrack('task-w1', 'spawn_subagent');
+    bar.updateTrack('task-w1', {
+      type: 'llm_retry_waiting', stage: 'retry', action: 'scheduled',
+      attempt: 2, maxAttempts: 3, delayMs: 60_000,
+      resumeAt: '2026-08-02T13:15:12.000Z', errorClass: 'rate_limit',
+    });
+    const spawn = bar.renderSpawn(80);
+    expect(spawn).toContain('spawn-task-w');
+    expect(spawn).toContain('retry 2/3 in 60s');
+  });
+
+  it('cooldown waiting 显示 probe deadline（结构断言，不依赖时区）', () => {
+    const { bar } = makeDeps();
+    bar.addTrack('task-w2', 'spawn_subagent');
+    bar.updateTrack('task-w2', {
+      type: 'llm_retry_waiting', stage: 'cooldown', action: 'scheduled',
+      attempt: 3, maxAttempts: 3, delayMs: 300_000,
+      resumeAt: '2026-08-02T13:15:12.000Z', errorClass: 'rate_limit',
+    });
+    const spawn = bar.renderSpawn(80);
+    expect(spawn).toContain('cooldown, probe at');
+    expect(spawn).toMatch(/\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('released 清空 waitingLabel', () => {
+    const { bar } = makeDeps();
+    bar.addTrack('task-w3', 'spawn_subagent');
+    bar.updateTrack('task-w3', {
+      type: 'llm_retry_waiting', stage: 'retry', action: 'scheduled',
+      attempt: 1, maxAttempts: 3, delayMs: 30_000,
+      resumeAt: '2026-08-02T13:15:12.000Z', errorClass: 'transient',
+    });
+    expect(bar.renderSpawn(80)).toContain('retry 1/3');
+    bar.updateTrack('task-w3', {
+      type: 'llm_retry_waiting', stage: 'retry', action: 'released',
+      attempt: 1, maxAttempts: 3, delayMs: 0,
+      resumeAt: '2026-08-02T13:15:12.000Z', errorClass: 'transient',
+    });
+    expect(bar.renderSpawn(80)).not.toContain('retry 1/3');
+  });
+});

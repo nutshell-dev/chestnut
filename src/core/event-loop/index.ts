@@ -10,7 +10,7 @@
  */
 
 export { EventLoop } from './event-loop.js';
-export type { EventLoopOptions, LLMRetryState, LLMRetryWaitingState, RecoverableLLMErrorClass, LoopErrorContext } from './types.js';
+export type { EventLoopOptions, LLMRetryState, LLMRetryWaitingState, LLMRetryWaitingStreamEvent, LLMRetryWaitingStreamAction, RecoverableLLMErrorClass, LoopErrorContext } from './types.js';
 export {
   LLM_COOLDOWN_MS,
   LLM_MAX_RETRIES,

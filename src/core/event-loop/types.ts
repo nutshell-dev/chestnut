@@ -47,6 +47,25 @@ export interface LoopErrorContext {
   loopFs: FileSystem;
 }
 
+/**
+ * Phase 1268 Step D: EventLoop-owned waiting 状态的结构化 stream 事件。
+ * owner 只递交 presentation/recovery 所需字段（M#5/M#8）；
+ * attempt 在 retry stage 为 1-based 已消费次数，cooldown stage 为耗尽 attempts。
+ */
+export type LLMRetryWaitingStreamAction = 'scheduled' | 'gated' | 'released';
+
+export interface LLMRetryWaitingStreamEvent {
+  ts: number;
+  type: 'llm_retry_waiting';
+  stage: 'retry' | 'cooldown';
+  action: LLMRetryWaitingStreamAction;
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  resumeAt: string;
+  errorClass: RecoverableLLMErrorClass;
+}
+
 export type LLMRequestBlockedReason =
   | 'no_progress'
   | 'policy_conflict'

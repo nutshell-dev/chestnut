@@ -494,3 +494,114 @@ describe('chat-viewport Phase 72', () => {
     });
   });
 });
+
+/**
+ * Phase 1268 Step D: provider attempt / turn retry / cooldown 分层渲染（行为测试）
+ * 反向验收：
+ * - 同一 error 在 provider attempt 1/3、2/3、turn retry 1/3、cooldown 四种 fixture 输出必须可区分
+ * - label（viewport 来源）与 deadline 缺一即失败
+ * - 时间戳只断言结构（[HH:MM:SS]），不依赖运行机时区
+ */
+describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
+  function makeHandlerDeps(label = 'claw-x') {
+    const lines: string[] = [];
+    const auditWrites: unknown[][] = [];
+    const deps = {
+      turnTracker: { begin: () => {}, end: () => {}, abort: () => {}, interrupted: () => {}, getInterruptSource: () => null },
+      mainUI: {
+        flushThinking: () => {}, flushStreaming: () => {}, flushStreamingNormal: () => {},
+        enterPhase: () => {}, clearPreview: () => {}, setPreview: () => {},
+        appendToThinking: (s: string) => s, appendToBuffer: (s: string) => s,
+        withScope: (_s: string, fn: () => void) => fn(),
+      },
+      sink: { emit: (d: { kind: string; text: string }) => { lines.push(d.text); } },
+      showSystemMessages: false,
+      showContractEvents: false,
+      label,
+      agentDir: '/tmp/agent',
+      fsFactory: () => { throw new Error('not used'); },
+      taskWatchMap: new Map(),
+      handleTaskEvent: () => {},
+      taskStatusBar: { addTrack: () => {}, addMigratedExec: () => {}, removeMigratedExec: () => {} },
+      audit: { write: (...args: unknown[]) => { auditWrites.push(args); } },
+      observability: { recordEvent: () => {} },
+      getThinkingMode: () => 'off',
+      resolvePending: () => {},
+    };
+    return { deps, lines, auditWrites };
+  }
+
+  const FIXED_TS = Date.parse('2026-08-02T13:06:27.000Z');
+  const RESUME_AT = '2026-08-02T13:15:12.000Z';
+  const CLOCK_RE = /\[\d{2}:\d{2}:\d{2}\]/;
+
+  it('provider attempt 1/3 vs 2/3 可区分，含 ts/label/maxAttempts/Retry-After', async () => {
+    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { deps, lines } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    handle({
+      type: 'provider_attempt_failed', ts: FIXED_TS, provider: 'glm',
+      attempt: 0, maxAttempts: 3, error: 'same boom', errorClass: 'rate_limit',
+      userActionHint: 'wait_retry_after', retryAfterSec: 30,
+    });
+    handle({
+      type: 'provider_attempt_failed', ts: FIXED_TS, provider: 'glm',
+      attempt: 1, maxAttempts: 3, error: 'same boom', errorClass: 'rate_limit',
+      userActionHint: 'wait_retry_after',
+    });
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('attempt 1/3');
+    expect(lines[1]).toContain('attempt 2/3');
+    expect(lines[0]).not.toBe(lines[1]);
+    expect(lines[0]).toContain('[claw-x]');
+    expect(lines[0]).toMatch(CLOCK_RE);
+    expect(lines[0]).toContain('retry-after 30s');
+    expect(lines[1]).not.toContain('retry-after');
+  });
+
+  it('turn retry 1/3 与 cooldown 行可区分，含 label 与 deadline', async () => {
+    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { deps, lines } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    handle({
+      type: 'llm_retry_waiting', ts: FIXED_TS, stage: 'retry', action: 'scheduled',
+      attempt: 1, maxAttempts: 3, delayMs: 60_000, resumeAt: RESUME_AT, errorClass: 'rate_limit',
+    });
+    handle({
+      type: 'llm_retry_waiting', ts: FIXED_TS, stage: 'cooldown', action: 'scheduled',
+      attempt: 3, maxAttempts: 3, delayMs: 300_000, resumeAt: RESUME_AT, errorClass: 'rate_limit',
+    });
+    handle({
+      type: 'llm_retry_waiting', ts: FIXED_TS, stage: 'retry', action: 'released',
+      attempt: 1, maxAttempts: 3, delayMs: 0, resumeAt: RESUME_AT, errorClass: 'rate_limit',
+    });
+
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('turn retry 1/3 in 60s');
+    expect(lines[1]).toContain('rate-limit cooldown; probe at');
+    expect(lines[1]).toMatch(CLOCK_RE);  // probe 时间戳
+    expect(lines[2]).toContain('released');
+    for (const line of lines) {
+      expect(line).toContain('[claw-x]');
+      expect(line).toMatch(CLOCK_RE);
+    }
+    expect(new Set(lines).size).toBe(3);  // 三种 fixture 输出互不相同
+  });
+
+  it('llm_retry_waiting 不触发 UNKNOWN_EVENT audit；未知 event 仍走可观察 fallback', async () => {
+    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { deps, auditWrites } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    handle({
+      type: 'llm_retry_waiting', ts: FIXED_TS, stage: 'retry', action: 'gated',
+      attempt: 2, maxAttempts: 3, delayMs: 30_000, resumeAt: RESUME_AT, errorClass: 'transient',
+    });
+    handle({ type: 'totally_unknown_event', ts: FIXED_TS });
+
+    expect(auditWrites.filter(w => String(w[0]).includes('unknown') || String(w[1]).includes('totally_unknown_event'))).toHaveLength(1);
+  });
+});

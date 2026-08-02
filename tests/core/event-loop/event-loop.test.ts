@@ -1601,6 +1601,60 @@ describe('EventLoop.run', () => {
     expect(readRetryState()!.waiting).toMatchObject({ kind: 'retry', attempt: 3 });
   });
 
+  it('Phase 1268 Step D: waiting 调度写结构化 llm_retry_waiting stream 事件（scheduled/gated/released）', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const streamEvents: Array<Record<string, unknown>> = [];
+    const streamWriter = { write: (ev: Record<string, unknown>) => { streamEvents.push(ev); } };
+    const rateLimitErr = new LLMRateLimitError('openai');
+    const { runtime, computeTurnRequestFingerprint } = makeRecoverableRuntime(rateLimitErr, 'fp-A');
+    // streamWriter 存在时 wrapped callbacks.onTurnStart 需要 getCurrentTraceId
+    (runtime as any).getCurrentTraceId = vi.fn().mockReturnValue(undefined);
+
+    const eventLoop = new EventLoop({
+      runtime: runtime as Runtime,
+      fsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      streamWriter,
+    });
+
+    // scheduled：失败后立即写（决定等待即落盘 + stream）
+    await eventLoop.run();
+    const scheduled = streamEvents.filter(e => e.type === 'llm_retry_waiting');
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0]).toMatchObject({
+      stage: 'retry',
+      action: 'scheduled',
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 10,
+      errorClass: 'rate_limit',
+    });
+    expect(typeof scheduled[0].resumeAt).toBe('string');
+    expect(typeof scheduled[0].ts).toBe('number');
+
+    // gated：下一 tick deadline 未到先 gated
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+    const gated = streamEvents.filter(e => e.type === 'llm_retry_waiting' && e.action === 'gated');
+    expect(gated.length).toBeGreaterThanOrEqual(1);
+    expect(gated[0]).toMatchObject({ stage: 'retry', attempt: 1, maxAttempts: 3 });
+
+    // released：fingerprint 变化
+    streamEvents.length = 0;
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    const run3 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run3;
+    const released = streamEvents.filter(e => e.type === 'llm_retry_waiting' && e.action === 'released');
+    expect(released.length).toBe(1);
+    expect(released[0]).toMatchObject({ stage: 'retry', action: 'released' });
+  });
+
   it('clean-stop 跳过 retry-state load（现有语义保留）：waiting 不恢复', async () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
