@@ -17,6 +17,11 @@
  *
  * 守 phase 1414/1419/1426 formatter registry sister cluster 同型 — type coverage 必显式、漏注 fail。
  * 反向：future 加新 sender type 必同步 register（NO_GUIDANCE 或 real composer）/ 漏注 invariant fail。
+ *
+ * phase 1263 Step C: scanner 识别两条显式贡献路径 —
+ *   1. `registry.register('type', composer)` direct register（generic / 未迁 CLI composer）；
+ *   2. `registerCliGuidance(registry, [binding])` CLIProtocol typed binding 注册
+ *      （type 字面解析自 binding 源文件、仍保证全部 message type 显式覆盖）。
  */
 
 // phase 1476: cron-written types (raw fs.writeAtomic + encodeInbox / 不被 sender scan 抓)
@@ -63,8 +68,37 @@ const composersIndexPath = path.join(srcDir, 'assembly/guidance/composers/index.
 
 function extractRegisteredTypes(): Set<string> {
   const content = fs.readFileSync(composersIndexPath, 'utf-8');
-  const matches = content.matchAll(/registry\.register\(\s*'([^']+)'/g);
-  return new Set([...matches].map(m => m[1]));
+  const types = new Set<string>();
+  // 路径 1：direct register
+  for (const m of content.matchAll(/registry\.register\(\s*'([^']+)'/g)) {
+    types.add(m[1]);
+  }
+  // 路径 2（phase 1263 Step C）：CLIProtocol typed binding 注册 —
+  // 解析 registerCliGuidance(registry, [ident, ...]) 的 binding import，
+  // 从 binding 源文件提取 `type: 'X'` 字面（识别显式贡献，不是简单 allow 缺失）。
+  for (const m of content.matchAll(/registerCliGuidance\(\s*registry\s*,\s*\[([^\]]*)\]/g)) {
+    for (const ident of m[1].split(',').map(s => s.trim()).filter(Boolean)) {
+      types.add(extractBindingType(content, ident));
+    }
+  }
+  return types;
+}
+
+/** 从 composers/index.ts import 解析 binding 标识符的源文件，提取其 `type: 'X'` 字面。 */
+function extractBindingType(indexContent: string, ident: string): string {
+  const importRe = new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*'([^']+)'`, 'g');
+  for (const m of indexContent.matchAll(importRe)) {
+    const names = m[1].split(',').map(s => s.trim());
+    if (!names.includes(ident)) continue;
+    const bindingPath = path.resolve(path.dirname(composersIndexPath), m[2].replace(/\.js$/, '.ts'));
+    const bindingContent = fs.readFileSync(bindingPath, 'utf-8');
+    const typeMatch = bindingContent.match(/\btype:\s*'([^']+)'/);
+    if (!typeMatch) {
+      throw new Error(`cli guidance binding '${ident}' (${path.relative(srcDir, bindingPath)}) lacks a \`type: '...'\` literal`);
+    }
+    return typeMatch[1];
+  }
+  throw new Error(`registerCliGuidance binding '${ident}' has no import in composers/index.ts`);
 }
 
 /**

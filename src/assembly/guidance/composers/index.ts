@@ -14,7 +14,8 @@
 
 import type { MotionGuidanceRegistry } from '../types.js';
 
-import { composer as clawCrashed } from './claw-crashed.js';
+import { registerCliGuidance } from '../../../cli-protocol/index.js';
+import { clawCrashedGuidanceBinding } from '../bindings/claw-crashed.js';
 import { composer as clawInactivity } from './claw-inactivity.js';
 import { composer as contractEvents } from './contract-events.js';
 import { composer as verificationResult } from './verification-result.js';
@@ -35,7 +36,9 @@ import { composer as contractAuditFeedback } from './contract-audit-feedback.js'
 import { composer as contractCancelled } from './contract-cancelled.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
-  registry.register('claw_crashed', clawCrashed);
+  // phase 1263 Step C: claw_crashed 经 CLIProtocol typed binding 注册（首个迁移的 CLI binding）；
+  // 其余四个待迁 CLI composer 与 generic composer 保持 direct register。
+  registerCliGuidance(registry, [clawCrashedGuidanceBinding]);
   registry.register('claw_inactivity', clawInactivity);
   registry.register('contract_events', contractEvents);
   registry.register('verification_result', verificationResult);

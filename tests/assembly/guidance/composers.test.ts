@@ -6,11 +6,13 @@
 import { describe, it, expect } from 'vitest';
 import { composer as taskQueueOverflowComposer } from '../../../src/assembly/guidance/composers/task-queue-overflow.js';
 import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
-import { composer as clawCrashedComposer } from '../../../src/assembly/guidance/composers/claw-crashed.js';
+import { clawCrashedGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-crashed.js';
+import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
+import { registerAllMotionGuidance } from '../../../src/assembly/guidance/composers/index.js';
 import { composer as clawInactivityComposer } from '../../../src/assembly/guidance/composers/claw-inactivity.js';
 import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
-import { renderClawInvocation, CONTRACT_COMMANDS } from '../../../src/cli-protocol/index.js';
+import { renderClawInvocation, CONTRACT_COMMANDS, registerCliGuidance, type CliGuidanceInput } from '../../../src/cli-protocol/index.js';
 import { ClawCrashedGuidanceDecodeError } from '../../../src/watchdog/claw-crashed-guidance.js';
 import { ClawInactivityGuidanceDecodeError } from '../../../src/watchdog/claw-inactivity-guidance.js';
 import { OutboxSummaryGuidanceDecodeError } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
@@ -139,10 +141,11 @@ describe('claw-outbox-summary-composer', () => {
 });
 
 /**
- * phase 2 γ4 + phase 4 重写 + phase 201 + phase 1257 Step B: claw-crashed real composer unit test.
- * phase 1257 Step B: composer 只消费 Watchdog owner codec typed state —
- *   真实 envelope `from` 成 CLI target（不再读不存在的 meta.claw_id / 不再产 `<claw-id>`）；
- *   unknown class / 缺字段 / 空 from 由 decoder 抛 typed error（不再产 fallback guidance）。
+ * phase 2 γ4 + phase 4 重写 + phase 201 + phase 1257 Step B + phase 1263 Step C:
+ * claw-crashed typed binding 测试。
+ * phase 1263 Step C: composer 原子迁为 Assembly typed binding —
+ *   Assembly 只穷尽映射 CrashClass → CliGuidanceDocument；CLIProtocol 发起注册并渲染。
+ *   最终文本、命令、顺序、typed decode failure 与正文保留行为全部不变（逐字锁定）。
  */
 
 
@@ -165,47 +168,87 @@ function legacyCrashMeta(crashClass: string): Record<string, string> {
   return meta;
 }
 
-describe('claw-crashed composer', () => {
-  it('active_unexpected v1 → 2-line guidance: restart + diagnostic CLI, target = envelope from (phase 4)', () => {
-    const r = clawCrashedComposer(env('claw_crashed', v1CrashMeta('active_unexpected'), 'claw-real'));
-    expect(r).not.toBeNull();
-    expect(r.text).toContain('To restart: chestnut claw claw-real daemon');
-    expect(r.text).toContain('To inspect what the claw was doing before crash: chestnut claw claw-real steps');
+/** 经 CLIProtocol register helper + binding 的真实注册路径 compose。 */
+function composeCrashed(meta: Record<string, string>, from: string): { text: string } | null {
+  const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
+  registerCliGuidance({ register: (type, composer) => composers.set(type, composer) }, [clawCrashedGuidanceBinding]);
+  const composer = composers.get('claw_crashed');
+  if (!composer) throw new Error('claw_crashed binding was not registered');
+  return composer(env('claw_crashed', meta, from));
+}
+
+describe('claw-crashed typed binding (phase 1263 Step C)', () => {
+  it('active_unexpected v1 → exact 2-line guidance: restart + diagnostic CLI, target = envelope from (phase 4)', () => {
+    const r = composeCrashed(v1CrashMeta('active_unexpected'), 'claw-real');
+    expect(r).toEqual({
+      text: 'To restart: chestnut claw claw-real daemon\n' +
+        'To inspect what the claw was doing before crash: chestnut claw claw-real steps',
+    });
   });
 
-  it('active_unexpected legacy production shape → 同 v1 输出（version 缺失不影哂）', () => {
-    const r = clawCrashedComposer(env('claw_crashed', legacyCrashMeta('active_unexpected'), 'claw-real'));
-    expect(r).not.toBeNull();
-    expect(r.text).toContain('To restart: chestnut claw claw-real daemon');
-    expect(r.text).toContain('To inspect what the claw was doing before crash: chestnut claw claw-real steps');
+  it('active_unexpected legacy production shape → 同 v1 exact 输出（version 缺失不影响）', () => {
+    const r = composeCrashed(legacyCrashMeta('active_unexpected'), 'claw-real');
+    expect(r).toEqual({
+      text: 'To restart: chestnut claw claw-real daemon\n' +
+        'To inspect what the claw was doing before crash: chestnut claw claw-real steps',
+    });
   });
 
-  it('active_user_stopped → read-only inspect guidance (status + steps)、不附 restart 暗示 (phase 201)', () => {
-    const r = clawCrashedComposer(env('claw_crashed', v1CrashMeta('active_user_stopped'), 'claw-real'));
-    expect(r).not.toBeNull();
-    expect(r.text).toContain('To check current status: chestnut claw claw-real status');
-    expect(r.text).toContain('To inspect what the claw was doing: chestnut claw claw-real steps');
-    expect(r.text).not.toContain('daemon');
+  it('active_user_stopped → exact read-only inspect guidance (status + steps)、不附 restart 暗示 (phase 201)', () => {
+    const r = composeCrashed(v1CrashMeta('active_user_stopped'), 'claw-real');
+    expect(r).toEqual({
+      text: 'To check current status: chestnut claw claw-real status\n' +
+        'To inspect what the claw was doing: chestnut claw claw-real steps',
+    });
+    expect(r!.text).not.toContain('daemon');
   });
 
-  it('unknown crash_class → decoder throws typed error（不再产 fallback inspect）', () => {
-    expect(() => clawCrashedComposer(env('claw_crashed', v1CrashMeta('mystery'), 'claw-real')))
+  it('binding 只产 typed document：exhaustive CrashClass 映射、不含 prose/CLI literal 职责', () => {
+    expect(clawCrashedGuidanceBinding.type).toBe('claw_crashed');
+    const state = clawCrashedGuidanceBinding.decode(env('claw_crashed', v1CrashMeta('active_unexpected'), 'claw-real'));
+    expect(clawCrashedGuidanceBinding.toDocument(state)).toEqual({
+      lines: [
+        { label: 'restart', action: { kind: 'claw.daemon', target: { kind: 'claw', id: 'claw-real' } } },
+        { label: 'inspect-before-crash', action: { kind: 'claw.steps', target: { kind: 'claw', id: 'claw-real' } } },
+      ],
+    });
+  });
+
+  it('unknown crash_class → decoder typed throw 穿透 register helper（不再产 fallback inspect）', () => {
+    expect(() => composeCrashed(v1CrashMeta('mystery'), 'claw-real'))
       .toThrowError(ClawCrashedGuidanceDecodeError);
   });
 
-  it('缺 owned field（outbox_pending）→ decoder throws typed error（v1 与 legacy 同）', () => {
+  it('缺 owned field（outbox_pending）→ decoder typed throw（v1 与 legacy 同）', () => {
     const v1 = v1CrashMeta('active_unexpected');
     delete v1.outbox_pending;
-    expect(() => clawCrashedComposer(env('claw_crashed', v1, 'claw-real')))
+    expect(() => composeCrashed(v1, 'claw-real'))
       .toThrowError(ClawCrashedGuidanceDecodeError);
     const legacy = legacyCrashMeta('active_unexpected');
     delete legacy.outbox_pending;
-    expect(() => clawCrashedComposer(env('claw_crashed', legacy, 'claw-real')))
+    expect(() => composeCrashed(legacy, 'claw-real'))
       .toThrowError(ClawCrashedGuidanceDecodeError);
   });
 
-  it('空 from → decoder throws typed error（不再产 <claw-id> placeholder）', () => {
-    expect(() => clawCrashedComposer(env('claw_crashed', v1CrashMeta('active_unexpected'), '')))
+  it('空 from → decoder typed throw（不再产 <claw-id> placeholder）', () => {
+    expect(() => composeCrashed(v1CrashMeta('active_unexpected'), ''))
+      .toThrowError(ClawCrashedGuidanceDecodeError);
+  });
+
+  it('真实 registry end-to-end：createMotionGuidanceRegistry + registerAllMotionGuidance + compose 合法 fixture exact 输出', () => {
+    const registry = createMotionGuidanceRegistry();
+    registerAllMotionGuidance(registry);
+    const r = registry.compose(env('claw_crashed', v1CrashMeta('active_user_stopped'), 'claw-real'));
+    expect(r).toEqual({
+      text: 'To check current status: chestnut claw claw-real status\n' +
+        'To inspect what the claw was doing: chestnut claw claw-real steps',
+    });
+  });
+
+  it('真实 registry end-to-end：malformed wire typed throw 穿透（Runtime 前错误传播不变）', () => {
+    const registry = createMotionGuidanceRegistry();
+    registerAllMotionGuidance(registry);
+    expect(() => registry.compose(env('claw_crashed', v1CrashMeta('mystery'), 'claw-real')))
       .toThrowError(ClawCrashedGuidanceDecodeError);
   });
 });

@@ -18,6 +18,10 @@
  *
  * scope：composers/<type>.ts 内任何 string literal 含 `chestnut` 前缀 + 多 token 模式 →
  * 违反；唯一豁免 = composers/index.ts（barrel）+ types.ts（NO_GUIDANCE sentinel 不含字面）。
+ *
+ * phase 1263 Step C: bindings/<type>.ts（Assembly typed binding）同规则 —
+ * binding 只做 owner state → CliGuidanceDocument 穷尽映射，CLI literal 与最终渲染
+ * 唯一归 CLIProtocol；binding 内出现裸 chestnut 字面 = 违反。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -28,6 +32,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectSrc = path.resolve(__dirname, '../../../src');
 const composersDir = path.resolve(__dirname, '../../../src/assembly/guidance/composers');
+const bindingsDir = path.resolve(__dirname, '../../../src/assembly/guidance/bindings');
 
 /** 简化注释剥离：块注释保换行、行注释删除（避免误抓 url 内 //） */
 function stripComments(src: string): string {
@@ -72,29 +77,34 @@ const EXCLUDE_PATTERNS = [/^\/cli\//, /^\/assembly\//, /^\/prompts\//, /^\/watch
 // 日志 prefix 模式：`[chestnut <namespace>]` 不抓（namespace 标识、非 CLI 命令）
 const LOG_PREFIX_RE = /\[chestnut\s+\w+\]/;
 
-describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS typed const', () => {
-  it('composer files contain no bare `chestnut X Y` string literals (embedded or whole)', () => {
-    const violations: Array<{ file: string; line: number; literal: string }> = [];
-    const files = fs.readdirSync(composersDir).filter(f => f.endsWith('.ts') && f !== 'index.ts');
+/** 扫目录内 .ts 文件的 string literal，收集裸 `chestnut X Y` 字面违规。 */
+function collectBareCliLiterals(dir: string, exclude: Set<string>): Array<{ file: string; line: number; literal: string }> {
+  const violations: Array<{ file: string; line: number; literal: string }> = [];
+  if (!fs.existsSync(dir)) return violations;
+  for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.ts') && !exclude.has(f))) {
+    const content = fs.readFileSync(path.join(dir, file), 'utf-8');
+    const lines = stripComments(content).split('\n');
 
-    for (const file of files) {
-      const content = fs.readFileSync(path.join(composersDir, file), 'utf-8');
-      const lines = stripComments(content).split('\n');
-
-      for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-        const line = lines[lineIdx];
-        // 扫该行所有 string literal（双引号 / 单引号 / 模板）
-        const stringLiteralRe = /(?:`([^`]*)`|'([^']*)'|"([^"]*)")/g;
-        for (const m of line.matchAll(stringLiteralRe)) {
-          const literalContent = m[1] ?? m[2] ?? m[3] ?? '';
-          // 在 literal 内容里找 `chestnut` 前缀模式（不要求紧贴首尾）
-          const chestnutMatch = literalContent.match(/chestnut\s+\w+(?:\s+\S+)*/);
-          if (chestnutMatch) {
-            violations.push({ file, line: lineIdx + 1, literal: chestnutMatch[0] });
-          }
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const line = lines[lineIdx];
+      // 扫该行所有 string literal（双引号 / 单引号 / 模板）
+      const stringLiteralRe = /(?:`([^`]*)`|'([^']*)'|"([^"]*)")/g;
+      for (const m of line.matchAll(stringLiteralRe)) {
+        const literalContent = m[1] ?? m[2] ?? m[3] ?? '';
+        // 在 literal 内容里找 `chestnut` 前缀模式（不要求紧贴首尾）
+        const chestnutMatch = literalContent.match(/chestnut\s+\w+(?:\s+\S+)*/);
+        if (chestnutMatch) {
+          violations.push({ file, line: lineIdx + 1, literal: chestnutMatch[0] });
         }
       }
     }
+  }
+  return violations;
+}
+
+describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS typed const', () => {
+  it('composer files contain no bare `chestnut X Y` string literals (embedded or whole)', () => {
+    const violations = collectBareCliLiterals(composersDir, new Set(['index.ts']));
 
     if (violations.length > 0) {
       const summary = violations
@@ -103,6 +113,21 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
       throw new Error(
         `phase 1469 invariant failed — ${violations.length} bare 'chestnut X Y' literal(s) in composer files:\n${summary}\n` +
           `Replace with renderClawInvocation(id, '<command>') or CONTRACT_COMMANDS.X typed const (from src/cli-protocol/index.js).`,
+      );
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('phase 1263 Step C: binding files contain no bare `chestnut X Y` string literals (typed-only adapters)', () => {
+    const violations = collectBareCliLiterals(bindingsDir, new Set());
+
+    if (violations.length > 0) {
+      const summary = violations
+        .map(v => `  - ${v.file}:${v.line}: '${v.literal}'`)
+        .join('\n');
+      throw new Error(
+        `phase 1263 invariant failed — ${violations.length} bare 'chestnut X Y' literal(s) in binding files:\n${summary}\n` +
+          `Bindings must only map owner state to CliGuidanceDocument; CLI literals and final rendering belong to CLIProtocol.`,
       );
     }
     expect(violations).toEqual([]);

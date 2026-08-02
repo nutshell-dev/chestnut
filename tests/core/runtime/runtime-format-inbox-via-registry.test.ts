@@ -22,7 +22,8 @@ import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../../../src/core/async-t
 import { createHeartbeatInboxFormatter } from '../../../src/core/heartbeat/index.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
-import { composer as clawCrashedComposer } from '../../../src/assembly/guidance/composers/claw-crashed.js';
+import { clawCrashedGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-crashed.js';
+import { registerCliGuidance } from '../../../src/cli-protocol/index.js';
 import { composer as clawInactivityComposer } from '../../../src/assembly/guidance/composers/claw-inactivity.js';
 import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
@@ -222,7 +223,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('claw_crashed', clawCrashedComposer);
+    registerCliGuidance(guidanceRegistry, [clawCrashedGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -253,9 +254,9 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
-    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('claw_crashed', clawCrashedComposer);
+    registerCliGuidance(guidanceRegistry, [clawCrashedGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
