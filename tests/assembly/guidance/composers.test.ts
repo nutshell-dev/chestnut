@@ -11,7 +11,7 @@ import { registerAllMotionGuidance } from '../../../src/assembly/guidance/compos
 import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { contractEventsGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-events.js';
-import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
+import { contractCancelledGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-cancelled.js';
 import { registerCliGuidance, type CliGuidanceInput } from '../../../src/cli-protocol/index.js';
 import { ClawCrashedGuidanceDecodeError } from '../../../src/watchdog/claw-crashed-guidance.js';
 import { ClawInactivityGuidanceDecodeError } from '../../../src/watchdog/claw-inactivity-guidance.js';
@@ -424,6 +424,10 @@ describe('claw-inactivity typed binding (phase 1264 Step A)', () => {
  *   v1 输入经真实 encoder 构造；legacy single/batch production shape（含 reason）
  *   仍可读；malformed wire 由 decoder 抛 typed error（不再 JSON parse 后逐项静默
  *   filter / 不再 fallback single / 不再伪造 (unknown) / (no reason given)）。
+ * phase 1267 Step A: composer 原子迁为 Assembly typed binding — Assembly 只把
+ *   非空 refs 映射成有序 trace/show document + cap 选择；CLIProtocol 发起注册并
+ *   渲染最终文本。最终文本、cap=10、reason 不渲染与 typed decode failure 全部不变；
+ *   owner schema 保证 refs 非空，binding 无 null 分支（与 contract_events 相反）。
  */
 
 
@@ -436,121 +440,163 @@ function v1CancelledMeta(refs: readonly { claw: string; contract: string }[]): R
   return { ...encodeContractCancelledGuidance(typedRefs) };
 }
 
-describe('phase 63+190+198 + phase 1262: contract_cancelled composer', () => {
-  it('v1 single（真实 encoder）→ 输出 trace + show CLI block、0 prescription', () => {
-    const result = contractCancelledComposer(env('contract_cancelled', v1CancelledMeta([{ claw: 'worker', contract: 'c1' }]), 'system'));
-    expect(result).not.toBeNull();
-    const text = result!.text;
-    expect(text).toContain('chestnut claw worker trace --contract c1');
-    expect(text).toContain('chestnut contract show -c worker --contract c1');
-    // 三段式已删
-    expect(text).not.toContain('事实:');
-    expect(text).not.toContain('系统已做');
-    expect(text).not.toContain('相关基础设施');
-    // 0 prescription 严格守
-    expect(text).not.toMatch(/建议|推荐|应该|必须|优先|按.*优先级/);
+describe('phase 63+190+198 + phase 1262 + phase 1267: contract_cancelled typed binding', () => {
+  /** 经 CLIProtocol register helper + binding 的真实注册路径 compose。 */
+  function composeContractCancelled(meta: Record<string, string>, from: string): { text: string } | null {
+    const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
+    registerCliGuidance({ register: (type, composer) => composers.set(type, composer) }, [contractCancelledGuidanceBinding]);
+    const composer = composers.get('contract_cancelled');
+    if (!composer) throw new Error('contract_cancelled binding was not registered');
+    return composer(env('contract_cancelled', meta, from));
+  }
+
+  const EXACT_SINGLE = [
+    'chestnut claw worker trace --contract c1',
+    'chestnut contract show -c worker --contract c1',
+  ].join('\n');
+  const EXACT_BATCH = [
+    'chestnut claw claw1 trace --contract c1',
+    'chestnut contract show -c claw1 --contract c1',
+    'chestnut claw claw2 trace --contract c2',
+    'chestnut contract show -c claw2 --contract c2',
+  ].join('\n');
+
+  it('v1 single（真实 encoder）→ exact trace + show 两行、0 prescription', () => {
+    expect(composeContractCancelled(v1CancelledMeta([{ claw: 'worker', contract: 'c1' }]), 'system'))
+      .toEqual({ text: EXACT_SINGLE });
+    // 三段式已删 + 0 prescription 严格守
+    expect(EXACT_SINGLE).not.toContain('事实:');
+    expect(EXACT_SINGLE).not.toContain('系统已做');
+    expect(EXACT_SINGLE).not.toMatch(/建议|推荐|应该|必须|优先|按.*优先级/);
   });
 
-  it('v1 batch（真实 encoder 2 refs）→ enumerate trace + show per ref', () => {
-    const result = contractCancelledComposer(env('contract_cancelled', v1CancelledMeta([
+  it('v1 batch（真实 encoder 2 refs）→ exact 按 owner 顺序 trace 后 show per ref', () => {
+    expect(composeContractCancelled(v1CancelledMeta([
       { claw: 'claw1', contract: 'c1' },
       { claw: 'claw2', contract: 'c2' },
-    ]), 'system'));
-    expect(result).not.toBeNull();
-    const text = result!.text;
-    expect(text).toContain('chestnut claw claw1 trace --contract c1');
-    expect(text).toContain('chestnut contract show -c claw2 --contract c2');
+    ]), 'system')).toEqual({ text: EXACT_BATCH });
   });
 
-  it('v1 batch 超 10 entry 截断显示 + 标 count', () => {
-    const refs = Array.from({ length: 12 }, (_, i) => ({ claw: `claw${i}`, contract: `c${i}` }));
-    const result = contractCancelledComposer(env('contract_cancelled', v1CancelledMeta(refs), 'system'));
-    expect(result).not.toBeNull();
-    const text = result!.text;
-    expect(text).toContain('(12 cancellations、显示前 10)');
-    expect(text).toContain('claw0');
-    expect(text).toContain('claw9');
-    expect(text).not.toContain('claw10'); // 截断
+  it('binding 只产 typed document：两 action 逐字段同一 ref IDs、trace 先 show 后、无 truncation、无 null 分支', () => {
+    expect(contractCancelledGuidanceBinding.type).toBe('contract_cancelled');
+    const state = contractCancelledGuidanceBinding.decode(
+      env('contract_cancelled', v1CancelledMeta([{ claw: 'worker', contract: 'c1' }]), 'system'));
+    expect(contractCancelledGuidanceBinding.toDocument(state)).toEqual({
+      lines: [
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: 'worker', contractId: 'c1' } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: 'worker', contractId: 'c1' } },
+      ],
+    });
   });
 
-  it('legacy single（source_claw + contract_id + reason）→ 同 v1 single 输出（reason 不渲染）', () => {
-    const result = contractCancelledComposer(env('contract_cancelled', {
+  it('legacy single（source_claw + contract_id + reason）→ 同 v1 single exact 输出（reason 不渲染）', () => {
+    const result = composeContractCancelled({
       source_claw: 'worker',
       contract_id: 'c1',
       reason: 'user reason',
-    }, 'system'));
-    expect(result).not.toBeNull();
-    const text = result!.text;
-    expect(text).toContain('chestnut claw worker trace --contract c1');
-    expect(text).toContain('chestnut contract show -c worker --contract c1');
+    }, 'system');
+    expect(result).toEqual({ text: EXACT_SINGLE });
+    expect(result!.text).not.toContain('user reason');
   });
 
-  it('legacy batch（cancellations 1 entry）→ 同 v1 输出', () => {
-    const result = contractCancelledComposer(env('contract_cancelled', {
+  it('legacy batch（cancellations 1 entry）→ 同 v1 single exact 输出', () => {
+    expect(composeContractCancelled({
       cancellations: JSON.stringify([
-        { source_claw: 'claw1', contract_id: 'c1', reason: 'r1' },
+        { source_claw: 'worker', contract_id: 'c1', reason: 'r1' },
       ]),
-    }, 'system'));
-    expect(result).not.toBeNull();
-    const text = result!.text;
-    expect(text).toContain('chestnut claw claw1 trace --contract c1');
-    expect(text).toContain('chestnut contract show -c claw1 --contract c1');
+    }, 'system')).toEqual({ text: EXACT_SINGLE });
   });
 
-  it('legacy batch（2 entries）→ enumerate trace + show per entry', () => {
-    const result = contractCancelledComposer(env('contract_cancelled', {
+  it('legacy batch（2 entries）→ exact 按 owner 顺序 trace 后 show per entry', () => {
+    expect(composeContractCancelled({
       cancellations: JSON.stringify([
         { source_claw: 'claw1', contract_id: 'c1', reason: 'r1' },
         { source_claw: 'claw2', contract_id: 'c2', reason: 'r2' },
       ]),
-    }, 'system'));
-    expect(result).not.toBeNull();
-    const text = result!.text;
-    expect(text).toContain('claw1');
-    expect(text).toContain('c2');
-    expect(text).toContain('chestnut contract show -c claw2 --contract c2');
+    }, 'system')).toEqual({ text: EXACT_BATCH });
   });
 
-  it('legacy batch 超 10 entry 同 cap 截断', () => {
+  it('12 refs → exact typed document：20 lines、只含前 10 refs、truncation 携带 total/shown/subject', () => {
+    const refs = Array.from({ length: 12 }, (_, i) => ({ claw: `claw${i}`, contract: `c${i}` }));
+    const state = contractCancelledGuidanceBinding.decode(env('contract_cancelled', v1CancelledMeta(refs), 'system'));
+    expect(contractCancelledGuidanceBinding.toDocument(state)).toEqual({
+      truncation: { total: 12, shown: 10, subject: 'contract-cancellations' },
+      lines: refs.slice(0, 10).flatMap(r => [
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: r.claw, contractId: r.contract } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: r.claw, contractId: r.contract } },
+      ]),
+    });
+  });
+
+  it('caps at MAX_BATCH_RENDER=10 and shows overflow hint（v1 真实 encoder）', () => {
+    const refs = Array.from({ length: 12 }, (_, i) => ({ claw: `claw${i}`, contract: `c${i}` }));
+    const result = composeContractCancelled(v1CancelledMeta(refs), 'system');
+    expect(result).not.toBeNull();
+    expect(result!.text).toContain('(12 cancellations、显示前 10)');
+    expect(result!.text).toContain('claw0');
+    expect(result!.text).toContain('claw9');
+    expect(result!.text).not.toContain('claw10'); // 截断
+    expect(result!.text).not.toContain('claw11');
+  });
+
+  it('caps at MAX_BATCH_RENDER=10（legacy batch 同 cap）', () => {
     const entries = Array.from({ length: 12 }, (_, i) => ({
       source_claw: `claw${i}`,
       contract_id: `c${i}`,
       reason: `r${i}`,
     }));
-    const result = contractCancelledComposer(env('contract_cancelled', { cancellations: JSON.stringify(entries) }, 'system'));
+    const result = composeContractCancelled({ cancellations: JSON.stringify(entries) }, 'system');
     expect(result).not.toBeNull();
-    const text = result!.text;
-    expect(text).toContain('(12 cancellations、显示前 10)');
-    expect(text).toContain('claw0');
-    expect(text).not.toContain('claw10'); // 截断
+    expect(result!.text).toContain('(12 cancellations、显示前 10)');
+    expect(result!.text).toContain('claw0');
+    expect(result!.text).not.toContain('claw10'); // 截断
   });
 
-  it('phase 1262: legacy bad JSON → decoder typed throw（不再 fallback single / 兜底）', () => {
-    expect(() => contractCancelledComposer(env('contract_cancelled', { cancellations: 'not-json' }, 'system')))
+  it('phase 1262: legacy bad JSON → decoder typed throw 穿透 register helper（不再 fallback single / 兜底）', () => {
+    expect(() => composeContractCancelled({ cancellations: 'not-json' }, 'system'))
       .toThrowError(ContractCancelledGuidanceDecodeError);
   });
 
-  it('phase 1262: legacy valid+invalid batch → decoder typed throw（不再部分渲染）', () => {
-    expect(() => contractCancelledComposer(env('contract_cancelled', {
+  it('phase 1262: legacy valid+invalid batch → decoder typed throw 穿透 register helper（不再部分渲染）', () => {
+    expect(() => composeContractCancelled({
       cancellations: JSON.stringify([
         { source_claw: 'claw1', contract_id: 'c1', reason: 'r1' },
         { source_claw: 'claw2', contract_id: 'c2' },
       ]),
-    }, 'system'))).toThrowError(ContractCancelledGuidanceDecodeError);
+    }, 'system')).toThrowError(ContractCancelledGuidanceDecodeError);
   });
 
   it('phase 1262: legacy single 缺 source_claw → decoder typed throw（不再生成 (unknown) CLI）', () => {
-    expect(() => contractCancelledComposer(env('contract_cancelled', { contract_id: 'c1', reason: 'r1' }, 'system')))
+    expect(() => composeContractCancelled({ contract_id: 'c1', reason: 'r1' }, 'system'))
       .toThrowError(ContractCancelledGuidanceDecodeError);
   });
 
   it('phase 1262: legacy single 缺 reason → decoder typed throw（不再默认 (no reason given)）', () => {
-    expect(() => contractCancelledComposer(env('contract_cancelled', { source_claw: 'worker', contract_id: 'c1' }, 'system')))
+    expect(() => composeContractCancelled({ source_claw: 'worker', contract_id: 'c1' }, 'system'))
       .toThrowError(ContractCancelledGuidanceDecodeError);
   });
 
   it('phase 1262: 空 state → decoder typed throw（缺 version 且无任一 legacy owner key）', () => {
-    expect(() => contractCancelledComposer(env('contract_cancelled', {}, 'system')))
+    expect(() => composeContractCancelled({}, 'system'))
+      .toThrowError(ContractCancelledGuidanceDecodeError);
+  });
+
+  it('phase 1262+1267: v1 空 refs → decoder typed throw（owner non-empty invariant，binding 无 null 兜底）', () => {
+    expect(() => composeContractCancelled({ guidance_schema_version: '1', cancelled_contract_refs: '[]' }, 'system'))
+      .toThrowError(ContractCancelledGuidanceDecodeError);
+  });
+
+  it('真实 registry end-to-end：createMotionGuidanceRegistry + registerAllMotionGuidance + compose 合法 fixture exact 输出', () => {
+    const registry = createMotionGuidanceRegistry();
+    registerAllMotionGuidance(registry);
+    expect(registry.compose(env('contract_cancelled', v1CancelledMeta([{ claw: 'worker', contract: 'c1' }]), 'system')))
+      .toEqual({ text: EXACT_SINGLE });
+  });
+
+  it('真实 registry end-to-end：malformed wire typed throw 穿透（Runtime 前错误传播不变）', () => {
+    const registry = createMotionGuidanceRegistry();
+    registerAllMotionGuidance(registry);
+    expect(() => registry.compose(env('contract_cancelled', { cancellations: 'not-json' }, 'system')))
       .toThrowError(ContractCancelledGuidanceDecodeError);
   });
 });

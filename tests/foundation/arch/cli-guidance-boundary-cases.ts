@@ -67,4 +67,13 @@ export const CLI_GUIDANCE_BINDINGS: readonly CliGuidanceBindingBoundaryCase[] = 
     prose: 'contract events、显示前',
     forbiddenFields: [],
   },
+  {
+    file: 'contract-cancelled.ts',
+    type: 'contract_cancelled',
+    ident: 'contractCancelledGuidanceBinding',
+    decoder: 'decodeContractCancelledGuidance',
+    ownerCodec: '../../../core/contract/index.js',
+    prose: 'cancellations、显示前',
+    forbiddenFields: [],
+  },
 ];

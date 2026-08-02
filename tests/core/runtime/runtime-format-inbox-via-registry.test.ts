@@ -26,8 +26,8 @@ import { clawCrashedGuidanceBinding } from '../../../src/assembly/guidance/bindi
 import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { contractEventsGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-events.js';
+import { contractCancelledGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-cancelled.js';
 import { registerCliGuidance } from '../../../src/cli-protocol/index.js';
-import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
 import { encodeContractEventsGuidance, encodeContractCancelledGuidance } from '../../../src/core/contract/index.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
@@ -501,12 +501,12 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     );
   });
 
-  it('phase 1262 Step B: contract_cancelled 真实 codec 链 + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
+  it('phase 1262 Step B + phase 1267 Step A: contract_cancelled 真实 typed binding + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -528,12 +528,12 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('phase 1262 Step B: contract_cancelled 合法 legacy batch → guidance append（历史消息仍可渲染）', async () => {
+  it('phase 1262 Step B + phase 1267 Step A: contract_cancelled 合法 legacy batch → guidance append（历史消息仍可渲染）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -554,13 +554,13 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('phase 1262 Step B: contract_cancelled malformed legacy wire → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（不追加部分 CLI guidance）', async () => {
+  it('phase 1262 Step B + phase 1267 Step A: contract_cancelled malformed legacy wire → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（不追加部分 CLI guidance）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
     registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -594,12 +594,12 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     );
   });
 
-  it('phase 1262 Step B: contract_cancelled malformed v1 wire（空 refs）→ GUIDANCE_COMPOSER_FAILED audit、仅投递原 body', async () => {
+  it('phase 1262 Step B + phase 1267 Step A: contract_cancelled malformed v1 wire（空 refs）→ GUIDANCE_COMPOSER_FAILED audit、仅投递原 body', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('contract_cancelled', contractCancelledComposer);
+    registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
