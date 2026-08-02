@@ -216,6 +216,15 @@ export function probeExecutionGroup(
  * if still alive, KILL group → bounded poll until the group is gone or the
  * confirm budget is exhausted.
  *
+ * Known TOCTOU (accepted trade-off, phase 1271 F8): between a verified_alive
+ * probe and the TERM signal below, the leader may exit and the PGID be
+ * reused by an unrelated group. POSIX provides no durable process-group
+ * creation time, so this window cannot be closed — signalling during it may
+ * hit an innocent reused group. The window is microseconds (probe and
+ * signal are adjacent calls); recovery re-probes every cycle, and the
+ * indeterminate state above already refuses to signal when ownership cannot
+ * be proven.
+ *
  * This function is NOT itself idempotent; idempotent coordination (first
  * trigger wins, earliest deadline fixed, shared in-flight promise) is owned
  * by the ExecHandle in exec.ts. Recovery callers hold their own single-entry
