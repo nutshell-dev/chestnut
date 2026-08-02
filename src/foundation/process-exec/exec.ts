@@ -278,23 +278,50 @@ export function execWithHandle(
       // promise settles only after the termination state machine reaches a
       // structured conclusion.
       if (terminationPromise !== undefined) {
-        terminationPromise.then((outcome) => {
-          if (settled) return;
-          settle();
+        terminationPromise.then(
+          (outcome) => {
+            if (settled) return;
+            settle();
 
-          const termination: ExecutionTerminationFact = {
-            status: outcome.status,
-            trigger: outcome.trigger,
-            termSent: outcome.termSent,
-            killSent: outcome.killSent,
-            identity: outcome.identity,
-            ...(outcome.status === 'indeterminate' ? { reason: outcome.reason } : {}),
-          };
+            const termination: ExecutionTerminationFact = {
+              status: outcome.status,
+              trigger: outcome.trigger,
+              termSent: outcome.termSent,
+              killSent: outcome.killSent,
+              identity: outcome.identity,
+              ...(outcome.status === 'indeterminate' ? { reason: outcome.reason } : {}),
+            };
 
-          // System termination reasons take precedence over exit code interpretation.
-          if (timedOut) {
+            // System termination reasons take precedence over exit code interpretation.
+            if (timedOut) {
+              reject(new ProcessExecError({
+                message: `Command timed out after ${timeout}ms`,
+                output,
+                exitCode: code ?? null,
+                signal: signal ?? undefined,
+                killed: true,
+                stderr,
+                termination,
+              }));
+              return;
+            }
+
+            if (collector.isOverflowed) {
+              reject(new ProcessExecError({
+                message: `Command output exceeded ${maxBuffer / 1024 / 1024} MB limit`,
+                output,
+                exitCode: code ?? null,
+                signal: signal ?? undefined,
+                maxBufferExceeded: true,
+                stderr,
+                termination,
+              }));
+              return;
+            }
+
             reject(new ProcessExecError({
-              message: `Command timed out after ${timeout}ms`,
+              message: `Command terminated (${outcome.trigger}, cleanup: ${outcome.status})` +
+                (outcome.status === 'indeterminate' ? `, reason: ${outcome.reason}` : ''),
               output,
               exitCode: code ?? null,
               signal: signal ?? undefined,
@@ -302,33 +329,23 @@ export function execWithHandle(
               stderr,
               termination,
             }));
-            return;
-          }
-
-          if (collector.isOverflowed) {
-            reject(new ProcessExecError({
-              message: `Command output exceeded ${maxBuffer / 1024 / 1024} MB limit`,
-              output,
-              exitCode: code ?? null,
-              signal: signal ?? undefined,
-              maxBufferExceeded: true,
-              stderr,
-              termination,
-            }));
-            return;
-          }
-
-          reject(new ProcessExecError({
-            message: `Command terminated (${outcome.trigger}, cleanup: ${outcome.status})` +
-              (outcome.status === 'indeterminate' ? `, reason: ${outcome.reason}` : ''),
-            output,
-            exitCode: code ?? null,
-            signal: signal ?? undefined,
-            killed: true,
-            stderr,
-            termination,
-          }));
-        });
+          },
+          // Spawn failed and terminate() was called before the error event
+          // (abort race / 1s timeout window): the shared termination promise
+          // rejected with "Cannot terminate: process never started". Surface
+          // that rejection here — the derived promise must have a consumer,
+          // otherwise the daemon's unhandledRejection handler exits(1).
+          (err: unknown) => {
+            if (settled) return;
+            settle();
+            reject(err instanceof ProcessExecError
+              ? err
+              : new ProcessExecError({
+                  message: `Termination failed: ${String(err)}`,
+                  exitCode: null,
+                }));
+          },
+        );
         return;
       }
 

@@ -246,6 +246,23 @@ describe('execWithHandle abort convergence (phase 1269 Step C)', () => {
     expect(outcome.status).toBe('gone');
   }, 20_000);
 
+  it('spawn failure raced by terminate() settles via onRejected, never an unhandled rejection', async () => {
+    // phase 1271 F4: when spawn fails (no pid → identity undefined) and
+    // terminate() lands before the spawn 'error' event, the close handler's
+    // derived promise must have a consumer. Without the onRejected branch the
+    // daemon's unhandledRejection handler would exit(1).
+    const handle = execWithHandle('no-such-command-phase1271', ['--nope'], {
+      cwd: workDir,
+    });
+    expect(handle.identity).toBeUndefined();
+    // terminate() synchronously right after spawn: inside the abort-race window
+    // before the ENOENT error event is delivered.
+    await expect(handle.terminate()).rejects.toBeInstanceOf(ProcessExecError);
+    await expect(handle.promise).rejects.toMatchObject({
+      message: expect.stringContaining('Cannot terminate: process never started'),
+    });
+  }, 20_000);
+
   it('pre-aborted signal throws synchronously with not_started facts and never spawns', () => {
     const controller = new AbortController();
     controller.abort();
