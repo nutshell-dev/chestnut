@@ -18,6 +18,7 @@ import {
   LLMStreamAbortedError,
   classifyLLMError,
   getUserActionHint,
+  getRetryAfterSec,
 } from './errors.js';
 // Phase 186: ContextTrimExhaustedError from L4 ContextManager — we avoid direct L2→L4 import
 // per architecture layer rules, and duck-type via error.name instead of instanceof.
@@ -271,9 +272,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           type: 'provider_attempt_failed',
           provider: adapter.name,
           attempt,
+          maxAttempts: this.config.maxAttempts,
           error: lastError.message,
           errorClass: classifyLLMError(lastError),
           userActionHint: getUserActionHint(lastError),
+          ...(getRetryAfterSec(lastError) !== undefined ? { retryAfterSec: getRetryAfterSec(lastError) } : {}),
         });
 
         const errClass = classifyLLMError(lastError);
@@ -284,7 +287,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
         if (attempt < this.config.maxAttempts - 1) {
           const backoffMs = this.computeBackoffMs(attempt);
-          this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, backoffMs });
+          this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts: this.config.maxAttempts, backoffMs });
           await delay(backoffMs, options.signal);
         }
       }
@@ -613,10 +616,23 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             break; // exit retry loop → outer loop continues to next provider
           }
 
+          // Phase 1268 Step C: stream 与 call 对称 — 握手前每次 provider 调用失败
+          // 即 emit 真实 attempt/maxAttempts/retryAfterSec；不再有结束后硬编码 0 的补发。
+          this.events.emit({
+            type: 'provider_attempt_failed',
+            provider: adapter.name,
+            attempt,
+            maxAttempts: this.config.maxAttempts,
+            error: err.message,
+            errorClass: classifyLLMError(err),
+            userActionHint: getUserActionHint(err),
+            ...(getRetryAfterSec(err) !== undefined ? { retryAfterSec: getRetryAfterSec(err) } : {}),
+          });
+
           // Don't wait after the last attempt
           if (attempt < this.config.maxAttempts - 1) {
             const backoffMs = this.computeBackoffMs(attempt);
-            this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, backoffMs });
+            this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts: this.config.maxAttempts, backoffMs });
             await delay(backoffMs, options.signal);
           }
         }
@@ -647,6 +663,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           type: 'provider_attempt_failed',
           provider: adapter.name,
           attempt: 0,
+          maxAttempts: 1,  // done-only 单次语义失败，不消耗 retry 预算
           error: err.message,
           errorClass: 'unknown',
           userActionHint: null,
@@ -675,6 +692,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           type: 'provider_attempt_failed',
           provider: adapter.name,
           attempt: 0,
+          maxAttempts: 1,  // 截断流单次语义失败，不消耗 retry 预算
           error: err.message,
           errorClass: classifyLLMError(err),
           userActionHint: getUserActionHint(err),
@@ -702,6 +720,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           type: 'provider_attempt_failed',
           provider: adapter.name,
           attempt: 0,
+          maxAttempts: 1,  // 0-chunk 单次语义失败，不消耗 retry 预算
           error: err.message,
           errorClass: 'unknown',
           userActionHint: null,
@@ -717,15 +736,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         if (!wasOpen && breaker?.isOpen()) {
           this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
         }
+        // Phase 1268 Step C: 删除 provider 结束后硬编码 attempt: 0 的第二个
+        // provider_attempt_failed —— 握手前逐 attempt emit（retry loop catch）已覆盖，
+        // provider_failed stream chunk 保留为对调用方的不同语义信号。
         const err = lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured');
-        this.events.emit({
-          type: 'provider_attempt_failed',
-          provider: adapter.name,
-          attempt: 0,
-          error: err.message,
-          errorClass: classifyLLMError(err),
-          userActionHint: getUserActionHint(err),
-        });
         failures.push({ provider: adapter.name, error: err });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
         lastFailedProviderName = adapter.name;  // phase 686
@@ -938,9 +952,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             type: 'provider_attempt_failed',
             provider: fb.name,
             attempt: 0,
+            maxAttempts: 1,  // hedge track B 每 provider 单次 call，不走 retry 预算
             error: e.message,
             errorClass: errClass,
             userActionHint: getUserActionHint(e),
+            ...(getRetryAfterSec(e) !== undefined ? { retryAfterSec: getRetryAfterSec(e) } : {}),
           });
           failures.push({ provider: fb.name, error: e });
         }

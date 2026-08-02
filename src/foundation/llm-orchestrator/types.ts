@@ -48,8 +48,10 @@ export interface LLMOrchestratorConfig {
  * LLM event payload union — emitted by LLMOrchestrator, consumed by fan-out adapter
  */
 export type LLMEvent =
-  | { type: 'provider_attempt_failed'; provider: string; attempt: number; error: string; errorClass: LLMErrorClass; userActionHint: UserActionHint }
-  | { type: 'retry_scheduled'; provider: string; attempt: number; backoffMs: number }
+  // Phase 1268 Step C: 显式 maxAttempts + 可选 retryAfterSec；attempt 保持 owner 现有 0-based 语义，
+  // 指“刚失败的 attempt”；presentation 自转 1-based，消费者不解析错误文本。
+  | { type: 'provider_attempt_failed'; provider: string; attempt: number; maxAttempts: number; error: string; errorClass: LLMErrorClass; userActionHint: UserActionHint; retryAfterSec?: number }
+  | { type: 'retry_scheduled'; provider: string; attempt: number; maxAttempts: number; backoffMs: number }
   | { type: 'provider_exhausted'; provider: string; error: string }
   | { type: 'fallback_switched'; from: string; to: string; reason: string }
   | { type: 'breaker_opened'; provider: string; consecutiveFailures: number }

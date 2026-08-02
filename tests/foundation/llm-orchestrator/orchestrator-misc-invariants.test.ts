@@ -1412,3 +1412,141 @@ describe('user-action-hint-coverage', () => {
     });
   });
 });
+
+/**
+ * Phase 1268 Step C: provider retry event fidelity
+ * 反向验收：
+ * - stream 3 次握手失败 → attempts 0/1/2、max=3，无第 4 条硬编码 duplicate
+ * - rate-limit 秒数结构化进事件（call/stream），普通 error 不出现 retryAfter
+ * - call/stream exact event sequence 对称
+ */
+describe('phase1268-stepC-provider-retry-event-fidelity', () => {
+  function createMockSink() {
+    const emitted: LLMEvent[] = [];
+    const sink: LLMEventSink = {
+      emit(event: LLMEvent) { emitted.push(event); }
+    };
+    return { sink, emitted };
+  }
+
+  function makeOrchestrator(provider: ProviderAdapter, sink: LLMEventSink, maxAttempts = 3) {
+    const orchestrator = new LLMOrchestratorImpl({
+      primary: { name: provider.name, apiKey: 'test', model: provider.model, apiFormat: 'anthropic' as const },
+      maxAttempts,
+      retryDelayMs: 1,
+      events: sink,
+      createAnthropicAdapter: () => provider as any,
+    });
+    (orchestrator as any).breakers = [new CircuitBreaker(5, 1000, () => {})];
+    return orchestrator;
+  }
+
+  it('stream 3 次握手失败 → attempts 0/1/2、max=3，无第 4 条 duplicate', async () => {
+    const { sink, emitted } = createMockSink();
+    const provider: ProviderAdapter = {
+      name: 'primary',
+      model: 'mock-model',
+      async call() { throw new Error('unreachable'); },
+      async *stream() { throw new LLMNetworkError('primary', new Error('ECONNREFUSED')); },
+    };
+    const orchestrator = makeOrchestrator(provider, sink);
+
+    await expect(async () => {
+      for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
+    }).rejects.toThrow();
+
+    const attemptFailed = emitted.filter(e => e.type === 'provider_attempt_failed');
+    expect(attemptFailed.length).toBe(3);  // 无第 4 条硬编码 attempt=0 duplicate
+    expect(attemptFailed.map(e => e.type === 'provider_attempt_failed' ? e.attempt : -1)).toEqual([0, 1, 2]);
+    for (const e of attemptFailed) {
+      expect(e).toMatchObject({ maxAttempts: 3, errorClass: 'transient' });
+    }
+    const retryScheduled = emitted.filter(e => e.type === 'retry_scheduled');
+    expect(retryScheduled.length).toBe(2);
+    for (const e of retryScheduled) {
+      expect(e).toMatchObject({ maxAttempts: 3 });
+    }
+  });
+
+  it('stream/call rate_limit 失败 → retryAfterSec 结构化进事件；普通 error 不出现', async () => {
+    const { sink, emitted } = createMockSink();
+    const rateLimited: ProviderAdapter = {
+      name: 'primary',
+      model: 'mock-model',
+      async call() { throw new LLMRateLimitError('primary', 42); },
+      async *stream() { throw new LLMRateLimitError('primary', 42); },
+    };
+    const orchestrator = makeOrchestrator(rateLimited, sink, 1);
+
+    await expect(orchestrator.call({})).rejects.toThrow();
+    await expect(async () => {
+      for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
+    }).rejects.toThrow();
+
+    const attemptFailed = emitted.filter(e => e.type === 'provider_attempt_failed');
+    expect(attemptFailed.length).toBe(2);  // call 1 + stream 1
+    for (const e of attemptFailed) {
+      expect(e).toMatchObject({ errorClass: 'rate_limit', retryAfterSec: 42 });
+    }
+
+    const { sink: sink2, emitted: emitted2 } = createMockSink();
+    const plain: ProviderAdapter = {
+      name: 'primary',
+      model: 'mock-model',
+      async call() { throw new LLMNetworkError('primary', new Error('ECONNRESET')); },
+      async *stream() { throw new LLMNetworkError('primary', new Error('ECONNRESET')); },
+    };
+    const orchestrator2 = makeOrchestrator(plain, sink2, 1);
+    await expect(orchestrator2.call({})).rejects.toThrow();
+    await expect(async () => {
+      for await (const _chunk of orchestrator2.stream({ messages: [] })) { /* drain */ }
+    }).rejects.toThrow();
+    const plainFailed = emitted2.filter(e => e.type === 'provider_attempt_failed');
+    expect(plainFailed.length).toBe(2);
+    for (const e of plainFailed) {
+      expect('retryAfterSec' in e).toBe(false);  // 普通 error 不出现 retryAfter
+    }
+  });
+
+  it('call/stream 1 败后成功 → exact event sequence 对称', async () => {
+    const { sink, emitted } = createMockSink();
+    let callCount = 0;
+    let streamCount = 0;
+    const provider: ProviderAdapter = {
+      name: 'primary',
+      model: 'mock-model',
+      async call() {
+        callCount++;
+        if (callCount === 1) throw new LLMRateLimitError('primary', 7);
+        return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' } as LLMResponse;
+      },
+      async *stream() {
+        streamCount++;
+        if (streamCount === 1) throw new LLMRateLimitError('primary', 7);
+        yield { type: 'text_delta', delta: 'ok' } as StreamChunk;
+        yield { type: 'done' } as StreamChunk;
+      },
+    };
+    const orchestrator = makeOrchestrator(provider, sink);
+
+    // sdk_client_cache_hit/miss 是 call/stream 不对称的正交缓存事件，对称比较只取 retry 事件。
+    const isRetryEvent = (e: LLMEvent) => e.type === 'provider_attempt_failed' || e.type === 'retry_scheduled';
+    const detail = (e: LLMEvent) =>
+      e.type === 'provider_attempt_failed' || e.type === 'retry_scheduled'
+        ? `${e.type}:${e.attempt}/${e.maxAttempts}:${'retryAfterSec' in e ? e.retryAfterSec : 'none'}`
+        : e.type;
+
+    await orchestrator.call({});
+    const callDetail = emitted.filter(isRetryEvent).map(detail);
+
+    emitted.length = 0;
+    for await (const _chunk of orchestrator.stream({ messages: [] })) { /* drain */ }
+    const streamDetail = emitted.filter(isRetryEvent).map(detail);
+
+    expect(streamDetail).toEqual(callDetail);
+    expect(callDetail).toEqual([
+      'provider_attempt_failed:0/3:7',
+      'retry_scheduled:0/3:none',
+    ]);
+  });
+});

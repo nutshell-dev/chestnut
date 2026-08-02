@@ -124,3 +124,11 @@ export function getUserActionHint(err: unknown): UserActionHint {
   if (err instanceof LLMNetworkError) return 'check_network';
   return null;
 }
+
+/**
+ * Phase 1268 Step C: 从 typed LLMRateLimitError 提取 Retry-After 秒数。
+ * 只允许 typed 字段，禁止凭 error message 正则推导；非 rate-limit / 无 header 返回 undefined。
+ */
+export function getRetryAfterSec(err: unknown): number | undefined {
+  return err instanceof LLMRateLimitError ? err.retryAfter : undefined;
+}

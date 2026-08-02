@@ -47,13 +47,14 @@ function writeLLMAuditEvent(audit: AuditLog, event: LLMEvent): void {
   switch (event.type) {
     case 'provider_attempt_failed':
       audit.write(LLM_AUDIT_EVENTS.PROVIDER_ATTEMPT_FAILED,
-        `provider=${event.provider}`, `attempt=${event.attempt}`,
+        `provider=${event.provider}`, `attempt=${event.attempt}`, `max=${event.maxAttempts}`,
         `errorClass=${event.errorClass}`, `hint=${event.userActionHint ?? 'none'}`,
+        `retry_after_sec=${event.retryAfterSec ?? 'none'}`,
         `error=${event.error}`);
       break;
     case 'retry_scheduled':
       audit.write(LLM_AUDIT_EVENTS.RETRY_SCHEDULED,
-        `provider=${event.provider}`, `attempt=${event.attempt}`, `backoff_ms=${event.backoffMs}`);
+        `provider=${event.provider}`, `attempt=${event.attempt}`, `max=${event.maxAttempts}`, `backoff_ms=${event.backoffMs}`);
       break;
     case 'provider_exhausted':
       audit.write(LLM_AUDIT_EVENTS.PROVIDER_EXHAUSTED,

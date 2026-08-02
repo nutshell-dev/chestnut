@@ -37,6 +37,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       type: 'provider_attempt_failed',
       provider: 'anthropic',
       attempt: 3,
+      maxAttempts: 4,
       error: '401 auth failed',
       errorClass: 'permanent',
       userActionHint: 'rotate_api_key',
@@ -49,8 +50,10 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     expect(audit.writes[0]).toEqual(expect.arrayContaining([
       'provider=anthropic',
       'attempt=3',
+      'max=4',
       'errorClass=permanent',
       'hint=rotate_api_key',
+      'retry_after_sec=none',
       'error=401 auth failed',
     ]));
 
@@ -59,10 +62,39 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     expect(streamEvent.type).toBe('provider_attempt_failed');
     expect(streamEvent.provider).toBe('anthropic');
     expect(streamEvent.attempt).toBe(3);
+    expect(streamEvent.maxAttempts).toBe(4);
     expect(streamEvent.error).toBe('401 auth failed');
     expect(streamEvent.errorClass).toBe('permanent');
     expect(streamEvent.userActionHint).toBe('rotate_api_key');
+    expect(streamEvent.retryAfterSec).toBeUndefined();  // 普通 error 不出现 retryAfter
     expect(streamEvent.ts).toEqual(expect.any(Number));
+  });
+
+  it('fans out retryAfterSec to audit and stream when present (phase 1268 Step C)', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    sink.emit({
+      type: 'provider_attempt_failed',
+      provider: 'openai',
+      attempt: 1,
+      maxAttempts: 3,
+      error: '429 rate limited',
+      errorClass: 'rate_limit',
+      userActionHint: 'wait_retry_after',
+      retryAfterSec: 42,
+    });
+
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'provider=openai',
+      'attempt=1',
+      'max=3',
+      'retry_after_sec=42',
+    ]));
+    const streamEvent = stream.events[0] as Record<string, unknown>;
+    expect(streamEvent.retryAfterSec).toBe(42);
+    expect(streamEvent.maxAttempts).toBe(3);
   });
 
   it('still writes stream when audit.write throws', () => {
@@ -81,6 +113,7 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       type: 'provider_attempt_failed',
       provider: 'openai',
       attempt: 1,
+      maxAttempts: 3,
       error: 'boom',
       errorClass: 'transient',
       userActionHint: 'retry',
@@ -106,11 +139,13 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
       type: 'retry_scheduled',
       provider: 'openai',
       attempt: 2,
+      maxAttempts: 3,
       backoffMs: 1000,
     });
 
     expect(audit.writes).toHaveLength(1);
     expect(audit.writes[0][0]).toBe('llm_retry_scheduled');
+    expect(audit.writes[0]).toEqual(expect.arrayContaining(['attempt=2', 'max=3', 'backoff_ms=1000']));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[LLM EVENT SINK CRITICAL\]\s*stream/));
 
     consoleSpy.mockRestore();
