@@ -1100,12 +1100,12 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
   });
 
-  it('indeterminate probe holds task in running: no signal, no move, no delivery', async () => {
+  it('indeterminate probe holds task in running within deadline: no signal, no move, no delivery', async () => {
     const mocks = await importProcessExecMocks();
     mocks.probeExecutionGroup.mockReturnValue({ kind: 'indeterminate', reason: 'leader_gone_group_alive' });
 
     const sendToolResult = vi.fn().mockResolvedValue(undefined);
-    const task = makeV1MigratedTask();
+    const task = makeV1MigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
     const taskFile = 'tasks/queues/running/task-1.json';
     const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
@@ -1132,6 +1132,44 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     );
     expect(holdEvents.length).toBe(1);
     expect(holdEvents[0].some((c) => typeof c === 'string' && c.includes('leader_gone_group_alive'))).toBe(true);
+  });
+
+  it('indeterminate probe past deadline notifies manual intervention once, writes marker, moves to failed', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.probeExecutionGroup.mockReturnValue({ kind: 'indeterminate', reason: 'leader_gone_group_alive' });
+
+    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const task = makeV1MigratedTask(); // migratedDeadlineMs: 1 → already past
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+
+    const { audit, events } = makeMockAudit();
+    await recoverTasks({
+      fs: mockFs,
+      auditWriter: audit,
+      sendResult: vi.fn(),
+      sendFallbackError,
+      sendToolResult: vi.fn(),
+    });
+
+    expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled(); // never signal indeterminate
+    expect(sendFallbackError).toHaveBeenCalledTimes(1);
+    expect(String(sendFallbackError.mock.calls[0][3])).toContain('Manual intervention required');
+    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual-intervention`)).toBe(true);
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
+
+    const recovered = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERED);
+    expect(recovered.some((e) => e.some((c) => c === 'reason=migrated_manual_intervention'))).toBe(true);
+
+    // A second recovery pass must not re-notify (file moved out of running/).
+    await recoverTasks({
+      fs: mockFs,
+      auditWriter: audit,
+      sendResult: vi.fn(),
+      sendFallbackError,
+      sendToolResult: vi.fn(),
+    });
+    expect(sendFallbackError).toHaveBeenCalledTimes(1);
   });
 
   it('gone probe falls through to result delivery without signalling', async () => {
@@ -1252,11 +1290,11 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     expect(termEvents[0]).toContain('status=gone');
   });
 
-  it('legacy probe indeterminate holds task without signal or move', async () => {
+  it('legacy probe indeterminate holds task without signal or move within deadline', async () => {
     const mocks = await importProcessExecMocks();
     mocks.probeLegacyProcess.mockReturnValue({ kind: 'indeterminate', reason: 'start_time_unreadable' });
 
-    const task = makeLegacyMigratedTask();
+    const task = makeLegacyMigratedTask({ migratedDeadlineMs: Date.now() + 3_600_000 });
     const taskFile = 'tasks/queues/running/task-1.json';
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
 
@@ -1271,6 +1309,31 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     );
     expect(holdEvents.length).toBe(1);
     expect(holdEvents[0].some((c) => typeof c === 'string' && c.includes('start_time_unreadable'))).toBe(true);
+  });
+
+  it('legacy probe indeterminate past deadline notifies manual intervention once and moves to failed', async () => {
+    const mocks = await importProcessExecMocks();
+    mocks.probeLegacyProcess.mockReturnValue({ kind: 'indeterminate', reason: 'start_time_unreadable' });
+
+    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const task = makeLegacyMigratedTask(); // migratedDeadlineMs: 1 → already past
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
+
+    const { audit } = makeMockAudit();
+    await recoverTasks({
+      fs: mockFs,
+      auditWriter: audit,
+      sendResult: vi.fn(),
+      sendFallbackError,
+      sendToolResult: vi.fn(),
+    });
+
+    expect(mocks.terminateLegacyProcess).not.toHaveBeenCalled(); // never signal indeterminate
+    expect(sendFallbackError).toHaveBeenCalledTimes(1);
+    expect(String(sendFallbackError.mock.calls[0][3])).toContain('Manual intervention required');
+    expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual-intervention`)).toBe(true);
+    expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
   });
 
   it('legacy gone probe (PID reused) delivers result without ever signalling', async () => {

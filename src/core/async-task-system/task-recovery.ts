@@ -250,6 +250,92 @@ async function _recoverToolTask(
     });
   return 0;
 }
+/**
+ * Deliver a one-shot manual-intervention notification for an indeterminate
+ * task past its hard deadline, guarded by a persistent marker so restart
+ * recovery never re-notifies (same idempotency pattern as result.txt.sent).
+ * Returns true when the notification was delivered (or had already been
+ * delivered); false keeps the task in running/ for a retry.
+ */
+async function notifyManualIntervention(
+  deps: RecoverTasksDeps,
+  task: ToolTask,
+  reason: string,
+): Promise<boolean> {
+  const { fs, auditWriter } = deps;
+  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
+  const manualPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt.manual-intervention`;
+  let alreadyNotified = false;
+  try {
+    alreadyNotified = await fs.exists(manualPath);
+  } catch (err) {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_manual_marker_read_failed',
+      error: formatErr(err),
+    });
+    return false;
+  }
+  if (alreadyNotified) return true;
+  const sent = await sendFallbackError(
+    fs,
+    auditWriter,
+    task,
+    `Migrated process ownership cannot be verified (${reason}) after the hard deadline. Manual intervention required.`,
+    resultDeliveryDeps,
+  )
+    .then(() => true)
+    .catch((e) => {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_manual_notify_failed',
+        error: formatErr(e),
+      });
+      return false;
+    });
+  if (!sent) return false;
+  try {
+    await fs.writeAtomic(manualPath, '1');
+  } catch (err) {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_manual_marker_write_failed',
+      error: formatErr(err),
+    });
+  }
+  return true;
+}
+
+/**
+ * Move a manually-interventioned task to failed/. Move failure keeps the
+ * running file; the marker guarantees the next recovery only retries the
+ * move, never re-notifies.
+ */
+async function moveToFailedAfterManualIntervention(
+  deps: RecoverTasksDeps,
+  filePath: string,
+  task: ToolTask,
+): Promise<void> {
+  await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+    .then(() => {
+      emitRecovered(deps.auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        kind: task.kind,
+        from: 'running',
+        to: 'failed',
+        reason: 'migrated_manual_intervention',
+      });
+    })
+    .catch(async (e) => {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'migrated_manual_move_failed',
+        error: formatErr(e),
+      });
+    });
+}
 
 export async function recoverMigratedToolTask(
   deps: RecoverTasksDeps, filePath: string, task: ToolTask,
@@ -282,7 +368,18 @@ export async function recoverMigratedToolTask(
         context: 'migrated_exec_probe_indeterminate',
         error: probe.reason,
       });
-      return 0; // keep in running — retry next recovery cycle
+      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+      if (Date.now() < deadlineMs) {
+        return 0; // keep in running — deadline not reached, retry next cycle
+      }
+      // Hard deadline reached and ownership still unprovable: surface one
+      // manual-intervention notification instead of silent indefinite
+      // retention. Never signal, never guess — the task ends observably.
+      if (!(await notifyManualIntervention(deps, task, probe.reason))) {
+        return 0; // keep in running — retry notification next cycle
+      }
+      await moveToFailedAfterManualIntervention(deps, filePath, task);
+      return 0;
     }
 
     if (probe.kind === 'verified_alive') {
@@ -343,7 +440,18 @@ export async function recoverMigratedToolTask(
         context: 'migrated_legacy_probe_indeterminate',
         error: probe.reason,
       });
-      return 0; // keep in running — retry next recovery cycle
+      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+      if (Date.now() < deadlineMs) {
+        return 0; // keep in running — deadline not reached, retry next cycle
+      }
+      // Hard deadline reached and ownership still unprovable: surface one
+      // manual-intervention notification instead of silent indefinite
+      // retention. Never signal, never guess — the task ends observably.
+      if (!(await notifyManualIntervention(deps, task, probe.reason))) {
+        return 0; // keep in running — retry notification next cycle
+      }
+      await moveToFailedAfterManualIntervention(deps, filePath, task);
+      return 0;
     }
 
     if (probe.kind === 'alive') {
