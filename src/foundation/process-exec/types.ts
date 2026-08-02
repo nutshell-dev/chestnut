@@ -49,12 +49,75 @@ export interface ExecResult {
 }
 
 /**
- * Handle returned by execWithHandle: exposes both the settled promise and the
- * live ChildProcess. Callers own the child lifecycle (kill / detach / wait).
+ * Why a normal exec timed out / was asked to terminate.
+ * L1-neutral: L4 business reasons (persist failed / hard deadline / recovery)
+ * stay in the caller's own audit context, not in this union.
+ */
+export type ExecutionTerminationTrigger =
+  | 'timeout'
+  | 'max_buffer'
+  | 'abort'
+  | 'caller_requested';
+
+/**
+ * OS-level identity of one execution unit. A normal exec spawns its child as
+ * an isolated POSIX process-group leader (`detached: true`), so the group id
+ * equals the leader pid. Never fabricated: absent when spawn itself failed.
+ */
+export interface ExecutionIdentity {
+  leaderPid: number;
+  processGroupId: number;
+}
+
+/**
+ * Structured conclusion of one termination state-machine run
+ * (TERM group → grace → KILL group → bounded confirmation).
+ * `signal sent`, `leader gone` and `group gone` are different facts and must
+ * not be flattened into a boolean.
+ */
+export type ExecutionTerminationOutcome =
+  | {
+      status: 'gone';
+      identity: ExecutionIdentity;
+      trigger: ExecutionTerminationTrigger;
+      termSent: boolean;
+      killSent: boolean;
+      completedAt: string;
+    }
+  | {
+      status: 'still_alive';
+      identity: ExecutionIdentity;
+      trigger: ExecutionTerminationTrigger;
+      termSent: boolean;
+      killSent: boolean;
+      checkedAt: string;
+    }
+  | {
+      status: 'indeterminate';
+      identity: ExecutionIdentity;
+      trigger: ExecutionTerminationTrigger;
+      termSent: boolean;
+      killSent: boolean;
+      checkedAt: string;
+      reason: string;
+    };
+
+/**
+ * Handle returned by execWithHandle: exposes the settled promise, the live
+ * ChildProcess (streams/unref only — callers MUST NOT use child.kill; OS
+ * signal semantics stay L1-owned via `terminate()`), the execution identity,
+ * and the single idempotent termination entry point.
  */
 export interface ExecHandle {
   promise: Promise<ExecResult>;
   child: import('child_process').ChildProcess;
+  /** Present when the OS process exists; absent only if spawn itself failed. */
+  identity?: ExecutionIdentity;
+  /**
+   * Idempotent: concurrent/repeat calls share the first in-flight run; the
+   * first trigger and earliest SIGKILL deadline always win.
+   */
+  terminate(trigger?: 'caller_requested'): Promise<ExecutionTerminationOutcome>;
 }
 
 export interface ProcessInfo {

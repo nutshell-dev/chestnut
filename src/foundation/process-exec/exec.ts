@@ -15,9 +15,16 @@ import {
   PROCESS_EXEC_TIMEOUT_MAX_MS,
   PROCESS_EXEC_DEFAULT_TIMEOUT_MS,
   PROCESS_EXEC_DEFAULT_MAX_BUFFER,
-  PROCESS_EXEC_SIGKILL_GRACE_MS,
 } from './constants.js';
-import type { ExecOptions, ExecResult, ExecHandle } from './types.js';
+import { terminateExecutionGroup } from './execution-group.js';
+import type {
+  ExecOptions,
+  ExecResult,
+  ExecHandle,
+  ExecutionIdentity,
+  ExecutionTerminationOutcome,
+  ExecutionTerminationTrigger,
+} from './types.js';
 import { ProcessExecError } from './errors.js';
 
 /**
@@ -121,43 +128,11 @@ class BufferCollector {
 }
 
 /**
- * SIGTERM→SIGKILL escalator. Owner calls `arm()` immediately after issuing
- * SIGTERM; if the process has not exited within `PROCESS_EXEC_SIGKILL_GRACE_MS`,
- * SIGKILL is sent. `disarm()` is idempotent and must be called when settled.
- *
- * Exported for unit testing only (phase 912); not part of the public API surface.
- */
-export class KillEscalator {
-  private timerId: ReturnType<typeof setTimeout> | undefined;
-  constructor(
-    private readonly proc: ReturnType<typeof spawn>,
-    private readonly isSettled: () => boolean,
-    private readonly graceMs: number = PROCESS_EXEC_SIGKILL_GRACE_MS,
-  ) {}
-
-  arm(): void {
-    // Once escalation is armed, the SIGKILL deadline is fixed.
-    // Subsequent arm() calls are no-ops — the earliest deadline must not be extended.
-    if (this.timerId !== undefined) return;
-    this.timerId = setTimeout(() => {
-      if (!this.isSettled()) {
-        this.proc.kill('SIGKILL');
-      }
-    }, this.graceMs);
-  }
-
-  disarm(): void {
-    if (this.timerId !== undefined) {
-      clearTimeout(this.timerId);
-      this.timerId = undefined;
-    }
-  }
-}
-
-/**
- * Spawn a process and return a handle exposing both the settled promise and the
- * live ChildProcess. Caller owns the child lifecycle; the returned promise
- * settles once the process exits.
+ * Spawn a process as an isolated POSIX process-group leader and return a
+ * handle exposing the settled promise, the live ChildProcess (streams/unref
+ * only), the execution identity, and the single idempotent L1-owned
+ * terminate() entry point. Callers must not use child.kill — OS signal
+ * semantics do not cross module boundaries.
  */
 export function execWithHandle(
   command: string,
@@ -168,11 +143,22 @@ export function execWithHandle(
   const maxBuffer = Math.max(1, options.maxBuffer ?? PROCESS_EXEC_DEFAULT_MAX_BUFFER);
   const env = buildChildEnv(options);
 
+  // detached: true — every normal exec is an isolated POSIX process-group
+  // leader (PGID = leader PID), so termination can target the whole group
+  // instead of only the direct shell. NOT unref'd: pipe/handle lifetime still
+  // binds the child to this process. spawnDetached() daemons are a different
+  // resource class and do not reuse this state machine.
   const proc = spawn(command, args, {
     cwd: options.cwd,
     signal: options.signal,
     env,
+    detached: true,
   });
+
+  // Never fabricated: absent only when spawn itself failed (no pid assigned).
+  const identity: ExecutionIdentity | undefined = proc.pid !== undefined
+    ? { leaderPid: proc.pid, processGroupId: proc.pid }
+    : undefined;
 
   if (options.stdin !== undefined) {
     // phase 518 (review-round4 Foundation M、crash hazard): 加 stdin 'error' listener
@@ -183,22 +169,43 @@ export function execWithHandle(
     proc.stdin.end();
   }
 
+  // Idempotent termination coordination: the first trigger wins and fixes the
+  // earliest SIGKILL deadline; concurrent/repeat calls share one in-flight
+  // run and must never reset timers or extend the deadline.
+  let terminationPromise: Promise<ExecutionTerminationOutcome> | undefined;
+  const terminate = (trigger: ExecutionTerminationTrigger): Promise<ExecutionTerminationOutcome> => {
+    if (terminationPromise) return terminationPromise;
+    if (identity === undefined) {
+      // Spawn failed — no execution unit was ever created, so there is
+      // honestly nothing to terminate; the promise rejects via the spawn
+      // error path instead.
+      terminationPromise = Promise.reject(
+        new ProcessExecError({
+          message: 'Cannot terminate: process never started',
+          exitCode: null,
+        }),
+      );
+      terminationPromise.catch(() => { /* silent: surfaced via promise rejection */ });
+      return terminationPromise;
+    }
+    terminationPromise = terminateExecutionGroup(identity, trigger, {
+      graceMs: options.__testSigkillGraceMs,
+    });
+    return terminationPromise;
+  };
+
   const promise = new Promise<ExecResult>((resolve, reject) => {
     let timedOut = false;
     let settled = false;
-    const isSettled = () => settled;
 
-    const escalator = new KillEscalator(proc, isSettled, options.__testSigkillGraceMs);
     const collector = new BufferCollector(maxBuffer, () => {
-      proc.kill(); // SIGTERM
-      escalator.arm();
+      terminate('max_buffer');
     });
 
     function settle(): void {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
-      escalator.disarm();
     }
 
     proc.stdout?.on('data', (chunk: Buffer) => collector.pushStdout(chunk));
@@ -206,8 +213,7 @@ export function execWithHandle(
 
     const timeoutId = setTimeout(() => {
       timedOut = true;
-      proc.kill(); // SIGTERM (default)
-      escalator.arm();
+      terminate('timeout');
     }, timeout);
 
     proc.on('error', (err) => {
@@ -224,33 +230,59 @@ export function execWithHandle(
 
     proc.on('close', (code, signal) => {
       if (settled) return;
-      settle();
+      // The process lifecycle has ended: the timeout timer must not fire
+      // during termination confirmation and overwrite the earliest trigger
+      // (e.g. max_buffer at t=40ms must not be reported as timeout at
+      // t=1000ms just because cleanup confirmation outlived the timer).
+      clearTimeout(timeoutId);
 
       const output = collector.combinedString();
       const stderr = collector.stderrString() || undefined;
 
-      // System termination reasons take precedence over exit code interpretation.
-      if (timedOut) {
-        reject(new ProcessExecError({
-          message: `Command timed out after ${timeout}ms`,
-          output,
-          exitCode: code ?? null,
-          killed: true,
-          stderr,
-        }));
+      // A close only speaks about the leader/stdio; it does not by itself
+      // prove the group is gone. Once termination has been triggered, the
+      // promise settles only after the termination state machine reaches a
+      // structured conclusion.
+      if (terminationPromise !== undefined) {
+        terminationPromise.then((outcome) => {
+          if (settled) return;
+          settle();
+
+          // System termination reasons take precedence over exit code interpretation.
+          if (timedOut) {
+            reject(new ProcessExecError({
+              message: `Command timed out after ${timeout}ms`,
+              output,
+              exitCode: code ?? null,
+              killed: true,
+              stderr,
+            }));
+            return;
+          }
+
+          if (collector.isOverflowed) {
+            reject(new ProcessExecError({
+              message: `Command output exceeded ${maxBuffer / 1024 / 1024} MB limit`,
+              output,
+              exitCode: code ?? null,
+              maxBufferExceeded: true,
+              stderr,
+            }));
+            return;
+          }
+
+          reject(new ProcessExecError({
+            message: `Command terminated (${outcome.trigger}, cleanup: ${outcome.status})`,
+            output,
+            exitCode: code ?? null,
+            killed: true,
+            stderr,
+          }));
+        });
         return;
       }
 
-      if (collector.isOverflowed) {
-        reject(new ProcessExecError({
-          message: `Command output exceeded ${maxBuffer / 1024 / 1024} MB limit`,
-          output,
-          exitCode: code ?? null,
-          maxBufferExceeded: true,
-          stderr,
-        }));
-        return;
-      }
+      settle();
 
       if (signal) {
         reject(new ProcessExecError({
@@ -289,7 +321,7 @@ export function execWithHandle(
     });
   });
 
-  return { promise, child: proc };
+  return { promise, child: proc, identity, terminate: () => terminate('caller_requested') };
 }
 
 /**

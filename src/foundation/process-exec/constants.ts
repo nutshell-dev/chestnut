@@ -51,3 +51,22 @@ export const PROCESS_EXEC_DEFAULT_MAX_BUFFER = 1024 * 1024;
  *   - WATCHDOG: 500ms — watchdog daemon、更快 cleanup
  */
 export const PROCESS_EXEC_SIGKILL_GRACE_MS = 1000;
+
+/**
+ * Bounded confirmation window (ms) after SIGKILL is sent to an execution
+ * group: L1 polls group liveness until the group is gone or this budget is
+ * exhausted, after which the outcome is honestly `still_alive`.
+ *
+ * Value: 1000 = same POSIX industry granularity as the TERM grace; SIGKILL is
+ * not maskable, so a group still responding after 1s indicates an OS-level
+ * anomaly (unkillable D-state etc.) that must surface, not be hidden.
+ */
+export const PROCESS_EXEC_GROUP_KILL_CONFIRM_MS = 1000;
+
+/**
+ * Poll interval (ms) for post-SIGKILL group-gone confirmation.
+ *
+ * Value: 25 = small vs the 1000ms confirm budget, so a normal kill is
+ * confirmed within ~1-2 polls without busy-looping the event loop.
+ */
+export const PROCESS_EXEC_GROUP_CONFIRM_POLL_MS = 25;

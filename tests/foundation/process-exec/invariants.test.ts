@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'os';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'child_process';
 import { exec, ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { PROCESS_EXEC_TIMEOUT_MAX_MS } from '../../../src/foundation/process-exec/constants.js';
@@ -152,5 +153,61 @@ describe('phase 1033: L1 PROCESS_EXEC_TIMEOUT_MAX_MS align L4 config max', () =>
     );
     const schemaSrc = readFileSync(schemaPath, 'utf8');
     expect(schemaSrc).toMatch(/max\(600000\)/);
+  });
+});
+
+/**
+ * Phase 1269 Step B — ProcessExec 公共表面与「无跨层 raw kill」架构断言
+ *
+ * - execWithHandle spawn 必须 detached（隔离进程组），否则负 PGID 终止无意义。
+ * - 负 PGID（进程组）信号只允许出现在 L1 process-exec 模块内；业务模块只传
+ *   ExecutionIdentity、消费 ExecutionTerminationOutcome。
+ * - L2/L4 调用方不得绕过 handle.terminate() 直接 child.kill（Step B 先锁定
+ *   command-tool / tools；async-task-system 由 Step E 原子收敛后补入）。
+ */
+describe('phase 1269 Step B: process-exec group termination invariants', () => {
+  const SRC_ROOT = fileURLToPath(new URL('../../../src', import.meta.url));
+
+  function listTsFiles(dir: string, excludeDir?: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (excludeDir !== undefined && full === excludeDir) continue;
+        out.push(...listTsFiles(full, excludeDir));
+      } else if (entry.name.endsWith('.ts')) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  it('execWithHandle spawns detached (isolated process group)', () => {
+    const execSrc = readFileSync(`${SRC_ROOT}/foundation/process-exec/exec.ts`, 'utf8');
+    expect(execSrc).toMatch(/detached:\s*true/);
+  });
+
+  it('negative-PGID (process group) signals only exist inside L1 process-exec', () => {
+    const l1Dir = `${SRC_ROOT}/foundation/process-exec`;
+    const offenders = listTsFiles(SRC_ROOT, l1Dir).filter((file) =>
+      /process\.kill\(-/.test(readFileSync(file, 'utf8')),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('no cross-layer raw child.kill in command-tool / tools', () => {
+    const offenders = [
+      ...listTsFiles(`${SRC_ROOT}/foundation/command-tool`),
+      ...listTsFiles(`${SRC_ROOT}/foundation/tools`),
+    ].filter((file) => /\.child\.kill\(/.test(readFileSync(file, 'utf8')));
+    expect(offenders).toEqual([]);
+  });
+
+  it('L1 index exports identity/termination types and recovery entry, not KillEscalator', () => {
+    const indexSrc = readFileSync(`${SRC_ROOT}/foundation/process-exec/index.ts`, 'utf8');
+    expect(indexSrc).toContain('terminateExecutionGroup');
+    expect(indexSrc).toContain('ExecutionTerminationOutcome');
+    expect(indexSrc).toContain('ExecutionIdentity');
+    expect(indexSrc).not.toContain('KillEscalator');
   });
 });

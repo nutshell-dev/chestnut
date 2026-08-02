@@ -7,15 +7,14 @@
  * - Error paths: command not found, non-zero exit, timeout, AbortSignal
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 
-import { exec, kill, isAlive, findByPattern } from '../../src/foundation/process-exec/index.js';
+import { exec, kill, isAlive, findByPattern, isProcessGroupAlive } from '../../src/foundation/process-exec/index.js';
 import { ProcessExecError, ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
-import { KillEscalator } from '../../src/foundation/process-exec/exec.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 
 /**
@@ -269,24 +268,77 @@ describe('ProcessExec exec', () => {
   });
 });
 
-describe('KillEscalator', () => {
-  it('arm() cancels previous timer before setting new one', async () => {
-    const child = spawn('node', ['-e', `setTimeout(() => {}, ${SUBPROC_HANG_MS})`]);
-    const killSpy = vi.spyOn(child, 'kill');
+/**
+ * Phase 1269 Step B — timeout/maxBuffer 真实后代清理回归
+ *
+ * Before this phase, timeout only signalled the direct shell PID; same-group
+ * descendants kept running and held stdout/stderr pipes open. Now every
+ * normal exec is an isolated POSIX process group and timeout terminates the
+ * whole group (TERM → grace → KILL → bounded confirm).
+ */
+describe('phase 1269 Step B: exec group descendant cleanup', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  const workDir = tmpdir();
 
-    const escalator = new KillEscalator(child, () => false, 100);
-    escalator.arm(); // first timer
-    escalator.arm(); // second timer should cancel first
+  it.concurrent('timeout kills shell AND same-group descendant (反向 1: pipe 不得等 30s)', async () => {
+    // sh is group leader; `sleep 30` is a same-group descendant holding no
+    // extra pipes but keeping the shell (and its pipes) alive via `wait`.
+    const started = Date.now();
+    let sleepPid: number | undefined;
+    try {
+      await exec('sh', ['-c', 'sleep 30 & echo SLEEP_PID:$!; wait'], {
+        cwd: workDir,
+        timeout: 100,
+        __testMinTimeoutMs: 100,
+        __testSigkillGraceMs: 100,
+      });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      expect(error.killed).toBe(true);
+      const m = error.output.match(/SLEEP_PID:(\d+)/);
+      expect(m).not.toBeNull();
+      sleepPid = Number(m![1]);
+    }
+    const elapsed = Date.now() - started;
+    // Promise must settle shortly after timeout+grace+confirm, NOT after the
+    // descendant's natural 30s lifetime.
+    expect(elapsed).toBeLessThan(15_000);
+    expect(isAlive(sleepPid!)).toBe(false);
+  }, 20_000);
 
-    // Wait past the first timer's original deadline (100ms) plus margin.
-    const ESCALATION_WAIT_MS = 150;
-    await new Promise((resolve) => setTimeout(resolve, ESCALATION_WAIT_MS));
-
-    expect(killSpy).toHaveBeenCalledTimes(1);
-    expect(killSpy).toHaveBeenCalledWith('SIGKILL');
-
-    child.kill('SIGKILL');
-  });
+  it.concurrent('escalates to SIGKILL for the whole group when leader traps TERM (反向 2)', async () => {
+    // Leader node traps SIGTERM and keeps running; its sleep child dies on
+    // TERM but the leader survives → group still alive → KILL escalation.
+    const script = `
+      process.on('SIGTERM', () => {});
+      const c = require('child_process').spawn('sleep', ['30']);
+      console.log('LEADER:' + process.pid);
+      console.log('CHILD:' + c.pid);
+      setTimeout(() => {}, ${SUBPROC_HANG_MS});
+    `;
+    let leaderPid: number | undefined;
+    let childPid: number | undefined;
+    try {
+      await exec('node', ['-e', script], {
+        cwd: workDir,
+        timeout: 100,
+        __testMinTimeoutMs: 100,
+        __testSigkillGraceMs: 100,
+      });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      expect(error.killed).toBe(true);
+      leaderPid = Number(error.output.match(/LEADER:(\d+)/)![1]);
+      childPid = Number(error.output.match(/CHILD:(\d+)/)![1]);
+    }
+    expect(isAlive(leaderPid!)).toBe(false);
+    expect(isAlive(childPid!)).toBe(false);
+    expect(isProcessGroupAlive(leaderPid!)).toBe(false);
+  }, 20_000);
 });
 
 describe('kill', () => {

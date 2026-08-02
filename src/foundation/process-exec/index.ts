@@ -9,7 +9,15 @@
  */
 
 export { exec, execWithHandle } from './exec.js';
-export type { ExecHandle, ProcessInfo } from './types.js';
+export type {
+  ExecHandle,
+  ProcessInfo,
+  ExecutionIdentity,
+  ExecutionTerminationTrigger,
+  ExecutionTerminationOutcome,
+} from './types.js';
+export { terminateExecutionGroup, isProcessGroupAlive } from './execution-group.js';
+export type { GroupTerminationOptions } from './execution-group.js';
 export { spawnDetached } from './spawn-detached.js';
 export { kill, isAlive } from './process-control.js';
 export type { Signal } from './process-control.js';
