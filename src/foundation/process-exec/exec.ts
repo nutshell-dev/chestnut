@@ -140,7 +140,11 @@ export function execWithHandle(
   args: string[],
   options: ExecOptions,
 ): ExecHandle {
-  const timeout = clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS, options.__testMinTimeoutMs);
+  // Test-only overrides are honored only under vitest (NODE_ENV === 'test').
+  // Production callers are silently degraded to the default constants rather
+  // than bypassing the empirical floor or the SIGTERM→SIGKILL grace (F7).
+  const testMode = process.env.NODE_ENV === 'test';
+  const timeout = clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS, testMode ? options.__testMinTimeoutMs : undefined);
   const maxBuffer = Math.max(1, options.maxBuffer ?? PROCESS_EXEC_DEFAULT_MAX_BUFFER);
   const env = buildChildEnv(options);
 
@@ -210,7 +214,7 @@ export function execWithHandle(
       return terminationPromise;
     }
     terminationPromise = terminateExecutionGroup(identity, trigger, {
-      graceMs: options.__testSigkillGraceMs,
+      graceMs: testMode ? options.__testSigkillGraceMs : undefined,
     });
     return terminationPromise;
   };
