@@ -60,7 +60,7 @@ function buildMigratedToolTask(
   command: string,
   ctx: ExecContext,
   identity: ExecutionIdentity,
-  migratedHardTimeoutMs: number,
+  deadlineAtMs: number,
 ): ToolTask {
   // Phase 1269 Step E: persist the L1 execution-group identity (v1 protocol).
   // leaderStartTime may be unreadable; keep it undefined (schema-optional)
@@ -87,7 +87,11 @@ function buildMigratedToolTask(
       processGroupId: identity.processGroupId,
       leaderStartTime,
     },
-    migratedDeadlineMs: Date.now() + migratedHardTimeoutMs,
+    // Phase 1272 Step C: the deadline is the SINGLE absolute fact generated
+    // before spawn and already armed in L1 — persist it verbatim. Never
+    // recompute `Date.now() + duration` here: runtime monitor and restart
+    // recovery must consume the exact same value.
+    migratedDeadlineMs: deadlineAtMs,
   };
 }
 
@@ -244,6 +248,13 @@ export function createAsyncExecWrapper(
       //    against soft timeout / original abort signal. Catch ProcessExecError
       //    here so the ToolResult includes [command] instead of falling through
       //    to ToolExecutor's generic timeout formatting.
+      // Phase 1272 Step C: the single absolute deadline is generated ONCE
+      // here, before spawn, covering soft window + migrated hard budget. It
+      // is armed in L1 via `deadlineAtMs`, persisted verbatim as
+      // `migratedDeadlineMs` on migration, and consumed by the runtime
+      // monitor and restart recovery — one fact, no re-derivation.
+      const deadlineAtMs = Date.now() + timeout + migratedHardTimeoutMs;
+
       let handle: ExecHandle;
       let partialOutput = '';
       let winner: Awaited<ReturnType<typeof raceHandle>>;
@@ -252,7 +263,7 @@ export function createAsyncExecWrapper(
           {
             command,
             cwd: args.cwd as string | undefined,
-            timeoutMs: args.timeoutMs as number | undefined,
+            deadlineAtMs,
             stdin: args.stdin as string | undefined,
           },
           proxyCtx,
@@ -331,7 +342,7 @@ export function createAsyncExecWrapper(
         shortId = shortIdIndex.deriveShortId(fullId);
       } while (shortIdIndex.has(shortId));
 
-      const task = buildMigratedToolTask(fullId, shortId, command, ctx, identity, migratedHardTimeoutMs);
+      const task = buildMigratedToolTask(fullId, shortId, command, ctx, identity, deadlineAtMs);
 
       try {
         await persistRunningTask(fs, task);
@@ -416,13 +427,20 @@ export function createAsyncExecWrapper(
       // time by the append listeners above, so no additional persistence is
       // needed.
       const backgroundMonitor = (async (): Promise<void> => {
-        let timedOut = false;
+        // Phase 1272 Step C: the runtime hard timer is armed from the SAME
+        // persisted absolute deadline (never a fresh relative duration). The
+        // hard-timeout wording is fixed up front because L1 and L4 race on
+        // the identical deadline: whichever timer fires first, the marker
+        // and the audit must read as the same migrated hard timeout.
+        const hardTimeoutMessage = `Migrated process timed out after ${migratedHardTimeoutMs}ms`;
+        let hardTimerWon = false;
         try {
+          const remainingMs = Math.max(0, task.migratedDeadlineMs! - Date.now());
           const hardTimeout = new Promise<never>((_, reject) => {
             const timer = setTimeout(() => {
-              timedOut = true;
-              reject(new Error(`Migrated process timed out after ${migratedHardTimeoutMs}ms`));
-            }, migratedHardTimeoutMs);
+              hardTimerWon = true;
+              reject(new Error(hardTimeoutMessage));
+            }, remainingMs);
             timer.unref?.();
           });
 
@@ -442,15 +460,18 @@ export function createAsyncExecWrapper(
             { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackError, writeInboxAsync: deps.writeInboxAsync },
           );
         } catch (monitorErr) {
-          // Hard timeout or process exited with an error. On hard timeout,
-          // terminate the execution group via L1 and WAIT for the outcome
-          // before appending the marker / delivering the result; an
-          // indeterminate outcome must never be described as cleaned up.
+          // Deadline race classification must not trust a single closure
+          // boolean: L1's own deadline timer can win the race and reject
+          // handle.promise first, leaving hardTimerWon false — the persisted
+          // wall-clock deadline is the honest backstop (phase 1272 Step C).
+          const deadlineExceeded = hardTimerWon || Date.now() >= task.migratedDeadlineMs!;
           let cleanupSuffix = '';
-          if (timedOut) {
-            // The exec's internal 30s timeout fires long before the 30min
-            // migrated hard deadline, so the shared outcome trigger is already
-            // 'timeout' — pass the same word instead of caller_requested.
+          if (deadlineExceeded) {
+            // Hard timeout. L1 may already have terminated the group via its
+            // own deadline timer; terminate() is idempotent, so the shared
+            // outcome keeps the first trigger ('timeout'). Wait for the
+            // outcome before appending the marker / delivering the result; an
+            // indeterminate outcome must never be described as cleaned up.
             const outcome = await handle.terminate('timeout');
             emitMigratedExecTermination(auditWriter, {
               taskId: task.id,
@@ -475,11 +496,30 @@ export function createAsyncExecWrapper(
               `taskId=${task.id}`,
               `pid=${identity.leaderPid}`,
             );
+          } else if (monitorErr instanceof ProcessExecError && monitorErr.termination !== undefined) {
+            // Terminated BEFORE the deadline (e.g. max_buffer overflow):
+            // preserve the structured L1 termination fact under its own
+            // context instead of dropping it into a flat exited-with-error
+            // marker. Result delivery below is unchanged.
+            const fact = monitorErr.termination;
+            emitMigratedExecTermination(auditWriter, {
+              taskId: task.id,
+              context: 'pre_deadline_termination',
+              identityCols: [
+                `leader_pid=${identity.leaderPid}`,
+                `process_group_id=${identity.processGroupId}`,
+              ],
+              trigger: fact.trigger,
+              termSent: fact.termSent,
+              killSent: fact.killSent,
+              status: fact.status,
+              reason: fact.reason,
+            });
           }
 
           try {
             const errorMarker =
-              `\n[Process ${timedOut ? 'timed out' : 'exited with error'}: ${formatErr(monitorErr)}]${cleanupSuffix}`;
+              `\n[Process ${deadlineExceeded ? 'timed out' : 'exited with error'}: ${deadlineExceeded ? hardTimeoutMessage : formatErr(monitorErr)}]${cleanupSuffix}`;
             fs.appendSync(resultPath, errorMarker);
           } catch (persistErr) {
             emitHandlerFailed(auditWriter, {

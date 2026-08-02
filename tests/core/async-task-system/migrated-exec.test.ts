@@ -19,14 +19,14 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { executeToolTask } from '../../../src/core/async-task-system/tool-executor.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
-import { createExecWithHandle, createExecTool, EXEC_TOOL_NAME } from '../../../src/foundation/command-tool/exec.js';
+import { createExecWithHandle, createExecTool, EXEC_TOOL_NAME, type ExecWithHandleArgs } from '../../../src/foundation/command-tool/exec.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { createPerTaskRegistry } from '../../../src/core/subagent/registry-helper.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import { getProcessStartTime, isAlive, isProcessGroupAlive } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime, isAlive, isProcessGroupAlive, ProcessExecError, PROCESS_EXEC_DEFAULT_TIMEOUT_MS, type ExecHandle, type ExecResult, type ExecutionIdentity } from '../../../src/foundation/process-exec/index.js';
 import * as startTimeModule from '../../../src/foundation/process-exec/process-starttime.js';
 import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types.js';
 import { makeTaskId } from '../../../src/core/async-task-system/types.js';
@@ -938,4 +938,329 @@ describe('Phase 833: migrated exec stream events', () => {
     expect(streamEvents.some(e => e.type === 'task_started')).toBe(false);
     expect(streamEvents.some(e => e.type === 'task_completed')).toBe(false);
   });
+});
+
+
+/**
+ * Phase 1272 Step C — migrated exec 单一 absolute deadline
+ *
+ * One absolute deadline is generated before spawn and flows end to end:
+ * L1 `deadlineAtMs` arg === persisted `migratedDeadlineMs` === runtime hard
+ * timer source === recovery source. The L1/L4 deadline race is classified by
+ * the persisted wall-clock fact, not by a single closure boolean, and a
+ * termination before the deadline keeps its structured L1 facts.
+ */
+describe('phase 1272 Step C: single migrated deadline end to end', () => {
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+  let audit: AuditLog;
+  let auditEvents: Array<[string, ...(string | number)[]]>;
+  let system: AsyncTaskSystem;
+
+  const SOFT_TIMEOUT_MS = 100;
+  const HARD_TIMEOUT_MS = 5_000;
+
+  beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    tmpDir = path.join(os.tmpdir(), `phase1272-single-deadline-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    const mockAudit = makeMockAudit();
+    audit = mockAudit.audit;
+    auditEvents = mockAudit.events;
+
+    system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit,
+      ...makeTaskSystemDeps(),
+    });
+    await system.initialize();
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await system.shutdown(1000).catch(() => { /* silent */ });
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  /**
+   * Fake L1 handle backed by a REAL detached child (identity/unref/stream ops
+   * in the wrapper hit the OS), whose promise rejects like an L1 timeout at a
+   * caller-chosen moment. terminate() really SIGTERMs the group.
+   */
+  function makeFakeL1Handle(opts: {
+    rejectAfterMs: number;
+    makeError: (identity: ExecutionIdentity) => ProcessExecError;
+  }): { handle: ExecHandle; identity: ExecutionIdentity } {
+    const proc = spawn('sh', ['-c', 'sleep 30'], { cwd: tmpDir, detached: true });
+    const identity: ExecutionIdentity = { leaderPid: proc.pid!, processGroupId: proc.pid! };
+    const promise = new Promise<ExecResult>((_, reject) => {
+      const timer = setTimeout(() => reject(opts.makeError(identity)), opts.rejectAfterMs);
+      timer.unref?.();
+    });
+    const handle: ExecHandle = {
+      child: proc,
+      identity,
+      promise,
+      terminate: async (trigger = 'caller_requested') => {
+        try {
+          process.kill(-identity.processGroupId, 'SIGTERM');
+        } catch { /* already gone */ }
+        return {
+          status: 'gone',
+          identity,
+          trigger,
+          termSent: true,
+          killSent: false,
+          completedAt: new Date().toISOString(),
+        };
+      },
+    };
+    return { handle, identity };
+  }
+
+  it('L1 arg and persisted task carry the exact same absolute deadline (single source)', async () => {
+    const base = createExecWithHandle();
+    let capturedArgs: ExecWithHandleArgs | undefined;
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async (args, ctx) => {
+        capturedArgs = args;
+        return base(args, ctx);
+      },
+      softTimeoutMs: SOFT_TIMEOUT_MS,
+      migratedHardTimeoutMs: HARD_TIMEOUT_MS,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 0.3 && echo done' }, ctx);
+    expect(result.success).toBe(true);
+    const fullId = result.metadata?.fullTaskId as string;
+
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const task = JSON.parse(await fs.readFile(runningFile, 'utf-8'));
+
+    expect(capturedArgs?.timeoutMs).toBeUndefined();
+    expect(typeof capturedArgs?.deadlineAtMs).toBe('number');
+    // Strict equality — no approximation, no recomputation at migration time.
+    expect(task.migratedDeadlineMs).toBe(capturedArgs?.deadlineAtMs);
+
+    await waitUntilGone(runningFile, 5000);
+  });
+
+  it('L1 winning the deadline race is still classified as migrated hard timeout', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+
+    // The fake L1 handle rejects at the EXACT deadline the wrapper passes —
+    // its timer is registered before the monitor's hard timer for the same
+    // due instant, so L1 provably wins the race while the L4 closure boolean
+    // stays false. Classification must come from the persisted deadline.
+    let captured: { handle: ExecHandle; identity: ExecutionIdentity } | undefined;
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async (args) => {
+        const deadlineAtMs = args.deadlineAtMs;
+        if (deadlineAtMs === undefined) {
+          throw new Error('expected an absolute deadline arg from the wrapper');
+        }
+        captured = makeFakeL1Handle({
+          rejectAfterMs: Math.max(0, deadlineAtMs - Date.now()),
+          makeError: (identity) => new ProcessExecError({
+            message: `Command timed out at absolute deadline ${deadlineAtMs}`,
+            exitCode: null,
+            killed: true,
+            termination: {
+              status: 'gone',
+              trigger: 'timeout',
+              termSent: true,
+              killSent: false,
+              identity,
+            },
+          }),
+        });
+        return captured.handle;
+      },
+      softTimeoutMs: SOFT_TIMEOUT_MS,
+      migratedHardTimeoutMs: HARD_TIMEOUT_MS,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const resultP = tool.execute({ command: 'sleep 30' }, ctx);
+    await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + 50); // migrate
+    const result = await resultP;
+    expect(result.success).toBe(true);
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+
+    // Reach the deadline: the fake L1 timer (registered first) fires ahead of
+    // the monitor's hard timer for the same instant.
+    await vi.advanceTimersByTimeAsync(HARD_TIMEOUT_MS);
+    vi.useRealTimers();
+    await waitUntilGone(runningFile, 5000);
+
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
+    const output = await fs.readFile(resultFile, 'utf-8');
+    // Canonical hard-timeout wording even though the L4 timer did not win —
+    // no degradation to `exited with error`.
+    expect(output).toContain(`[Process timed out: Migrated process timed out after ${HARD_TIMEOUT_MS}ms]`);
+    expect(output).not.toContain('exited with error');
+
+    const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
+    expect(termEvents.length).toBe(1);
+    expect(termEvents[0]).toContain('context=hard_timeout');
+    expect(termEvents[0]).toContain('trigger=timeout');
+    expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(true);
+  }, 20_000);
+
+  it('termination before the deadline preserves the structured L1 fact (no flat drop)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+
+    const REJECT_AFTER_MS = 200; // after migration (100ms), long before the 5.1s deadline
+    const captured = makeFakeL1Handle({
+      rejectAfterMs: REJECT_AFTER_MS,
+      makeError: (identity) => new ProcessExecError({
+        message: 'Command output exceeded 1 MB limit',
+        exitCode: null,
+        killed: true,
+        maxBufferExceeded: true,
+        termination: {
+          status: 'gone',
+          trigger: 'max_buffer',
+          termSent: true,
+          killSent: false,
+          identity,
+        },
+      }),
+    });
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async () => captured.handle,
+      softTimeoutMs: SOFT_TIMEOUT_MS,
+      migratedHardTimeoutMs: HARD_TIMEOUT_MS,
+    });
+
+    try {
+      const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+      const resultP = tool.execute({ command: 'sleep 30' }, ctx);
+      await vi.advanceTimersByTimeAsync(SOFT_TIMEOUT_MS + 50); // migrate
+      const result = await resultP;
+      expect(result.success).toBe(true);
+      const fullId = result.metadata?.fullTaskId as string;
+      const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+
+      await vi.advanceTimersByTimeAsync(REJECT_AFTER_MS); // pre-deadline rejection fires
+      vi.useRealTimers();
+      await waitUntilGone(runningFile, 5000);
+
+      const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
+      const output = await fs.readFile(resultFile, 'utf-8');
+      expect(output).toMatch(/\[Process exited with error:/);
+      expect(output).not.toContain('[Process timed out:');
+
+      // The structured termination fact survives under its own context.
+      const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
+      expect(termEvents.length).toBe(1);
+      expect(termEvents[0]).toContain('context=pre_deadline_termination');
+      expect(termEvents[0]).toContain('trigger=max_buffer');
+      expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
+      expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(false);
+    } finally {
+      // The wrapper does not terminate on this branch (L1 already reported
+      // gone); the REAL child behind the fake handle is ours to clean up.
+      if (isAlive(captured.identity.leaderPid)) {
+        await captured.handle.terminate();
+      }
+    }
+  }, 20_000);
+});
+
+/**
+ * Phase 1272 Step C — production 30s-default survival regression (real OS)
+ *
+ * The single direct production regression for the reported bug: with NO agent
+ * timeoutMs, a migrated command must cross the production L1 default (30s)
+ * alive and finish naturally before the single absolute deadline. Uses the
+ * real createExecWithHandle() — no L1 timer mocks, no __testMinTimeoutMs.
+ */
+describe('phase 1272 Step C: production 30s-default survival regression (real OS)', () => {
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+  let audit: AuditLog;
+  let auditEvents: Array<[string, ...(string | number)[]]>;
+  let system: AsyncTaskSystem;
+
+  beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    tmpDir = path.join(os.tmpdir(), `phase1272-30s-regression-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    const mockAudit = makeMockAudit();
+    audit = mockAudit.audit;
+    auditEvents = mockAudit.events;
+
+    system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit,
+      ...makeTaskSystemDeps(),
+    });
+    await system.initialize();
+  });
+
+  afterEach(async () => {
+    await system.shutdown(1000).catch(() => { /* silent */ });
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  it('migrated exec crosses the production 30s L1 default and completes naturally before the deadline', async () => {
+    // Named budget derivation (no magic numbers):
+    const SURVIVE_BEYOND_L1_DEFAULT_MS = 1_000; // command provably outlives the production default
+    const COMMAND_SLEEP_MS = PROCESS_EXEC_DEFAULT_TIMEOUT_MS + SURVIVE_BEYOND_L1_DEFAULT_MS; // 31_000
+    const HARD_SLACK_AFTER_EXIT_MS = 4_000; // absolute deadline lands after the natural exit
+    const SOFT_TIMEOUT_MS = 100;
+    const MONITOR_SLACK_MS = 5_000; // waitUntilGone budget beyond the deadline
+    const SENTINEL = 'PHASE1272_SURVIVED_30S';
+
+    const base = createExecWithHandle();
+    let capturedArgs: ExecWithHandleArgs | undefined;
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: async (args, ctx) => {
+        capturedArgs = args;
+        return base(args, ctx);
+      },
+      softTimeoutMs: SOFT_TIMEOUT_MS,
+      // deadline = spawn + soft + hard = spawn + COMMAND_SLEEP + slack
+      migratedHardTimeoutMs: COMMAND_SLEEP_MS + HARD_SLACK_AFTER_EXIT_MS - SOFT_TIMEOUT_MS,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const startedAt = Date.now();
+    const result = await tool.execute(
+      { command: `sleep ${COMMAND_SLEEP_MS / 1000} && echo ${SENTINEL}` },
+      ctx,
+    );
+    expect(result.success).toBe(true);
+    expect(result.content).toMatch(/Execution moved to async\. Task:/);
+
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const runningTask = JSON.parse(await fs.readFile(runningFile, 'utf-8'));
+    // The same absolute deadline fact reached L1 and the disk verbatim.
+    expect(runningTask.migratedDeadlineMs).toBe(capturedArgs?.deadlineAtMs);
+
+    await waitUntilGone(runningFile, COMMAND_SLEEP_MS + HARD_SLACK_AFTER_EXIT_MS + MONITOR_SLACK_MS);
+
+    // The command genuinely crossed the production 30s L1 default.
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(PROCESS_EXEC_DEFAULT_TIMEOUT_MS);
+
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
+    const output = await fs.readFile(resultFile, 'utf-8');
+    expect(output).toContain(SENTINEL);
+    // No internal 30s kill, no hard timeout, no error marker at all.
+    expect(output).not.toContain(`Command timed out after ${PROCESS_EXEC_DEFAULT_TIMEOUT_MS}ms`);
+    expect(output).not.toContain('[Process timed out:');
+    expect(output).not.toContain('exited with error');
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(false);
+    expect(auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION).length).toBe(0);
+
+    const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
+    expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
+  }, 60_000); // wall ~31s: command sleep + monitor/delivery slack
 });

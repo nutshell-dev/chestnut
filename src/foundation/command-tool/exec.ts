@@ -32,29 +32,40 @@ export interface PreExecGuard {
   (command: string): { allow: true } | { allow: false; reason: string };
 }
 
-export interface ExecWithHandleArgs {
+/**
+ * Low-level exec handle args (phase 1272 Step C): the timeout strategy is
+ * mutually exclusive at the type level — relative `timeoutMs` (business
+ * budget, clamped by L1) or absolute `deadlineAtMs` (neutral epoch fact,
+ * passed through to L1 untouched). The agent-facing tool schema does NOT
+ * expose `deadlineAtMs`; only internal L4 callers may supply it.
+ */
+export type ExecWithHandleArgs = {
   command: string;
   cwd?: string;
-  timeoutMs?: number;
   stdin?: string;
-}
+} & (
+  | { timeoutMs?: number; deadlineAtMs?: never }
+  | { timeoutMs?: never; deadlineAtMs?: number }
+);
 
 interface ResolvedExecArgs {
   command: string;
   cwd: string;
   timeoutMs: number | undefined;
+  deadlineAtMs: number | undefined;
   env: Record<string, string> | undefined;
   stdin: string | undefined;
 }
 
 function resolveExecArgs(
-  args: { command: string; cwd?: string; timeoutMs?: number; stdin?: string },
+  args: { command: string; cwd?: string; timeoutMs?: number; deadlineAtMs?: number; stdin?: string },
   ctx: ExecContext,
 ): ResolvedExecArgs {
   const cwd = args.cwd
     ? (path.isAbsolute(args.cwd) ? args.cwd : path.resolve(ctx.workspaceDir, args.cwd))
     : ctx.workspaceDir;
   const timeoutMs = toSafeNumber(args.timeoutMs);
+  const deadlineAtMs = toSafeNumber(args.deadlineAtMs);
   const env = ctx.subagentTaskId
     ? { ...process.env, CHESTNUT_SUBAGENT_TASK_ID: ctx.subagentTaskId }
     : undefined;
@@ -62,6 +73,7 @@ function resolveExecArgs(
     command: args.command,
     cwd,
     timeoutMs,
+    deadlineAtMs,
     env,
     stdin: args.stdin,
   };
@@ -285,7 +297,7 @@ export function createExecWithHandle(preExecGuard?: PreExecGuard) {
     args: ExecWithHandleArgs,
     ctx: ExecContext,
   ): Promise<ExecHandle> {
-    const { command, cwd, timeoutMs, env, stdin } = resolveExecArgs(args, ctx);
+    const { command, cwd, timeoutMs, deadlineAtMs, env, stdin } = resolveExecArgs(args, ctx);
 
     if (preExecGuard) {
       const result = preExecGuard(command);
@@ -294,9 +306,16 @@ export function createExecWithHandle(preExecGuard?: PreExecGuard) {
       }
     }
 
+    // Runtime mirror of the type-level mutual exclusion: JS callers can
+    // bypass the compile-time contract, and silently picking one policy by
+    // priority would hide a caller bug (phase 1272 Step C).
+    if (timeoutMs !== undefined && deadlineAtMs !== undefined) {
+      throw new Error('timeoutMs and deadlineAtMs are mutually exclusive');
+    }
+
     return execWithHandle('sh', ['-c', command], {
       cwd,
-      timeout: timeoutMs,
+      ...(deadlineAtMs !== undefined ? { deadlineAtMs } : { timeout: timeoutMs }),
       signal: ctx.signal,
       stdin,
       env,

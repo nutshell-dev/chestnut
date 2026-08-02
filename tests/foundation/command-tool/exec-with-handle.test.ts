@@ -92,3 +92,47 @@ describe('createExecWithHandle execution identity passthrough (phase 1269)', () 
     expect((err as ProcessExecError).termination!.identity).toEqual(handle.identity);
   }, 15_000);
 });
+
+
+/**
+ * Phase 1272 Step C — createExecWithHandle absolute deadline passthrough
+ *
+ * The low-level factory transparently forwards `deadlineAtMs` (mutually
+ * exclusive with `timeoutMs`) to L1; the relative timeoutMs path is
+ * behaviorally unchanged. The agent-facing schema never exposes the field.
+ */
+describe('createExecWithHandle deadline passthrough (phase 1272 Step C)', () => {
+  it('forwards deadlineAtMs to L1 untouched (absolute deadline fires, no relative clamp)', async () => {
+    const DEADLINE_AHEAD_MS = 50; // ≫ scheduling jitter, ≪ the 30s relative default
+    const execWithHandle = createExecWithHandle();
+    const ctx = makeExecContext({ workspaceDir: process.cwd() });
+    const handle = await execWithHandle(
+      { command: 'sleep 10', deadlineAtMs: Date.now() + DEADLINE_AHEAD_MS },
+      ctx,
+    );
+    const err = await handle.promise.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProcessExecError);
+    const error = err as ProcessExecError;
+    expect(error.message).toContain('absolute deadline');
+    expect(error.termination!.trigger).toBe('timeout');
+    expect(error.termination!.status).toBe('gone');
+  }, 15_000);
+
+  it('rejects timeoutMs + deadlineAtMs together instead of silently picking one', async () => {
+    const execWithHandle = createExecWithHandle();
+    const ctx = makeExecContext({ workspaceDir: process.cwd() });
+    await expect(
+      // @ts-expect-error phase 1272: the two timeout strategies are mutually exclusive at the type level
+      execWithHandle({ command: 'true', timeoutMs: 1000, deadlineAtMs: Date.now() + 1000 }, ctx),
+    ).rejects.toThrow('mutually exclusive');
+  });
+
+  it('relative timeoutMs path is unchanged', async () => {
+    const execWithHandle = createExecWithHandle();
+    const ctx = makeExecContext({ workspaceDir: process.cwd() });
+    const handle = await execWithHandle({ command: 'echo ok', timeoutMs: 5000 }, ctx);
+    const result = await handle.promise;
+    expect(result.exitCode).toBe(0);
+    expect(result.output.trim()).toBe('ok');
+  });
+});
