@@ -25,8 +25,8 @@ import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/reg
 import { clawCrashedGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-crashed.js';
 import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
+import { contractEventsGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-events.js';
 import { registerCliGuidance } from '../../../src/cli-protocol/index.js';
-import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
 import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
 import { encodeContractEventsGuidance, encodeContractCancelledGuidance } from '../../../src/core/contract/index.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
@@ -416,12 +416,12 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     );
   });
 
-  it('phase 1261 Step B: contract_events 真实 codec 链 + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
+  it('phase 1261 Step B + phase 1266 Step A: contract_events 真实 typed binding + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('contract_events', contractEventsComposer);
+    registerCliGuidance(guidanceRegistry, [contractEventsGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -443,12 +443,12 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('phase 1261 Step B: contract_events v1 空 refs → 仅投递正文、不追加 guidance、无 audit（合法 owner state）', async () => {
+  it('phase 1261 Step B + phase 1266 Step A: contract_events v1 空 refs → 仅投递正文、不追加 guidance、无 audit（合法 owner state）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('contract_events', contractEventsComposer);
+    registerCliGuidance(guidanceRegistry, [contractEventsGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -468,13 +468,13 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('phase 1261 Step B: contract_events legacy malformed pair → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（不再部分提示）', async () => {
+  it('phase 1261 Step B + phase 1266 Step A: contract_events legacy malformed pair → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（不再部分提示）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
     registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('contract_events', contractEventsComposer);
+    registerCliGuidance(guidanceRegistry, [contractEventsGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,

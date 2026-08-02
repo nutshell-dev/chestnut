@@ -9,6 +9,7 @@
  * 当前结构：13 NO_GUIDANCE sentinel + 6 real composer（claw_outbox_summary by phase 1476 γ2 + contract_cancelled by phase 63 γ）。
  * phase 1264 Step A: claw_inactivity 迁入 typed binding（aggregate 注释不再逐个列举 CLI composer）。
  * phase 1265 Step A: claw_outbox_summary 迁入同一次 typed bindings 聚合（第三个迁移的 CLI binding）。
+ * phase 1266 Step A: contract_events 迁入同一次 typed bindings 聚合（第四个迁移的 CLI binding）。
  *
  * DP「不静默」+ M#9 显式表达：每 sender type 必显式 register / 漏注由
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.
@@ -20,7 +21,7 @@ import { registerCliGuidance } from '../../../cli-protocol/index.js';
 import { clawCrashedGuidanceBinding } from '../bindings/claw-crashed.js';
 import { clawInactivityGuidanceBinding } from '../bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../bindings/claw-outbox-summary.js';
-import { composer as contractEvents } from './contract-events.js';
+import { contractEventsGuidanceBinding } from '../bindings/contract-events.js';
 import { composer as verificationResult } from './verification-result.js';
 import { composer as verificationRejection } from './verification-rejection.js';
 import { composer as verificationError } from './verification-error.js';
@@ -40,15 +41,16 @@ import { composer as contractCancelled } from './contract-cancelled.js';
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
   // phase 1263 Step C: claw_crashed 经 CLIProtocol typed binding 注册（首个迁移的 CLI binding）；
   // phase 1264 Step A: claw_inactivity 加入同一次 registerCliGuidance 聚合调用（第二个迁移的 CLI binding）；
-  // phase 1265 Step A: claw_outbox_summary 加入同一聚合（第三个迁移的 CLI binding）。
+  // phase 1265 Step A: claw_outbox_summary 加入同一聚合（第三个迁移的 CLI binding）；
+  // phase 1266 Step A: contract_events 加入同一聚合（第四个迁移的 CLI binding）。
   // 数组只是 Assembly contribution 聚合、各 binding 本身独立；duplicate preflight 覆盖全部 CLI binding。
-  // 其余两个待迁 CLI composer 与 generic composer 保持 direct register。
+  // 最后一个待迁 CLI composer（contract_cancelled）与 generic composer 保持 direct register。
   registerCliGuidance(registry, [
     clawCrashedGuidanceBinding,
     clawInactivityGuidanceBinding,
     clawOutboxSummaryGuidanceBinding,
+    contractEventsGuidanceBinding,
   ]);
-  registry.register('contract_events', contractEvents);
   registry.register('verification_result', verificationResult);
   registry.register('verification_rejection', verificationRejection);
   registry.register('verification_error', verificationError);
