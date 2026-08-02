@@ -4,11 +4,9 @@
  * Interface types only. Constants live in `constants.ts`; error classes in `errors.ts`.
  */
 
-export interface ExecOptions {
+export interface ExecBaseOptions {
   /** Working directory (required) */
   cwd: string;
-  /** Timeout in ms, clamped to [PROCESS_EXEC_TIMEOUT_MIN_MS, PROCESS_EXEC_TIMEOUT_MAX_MS] */
-  timeout?: number;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
   /** Environment variables for child process. If provided, only these + PATH are passed (no process.env inheritance). If omitted, inherits all of process.env. */
@@ -38,6 +36,36 @@ export interface ExecOptions {
    */
   __testSigkillGraceMs?: number;
 }
+
+/**
+ * Timeout scheduling policy (phase 1272 Step B) — exactly one of two
+ * L1-neutral strategies, mutually exclusive at the type level:
+ *
+ * - relative `timeout` (ms): business-facing budget; defaults to
+ *   PROCESS_EXEC_DEFAULT_TIMEOUT_MS and is clamped to
+ *   [PROCESS_EXEC_TIMEOUT_MIN_MS, PROCESS_EXEC_TIMEOUT_MAX_MS].
+ * - absolute `deadlineAtMs` (epoch ms): a neutral wall-clock fact supplied by
+ *   the caller; NOT subject to the relative business clamp. The runtime timer
+ *   delay is derived from `deadlineAtMs - Date.now()` and re-derived on every
+ *   segment fire, so a deadline beyond the Node single-timer cap or a backward
+ *   clock jump can never collapse into a 1ms misfire.
+ *
+ * Passing both (or neither field name spelled differently) is a compile-time
+ * error — no special numeric values (0/Infinity/null) act as hidden protocol.
+ */
+export type ExecTimeoutPolicy =
+  | {
+      /** Timeout in ms, clamped to [PROCESS_EXEC_TIMEOUT_MIN_MS, PROCESS_EXEC_TIMEOUT_MAX_MS] */
+      timeout?: number;
+      deadlineAtMs?: never;
+    }
+  | {
+      timeout?: never;
+      /** Absolute wall-clock deadline (epoch ms); must be a positive safe integer. */
+      deadlineAtMs: number;
+    };
+
+export type ExecOptions = ExecBaseOptions & ExecTimeoutPolicy;
 
 export interface ExecResult {
   /** Combined stdout + stderr in chronological order */

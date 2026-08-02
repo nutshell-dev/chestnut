@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { execWithHandle, ProcessExecError, isProcessGroupAlive, probeExecutionGroup, terminateExecutionGroup, getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { PROCESS_EXEC_TIMEOUT_MAX_MS } from '../../../src/foundation/process-exec/constants.js';
 import * as os from 'os';
 
 /**
@@ -420,5 +421,200 @@ describe('persisted identity recovery probe (phase 1269 Step F, real OS)', () =>
     const outcome = await terminateExecutionGroup(identity, 'caller_requested');
     expect(outcome.status).toBe('gone');
     expect(isProcessGroupAlive(identity.processGroupId)).toBe(false);
+  }, 20_000);
+});
+
+
+/**
+ * Phase 1272 Step B — absolute deadline policy (L1-neutral primitive)
+ *
+ * `deadlineAtMs` (epoch ms) is a caller-supplied wall-clock fact: it is NOT
+ * routed through the relative business clamp (default 30s, ceiling 600s),
+ * the runtime delay is derived from the epoch fact, and Node's signed-32-bit
+ * single-timer cap is handled by segmented re-arm instead of overflowing
+ * into a ~1ms misfire. The relative policy is behaviorally unchanged.
+ */
+describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+  const workDir = os.tmpdir();
+
+  // Short grace so TERM→KILL escalation and group-gone confirmation stay
+  // cheap under both real and fake timers (same role as existing tests).
+  const TEST_SIGKILL_GRACE_MS = 50;
+
+  // Node platform fact: a single setTimeout delay is capped at the signed
+  // 32-bit ms max; larger delays overflow and fire after ~1ms.
+  const NODE_TIMER_DELAY_CAP_MS = 2_147_483_647;
+
+  /**
+   * Advance fake timers in small steps while yielding real event-loop turns
+   * (setImmediate stays real under this file's fake-timer config), so the OS
+   * can actually deliver SIGTERM and reap the child between L1's grace timer
+   * and group-gone confirmation polls.
+   */
+  async function advanceWithRealYield(ms: number): Promise<void> {
+    const STEP_MS = 25; // matches L1's group-confirm poll granularity
+    for (let elapsed = 0; elapsed < ms; elapsed += STEP_MS) {
+      await vi.advanceTimersByTimeAsync(STEP_MS);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+
+  it('absolute deadline terminates at the deadline with timeout facts (real timers)', async () => {
+    const DEADLINE_AHEAD_MS = 50; // ≫ scheduling jitter, ≪ any test budget
+    const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
+      cwd: workDir,
+      deadlineAtMs: Date.now() + DEADLINE_AHEAD_MS,
+      __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
+    });
+    const err = await handle.promise.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProcessExecError);
+    const error = err as ProcessExecError;
+    expect(error.message).toContain('absolute deadline');
+    expect(error.termination!.trigger).toBe('timeout');
+    expect(error.termination!.status).toBe('gone');
+    expect(isAlivePid(handle.identity!.leaderPid)).toBe(false);
+  }, 20_000);
+
+  it('an already-passed deadline enters the shared termination path immediately', async () => {
+    const ALREADY_ELAPSED_MS = 1_000; // any positive past offset proves the ≤0 branch
+    const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
+      cwd: workDir,
+      deadlineAtMs: Date.now() - ALREADY_ELAPSED_MS,
+      __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
+    });
+    const err = await handle.promise.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProcessExecError);
+    const error = err as ProcessExecError;
+    expect(error.termination!.trigger).toBe('timeout');
+    expect(error.termination!.status).toBe('gone');
+  }, 20_000);
+
+  it('invalid deadlineAtMs values throw synchronously before any spawn', () => {
+    const invalid = [Number.NaN, Number.POSITIVE_INFINITY, 1.5, 0, -5];
+    for (const value of invalid) {
+      try {
+        execWithHandle('sh', ['-c', 'echo SHOULD_NOT_RUN'], {
+          cwd: workDir,
+          deadlineAtMs: value,
+        });
+        expect.fail(`should have thrown for deadlineAtMs=${String(value)}`);
+      } catch (err) {
+        expect(err).toBeInstanceOf(ProcessExecError);
+        expect((err as ProcessExecError).message).toContain('Invalid deadlineAtMs');
+      }
+    }
+  });
+
+  it('timeout and deadlineAtMs together are rejected at the entry (mutual exclusion)', () => {
+    try {
+      // @ts-expect-error phase 1272: relative timeout and absolute deadline are mutually exclusive at the type level
+      execWithHandle('sh', ['-c', 'echo SHOULD_NOT_RUN'], { cwd: workDir, timeout: 1000, deadlineAtMs: Date.now() + 1000 });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      expect((err as ProcessExecError).message).toContain('mutually exclusive');
+    }
+  });
+
+  it('relative timeout above the 600s ceiling still clamps (existing contract, fake timers)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    const REQUESTED_TIMEOUT_MS = PROCESS_EXEC_TIMEOUT_MAX_MS + 300_000; // any value above the ceiling proves the clamp
+    const handle = execWithHandle('sh', ['-c', 'sleep 30'], {
+      cwd: workDir,
+      timeout: REQUESTED_TIMEOUT_MS,
+      __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
+    });
+    // Attach the consumer up front: the timer fires during fake-time
+    // advancement, and a late attach reads as an unhandled rejection.
+    const settledPromise = handle.promise.then(() => null, (e: unknown) => e);
+    try {
+      // One batch up to the clamped ceiling: fires the L1 timer and sends the
+      // real SIGTERM; the grace timer (due later) is not flushed in this batch.
+      await vi.advanceTimersByTimeAsync(PROCESS_EXEC_TIMEOUT_MAX_MS);
+      await advanceWithRealYield(2_000); // grace + group-gone confirmation polls
+      const err = await settledPromise;
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      expect(error.message).toBe(`Command timed out after ${PROCESS_EXEC_TIMEOUT_MAX_MS}ms`);
+      expect(error.termination!.trigger).toBe('timeout');
+    } finally {
+      vi.useRealTimers();
+      if (handle.identity && isAlivePid(handle.identity.leaderPid)) {
+        void handle.terminate().catch(() => { /* silent best-effort cleanup */ });
+      }
+    }
+  }, 20_000);
+
+  it('absolute deadline beyond the 600s relative ceiling is NOT clamped (fake timers)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    const BEYOND_CEILING_MS = 100_000; // deadline lands 100s past the relative ceiling
+    const deadlineAtMs = Date.now() + PROCESS_EXEC_TIMEOUT_MAX_MS + BEYOND_CEILING_MS;
+    const handle = execWithHandle('sh', ['-c', 'sleep 30'], {
+      cwd: workDir,
+      deadlineAtMs,
+      __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
+    });
+    let settled = false;
+    void handle.promise.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      // Past the relative ceiling: no termination, process alive, promise pending.
+      await vi.advanceTimersByTimeAsync(PROCESS_EXEC_TIMEOUT_MAX_MS + 1);
+      expect(settled).toBe(false);
+      expect(isAlivePid(handle.identity!.leaderPid)).toBe(true);
+
+      // Reach the deadline exactly: the timer fires and termination begins;
+      // flush grace/polls with real yields so the group genuinely goes away.
+      await vi.advanceTimersByTimeAsync(BEYOND_CEILING_MS - 1);
+      await advanceWithRealYield(2_000);
+      const err = await handle.promise.catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ProcessExecError);
+      const error = err as ProcessExecError;
+      expect(error.message).toBe(`Command timed out at absolute deadline ${deadlineAtMs}`);
+      expect(error.termination!.trigger).toBe('timeout');
+      expect(error.termination!.status).toBe('gone');
+    } finally {
+      vi.useRealTimers();
+      if (handle.identity && isAlivePid(handle.identity.leaderPid)) {
+        void handle.terminate().catch(() => { /* silent best-effort cleanup */ });
+      }
+    }
+  }, 20_000);
+
+  it('deadline beyond the Node single-timer cap is armed in segments — no 1ms overflow misfire', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    const TAIL_BEYOND_CAP_MS = 5_000; // deadline = cap + tail: forces ≥2 timer segments
+    const deadlineAtMs = Date.now() + NODE_TIMER_DELAY_CAP_MS + TAIL_BEYOND_CAP_MS;
+    const handle = execWithHandle('sh', ['-c', 'sleep 30'], {
+      cwd: workDir,
+      deadlineAtMs,
+      __testSigkillGraceMs: TEST_SIGKILL_GRACE_MS,
+    });
+    let settled = false;
+    void handle.promise.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      // An overflowed timer would have fired at ~1ms.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(settled).toBe(false);
+      expect(isAlivePid(handle.identity!.leaderPid)).toBe(true);
+
+      // First segment expires at the cap: the deadline is still ahead, so the
+      // implementation must re-arm for the remainder instead of firing.
+      await vi.advanceTimersByTimeAsync(NODE_TIMER_DELAY_CAP_MS - 1_000);
+      expect(settled).toBe(false);
+      expect(isAlivePid(handle.identity!.leaderPid)).toBe(true);
+
+      // The re-armed tail reaches the real deadline.
+      await vi.advanceTimersByTimeAsync(TAIL_BEYOND_CAP_MS);
+      await advanceWithRealYield(2_000);
+      const err = await handle.promise.catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ProcessExecError);
+      expect((err as ProcessExecError).termination!.trigger).toBe('timeout');
+    } finally {
+      vi.useRealTimers();
+      if (handle.identity && isAlivePid(handle.identity.leaderPid)) {
+        void handle.terminate().catch(() => { /* silent best-effort cleanup */ });
+      }
+    }
   }, 20_000);
 });

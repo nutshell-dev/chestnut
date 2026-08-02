@@ -29,6 +29,15 @@ import type {
 import { ProcessExecError } from './errors.js';
 
 /**
+ * Node caps a single setTimeout delay at a signed 32-bit ms value; larger
+ * delays overflow and fire after ~1ms. Absolute deadlines may legitimately
+ * exceed that cap, so the deadline timer is armed in segments of at most
+ * this size and the remaining time is re-derived from the epoch fact on
+ * every fire (phase 1272 Step B).
+ */
+const MAX_SINGLE_TIMER_DELAY_MS = 2_147_483_647;
+
+/**
  * Clamp caller-supplied timeout into the supported range.
  * Pure / side-effect free / unit-testable.
  * `minOverride` lets tests bypass the empirical floor (phase 1394).
@@ -144,7 +153,28 @@ export function execWithHandle(
   // Production callers are silently degraded to the default constants rather
   // than bypassing the empirical floor or the SIGTERM→SIGKILL grace (F7).
   const testMode = process.env.NODE_ENV === 'test';
-  const timeout = clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS, testMode ? options.__testMinTimeoutMs : undefined);
+  // Timeout scheduling policy (phase 1272 Step B): exactly one of relative
+  // `timeout` (default/clamp unchanged) or absolute `deadlineAtMs` (a neutral
+  // epoch fact, never routed through the relative business clamp).
+  const deadlineAtMs = options.deadlineAtMs;
+  // Runtime mirror of the type-level mutual exclusion: JS callers can bypass
+  // the compile-time contract, and silently picking one policy by priority
+  // would hide a caller bug (phase 1272 Step B reverse-acceptance 2).
+  if (deadlineAtMs !== undefined && options.timeout !== undefined) {
+    throw new ProcessExecError({
+      message: 'timeout and deadlineAtMs are mutually exclusive: choose exactly one timeout policy',
+      exitCode: null,
+    });
+  }
+  if (deadlineAtMs !== undefined && (!Number.isSafeInteger(deadlineAtMs) || deadlineAtMs <= 0)) {
+    throw new ProcessExecError({
+      message: `Invalid deadlineAtMs: ${String(options.deadlineAtMs)} (must be a positive safe epoch-ms integer)`,
+      exitCode: null,
+    });
+  }
+  const timeout = deadlineAtMs === undefined
+    ? clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS, testMode ? options.__testMinTimeoutMs : undefined)
+    : undefined;
   const maxBuffer = Math.max(1, options.maxBuffer ?? PROCESS_EXEC_DEFAULT_MAX_BUFFER);
   const env = buildChildEnv(options);
 
@@ -237,10 +267,37 @@ export function execWithHandle(
     proc.stdout?.on('data', (chunk: Buffer) => collector.pushStdout(chunk));
     proc.stderr?.on('data', (chunk: Buffer) => collector.pushStderr(chunk));
 
-    const timeoutId = setTimeout(() => {
+    // Arm the timeout/deadline timer. Relative policy: one shot at the
+    // clamped budget (behavior unchanged). Absolute policy: the delay is
+    // derived from the epoch fact and capped at the Node single-timer max;
+    // each fire re-derives the remainder so neither 32-bit overflow nor a
+    // backward clock jump can fire early (phase 1272 Step B).
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const fireTimeout = (): void => {
       timedOut = true;
       terminate('timeout');
-    }, timeout);
+    };
+    const armTimer = (): void => {
+      if (deadlineAtMs === undefined) {
+        timeoutId = setTimeout(fireTimeout, timeout!);
+        return;
+      }
+      const remainingMs = deadlineAtMs - Date.now();
+      if (remainingMs <= 0) {
+        // Deadline already reached: enter the shared termination state
+        // machine immediately, on the same path as a fired timer.
+        fireTimeout();
+        return;
+      }
+      timeoutId = setTimeout(() => {
+        if (Date.now() >= deadlineAtMs) {
+          fireTimeout();
+        } else {
+          armTimer();
+        }
+      }, Math.min(remainingMs, MAX_SINGLE_TIMER_DELAY_MS));
+    };
+    armTimer();
 
     // Mid-flight abort: the listener only starts the shared termination
     // state machine (first trigger wins); it never rejects directly and
@@ -299,7 +356,9 @@ export function execWithHandle(
             // System termination reasons take precedence over exit code interpretation.
             if (timedOut) {
               reject(new ProcessExecError({
-                message: `Command timed out after ${timeout}ms`,
+                message: deadlineAtMs !== undefined
+                  ? `Command timed out at absolute deadline ${deadlineAtMs}`
+                  : `Command timed out after ${timeout}ms`,
                 output,
                 exitCode: code ?? null,
                 signal: signal ?? undefined,
