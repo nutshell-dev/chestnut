@@ -42,12 +42,15 @@ vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOr
     ...actual,
     isAlive: vi.fn(),
     getProcessStartTime: vi.fn(),
+    probeLegacyProcess: vi.fn(),
+    terminateLegacyProcess: vi.fn(),
+    probeExecutionGroup: vi.fn(),
+    terminateExecutionGroup: vi.fn(),
   };
 });
 
 import { recoverMigratedToolTask } from '../../../src/core/async-task-system/task-recovery.js';
 import { sendFallbackError } from '../../../src/core/async-task-system/result-delivery.js';
-import { isAlive, getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
 import { recoverTasks } from '../../../src/core/async-task-system/task-recovery.js';
 
 const VALID_TASK_ID = '550e8400-e29b-41d4-a716-446655440906';
@@ -197,25 +200,26 @@ describe('phase 906: dispatcher runtime convergence for migrated deadlines', () 
   });
 });
 
-describe('phase 906: SIGKILL verification keeps task in running', () => {
+describe('phase 906+1269: termination survival keeps task in running', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('keeps task in running and audits when SIGKILL does not terminate the process', async () => {
-    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
-    // alive at entry, dies after SIGTERM wait, alive again at SIGKILL gate, survives SIGKILL verification
-    vi.mocked(isAlive)
-      .mockReturnValueOnce(true)
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true)
-      .mockReturnValue(true);
+  it('keeps task in running and audits when the process survives TERM+KILL', async () => {
+    // Phase 1269 Step E: the SIGKILL-effectiveness concern is now owned by the
+    // L1 legacy termination state machine; recovery keeps the task in running
+    // whenever the outcome is not provably gone.
+    const { probeLegacyProcess, terminateLegacyProcess } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(probeLegacyProcess).mockReturnValue({ kind: 'alive' });
+    vi.mocked(terminateLegacyProcess).mockResolvedValue({
+      status: 'still_alive',
+      pid: 12345,
+      termSent: true,
+      killSent: true,
+      checkedAt: new Date().toISOString(),
+    });
 
     const startTime = 'Mon Jan 01 00:00:00 2020';
-    vi.mocked(getProcessStartTime).mockReturnValue(startTime);
-
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
-
     const task = makeMigratedToolTask({ migratedStartTime: startTime });
     const runningPath = `${TASKS_QUEUES_RUNNING_DIR}/${VALID_TASK_ID}.json`;
     const fs = makeInMemoryFs({
@@ -225,15 +229,17 @@ describe('phase 906: SIGKILL verification keeps task in running', () => {
     const { audit, events } = makeMockAudit();
     await recoverTasks({ fs, auditWriter: audit } as Parameters<typeof recoverTasks>[0]);
 
-    // Task must remain in running dir because SIGKILL was ineffective.
+    // Task must remain in running dir because termination was not confirmed.
     expect(fs.move).not.toHaveBeenCalled();
+    expect(terminateLegacyProcess).toHaveBeenCalledWith(12345, startTime);
 
-    const sigkillEvents = events.filter(
-      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e[2] === 'context=migrated_sigkill_ineffective',
+    const termEvents = events.filter(
+      (e) => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION,
     );
-    expect(sigkillEvents.length).toBe(1);
-
-    killSpy.mockRestore();
+    expect(termEvents.length).toBe(1);
+    expect(termEvents[0]).toContain('context=recovery_hard_timeout');
+    expect(termEvents[0]).toContain('status=still_alive');
+    expect(termEvents[0]).toContain('kill_sent=true');
   });
 });
 

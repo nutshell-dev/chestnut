@@ -472,6 +472,57 @@ export function emitPreparedTaskIdentityConflict(
   );
 }
 
+// ─── TASK_MIGRATED_EXEC_TERMINATION / TASK_MIGRATED_LEGACY_IDENTITY (phase 1269 Step E) ───
+/**
+ * Termination outcome audit for migrated exec. Every L1 terminate call from
+ * runtime (caller abort / persist failure / hard timeout) or restart
+ * recovery must emit exactly one row with the full three-state outcome.
+ * `indeterminate` must surface its reason and must never be flattened.
+ */
+export function emitMigratedExecTermination(
+  audit: AuditLog,
+  opts: {
+    taskId: string;
+    context: 'caller_abort' | 'persist_failed' | 'hard_timeout' | 'recovery_hard_timeout';
+    /** Identity cols, e.g. ['leader_pid=123', 'process_group_id=123'] or ['identity=legacy_pid_only', 'leader_pid=123']. */
+    identityCols: string[];
+    trigger: string;
+    termSent: boolean;
+    killSent: boolean;
+    status: 'gone' | 'still_alive' | 'indeterminate';
+    reason?: string;
+  },
+): void {
+  const cols: (string | number)[] = [
+    `taskId=${opts.taskId}`,
+    `context=${opts.context}`,
+    ...opts.identityCols,
+    `trigger=${opts.trigger}`,
+    `term_sent=${opts.termSent}`,
+    `kill_sent=${opts.killSent}`,
+    `status=${opts.status}`,
+  ];
+  if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
+  audit.write(TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION, ...cols);
+}
+
+/**
+ * Legacy PID-only task recovered: the process was spawned non-detached, so
+ * no process-group identity exists and descendant cleanup is unprovable.
+ * Emitted once per recovery pass for honesty; the legacy write path is zero.
+ */
+export function emitMigratedLegacyIdentity(
+  audit: AuditLog,
+  opts: { taskId: string; pid: number },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.TASK_MIGRATED_LEGACY_IDENTITY,
+    `taskId=${opts.taskId}`,
+    `pid=${opts.pid}`,
+    'note=descendant_cleanup_unprovable',
+  );
+}
+
 // ─── Legacy helper: format error and emit ─────────────────────────────────────
 // Re-export formatErr for callers that need to format errors before typed emit.
 export { formatErr };

@@ -1229,8 +1229,8 @@ describe('phase 1119', () => {
       await mockFs.writeAtomic(resultPath, 'complete output');
       await mockFs.writeAtomic(exitMarkerPath, JSON.stringify({ completedAt: new Date().toISOString() }));
 
-      vi.spyOn(processExecModule, 'isAlive').mockReturnValue(false);
-      vi.spyOn(processExecModule, 'getProcessStartTime').mockReturnValue(task.migratedStartTime);
+      // phase 1269 Step E: recovery probes via the L1 legacy single-process path.
+      vi.spyOn(processExecModule, 'probeLegacyProcess').mockReturnValue({ kind: 'gone' });
 
       const { audit, events } = makeMockAudit();
       await recoverTasks(makeRecoverDeps(mockFs, audit));
@@ -1249,8 +1249,7 @@ describe('phase 1119', () => {
       const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
       await mockFs.writeAtomic(resultPath, 'partial output');
 
-      vi.spyOn(processExecModule, 'isAlive').mockReturnValue(false);
-      vi.spyOn(processExecModule, 'getProcessStartTime').mockReturnValue(task.migratedStartTime);
+      vi.spyOn(processExecModule, 'probeLegacyProcess').mockReturnValue({ kind: 'gone' });
 
       const { audit, events } = makeMockAudit();
       await recoverTasks(makeRecoverDeps(mockFs, audit));
@@ -1272,12 +1271,16 @@ describe('phase 1119', () => {
       const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
       await mockFs.writeAtomic(resultPath, 'partial output');
 
-      let aliveCalls = 0;
-      vi.spyOn(processExecModule, 'isAlive').mockImplementation(() => {
-        aliveCalls++;
-        return aliveCalls <= 1;
+      // phase 1269 Step E: probe alive → recovery terminates via the L1 legacy
+      // state machine; a confirmed-gone outcome carries the kill note.
+      vi.spyOn(processExecModule, 'probeLegacyProcess').mockReturnValue({ kind: 'alive' });
+      vi.spyOn(processExecModule, 'terminateLegacyProcess').mockResolvedValue({
+        status: 'gone',
+        pid: 99999,
+        termSent: true,
+        killSent: false,
+        completedAt: new Date().toISOString(),
       });
-      vi.spyOn(processExecModule, 'getProcessStartTime').mockReturnValue(task.migratedStartTime);
 
       const { audit, events } = makeMockAudit();
       await recoverTasks(makeRecoverDeps(mockFs, audit));

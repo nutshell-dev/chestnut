@@ -103,11 +103,24 @@ export const ToolTaskSchema = z.object({
   mode: z.enum(['fresh', 'migrated']).optional(),
   migratedPid: z.number().optional(),
   migratedStartTime: z.string().optional(),
+  // Phase 1269: versioned execution-group identity (new migrated writes).
+  // Unknown/future versions fail parsing — fail-observable, never guessed.
+  migratedExecution: z.object({
+    version: z.literal(1),
+    leaderPid: z.number(),
+    processGroupId: z.number(),
+    leaderStartTime: z.string().optional(),
+  }).optional(),
   // Phase 906: absolute deadline (ms) for migrated process hard timeout
   migratedDeadlineMs: z.number().optional(),
   // Phase 874: persisted terminal intent for recovery routing
   terminalState: z.enum(['done', 'failed']).optional(),
-});
+}).refine(
+  // New migrated tasks must carry a complete execution identity; legacy
+  // PID-only files stay loadable until they drain naturally.
+  (t) => t.mode !== 'migrated' || t.migratedExecution !== undefined || t.migratedPid !== undefined,
+  { message: 'migrated tool task requires migratedExecution (v1) or legacy migratedPid' },
+);
 
 export const TaskSchema = z.union([
   SubAgentTaskSchema,

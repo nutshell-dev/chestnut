@@ -17,8 +17,10 @@ export type {
   ExecutionTerminationOutcome,
   ExecutionTerminationFact,
 } from './types.js';
-export { terminateExecutionGroup, isProcessGroupAlive } from './execution-group.js';
-export type { GroupTerminationOptions } from './execution-group.js';
+export { terminateExecutionGroup, isProcessGroupAlive, probeExecutionGroup } from './execution-group.js';
+export type { GroupTerminationOptions, ExecutionGroupRecoveryState } from './execution-group.js';
+export { probeLegacyProcess, terminateLegacyProcess } from './legacy-process.js';
+export type { LegacyProcessRecoveryState, LegacyProcessTerminationOutcome } from './legacy-process.js';
 export { spawnDetached } from './spawn-detached.js';
 export { kill, isAlive } from './process-control.js';
 export type { Signal } from './process-control.js';

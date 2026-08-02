@@ -16,12 +16,20 @@ import {
   emitRecoveryComplete,
   emitRecoveryFailed,
   emitRecoveryDeadLetter,
+  emitMigratedExecTermination,
+  emitMigratedLegacyIdentity,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { isAlive, getProcessStartTime } from '../../foundation/process-exec/index.js';
+import {
+  probeExecutionGroup,
+  terminateExecutionGroup,
+  probeLegacyProcess,
+  terminateLegacyProcess,
+} from '../../foundation/process-exec/index.js';
+import type { ExecutionIdentity } from '../../foundation/process-exec/index.js';
 import {
   SENT_MARKER,
   sendResult as defaultSendResult,
@@ -139,7 +147,7 @@ async function _recoverToolTask(
     return 0;
   }
 
-  if (task.mode === 'migrated' && task.migratedPid !== undefined) {
+  if (task.mode === 'migrated' && (task.migratedExecution !== undefined || task.migratedPid !== undefined)) {
     return recoverMigratedToolTask(deps, filePath, task);
   }
 
@@ -250,98 +258,129 @@ export async function recoverMigratedToolTask(
   const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
   const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
-  const pid = task.migratedPid!;
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   let killedByRecovery = false;
+  let pidForAudit: number;
 
-  // 1. Check whether the migrated process is still alive.
-  let processAlive = isAlive(pid);
-  if (processAlive && task.migratedStartTime !== undefined) {
-    const actualStartTime = getProcessStartTime(pid);
-    if (actualStartTime === undefined) {
-      // Cannot verify PID match — uncertain state, retry next recovery.
+  // 1. Probe the migrated execution unit (phase 1269 Step E).
+  //    All OS probes and signals go through L1; L4 maps the three-state
+  //    result to task state. Safety rule: `indeterminate` means ownership
+  //    cannot be proven (possible PID/PGID reuse) — never signal, never move
+  //    the task, never deliver a "cleaned up" result.
+  if (task.migratedExecution !== undefined) {
+    // ── v1 execution-group protocol ──────────────────────────────────────
+    const identity: ExecutionIdentity = {
+      leaderPid: task.migratedExecution.leaderPid,
+      processGroupId: task.migratedExecution.processGroupId,
+    };
+    pidForAudit = identity.leaderPid;
+    const probe = probeExecutionGroup(identity, task.migratedExecution.leaderStartTime);
+
+    if (probe.kind === 'indeterminate') {
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
-        context: 'migrated_start_time_unavailable',
+        context: 'migrated_exec_probe_indeterminate',
+        error: probe.reason,
       });
-      return 0;
+      return 0; // keep in running — retry next recovery cycle
     }
-    if (actualStartTime !== task.migratedStartTime) {
-      processAlive = false; // PID reused by a different process.
-    }
-  }
 
-  if (processAlive) {
-    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
-    if (Date.now() >= deadlineMs) {
-      // Hard timeout exceeded — kill the process, wait for exit, then proceed.
+    if (probe.kind === 'verified_alive') {
+      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+      if (Date.now() < deadlineMs) {
+        // Still within deadline, leave in running — natural convergence:
+        // process will exit or hit deadline on next startup recovery scan.
+        emitRecovered(auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          kind: task.kind,
+          from: 'running',
+          to: 'running',
+          reason: 'migrated_process_still_alive',
+        });
+        return 0;
+      }
+      // Hard timeout exceeded — terminate the verified group via L1
+      // (TERM→KILL→confirmed), then proceed only when provably gone.
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'migrated_process_hard_timeout_exceeded',
         error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
       });
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch (err) {
-        // ESRCH: already dead — fall through to result check
-        if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
-          emitRecoveryFailed(auditWriter, {
-            taskId: task.id,
-            context: 'migrated_process_kill_failed',
-            error: formatErr(err),
-          });
-        }
-      }
-      // Wait for process exit (poll isAlive with backoff)
-      const exitTimeoutMs = 10_000; // wait up to 10s for graceful exit
-      const startWait = Date.now();
-      while (isAlive(pid) && Date.now() - startWait < exitTimeoutMs) {
-        await new Promise<void>(resolve => setTimeout(resolve, 500));
-      }
-      if (isAlive(pid)) {
-        try { process.kill(pid, 'SIGKILL'); } catch { /* silent: ESRCH - process already dead */ }
-        await new Promise<void>(resolve => setTimeout(resolve, 1000));
-        const stillAlive = isAlive(pid);
-        if (stillAlive) {
-          // Phase 906: verify SIGKILL actually terminated the process.
-          if (task.migratedStartTime !== undefined) {
-            const actualStartTime = getProcessStartTime(pid);
-            if (actualStartTime !== undefined && actualStartTime !== task.migratedStartTime) {
-              // PID reused — original process died, safe to proceed.
-              processAlive = false;
-            } else {
-              emitRecoveryFailed(auditWriter, {
-                taskId: task.id,
-                context: 'migrated_sigkill_ineffective',
-                error: `Process ${pid} still alive after SIGKILL`,
-              });
-              return 0; // keep in running, retry next recovery cycle
-            }
-          } else {
-            emitRecoveryFailed(auditWriter, {
-              taskId: task.id,
-              context: 'migrated_sigkill_unverified',
-              error: `Process ${pid} still alive after SIGKILL, no startTime to verify`,
-            });
-            return 0;
-          }
-        }
-      }
-      processAlive = false; // fall through to result check
-      killedByRecovery = true; // phase 1119: recovery itself killed the process
-    } else {
-      // Still within deadline, leave in running — natural convergence:
-      // process will exit or hit deadline on next startup recovery scan.
-      emitRecovered(auditWriter, {
-        fullTaskId: task.id as FullTaskId,
-        shortTaskId: taskShortId(task),
-        kind: task.kind,
-        from: 'running',
-        to: 'running',
-        reason: 'migrated_process_still_alive',
+      const outcome = await terminateExecutionGroup(identity, 'caller_requested');
+      emitMigratedExecTermination(auditWriter, {
+        taskId: task.id,
+        context: 'recovery_hard_timeout',
+        identityCols: [
+          `leader_pid=${identity.leaderPid}`,
+          `process_group_id=${identity.processGroupId}`,
+        ],
+        trigger: outcome.trigger,
+        termSent: outcome.termSent,
+        killSent: outcome.killSent,
+        status: outcome.status,
+        reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
       });
-      return 0;
+      if (outcome.status !== 'gone') {
+        return 0; // still_alive / indeterminate — keep in running, retry next cycle
+      }
+      killedByRecovery = true; // phase 1119: recovery itself killed the process
     }
+    // probe.kind === 'gone' → fall through to result check
+  } else {
+    // ── legacy PID-only protocol (pre-phase-1269 writes) ─────────────────
+    // The process was spawned non-detached and is NOT a group leader — never
+    // guess a PGID. Verify and terminate THIS PROCESS ONLY via the explicit
+    // L1 legacy path; descendant cleanup is unprovable and audited as such.
+    const pid = task.migratedPid!;
+    pidForAudit = pid;
+    emitMigratedLegacyIdentity(auditWriter, { taskId: task.id, pid });
+
+    const probe = probeLegacyProcess(pid, task.migratedStartTime);
+    if (probe.kind === 'indeterminate') {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_legacy_probe_indeterminate',
+        error: probe.reason,
+      });
+      return 0; // keep in running — retry next recovery cycle
+    }
+
+    if (probe.kind === 'alive') {
+      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+      if (Date.now() < deadlineMs) {
+        emitRecovered(auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          kind: task.kind,
+          from: 'running',
+          to: 'running',
+          reason: 'migrated_process_still_alive',
+        });
+        return 0;
+      }
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_process_hard_timeout_exceeded',
+        error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
+      });
+      const outcome = await terminateLegacyProcess(pid, task.migratedStartTime);
+      emitMigratedExecTermination(auditWriter, {
+        taskId: task.id,
+        context: 'recovery_hard_timeout',
+        identityCols: ['identity=legacy_pid_only', `leader_pid=${pid}`],
+        trigger: 'caller_requested',
+        termSent: outcome.termSent,
+        killSent: outcome.killSent,
+        status: outcome.status,
+        reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+      });
+      if (outcome.status !== 'gone') {
+        return 0; // keep in running, retry next recovery cycle
+      }
+      killedByRecovery = true; // phase 1119: recovery itself killed the process
+    }
+    // probe.kind === 'gone' (dead or PID provably reused) → result check
   }
 
   // 2. Process is dead — check whether the wrapper already wrote the result.
@@ -422,7 +461,7 @@ export async function recoverMigratedToolTask(
         auditWriter.write(
           TASK_AUDIT_EVENTS.MIGRATED_TRUNCATED_RESULT_DELIVERED,
           `taskId=${task.id}`,
-          `pid=${pid}`,
+          `pid=${pidForAudit}`,
         );
       }
     }

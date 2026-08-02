@@ -17,6 +17,8 @@ import {
   PROCESS_EXEC_GROUP_KILL_CONFIRM_MS,
   PROCESS_EXEC_GROUP_CONFIRM_POLL_MS,
 } from './constants.js';
+import { isAlive } from './process-control.js';
+import { getProcessStartTime } from './process-starttime.js';
 import type {
   ExecutionIdentity,
   ExecutionTerminationOutcome,
@@ -120,6 +122,76 @@ function indeterminateOutcome(
     checkedAt: new Date().toISOString(),
     reason,
   };
+}
+
+/**
+ * Recovery probe result for a persisted execution identity (restart path).
+ * L4 maps these states to task state; it never performs its own OS probes or
+ * signals. `indeterminate` is a safety requirement, not an unfinished
+ * implementation: POSIX offers no durable process-group creation time, so a
+ * responding PGID without a verified leader cannot be distinguished from
+ * PGID reuse — signalling it could kill an innocent reused group.
+ */
+export type ExecutionGroupRecoveryState =
+  | { kind: 'verified_alive' }
+  | { kind: 'gone' }
+  | { kind: 'indeterminate'; reason: string };
+
+/**
+ * Probe whether a persisted execution identity still refers to a provably
+ * owned execution unit. Pure probe — never signals.
+ *
+ * - verified_alive: leader alive, start time matches, PGID consistent → the
+ *   caller may terminate the group via terminateExecutionGroup().
+ * - gone: leader dead (or provably reused) AND the group no longer responds.
+ * - indeterminate: ownership cannot be proven (leader gone but group still
+ *   responds, unreadable/missing start time, or PGID mismatch).
+ */
+export function probeExecutionGroup(
+  identity: ExecutionIdentity,
+  leaderStartTime?: string,
+): ExecutionGroupRecoveryState {
+  const leaderAlive = isAlive(identity.leaderPid);
+  if (!leaderAlive) {
+    return isProcessGroupAlive(identity.processGroupId)
+      ? { kind: 'indeterminate', reason: 'leader_gone_group_alive' }
+      : { kind: 'gone' };
+  }
+
+  if (leaderStartTime === undefined) {
+    return { kind: 'indeterminate', reason: 'leader_start_time_unavailable' };
+  }
+  const actualStartTime = getProcessStartTime(identity.leaderPid);
+  if (actualStartTime === undefined) {
+    return { kind: 'indeterminate', reason: 'leader_start_time_unreadable' };
+  }
+  if (actualStartTime !== leaderStartTime) {
+    // Leader PID provably reused — the original leader is gone. Only the
+    // group response decides whether anything attributable may remain.
+    return isProcessGroupAlive(identity.processGroupId)
+      ? { kind: 'indeterminate', reason: 'leader_reused_group_alive' }
+      : { kind: 'gone' };
+  }
+
+  // Leader verified. A setsid'd group leader cannot re-join another group,
+  // so its PGID must still equal the persisted one.
+  // process.getpgid is POSIX-only and missing from some @types/node versions.
+  const getpgid = (process as unknown as { getpgid?: (pid: number) => number }).getpgid;
+  if (getpgid === undefined) {
+    return { kind: 'indeterminate', reason: 'getpgid_unsupported' };
+  }
+  let currentPgid: number | undefined;
+  try {
+    currentPgid = getpgid(identity.leaderPid);
+  } catch {
+    // silent: ESRCH race — leader exited between isAlive and getpgid; the
+    // undefined PGID falls through to pgid_mismatch → honest indeterminate.
+    currentPgid = undefined;
+  }
+  if (currentPgid !== identity.processGroupId) {
+    return { kind: 'indeterminate', reason: 'pgid_mismatch' };
+  }
+  return { kind: 'verified_alive' };
 }
 
 /**

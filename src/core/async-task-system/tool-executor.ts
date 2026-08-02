@@ -64,14 +64,18 @@ async function executeMigratedToolTask(
   // PID reuse defense: verify the running process has the expected start time.
   // The wrapper guarantees the process has exited before calling executeToolTask,
   // but we keep the check to defend against an extremely unlikely PID reuse race.
-  if (task.migratedStartTime !== undefined && task.migratedPid !== undefined) {
-    const actualStartTime = getProcessStartTime(task.migratedPid);
-    if (actualStartTime !== undefined && actualStartTime !== task.migratedStartTime) {
+  // Phase 1269: prefer the v1 execution-group identity; legacy PID-only tasks
+  // fall back to migratedPid/migratedStartTime.
+  const monitorPid = task.migratedExecution?.leaderPid ?? task.migratedPid;
+  const monitorStartTime = task.migratedExecution?.leaderStartTime ?? task.migratedStartTime;
+  if (monitorStartTime !== undefined && monitorPid !== undefined) {
+    const actualStartTime = getProcessStartTime(monitorPid);
+    if (actualStartTime !== undefined && actualStartTime !== monitorStartTime) {
       auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MIGRATED_PID_REUSED,
         `taskId=${task.id}`,
-        `pid=${task.migratedPid}`,
-        `expected=${task.migratedStartTime}`,
+        `pid=${monitorPid}`,
+        `expected=${monitorStartTime}`,
         `actual=${actualStartTime}`,
       );
       const errorMsg = 'Migrated process PID reused';
@@ -136,7 +140,7 @@ async function executeMigratedToolTask(
   auditWriter.write(
     TASK_AUDIT_EVENTS.TASK_MIGRATED_COMPLETED,
     `taskId=${task.id}`,
-    `pid=${task.migratedPid}`,
+    `pid=${monitorPid}`,
   );
 
   await moveTaskToDone(task.id);

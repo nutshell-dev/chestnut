@@ -65,6 +65,8 @@ describe('listMigratedExecTasks', () => {
       maxRetries: 2,
       retryCount: 0,
       mode: 'migrated',
+      // phase 1269: migrated tasks must carry a complete execution identity (v1)
+      migratedExecution: { version: 1, leaderPid: 424242, processGroupId: 424242 },
       ...overrides,
     };
     fs.writeFileSync(path.join(runningDir, `${taskId}.json`), JSON.stringify(task));

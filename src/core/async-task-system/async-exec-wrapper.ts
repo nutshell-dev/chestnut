@@ -9,7 +9,7 @@ import * as path from 'path';
 import type { ExecContext, Tool, ToolResult } from '../../foundation/tools/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { ExecHandle } from '../../foundation/process-exec/index.js';
+import type { ExecHandle, ExecutionIdentity } from '../../foundation/process-exec/index.js';
 import { getProcessStartTime, ProcessExecError } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
@@ -21,7 +21,7 @@ import type { SendToolResult, SendFallbackError, WriteInboxAsync } from './resul
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
-import { emitHandlerFailed } from './audit-emit.js';
+import { emitHandlerFailed, emitMigratedExecTermination } from './audit-emit.js';
 import { formatErr } from './_helpers.js';
 import type { ToolTask, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
 import { makeFullTaskId, taskShortId } from './types.js';
@@ -59,10 +59,14 @@ function buildMigratedToolTask(
   shortId: ShortTaskId,
   command: string,
   ctx: ExecContext,
-  handle: ExecHandle,
+  identity: ExecutionIdentity,
   migratedHardTimeoutMs: number,
 ): ToolTask {
-  const pid = handle.child.pid ?? -1;
+  // Phase 1269 Step E: persist the L1 execution-group identity (v1 protocol).
+  // leaderStartTime may be unreadable; keep it undefined (schema-optional)
+  // rather than guessing — recovery then honestly probes indeterminate and
+  // never signals. The unavailability is audited at registration below.
+  const leaderStartTime = getProcessStartTime(identity.leaderPid);
   return {
     kind: 'tool',
     id: fullId,
@@ -77,8 +81,12 @@ function buildMigratedToolTask(
     retryCount: 0,
     toolUseId: ctx.currentToolUseId,
     mode: 'migrated',
-    migratedPid: pid,
-    migratedStartTime: pid > 0 ? getProcessStartTime(pid) : undefined,
+    migratedExecution: {
+      version: 1,
+      leaderPid: identity.leaderPid,
+      processGroupId: identity.processGroupId,
+      leaderStartTime,
+    },
     migratedDeadlineMs: Date.now() + migratedHardTimeoutMs,
   };
 }
@@ -265,6 +273,15 @@ export function createAsyncExecWrapper(
         throw err;
       }
 
+      // A resolved handle always carries the OS execution identity (absent only
+      // when spawn itself failed, which rejects above). Fail-observable, never
+      // guess an identity.
+      const identity = handle.identity;
+      if (identity === undefined) {
+        originalSignal?.removeEventListener('abort', onOriginalAbort);
+        throw new Error('execWithHandle resolved without an execution identity');
+      }
+
       // 4. Sync completion: return result directly.
       if (winner.type === 'result') {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
@@ -275,10 +292,24 @@ export function createAsyncExecWrapper(
         };
       }
 
-      // 5. Abort: kill the child and return an error.
+      // 5. Abort: terminate the execution group via L1 and wait for the
+      //    outcome before reporting back to the caller.
       if (winner.type === 'abort') {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
-        handle.child.kill('SIGTERM');
+        const outcome = await handle.terminate('caller_requested');
+        emitMigratedExecTermination(auditWriter, {
+          taskId: 'n/a', // no task file exists before migration
+          context: 'caller_abort',
+          identityCols: [
+            `leader_pid=${identity.leaderPid}`,
+            `process_group_id=${identity.processGroupId}`,
+          ],
+          trigger: outcome.trigger,
+          termSent: outcome.termSent,
+          killSent: outcome.killSent,
+          status: outcome.status,
+          reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+        });
         return {
           success: false,
           content: 'Command aborted by caller',
@@ -299,7 +330,7 @@ export function createAsyncExecWrapper(
         shortId = shortIdIndex.deriveShortId(fullId);
       } while (shortIdIndex.has(shortId));
 
-      const task = buildMigratedToolTask(fullId, shortId, command, ctx, handle, migratedHardTimeoutMs);
+      const task = buildMigratedToolTask(fullId, shortId, command, ctx, identity, migratedHardTimeoutMs);
 
       try {
         await persistRunningTask(fs, task);
@@ -307,8 +338,22 @@ export function createAsyncExecWrapper(
         shortIdIndex.add(shortId, fullId);
         shortIdIndex.save();
       } catch (persistErr) {
-        // Migration persistence failed: kill the child and report error.
-        handle.child.kill('SIGTERM');
+        // Migration persistence failed: terminate the execution group via L1,
+        // wait for the outcome, and audit it before reporting the error.
+        const outcome = await handle.terminate('caller_requested');
+        emitMigratedExecTermination(auditWriter, {
+          taskId: task.id,
+          context: 'persist_failed',
+          identityCols: [
+            `leader_pid=${identity.leaderPid}`,
+            `process_group_id=${identity.processGroupId}`,
+          ],
+          trigger: outcome.trigger,
+          termSent: outcome.termSent,
+          killSent: outcome.killSent,
+          status: outcome.status,
+          reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+        });
         auditWriter.write(
           TASK_AUDIT_EVENTS.HANDLER_FAILED,
           `taskId=${task.id}`,
@@ -379,20 +424,41 @@ export function createAsyncExecWrapper(
             { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackError, writeInboxAsync: deps.writeInboxAsync },
           );
         } catch (monitorErr) {
-          // Hard timeout or process exited with an error: kill if we timed out,
-          // append an error marker to result.txt, then still try to deliver.
+          // Hard timeout or process exited with an error. On hard timeout,
+          // terminate the execution group via L1 and WAIT for the outcome
+          // before appending the marker / delivering the result; an
+          // indeterminate outcome must never be described as cleaned up.
+          let cleanupSuffix = '';
           if (timedOut) {
-            handle.child.kill('SIGTERM');
+            const outcome = await handle.terminate('caller_requested');
+            emitMigratedExecTermination(auditWriter, {
+              taskId: task.id,
+              context: 'hard_timeout',
+              identityCols: [
+                `leader_pid=${identity.leaderPid}`,
+                `process_group_id=${identity.processGroupId}`,
+              ],
+              trigger: outcome.trigger,
+              termSent: outcome.termSent,
+              killSent: outcome.killSent,
+              status: outcome.status,
+              reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+            });
+            cleanupSuffix = outcome.status === 'gone'
+              ? ' [execution cleanup: gone]'
+              : outcome.status === 'still_alive'
+                ? ' [execution cleanup: still_alive]'
+                : ` [execution cleanup: indeterminate (${outcome.reason})]`;
             auditWriter.write(
               TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT,
               `taskId=${task.id}`,
-              `pid=${handle.child.pid}`,
+              `pid=${identity.leaderPid}`,
             );
           }
 
           try {
             const errorMarker =
-              `\n[Process ${timedOut ? 'timed out' : 'exited with error'}: ${formatErr(monitorErr)}]`;
+              `\n[Process ${timedOut ? 'timed out' : 'exited with error'}: ${formatErr(monitorErr)}]${cleanupSuffix}`;
             fs.appendSync(resultPath, errorMarker);
           } catch (persistErr) {
             emitHandlerFailed(auditWriter, {
@@ -440,12 +506,18 @@ export function createAsyncExecWrapper(
         });
       });
 
-      auditWriter.write(
-        TASK_AUDIT_EVENTS.TASK_MIGRATED_REGISTERED,
+      const registeredCols: (string | number)[] = [
         `taskId=${task.id}`,
-        `pid=${task.migratedPid}`,
+        `pid=${task.migratedExecution!.leaderPid}`,
+        `pgid=${task.migratedExecution!.processGroupId}`,
         `command=${command}`,
-      );
+      ];
+      if (task.migratedExecution!.leaderStartTime === undefined) {
+        // Phase 1269: never silently write -1 — recovery will honestly probe
+        // this task as indeterminate and never signal it.
+        registeredCols.push('start_time=unavailable');
+      }
+      auditWriter.write(TASK_AUDIT_EVENTS.TASK_MIGRATED_REGISTERED, ...registeredCols);
 
       const resultRelPath = path.join('..', resultDir, 'result.txt');
 

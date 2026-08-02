@@ -162,8 +162,8 @@ describe('phase 1033: L1 PROCESS_EXEC_TIMEOUT_MAX_MS align L4 config max', () =>
  * - execWithHandle spawn 必须 detached（隔离进程组），否则负 PGID 终止无意义。
  * - 负 PGID（进程组）信号只允许出现在 L1 process-exec 模块内；业务模块只传
  *   ExecutionIdentity、消费 ExecutionTerminationOutcome。
- * - L2/L4 调用方不得绕过 handle.terminate() 直接 child.kill（Step B 先锁定
- *   command-tool / tools；async-task-system 由 Step E 原子收敛后补入）。
+ * - L2/L4 调用方不得绕过 handle.terminate() 直接 child.kill（Step B 锁定
+ *   command-tool / tools；async-task-system 由 Step E describe 锁定）。
  */
 describe('phase 1269 Step B: process-exec group termination invariants', () => {
   const SRC_ROOT = fileURLToPath(new URL('../../../src', import.meta.url));
@@ -209,6 +209,26 @@ describe('phase 1269 Step B: process-exec group termination invariants', () => {
     expect(indexSrc).toContain('ExecutionTerminationOutcome');
     expect(indexSrc).toContain('ExecutionIdentity');
     expect(indexSrc).not.toContain('KillEscalator');
+  });
+});
+
+/**
+ * Phase 1269 Step E — async-task-system 终止所有权静态断言：迁移 exec 的
+ * 运行期与恢复期终止必须全部经 L1（handle.terminate / terminateExecutionGroup /
+ * terminateLegacyProcess），L4 业务路径禁止 raw child.kill / process.kill。
+ */
+describe('phase 1269 Step E: async-task-system termination ownership', () => {
+  const SRC_ROOT = fileURLToPath(new URL('../../../src', import.meta.url));
+
+  it('no raw child.kill / process.kill in async-exec-wrapper / task-recovery', () => {
+    const files = [
+      `${SRC_ROOT}/core/async-task-system/async-exec-wrapper.ts`,
+      `${SRC_ROOT}/core/async-task-system/task-recovery.ts`,
+    ];
+    const offenders = files.filter((file) =>
+      /\.child\.kill\(|process\.kill\(/.test(readFileSync(file, 'utf8')),
+    );
+    expect(offenders).toEqual([]);
   });
 });
 

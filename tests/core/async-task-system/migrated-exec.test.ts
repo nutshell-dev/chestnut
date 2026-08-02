@@ -26,7 +26,7 @@ import { makeExecContext } from '../../helpers/exec-context.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import { getProcessStartTime, isAlive } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime, isAlive, isProcessGroupAlive } from '../../../src/foundation/process-exec/index.js';
 import * as startTimeModule from '../../../src/foundation/process-exec/process-starttime.js';
 import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types.js';
 import { makeTaskId } from '../../../src/core/async-task-system/types.js';
@@ -428,7 +428,8 @@ describe('createAsyncExecWrapper', () => {
     const fullId = result.metadata?.fullTaskId as string;
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     const task = JSON.parse(await fs.readFile(runningFile, 'utf-8'));
-    const pid = task.migratedPid as number;
+    // phase 1269 Step E: v1 execution-group identity replaces migratedPid.
+    const pid = task.migratedExecution.leaderPid as number;
     expect(pid).toBeGreaterThan(0);
 
     // Abort the original turn signal after migration.
@@ -464,6 +465,69 @@ describe('createAsyncExecWrapper', () => {
     const result = await execPromise;
     expect(result.success).toBe(false);
     expect(result.content).toMatch(/aborted/i);
+
+    // phase 1269 Step E: caller abort awaits the L1 termination outcome and audits it.
+    // The L1 abort listener fires first (registered at exec start), so the
+    // shared in-flight outcome carries trigger=abort; the L4 context col
+    // records the caller-abort origin.
+    const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
+    expect(termEvents.length).toBe(1);
+    expect(termEvents[0]).toContain('context=caller_abort');
+    expect(termEvents[0]).toContain('trigger=abort');
+    expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
+  });
+
+  it('persists v1 execution-group identity on migration (no legacy migratedPid write)', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 0.3 && echo done' }, ctx);
+    expect(result.success).toBe(true);
+    const fullId = result.metadata?.fullTaskId as string;
+
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const task = JSON.parse(await fs.readFile(runningFile, 'utf-8'));
+
+    expect(task.migratedPid).toBeUndefined();
+    expect(task.migratedExecution).toBeDefined();
+    expect(task.migratedExecution.version).toBe(1);
+    expect(typeof task.migratedExecution.leaderPid).toBe('number');
+    // detached spawn: the leader is its own process-group leader.
+    expect(task.migratedExecution.processGroupId).toBe(task.migratedExecution.leaderPid);
+    expect(typeof task.migratedExecution.leaderStartTime).toBe('string');
+
+    await waitUntilGone(runningFile, 5000);
+  });
+
+  it('persist failure terminates the execution group and audits the outcome', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    vi.spyOn(nodeFs, 'writeAtomic').mockRejectedValue(new Error('disk full'));
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 30' }, ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('Failed to persist migrated exec task');
+
+    const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
+    expect(termEvents.length).toBe(1);
+    expect(termEvents[0]).toContain('context=persist_failed');
+    expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
+
+    // The terminated leader must actually be gone (outcome was awaited).
+    const pidCol = termEvents[0].find(c => typeof c === 'string' && c.startsWith('leader_pid=')) as string;
+    const leaderPid = Number(pidCol.split('=')[1]);
+    expect(leaderPid).toBeGreaterThan(0);
+    expect(isAlive(leaderPid)).toBe(false);
   });
 });
 
@@ -638,7 +702,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
-  it('should kill process and deliver partial output after hard timeout', async () => {
+  it('should kill the whole process group and deliver partial output after hard timeout', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
@@ -647,7 +711,8 @@ describe('migrated process hard timeout (Phase 777)', () => {
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'while true; do echo tick; sleep 0.05; done' }, ctx);
+    // Background descendant in the same process group must not survive.
+    const result = await tool.execute({ command: 'sleep 30 & while true; do echo tick; sleep 0.05; done' }, ctx);
 
     expect(result.success).toBe(true);
     expect(result.content).toMatch(/Execution moved to async\. Task:/);
@@ -667,9 +732,17 @@ describe('migrated process hard timeout (Phase 777)', () => {
 
     expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(true);
 
-    // Process should have been killed.
+    // phase 1269 Step E: hard timeout terminates via L1 — outcome audited,
+    // and the WHOLE group (leader + background descendant) must be gone.
+    const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
+    expect(termEvents.length).toBe(1);
+    expect(termEvents[0]).toContain('context=hard_timeout');
+    expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
+
     const runningTask = JSON.parse(await fs.readFile(doneFile, 'utf-8'));
-    expect(isAlive(runningTask.migratedPid as number)).toBe(false);
+    const exec = runningTask.migratedExecution as { leaderPid: number; processGroupId: number };
+    expect(isAlive(exec.leaderPid)).toBe(false);
+    expect(isProcessGroupAlive(exec.processGroupId)).toBe(false);
   });
 
   it('should deliver full output when process exits before hard timeout', async () => {
