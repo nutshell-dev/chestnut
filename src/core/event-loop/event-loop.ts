@@ -20,6 +20,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import {
   INBOX_FALLBACK_TIMEOUT_MS_DEFAULT,
+  LLM_COOLDOWN_MS,
   LLM_MAX_RETRIES,
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_MAX_DELAY_MS,
@@ -36,6 +37,7 @@ import {
   isContextExceededError,
   LLMInvalidRequestError,
   LLMAllProvidersFailedError,
+  LLMRateLimitError,
   classifyLLMError,
   getUserActionHint,
 } from '../../foundation/llm-orchestrator/index.js';
@@ -43,7 +45,7 @@ import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js'
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
-import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions } from './types.js';
+import type { LLMRequestBlockedState, LLMRequestGateDecision, LLMRetryWaitingState, RecoverableLLMErrorClass, EventLoopOptions } from './types.js';
 
 export class EventLoop {
   private runtime: Runtime;
@@ -62,6 +64,8 @@ export class EventLoop {
   // LLM failure retry state
   private llmRetryCount = 0;
   private llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
+  // Phase 1268 Step B: 已决定的 retry/cooldown 等待（决定即落盘，restart 按 resumeAt 恢复）
+  private llmRetryWaiting?: LLMRetryWaitingState;
 
   // Phase 1154 Step E: LLM-request blocked state (generalized from context-only gate)
   private llmRequestBlocked?: LLMRequestBlockedState;
@@ -142,6 +146,11 @@ export class EventLoop {
         );
       }
 
+      // Phase 1268 Step B: pre-drain waiting gate — 已决定的 retry/cooldown
+      // 等待在 drain 前生效；abort 中断时保留 waiting 供 restart 恢复。
+      const waitingDecision = await this._gateOnLlmRetryWaiting(gate.fingerprint);
+      if (waitingDecision === 'stopped') return;
+
       await this._runOpenChain(gate.fingerprint);
     } catch (err) {
       // EventLoop-level unexpected error
@@ -200,7 +209,227 @@ export class EventLoop {
       this._saveLlmRetryState();
       return;
     }
+    const errorClass = classifyLLMError(result.error);
+    if (errorClass === 'transient' || errorClass === 'rate_limit') {
+      // Phase 1268 Step B: recoverable LLM 失败由 EventLoop-owned 持久
+      // waiting 状态机调度，不再经由通用 fallback handler 清零重放。
+      await this._scheduleRecoverableLlmWait(result.error, errorClass, failedRequestFingerprint);
+      return;
+    }
     await this._dispatchError(result.error);
+  }
+
+  /**
+   * Phase 1268 Step B: recoverable LLM 失败的消息级调度。
+   * - count<max：计算 delay/deadline → 设置 waiting → atomic save（先落盘）→
+   *   audit scheduled。等待本身发生在下一次 run() 的 pre-drain gate。
+   * - count>=max：进入固定 cooldown，count 保持 max 不 reset；到期只允许一次 probe。
+   */
+  private async _scheduleRecoverableLlmWait(
+    error: unknown,
+    errorClass: RecoverableLLMErrorClass,
+    requestFingerprint: string,
+  ): Promise<void> {
+    const nowMs = Date.now();
+    const scheduledAt = new Date(nowMs).toISOString();
+    const errorText = formatErr(error);
+
+    if (this.llmRetryCount < LLM_MAX_RETRIES) {
+      this.llmRetryCount++;
+      const delayMs = errorClass === 'rate_limit'
+        ? this._resolveRateLimitRetryDelayMs(error)
+        : this.llmRetryDelayMs;
+      const resumeAt = new Date(nowMs + delayMs).toISOString();
+      this.llmRetryWaiting = {
+        kind: 'retry',
+        requestFingerprint,
+        errorClass,
+        attempt: this.llmRetryCount,
+        maxAttempts: LLM_MAX_RETRIES,
+        scheduledAt,
+        resumeAt,
+        error: errorText,
+      };
+      this._saveLlmRetryState();
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.LLM_RETRY,
+        `action=scheduled`,
+        `attempt=${this.llmRetryCount}`,
+        `max=${LLM_MAX_RETRIES}`,
+        `delay_ms=${delayMs}`,
+        `resume_at=${resumeAt}`,
+        `fingerprint=${requestFingerprint}`,
+        `error_class=${errorClass}`,
+        `error=${errorText}`,
+      );
+      return;
+    }
+
+    const cooldownMs = this._resolveCooldownMs(error);
+    const resumeAt = new Date(nowMs + cooldownMs).toISOString();
+    this.llmRetryWaiting = {
+      kind: 'cooldown',
+      requestFingerprint,
+      errorClass,
+      attempts: this.llmRetryCount,
+      maxAttempts: LLM_MAX_RETRIES,
+      scheduledAt,
+      resumeAt,
+      error: errorText,
+    };
+    this._saveLlmRetryState();
+    this.audit.write(
+      EVENTLOOP_AUDIT_EVENTS.COOLDOWN,
+      `action=scheduled`,
+      `attempts=${this.llmRetryCount}`,
+      `max=${LLM_MAX_RETRIES}`,
+      `cooldown_ms=${cooldownMs}`,
+      `resume_at=${resumeAt}`,
+      `fingerprint=${requestFingerprint}`,
+      `error_class=${errorClass}`,
+      `error=${errorText}`,
+    );
+  }
+
+  /**
+   * Phase 1268 Step B: pre-drain waiting gate。
+   * - 无 waiting → proceed。
+   * - fingerprint 变化 → released：清 waiting 并 reset 预算，按新事实执行。
+   * - fingerprint 相同且 deadline 未到 → 等 deadline/新 inbox（可中断）；
+   *   abort 时保留 waiting 返回 'stopped'。
+   * - deadline 到期：retry → 清 waiting、delay 翻倍并保存；cooldown → 清 waiting
+   *   但 count 保持 max，本 tick 仅放一次 probe（probe 失败会再次 cooldown）。
+   */
+  private async _gateOnLlmRetryWaiting(entryFingerprint: string): Promise<'proceed' | 'stopped'> {
+    const waiting = this.llmRetryWaiting;
+    if (!waiting) return 'proceed';
+
+    const eventName = waiting.kind === 'retry'
+      ? EVENTLOOP_AUDIT_EVENTS.LLM_RETRY
+      : EVENTLOOP_AUDIT_EVENTS.COOLDOWN;
+
+    let fingerprint = entryFingerprint;
+    if (fingerprint !== waiting.requestFingerprint) {
+      this._releaseLlmRetryWaiting(waiting, fingerprint);
+      return 'proceed';
+    }
+
+    while (!this.stopped) {
+      const remainingMs = Date.parse(waiting.resumeAt) - Date.now();
+      if (remainingMs <= 0) break;
+      this.audit.write(
+        eventName,
+        `action=gated`,
+        `resume_at=${waiting.resumeAt}`,
+        `remaining_ms=${remainingMs}`,
+        `fingerprint=${waiting.requestFingerprint}`,
+      );
+      // 等 deadline 或新 inbox 文件（新消息可能改变 fingerprint 提前释放）。
+      await Promise.race([
+        this._sleep(remainingMs, this.waitAbortController?.signal),
+        waitForInbox(
+          this.loopFs,
+          this.audit,
+          this.inboxPendingDir,
+          remainingMs,
+          this.waitAbortController?.signal,
+        ),
+      ]);
+      if (this.stopped) return 'stopped';
+      try {
+        fingerprint = await this.runtime.computeTurnRequestFingerprint();
+      } catch (error) {
+        if (error instanceof PendingViewError) {
+          this.audit.write(
+            eventName,
+            `action=gated`,
+            `reason=fingerprint_indeterminate`,
+            `fingerprint=${waiting.requestFingerprint}`,
+          );
+          await waitForInbox(
+            this.loopFs,
+            this.audit,
+            this.inboxPendingDir,
+            this.fallbackTimeoutMs,
+            this.waitAbortController?.signal,
+          );
+          return 'stopped';
+        }
+        throw error;
+      }
+      if (fingerprint !== waiting.requestFingerprint) {
+        this._releaseLlmRetryWaiting(waiting, fingerprint);
+        return 'proceed';
+      }
+    }
+    if (this.stopped) return 'stopped';
+
+    // deadline 到期
+    this.llmRetryWaiting = undefined;
+    if (waiting.kind === 'retry') {
+      this.llmRetryDelayMs = Math.min(this.llmRetryDelayMs * 2, LLM_RETRY_MAX_DELAY_MS);
+    }
+    // cooldown：count 保持 max，probe 语义由下一次失败重新进入 cooldown 保证。
+    this._saveLlmRetryState();
+    return 'proceed';
+  }
+
+  /** Phase 1268 Step B: fingerprint 变化释放 waiting 并重置 retry 预算。 */
+  private _releaseLlmRetryWaiting(waiting: LLMRetryWaitingState, newFingerprint: string): void {
+    const eventName = waiting.kind === 'retry'
+      ? EVENTLOOP_AUDIT_EVENTS.LLM_RETRY
+      : EVENTLOOP_AUDIT_EVENTS.COOLDOWN;
+    this.llmRetryWaiting = undefined;
+    this._resetLlmRetryState();
+    this._saveLlmRetryState();
+    this.audit.write(
+      eventName,
+      `action=released`,
+      `old=${waiting.requestFingerprint}`,
+      `new=${newFingerprint}`,
+    );
+  }
+
+  /**
+   * Phase 1268 Step B: 从 typed Error 提取最早合法 Retry-After（秒）。
+   * 聚合错误选择“任一可用 provider 的最早合法时间”；无 header 返回 undefined。
+   * 禁止凭 error message 正则推导。
+   */
+  private _extractMinRetryAfterSec(error: unknown): number | undefined {
+    let minRetryAfterSec: number | undefined;
+    if (error instanceof LLMRateLimitError && error.retryAfter !== undefined) {
+      minRetryAfterSec = error.retryAfter;
+    } else if (error instanceof LLMAllProvidersFailedError) {
+      for (const f of error.failures) {
+        if (f.error instanceof LLMRateLimitError && f.error.retryAfter !== undefined) {
+          if (minRetryAfterSec === undefined || f.error.retryAfter < minRetryAfterSec) {
+            minRetryAfterSec = f.error.retryAfter;
+          }
+        }
+      }
+    }
+    return minRetryAfterSec;
+  }
+
+  /** 普通 retry 退避：有 Retry-After 按其取值（沿用既有 backoff cap 语义），否则用当前 delayMs。 */
+  private _resolveRateLimitRetryDelayMs(error: unknown): number {
+    const retryAfterSec = this._extractMinRetryAfterSec(error);
+    if (retryAfterSec !== undefined) {
+      return Math.min(retryAfterSec * 1000, LLM_RETRY_MAX_DELAY_MS);
+    }
+    return this.llmRetryDelayMs;
+  }
+
+  /**
+   * Phase 1268 Step B: cooldown 至少为独立默认 cooldown；服务端给更长
+   * Retry-After 时不得用 LLM_RETRY_MAX_DELAY_MS cap 截短。
+   */
+  private _resolveCooldownMs(error: unknown): number {
+    const retryAfterSec = this._extractMinRetryAfterSec(error);
+    if (retryAfterSec !== undefined) {
+      return Math.max(LLM_COOLDOWN_MS, retryAfterSec * 1000);
+    }
+    return LLM_COOLDOWN_MS;
   }
 
   /**
@@ -417,7 +646,14 @@ export class EventLoop {
           `error=${formatErr(error)}`,
         );
       }
-      await this._dispatchError(error);
+      const postDrainErrorClass = classifyLLMError(error);
+      if (postDrainErrorClass === 'transient' || postDrainErrorClass === 'rate_limit') {
+        // Phase 1268 Step B: reject 路径的 recoverable LLM 错误同样进入持久 waiting，
+        // 保持旧 llmRetryHandler 对 throw 路径的重试语义。
+        await this._scheduleRecoverableLlmWait(error, postDrainErrorClass, args.turnFingerprint);
+      } else {
+        await this._dispatchError(error);
+      }
       return 'break';
     }
   }
@@ -520,23 +756,16 @@ export class EventLoop {
   }
 
   private async _dispatchError(err: unknown): Promise<void> {
-    const self = this;
     await dispatchError(err, {
       audit: this.audit,
       loopFs: this.loopFs,
-      llmRetry: {
-        get count() { return self.llmRetryCount; },
-        set count(v) { self.llmRetryCount = v; },
-        get delayMs() { return self.llmRetryDelayMs; },
-        set delayMs(v) { self.llmRetryDelayMs = v; },
-      },
-      saveLlmRetryState: () => this._saveLlmRetryState(),
     });
   }
 
   private _resetLlmRetryState(): void {
     this.llmRetryCount = 0;
     this.llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
+    this.llmRetryWaiting = undefined;
   }
 
   private _saveLlmRetryState(): void {
@@ -545,11 +774,13 @@ export class EventLoop {
       this.agentFs.writeAtomicSync(
         path.join(STATUS_SUBDIR, LLM_RETRY_STATE_FILE),
         JSON.stringify({
-          schema_version: 1,
+          // Phase 1268 Step B: schema v2 — 保留 count/delayMs，新增 waiting。
+          schema_version: 2,
           llmRetryCount: this.llmRetryCount,
           llmRetryDelayMs: this.llmRetryDelayMs,
           // P1-10: pending 字段已废弃，恒 false 保持 schema 兼容。
           llmRetryPending: false,
+          waiting: this.llmRetryWaiting ?? null,
         }),
       );
     } catch (e) {
@@ -603,13 +834,13 @@ export class EventLoop {
     }
 
     const s = saved as Record<string, unknown>;
-    if (s.schema_version !== 1) {
+    if (s.schema_version !== 1 && s.schema_version !== 2) {
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.FATAL,
         `context=loadLlmRetryState`,
         `reason=schema_version_mismatch`,
         `actual=${String(s.schema_version)}`,
-        `expected=1`,
+        `expected=2`,
       );
       return;
     }
@@ -627,8 +858,23 @@ export class EventLoop {
       return;
     }
 
+    // Phase 1268 Step B: schema v2 新增 waiting 字段（判别联合），必须为 null 或合法。
+    if (s.schema_version === 2 && s.waiting !== null && !this._isValidLlmRetryWaitingState(s.waiting)) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=loadLlmRetryState`,
+        `reason=field_type_mismatch`,
+        `field=waiting`,
+      );
+      return;
+    }
+
     this.llmRetryCount = s.llmRetryCount;
     this.llmRetryDelayMs = s.llmRetryDelayMs;
+    // Phase 1268 Step B: v1 读取迁移 count/delay，waiting 恒 null；v2 恢复已决定的等待。
+    this.llmRetryWaiting = s.schema_version === 2
+      ? (s.waiting as LLMRetryWaitingState | null) ?? undefined
+      : undefined;
     // P1-10: 旧文件 pending=true 不再恢复，消息已经 inflight reconcile 重投。
     // 仅审计记录后忽略，避免重复重放。
     if (s.llmRetryPending === true) {
@@ -638,6 +884,22 @@ export class EventLoop {
         `reason=legacy_pending_ignored`,
       );
     }
+  }
+
+  /** Phase 1268 Step B: waiting 判别联合校验；非法/猜测字段一律拒绝。 */
+  private _isValidLlmRetryWaitingState(waiting: unknown): waiting is LLMRetryWaitingState {
+    if (typeof waiting !== 'object' || waiting === null) return false;
+    const w = waiting as Record<string, unknown>;
+    if (w.kind !== 'retry' && w.kind !== 'cooldown') return false;
+    if (typeof w.requestFingerprint !== 'string' || w.requestFingerprint.length === 0) return false;
+    if (w.errorClass !== 'transient' && w.errorClass !== 'rate_limit') return false;
+    if (typeof w.scheduledAt !== 'string' || typeof w.resumeAt !== 'string') return false;
+    if (typeof w.error !== 'string') return false;
+    if (typeof w.maxAttempts !== 'number') return false;
+    if (w.kind === 'retry') {
+      return typeof w.attempt === 'number';
+    }
+    return typeof w.attempts === 'number';
   }
 
   /**

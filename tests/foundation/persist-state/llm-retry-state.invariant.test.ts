@@ -108,12 +108,13 @@ describe('llm-retry state load invariants', () => {
     await cleanup(agentDir);
   });
 
-  it('schema_version_mismatch emits audit', async () => {
+  it('future schema_version emits schema_version_mismatch audit', async () => {
     const agentDir = await makeTempAgentDir();
     fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
+    // Phase 1268 Step B: schema v2 合法后，mismatch 语义由 future schema 锁定。
     fsNative.writeFileSync(
       path.join(agentDir, 'status', 'llm-retry-state.json'),
-      JSON.stringify({ schema_version: 2, llmRetryCount: 1, llmRetryDelayMs: 1000, llmRetryPending: false }),
+      JSON.stringify({ schema_version: 99, llmRetryCount: 1, llmRetryDelayMs: 1000, llmRetryPending: false, waiting: null }),
     );
 
     const audit = makeMockAudit();
@@ -123,6 +124,57 @@ describe('llm-retry state load invariants', () => {
 
     const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('reason=schema_version_mismatch')));
     expect(loadFailedCalls.length).toBeGreaterThanOrEqual(1);
+    await cleanup(agentDir);
+  });
+
+  it('v2 with invalid waiting field emits field_type_mismatch audit', async () => {
+    const agentDir = await makeTempAgentDir();
+    fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
+    fsNative.writeFileSync(
+      path.join(agentDir, 'status', 'llm-retry-state.json'),
+      JSON.stringify({ schema_version: 2, llmRetryCount: 1, llmRetryDelayMs: 1000, llmRetryPending: false, waiting: { kind: 'unknown' } }),
+    );
+
+    const audit = makeMockAudit();
+    const eventLoop = makeEventLoop(agentDir, audit as unknown as AuditLog);
+
+    await eventLoop.initialize();
+
+    const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('reason=field_type_mismatch')));
+    expect(loadFailedCalls.length).toBeGreaterThanOrEqual(1);
+    await cleanup(agentDir);
+  });
+
+  it('valid schema_version=2 with waiting applies state (no fatal audit)', async () => {
+    const agentDir = await makeTempAgentDir();
+    fsNative.mkdirSync(path.join(agentDir, 'status'), { recursive: true });
+    fsNative.writeFileSync(
+      path.join(agentDir, 'status', 'llm-retry-state.json'),
+      JSON.stringify({
+        schema_version: 2,
+        llmRetryCount: 1,
+        llmRetryDelayMs: 2000,
+        llmRetryPending: false,
+        waiting: {
+          kind: 'retry',
+          requestFingerprint: 'fp-v2',
+          errorClass: 'rate_limit',
+          attempt: 1,
+          maxAttempts: 3,
+          scheduledAt: new Date().toISOString(),
+          resumeAt: new Date(Date.now() + 60_000).toISOString(),
+          error: 'rate limited',
+        },
+      }),
+    );
+
+    const audit = makeMockAudit();
+    const eventLoop = makeEventLoop(agentDir, audit as unknown as AuditLog);
+
+    await eventLoop.initialize();
+
+    const loadFailedCalls = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL && e.some(c => String(c).includes('loadLlmRetryState')));
+    expect(loadFailedCalls).toHaveLength(0);
     await cleanup(agentDir);
   });
 

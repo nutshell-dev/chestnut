@@ -29,6 +29,9 @@ vi.mock('../../../src/core/event-loop/constants.js', async () => {
     ...actual,
     LLM_RETRY_INITIAL_DELAY_MS: 10,
     LLM_RETRY_MAX_DELAY_MS: 50,
+    // Phase 1268 Step B: cooldown 独立常量，测试用小值锁状态机；
+    // Retry-After 截短断言用远大于该值的秒数反向验证。
+    LLM_COOLDOWN_MS: 80,
   };
 });
 
@@ -1333,5 +1336,307 @@ describe('EventLoop.run', () => {
     expect(ackHandles).toHaveBeenCalledTimes(1);
     expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
     expect(nackHandles).not.toHaveBeenCalled();
+  });
+
+  // ----- Phase 1268 Step B: recoverable LLM 持久 retry waiting / cooldown 状态机 -----
+
+  function makeRecoverableRuntime(
+    error: Error,
+    fingerprint: string,
+    processTurnImpl?: () => Promise<TurnResult>,
+  ) {
+    // pending 模拟真实 inbox：nack 后消息仍在，ack 后才排空，避免 success 后 chain 空转。
+    const inbox = { pending: true };
+    const processTurn = vi.fn().mockImplementation(
+      processTurnImpl ?? (async () => makeTurnResult('failed', { error })),
+    );
+    const nackHandles = vi.fn().mockResolvedValue(undefined);
+    const ackHandles = vi.fn().mockImplementation(async () => { inbox.pending = false; });
+    const computeTurnRequestFingerprint = vi.fn().mockResolvedValue(fingerprint);
+    const runtime = {
+      drainInbox: vi.fn().mockImplementation(async () => {
+        if (!inbox.pending) {
+          return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
+        }
+        return {
+          injected: [{ role: 'user', content: 'hi' } as Message],
+          sources: [{ text: 'hi', type: 'user_chat' }],
+          count: 1,
+          infos: [] as InboxMessage[],
+          addressedHandles: ['handle-1'],
+        };
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles,
+      nackHandles,
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint,
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+    return { runtime, processTurn, nackHandles, ackHandles, computeTurnRequestFingerprint };
+  }
+
+  function readRetryState(): Record<string, unknown> | undefined {
+    const p = path.join(agentDir, 'status', 'llm-retry-state.json');
+    if (!require('fs').existsSync(p)) return undefined;
+    return JSON.parse(require('fs').readFileSync(p, 'utf-8'));
+  }
+
+  const retryScheduled = (audit: ReturnType<typeof createMockAudit>) =>
+    audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY && e.some(c => String(c) === 'action=scheduled'));
+  const cooldownScheduled = (audit: ReturnType<typeof createMockAudit>) =>
+    audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=scheduled'));
+
+  it('持续 rate-limit 超预算进入 cooldown：count 保持 max，不重开完整 retry 周期', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const rateLimitErr = new LLMRateLimitError('openai');
+    const { runtime, processTurn } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
+
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    // 4 次失败：3 次普通 retry 后第 4 次进入 cooldown（schedule 无 sleep，run1 不需 advance）
+    await eventLoop.run();
+    // 决定等待即先落盘：第一次失败后文件已含 waiting，无等待完成
+    const savedAfterFirst = readRetryState();
+    expect(savedAfterFirst).toMatchObject({ schema_version: 2, llmRetryCount: 1 });
+    expect(savedAfterFirst!.waiting).toMatchObject({ kind: 'retry', attempt: 1, maxAttempts: 3, requestFingerprint: 'rl-fp' });
+    for (let i = 1; i < 4; i++) {
+      const run = eventLoop.run();
+      await vi.advanceTimersByTimeAsync(100);
+      await run;
+    }
+
+    expect(processTurn).toHaveBeenCalledTimes(4);
+    expect(retryScheduled(audit).length).toBe(3);
+    expect(cooldownScheduled(audit).length).toBe(1);
+    const saved = readRetryState();
+    expect(saved!.llmRetryCount).toBe(3);  // 不清零
+    expect(saved!.waiting).toMatchObject({ kind: 'cooldown', attempts: 3, maxAttempts: 3 });
+
+    // cooldown 到期仅一次 probe；probe 失败再次 cooldown，仍不重开周期
+    const run5 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run5;
+
+    expect(processTurn).toHaveBeenCalledTimes(5);
+    expect(retryScheduled(audit).length).toBe(3);  // 无新的普通 retry
+    expect(cooldownScheduled(audit).length).toBe(2);
+    expect(readRetryState()!.llmRetryCount).toBe(3);
+  });
+
+  it('cooldown probe 成功走既有 success reset：预算与 waiting 归零', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const rateLimitErr = new LLMRateLimitError('openai');
+    let call = 0;
+    const { runtime, processTurn, ackHandles } = makeRecoverableRuntime(rateLimitErr, 'rl-fp', async () => {
+      call++;
+      return call >= 5 ? makeTurnResult('success') : makeTurnResult('failed', { error: rateLimitErr });
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();
+    for (let i = 1; i < 5; i++) {
+      const run = eventLoop.run();
+      await vi.advanceTimersByTimeAsync(100);
+      await run;
+    }
+
+    expect(processTurn).toHaveBeenCalledTimes(5);
+    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
+    const saved = readRetryState();
+    expect(saved!.llmRetryCount).toBe(0);
+    expect(saved!.llmRetryDelayMs).toBe(10);  // mocked LLM_RETRY_INITIAL_DELAY_MS
+    expect(saved!.waiting).toBeNull();
+  });
+
+  it('restart 恢复持久 waiting：早于 resumeAt 不调 LLM，到期才放行', async () => {
+    vi.useFakeTimers();
+    const audit1 = createMockAudit();
+    const rateLimitErr = new LLMRateLimitError('openai');
+    const { runtime: runtime1, processTurn: processTurn1 } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
+
+    const eventLoop1 = makeEventLoop(runtime1, audit1);
+    await eventLoop1.run();  // schedule 无 sleep，fake clock 不动，resumeAt 仍在未来
+    expect(processTurn1).toHaveBeenCalledTimes(1);
+
+    // 模拟进程重启：新 EventLoop 从磁盘恢复 waiting（resumeAt = schedule 时 + 10ms）
+    const audit2 = createMockAudit();
+    const { runtime: runtime2, processTurn: processTurn2 } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
+    const eventLoop2 = makeEventLoop(runtime2, audit2);
+    await eventLoop2.initialize();
+
+    const run2 = eventLoop2.run();
+    await vi.advanceTimersByTimeAsync(5);  // 未到 resumeAt
+    expect(processTurn2).not.toHaveBeenCalled();
+    expect(audit2.entries.some(e => e.some(c => String(c) === 'action=gated'))).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(100);  // 越过 resumeAt
+    await run2;
+    expect(processTurn2).toHaveBeenCalledTimes(1);
+  });
+
+  it('abort mid-retry 不清 waiting：磁盘保留已决定的等待供恢复', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const rateLimitErr = new LLMRateLimitError('openai');
+    const { runtime, processTurn } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();  // schedule 无 sleep，fake clock 不动
+
+    const before = readRetryState()!.waiting as Record<string, unknown>;
+
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(5);  // gate 等待中（resumeAt=schedule+10ms）
+    eventLoop.abort();
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);  // 未放行新 turn
+    expect(readRetryState()!.waiting).toEqual(before);  // waiting 未被清除
+  });
+
+  it('fingerprint 变化释放 waiting 并重置预算，按新事实执行', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const rateLimitErr = new LLMRateLimitError('openai');
+    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(rateLimitErr, 'fp-A');
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+    expect(readRetryState()!.llmRetryCount).toBe(1);
+
+    // 新消息/配置导致 fingerprint 改变 → 释放 waiting、重置预算、立即执行
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    processTurn.mockImplementation(async () => makeTurnResult('success'));
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(5);  // 不等到原 resumeAt 即放行
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(2);
+    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(true);
+    const saved = readRetryState();
+    expect(saved!.llmRetryCount).toBe(0);
+    expect(saved!.waiting).toBeNull();
+  });
+
+  it('cooldown 不被 backoff cap 截短：服务端更长 Retry-After 按秒数等待', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    seedRetryState(LLM_MAX_RETRIES);  // v1 文件迁移 count=3（预算已耗尽）
+    const rateLimitErr = new LLMRateLimitError('openai', 400);  // 400s > 300s cap
+    const { runtime, processTurn } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(cooldownScheduled(audit).length).toBe(1);
+    expect(cooldownScheduled(audit)[0].some(c => String(c) === 'cooldown_ms=400000')).toBe(true);
+    const waiting = readRetryState()!.waiting as Record<string, unknown>;
+    expect(Date.parse(waiting.resumeAt as string) - Date.parse(waiting.scheduledAt as string)).toBe(400_000);
+  });
+
+  it('cooldown 聚合 Retry-After 取最早合法时间；无 header 用独立默认 cooldown', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    seedRetryState(LLM_MAX_RETRIES);
+    const aggregateErr = new LLMAllProvidersFailedError([
+      { provider: 'openai', error: new LLMRateLimitError('openai', 400) },
+      { provider: 'anthropic', error: new LLMRateLimitError('anthropic', 15) },
+    ]);
+    const { runtime } = makeRecoverableRuntime(aggregateErr, 'rl-fp');
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(cooldownScheduled(audit)[0].some(c => String(c) === 'cooldown_ms=15000')).toBe(true);
+
+    // 无 header → 独立默认 cooldown（mocked LLM_COOLDOWN_MS=80），不是 backoff cap 50
+    const audit2 = createMockAudit();
+    seedRetryState(LLM_MAX_RETRIES);
+    const { runtime: runtime2 } = makeRecoverableRuntime(new LLMRateLimitError('openai'), 'rl-fp');
+    const eventLoop2 = makeEventLoop(runtime2, audit2);
+    await eventLoop2.initialize();
+    const run2 = eventLoop2.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+    expect(cooldownScheduled(audit2)[0].some(c => String(c) === 'cooldown_ms=80')).toBe(true);
+  });
+
+  it('v1 retry-state 迁移：count/delay 保留并接入新 waiting 状态机', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    seedRetryState(2, 30);  // v1 文件：count=2, delayMs=30
+    const rateLimitErr = new LLMRateLimitError('openai');
+    const { runtime } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    // 迁移后的 count=2 → 本次失败是第 3 次普通 retry
+    const scheduled = retryScheduled(audit);
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0].some(c => String(c) === 'attempt=3')).toBe(true);
+    expect(scheduled[0].some(c => String(c) === 'delay_ms=30')).toBe(true);
+    expect(readRetryState()!.waiting).toMatchObject({ kind: 'retry', attempt: 3 });
+  });
+
+  it('clean-stop 跳过 retry-state load（现有语义保留）：waiting 不恢复', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    // 手写 v2 waiting 文件 + clean-stop marker
+    const statusDir = path.join(agentDir, 'status');
+    require('fs').mkdirSync(statusDir, { recursive: true });
+    require('fs').writeFileSync(
+      path.join(statusDir, 'llm-retry-state.json'),
+      JSON.stringify({
+        schema_version: 2,
+        llmRetryCount: 2,
+        llmRetryDelayMs: 30,
+        llmRetryPending: false,
+        waiting: {
+          kind: 'retry',
+          requestFingerprint: 'rl-fp',
+          errorClass: 'rate_limit',
+          attempt: 2,
+          maxAttempts: 3,
+          scheduledAt: new Date().toISOString(),
+          resumeAt: new Date(Date.now() + 60_000).toISOString(),
+          error: 'rate limited',
+        },
+      }),
+    );
+    require('fs').writeFileSync(path.join(agentDir, 'clean-stop'), String(Date.now()));
+
+    const { runtime, processTurn } = makeRecoverableRuntime(new LLMRateLimitError('openai'), 'rl-fp');
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(5);  // 不 gated，立即 drain
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(audit.entries.some(e => e.some(c => String(c) === 'action=gated'))).toBe(false);
   });
 });

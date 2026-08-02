@@ -12,14 +12,9 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
-import {
-  INTERRUPT_RECOVERY_DELAY_MS,
-  LLM_MAX_RETRIES,
-  LLM_RETRY_INITIAL_DELAY_MS,
-  LLM_RETRY_MAX_DELAY_MS,
-} from './constants.js';
+import { INTERRUPT_RECOVERY_DELAY_MS } from './constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
-import { LLMAllProvidersFailedError, classifyLLMError, LLMRateLimitError } from '../../foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
   WallTimeExceededError,
@@ -28,16 +23,14 @@ import {
 } from '../agent-executor/index.js';
 
 /**
- * EventLoop catch 块状态、handler 可读写以驱动 retry 状态机
+ * EventLoop catch 块状态、handler 可读写以驱动恢复决策。
+ * Phase 1268 Step B: recoverable LLM 消息级 retry/cooldown 已收敛为
+ * EventLoop-owned 持久 waiting 状态机（event-loop.ts），handler 不再
+ * 触碰 llmRetry 状态。
  */
 interface LoopErrorContext {
   audit: AuditLog;
   loopFs: FileSystem;
-  llmRetry: {
-    count: number;
-    delayMs: number;
-  };
-  saveLlmRetryState: () => void;
 }
 
 /**
@@ -53,7 +46,7 @@ interface ErrorHandler {
   handle: (err: unknown, ctx: LoopErrorContext) => Promise<void>;
 }
 
-// ----- 5 handlers -----
+// ----- 4 handlers（Phase 1268 Step B: llm_retry handler 已退役） -----
 
 const idleTimeoutHandler: ErrorHandler = {
   name: 'idle_timeout',
@@ -95,53 +88,11 @@ const priorityInboxHandler: ErrorHandler = {
   },
 };
 
-const llmRetryHandler: ErrorHandler = {
-  name: 'llm_retry',
-  match: (err, ctx) =>
-    (err instanceof LLMAllProvidersFailedError || err instanceof LLMRateLimitError) &&
-    ctx.llmRetry.count < LLM_MAX_RETRIES &&
-    (classifyLLMError(err) === 'transient' || classifyLLMError(err) === 'rate_limit'),
-  handle: async (err, ctx) => {
-    ctx.llmRetry.count++;
-    const delay = classifyLLMError(err) === 'rate_limit'
-      ? resolveRateLimitDelay(err as LLMAllProvidersFailedError | LLMRateLimitError, ctx.llmRetry.delayMs)
-      : ctx.llmRetry.delayMs;
-    ctx.audit.write(
-      EVENTLOOP_AUDIT_EVENTS.LLM_RETRY,
-      `attempt=${ctx.llmRetry.count}`,
-      `max=${LLM_MAX_RETRIES}`,
-      `delay_ms=${delay}`,
-      `error=${(err as Error).message}`,
-    );
-    await new Promise(resolve => setTimeout(resolve, delay));
-    ctx.llmRetry.delayMs = Math.min(ctx.llmRetry.delayMs * 2, LLM_RETRY_MAX_DELAY_MS);
-    ctx.saveLlmRetryState();
-  },
-};
-
-function resolveRateLimitDelay(err: LLMAllProvidersFailedError | LLMRateLimitError, fallbackMs: number): number {
-  let minRetryAfterSec: number | undefined;
-  if (err instanceof LLMRateLimitError && err.retryAfter !== undefined) {
-    minRetryAfterSec = err.retryAfter;
-  } else if (err instanceof LLMAllProvidersFailedError) {
-    for (const f of err.failures) {
-      if (f.error instanceof LLMRateLimitError && f.error.retryAfter !== undefined) {
-        if (minRetryAfterSec === undefined || f.error.retryAfter < minRetryAfterSec) {
-          minRetryAfterSec = f.error.retryAfter;
-        }
-      }
-    }
-  }
-  if (minRetryAfterSec !== undefined) {
-    return Math.min(minRetryAfterSec * 1000, LLM_RETRY_MAX_DELAY_MS);
-  }
-  return fallbackMs;
-}
-
 /**
  * P0-2: 5 个确定性 typed Error 的统一 crash 分类源。
- * 注意 LLMAllProvidersFailedError 由 llmRetryHandler 按 nested 分类决定是否 backoff；
- * nested 分类为 transient / rate_limit 时重试，permanent / invalid_request 不进 retry。
+ * 注意 LLMAllProvidersFailedError 由 EventLoop 按 nested 分类决定
+ * retry/cooldown waiting（Phase 1268 Step B），不再经由 handler 退避；
+ * nested 分类为 permanent / invalid_request 进 blocked gate。
  */
 export function isAgentLoopCrashError(err: unknown): boolean {
   return err instanceof MaxStepsExceededError
@@ -154,9 +105,8 @@ const agentLoopCrashHandler: ErrorHandler = {
   name: 'agent_loop_crash',
   match: (err) => isAgentLoopCrashError(err),
   handle: async (err, ctx) => {
-    ctx.llmRetry.count = 0;
-    ctx.llmRetry.delayMs = LLM_RETRY_INITIAL_DELAY_MS;
-    ctx.saveLlmRetryState();
+    // Phase 1268 Step B: 不再清零 llmRetry 状态；waiting/预算由 EventLoop
+    // waiting 状态机唯一管理，crash 不改变已决定的 recoverable 等待。
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.FATAL,
       `reason=agent_loop_crash`,
@@ -170,9 +120,8 @@ const fallbackHandler: ErrorHandler = {
   match: () => true,  // 兜底
   handle: async (err, ctx) => {
     const isLLMMaxRetry = err instanceof LLMAllProvidersFailedError;
-    ctx.llmRetry.count = 0;
-    ctx.llmRetry.delayMs = LLM_RETRY_INITIAL_DELAY_MS;
-    ctx.saveLlmRetryState();
+    // Phase 1268 Step B: 不再清零 llmRetry 状态并立即重放；recoverable LLM
+    // 错误在 _handleFailedTurn 已进入持久 waiting/cooldown，这里只审计。
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.FATAL,
       `reason=${isLLMMaxRetry ? 'llm_all_providers_failed' : 'non_llm_error'}`,
@@ -189,7 +138,6 @@ export const ERROR_HANDLERS: ReadonlyArray<ErrorHandler> = [
   idleTimeoutHandler,
   userInterruptHandler,
   priorityInboxHandler,
-  llmRetryHandler,
   agentLoopCrashHandler,
   fallbackHandler,
 ];

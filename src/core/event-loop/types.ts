@@ -11,11 +11,40 @@ export interface LLMRetryState {
   pending?: boolean;
 }
 
+/** Phase 1268 Step B: recoverable LLM 失败的错误分类（waiting 判别联合的合法值） */
+export type RecoverableLLMErrorClass = 'transient' | 'rate_limit';
+
+/**
+ * Phase 1268 Step B: 已决定的 retry/cooldown 等待（schema v2 判别联合）。
+ * 决定等待即先落盘；restart 按 resumeAt 恢复，不重新决策。
+ * - retry: 普通退避重试，attempt 已消费（1-based），到期后允许下一次 drain。
+ * - cooldown: 预算耗尽后的固定等待，attempts 保持 maxAttempts，到期只允许一次 probe。
+ */
+export type LLMRetryWaitingState =
+  | {
+      kind: 'retry';
+      requestFingerprint: string;
+      errorClass: RecoverableLLMErrorClass;
+      attempt: number;
+      maxAttempts: number;
+      scheduledAt: string;
+      resumeAt: string;
+      error: string;
+    }
+  | {
+      kind: 'cooldown';
+      requestFingerprint: string;
+      errorClass: RecoverableLLMErrorClass;
+      attempts: number;
+      maxAttempts: number;
+      scheduledAt: string;
+      resumeAt: string;
+      error: string;
+    };
+
 export interface LoopErrorContext {
   audit: AuditLog;
   loopFs: FileSystem;
-  llmRetry: LLMRetryState;
-  saveLlmRetryState: () => void;
 }
 
 export type LLMRequestBlockedReason =

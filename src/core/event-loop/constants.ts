@@ -21,6 +21,15 @@ export const LLM_RETRY_INITIAL_DELAY_MS = 30_000;
 /** LLM 重试退避延迟上限 (ms) */
 export const LLM_RETRY_MAX_DELAY_MS = 300_000;
 
+/**
+ * Phase 1268 Step B: LLM 重试预算耗尽后的 cooldown 等待时长 (ms)。
+ * Derivation: 300000ms = 5min 持续限流的保守恢复间隔 / 到期仅一次 probe，
+ * 避免“每 cooldown 刷一批”重建刷屏周期 / 不复用 LLM_RETRY_MAX_DELAY_MS
+ * （语义不同：backoff cap 截断单次退避，cooldown 是耗尽后的完整等待，
+ * 服务端更长 Retry-After 时不得被 cap 截短）。
+ */
+export const LLM_COOLDOWN_MS = 300_000;
+
 /** LLM retry state 持久化文件名 */
 export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;
 
