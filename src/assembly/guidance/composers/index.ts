@@ -7,6 +7,7 @@
  *
  * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 inbox type 显式 register 各 composer.
  * 当前结构：13 NO_GUIDANCE sentinel + 6 real composer（claw_outbox_summary by phase 1476 γ2 + contract_cancelled by phase 63 γ）。
+ * phase 1264 Step A: claw_inactivity 迁入 typed binding（aggregate 注释不再逐个列举 CLI composer）。
  *
  * DP「不静默」+ M#9 显式表达：每 sender type 必显式 register / 漏注由
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.
@@ -16,7 +17,7 @@ import type { MotionGuidanceRegistry } from '../types.js';
 
 import { registerCliGuidance } from '../../../cli-protocol/index.js';
 import { clawCrashedGuidanceBinding } from '../bindings/claw-crashed.js';
-import { composer as clawInactivity } from './claw-inactivity.js';
+import { clawInactivityGuidanceBinding } from '../bindings/claw-inactivity.js';
 import { composer as contractEvents } from './contract-events.js';
 import { composer as verificationResult } from './verification-result.js';
 import { composer as verificationRejection } from './verification-rejection.js';
@@ -37,9 +38,13 @@ import { composer as contractCancelled } from './contract-cancelled.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
   // phase 1263 Step C: claw_crashed 经 CLIProtocol typed binding 注册（首个迁移的 CLI binding）；
-  // 其余四个待迁 CLI composer 与 generic composer 保持 direct register。
-  registerCliGuidance(registry, [clawCrashedGuidanceBinding]);
-  registry.register('claw_inactivity', clawInactivity);
+  // phase 1264 Step A: claw_inactivity 加入同一次 registerCliGuidance 聚合调用（第二个迁移的 CLI binding），
+  // 数组只是 Assembly contribution 聚合、两 binding 本身独立；duplicate preflight 覆盖全部 CLI binding。
+  // 其余三个待迁 CLI composer 与 generic composer 保持 direct register。
+  registerCliGuidance(registry, [
+    clawCrashedGuidanceBinding,
+    clawInactivityGuidanceBinding,
+  ]);
   registry.register('contract_events', contractEvents);
   registry.register('verification_result', verificationResult);
   registry.register('verification_rejection', verificationRejection);

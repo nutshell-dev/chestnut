@@ -23,8 +23,8 @@ import { createHeartbeatInboxFormatter } from '../../../src/core/heartbeat/index
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
 import { clawCrashedGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-crashed.js';
+import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
 import { registerCliGuidance } from '../../../src/cli-protocol/index.js';
-import { composer as clawInactivityComposer } from '../../../src/assembly/guidance/composers/claw-inactivity.js';
 import { composer as clawOutboxSummaryComposer } from '../../../src/assembly/guidance/composers/claw-outbox-summary.js';
 import { composer as contractEventsComposer } from '../../../src/assembly/guidance/composers/contract-events.js';
 import { composer as contractCancelledComposer } from '../../../src/assembly/guidance/composers/contract-cancelled.js';
@@ -284,12 +284,12 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     );
   });
 
-  it('phase 1258 Step B: claw_inactivity 真实 registry + 合法 v1 wire → guidance append、target = meta.claw_id', async () => {
+  it('phase 1258 Step B + phase 1264 Step A: claw_inactivity 真实 registry + 合法 v1 wire → guidance append、target = meta.claw_id', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('claw_inactivity', clawInactivityComposer);
+    registerCliGuidance(guidanceRegistry, [clawInactivityGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
@@ -316,13 +316,13 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('phase 1258 Step B: claw_inactivity decoder 失败 → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（无 fallback/placeholder guidance）', async () => {
+  it('phase 1258 Step B + phase 1264 Step A: claw_inactivity decoder 失败 → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（无 fallback/placeholder guidance）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
-    // 真实 formatter declaration + 真实 guidance registry + 真实 composer（不手写 catch）
+    // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
     const guidanceRegistry = createMotionGuidanceRegistry();
-    guidanceRegistry.register('claw_inactivity', clawInactivityComposer);
+    registerCliGuidance(guidanceRegistry, [clawInactivityGuidanceBinding]);
     const runtime = build({
       audit,
       formatterRegistry: registry,
