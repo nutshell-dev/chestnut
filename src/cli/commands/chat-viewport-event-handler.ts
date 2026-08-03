@@ -273,9 +273,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'breaker_opened': {
-        const providerName = event.provider as string;
-        const failures = event.consecutiveFailures as number | undefined;
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m⚠\x1b[0m \x1b[2m${providerName} circuit breaker opened (${failures ?? '?'} consecutive failures), temporarily using fallback. Suggestion: check primary config / network / endpoint.` });
+        // phase 1276: breaker 调度是系统内部事件，不呈现给用户；audit 保留。
         break;
       }
 

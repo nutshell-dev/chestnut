@@ -554,6 +554,16 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(recordEvent).toHaveBeenCalledWith('provider_attempt_failed');
   });
 
+  it('breaker_opened 静默：不渲染行，audit 保留（phase 1276）', async () => {
+    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { deps, lines } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    handle({ type: 'breaker_opened', provider: 'volc-glm', consecutiveFailures: 12 });
+
+    expect(lines).toHaveLength(0);
+  });
+
   it('turn retry 1/3 与 cooldown 行可区分，含 label 与 deadline', async () => {
     const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
     const { deps, lines } = makeHandlerDeps();
