@@ -535,9 +535,11 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
   const RESUME_AT = '2026-08-02T13:15:12.000Z';
   const CLOCK_RE = /\[\d{2}:\d{2}:\d{2}\]/;
 
-  it('provider attempt 1/3 vs 2/3 可区分，含 ts/label/maxAttempts/Retry-After', async () => {
+  it('provider_attempt_failed 静默：不渲染行，audit 保留（phase 1276）', async () => {
     const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
-    const { deps, lines } = makeHandlerDeps();
+    const { deps, lines, auditWrites } = makeHandlerDeps();
+    const recordEvent = vi.fn();
+    (deps.observability as any).recordEvent = recordEvent;
     const handle = createEventHandler(deps as any);
 
     handle({
@@ -545,23 +547,11 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
       attempt: 0, maxAttempts: 3, error: 'same boom', errorClass: 'rate_limit',
       userActionHint: 'wait_retry_after', retryAfterSec: 30,
     });
-    handle({
-      type: 'provider_attempt_failed', ts: FIXED_TS, provider: 'glm',
-      attempt: 1, maxAttempts: 3, error: 'same boom', errorClass: 'rate_limit',
-      userActionHint: 'wait_retry_after',
-    });
 
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain('attempt 1/3');
-    expect(lines[1]).toContain('attempt 2/3');
-    expect(lines[0]).not.toBe(lines[1]);
-    // Phase 1274: 行首不再带 [时间][label] 前缀，✗ 起头（ANSI 色码分隔符号与内容）。
-    expect(lines[0]).toContain('✗');
-    expect(lines[0]).toContain('glm attempt 1/3');
-    expect(lines[0]).not.toContain('[claw-x]');
-    expect(lines[0]).not.toMatch(CLOCK_RE);
-    expect(lines[0]).toContain('retry-after 30s');
-    expect(lines[1]).not.toContain('retry-after');
+    // Phase 1276: provider 内部重试推进不呈现给用户（用户可见信息由
+    // provider_failed 承担）；audit 记录保留。
+    expect(lines).toHaveLength(0);
+    expect(recordEvent).toHaveBeenCalledWith('provider_attempt_failed');
   });
 
   it('turn retry 1/3 与 cooldown 行可区分，含 label 与 deadline', async () => {

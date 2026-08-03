@@ -237,37 +237,9 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'provider_attempt_failed': {
-        const providerName = event.provider as string;
-        const errorClass = event.errorClass as string | undefined;
-        const userActionHint = event.userActionHint as string | undefined;
-        const errorMsg = event.error;
-        // phase 1425: surface 所有非 abort 失败到用户（含 transient timeout/network）/ 用户必须可观察 primary 故障
-        if (errorClass && errorClass !== 'abort') {
-          const hint = userActionHint === 'rotate_api_key' ? 'rotate or update API key'
-            : userActionHint === 'switch_primary' ? 'check model name or switch primary provider'
-            : userActionHint === 'wait_retry_after' ? 'wait for rate-limit cooldown or switch primary'
-            : userActionHint === 'check_quota' ? 'check quota or top up'
-            : userActionHint === 'check_endpoint' ? 'check provider endpoint / URL config'
-            : userActionHint === 'check_network' ? 'check network connectivity'
-            : 'see audit log for details';
-          const classLabel = errorClass === 'permanent' ? 'auth/quota/model error'
-            : errorClass === 'transient' ? 'network/service unavailable'
-            : errorClass === 'rate_limit' ? 'rate limited'
-            : 'unknown error';
-          // Phase 1268 Step D: 0-based attempt 显示为 attempt+1/maxAttempts；可选 Retry-After 明示。
-          // Phase 1274: 行首不再带 [时间][viewport 来源] 前缀——attempt N/M 递增与行内
-          // resume/probe 时钟足以区分重复行；多 claw 场景由各 viewport 自身承担。
-          const attempt = typeof event.attempt === 'number' ? event.attempt : undefined;
-          const maxAttempts = typeof event.maxAttempts === 'number' ? event.maxAttempts : undefined;
-          const attemptLabel = attempt !== undefined && maxAttempts !== undefined
-            ? ` attempt ${attempt + 1}/${maxAttempts}`
-            : '';
-          const retryAfterLabel = typeof event.retryAfterSec === 'number'
-            ? ` / retry-after ${event.retryAfterSec}s`
-            : '';
-          const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName}${attemptLabel} ${classLabel} (${errStr})${retryAfterLabel} / suggestion: ${hint}` });
-        }
+        // phase 1276: provider 内部重试推进（attempt 1/3、2/3…）不呈现给用户；
+        // 渲染端静默、audit（handleEvent 开头 recordEvent）保留。用户可见的
+        // provider 失败信息由 provider_failed case 承担（挂了 + 原因）。
         break;
       }
 
