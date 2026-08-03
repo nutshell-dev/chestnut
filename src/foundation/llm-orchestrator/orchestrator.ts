@@ -294,11 +294,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     }
 
     // All retries exhausted — record breaker failure and throw
-    const wasOpen = this.breakers[breakerIndex]?.isOpen();
+    // (breaker_opened emit 由 onTransition 回调独占，phase 1275)
     this.breakers[breakerIndex]?.onFailure(classifyLLMError(lastError!));
-    if (!wasOpen && this.breakers[breakerIndex]?.isOpen()) {
-      this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
-    }
     this.events.emit({ type: 'provider_exhausted', provider: adapter.name, error: lastError!.message });
     throw lastError;
   }
@@ -653,11 +650,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           type: 'reset',
           provider: adapter.name,
         };
-        const wasOpen = breaker?.isOpen();
+        // phase 1275: breaker_opened emit 由 CircuitBreaker.onTransition 回调
+        // 独占（实计数）；此处手动检查与回调判定同一状态转移、重复 emit。
         breaker?.onFailure('unknown');
-        if (!wasOpen && breaker?.isOpen()) {
-          this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
-        }
         const err = new LLMEmptyResponseError(adapter.name);
         this.events.emit({
           type: 'provider_attempt_failed',
@@ -682,11 +677,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           type: 'reset',
           provider: adapter.name,
         };
-        const wasOpen = breaker?.isOpen();
         breaker?.onFailure('transient');
-        if (!wasOpen && breaker?.isOpen()) {
-          this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
-        }
         const err = new LLMStreamAbortedError(adapter.name, 'stream ended without done chunk');
         this.events.emit({
           type: 'provider_attempt_failed',
@@ -708,13 +699,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         // 0-chunk → onFailure (conservative miss-detect / D5 redundant defense)
         // (per design/modules/l2_llm_orchestrator.md §B.stream-zero-chunk-breaker-sensitivity / phase 637 兑现)
         // Stream completed normally but produced nothing — treat as failure
-        const wasOpen = breaker?.isOpen();
         // phase 815 P1.34: 显式 pass 'unknown' / 防 half-open probe 失败时 lastFailureClass 保 stale prior class
         // （`if (errClass)` 守卫在 CircuitBreaker.onFailure 不 update lastFailureClass when errClass undefined / 修触发点不动 CB）
         breaker?.onFailure('unknown');
-        if (!wasOpen && breaker?.isOpen()) {
-          this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
-        }
         const err = new LLMEmptyResponseError(adapter.name);
         this.events.emit({
           type: 'provider_attempt_failed',
@@ -730,12 +717,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
       } else if (!midStreamReset) {
-        // Circuit breaker: record failure
-        const wasOpen = breaker?.isOpen();
+        // Circuit breaker: record failure（breaker_opened emit 由 onTransition 回调独占）
         breaker?.onFailure(classifyLLMError(lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured')));
-        if (!wasOpen && breaker?.isOpen()) {
-          this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
-        }
         // Phase 1268 Step C: 删除 provider 结束后硬编码 attempt: 0 的第二个
         // provider_attempt_failed —— 握手前逐 attempt emit（retry loop catch）已覆盖，
         // provider_failed stream chunk 保留为对调用方的不同语义信号。
