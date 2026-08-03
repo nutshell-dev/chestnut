@@ -22,7 +22,7 @@ import type { createViewportObservability } from './chat-viewport-observability.
 import { type TaskId, makeShortTaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/index.js';
 import type { DescriptorSink } from './viewport-render-descriptor.js';
 import { prefixLines } from '../utils/string.js';
-import { formatEventTsPrefix, formatIsoClock } from '../utils/time.js';
+import { formatIsoClock } from '../utils/time.js';
 
 
 export interface TaskWatch {
@@ -254,8 +254,9 @@ export function createEventHandler(deps: EventHandlerDeps) {
             : errorClass === 'transient' ? 'network/service unavailable'
             : errorClass === 'rate_limit' ? 'rate limited'
             : 'unknown error';
-          // Phase 1268 Step D: 0-based attempt 显示为 attempt+1/maxAttempts；可选 Retry-After 明示；
-          // 时间戳与 viewport 来源（deps.label）让用户能区分重复行。
+          // Phase 1268 Step D: 0-based attempt 显示为 attempt+1/maxAttempts；可选 Retry-After 明示。
+          // Phase 1274: 行首不再带 [时间][viewport 来源] 前缀——attempt N/M 递增与行内
+          // resume/probe 时钟足以区分重复行；多 claw 场景由各 viewport 自身承担。
           const attempt = typeof event.attempt === 'number' ? event.attempt : undefined;
           const maxAttempts = typeof event.maxAttempts === 'number' ? event.maxAttempts : undefined;
           const attemptLabel = attempt !== undefined && maxAttempts !== undefined
@@ -265,7 +266,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
             ? ` / retry-after ${event.retryAfterSec}s`
             : '';
           const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `${formatEventTsPrefix(event.ts)}[${deps.label}] \x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName}${attemptLabel} ${classLabel} (${errStr})${retryAfterLabel} / suggestion: ${hint}`, wrap: true, hangIndent: '  ' });
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName}${attemptLabel} ${classLabel} (${errStr})${retryAfterLabel} / suggestion: ${hint}`, wrap: true, hangIndent: '  ' });
         }
         break;
       }
@@ -280,7 +281,9 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const delaySec = typeof event.delayMs === 'number' ? Math.round(event.delayMs / 1000) : '?';
         const resumeClock = formatIsoClock(event.resumeAt);
         const classLabel = event.errorClass === 'rate_limit' ? 'rate-limit' : 'transient';
-        const prefix = `${formatEventTsPrefix(event.ts)}[${deps.label}]`;
+        // Phase 1274: 行首 ⟳（retry/cooldown 调度符号）；[时间][label] 前缀删除，
+        // 时间信息由行内 resume/probe 时钟承担。
+        const prefix = '⟳';
         let text: string;
         if (action === 'released') {
           text = `${prefix} \x1b[2mllm ${stage ?? 'retry'} wait released (request changed)`;

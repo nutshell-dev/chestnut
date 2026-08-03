@@ -555,8 +555,11 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(lines[0]).toContain('attempt 1/3');
     expect(lines[1]).toContain('attempt 2/3');
     expect(lines[0]).not.toBe(lines[1]);
-    expect(lines[0]).toContain('[claw-x]');
-    expect(lines[0]).toMatch(CLOCK_RE);
+    // Phase 1274: 行首不再带 [时间][label] 前缀，✗ 起头（ANSI 色码分隔符号与内容）。
+    expect(lines[0]).toContain('✗');
+    expect(lines[0]).toContain('glm attempt 1/3');
+    expect(lines[0]).not.toContain('[claw-x]');
+    expect(lines[0]).not.toMatch(CLOCK_RE);
     expect(lines[0]).toContain('retry-after 30s');
     expect(lines[1]).not.toContain('retry-after');
   });
@@ -580,13 +583,16 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     });
 
     expect(lines).toHaveLength(3);
+    // Phase 1274: 行首 ⟳、无 [时间][label] 前缀；行内 probe/resume 时钟保留。
+    expect(lines[0]).toContain('⟳');
     expect(lines[0]).toContain('turn retry 1/3 in 60s');
+    expect(lines[1]).toContain('⟳');
     expect(lines[1]).toContain('rate-limit cooldown; probe at');
-    expect(lines[1]).toMatch(CLOCK_RE);  // probe 时间戳
-    expect(lines[2]).toContain('released');
+    expect(lines[1]).toMatch(/\d{2}:\d{2}:\d{2}/);  // probe 时钟（行内、无括号）
+    expect(lines[2]).toContain('⟳');
+    expect(lines[2]).toContain('llm retry wait released');
     for (const line of lines) {
-      expect(line).toContain('[claw-x]');
-      expect(line).toMatch(CLOCK_RE);
+      expect(line).not.toContain('[claw-x]');
     }
     expect(new Set(lines).size).toBe(3);  // 三种 fixture 输出互不相同
   });
