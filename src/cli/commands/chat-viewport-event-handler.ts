@@ -248,25 +248,24 @@ export function createEventHandler(deps: EventHandlerDeps) {
         // CLI 只渲染 owner 结构化字段，不解析 error 文本、不自行决定调度。
         const stage = event.stage as 'retry' | 'cooldown' | undefined;
         const action = event.action as 'scheduled' | 'gated' | 'released' | undefined;
+        // phase 1276: gated 与 scheduled 表达同一等待（scheduled 已带 resume 锚点），去重。
+        if (action === 'gated') break;
         const attempt = typeof event.attempt === 'number' ? event.attempt : '?';
         const maxAttempts = typeof event.maxAttempts === 'number' ? event.maxAttempts : '?';
         const delaySec = typeof event.delayMs === 'number' ? Math.round(event.delayMs / 1000) : '?';
         const resumeClock = formatIsoClock(event.resumeAt);
         const classLabel = event.errorClass === 'rate_limit' ? 'rate-limit' : 'transient';
-        // Phase 1274: 行首 ⟳（retry/cooldown 调度符号）；[时间][label] 前缀删除，
-        // 时间信息由行内 resume/probe 时钟承担。
+        // Phase 1274: 行首 ⟳（retry/cooldown 调度符号）；[时间][label] 前缀删除。
+        // Phase 1276: scheduled retry 行带 resume 绝对时钟锚点（相对 in Xs + 绝对双表达，
+        // 到点无动静即可判断卡住）。
         const prefix = '⟳';
         let text: string;
         if (action === 'released') {
           text = `${prefix} \x1b[2mllm ${stage ?? 'retry'} wait released (request changed)`;
         } else if (stage === 'cooldown') {
-          text = action === 'gated'
-            ? `${prefix} \x1b[2m${classLabel} cooldown waiting; probe at ${resumeClock}`
-            : `${prefix} \x1b[2m${classLabel} cooldown; probe at ${resumeClock}`;
+          text = `${prefix} \x1b[2m${classLabel} cooldown; probe at ${resumeClock}`;
         } else {
-          text = action === 'gated'
-            ? `${prefix} \x1b[2mturn retry ${attempt}/${maxAttempts} waiting; resume at ${resumeClock}`
-            : `${prefix} \x1b[2mturn retry ${attempt}/${maxAttempts} in ${delaySec}s`;
+          text = `${prefix} \x1b[2mturn retry ${attempt}/${maxAttempts} in ${delaySec}s，resume at ${resumeClock}`;
         }
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text });
         break;

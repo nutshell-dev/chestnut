@@ -581,11 +581,18 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
       type: 'llm_retry_waiting', ts: FIXED_TS, stage: 'retry', action: 'released',
       attempt: 1, maxAttempts: 3, delayMs: 0, resumeAt: RESUME_AT, errorClass: 'rate_limit',
     });
+    // phase 1276: gated 与 scheduled 同一等待，去重（不渲染）。
+    handle({
+      type: 'llm_retry_waiting', ts: FIXED_TS, stage: 'retry', action: 'gated',
+      attempt: 1, maxAttempts: 3, delayMs: 29_975, resumeAt: RESUME_AT, errorClass: 'rate_limit',
+    });
 
-    expect(lines).toHaveLength(3);
-    // Phase 1274: 行首 ⟳、无 [时间][label] 前缀；行内 probe/resume 时钟保留。
+    expect(lines).toHaveLength(3);  // gated 不渲染，仍 3 行
+    // Phase 1274: 行首 ⟳、无 [时间][label] 前缀。
+    // Phase 1276: scheduled retry 行带 resume 绝对时钟锚点；gated 去重。
     expect(lines[0]).toContain('⟳');
-    expect(lines[0]).toContain('turn retry 1/3 in 60s');
+    expect(lines[0]).toContain('turn retry 1/3 in 60s，resume at');
+    expect(lines[0]).toMatch(/\d{2}:\d{2}:\d{2}/);  // resume 时钟（行内、无括号）
     expect(lines[1]).toContain('⟳');
     expect(lines[1]).toContain('rate-limit cooldown; probe at');
     expect(lines[1]).toMatch(/\d{2}:\d{2}:\d{2}/);  // probe 时钟（行内、无括号）
