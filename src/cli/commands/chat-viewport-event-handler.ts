@@ -223,7 +223,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'turn_error': {
         deps.turnTracker.abort();
         const errorMsg = event.error;
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `✗ Error: ${typeof errorMsg === 'string' ? errorMsg : String(errorMsg)}`, wrap: true, hangIndent: '  ' });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `✗ Error: ${typeof errorMsg === 'string' ? errorMsg : String(errorMsg)}` });
         break;
       }
 
@@ -266,7 +266,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
             ? ` / retry-after ${event.retryAfterSec}s`
             : '';
           const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName}${attemptLabel} ${classLabel} (${errStr})${retryAfterLabel} / suggestion: ${hint}`, wrap: true, hangIndent: '  ' });
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName}${attemptLabel} ${classLabel} (${errStr})${retryAfterLabel} / suggestion: ${hint}` });
         }
         break;
       }
@@ -296,14 +296,14 @@ export function createEventHandler(deps: EventHandlerDeps) {
             ? `${prefix} \x1b[2mturn retry ${attempt}/${maxAttempts} waiting; resume at ${resumeClock}`
             : `${prefix} \x1b[2mturn retry ${attempt}/${maxAttempts} in ${delaySec}s`;
         }
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text, wrap: true, hangIndent: '  ' });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text });
         break;
       }
 
       case 'breaker_opened': {
         const providerName = event.provider as string;
         const failures = event.consecutiveFailures as number | undefined;
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m⚠\x1b[0m \x1b[2m${providerName} circuit breaker opened (${failures ?? '?'} consecutive failures), temporarily using fallback. Suggestion: check primary config / network / endpoint.`, wrap: true, hangIndent: '  ' });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m⚠\x1b[0m \x1b[2m${providerName} circuit breaker opened (${failures ?? '?'} consecutive failures), temporarily using fallback. Suggestion: check primary config / network / endpoint.` });
         break;
       }
 
@@ -319,7 +319,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerName = event.provider as string;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${errStr})`, wrap: true, hangIndent: '  ' });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${errStr})` });
         break;
       }
 
@@ -328,7 +328,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerModel = event.model as string;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${errStr}`, wrap: true, hangIndent: '  ' });
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${errStr}` });
         break;
       }
 
@@ -369,7 +369,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
           const claw = (event.clawId as string) ?? '';
           const errMsg = (event.error as string) ?? '';
           const forClaw = claw ? ` (${claw})` : '';
-          deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}`, wrap: true, hangIndent: '  ' });
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}` });
         } else if (sub === 'dev_warning') {
           // phase 8: dev-attention 阈值警告（informational only / 不可 motion action / 供 developer 参考）
           // 来源：cron audit-size-monitor / 等
