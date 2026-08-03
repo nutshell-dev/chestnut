@@ -147,7 +147,10 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'user_reply_delta': {
-        deps.mainUI.flushStreaming();
+        // No flushStreaming() here: per-delta flush would commit each
+        // streamed fragment as its own finished line (phase 1273). Turn-start
+        // and llm-start already flush stale text residue before the reply
+        // stream; the accumulated buffer is flushed once at user_reply_end.
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer(event.delta as string);
         const previewText = prefixLines(streamBuf + '▋', '➤ ', '  ');
