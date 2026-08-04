@@ -13,7 +13,8 @@ import { toolsConfigSchema } from '../../foundation/tools/config-schema.js';
 import { watchdogConfigSchema } from '../../watchdog/config-schema.js';
 import { cronConfigSchema } from '../../foundation/cron/config-schema.js';
 import { viewportConfigSchema } from '../../cli-protocol/index.js';
-import { auditConfigSchema } from '../../foundation/audit/config-schema.js';
+// Phase 1288 Step B: audit 段移出 root schema — retention SoT 归 AuditLog 自家
+// config store（.chestnut/audit/config.yaml）；legacy 段读取/移除见 config-load.ts。
 import { streamConfigSchema } from '../../foundation/stream/config-schema.js';
 import { agentExecutorConfigSchema } from '../../core/agent-executor/config-schema.js';
 import { clawConfigSchema } from '../../core/runtime/claw-config-schema.js';
@@ -28,7 +29,6 @@ export function createGlobalConfigSchema() {
     watchdog: watchdogConfigSchema.default({}),
     cron: cronConfigSchema.default({}),
     viewport: viewportConfigSchema.default({}),
-    audit: auditConfigSchema.default({}),
     stream: streamConfigSchema.default({}),
     // Future cross-field validation hook (currently 0 cross-field constraint):
     //   .refine((cfg) => <constraint>, { message: '...' })

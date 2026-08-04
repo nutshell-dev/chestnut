@@ -45,6 +45,35 @@ import type { AuditFileName, AuditLog } from './types.js';
 
 export { AuditWriter, AUDIT_FILE, reconcileFallbackDumps } from './writer.js';
 
+// Phase 1288 Step B: audit namespace layout / config store / migration journal
+// （模块外消费一律经本 barrel；layout.ts 禁止 deep import）
+export { AUDIT_LAYOUT_SCHEMA_VERSION, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from './layout.js';
+export {
+  auditConfigSchema,
+  auditWorkspaceConfigFileSchema,
+  createDefaultAuditWorkspaceConfig,
+  type AuditConfig,
+  type AuditWorkspaceConfigFile,
+} from './config-schema.js';
+export {
+  loadWorkspaceAuditConfig,
+  readWorkspaceAuditRetentionMaxSizeMb,
+  initWorkspaceAuditConfig,
+  publishMigratedWorkspaceAuditConfig,
+  AuditWorkspaceConfigConflictError,
+  type WorkspaceAuditConfigResult,
+} from './workspace-config.js';
+export {
+  writeAuditMigrationIntent,
+  writeAuditMigrationOutcome,
+  readAuditMigrationJournal,
+  findPendingAuditMigration,
+  publishAuditLayout,
+  type AuditMigrationIntent,
+  type AuditMigrationOutcome,
+  type AuditMigrationJournal,
+} from './migration-journal.js';
+
 // phase 693 Step A: audit 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
 // Assembly 装配期 aggregate 各 owner 声明、注入 Snapshot ctor (per architecture §29)
 import { AUDIT_FILE as _AUDIT_FILE } from './writer.js';

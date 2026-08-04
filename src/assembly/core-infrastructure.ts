@@ -6,7 +6,7 @@ import { resolveChestnutRoot } from '../core/claw-topology/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 
-import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
+import { createSystemAudit, readWorkspaceAuditRetentionMaxSizeMb, type AuditLog } from '../foundation/audit/index.js';
 import { reconcileFallbackDumps } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
@@ -79,11 +79,13 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
   const { config } = input;
   const { identity, clawId, clawDir, globalConfig, clawConfig } = config;
   const isMotion = identity === 'motion';
-  const auditMaxSizeMb = globalConfig.audit.retention.max_size_mb;
 
   // phase155A + B + C 联合约定：system 组件无权限校验；工具层强制权限校验
   // systemFs: used by AuditWriter / Snapshot / DialogStore / Skill/Contract/Outbox/Inbox/Task/Context/Stream
   const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
+  // Phase 1288 Step B: retention SoT = AuditLog 自家 config store（.chestnut/audit/config.yaml）；
+  // missing → null（与旧 root schema default 行为等价、不静默创建）；invalid → throw（fail-loud）。
+  const auditMaxSizeMb = readWorkspaceAuditRetentionMaxSizeMb(fsFactory(resolveChestnutRoot(clawDir, isMotion)));
   const systemFs = fsFactory(clawDir);
   // clawFs: used by tools via ExecContextImpl.fs
   // phase430: PermissionChecker removed from NodeFileSystem ctor;

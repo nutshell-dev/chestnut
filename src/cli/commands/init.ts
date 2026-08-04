@@ -5,7 +5,7 @@
 import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { saveGlobalConfig, isInitialized } from '../../assembly/config/config-load.js';
-import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
@@ -26,6 +26,7 @@ import {
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index.js';
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { initWorkspaceAuditConfig, publishAuditLayout } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
@@ -314,6 +315,12 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
     // Save config
     saveGlobalConfig(deps, config);
+
+    // Phase 1288 Step B: fresh init 创建默认 workspace audit config ——
+    // 唯一允许默认创建的路径（普通启动 missing 不静默创建）；root YAML 不再写 audit 段。
+    const chestnutRootFs = deps.fsFactory(getChestnutRoot());
+    initWorkspaceAuditConfig(chestnutRootFs);
+    publishAuditLayout(chestnutRootFs);
 
     // Create logs directory
     const root = getWorkspaceRoot();

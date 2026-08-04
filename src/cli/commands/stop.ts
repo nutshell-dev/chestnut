@@ -8,8 +8,8 @@ import { loadGlobalConfig } from '../../assembly/config/config-load.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
-import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';
-import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog.js';
+import { createAuditWriter, AUDIT_FILE, readWorkspaceAuditRetentionMaxSizeMb } from '../../foundation/audit/index.js';
+import { getChestnutFs, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog.js';
 import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
 import { ProcessListUnavailable, PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';
@@ -45,7 +45,8 @@ export async function stopAllCommand(
   // NEW: workspace audit 注入 watchdog 模块（与 watchdog daemon 同源）
   // 防 sub-1/sub-2/sub-4 audit emit 在 CLI 进程 silent no-op
   try {
-    const auditMaxSizeMb = getGlobalConfig(deps.fsFactory).audit.retention.max_size_mb;
+    // Phase 1288 Step B: retention 自 AuditLog 自家 config store 读取
+    const auditMaxSizeMb = readWorkspaceAuditRetentionMaxSizeMb(getChestnutFs(deps.fsFactory));
     const watchdogAudit = createAuditWriter(getChestnutFs(deps.fsFactory), AUDIT_FILE, auditMaxSizeMb);
     setWatchdogAuditWriter(watchdogAudit);
   } catch (err) {

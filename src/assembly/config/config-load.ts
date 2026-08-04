@@ -7,6 +7,7 @@
  * path primitive: getGlobalConfigPath in ./global-config-path.ts (phase 704)
  */
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import {
   createGlobalConfigSchema,
   getClawConfigSchema,
@@ -21,6 +22,8 @@ import {
   configExists,
 } from './config-loader.js';
 import { getGlobalConfigPath } from './global-config-path.js';
+import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
+import { auditConfigSchema, AUDIT_LEGACY_PATHS, type AuditConfig } from '../../foundation/audit/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -132,6 +135,68 @@ export function clawExists(deps: { fsFactory: (baseDir: string) => FileSystem },
   const dir = path.dirname(configPath);
   const fs = deps.fsFactory(dir);
   return fs.existsSync(path.basename(configPath));
+}
+
+// ── Phase 1288 Step B: legacy root YAML `audit:` 段（Assembly 拥有 root YAML IO）──
+//
+// 迁移协议中 Assembly 侧的两次 mutation 原语：raw 读取 legacy 段（typed 返回
+// AuditConfig + 原文 canonical dump 的 source hash，不暴露完整 GlobalConfig）
+// 与原子移除 legacy 段（raw YAML patch + 回读校验，不走 schema round-trip、
+// 未知/非 audit 字段逐字节语义保持）。编排归 CLIProcess（cli/audit-config-migration.ts）。
+
+export interface LegacyAuditConfigSection {
+  config: AuditConfig;
+  /** legacy 段原文（js-yaml canonical dump）的 sha256 hex。 */
+  sourceHash: string;
+}
+
+/** raw 读取 root YAML 的 legacy `audit:` 段；文件或段不存在 → undefined。 */
+export function readLegacyAuditConfigSection(deps: { fsFactory: (baseDir: string) => FileSystem }): LegacyAuditConfigSection | undefined {
+  const configPath = getGlobalConfigPath();
+  const dir = path.dirname(configPath);
+  const fs = deps.fsFactory(dir);
+  const basename = path.basename(configPath);
+  if (!fs.existsSync(basename)) return undefined;
+
+  let loaded: unknown;
+  try {
+    loaded = yaml.load(fs.readSync(basename));
+  } catch (err) {
+    throw new Error(`Invalid YAML in config: ${formatErr(err)}`, { cause: err });
+  }
+  if (typeof loaded !== 'object' || loaded === null || Array.isArray(loaded)) {
+    throw new Error(`Invalid global config: expected object at root, got ${Array.isArray(loaded) ? 'array' : typeof loaded}`);
+  }
+  const section = (loaded as Record<string, unknown>)[AUDIT_LEGACY_PATHS.configSection];
+  if (section === undefined) return undefined;
+
+  let config: AuditConfig;
+  try {
+    config = auditConfigSchema.parse(section);
+  } catch (err) {
+    throw new Error(`Invalid global config: legacy audit section: ${formatErr(err)}`, { cause: err });
+  }
+  return { config, sourceHash: sha256Hex(yaml.dump(section)) };
+}
+
+/**
+ * 原子移除 root YAML 的 legacy `audit:` 段 + 回读校验。
+ * raw YAML patch（同 patchYamlConfig 模式）：不 schema round-trip 重写整个文件，
+ * 未知/非 audit 字段保持原值且不注入任何 schema default。段本不存在 → no-op（幂等）。
+ */
+export function removeLegacyAuditConfigSection(deps: { fsFactory: (baseDir: string) => FileSystem }): void {
+  const configPath = getGlobalConfigPath();
+  patchYamlConfig(
+    { fsFactory: deps.fsFactory },
+    configPath,
+    (cfg) => {
+      delete cfg[AUDIT_LEGACY_PATHS.configSection];
+    },
+  );
+  // 回读校验：段必须真的消失（防写损坏 / 部分写成功伪装完成）。
+  if (readLegacyAuditConfigSection(deps) !== undefined) {
+    throw new Error(`Failed to remove legacy audit section from ${configPath}: readback still present`);
+  }
 }
 
 // Build LLMOrchestratorConfig from global + claw config

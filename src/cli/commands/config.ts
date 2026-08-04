@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
 import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config/config-load.js';
+import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
 import type { ClawGlobalConfig } from '../../assembly/config/compose-config.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
@@ -429,7 +430,11 @@ export function createConfigCommand(deps: { fsFactory: (baseDir: string) => File
     policy: SupervisionPolicy,
     handler: (...args: TArgs) => Promise<void>,
   ): (...args: TArgs) => Promise<void> {
-    return cliAction(policy, handler, { fsFactory: deps.fsFactory });
+    return cliAction(policy, async (...args: TArgs) => {
+      // Phase 1288 Step B: config 命令族入口编排 audit config 迁移（幂等；冲突 fail-loud）
+      ensureAuditConfigMigrated(deps);
+      await handler(...args);
+    }, { fsFactory: deps.fsFactory });
   }
 
   // provider subcommand
