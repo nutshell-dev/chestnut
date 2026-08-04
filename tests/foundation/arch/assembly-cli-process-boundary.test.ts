@@ -1,17 +1,15 @@
 /**
- * Phase 1281 Step A: Assembly→CLIProcess 边界 ratchet。
+ * Phase 1283 Step B: Assembly→CLIProcess 零边 ratchet。
  *
- * Phase 1281 删除 CLI_FILE_ROUTING 伪贡献后，Assembly 对 CLIProcess（src/cli/**）
- * 仅剩一条白名单边：
- *
- *   src/assembly/config/compose-config.ts
- *     -> src/cli/commands/chat-viewport/config-schema.js（viewportConfigSchema）
+ * Phase 1283 Step A 将 viewportConfigSchema 归位 CLIProtocol 后，Assembly 对
+ * CLIProcess（src/cli/**）的 production 直接边归零；本 ratchet 将 Phase 1281 的
+ * 「唯一允许一条边」白名单升级为 production 零边断言，与 dependency-cruiser
+ * `no-assembly-to-cli-process` 通用规则（同 phase 立）双保险。
  *
  * scanner 解析 src/assembly/** 的静态 import/export 与动态 import() specifier，
- * 相对路径解析后落入 src/cli/ 即记录为边；白名单精确到文件级，不按整个
- * cli/commands 目录放行。CLIProtocol（src/cli-protocol/）路径必须被区分，
- * 不得误算为 CLIProcess。正反 fixture 自证，避免只对当前源码做脆弱 grep。
- * scanner 原语复用 cli-guidance-boundary-helpers.js。
+ * 相对路径解析后落入 src/cli/ 即记录为边。CLIProtocol（src/cli-protocol/）路径
+ * 必须被区分，不得误算为 CLIProcess。正反 fixture 自证，避免只对当前源码做脆弱
+ * grep。scanner 原语复用 cli-guidance-boundary-helpers.js。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -31,14 +29,6 @@ const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 /** 动态 import('...') 的 specifier（global flag：只供 matchAll 使用）。 */
 const DYNAMIC_IMPORT_SPECIFIER_RE = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
-/** 唯一允许的 Assembly→CLIProcess 边（相对 PROJECT_ROOT 展示，扩展名剥离后比较）。 */
-const ALLOWED_EDGES: ReadonlyArray<{ file: string; target: string }> = [
-  {
-    file: path.join('src', 'assembly', 'config', 'compose-config.ts'),
-    target: path.join('src', 'cli', 'commands', 'chat-viewport', 'config-schema'),
-  },
-];
-
 interface CliEdge {
   /** PROJECT_ROOT 相对路径的 import 方文件。 */
   file: string;
@@ -51,7 +41,7 @@ function isCliProcessPath(resolved: string): boolean {
   return (resolved + path.sep).startsWith(CLI_DIR);
 }
 
-/** 剥离 .js/.ts 扩展名，供与白名单做模块级比较。 */
+/** 剥离 .js/.ts 扩展名，供模块级比较。 */
 function stripExtension(p: string): string {
   return p.replace(/\.(js|ts)$/, '');
 }
@@ -80,16 +70,9 @@ function collectCliEdges(dir: string): CliEdge[] {
   return edges;
 }
 
-describe('phase 1281 Step A: Assembly→CLIProcess 边界（唯一边 = viewportConfigSchema）', () => {
-  it('Assembly 对 CLIProcess 的 import 恰为白名单唯一边', () => {
-    expect(collectCliEdges(assemblyDir())).toEqual([...ALLOWED_EDGES]);
-  });
-
-  it('白名单按文件精确匹配，不放行整个 cli/commands 目录', () => {
-    // 合成反例：同一目录下的其他 CLI 模块（如 viewport-audit-events）不在白名单
-    const sibling = path.join('src', 'cli', 'commands', 'viewport-audit-events');
-    expect(ALLOWED_EDGES.some(e => e.target === sibling)).toBe(false);
-    expect(ALLOWED_EDGES.every(e => e.file.endsWith(path.join('config', 'compose-config.ts')))).toBe(true);
+describe('phase 1283 Step B: Assembly→CLIProcess 零边', () => {
+  it('Assembly 对 CLIProcess 的 production import 为零边', () => {
+    expect(collectCliEdges(assemblyDir())).toEqual([]);
   });
 
   it('CLIProtocol（src/cli-protocol/）路径不被误算为 CLIProcess', () => {

@@ -27,7 +27,8 @@
  *   - no-root-constants-readd
  *   - no-foundation-to-outside（phase 725：foundation 零上层依赖、lint 已验证 0 违反后守 invariant）
  *   - no-cli-protocol-to-outside（phase 1253：CLIProtocol 零实现依赖、同型 precedent）
- *   - no-assembly-to-cli-command-protocol-internals（phase 1253：窄范围、只禁已清退 command/help 路径回流）
+ *   - no-assembly-to-cli-process（phase 1283 Step B：Assembly→CLIProcess 零边通用禁令，
+ *     覆盖并取代 phase 1253 窄规则 no-assembly-to-cli-command-protocol-internals）
  *
  * **本 config 不守的**：
  *
@@ -258,22 +259,17 @@ module.exports = {
       to: { path: '^src/(?!cli-protocol/)' },
     },
     {
-      name: 'no-assembly-to-cli-command-protocol-internals',
+      name: 'no-assembly-to-cli-process',
       comment: [
-        'phase 1253 Step D 立：Assembly 不得回流已清退的 CLIProcess command/help 内部路径',
-        '（src/cli/help/*、src/cli/utils/cli-commands.ts）；claw command 事实与 help 渲染',
-        '统一经 CLIProtocol public barrel（src/cli-protocol/index.js）消费。',
-        '窄范围规则：不提前禁止 viewport config / audit routing / status hint 等仍存在边',
-        '（留 Phase 1252 路径 B/C 治理、全禁规则届时另立）。',
+        'phase 1283 Step B 立：Assembly 对 CLIProcess（src/cli/**）零边通用禁令。',
+        'viewport 配置协议归位 CLIProtocol 后 production 边已归零；合法 Assembly→CLIProtocol',
+        '（src/cli-protocol/）不受影响——to.path 末尾 / 精确区分 src/cli/ 与 src/cli-protocol/。',
+        '取代 phase 1253 Step D 窄规则 no-assembly-to-cli-command-protocol-internals',
+        '（只禁 src/cli/help/* 与 src/cli/utils/cli-commands.ts，已被本规则严格覆盖）。',
       ].join(' '),
       severity: 'error',
       from: { path: '^src/assembly/' },
-      to: {
-        path: [
-          '^src/cli/help/',
-          '^src/cli/utils/cli-commands(\\.ts)?$',
-        ],
-      },
+      to: { path: '^src/cli/' },
     },
     // phase 696 Step A 撤 2 layer rule (no-assembly-to-cli-shared-formatter / no-audit-to-dialog-store)
     // 由 code review 守、no-circular 守 cycle 类违反。
