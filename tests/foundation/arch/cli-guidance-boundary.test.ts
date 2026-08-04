@@ -2,8 +2,6 @@
  * Phase 1263 Step C + Phase 1264 Step A/B + Phase 1265/1266/1267 Step A: CLI guidance typed boundary ratchet.
  *
  * 锁定已迁 5/5 typed binding 纵向切片（claw_crashed / claw_inactivity / claw_outbox_summary / contract_events / contract_cancelled）的边界（总览反向验收 2/3/4）：
- *  - CLIProtocol（src/cli-protocol/**）零实现依赖（bare schema 库 zod 除外、
- *    phase 1283 Step A viewport 配置协议归位后显式 allowlist）；
  *  - Assembly typed binding 纯 typed：factory + owner decoder；exhaustive never 仅业务 union
  *    case（optional，无 union 不伪造）；无自由 text/CLI literal/prose/renderer/无关 owner state；
  *  - composers aggregate 不 direct register 已迁 type，全部 binding 同一次 helper 注册；
@@ -11,14 +9,14 @@
  * scanner 沿用 Phase 1262 Step D 教训：识别 mixed / type-only import 形态，配正反
  * fixture 自证。case 数据在 cli-guidance-boundary-cases.ts（phase 1266 Step A）、scanner 原语
  * 在 cli-guidance-boundary-helpers.ts（phase 1264 Step B），全部验收决策显式留在本文件。
+ * phase 1283 Step C：CLIProtocol 模块级依赖边界（零实现依赖 + zod bare allowlist）
+ * 拆至 cli-protocol-dependency-boundary.test.ts，本文件只守 guidance typed binding。
  */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import {
   CLI_GUIDANCE_BINDINGS,
-  CLI_PROTOCOL_DIR,
   COMPOSERS_INDEX,
   IMPORT_SPECIFIER_RE,
   bindingForbiddenRe,
@@ -30,31 +28,7 @@ import {
   walkTsFiles,
 } from './cli-guidance-boundary-helpers.js';
 
-/** phase 1283 Step A: CLIProtocol 允许的 bare specifier（schema 库、非 Chestnut 实现模块）。 */
-const BARE_SPECIFIER_ALLOWLIST: readonly string[] = ['zod'];
-
 describe('phase 1263 Step C + phase 1264 Step A + phase 1265/1266/1267 Step A: cli guidance typed boundary', () => {
-  it('CLIProtocol 零实现依赖：所有 import 解析后仍在 src/cli-protocol 内（zod bare 库除外）', () => {
-    const violations: string[] = [];
-    for (const file of walkTsFiles(CLI_PROTOCOL_DIR)) {
-      for (const m of fs.readFileSync(file, 'utf8').matchAll(IMPORT_SPECIFIER_RE)) {
-        const specifier = m[1];
-        if (!specifier.startsWith('.')) {
-          // phase 1283 Step A: bare specifier 只允许 schema 库 zod（非 Chestnut 实现模块）
-          if (!BARE_SPECIFIER_ALLOWLIST.includes(specifier)) {
-            violations.push(`${relativeToSrc(file)}: external specifier '${specifier}'`);
-          }
-          continue;
-        }
-        const resolved = path.resolve(path.dirname(file), specifier);
-        if (!resolved.startsWith(CLI_PROTOCOL_DIR + path.sep) && resolved !== CLI_PROTOCOL_DIR) {
-          violations.push(`${relativeToSrc(file)}: escapes cli-protocol via '${specifier}'`);
-        }
-      }
-    }
-    expect(violations).toEqual([]);
-  });
-
   for (const binding of CLI_GUIDANCE_BINDINGS) {
     it(`${binding.type} binding 经 binding factory + owner decoder（有业务 union 时 + exhaustive never）`, () => {
       const text = fs.readFileSync(bindingPath(binding.file), 'utf8');
@@ -119,15 +93,6 @@ describe('phase 1263 Step C + phase 1264 Step A + phase 1265/1266/1267 Step A: c
       expect(m, s).toHaveLength(1);
       expect(m[0][1].startsWith('.')).toBe(true);
     }
-    // 合法同模块引用不判逃逸
-    const innerSpec = [...'import { renderClawInvocation } from \'./invocation.js\';'.matchAll(IMPORT_SPECIFIER_RE)][0][1];
-    expect(path.resolve(CLI_PROTOCOL_DIR, innerSpec).startsWith(CLI_PROTOCOL_DIR + path.sep)).toBe(true);
-
-    // phase 1283 Step A: bare specifier 只放行 allowlist（zod），其余 bare 仍判逃逸
-    expect(BARE_SPECIFIER_ALLOWLIST).toEqual(['zod']);
-    expect(BARE_SPECIFIER_ALLOWLIST.includes('zod')).toBe(true);
-    expect(BARE_SPECIFIER_ALLOWLIST.includes('commander')).toBe(false);
-
     // binding forbidden scanner：违反形态（text/CLI literal/prose/renderer/无关 owner state）均检出
     const crashRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[0]), inactivityRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[1]);
     expect(crashRe.test("return { text: 'x' };")).toBe(true);
