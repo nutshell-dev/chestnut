@@ -7,6 +7,9 @@
  * phase 1279 Step A: Viewport routing 归位真实 CLI 进程（Chat Viewport owner 工厂
  * createViewportAudit 兑现），删除 Assembly→CLIProcess viewport 边；daemon/Assembly
  * 零 viewport producer，此处不再聚合。`AuditFileName` 仍保留 'viewport'（CLI 侧物理 file）。
+ * phase 1281 Step A: 删除全 'audit' 的 CLI_FILE_ROUTING 伪贡献（对落盘行为 no-op，
+ * 默认文件已由 AuditLog DEFAULT_FILE 稳定表达），Assembly→CLIProcess 收敛为
+ * compose-config → viewportConfigSchema 唯一边。
  */
 
 import type { AuditFileName, AuditFileRoutingContribution } from '../foundation/audit/index.js';
@@ -18,7 +21,6 @@ import { EVENTLOOP_FILE_ROUTING } from '../core/event-loop/index.js';
 // phase 163 新加 14 业主
 import { ASSEMBLY_FILE_ROUTING } from './audit-events.js';
 import { ASSEMBLY_LLM_FILE_ROUTING } from './llm-audit-events.js';
-import { CLI_FILE_ROUTING } from '../cli/audit-events.js';
 import { CONTRACT_FILE_ROUTING } from '../core/contract/index.js';
 import { GATEWAY_FILE_ROUTING } from '../core/gateway/index.js';
 import { HEARTBEAT_FILE_ROUTING } from '../core/heartbeat/index.js';
@@ -42,7 +44,6 @@ const INTERNAL_FILE_ROUTING: Readonly<Record<string, FileName>> = {
   // phase 163 新加
   ...ASSEMBLY_FILE_ROUTING,
   ...ASSEMBLY_LLM_FILE_ROUTING,
-  ...CLI_FILE_ROUTING,
   ...CONTRACT_FILE_ROUTING,
   ...GATEWAY_FILE_ROUTING,
   ...HEARTBEAT_FILE_ROUTING,

@@ -32,36 +32,3 @@ export const CLI_AUDIT_EVENTS = {
   CLAW_WATCH: 'cli_claw_watch',                                              // NEW phase 5: motion 订阅 inactivity 后续提醒
   CLAW_WATCH_REJECTED: 'cli_claw_watch_rejected',                            // NEW phase 5: 24h 上限 / 解析失败 等
 } as const;
-
-
-/**
- * Phase 163 业主声明 file 归属（phase 122 §5.A + §6.7 + phase 159 模式）.
- *
- * 全 'audit'：业务事件归业务事件主 file（信噪比已通过 cron tick 分流改善）.
- */
-export const CLI_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
-  cli_claw_create: 'audit',
-  cli_claw_stop: 'audit',
-  cli_claw_outbox_drain_start: 'audit',
-  cli_claw_outbox_drain_done: 'audit',
-  cli_claw_outbox_drain_race_lost: 'audit',
-  cli_contract_create: 'audit',
-  cli_contract_cancel: 'audit',
-  cli_init_done: 'audit',
-  cli_init_probe_attempted: 'audit',
-  cli_init_probe_succeeded: 'audit',
-  cli_init_probe_failed: 'audit',
-  cli_init_probe_reconfigured: 'audit',
-  cli_init_probe_skipped: 'audit',
-  cli_motion_init: 'audit',
-  cli_motion_outbox_drain_start: 'audit',
-  cli_motion_outbox_drain_done: 'audit',
-  cli_motion_stop: 'audit',
-  cli_skill_install: 'audit',
-  cli_daemon_start: 'audit',
-  cli_daemon_stop: 'audit',
-  cli_chat_crash_uncaught: 'audit',
-  cli_daemon_spawn_race_failed: 'audit',
-  cli_claw_watch: 'audit',
-  cli_claw_watch_rejected: 'audit',
-} as const;

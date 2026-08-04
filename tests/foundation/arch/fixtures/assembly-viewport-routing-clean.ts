@@ -1,9 +1,12 @@
 /**
- * phase 1279 Step A boundary fixture (negative): an Assembly module that touches
- * CLIProcess for a DIFFERENT, still-open edge (cli/audit-events CLI_FILE_ROUTING)
- * without any viewport routing reference. Scanner must not flag this file.
+ * phase 1281 Step A boundary fixture (negative): an Assembly module with zero
+ * CLIProcess imports. Before phase 1281 it simulated the retired CLI_FILE_ROUTING
+ * edge as "another allowed CLI edge"; that edge was deleted, so the fixture is
+ * now truly clean — only a non-CLI edge (cron routing, legitimately aggregated
+ * by Assembly) remains. Both the viewport routing scanner and the
+ * Assembly→CLIProcess boundary scanner must ignore this file.
  */
 
-import { CLI_FILE_ROUTING } from '../../../src/cli/audit-events.js';
+import { CRON_FILE_ROUTING } from '../../../../src/foundation/cron/index.js';
 
-void CLI_FILE_ROUTING;
+void CRON_FILE_ROUTING;

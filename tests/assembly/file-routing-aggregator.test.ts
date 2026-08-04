@@ -6,10 +6,11 @@ import {
   getRoutedFileNames,
   DEFAULT_FILE,
 } from '../../src/assembly/file-routing-aggregator.js';
+import { CLI_AUDIT_EVENTS } from '../../src/cli/audit-events.js';
 import { CRON_FILE_ROUTING } from '../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../src/daemon/audit-events.js';
 
-describe('file-routing-aggregator (phase 159 / 1243 / 1279)', () => {
+describe('file-routing-aggregator (phase 159 / 1243 / 1279 / 1281)', () => {
   it('AggregatedFileRouting contains all internal owner-declared types', () => {
     const ownerRoutings = {
       ...CRON_FILE_ROUTING,
@@ -35,6 +36,13 @@ describe('file-routing-aggregator (phase 159 / 1243 / 1279)', () => {
     expect(lookupFileForType('viewport_event_ingest')).toBe(DEFAULT_FILE);
     expect(lookupFileForType('viewport_spinner_lifecycle')).toBe(DEFAULT_FILE);
     expect(lookupFileForType('viewport_scrollback_clear_suppressed')).toBe(DEFAULT_FILE);
+  });
+
+  it('phase 1281 reverse lock: 全部 CLI 事件走 DEFAULT_FILE（CLI_FILE_ROUTING 伪贡献已删除）', () => {
+    // Assembly 聚合图不再含任何 cli_* routing；CLI 事件经未知类型 fallback 仍落 audit
+    for (const eventType of Object.values(CLI_AUDIT_EVENTS)) {
+      expect(lookupFileForType(eventType), `${eventType} must fall back to DEFAULT_FILE`).toBe(DEFAULT_FILE);
+    }
   });
 
   it('lookupFileForType with external routing returns correct file for contributed types', () => {

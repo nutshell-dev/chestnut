@@ -10,7 +10,6 @@ import { VIEWPORT_FILE_ROUTING } from '../../../src/cli/commands/viewport-audit-
 // phase 163 新加 14 业主
 import { ASSEMBLY_FILE_ROUTING } from '../../../src/assembly/audit-events.js';
 import { ASSEMBLY_LLM_FILE_ROUTING } from '../../../src/assembly/llm-audit-events.js';
-import { CLI_FILE_ROUTING } from '../../../src/cli/audit-events.js';
 import { CONTRACT_FILE_ROUTING } from '../../../src/core/contract/audit-events.js';
 import { GATEWAY_FILE_ROUTING } from '../../../src/core/gateway/audit-events.js';
 import { HEARTBEAT_FILE_ROUTING } from '../../../src/core/heartbeat/audit-events.js';
@@ -141,7 +140,6 @@ describe('audit-events snapshot lock', () => {
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
       ...ASSEMBLY_LLM_FILE_ROUTING,
-      ...CLI_FILE_ROUTING,
       ...CONTRACT_FILE_ROUTING,
       ...GATEWAY_FILE_ROUTING,
       ...HEARTBEAT_FILE_ROUTING,
@@ -172,7 +170,6 @@ describe('audit-events snapshot lock', () => {
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
       ...ASSEMBLY_LLM_FILE_ROUTING,
-      ...CLI_FILE_ROUTING,
       ...CONTRACT_FILE_ROUTING,
       ...GATEWAY_FILE_ROUTING,
       ...HEARTBEAT_FILE_ROUTING,
@@ -208,7 +205,6 @@ describe('audit-events snapshot lock', () => {
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
       ...ASSEMBLY_LLM_FILE_ROUTING,
-      ...CLI_FILE_ROUTING,
       ...CONTRACT_FILE_ROUTING,
       ...GATEWAY_FILE_ROUTING,
       ...HEARTBEAT_FILE_ROUTING,
@@ -234,7 +230,6 @@ describe('audit-events snapshot lock', () => {
     const ownerModules = [
       'assembly/audit-events.ts',
       'assembly/llm-audit-events.ts',
-      'cli/audit-events.ts',
       'core/contract/audit-events.ts',
       'core/gateway/audit-events.ts',
       'core/heartbeat/audit-events.ts',
