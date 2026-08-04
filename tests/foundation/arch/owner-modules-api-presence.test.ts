@@ -99,6 +99,13 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     expect(typeof protocol.CliGuidanceRenderError).toBe('function');
   });
 
+  it('cli-protocol barrel 公开 viewport 配置协议（phase 1283 Step A: viewportConfigSchema + inline 默认值）', async () => {
+    const protocol = await import('../../../src/cli-protocol/index.js');
+    expect(typeof protocol.viewportConfigSchema).toBe('object');
+    expect(protocol.viewportConfigSchema.parse({}).user_input_inline_max_chars).toBe(2000);
+    expect(protocol.VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT).toBe(2000);
+  });
+
   it('cli-protocol barrel 不再公开旧 invocation 符号（phase 1270 Step A 反向断言）', async () => {
     const protocol = await import('../../../src/cli-protocol/index.js');
     expect('renderClawInvocation' in protocol).toBe(false);

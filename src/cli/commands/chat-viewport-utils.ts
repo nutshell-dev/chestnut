@@ -4,7 +4,7 @@
  */
 
 import { newShortUuid } from '../../foundation/node-utils/index.js';
-import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/index.js';
+import { VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } from '../../cli-protocol/index.js';
 import { getChestnutRoot } from '../../core/claw-topology/index.js';
 import { makeChestnutRoot } from '../../core/claw-topology/index.js';
 import * as path from 'path';
@@ -18,13 +18,13 @@ const PREVIEW_HEAD_CHARS = 200;
 
 /** 写用户输入到 inbox（chat 命令期间用户输入流入 daemon）
  *  phase 142: 阈值超过 maxInlineChars 时落盘到 inbox/attachments/、body 改提示。
- *  maxInlineChars 默 EXEC_MAX_OUTPUT (2000、phase 142 ratify 与 chestnut 现有"信息流入 motion"阈值一致)。
+ *  maxInlineChars 默 VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT (2000、phase 1283 起归 CLIProtocol viewport 配置协议)。
  */
 export function writeUserChat(
   agentDir: string,
   message: string,
   fsFactory: (baseDir: string) => FileSystem,
-  maxInlineChars: number = EXEC_MAX_OUTPUT,
+  maxInlineChars: number = VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT,
 ): void {
   const { fs, audit } = createDirContext({ fsFactory }, agentDir);
   // phase 1388 Bug A fix: dirname 单层在普通 claw 布局错位 (`.chestnut/claws/<id>` → `.chestnut/claws` 而非 `.chestnut`)

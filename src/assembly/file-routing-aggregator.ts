@@ -9,7 +9,8 @@
  * 零 viewport producer，此处不再聚合。`AuditFileName` 仍保留 'viewport'（CLI 侧物理 file）。
  * phase 1281 Step A: 删除全 'audit' 的 CLI_FILE_ROUTING 伪贡献（对落盘行为 no-op，
  * 默认文件已由 AuditLog DEFAULT_FILE 稳定表达），Assembly→CLIProcess 收敛为
- * compose-config → viewportConfigSchema 唯一边。
+ * compose-config → viewportConfigSchema 唯一边；phase 1283 Step A 该 schema 归位
+ * CLIProtocol 后，Assembly→CLIProcess 边归零。
  */
 
 import type { AuditFileName, AuditFileRoutingContribution } from '../foundation/audit/index.js';

@@ -69,7 +69,7 @@ export interface ViewportDisplayOptions {
   showSystemMessages?: boolean;   // system message，默认 false
   showContractEvents?: boolean;   // contract 子任务完成信息，默认 true
   trimOutputNewlines?: boolean;   // LLM 输出首尾换行清理，默认 true
-  /** phase 142: 用户输入超此字符数 → 落盘 inbox/attachments/。默认 EXEC_MAX_OUTPUT (2000)。 */
+  /** phase 142: 用户输入超此字符数 → 落盘 inbox/attachments/。默认 VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT (2000)。 */
   userInputInlineMaxChars?: number;
 }
 
@@ -452,7 +452,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         options.agentDir,
         trimmed,
         options.fsFactory,
-        options.userInputInlineMaxChars,  // undefined 时 writeUserChat 走默认 EXEC_MAX_OUTPUT
+        options.userInputInlineMaxChars,  // undefined 时 writeUserChat 走默认 VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT
       );
     } catch (err) {
       const msg = formatErr(err);

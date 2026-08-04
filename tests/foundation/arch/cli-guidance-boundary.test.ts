@@ -2,7 +2,8 @@
  * Phase 1263 Step C + Phase 1264 Step A/B + Phase 1265/1266/1267 Step A: CLI guidance typed boundary ratchet.
  *
  * 锁定已迁 5/5 typed binding 纵向切片（claw_crashed / claw_inactivity / claw_outbox_summary / contract_events / contract_cancelled）的边界（总览反向验收 2/3/4）：
- *  - CLIProtocol（src/cli-protocol/**）零实现依赖；
+ *  - CLIProtocol（src/cli-protocol/**）零实现依赖（bare schema 库 zod 除外、
+ *    phase 1283 Step A viewport 配置协议归位后显式 allowlist）；
  *  - Assembly typed binding 纯 typed：factory + owner decoder；exhaustive never 仅业务 union
  *    case（optional，无 union 不伪造）；无自由 text/CLI literal/prose/renderer/无关 owner state；
  *  - composers aggregate 不 direct register 已迁 type，全部 binding 同一次 helper 注册；
@@ -29,14 +30,20 @@ import {
   walkTsFiles,
 } from './cli-guidance-boundary-helpers.js';
 
+/** phase 1283 Step A: CLIProtocol 允许的 bare specifier（schema 库、非 Chestnut 实现模块）。 */
+const BARE_SPECIFIER_ALLOWLIST: readonly string[] = ['zod'];
+
 describe('phase 1263 Step C + phase 1264 Step A + phase 1265/1266/1267 Step A: cli guidance typed boundary', () => {
-  it('CLIProtocol 零实现依赖：所有 import 解析后仍在 src/cli-protocol 内', () => {
+  it('CLIProtocol 零实现依赖：所有 import 解析后仍在 src/cli-protocol 内（zod bare 库除外）', () => {
     const violations: string[] = [];
     for (const file of walkTsFiles(CLI_PROTOCOL_DIR)) {
       for (const m of fs.readFileSync(file, 'utf8').matchAll(IMPORT_SPECIFIER_RE)) {
         const specifier = m[1];
         if (!specifier.startsWith('.')) {
-          violations.push(`${relativeToSrc(file)}: external specifier '${specifier}'`);
+          // phase 1283 Step A: bare specifier 只允许 schema 库 zod（非 Chestnut 实现模块）
+          if (!BARE_SPECIFIER_ALLOWLIST.includes(specifier)) {
+            violations.push(`${relativeToSrc(file)}: external specifier '${specifier}'`);
+          }
           continue;
         }
         const resolved = path.resolve(path.dirname(file), specifier);
@@ -115,6 +122,11 @@ describe('phase 1263 Step C + phase 1264 Step A + phase 1265/1266/1267 Step A: c
     // 合法同模块引用不判逃逸
     const innerSpec = [...'import { renderClawInvocation } from \'./invocation.js\';'.matchAll(IMPORT_SPECIFIER_RE)][0][1];
     expect(path.resolve(CLI_PROTOCOL_DIR, innerSpec).startsWith(CLI_PROTOCOL_DIR + path.sep)).toBe(true);
+
+    // phase 1283 Step A: bare specifier 只放行 allowlist（zod），其余 bare 仍判逃逸
+    expect(BARE_SPECIFIER_ALLOWLIST).toEqual(['zod']);
+    expect(BARE_SPECIFIER_ALLOWLIST.includes('zod')).toBe(true);
+    expect(BARE_SPECIFIER_ALLOWLIST.includes('commander')).toBe(false);
 
     // binding forbidden scanner：违反形态（text/CLI literal/prose/renderer/无关 owner state）均检出
     const crashRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[0]), inactivityRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[1]);

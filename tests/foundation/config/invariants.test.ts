@@ -5,8 +5,7 @@ import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { getClawDir } from '../../../src/core/claw-topology/claw-instance-paths.js';
-import { viewportConfigSchema } from '../../../src/cli/commands/chat-viewport/config-schema.js';
-import { EXEC_MAX_OUTPUT } from '../../../src/foundation/command-tool/constants.js';
+import { viewportConfigSchema, VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT } from '../../../src/cli-protocol/index.js';
 import { llmOrchestratorConfigSchema } from '../../../src/foundation/llm-orchestrator/config-schema.js';
 import { DEFAULT_RESET_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/defaults.js';
 
@@ -88,10 +87,10 @@ describe('assembly/config-load: no race tmp naming', () => {
   });
 });
 
-describe('viewportConfigSchema user_input_inline_max_chars (phase 142)', () => {
-  it('default value aligns with EXEC_MAX_OUTPUT', () => {
+describe('viewportConfigSchema user_input_inline_max_chars (phase 142 / phase 1283 owner 归位 CLIProtocol)', () => {
+  it('default value is the CLIProtocol viewport protocol default', () => {
     const config = viewportConfigSchema.parse({});
-    expect(config.user_input_inline_max_chars).toBe(EXEC_MAX_OUTPUT);
+    expect(config.user_input_inline_max_chars).toBe(VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT);
     expect(config.user_input_inline_max_chars).toBe(2000);
   });
 

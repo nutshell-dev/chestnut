@@ -29,6 +29,10 @@ export {
   renderClawCommandHelp,
 } from './help.js';
 export {
+  viewportConfigSchema,
+  VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT,
+} from './viewport-config.js';
+export {
   renderCliGuidanceAction,
   renderCliGuidanceDocument,
   CliGuidanceRenderError,
