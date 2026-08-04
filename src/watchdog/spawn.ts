@@ -35,7 +35,7 @@ const WATCHDOG_START_MAX_ATTEMPTS = 30;
 export async function spawnWatchdogCandidate(
   fsFactory: (baseDir: string) => FileSystem,
 ): Promise<number> {
-  const watchdogEntryPath = getWatchdogEntryPath(fsFactory);
+  const watchdogEntryPath = getWatchdogEntryPath();
   const chestnutRoot = getWorkspaceRoot();
   spawnDetached('node', [watchdogEntryPath], {
     env: { ...process.env, CHESTNUT_ROOT: chestnutRoot },

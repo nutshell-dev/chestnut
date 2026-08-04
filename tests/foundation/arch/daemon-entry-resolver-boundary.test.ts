@@ -7,7 +7,7 @@
  *  - consumer 全部经稳定子入口 daemon/entry-resolver.js，零 Assembly 旧路径、
  *    零 Daemon 宽 barrel（当前 consumer 集合显式登记，合法新 caller 需显式更新）；
  *  - resolver 零参数签名、不 import fs/Assembly/Daemon 运行实现；
- *  - assembly/spawn-entry.ts 仍只定义 resolveWatchdogEntry（本 Phase 未误删）。
+ *  - assembly/spawn-entry.ts 已物理删除（phase 1285 归位 Watchdog 后 Assembly 零残留）。
  * 正反 fixture 自证 scanner 能识别旧 Assembly import 与合法 Daemon stable path。
  */
 
@@ -88,10 +88,8 @@ describe('phase 1284 Step B: Daemon entry resolver 归属边界', () => {
     expect(specifiers.sort()).toEqual(['path', 'url']);
   });
 
-  it('assembly/spawn-entry.ts 仍只定义 resolveWatchdogEntry', () => {
-    const text = fs.readFileSync(SPAWN_ENTRY, 'utf8');
-    expect(text).toMatch(/export\s+function\s+resolveWatchdogEntry/);
-    expect(text).not.toContain('resolveDaemonEntry');
+  it('assembly/spawn-entry.ts 已物理删除（phase 1285 Assembly 零残留）', () => {
+    expect(fs.existsSync(SPAWN_ENTRY)).toBe(false);
   });
 
   it('scanner 正反 fixture 自证', () => {

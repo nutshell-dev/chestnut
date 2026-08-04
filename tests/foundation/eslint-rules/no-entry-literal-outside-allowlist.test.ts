@@ -29,7 +29,12 @@ describe('eslint custom rule: no-entry-literal-outside-allowlist (phase 420)', (
         code: 'const x = "daemon-entry.js";',
         filename: 'src/foundation/process-manager/types.ts',
       },
-      // watchdog-entry allowlist
+      // watchdog-entry allowlist: watchdog/entry-resolver.ts (phase 1285 归位 Watchdog)
+      {
+        code: 'const x = "watchdog-entry.js";',
+        filename: 'src/watchdog/entry-resolver.ts',
+      },
+      // watchdog-entry allowlist: orphan-sweep.ts (argv 校验 token)
       {
         code: 'const x = "watchdog-entry.js";',
         filename: 'src/watchdog/orphan-sweep.ts',
@@ -57,6 +62,12 @@ describe('eslint custom rule: no-entry-literal-outside-allowlist (phase 420)', (
       {
         code: 'const x = "watchdog-entry.js";',
         filename: 'src/cli/commands/stop.ts',
+        errors: [{ messageId: 'watchdogEntryLiteral' }],
+      },
+      // phase 1285: watchdog-entry literal 在旧 owner assembly/spawn-entry.ts 不再合法
+      {
+        code: 'const x = "watchdog-entry.js";',
+        filename: 'src/assembly/spawn-entry.ts',
         errors: [{ messageId: 'watchdogEntryLiteral' }],
       },
       // template literal containing daemon-entry.js

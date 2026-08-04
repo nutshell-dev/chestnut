@@ -42,7 +42,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
   const watchdog = {
     pid: typeof watchdogPid === 'number' ? watchdogPid : undefined,
     alive: isWatchdogAlive(deps.fsFactory),
-    entryPath: getWatchdogEntryPath(deps.fsFactory),
+    entryPath: getWatchdogEntryPath(),
   };
 
   const daemonEntryPath = resolveDaemonEntry();

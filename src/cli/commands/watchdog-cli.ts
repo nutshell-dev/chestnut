@@ -84,7 +84,7 @@ export async function stopCommand(
     let actualPid: number | null = null;
     try {
       const pm = createProcessManagerForCLI({ fsFactory, baseDir: getWorkspaceRoot() });
-      const watchdogEntryPath = getWatchdogEntryPath(fsFactory);
+      const watchdogEntryPath = getWatchdogEntryPath();
       const pids = pm.findProcesses(watchdogEntryPath);
       const verifyFn = deps?.isPidArgvMatching ?? defaultIsPidArgvMatching;
       for (const p of pids) {

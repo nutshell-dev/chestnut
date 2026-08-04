@@ -432,12 +432,12 @@ describe('isWatchdogAlive', () => {
 
 describe('getWatchdogEntryPath', () => {
   it('returns a path ending with watchdog-entry.js', () => {
-    const result = getWatchdogEntryPath(fsFactory);
+    const result = getWatchdogEntryPath();
     expect(result).toMatch(/watchdog-entry\.js$/);
   });
 
   it('returns a string (path is resolvable)', () => {
-    const result = getWatchdogEntryPath(fsFactory);
+    const result = getWatchdogEntryPath();
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
   });

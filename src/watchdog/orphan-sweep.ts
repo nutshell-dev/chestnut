@@ -44,7 +44,7 @@ export async function sweepOrphanWatchdogs(
   ensureAuditWired(fsFactory);
   const baseDir = getChestnutRoot();
   const pm = createProcessManagerForCLI({ fsFactory, baseDir });
-  const wdPath = getWatchdogEntryPath(fsFactory);
+  const wdPath = getWatchdogEntryPath();
   // phase 220 Step C: distinguish `null` (explicit "no exclusion, kill all" — used by `stop`)
   // from `undefined` (omitted — fallback to pid-file owner). The previous `??` collapsed both
   // into the fallback, so even `excludePid: null` callers got `getWatchdogPid()`'s pid as

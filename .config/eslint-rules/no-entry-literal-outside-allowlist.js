@@ -1,10 +1,10 @@
 /**
  * Custom ESLint rule: no-entry-literal-outside-allowlist
  *
- * 应然 (phase 1436 + phase 72 + phase 1284): `daemon-entry.js` 字符串字面量在 src/
+ * 应然 (phase 1436 + phase 72 + phase 1284 + phase 1285): `daemon-entry.js` 字符串字面量在 src/
  * 内的单一权威 = daemon/entry-resolver.ts (resolveDaemonEntry helper，phase 1284 归位
- * Daemon 真 owner)；`watchdog-entry.js` 单一权威 = assembly/spawn-entry.ts
- * (resolveWatchdogEntry helper)。其他文件不得持有对应字面量。
+ * Daemon 真 owner)；`watchdog-entry.js` 单一权威 = watchdog/entry-resolver.ts
+ * (resolveWatchdogEntry helper，phase 1285 归位 Watchdog 真 owner)。其他文件不得持有对应字面量。
  *
  * scope: src/ outside .d.ts and outside per-literal allowlist.
  *
@@ -17,7 +17,7 @@
  *       - src/daemon/entry-resolver.ts (the helper itself)
  *       - src/foundation/process-manager/types.ts (JSDoc example)
  *   - watchdog-entry.js:
- *       - src/assembly/spawn-entry.ts
+ *       - src/watchdog/entry-resolver.ts
  *       - src/watchdog/orphan-sweep.ts
  *
  * phase 420: 44th src ESLint rule
@@ -29,7 +29,7 @@ const DAEMON_ALLOWLIST = [
   'src/foundation/process-manager/types.ts',
 ];
 const WATCHDOG_ALLOWLIST = [
-  'src/assembly/spawn-entry.ts',
+  'src/watchdog/entry-resolver.ts',
   'src/watchdog/orphan-sweep.ts',
 ];
 
@@ -48,7 +48,7 @@ export default {
     type: 'problem',
     docs: {
       description:
-        'src/ forbids daemon-entry.js / watchdog-entry.js literal outside allowlist (phase 1436 + 72 + 1284)',
+        'src/ forbids daemon-entry.js / watchdog-entry.js literal outside allowlist (phase 1436 + 72 + 1284 + 1285)',
       category: 'Best Practices',
     },
     schema: [],
@@ -56,7 +56,7 @@ export default {
       daemonEntryLiteral:
         '`daemon-entry.js` literal in `{{file}}` outside allowlist. Use daemon/entry-resolver.ts resolveDaemonEntry helper.',
       watchdogEntryLiteral:
-        '`watchdog-entry.js` literal in `{{file}}` outside allowlist. Use assembly/spawn-entry.ts resolveWatchdogEntry helper.',
+        '`watchdog-entry.js` literal in `{{file}}` outside allowlist. Use watchdog/entry-resolver.ts resolveWatchdogEntry helper.',
     },
   },
 

@@ -9,7 +9,7 @@
  */
 
 import * as path from 'path';
-import { resolveWatchdogEntry } from '../assembly/spawn-entry.js';
+import { resolveWatchdogEntry } from './entry-resolver.js';
 import { getNamedSubrootDir } from '../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../assembly/config/config-load.js';
 import type { FileSystem } from '../foundation/fs/index.js';
@@ -172,8 +172,8 @@ export function getChestnutDir(): string {
  * Returns the absolute path to the watchdog entry script for this installation.
  * Used as the pgrep pattern to scope process operations to the current install.
  */
-export function getWatchdogEntryPath(fsFactory: (baseDir: string) => FileSystem): string {
-  return resolveWatchdogEntry(fsFactory(process.cwd()));
+export function getWatchdogEntryPath(): string {
+  return resolveWatchdogEntry();
 }
 
 // motion audit 归属：watchdog 对 motion 的观察事件（inbox 通知 / crash 通知）
