@@ -65,6 +65,17 @@ export {
 } from './workspace-config.js';
 // Phase 1288 Step C: workspace 根审计 capability（唯一生产构造入口；caller 不传路径/retention）
 export { createWorkspaceAudit } from './workspace-audit.js';
+// Phase 1288 Step D: workspace 根审计 segments typed 查询（legacy/new 双段显式列表、
+// merged 时间序视图以 segment+offset 稳定 tie-break；逐段失败分型、不静默丢段）
+export {
+  listWorkspaceAuditSegments,
+  readWorkspaceAuditMerged,
+  type WorkspaceAuditSegmentOrigin,
+  type WorkspaceAuditSegment,
+  type WorkspaceAuditSegmentIssue,
+  type WorkspaceAuditSegmentRecord,
+  type WorkspaceAuditMergedOptions,
+} from './workspace-segments.js';
 
 export {
   writeAuditMigrationIntent,

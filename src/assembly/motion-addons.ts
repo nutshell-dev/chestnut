@@ -56,7 +56,8 @@ export function createAuditSizeMonitorCronJob(
     audit: Parameters<typeof runAuditSizeMonitor>[0]['audit'];
     primaryAuditPath: string;
     secondaryAuditPath: string;
-    legacyAuditPath?: string;
+    /** Phase 1288 Step D：legacy 根 audit.tsv 常驻观察（必填，与 monitor 收口一致）。 */
+    legacyAuditPath: string;
     streamLog?: Parameters<typeof runAuditSizeMonitor>[0]['streamLog'];
   },
   globalConfig: { cron: { jobs: { audit_size_monitor: { enabled: boolean; schedule: string } } } },
@@ -247,8 +248,8 @@ export async function createMotionAddons(
           fs: chestnutFs,
           audit: auditWriter,
           primaryAuditPath: path.join(chestnutRoot, 'motion', AUDIT_FILE),
-          // Phase 1288 Step C: 根审计新写入只进 audit/audit.tsv → secondary 观察新路径；
-          // legacy 根 audit.tsv 原样保留、继续观察（Step D 统一校准 legacy 双读/清退）
+          // Phase 1288 Step D: 根审计三段常驻观察收口 —— 新写入只进 audit/audit.tsv
+          // （secondary）；legacy 根 audit.tsv 原样保留、只读观察（清退属后续 Phase）
           secondaryAuditPath: path.join(chestnutRoot, AUDIT_PATHS.audit),
           legacyAuditPath: path.join(chestnutRoot, AUDIT_LEGACY_PATHS.audit),
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)

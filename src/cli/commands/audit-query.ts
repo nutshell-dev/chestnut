@@ -9,15 +9,25 @@ import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
+import { getChestnutRoot } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {
   createAuditReader,
   listAuditFiles,
+  listWorkspaceAuditSegments,
+  readWorkspaceAuditMerged,
   type AuditRecord,
   type ReadOptions,
+  type WorkspaceAuditSegmentIssue,
 } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+
+/**
+ * Phase 1288 Step D: workspace 根 scope 保留 id（audit query/info 专用）。
+ * 该 scope 读根审计 legacy/new 两段（segments 查询），非 claw 目录。
+ */
+export const WORKSPACE_AUDIT_SCOPE = 'workspace';
 
 export interface AuditQueryOpts {
   claw: string;
@@ -49,9 +59,11 @@ export async function auditQueryCommand(
 ): Promise<void> {
   loadGlobalConfig(deps);
 
-  // 1. validate claw (motion-aware: motion does not require clawExists)
+  // 1. validate claw (motion-aware: motion does not require clawExists;
+  // workspace scope 是根审计 segments 查询、非 claw 目录)
+  const isWorkspace = opts.claw === WORKSPACE_AUDIT_SCOPE;
   const isMotion = opts.claw === MOTION_CLAW_ID;
-  if (!isMotion && !clawExists(deps, getClawConfigPath(opts.claw))) {
+  if (!isWorkspace && !isMotion && !clawExists(deps, getClawConfigPath(opts.claw))) {
     throw new CliError(`Claw "${opts.claw}" does not exist`);
   }
 
@@ -63,18 +75,30 @@ export async function auditQueryCommand(
     throw new CliError('--follow is incompatible with --all-files (follow targets a single file)');
   }
 
-  // 3. resolve files (motion-aware: mirror claw-steps.ts:20 pattern)
+  // Phase 1288 Step D: workspace 根 scope → segments 查询（显式双段、不拼接伪造全序）
+  if (isWorkspace) {
+    if (opts.allFiles) {
+      throw new CliError('--all-files is claw-scoped (workspace scope reads the root audit segments)');
+    }
+    if (opts.file !== 'audit') {
+      throw new CliError('--file is claw-scoped (workspace scope reads the root audit only)');
+    }
+  }
+
+  // 3. resolve files (motion-aware: mirror claw-steps.ts:20 pattern；workspace scope 无 claw 目录)
   const clawDir = isMotion ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(opts.claw);
   const fs = deps.fsFactory(clawDir);
-  const files = opts.allFiles
-    ? listAuditFiles(fs, clawDir)
-    : [{
-        name: opts.file,
-        path: path.join(clawDir, `${opts.file}.tsv`),
-        isBusinessMain: opts.file === 'audit',
-      }];
+  const files = isWorkspace
+    ? []
+    : opts.allFiles
+      ? listAuditFiles(fs, clawDir)
+      : [{
+          name: opts.file,
+          path: path.join(clawDir, `${opts.file}.tsv`),
+          isBusinessMain: opts.file === 'audit',
+        }];
 
-  if (files.length === 0) {
+  if (!isWorkspace && files.length === 0) {
     return;
   }
 
@@ -98,7 +122,11 @@ export async function auditQueryCommand(
   // 5. dispatch read or follow
   let scannedRows = 0;
   let matchedRows = 0;
-  if (opts.follow) {
+  if (isWorkspace) {
+    const result = await auditQueryWorkspaceScope(deps, opts, readOpts);
+    scannedRows = result.scannedRows;
+    matchedRows = result.matchedRows;
+  } else if (opts.follow) {
     const reader = createAuditReader(fs, files[0].path);
     const sigintHandler = () => { reader.close(); };
     process.on('SIGINT', sigintHandler);
@@ -151,6 +179,73 @@ export async function auditQueryCommand(
 const TOOL_EVENT_TYPES = new Set([
   'tool_result', 'tool_call_input', 'tool_async_result', 'tool_execution_failed',
 ]);
+
+/**
+ * Phase 1288 Step D: workspace 根 scope 查询 —— legacy/new 两段显式 segment 读取。
+ * merged 时间序视图按 ts 排序、segment+offset 稳定 tie-break；逐段失败分型呈现
+ * （stderr），不静默丢段、不把单段失败当整体空。输出行契约与 claw scope 一致
+ * （source name 统一 'audit' = 根审计 business main）。
+ */
+async function auditQueryWorkspaceScope(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  opts: AuditQueryOpts,
+  readOpts: ReadOptions,
+): Promise<{ scannedRows: number; matchedRows: number }> {
+  const chestnutRoot = getChestnutRoot();
+  const segments = listWorkspaceAuditSegments(deps.fsFactory, chestnutRoot);
+
+  const issues: WorkspaceAuditSegmentIssue[] = [];
+  const onIssue = (issue: WorkspaceAuditSegmentIssue) => {
+    // 两次 merged read（scanned/matched）可能重复报同一段失败 → 按 (origin, stage, code) 去重
+    if (issues.some(i => i.origin === issue.origin && i.stage === issue.stage && i.code === issue.code)) return;
+    issues.push(issue);
+  };
+  const reportIssues = () => {
+    for (const issue of issues) {
+      process.stderr.write(
+        `[audit-query] workspace segment unreadable: origin=${issue.origin} stage=${issue.stage} ` +
+        `path=${issue.path} code=${issue.code} error=${issue.message}\n`,
+      );
+    }
+  };
+
+  let scannedRows = 0;
+  let matchedRows = 0;
+
+  if (opts.follow) {
+    // follow 只跟 new 段（唯一生产写入目标）：legacy 为冻结历史（仅旧版本进程可能
+    // 追加），不作 tail 目标；new 段缺失时 follow 其路径等其创建（reader 原生语义）
+    for (const seg of segments) {
+      if (seg.status === 'unreadable') onIssue(seg.issue);
+    }
+    reportIssues();
+    const current = segments.find(s => s.origin === 'new');
+    const fs = deps.fsFactory(chestnutRoot);
+    const reader = createAuditReader(fs, current!.path);
+    const sigintHandler = () => { reader.close(); };
+    process.on('SIGINT', sigintHandler);
+    try {
+      for await (const rec of reader.follow(readOpts)) {
+        scannedRows++;
+        matchedRows++;
+        emit(rec, 'audit', opts.json ?? false);
+      }
+    } finally {
+      process.off('SIGINT', sigintHandler);
+    }
+    return { scannedRows, matchedRows };
+  }
+
+  const scanned = await readWorkspaceAuditMerged(segments, { onIssue });
+  scannedRows = scanned.length;
+  const matched = await readWorkspaceAuditMerged(segments, { ...readOpts, onIssue });
+  matchedRows = matched.length;
+  for (const item of matched) {
+    emit(item.record, 'audit', opts.json ?? false);
+  }
+  reportIssues();
+  return { scannedRows, matchedRows };
+}
 
 function emit(rec: AuditRecord, sourceName: string, json: boolean): void {
   if (json) {

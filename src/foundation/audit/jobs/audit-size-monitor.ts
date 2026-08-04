@@ -4,7 +4,12 @@ import { formatErr } from "../../node-utils/index.js";
  * @layer L2a
  * @depends L1.FileSystem, L2a.AuditLog
  *
- * AuditLog-owned monitor: 周期 stat motion/audit.tsv + .chestnut/audit.tsv 大小、超阈值 emit audit + viewport stream notify (phase 8).
+ * AuditLog-owned monitor: 周期 stat motion/audit.tsv + 根级新旧两段
+ * （audit/audit.tsv + legacy audit.tsv）大小、超阈值 emit audit + viewport stream notify (phase 8).
+ *
+ * Phase 1288 Step D 收口：三段常驻可观察（legacyAuditPath 必填）——兼容期旧版本
+ * writer 可能仍写 legacy 根文件，两段共同构成完整历史，缺段（FNF）合法跳过、
+ * 非 FNF stat 失败逐段 CHECK_FAILED 分型、不静默丢段。
  *
  * 阈值语义（phase 8 reframe）：informational only / 供开发者参考 / 无 motion action / 直接 viewport 显示提醒.
  *
@@ -50,11 +55,11 @@ export interface AuditSizeMonitorOptions {
   primaryAuditPath: string;
   secondaryAuditPath: string;
   /**
-   * Phase 1288 Step C: legacy 根 audit.tsv（兼容期观察，可选）。
-   * 新写入只进 AUDIT_PATHS.audit（经 secondary 观察）；legacy 旧文件原样保留、
-   * 继续观察其体量直到 Step D 统一校准双读/清退协议。
+   * Phase 1288 Step D 收口：legacy 根 audit.tsv（兼容期常驻观察，必填）。
+   * 新写入只进新根路径（经 secondary 观察）；legacy 旧文件原样保留、
+   * 只读观察其体量直到后续 Phase 有「无 legacy writer」磁盘证据后另行清退。
    */
-  legacyAuditPath?: string;
+  legacyAuditPath: string;
   warnBytes?: number;
   criticalBytes?: number;
   streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
@@ -64,9 +69,7 @@ export interface AuditSizeMonitorOptions {
 export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promise<void> {
   const warn = opts.warnBytes ?? AUDIT_SIZE_WARN_BYTES;
   const critical = opts.criticalBytes ?? AUDIT_SIZE_CRITICAL_BYTES;
-  const paths = opts.legacyAuditPath
-    ? [opts.primaryAuditPath, opts.secondaryAuditPath, opts.legacyAuditPath]
-    : [opts.primaryAuditPath, opts.secondaryAuditPath];
+  const paths = [opts.primaryAuditPath, opts.secondaryAuditPath, opts.legacyAuditPath];
   for (const p of paths) {
     if (opts.signal?.aborted) return;
     try {

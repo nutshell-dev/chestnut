@@ -29,7 +29,8 @@ describe('phase 1242 Step A: audit-size-monitor CronJob wiring in Assembly', () 
         fs: makeFs(),
         audit,
         primaryAuditPath: '/tmp/test/motion/audit.tsv',
-        secondaryAuditPath: '/tmp/test/audit.tsv',
+        secondaryAuditPath: '/tmp/test/audit/audit.tsv',
+        legacyAuditPath: '/tmp/test/audit.tsv',
       },
       { cron: { jobs: { audit_size_monitor: { enabled: true, schedule: 'daily:06:00' } } } },
     );
@@ -48,7 +49,8 @@ describe('phase 1242 Step A: audit-size-monitor CronJob wiring in Assembly', () 
         fs: makeFs(),
         audit,
         primaryAuditPath: '/tmp/test/motion/audit.tsv',
-        secondaryAuditPath: '/tmp/test/audit.tsv',
+        secondaryAuditPath: '/tmp/test/audit/audit.tsv',
+        legacyAuditPath: '/tmp/test/audit.tsv',
       },
       { cron: { jobs: { audit_size_monitor: { enabled: true, schedule: 'bogus' } } } },
     );
@@ -69,7 +71,8 @@ describe('phase 1242 Step A: audit-size-monitor CronJob wiring in Assembly', () 
         fs: makeFs(),
         audit,
         primaryAuditPath: '/tmp/test/motion/audit.tsv',
-        secondaryAuditPath: '/tmp/test/audit.tsv',
+        secondaryAuditPath: '/tmp/test/audit/audit.tsv',
+        legacyAuditPath: '/tmp/test/audit.tsv',
       },
       { cron: { jobs: { audit_size_monitor: { enabled: true, schedule: 'hourly' } } } },
     );

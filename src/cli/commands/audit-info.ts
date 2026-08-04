@@ -16,14 +16,17 @@ import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
+import { getChestnutRoot } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {
   listAuditFiles,
   listPendingFallbackDumps,
+  listWorkspaceAuditSegments,
   type AuditFileInfo,
 } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { WORKSPACE_AUDIT_SCOPE } from './audit-query.js';
 
 
 import _snapshotJson from '../audit-events.snapshot.json' with { type: 'json' };
@@ -40,9 +43,16 @@ export async function auditInfoCommand(
 ): Promise<void> {
   loadGlobalConfig(deps);
 
+  const isWorkspace = opts.claw === WORKSPACE_AUDIT_SCOPE;
   const isMotion = opts.claw === MOTION_CLAW_ID;
-  if (!isMotion && !clawExists(deps, getClawConfigPath(opts.claw))) {
+  if (!isWorkspace && !isMotion && !clawExists(deps, getClawConfigPath(opts.claw))) {
     throw new CliError(`Claw "${opts.claw}" does not exist`);
+  }
+
+  // Phase 1288 Step D: workspace 根 scope → 显式 segments 列表（origin/path/status）
+  if (isWorkspace) {
+    auditInfoWorkspaceScope(deps, opts, snapshotJson);
+    return;
   }
 
   const clawDir = isMotion ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(opts.claw);
@@ -73,6 +83,71 @@ export async function auditInfoCommand(
   for (const f of enrichedFiles) {
     const star = f.is_business_main ? ' *' : '  ';
     process.stdout.write(`${star} ${f.name.padEnd(12)} ${f.path}\n`);
+    process.stdout.write(`    owner_modules (${f.owner_modules.length}): ${f.owner_modules.slice(0, 5).join(', ')}${f.owner_modules.length > 5 ? '...' : ''}\n`);
+    process.stdout.write(`    registered_types: ${f.registered_types_count}\n`);
+  }
+  process.stdout.write(`  (* = business main, cross-process literal contract)\n\n`);
+
+  process.stdout.write(`Schema routing: ${routing.available ? 'enabled' : 'disabled (phase 122 ratify, impl pending)'}\n\n`);
+
+  if (pendingDumps.length > 0) {
+    process.stdout.write(`Pending fallback dumps (${pendingDumps.length}):\n`);
+    for (const d of pendingDumps) {
+      process.stdout.write(`  ${d.path} (pid=${d.pid}, size=${d.size})\n`);
+    }
+    process.stdout.write(`  → will be reconciled on next daemon boot (writer.ts:154)\n`);
+  } else {
+    process.stdout.write(`Pending fallback dumps: 0\n`);
+  }
+}
+
+/**
+ * Phase 1288 Step D: workspace 根 scope —— 显式 segments 列表（legacy/new 双段、
+ * 每段 origin/path/status；unreadable 段带 typed error，不静默丢段）。
+ * 输出骨架与 claw scope 一致，文件项增加 origin/status 字段。
+ */
+function auditInfoWorkspaceScope(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  opts: AuditInfoOpts,
+  snapshot: SnapshotJson,
+): void {
+  const chestnutRoot = getChestnutRoot();
+  const segments = listWorkspaceAuditSegments(deps.fsFactory, chestnutRoot);
+  const pendingDumps = listPendingFallbackDumps();
+
+  const files = segments.map((seg) => ({
+    ...enrichFile({ name: 'audit', path: seg.path, isBusinessMain: true }, snapshot),
+    origin: seg.origin,
+    status: seg.status,
+    ...(seg.status === 'unreadable'
+      ? { error: { code: seg.issue.code, message: seg.issue.message } }
+      : {}),
+  }));
+
+  const routing = snapshot.fileRouting
+    ? { available: true, map: snapshot.fileRouting }
+    : { available: false };
+
+  if (opts.json) {
+    process.stdout.write(JSON.stringify({
+      claw: opts.claw,
+      base_dir: path.resolve(chestnutRoot),
+      files,
+      pending_fallback_dumps: pendingDumps,
+      schema_routing: routing,
+    }, null, 2) + '\n');
+    return;
+  }
+
+  process.stdout.write(`Claw: ${opts.claw}\n`);
+  process.stdout.write(`Base dir: ${path.resolve(chestnutRoot)}\n\n`);
+  process.stdout.write(`Audit files (${files.length}):\n`);
+  for (const f of files) {
+    process.stdout.write(` * ${f.name.padEnd(12)} ${f.path}\n`);
+    process.stdout.write(`    origin: ${f.origin}  status: ${f.status}\n`);
+    if ('error' in f && f.error) {
+      process.stdout.write(`    error: code=${f.error.code} ${f.error.message}\n`);
+    }
     process.stdout.write(`    owner_modules (${f.owner_modules.length}): ${f.owner_modules.slice(0, 5).join(', ')}${f.owner_modules.length > 5 ? '...' : ''}\n`);
     process.stdout.write(`    registered_types: ${f.registered_types_count}\n`);
   }

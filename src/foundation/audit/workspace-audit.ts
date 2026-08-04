@@ -10,8 +10,9 @@
  * - 目标路径固定 AUDIT_PATHS.audit（audit/audit.tsv，相对 chestnutRoot）；
  * - retention 自 AuditLog 自家 config store 读取（missing → null；invalid → throw）。
  *
- * legacy 根 audit.tsv（AUDIT_LEGACY_PATHS.audit）本模块不读不写；
- * 兼容期双读/monitor 校准归 Step D。
+ * legacy 根 audit.tsv 本模块不读不写；
+ * 兼容期双段读取归 workspace-segments.ts（Step D）、monitor 校准归
+ * jobs/audit-size-monitor.ts（Step D 收口三段常驻观察）。
  */
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from './types.js';
