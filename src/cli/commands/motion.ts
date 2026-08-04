@@ -18,6 +18,7 @@ import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { runChatViewport } from './chat-viewport.js';
+import { createViewportAudit } from './viewport-audit-events.js';
 import { drainOutbox, printOutboxResults, type OutboxDrainOptions } from './claw-outbox.js';
 import { CliError } from '../errors.js';
 import { Snapshot } from '../../foundation/snapshot/index.js';
@@ -193,7 +194,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
 export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
   const globalConfig = loadGlobalConfig(deps);
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
-  const { audit: systemAudit } = createDirContext(deps, motionDir);
+  // phase 1279 Step A: viewport routing 由 Chat Viewport owner 工厂兑现（四高频事件落 viewport.tsv）
+  const systemAudit = createViewportAudit(deps.fsFactory(motionDir), motionDir);
 
   // Check whether Motion has been initialized
   const motionFs = deps.fsFactory(motionDir);

@@ -8,13 +8,11 @@ import {
 } from '../../src/assembly/file-routing-aggregator.js';
 import { CRON_FILE_ROUTING } from '../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../src/daemon/audit-events.js';
-import { VIEWPORT_FILE_ROUTING } from '../../src/cli/commands/viewport-audit-events.js';
 
-describe('file-routing-aggregator (phase 159 / 1243)', () => {
+describe('file-routing-aggregator (phase 159 / 1243 / 1279)', () => {
   it('AggregatedFileRouting contains all internal owner-declared types', () => {
     const ownerRoutings = {
       ...CRON_FILE_ROUTING,
-      ...VIEWPORT_FILE_ROUTING,
     };
     for (const [type, file] of Object.entries(ownerRoutings)) {
       expect(AggregatedFileRouting.has(type)).toBe(true);
@@ -29,9 +27,14 @@ describe('file-routing-aggregator (phase 159 / 1243)', () => {
 
   it('lookupFileForType returns correct file for known internal types', () => {
     expect(lookupFileForType('eventloop_iteration')).toBe('tick');
-    expect(lookupFileForType('viewport_render_batch')).toBe('viewport');
-    expect(lookupFileForType('viewport_event_ingest')).toBe('viewport');
-    expect(lookupFileForType('viewport_spinner_lifecycle')).toBe('viewport');
+  });
+
+  it('phase 1279 reverse lock: Assembly aggregate 不再含 viewport routing（归 CLI owner 工厂）', () => {
+    // daemon/Assembly 零 viewport producer；viewport 事件在 Assembly 聚合图上必须走默认兜底
+    expect(lookupFileForType('viewport_render_batch')).toBe(DEFAULT_FILE);
+    expect(lookupFileForType('viewport_event_ingest')).toBe(DEFAULT_FILE);
+    expect(lookupFileForType('viewport_spinner_lifecycle')).toBe(DEFAULT_FILE);
+    expect(lookupFileForType('viewport_scrollback_clear_suppressed')).toBe(DEFAULT_FILE);
   });
 
   it('lookupFileForType with external routing returns correct file for contributed types', () => {
@@ -45,11 +48,12 @@ describe('file-routing-aggregator (phase 159 / 1243)', () => {
     expect(lookupFileForType('contract_created')).toBe(DEFAULT_FILE);
   });
 
-  it('getRoutedFileNames includes audit, tick, and viewport', () => {
+  it('getRoutedFileNames includes audit and tick, not viewport (phase 1279)', () => {
     const files = getRoutedFileNames();
     expect(files.has('audit')).toBe(true);
     expect(files.has('tick')).toBe(true);
-    expect(files.has('viewport')).toBe(true);
+    // 反向锁：Assembly daemon AuditLog 不再创建 viewport.tsv writer
+    expect(files.has('viewport')).toBe(false);
   });
 
   it('getRoutedFileNames always includes DEFAULT_FILE even if no routings', () => {

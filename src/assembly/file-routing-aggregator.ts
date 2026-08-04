@@ -4,6 +4,9 @@
  * 按 phase 122 §5.A 业主声明 file 归属、装配层 aggregate.
  * audit 模块自身不 own routing logic (M#5).
  * phase 1243 Step B: Daemon routing 由外部 caller 作为 contribution 传入，删除 Assembly→Daemon import.
+ * phase 1279 Step A: Viewport routing 归位真实 CLI 进程（Chat Viewport owner 工厂
+ * createViewportAudit 兑现），删除 Assembly→CLIProcess viewport 边；daemon/Assembly
+ * 零 viewport producer，此处不再聚合。`AuditFileName` 仍保留 'viewport'（CLI 侧物理 file）。
  */
 
 import type { AuditFileName, AuditFileRoutingContribution } from '../foundation/audit/index.js';
@@ -11,7 +14,6 @@ import type { AuditFileName, AuditFileRoutingContribution } from '../foundation/
 // phase 159 立
 import { CRON_FILE_ROUTING } from '../foundation/cron/index.js';
 import { EVENTLOOP_FILE_ROUTING } from '../core/event-loop/index.js';
-import { VIEWPORT_FILE_ROUTING } from '../cli/commands/viewport-audit-events.js';
 
 // phase 163 新加 14 业主
 import { ASSEMBLY_FILE_ROUTING } from './audit-events.js';
@@ -37,7 +39,6 @@ const INTERNAL_FILE_ROUTING: Readonly<Record<string, FileName>> = {
   // phase 159 立
   ...CRON_FILE_ROUTING,
   ...EVENTLOOP_FILE_ROUTING,
-  ...VIEWPORT_FILE_ROUTING,
   // phase 163 新加
   ...ASSEMBLY_FILE_ROUTING,
   ...ASSEMBLY_LLM_FILE_ROUTING,

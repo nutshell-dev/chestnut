@@ -29,9 +29,31 @@ export const VIEWPORT_AUDIT_EVENTS = {
  *
  * viewport 高频 UI tick 类 → 'viewport' file、其余留 'audit'（默认主 file）.
  */
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
+
 export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'>> = {
   viewport_render_batch: 'viewport',
   viewport_event_ingest: 'viewport',
   viewport_spinner_lifecycle: 'viewport',
   viewport_scrollback_clear_suppressed: 'viewport',
 } as const;
+
+/**
+ * Phase 1279 Step A: Chat Viewport owner 的唯一 AuditLog 工厂。
+ *
+ * 背景：Assembly 曾把 VIEWPORT_FILE_ROUTING 装进零 viewport producer 的 daemon
+ * AuditLog，而两个真实 chat 入口（motion chat / claw chat）的单 writer 无 routing。
+ * 现由 owner 自行兑现声明：routing 数据不出本模块，Record→ReadonlyMap 转换与
+ * AuditLog 构造只在此处一份（M#7/M#8），两入口不复制转换。
+ *
+ * 边界：物理 audit.tsv / viewport.tsv 写入、rotation、seq 仍由 L2 AuditLog
+ * （createSystemAudit / DispatchingAuditWriter）独占；本工厂只做业务构造（L6→L2）。
+ * 未注册 / 非分流 viewport 事件按 DispatchingAuditWriter 默认兜底落 audit.tsv，
+ * 无静默丢弃。
+ */
+export function createViewportAudit(fs: FileSystem, agentDir: string): AuditLog {
+  return createSystemAudit(fs, agentDir, {
+    typeToFile: new Map(Object.entries(VIEWPORT_FILE_ROUTING)),
+  });
+}

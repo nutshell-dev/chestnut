@@ -14,6 +14,9 @@ import { DAEMON_FILE_ROUTING } from '../../../src/daemon/index.js';
 import { _resetFallbackForTest } from '../../../src/foundation/audit/writer.js';
 
 describe('multi-file emit E2E (phase 159)', () => {
+  // phase 1279 Step A: viewport routing 已迁出 Assembly aggregate（归 CLI Chat Viewport
+  // owner 工厂），Assembly daemon AuditLog 零 viewport producer；owner 侧真实落盘由
+  // tests/cli/chat-viewport-file-routing.test.ts 锁定，此处不再设 viewport case。
   let tmpDir: string;
 
   beforeEach(() => {
@@ -57,17 +60,6 @@ describe('multi-file emit E2E (phase 159)', () => {
     const auditContent = readFileSync(join(tmpDir, 'audit.tsv'), 'utf-8');
     expect(auditContent).toContain('turn_start');
     expect(auditContent).toContain('contract_created');
-  });
-
-  it('emit viewport 类 → 落到 viewport.tsv', () => {
-    const fs = new NodeFileSystem({ baseDir: tmpDir });
-    const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: AggregatedFileRouting });
-
-    audit.write('viewport_render_batch', 'count=5');
-
-    expect(existsSync(join(tmpDir, 'viewport.tsv'))).toBe(true);
-    const viewportContent = readFileSync(join(tmpDir, 'viewport.tsv'), 'utf-8');
-    expect(viewportContent).toContain('viewport_render_batch');
   });
 
   it('per-file seq 独立计数', () => {
