@@ -34,7 +34,7 @@ import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/i
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
-import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
+import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -149,7 +149,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, runt
   await runtime.ensureSupervision();
   // Step 2: motion init
   const { fs: notifyFs, audit: notifyAudit } = createDirContext(deps, motionDir);
-  const daemonEntryPath = resolveDaemonEntry(notifyFs);
+  const daemonEntryPath = resolveDaemonEntry();
   const motionSpawnOptions = {
     command: 'node' as const,
     args: [daemonEntryPath, MOTION_CLAW_ID],

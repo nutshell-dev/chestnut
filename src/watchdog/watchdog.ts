@@ -40,7 +40,7 @@ import { ProcessSpawnConflictError } from '../foundation/process-manager/index.j
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 
-import { resolveDaemonEntry } from '../assembly/spawn-entry.js';
+import { resolveDaemonEntry } from '../daemon/entry-resolver.js';
 
 
 import {
@@ -378,7 +378,7 @@ async function attemptMotionRestart(
       // phase 718: payload 加 message= prefix、forensic 解析可 join message 维度
       logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, `message=${audit.message(msg)}`);
     });
-    const daemonEntryPath = resolveDaemonEntry(fsFactory(process.cwd()));
+    const daemonEntryPath = resolveDaemonEntry();
     const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
       command: 'node',
       args: [daemonEntryPath, MOTION_CLAW_ID],

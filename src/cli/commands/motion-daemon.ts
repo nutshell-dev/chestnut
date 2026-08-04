@@ -13,7 +13,7 @@ import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
+import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import type { DaemonPM } from './claw-daemon.js';
@@ -37,7 +37,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void>
     console.warn('⚠ Motion is already running');
     return;
   }
-  const daemonEntryPath = resolveDaemonEntry(nodeFs);
+  const daemonEntryPath = resolveDaemonEntry();
   const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
     command: 'node',
     args: [daemonEntryPath, MOTION_CLAW_ID],

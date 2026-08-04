@@ -1,9 +1,10 @@
 /**
  * Custom ESLint rule: no-entry-literal-outside-allowlist
  *
- * 应然 (phase 1436 + phase 72): `daemon-entry.js` / `watchdog-entry.js` 字符串
- * 字面量在 src/ 内的单一权威 = assembly/spawn-entry.ts (resolveDaemonEntry /
- * resolveWatchdogEntry helper)。其他文件不得持有该字面量。
+ * 应然 (phase 1436 + phase 72 + phase 1284): `daemon-entry.js` 字符串字面量在 src/
+ * 内的单一权威 = daemon/entry-resolver.ts (resolveDaemonEntry helper，phase 1284 归位
+ * Daemon 真 owner)；`watchdog-entry.js` 单一权威 = assembly/spawn-entry.ts
+ * (resolveWatchdogEntry helper)。其他文件不得持有对应字面量。
  *
  * scope: src/ outside .d.ts and outside per-literal allowlist.
  *
@@ -13,7 +14,7 @@
  * Allowlist (per literal):
  *   - daemon-entry.js:
  *       - src/cli/commands/stop.ts (pgrep substring match)
- *       - src/assembly/spawn-entry.ts (the helper itself)
+ *       - src/daemon/entry-resolver.ts (the helper itself)
  *       - src/foundation/process-manager/types.ts (JSDoc example)
  *   - watchdog-entry.js:
  *       - src/assembly/spawn-entry.ts
@@ -24,7 +25,7 @@
 
 const DAEMON_ALLOWLIST = [
   'src/cli/commands/stop.ts',
-  'src/assembly/spawn-entry.ts',
+  'src/daemon/entry-resolver.ts',
   'src/foundation/process-manager/types.ts',
 ];
 const WATCHDOG_ALLOWLIST = [
@@ -47,13 +48,13 @@ export default {
     type: 'problem',
     docs: {
       description:
-        'src/ forbids daemon-entry.js / watchdog-entry.js literal outside allowlist (phase 1436 + 72)',
+        'src/ forbids daemon-entry.js / watchdog-entry.js literal outside allowlist (phase 1436 + 72 + 1284)',
       category: 'Best Practices',
     },
     schema: [],
     messages: {
       daemonEntryLiteral:
-        '`daemon-entry.js` literal in `{{file}}` outside allowlist. Use assembly/spawn-entry.ts resolveDaemonEntry helper.',
+        '`daemon-entry.js` literal in `{{file}}` outside allowlist. Use daemon/entry-resolver.ts resolveDaemonEntry helper.',
       watchdogEntryLiteral:
         '`watchdog-entry.js` literal in `{{file}}` outside allowlist. Use assembly/spawn-entry.ts resolveWatchdogEntry helper.',
     },

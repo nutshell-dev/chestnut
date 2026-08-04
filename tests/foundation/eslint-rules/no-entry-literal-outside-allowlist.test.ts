@@ -19,10 +19,10 @@ describe('eslint custom rule: no-entry-literal-outside-allowlist (phase 420)', (
         code: 'const x = "daemon-entry.js";',
         filename: 'src/cli/commands/stop.ts',
       },
-      // daemon-entry allowlist: assembly/spawn-entry.ts
+      // daemon-entry allowlist: daemon/entry-resolver.ts (phase 1284 归位 Daemon)
       {
         code: 'const x = "daemon-entry.js";',
-        filename: 'src/assembly/spawn-entry.ts',
+        filename: 'src/daemon/entry-resolver.ts',
       },
       // daemon-entry allowlist: foundation/process-manager/types.ts
       {
@@ -45,6 +45,12 @@ describe('eslint custom rule: no-entry-literal-outside-allowlist (phase 420)', (
       {
         code: 'const x = "daemon-entry.js";',
         filename: 'src/core/runtime/runtime.ts',
+        errors: [{ messageId: 'daemonEntryLiteral' }],
+      },
+      // phase 1284: daemon-entry literal 在旧 owner assembly/spawn-entry.ts 不再合法
+      {
+        code: 'const x = "daemon-entry.js";',
+        filename: 'src/assembly/spawn-entry.ts',
         errors: [{ messageId: 'daemonEntryLiteral' }],
       },
       // watchdog-entry outside allowlist

@@ -71,7 +71,7 @@ vi.mock('../../../src/foundation/process-manager/index.js', () => ({
   })),
 }));
 
-vi.mock('../../../src/assembly/spawn-entry.js', () => ({
+vi.mock('../../../src/daemon/entry-resolver.js', () => ({
   resolveDaemonEntry: vi.fn(() => '/daemon-entry'),
 }));
 

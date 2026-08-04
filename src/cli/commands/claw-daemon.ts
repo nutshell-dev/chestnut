@@ -19,7 +19,7 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
-import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
+import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 
 export type DaemonPM = Pick<ProcessManager, 'isAlive' | 'spawn'>;
@@ -49,7 +49,7 @@ export async function clawDaemonCommand(
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }
-  const daemonEntryPath = resolveDaemonEntry(nodeFs);
+  const daemonEntryPath = resolveDaemonEntry();
   const pid = await pm.spawn(resolveClawDaemonDir(makeClawId(name)), {
     command: 'node',
     args: [daemonEntryPath, name],
