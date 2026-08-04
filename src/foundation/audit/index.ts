@@ -63,6 +63,9 @@ export {
   AuditWorkspaceConfigConflictError,
   type WorkspaceAuditConfigResult,
 } from './workspace-config.js';
+// Phase 1288 Step C: workspace 根审计 capability（唯一生产构造入口；caller 不传路径/retention）
+export { createWorkspaceAudit } from './workspace-audit.js';
+
 export {
   writeAuditMigrationIntent,
   writeAuditMigrationOutcome,

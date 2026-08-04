@@ -49,6 +49,12 @@ export interface AuditSizeMonitorOptions {
   audit: AuditLog;
   primaryAuditPath: string;
   secondaryAuditPath: string;
+  /**
+   * Phase 1288 Step C: legacy 根 audit.tsv（兼容期观察，可选）。
+   * 新写入只进 AUDIT_PATHS.audit（经 secondary 观察）；legacy 旧文件原样保留、
+   * 继续观察其体量直到 Step D 统一校准双读/清退协议。
+   */
+  legacyAuditPath?: string;
   warnBytes?: number;
   criticalBytes?: number;
   streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
@@ -58,7 +64,10 @@ export interface AuditSizeMonitorOptions {
 export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promise<void> {
   const warn = opts.warnBytes ?? AUDIT_SIZE_WARN_BYTES;
   const critical = opts.criticalBytes ?? AUDIT_SIZE_CRITICAL_BYTES;
-  for (const p of [opts.primaryAuditPath, opts.secondaryAuditPath]) {
+  const paths = opts.legacyAuditPath
+    ? [opts.primaryAuditPath, opts.secondaryAuditPath, opts.legacyAuditPath]
+    : [opts.primaryAuditPath, opts.secondaryAuditPath];
+  for (const p of paths) {
     if (opts.signal?.aborted) return;
     try {
       const stat = opts.fs.statSync(p);

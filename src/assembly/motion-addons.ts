@@ -7,7 +7,7 @@
  */
 
 import { resolveChestnutRoot, routeNotifyClaw, routeNotifyClawAsync, getRelativeClawDir } from '../core/claw-topology/index.js';
-import { AUDIT_FILE } from '../foundation/audit/index.js';
+import { AUDIT_FILE, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
@@ -56,6 +56,7 @@ export function createAuditSizeMonitorCronJob(
     audit: Parameters<typeof runAuditSizeMonitor>[0]['audit'];
     primaryAuditPath: string;
     secondaryAuditPath: string;
+    legacyAuditPath?: string;
     streamLog?: Parameters<typeof runAuditSizeMonitor>[0]['streamLog'];
   },
   globalConfig: { cron: { jobs: { audit_size_monitor: { enabled: boolean; schedule: string } } } },
@@ -246,7 +247,10 @@ export async function createMotionAddons(
           fs: chestnutFs,
           audit: auditWriter,
           primaryAuditPath: path.join(chestnutRoot, 'motion', AUDIT_FILE),
-          secondaryAuditPath: path.join(chestnutRoot, AUDIT_FILE),
+          // Phase 1288 Step C: 根审计新写入只进 audit/audit.tsv → secondary 观察新路径；
+          // legacy 根 audit.tsv 原样保留、继续观察（Step D 统一校准 legacy 双读/清退）
+          secondaryAuditPath: path.join(chestnutRoot, AUDIT_PATHS.audit),
+          legacyAuditPath: path.join(chestnutRoot, AUDIT_LEGACY_PATHS.audit),
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
         }, globalConfig),
         createOutboxSummaryJob({

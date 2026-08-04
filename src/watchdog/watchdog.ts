@@ -34,7 +34,7 @@ import {
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
-import { type AuditLog, createAuditWriter, AUDIT_FILE, readWorkspaceAuditRetentionMaxSizeMb } from '../foundation/audit/index.js';
+import { type AuditLog, createWorkspaceAudit } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
@@ -44,7 +44,7 @@ import { resolveDaemonEntry } from '../daemon/entry-resolver.js';
 
 
 import {
-  getChestnutFs, getGlobalConfig, setAuditWriter, getAuditWriter,
+  getChestnutDir, getChestnutFs, getGlobalConfig, setAuditWriter, getAuditWriter,
   motionRestartStateAPI,
   type MotionRestartState,
 } from './watchdog-context.js';
@@ -425,13 +425,9 @@ export async function runWatchdogLoop(
   log(fsFactory, '[watchdog] Daemon starting...');
 
   // 先建 auditWriter，让 ownership commit 与 loadWatchdogState corrupt 路径可写 audit（N1 修复）
-  // Phase 1288 Step B: retention 自 AuditLog 自家 config store 读取（不再经 Assembly root config）
-  const auditMaxSizeMb = readWorkspaceAuditRetentionMaxSizeMb(getChestnutFs(fsFactory));
-  const auditWriter = createAuditWriter(
-    getChestnutFs(fsFactory),
-    AUDIT_FILE,
-    auditMaxSizeMb,
-  );
+  // Phase 1288 Step C: 构造委托 AuditLog 自家 createWorkspaceAudit（固定写 audit/audit.tsv、
+  // retention 自 AuditLog config store 自读）；Watchdog 不再接触路径 / maxSizeMb / Assembly config
+  const auditWriter = createWorkspaceAudit(fsFactory, getChestnutDir());
   setAuditWriter(auditWriter);
 
   // Phase 1203 Step B: 子进程在任何监控副作用（state load / WATCHDOG_START /

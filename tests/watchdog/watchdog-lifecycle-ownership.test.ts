@@ -87,8 +87,11 @@ let auditWriter: AuditWriter;
 const originalRoot = process.env.CHESTNUT_ROOT;
 
 function auditLines(): string {
-  const p = path.join(chestnutDir, 'audit.tsv');
-  return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '';
+  // Phase 1288 Step C: runWatchdogLoop 生产 writer 写 audit/audit.tsv（AUDIT_PATHS.audit）；
+  // 直接调用 acquireWatchdogOwnership 的用例走 beforeEach 手动 set 的 writer（legacy 根 audit.tsv）。
+  // 两路径合读，覆盖两类写入。
+  const read = (p: string) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '');
+  return read(path.join(chestnutDir, 'audit.tsv')) + read(path.join(chestnutDir, 'audit', 'audit.tsv'));
 }
 
 function activeOwner(): WatchdogOwnerRecord | null {

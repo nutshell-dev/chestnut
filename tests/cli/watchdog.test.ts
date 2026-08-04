@@ -619,7 +619,7 @@ describe('runWatchdogLoop', () => {
   it('writes watchdog_start audit on startup', async () => {
     await runLoopForOneTick();
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('watchdog_start');
   });
@@ -627,7 +627,7 @@ describe('runWatchdogLoop', () => {
   it('writes watchdog_check audit each tick', async () => {
     await runLoopForOneTick();
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('watchdog_check');
     expect(auditContent).toContain('present=');
@@ -639,7 +639,7 @@ describe('runWatchdogLoop', () => {
 
     await runLoopForOneTick();
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('watchdog_restart_triggered');
     expect(auditContent).toContain('process_spawned');
@@ -652,7 +652,7 @@ describe('runWatchdogLoop', () => {
 
     await runLoopForOneTick();
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('process_spawn_failed');
   });
@@ -662,7 +662,7 @@ describe('runWatchdogLoop', () => {
 
     await runLoopForOneTick();
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).not.toContain('watchdog_restart_triggered');
     expect(auditContent).not.toContain('process_spawn_failed');
@@ -683,7 +683,7 @@ describe('runWatchdogLoop', () => {
       awaitingStability: true,
     });
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContentAfterFirst = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContentAfterFirst).toContain('process_spawned');
     expect(auditContentAfterFirst).not.toContain('watchdog_motion_stability_confirmed');
@@ -721,7 +721,7 @@ describe('runWatchdogLoop', () => {
       awaitingStability: false,
     });
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('process_spawn_failed');
   });
@@ -737,7 +737,7 @@ describe('runWatchdogLoop', () => {
 
     expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).not.toContain('process_spawn_failed');
   });
@@ -760,7 +760,7 @@ describe('runWatchdogLoop', () => {
       openedAt: expect.any(Number),
     });
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('watchdog_gave_up');
     expect(auditContent).toContain('reason=motion_restart_unstable');
@@ -785,7 +785,7 @@ describe('runWatchdogLoop', () => {
       consecutiveAttempts: 0,
     });
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('watchdog_motion_stability_confirmed');
     expect(auditContent).toContain('previous_attempts=2');
@@ -807,7 +807,7 @@ describe('runWatchdogLoop', () => {
       consecutiveAttempts: 0,
     });
 
-    const auditPath = path.join(chestnutDir, 'audit.tsv');
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
     expect(auditContent).toContain('watchdog_circuit_reopened');
     expect(auditContent).toContain('prev_failures=10');

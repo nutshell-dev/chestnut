@@ -103,7 +103,8 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => {
   return {
     ...actual,
     createSystemAudit: mockCreateSystemAudit,
-    createAuditWriter: vi.fn(),
+    // Phase 1288 Step C: stop 根审计构造切到 createWorkspaceAudit（mock 防真实磁盘写入）
+    createWorkspaceAudit: vi.fn(),
   };
 });
 

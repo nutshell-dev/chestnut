@@ -81,6 +81,11 @@ describe('audit wired in CLI', () => {
     try {
       const { sweepOrphanWatchdogs } = await import('../../src/watchdog/orphan-sweep.js');
 
+      // Phase 1288 Step C: 预置 legacy 根 audit.tsv，验证切换后 legacy 不新增
+      const legacyAuditPath = path.join(chestnutDir, 'audit.tsv');
+      const legacyLines = '2024-01-01T00:00:00Z\tseq=1\tlegacy_event\n';
+      fs.writeFileSync(legacyAuditPath, legacyLines);
+
       mockFindProcesses.mockReturnValue([2000]);
 
       const sweepPromise = sweepOrphanWatchdogs(fsFactory, { excludePid: null }, { kill: mockKill });
@@ -90,10 +95,13 @@ describe('audit wired in CLI', () => {
       expect(killed).toEqual([2000]);
       expect(getAuditWriter()).not.toBeNull();
 
-      const auditPath = path.join(chestnutDir, 'audit.tsv');
+      // Phase 1288 Step C: 新根事件真实落 audit/audit.tsv
+      const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv');
       expect(fs.existsSync(auditPath)).toBe(true);
       const content = fs.readFileSync(auditPath, 'utf8');
       expect(content).toContain(WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_KILLED);
+      // legacy 根 audit.tsv 原样保留、不新增
+      expect(fs.readFileSync(legacyAuditPath, 'utf8')).toBe(legacyLines);
     } finally {
       vi.useRealTimers();
     }

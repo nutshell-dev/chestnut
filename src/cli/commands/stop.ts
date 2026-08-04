@@ -8,8 +8,8 @@ import { loadGlobalConfig } from '../../assembly/config/config-load.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
-import { createAuditWriter, AUDIT_FILE, readWorkspaceAuditRetentionMaxSizeMb } from '../../foundation/audit/index.js';
-import { getChestnutFs, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog.js';
+import { createWorkspaceAudit } from '../../foundation/audit/index.js';
+import { setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog.js';
 import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
 import { ProcessListUnavailable, PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';
@@ -44,11 +44,12 @@ export async function stopAllCommand(
 
   // NEW: workspace audit 注入 watchdog 模块（与 watchdog daemon 同源）
   // 防 sub-1/sub-2/sub-4 audit emit 在 CLI 进程 silent no-op
+  // Phase 1288 Step C: 构造委托 AuditLog 自家 createWorkspaceAudit（固定写
+  // audit/audit.tsv、retention 自 AuditLog config store 自读）；CLI 不再接触
+  // 路径 / maxSizeMb / Assembly config
+  const baseDir = path.dirname(getGlobalConfigPath());
   try {
-    // Phase 1288 Step B: retention 自 AuditLog 自家 config store 读取
-    const auditMaxSizeMb = readWorkspaceAuditRetentionMaxSizeMb(getChestnutFs(deps.fsFactory));
-    const watchdogAudit = createAuditWriter(getChestnutFs(deps.fsFactory), AUDIT_FILE, auditMaxSizeMb);
-    setWatchdogAuditWriter(watchdogAudit);
+    setWatchdogAuditWriter(createWorkspaceAudit(deps.fsFactory, baseDir));
   } catch (err) {
     console.error('Failed to wire watchdog audit:', err);
     // fail-soft: 既有 silent no-op fallback 保 (audit 不阻 stop 流程)
@@ -68,7 +69,6 @@ export async function stopAllCommand(
   await motionStop(deps);
 
   // 3. Stop all running claws
-  const baseDir = path.dirname(getGlobalConfigPath());
   const pm = createProcessManagerForCLI({ ...deps, baseDir });
 
   let clawNames: string[] = [];
