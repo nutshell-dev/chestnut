@@ -18,7 +18,8 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { sendCommand } from '../../src/cli/commands/claw-send.js';
 import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/index.js';
-import { formatClawStatusHint, formatNoActiveContractHint } from '../../src/cli/commands/claw-shared.js';
+import { formatNoActiveContractHint } from '../../src/cli/commands/claw-shared.js';
+import { formatClawStatusHint } from '../../src/cli-protocol/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 

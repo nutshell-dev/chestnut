@@ -22,6 +22,9 @@ export {
   type ClawInstanceCommandId,
 } from './claw-command-catalog.js';
 export {
+  formatClawStatusHint,
+} from './claw-status-hint.js';
+export {
   renderClawHelp,
   renderClawCommandHelp,
 } from './help.js';

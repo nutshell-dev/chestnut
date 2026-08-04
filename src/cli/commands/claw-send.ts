@@ -11,7 +11,8 @@ import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
-import { formatClawStatusHint, formatNoActiveContractHint } from './claw-shared.js';
+import { formatNoActiveContractHint } from './claw-shared.js';
+import { formatClawStatusHint } from '../../cli-protocol/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';

@@ -22,9 +22,10 @@ export function formatRelativeTime(ms: number): string {
 export { LLM_OUTPUT_EVENTS };
 
 /**
- * phase 708: formatClawStatusHint + formatNoActiveContractHint 归 cli/utils.
+ * phase 708: formatNoActiveContractHint 归 cli/utils.
+ * phase 1278 Step A: daemon status hint formatter 归位 CLIProtocol public barrel，本文件不再转导。
  */
-export { formatClawStatusHint, formatNoActiveContractHint } from '../utils/claw-status-hints.js';
+export { formatNoActiveContractHint } from '../utils/claw-status-hints.js';
 
 /**
  * 从 stream.jsonl 读取最后活跃时间（统一与 watchdog 指标）

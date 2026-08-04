@@ -14,10 +14,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *
  * phase 574 扩 (phase 520-554 follow-up): 加 3 it block 覆盖新 owner module API:
  *   - core/claw-topology: MOTION_CLAW_ID + makeAgentDirResolver
- *   - cli/utils/claw-status-hints: 2 formatter
  *   - cli-protocol: CLAW_COMMAND_CATALOG + getClawCommandSpec + typed guidance API (phase 1253)
  *     phase 1270 Step A: 旧 invocation 符号（renderClawInvocation / CONTRACT_COMMANDS /
  *     ContractCommand）从 barrel 退役 — 反向断言 namespace 不可见 + 源码无 ContractCommand 残留
+ *     phase 1278 Step A: formatClawStatusHint 归位 CLIProtocol public barrel —
+ *     正向断言 barrel 暴露 + exact 核心片段；旧 cli/utils owner 反向断言符号不存在、
+ *     formatNoActiveContractHint 仍留
  */
 describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
   it('foundation/node-utils/id exposes newUuid, newShortUuid, randomHex', async () => {
@@ -65,12 +67,19 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     expect(typeof resolver('other-claw')).toBe('string');
   });
 
-  it('cli/utils/claw-status-hints exposes 2 formatter (phase 540/708)', async () => {
+  it('cli-protocol barrel exposes formatClawStatusHint（phase 1278 Step A: owner 归位）', async () => {
+    const protocol = await import('../../../src/cli-protocol/index.js');
+    expect(typeof protocol.formatClawStatusHint).toBe('function');
+    expect(protocol.formatClawStatusHint('x', true)).toBeUndefined();
+    expect(protocol.formatClawStatusHint('x', false)).toBe(
+      'Note: claw "x" is not running. Start it with: chestnut claw x daemon',
+    );
+  });
+
+  it('cli/utils/claw-status-hints 只留 formatNoActiveContractHint（phase 1278 Step A 反向断言）', async () => {
     const hintsMod = await import('../../../src/cli/utils/claw-status-hints.js');
-    expect(typeof hintsMod.formatClawStatusHint).toBe('function');
+    expect('formatClawStatusHint' in hintsMod).toBe(false);
     expect(typeof hintsMod.formatNoActiveContractHint).toBe('function');
-    expect(hintsMod.formatClawStatusHint('x', true)).toBeUndefined();
-    expect(hintsMod.formatClawStatusHint('x', false)).toMatch(/chestnut claw x daemon/);
     expect(hintsMod.formatNoActiveContractHint('x', true)).toBeUndefined();
     expect(hintsMod.formatNoActiveContractHint('x', false)).toMatch(/No active contract for "x"/);
   });

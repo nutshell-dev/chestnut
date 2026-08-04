@@ -1,32 +1,21 @@
 /**
  * @module L6.CLI.Utils.ClawStatusHint
  *
- * Pure string formatters for claw status hints.
- * Used by notify-claw tool deps + cli commands.
+ * Pure string formatter for the no-active-contract hint.
+ * Used by cli commands (claw send via claw-shared).
  *
  * phase 540: extracted from cli/commands/claw-shared to break the
  * assembly → cli reverse import that the original location forced.
- * Lives in cli/utils as a leaf string-formatter helper.
+ * phase 1278 Step A: daemon status hint formatter 归位 CLIProtocol
+ * （src/cli-protocol/claw-status-hint.ts，经 public barrel 消费）；
+ * 本文件只保留下方 no-active-contract formatter（CLIProcess 唯一消费，
+ * 独立归属审查留后续 phase）。
  */
-
-/**
- * Format a hint message for caller when target claw is not running.
- *
- * @returns hint string with restart instruction, or undefined if claw is alive.
- * @example
- *   formatClawStatusHint('my-claw', false)
- *     === 'Note: claw "my-claw" is not running. Start it with: chestnut claw my-claw daemon'
- *   formatClawStatusHint('my-claw', true) === undefined
- */
-export function formatClawStatusHint(clawName: string, isAlive: boolean): string | undefined {
-  if (isAlive) return undefined;
-  return `Note: claw "${clawName}" is not running. Start it with: chestnut claw ${clawName} daemon`;
-}
 
 /**
  * Format a hint message for caller when target claw has no active contract.
  *
- * Symmetric with `formatClawStatusHint`: accepts boolean param, returns undefined when contract exists.
+ * Symmetric with the CLIProtocol-owned daemon status hint: accepts boolean param, returns undefined when contract exists.
  * @returns hint string asking to request reply via send tool, or undefined if there is an active contract.
  * @example
  *   formatNoActiveContractHint('my-claw', false)

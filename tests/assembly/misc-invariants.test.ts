@@ -16,7 +16,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { createNotifyClawTool } from '../../src/core/claw-topology/tools/notify-claw.js';
-import { formatClawStatusHint } from '../../src/cli/commands/claw-shared.js';
+import { formatClawStatusHint } from '../../src/cli-protocol/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
 import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';

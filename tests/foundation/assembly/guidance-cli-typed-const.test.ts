@@ -64,10 +64,11 @@ function walkTsFiles(dir: string, cb: (filePath: string) => void): void {
 const STEP_B_PENDING_ALLOW = new Set([
   'foundation/command-tool/exec.ts::chestnut stop',
   'core/status-service/forum-formatter.ts::chestnut status',
-  // phase 540 / phase 708: claw-status-hints 迁 cli/utils、用于 motion-addons + cli/claw-send
+  // phase 540 / phase 708 / phase 1278 Step A: claw status hint formatter 归位 CLIProtocol
+  // （src/cli-protocol/claw-status-hint.ts）、用于 motion-addons + cli/claw-send
   // 'chestnut claw' 字面是 CLI 启动命令、属业务文案；M#5 严格扫由本 allowlist 承认 pure formatter
-  // 持 CLI literal 的 by-design 例外（cli/commands/claw-shared.ts 旧 owner 同型未触碰本 rule）
-  'cli/utils/claw-status-hints.ts::chestnut claw',
+  // 持 CLI literal 的 by-design 例外（与下方 invocation.ts 同型：唯一实现处本就该有 CLI literal）
+  'cli-protocol/claw-status-hint.ts::chestnut claw',
   // phase 554 / phase 708 / phase 1253 / phase 1270: invocation.ts 是 CLIProtocol 内部唯一
   // CLI 字面 owner（claw invocation + contract 命令族），仅供同模块 guidance.ts 使用、
   // 不经 public barrel 公开；持字面 by-design — 唯一实现处本就该有 CLI literal、否则失语义
