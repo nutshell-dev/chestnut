@@ -48,9 +48,13 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
   const actual = await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>();
   return {
     ...actual,
+    // phase 1282 Step B: start 只消费 ensureRunning（ready-winner convergence），
+    // 不再组合 isAlive+spawn。
     createProcessManagerForCLI: vi.fn(() => ({
-      isAlive: vi.fn().mockReturnValue(false),
-      spawn: vi.fn(async () => { h.order.push('daemon-spawn'); }),
+      ensureRunning: vi.fn(async () => {
+        h.order.push('daemon-spawn');
+        return { kind: 'spawned', pid: 4242 };
+      }),
     })),
   };
 });

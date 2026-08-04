@@ -164,24 +164,21 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, runt
   // Step 3: onboarding 状态
   const onboarding = snapshot.onboarding;
 
+  // phase 1282 Step B: 所有分支统一经 ensureRunning 取得 ready Motion ——
+  // 合法 winner（Watchdog / 并发 CLI）由 ProcessManager join 收敛到 ready，
+  // start 不再组合 isAlive+spawn（TOCTOU）、不解释 ProcessSpawnConflictError。
+  const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
+  const daemonReady = pm.ensureRunning(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
+
   // onboarding 已完成 → 直接进 chat
   if (onboarding.state === 'complete') {
-    const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-    if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
-      await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
-    }
+    await daemonReady;
     await motionChatCommand(deps);
     return;
   }
 
   if (wasFirstRun && onboarding.state === 'not_found') {
     // ★ 首次运行：后台启动 daemon，前台展示语言选择（并行）
-    const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-    const daemonReady = (async () => {
-      if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
-        await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
-      }
-    })();
     daemonReady.catch((err: unknown) => {
       // 防止并行期间 UnhandledPromiseRejection；同时留 audit row 防 pickLanguage 异常导致 await daemonReady 永不达
       // 正常路径 line 412 `await daemonReady` 仍正确 rethrow → handleCliError 走规范路径
@@ -217,10 +214,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, runt
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
-    const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-    if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
-      await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
-    }
+    await daemonReady;
     if (onboarding.state === 'not_found') {
       const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
       const contractId = await manager.create({
