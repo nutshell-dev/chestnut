@@ -12,8 +12,8 @@ export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
  * Phase 1204 Step E: generation directory 是唯一权威；legacy lock/pidfile API 已删除。
  */
 
-export { ProcessManager, ProcessGenerationStateError, ProcessSpawnConflictError } from './manager.js';
-export type { ProcessSpawnConflictReason, SpawnOptions } from './manager.js';
+export { ProcessManager, ProcessGenerationStateError, ProcessSpawnConflictError, ProcessWinnerConvergenceError } from './manager.js';
+export type { EnsureRunningOutcome, ProcessSpawnConflictReason, ProcessWinnerConvergenceReason, SpawnOptions } from './manager.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
 export { ProcessListUnavailable } from './errors.js';

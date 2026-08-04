@@ -24,6 +24,7 @@ import { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, get
 import * as aliveOps from './alive.js';
 import * as readyOps from './ready.js';
 import { spawnProcess } from './spawn.js';
+import { ensureRunning as ensureRunningOp } from './ensure-running.js';
 import { stopProcess } from './stop.js';
 import { findProcesses } from './find.js';
 import {
@@ -38,11 +39,11 @@ import {
   type ProcessGenerationRecord,
   type WriteGenerationFact,
 } from './generation.js';
-import type { ProcessManagerContext, SpawnOptions } from './types.js';
+import type { EnsureRunningOutcome, ProcessManagerContext, SpawnOptions } from './types.js';
 
 
-export { ProcessGenerationStateError, ProcessSpawnConflictError } from './types.js';
-export type { ProcessSpawnConflictReason, SpawnOptions } from './types.js';
+export { ProcessGenerationStateError, ProcessSpawnConflictError, ProcessWinnerConvergenceError } from './types.js';
+export type { EnsureRunningOutcome, ProcessSpawnConflictReason, ProcessWinnerConvergenceReason, SpawnOptions } from './types.js';
 export { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
 
 export class ProcessManager {
@@ -96,6 +97,13 @@ export class ProcessManager {
   // lifecycle
   spawn(daemonDir: DaemonDir, options: SpawnOptions): Promise<number> {
     return spawnProcess(this._ctx, daemonDir, options);
+  }
+  /**
+   * Phase 1282 Step A: 「确保 daemon ready」单一能力，封装 precheck/spawn/conflict/join。
+   * 调用方不得再组合 isAlive+spawn（TOCTOU）；合法 conflict 自动 join exact winner。
+   */
+  ensureRunning(daemonDir: DaemonDir, options: SpawnOptions): Promise<EnsureRunningOutcome> {
+    return ensureRunningOp(this._ctx, daemonDir, options);
   }
   stop(daemonDir: DaemonDir): Promise<boolean> { return stopProcess(this._ctx, daemonDir); }
 

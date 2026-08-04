@@ -256,6 +256,12 @@ async function cleanupOrphans(
 const BOOT_DEADLINE_MS = 30_000; // 30s for daemon to become ready
 
 /**
+ * Phase 1282 Step A: ready 等待时限是唯一共享原语 —— self-winner（spawn）与
+ * foreign-winner（ensureRunning join）必须复用同一 deadline，禁止第二套时限策略。
+ */
+export { BOOT_DEADLINE_MS };
+
+/**
  * Spawn the child, persist its PID into the spawning generation, and poll
  * until ready or child death.
  *

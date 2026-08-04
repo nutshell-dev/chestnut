@@ -890,6 +890,8 @@
       "pid_spawning_race_avoided",
       "pid_write_failed",
       "pid_write_ok",
+      "process_ensure_failed",
+      "process_ensure_joined",
       "process_generation_activated",
       "process_generation_commit_lost",
       "process_generation_committed",

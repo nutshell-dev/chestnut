@@ -86,6 +86,66 @@ export class ProcessGenerationStateError extends Error {
   }
 }
 
+/**
+ * Phase 1282 Step A: `ensureRunning` 的 typed outcome。
+ *
+ * 区分三种成功路径，调用方不得按 kind 分叉业务逻辑（CLI 只需 ready 事实）；
+ * kind 服务于审计与测试断言。
+ *
+ * - spawned:       本方赢得 spawn ownership 且 child 已 ready
+ * - already_ready: precheck 时 active generation 已 ready 且进程存活
+ * - joined:        合法 conflict 后等待 foreign winner 至 ready（绑定 exact generation）
+ */
+export type EnsureRunningOutcome =
+  | { kind: 'spawned'; pid: number }
+  | { kind: 'already_ready'; pid: number }
+  | { kind: 'joined'; pid: number; generationId: string };
+
+/**
+ * Phase 1282 Step A: join foreign winner 收敛失败的 typed reason（discriminant）。
+ * caller 不解析 message、reason 编译期可检。
+ *
+ * - winner_died:     spawning 内 winner 进程已死（PID 事实存在但 liveness 失败）
+ * - winner_failed:   winner generation 写了 failure 事实
+ * - winner_retired:  winner generation 已被 retire（保留磁盘位置）
+ * - winner_replaced: spawning/active slot 被另一 generation 占据；不得跟随新 winner
+ * - winner_vanished: winner generation 从所有 slot 消失且未进 retired（异常终局）
+ * - join_timeout:    与 spawn 共用的 BOOT_DEADLINE_MS 到期 winner 仍未 ready
+ */
+export type ProcessWinnerConvergenceReason =
+  | 'winner_died'
+  | 'winner_failed'
+  | 'winner_retired'
+  | 'winner_replaced'
+  | 'winner_vanished'
+  | 'join_timeout';
+
+/**
+ * Phase 1282 Step A: foreign winner 未收敛到 ready 的显式失败。
+ *
+ * `spawn_in_progress` / `commit_lost` conflict 只证明 winner 取得 ownership，不证明
+ * 最终 ready；join 失败必须显式 typed 并保留期望 generation 与磁盘事实位置/原因，
+ * 不得静默吞掉或切换跟随未声明的新 winner。
+ */
+export class ProcessWinnerConvergenceError extends Error {
+  readonly daemonDir: DaemonDir;
+  readonly reason: ProcessWinnerConvergenceReason;
+  /** join 期望的 winner generation ID（来自 ProcessSpawnConflictError.generationId） */
+  readonly generationId: string;
+  constructor(
+    daemonDir: DaemonDir,
+    reason: ProcessWinnerConvergenceReason,
+    generationId: string,
+    message?: string,
+  ) {
+    super(message ?? `Winner generation ${generationId} for "${daemonDir}" did not converge to ready (${reason})`);
+    this.name = 'ProcessWinnerConvergenceError';
+    this.daemonDir = daemonDir;
+    this.reason = reason;
+    this.generationId = generationId;
+  }
+}
+
 export interface SpawnOptions {
   /** 可执行文件路径（如 'node'） */
   command: string;

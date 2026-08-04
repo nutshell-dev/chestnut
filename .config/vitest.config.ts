@@ -170,6 +170,7 @@ const VI_MOCK_FILES = [
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — kill mock remains but isAlive vi.mock removed.
   // 'tests/foundation/process/stop-race.test.ts',
   'tests/foundation/process-manager/stop-real-race.test.ts',  // Phase 1204 Step H: vi.mock constants
+  'tests/foundation/process-manager/ensure-running.test.ts',  // phase 1282 Step A: vi.mock constants
   // phase 83 (SHA 5a4ca7a9): _stateMap module-level singleton
   // 已解散为 Snapshot instance private state (ML#3 治)，cross-reassemble 走
   // disk persist 唯一路径。snapshot 4 file 移出 ISOLATED。注释保留作历史。

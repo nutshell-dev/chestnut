@@ -117,6 +117,17 @@ export function isPidRecord(parsed: unknown): parsed is ProcessPidRecord {
   );
 }
 
+export function isFailureRecord(parsed: unknown): parsed is ProcessFailureRecord {
+  if (typeof parsed !== 'object' || parsed === null) return false;
+  const p = parsed as Partial<ProcessFailureRecord>;
+  return (
+    p.schema_version === PROCESS_GENERATION_SCHEMA_VERSION &&
+    typeof p.generation_id === 'string' && p.generation_id.length > 0 &&
+    typeof p.reason === 'string' &&
+    typeof p.created_at === 'string'
+  );
+}
+
 // === Typed outcomes ===
 
 export type GenerationInspection =
@@ -331,6 +342,47 @@ export function inspectRetiredGeneration(
   generationId: string,
 ): GenerationInspection {
   return readGenerationFile(ctx.fs, getRetiredDirFor(daemonDir, generationId));
+}
+
+/** 读指定 generation 目录内 failure 事实（spawning 或 retired）。 */
+function readFailureFile(fs: ProcessManagerContext['fs'], dir: string):
+  | { status: 'none' }
+  | { status: 'ok'; record: ProcessFailureRecord }
+  | { status: 'malformed'; cause: unknown } {
+  let content: string;
+  try {
+    content = fs.readSync(path.join(dir, FAILURE_FILE));
+  } catch (err) {
+    if (isFileNotFound(err)) return { status: 'none' };
+    return { status: 'malformed', cause: formatErr(err) };
+  }
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (!isFailureRecord(parsed)) return { status: 'malformed', cause: 'failure_shape_mismatch' };
+    return { status: 'ok', record: parsed };
+  } catch (err) {
+    return { status: 'malformed', cause: formatErr(err) };
+  }
+}
+
+/** 读 spawning 内 failure 事实（parent 在 retire 前写入）。 */
+export function inspectSpawningFailure(ctx: ProcessManagerContext, daemonDir: DaemonDir):
+  | { status: 'none' }
+  | { status: 'ok'; record: ProcessFailureRecord }
+  | { status: 'malformed'; cause: unknown } {
+  return readFailureFile(ctx.fs, getSpawningDir(daemonDir));
+}
+
+/** 读 retired/<generation-id> 内 failure 事实（failure 随 generation 整体 retire）。 */
+export function inspectRetiredFailure(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+  generationId: string,
+):
+  | { status: 'none' }
+  | { status: 'ok'; record: ProcessFailureRecord }
+  | { status: 'malformed'; cause: unknown } {
+  return readFailureFile(ctx.fs, getRetiredDirFor(daemonDir, generationId));
 }
 
 // === Commit (candidate → spawning) ===

@@ -54,6 +54,8 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   GENERATION_ACTIVATED: 'process_generation_activated', // ← NEW phase 1204 Step A
   GENERATION_RETIRED: 'process_generation_retired', // ← NEW phase 1204 Step A
   GENERATION_FAILED: 'process_generation_failed', // ← NEW phase 1204 Step A
+  ENSURE_JOINED: 'process_ensure_joined', // ← NEW phase 1282 Step A: join foreign winner 至 ready
+  ENSURE_FAILED: 'process_ensure_failed', // ← NEW phase 1282 Step A: join 未收敛 typed failure
   STOP_INTENT_RECORDED: 'process_stop_intent_recorded', // ← NEW phase 1204 Step D
   STOP_INTENT_SCAN_FAILED: 'process_stop_intent_scan_failed', // ← NEW phase 1204 Step F
   STOP_INTENT_MALFORMED: 'process_stop_intent_malformed', // ← NEW phase 1204 Step F
