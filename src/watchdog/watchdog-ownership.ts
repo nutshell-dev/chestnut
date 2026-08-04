@@ -18,14 +18,17 @@ import { formatErr, newUuid } from '../foundation/node-utils/index.js';
 import { getWorkspaceRoot } from '../core/claw-topology/index.js';
 import { getProcessStartTime } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { WATCHDOG_PATHS } from './layout.js';
 import { getAuditWriter } from './watchdog-context.js';
 
 export const WATCHDOG_OWNERSHIP_SCHEMA_VERSION = 1;
 
-export const WATCHDOG_OWNERSHIP_DIR = 'watchdog';
-export const WATCHDOG_CANDIDATES_DIR = 'watchdog/candidates';
-export const WATCHDOG_ACTIVE_DIR = 'watchdog/active';
-export const WATCHDOG_RETIRED_DIR = 'watchdog/retired';
+// Phase 1287 Step B: 目录常量归 layout 协议唯一 owner；此处保留兼容导出
+// 名称（测试与内部调用契约），仅从 WATCHDOG_PATHS 派生、不再重复字面。
+export const WATCHDOG_OWNERSHIP_DIR = WATCHDOG_PATHS.root;
+export const WATCHDOG_CANDIDATES_DIR = WATCHDOG_PATHS.candidates;
+export const WATCHDOG_ACTIVE_DIR = WATCHDOG_PATHS.active;
+export const WATCHDOG_RETIRED_DIR = WATCHDOG_PATHS.retired;
 export const WATCHDOG_OWNER_FILE = 'owner.json';
 export const WATCHDOG_OUTCOME_FILE = 'outcome.json';
 export const WATCHDOG_TERMINAL_FILE = 'terminal.json';

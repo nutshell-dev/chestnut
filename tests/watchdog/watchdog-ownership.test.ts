@@ -29,6 +29,7 @@ import {
   writeCandidateOutcome,
   WATCHDOG_ACTIVE_DIR,
   WATCHDOG_CANDIDATES_DIR,
+  WATCHDOG_OWNERSHIP_DIR,
   WATCHDOG_RETIRED_DIR,
   WATCHDOG_TERMINAL_FILE,
   type WatchdogOwnerRecord,
@@ -67,6 +68,15 @@ beforeEach(() => {
 afterEach(() => {
   setAuditWriter(null);
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('Phase 1287 Step B: ownership 路径 identity', () => {
+  it('目录常量与 Phase 1286 目标布局逐项一致（值不变、归 layout 协议派生）', () => {
+    expect(WATCHDOG_OWNERSHIP_DIR).toBe('watchdog');
+    expect(WATCHDOG_CANDIDATES_DIR).toBe('watchdog/candidates');
+    expect(WATCHDOG_ACTIVE_DIR).toBe('watchdog/active');
+    expect(WATCHDOG_RETIRED_DIR).toBe('watchdog/retired');
+  });
 });
 
 describe('NodeFileSystem move 前提证明（协议依赖 rename 不覆盖非空目录）', () => {
