@@ -618,6 +618,27 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(auditWrites.filter(w => String(w[0]).includes('unknown') || String(w[1]).includes('totally_unknown_event'))).toHaveLength(1);
   });
 
+  it('ALL_FAILED 连续失败序列只报第一次，成功 turn 后恢复（phase 1277）', async () => {
+    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { deps, lines } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    const allFailed = { type: 'turn_error', error: '[LLM_ALL_PROVIDERS_FAILED] All LLM providers failed: volc-glm (boom)' };
+    handle(allFailed);
+    handle(allFailed);  // 连续第二轮：不渲染
+    handle(allFailed);  // 连续第三轮：不渲染
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('All LLM providers failed');
+
+    handle({ type: 'turn_end' });  // 成功轮重置
+    handle(allFailed);             // 重置后可再报
+    expect(lines).toHaveLength(2);
+
+    // 非 ALL_FAILED 的 turn_error 不受去重影响
+    handle({ type: 'turn_error', error: 'some other error' });
+    expect(lines).toHaveLength(3);
+  });
+
   it('user_reply_delta fragments accumulate and flush exactly once at user_reply_end (phase 1273)', async () => {
     const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
     const { deps } = makeHandlerDeps();

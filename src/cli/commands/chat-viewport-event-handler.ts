@@ -81,6 +81,8 @@ export interface PendingResolutionRole {
 export type EventHandlerDeps = TurnLifecycleRole & DisplayRenderRole & InboxFilterRole & TaskWatchRole & ObservabilityRole & ThinkingConfigRole & PendingResolutionRole;
 
 export function createEventHandler(deps: EventHandlerDeps) {
+  // phase 1277: 连续失败序列中 ALL_FAILED 只报第一次；成功 turn（turn_end）重置。
+  let allFailedReported = false;
   return function handleEvent(event: { type: string; [key: string]: unknown }): void {
     deps.observability.recordEvent(event.type);
     switch (event.type) {
@@ -204,6 +206,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'turn_end':
         deps.turnTracker.end();
         // Cursor disappearance signals completion; no extra separator needed
+        // phase 1277: 成功 turn 重置 ALL_FAILED 去重标记（失败轮次无 turn_end）。
+        allFailedReported = false;
         break;
 
       case 'turn_interrupted': {
@@ -223,7 +227,14 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'turn_error': {
         deps.turnTracker.abort();
         const errorMsg = event.error;
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `✗ Error: ${typeof errorMsg === 'string' ? errorMsg : String(errorMsg)}` });
+        const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
+        // phase 1277: 连续失败序列只报第一次 ALL_FAILED（后续轮次是重复确认，
+        // 由 provider_failed + 等待行表达）。识别按 error 前缀
+        // （产生端 turn_error 的 error 以 [LLM_ALL_PROVIDERS_FAILED] 开头）。
+        const isAllFailed = errStr.startsWith('[LLM_ALL_PROVIDERS_FAILED]');
+        if (isAllFailed && allFailedReported) break;
+        if (isAllFailed) allFailedReported = true;
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `✗ Error: ${errStr}` });
         break;
       }
 
