@@ -1,8 +1,10 @@
 /**
- * Phase 1247 Step C: start command 回归测试。
+ * Phase 1247 Step C / phase 1280 Step B: start command 监督边界回归测试。
  *
- * 验证 start command 实现不再直接调用 ensureWatchdog；
- * 监督职责已上提到 CLI action 边界。
+ * 验证：
+ * - start.ts 不直接依赖 Watchdog（无 watchdog import、无 ensureWatchdog 引用）；
+ *   监督能力由 CLI 监督边界以 ensureSupervision capability 注入。
+ * - startCommand 的 ensureSupervision 为显式必传（禁止默认 no-op 掩盖漏接线）。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -15,10 +17,17 @@ const START_SOURCE = path.join(
   '../../src/cli/commands/start.ts',
 );
 
-describe('start command supervision refactor', () => {
-  it('start.ts 源码不再 import ensureWatchdog', () => {
+describe('start command supervision boundary', () => {
+  it('start.ts 不 import Watchdog 也不引用 ensureWatchdog', () => {
     const source = fs.readFileSync(START_SOURCE, 'utf-8');
+    expect(source).not.toMatch(/from\s+['"][^'"]*watchdog[^'"]*['"]/);
     expect(source).not.toMatch(/ensureWatchdog/);
+  });
+
+  it('startCommand 依赖显式必传的 ensureSupervision capability', () => {
+    const source = fs.readFileSync(START_SOURCE, 'utf-8');
+    // runtime 中 ensureSupervision 为必需字段（非可选 `?`、无默认值）
+    expect(source).toMatch(/ensureSupervision:\s*EnsureSupervision/);
   });
 
   it('start.ts 仍导出 startCommand', async () => {

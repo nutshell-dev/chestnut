@@ -6,9 +6,12 @@ import * as path from 'node:path';
  * phase 1247 Step E ratchet: CLI supervision policy coverage.
  *
  * - Every Commander `.action(...)` registration in src/cli must go through the
- *   supervision-policy wrapper (`action` / `cliAction` / `verbAction`).
+ *   supervision-policy wrapper (`action` / `cliAction` / `verbAction` /
+ *   `deferredRequiredAction` / `cliDeferredRequiredAction`).
  * - `ensureWatchdog` must only appear inside `src/cli/supervision-policy.ts`;
  *   no other CLI module is allowed to reach into Watchdog internals.
+ * - phase 1280: `start.ts` 不得直依赖 Watchdog——监督能力由 deferred wrapper
+ *   以 ensureSupervision capability 注入。
  */
 describe('CLI supervision policy coverage ratchet (phase 1247)', () => {
   const projectRoot = path.join(__dirname, '..', '..', '..');
@@ -36,7 +39,7 @@ describe('CLI supervision policy coverage ratchet (phase 1247)', () => {
 
   it('every .action registration is wrapped by the supervision-policy helper', () => {
     const violations: string[] = [];
-    const allowedWrappers = new Set(['action', 'cliAction', 'verbAction']);
+    const allowedWrappers = new Set(['action', 'cliAction', 'verbAction', 'deferredRequiredAction', 'cliDeferredRequiredAction']);
 
     for (const file of listCliTsFiles()) {
       const content = fs.readFileSync(file, 'utf-8');
@@ -75,5 +78,12 @@ describe('CLI supervision policy coverage ratchet (phase 1247)', () => {
     const routerPath = path.join(cliDir, 'commands', 'claw-router.ts');
     const content = fs.readFileSync(routerPath, 'utf-8');
     expect(content).toMatch(/verbAction\('observe_only',\s*\(\)\s*=>\s*listCommand\(/);
+  });
+
+  it('start command does not depend on Watchdog directly (phase 1280)', () => {
+    const startPath = path.join(cliDir, 'commands', 'start.ts');
+    const content = fs.readFileSync(startPath, 'utf-8');
+    expect(content).not.toMatch(/from\s+['"][^'"]*watchdog[^'"]*['"]/);
+    expect(content).not.toContain('ensureWatchdog');
   });
 });

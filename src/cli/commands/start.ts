@@ -33,6 +33,7 @@ import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/i
 
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import type { EnsureSupervision } from '../supervision-policy.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
@@ -116,16 +117,26 @@ export function getOnboardingStatus(motionDir: string, deps: { fsFactory: (baseD
 
 /* LLM connection check & reconfigure helpers moved to ../llm-connection-check.ts (phase 1470). */
 
-export async function startCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, extraDeps?: { audit?: AuditLog }): Promise<void> {
-  const audit = extraDeps?.audit;
+/**
+ * phase 1280: start 运行时的显式依赖。
+ * ensureSupervision 为必传的一次性监督 capability——由 CLI 监督边界
+ * （cliDeferredRequiredAction）创建并注入；start 不直接 import Watchdog。
+ */
+export interface StartCommandRuntime {
+  audit?: AuditLog;
+  ensureSupervision: EnsureSupervision;
+}
+
+export async function startCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, runtime: StartCommandRuntime): Promise<void> {
   try {
-    await _start(deps, audit);
+    await _start(deps, runtime);
   } catch (error) {
     throw new CliError('chestnut start failed: ' + (formatErr(error)), { cause: error });
   }
 }
 
-async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audit?: AuditLog): Promise<void> {
+async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, runtime: StartCommandRuntime): Promise<void> {
+  const { audit } = runtime;
   // Step 1: workspace init
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot({ ...deps, audit }, motionDir);
@@ -133,6 +144,9 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
   if (wasFirstRun) {
     await initCommand(deps, true);
   }
+  // phase 1280: workspace bootstrap（config 完整落盘）后才恢复 Watchdog；
+  // 之后的 Motion init / daemon spawn / contract / chat 均位于监督之下。
+  await runtime.ensureSupervision();
   // Step 2: motion init
   const { fs: notifyFs, audit: notifyAudit } = createDirContext(deps, motionDir);
   const daemonEntryPath = resolveDaemonEntry(notifyFs);

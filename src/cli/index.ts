@@ -9,7 +9,7 @@ if (!process.env.CHESTNUT_ROOT) {
 
 import { program, Help } from 'commander';
 import { CliError } from './errors.js';
-import { cliAction, type SupervisionPolicy } from './supervision-policy.js';
+import { cliAction, cliDeferredRequiredAction, type EnsureSupervision, type SupervisionPolicy } from './supervision-policy.js';
 // `initCommand` and `startCommand` are lazy-loaded inside their action handlers
 // (phase 1379): these modules transitively pull in llm-orchestrator + core/contract
 // + foundation/tools (combined ~10s vitest cold load), forcing every CLI subcommand
@@ -57,6 +57,13 @@ function action<TArgs extends unknown[]>(
   handler: (...args: TArgs) => Promise<void>,
 ): (...args: TArgs) => Promise<void> {
   return cliAction(policy, handler, { fsFactory });
+}
+
+// phase 1280: 复合命令（start）的 bootstrap→supervise→run 入口；ensure 时机交给 handler。
+function deferredRequiredAction<TArgs extends unknown[]>(
+  handler: (ensureSupervision: EnsureSupervision, ...args: TArgs) => Promise<void>,
+): (...args: TArgs) => Promise<void> {
+  return cliDeferredRequiredAction(handler, { fsFactory });
 }
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
@@ -109,10 +116,10 @@ program
 program
   .command('start')
   .description('Start the system (initializes if needed) and open Motion chat')
-  .action(action('required', async () => {
+  .action(deferredRequiredAction(async (ensureSupervision) => {
     const { startCommand } = await import('./commands/start.js');
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
-    await startCommand({ fsFactory }, { audit });
+    await startCommand({ fsFactory }, { audit, ensureSupervision });
   }));
 
 // init command

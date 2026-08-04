@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { cliAction } from '../../src/cli/supervision-policy.js';
+import { cliAction, cliDeferredRequiredAction } from '../../src/cli/supervision-policy.js';
 import { ensureWatchdog } from '../../src/watchdog/ensure.js';
 import { isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
 import { withCliErrorHandling } from '../../src/cli/with-cli-error-handling.js';
@@ -140,5 +140,57 @@ describe('cliAction argument forwarding', () => {
     await wrapped('hello', 42);
 
     expect(handlerCalls).toEqual(['hello:42']);
+  });
+});
+
+describe('cliDeferredRequiredAction (phase 1280)', () => {
+  it('不在 handler 前 ensure；capability 被调用时才委托 ensureWatchdog', async () => {
+    const wrapped = cliDeferredRequiredAction(async (ensureSupervision) => {
+      expect(ensureWatchdog).not.toHaveBeenCalled();
+      handlerCalls.push('bootstrap');
+      await ensureSupervision();
+      handlerCalls.push('business');
+    }, { fsFactory });
+
+    await wrapped();
+
+    expect(ensureWatchdog).toHaveBeenCalledTimes(1);
+    expect(ensureWatchdog).toHaveBeenCalledWith(fsFactory);
+    expect(handlerCalls).toEqual(['bootstrap', 'business']);
+  });
+
+  it('handler 不调用 capability 时 ensure 零次', async () => {
+    const wrapped = cliDeferredRequiredAction(async () => {
+      handlerCalls.push('handler');
+    }, { fsFactory });
+
+    await wrapped();
+
+    expect(ensureWatchdog).not.toHaveBeenCalled();
+    expect(handlerCalls).toEqual(['handler']);
+  });
+
+  it('原样转发 Commander 参数（capability 之后的 args）', async () => {
+    const wrapped = cliDeferredRequiredAction(async (_ensure, a: string, b: number) => {
+      handlerCalls.push(`${a}:${b}`);
+    }, { fsFactory });
+
+    await wrapped('hello', 42);
+
+    expect(handlerCalls).toEqual(['hello:42']);
+  });
+
+  it('capability 失败时错误进入 withCliErrorHandling 边界、后续动作零副作用', async () => {
+    vi.mocked(ensureWatchdog).mockRejectedValue(new Error('spawn failed'));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => { throw new Error(`exit:${code}`); });
+
+    const wrapped = cliDeferredRequiredAction(async (ensureSupervision) => {
+      await ensureSupervision();
+      handlerCalls.push('business');
+    }, { fsFactory });
+
+    await expect(wrapped()).rejects.toThrow('exit:1');
+    expect(handlerCalls).toEqual([]);
+    exitSpy.mockRestore();
   });
 });

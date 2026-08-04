@@ -10,6 +10,10 @@
  * - observe_only:  纯状态/审计查询，读取存活状态但不启动
  * - disabled:      init / stop 等命令，不恢复 Watchdog
  * - internal:      daemon / watchdog 子进程入口，禁止递归 ensure
+ *
+ * phase 1280：兼具 bootstrap 与业务语义的复合命令（`start`）不走 required，
+ * 改用 cliDeferredRequiredAction——不在 handler 前 ensure，而是注入一次性
+ * ensure capability，由 handler 在 workspace bootstrap 落盘后调用。
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
@@ -63,4 +67,27 @@ export function cliAction<TArgs extends unknown[]>(
     await executePolicy(policy, ctx);
     await handler(...args);
   });
+}
+
+/**
+ * 一次性监督 capability（phase 1280）：由 CLI 监督边界创建并注入 deferred
+ * action；handler 在自身 bootstrap 完整落盘后、业务副作用前调用。
+ * 只暴露 `ensure(): Promise<void>`，不暴露 fsFactory 或 Watchdog 内部对象。
+ */
+export type EnsureSupervision = () => Promise<void>;
+
+/**
+ * 注册一个 deferred-required CLI action（如 `start`：先 bootstrap workspace，
+ * 再恢复 Watchdog，最后才允许业务副作用）。
+ *
+ * 与 cliAction('required', ...) 的区别仅在于 ensure 的时机交给 handler；
+ * capability 每次调用都委托既有 ensureWatchdog(fsFactory)，普通 required 语义不变。
+ * 返回函数同样带 withCliErrorHandling 边界。
+ */
+export function cliDeferredRequiredAction<TArgs extends unknown[]>(
+  handler: (ensureSupervision: EnsureSupervision, ...args: TArgs) => Promise<void>,
+  ctx: SupervisionContext,
+): (...args: TArgs) => Promise<void> {
+  return withCliErrorHandling((...args) =>
+    handler(() => ensureWatchdog(ctx.fsFactory), ...args));
 }
