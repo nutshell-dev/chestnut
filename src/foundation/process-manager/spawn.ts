@@ -2,7 +2,8 @@ import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
-import { DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
+import { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
+import { awaitReadyConvergence, BOOT_DEADLINE_MS } from './ready-convergence.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { ProcessListUnavailable } from './errors.js';
 import { isReady as checkReady } from './ready.js';
@@ -253,13 +254,10 @@ async function cleanupOrphans(
   }
 }
 
-const BOOT_DEADLINE_MS = 30_000; // 30s for daemon to become ready
-
 /**
- * Phase 1282 Step A: ready 等待时限是唯一共享原语 —— self-winner（spawn）与
- * foreign-winner（ensureRunning join）必须复用同一 deadline，禁止第二套时限策略。
+ * Phase 1282 Step C：ready 等待的 deadline/poll 调度唯一归
+ * ready-convergence.ts 原语；spawn 只提供 self-winner 观察器与错误上下文。
  */
-export { BOOT_DEADLINE_MS };
 
 /**
  * Spawn the child, persist its PID into the spawning generation, and poll
@@ -338,23 +336,27 @@ async function spawnAndAwaitReady(
 
     const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
     const isReady = ctx.isReady ?? ((id: DaemonDir) => checkReady(ctx, id));
-    let ready = isReady(daemonDir);
-    const bootStart = Date.now();
-    while (!ready) {
-      if (Date.now() - bootStart > BOOT_DEADLINE_MS) {
-        throw new Error(
-          `Process "${daemonDir}" did not become ready within ${BOOT_DEADLINE_MS}ms. ` +
-          `Check logs at: ${options.logFile}`,
-        );
-      }
-      if (!l1IsAlive(pid, childStartTime)) {
-        throw new Error(
-          `Process "${daemonDir}" died during boot. Check logs at: ${options.logFile}`,
-        );
-      }
-      await sleep(SPAWN_POLL_INTERVAL_MS);
-      ready = isReady(daemonDir);
-    }
+    // Phase 1282 Step C：deadline/poll 调度由共享原语拥有；本观察器只解释
+    // self-winner 事实（ready 事实 / child liveness），保留既有错误消息。
+    const bootPid: number = pid; // 闭包内 narrowing 不复用，显式固定 child PID
+    await awaitReadyConvergence(
+      () => {
+        if (isReady(daemonDir)) return { kind: 'ready', value: undefined };
+        if (!l1IsAlive(bootPid, childStartTime)) {
+          return {
+            kind: 'failed',
+            error: new Error(
+              `Process "${daemonDir}" died during boot. Check logs at: ${options.logFile}`,
+            ),
+          };
+        }
+        return { kind: 'pending' };
+      },
+      () => new Error(
+        `Process "${daemonDir}" did not become ready within ${BOOT_DEADLINE_MS}ms. ` +
+        `Check logs at: ${options.logFile}`,
+      ),
+    );
 
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED,

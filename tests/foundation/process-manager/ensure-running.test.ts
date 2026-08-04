@@ -51,6 +51,20 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
 });
 
+// Phase 1282 Step C：call-through 包装共享等待原语，断言 self-winner（spawn）与
+// foreign-winner（join）都消费同一 awaitReadyConvergence，不再各自维护循环。
+const h = vi.hoisted(() => ({ convergenceCalls: 0 }));
+vi.mock('../../../src/foundation/process-manager/ready-convergence.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/ready-convergence.js')>();
+  return {
+    ...actual,
+    awaitReadyConvergence: (...args: Parameters<typeof actual.awaitReadyConvergence>) => {
+      h.convergenceCalls++;
+      return actual.awaitReadyConvergence(...args);
+    },
+  };
+});
+
 function defaultCtx(
   nodeFs: NodeFileSystem,
   audit: ProcessManagerContext['audit'],
@@ -100,6 +114,7 @@ describe('ensureRunning', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
+    h.convergenceCalls = 0;
     tempDir = await createTrackedTempDir('ensure-running-');
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
@@ -132,6 +147,8 @@ describe('ensureRunning', () => {
 
     expect(outcome).toEqual({ kind: 'spawned', pid: process.pid });
     expect(ctx.spawnDetached).toHaveBeenCalledTimes(1);
+    // self-winner readiness 走共享原语恰好一次
+    expect(h.convergenceCalls).toBe(1);
   });
 
   it('joins active_owner winner once it writes ready (no second spawn)', async () => {
@@ -190,6 +207,8 @@ describe('ensureRunning', () => {
     const outcome = await promise;
     expect(outcome).toEqual({ kind: 'joined', pid: process.pid, generationId });
     expect(ctx.spawnDetached).not.toHaveBeenCalled();
+    // foreign-winner join 走同一共享原语恰好一次（spawn 在 precheck 即 conflict、未进 readiness）
+    expect(h.convergenceCalls).toBe(1);
 
     // join 审计带 expected generation
     const joined = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_JOINED);
@@ -369,6 +388,35 @@ describe('ensureRunning', () => {
     expect(err.location).toBe('spawning');
   });
 
+  it('fails join_timeout via shared deadline when winner never becomes ready', async () => {
+    const { audit, events } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'ensure-join-timeout');
+    const generationId = randomUUID();
+    // winner 持有 spawning、进程存活但永不写 ready → 只能由共享 deadline 终止
+    writeSpawningGenerationSync(daemonDir, { generationId, pid: process.pid });
+
+    vi.useFakeTimers();
+    try {
+      const ctx = defaultCtx(nodeFs, audit);
+      const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-timeout')).catch((e) => e);
+
+      // 共享原语 deadline = BOOT_DEADLINE_MS(30s)；poll 由本文件 mock 为 10ms
+      const ADVANCE_PAST_DEADLINE_MS = 31_000; // 略超 30s deadline，保证 timeout 分支触发
+      await vi.advanceTimersByTimeAsync(ADVANCE_PAST_DEADLINE_MS);
+
+      const err = await promise;
+      expect(err).toBeInstanceOf(ProcessWinnerConvergenceError);
+      expect(err.reason).toBe('join_timeout');
+      expect(err.generationId).toBe(generationId);
+      const failed = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED);
+      expect(failed).toBeDefined();
+      expect(failed).toContain('reason=join_timeout');
+      expect(failed).toContain(`generation=${generationId}`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('two concurrent ensureRunning: exactly one spawned, one joined with the winner generation', async () => {
     const { audit: auditA } = makeAudit();
     const { audit: auditB } = makeAudit();
@@ -407,5 +455,7 @@ describe('ensureRunning', () => {
     expect(kinds).toEqual(['joined', 'spawned']);
     const joined = [outcomeA, outcomeB].find((o) => o.kind === 'joined');
     expect(joined).toMatchObject({ kind: 'joined', pid: process.pid, generationId: winnerGenerationId });
+    // winner spawn readiness + loser join 各消费共享原语一次
+    expect(h.convergenceCalls).toBe(2);
   });
 });

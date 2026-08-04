@@ -24,7 +24,11 @@ import {
   makeProcessStartTime,
 } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { SPAWN_POLL_INTERVAL_MS } from './constants.js';
+import {
+  awaitReadyConvergence,
+  BOOT_DEADLINE_MS,
+  type ConvergenceObservation,
+} from './ready-convergence.js';
 import {
   inspectActive,
   inspectActivePid,
@@ -36,7 +40,7 @@ import {
   inspectSpawningPid,
   inspectSpawningReady,
 } from './generation.js';
-import { BOOT_DEADLINE_MS, spawnProcess } from './spawn.js';
+import { spawnProcess } from './spawn.js';
 import {
   ProcessGenerationStateError,
   ProcessSpawnConflictError,
@@ -48,9 +52,6 @@ import {
   type SpawnOptions,
 } from './types.js';
 
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Ensure the daemon for `daemonDir` is running and ready.
@@ -156,7 +157,9 @@ async function joinWinner(
     );
   };
 
-  for (;;) {
+  // Phase 1282 Step C：deadline/poll 调度由 ready-convergence 原语唯一拥有；
+  // 本观察器只解释 foreign winner 的磁盘事实与终局（typed failure + audit）。
+  const observe = (): ConvergenceObservation<EnsureRunningOutcome> => {
     const spawning = inspectSpawning(ctx, daemonDir);
     if (spawning.status === 'malformed') {
       throw new ProcessGenerationStateError(daemonDir, 'spawning', 'inspect', spawning.cause);
@@ -190,66 +193,80 @@ async function joinWinner(
         }
       }
       // 其余情况：spawning 合法窗口（PID/ready 未齐）→ 继续等待
-    } else {
-      const active = inspectActive(ctx, daemonDir);
-      if (active.status === 'malformed') {
-        throw new ProcessGenerationStateError(daemonDir, 'active', 'inspect', active.cause);
-      }
-      if (active.status === 'ok' && active.record.generation_id === generationId) {
-        const pid = inspectActivePid(ctx, daemonDir);
-        if (pid.status === 'malformed') {
-          throw new ProcessGenerationStateError(daemonDir, 'active', 'inspect', pid.cause);
-        }
-        const ready = inspectActiveReady(ctx, daemonDir);
-        if (ready.status === 'malformed') {
-          throw new ProcessGenerationStateError(daemonDir, 'active', 'inspect', ready.cause);
-        }
-        if (
-          pid.status === 'ok' &&
-          pid.record.generation_id === generationId &&
-          ready.status === 'ok' &&
-          ready.record.generation_id === generationId &&
-          pid.record.pid === ready.record.pid
-        ) {
-          if (!probeAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time)) {
-            fail('winner_died', 'winner active facts complete but process is not alive');
-          }
-          ctx.audit.write(
-            PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_JOINED,
-            `daemon_dir=${daemonDir}`,
-            `generation=${generationId}`,
-            `pid=${pid.record.pid}`,
-            `duration_ms=${Date.now() - joinStart}`,
-          );
-          return { kind: 'joined', pid: pid.record.pid, generationId };
-        }
-        // active 事实未齐（move 中途的瞬时视角）→ 继续等待
-      } else {
-        const retired = inspectRetiredGeneration(ctx, daemonDir, generationId);
-        if (retired.status === 'ok') {
-          const failure = inspectRetiredFailure(ctx, daemonDir, generationId);
-          if (failure.status === 'ok') {
-            fail('winner_failed', `retired with failure fact: ${failure.record.reason}`);
-          }
-          fail('winner_retired', `generation retired (${retired.record.generation_id})`);
-        }
-        if (retired.status === 'malformed') {
-          // 位置事实优先：generation 确在 retired/，record 损坏不升级为状态损坏
-          fail('winner_retired', 'generation retired (record unreadable)');
-        }
-        if (active.status === 'ok') {
-          fail('winner_replaced', `active slot held by generation ${active.record.generation_id}`);
-        }
-        if (spawning.status === 'ok') {
-          fail('winner_replaced', `spawning slot held by generation ${spawning.record.generation_id}`);
-        }
-        fail('winner_vanished', 'generation absent from spawning/active/retired');
-      }
+      return { kind: 'pending' };
     }
 
-    if (Date.now() - joinStart > BOOT_DEADLINE_MS) {
-      fail('join_timeout', `winner not ready within ${BOOT_DEADLINE_MS}ms`);
+    const active = inspectActive(ctx, daemonDir);
+    if (active.status === 'malformed') {
+      throw new ProcessGenerationStateError(daemonDir, 'active', 'inspect', active.cause);
     }
-    await sleep(SPAWN_POLL_INTERVAL_MS);
-  }
+    if (active.status === 'ok' && active.record.generation_id === generationId) {
+      const pid = inspectActivePid(ctx, daemonDir);
+      if (pid.status === 'malformed') {
+        throw new ProcessGenerationStateError(daemonDir, 'active', 'inspect', pid.cause);
+      }
+      const ready = inspectActiveReady(ctx, daemonDir);
+      if (ready.status === 'malformed') {
+        throw new ProcessGenerationStateError(daemonDir, 'active', 'inspect', ready.cause);
+      }
+      if (
+        pid.status === 'ok' &&
+        pid.record.generation_id === generationId &&
+        ready.status === 'ok' &&
+        ready.record.generation_id === generationId &&
+        pid.record.pid === ready.record.pid
+      ) {
+        if (!probeAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time)) {
+          fail('winner_died', 'winner active facts complete but process is not alive');
+        }
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_JOINED,
+          `daemon_dir=${daemonDir}`,
+          `generation=${generationId}`,
+          `pid=${pid.record.pid}`,
+          `duration_ms=${Date.now() - joinStart}`,
+        );
+        return { kind: 'ready', value: { kind: 'joined', pid: pid.record.pid, generationId } };
+      }
+      // active 事实未齐（move 中途的瞬时视角）→ 继续等待
+      return { kind: 'pending' };
+    }
+
+    const retired = inspectRetiredGeneration(ctx, daemonDir, generationId);
+    if (retired.status === 'ok') {
+      const failure = inspectRetiredFailure(ctx, daemonDir, generationId);
+      if (failure.status === 'ok') {
+        fail('winner_failed', `retired with failure fact: ${failure.record.reason}`);
+      }
+      fail('winner_retired', `generation retired (${retired.record.generation_id})`);
+    }
+    if (retired.status === 'malformed') {
+      // 位置事实优先：generation 确在 retired/，record 损坏不升级为状态损坏
+      fail('winner_retired', 'generation retired (record unreadable)');
+    }
+    if (active.status === 'ok') {
+      fail('winner_replaced', `active slot held by generation ${active.record.generation_id}`);
+    }
+    if (spawning.status === 'ok') {
+      fail('winner_replaced', `spawning slot held by generation ${spawning.record.generation_id}`);
+    }
+    return fail('winner_vanished', 'generation absent from spawning/active/retired');
+  };
+
+  return awaitReadyConvergence(observe, () => {
+    const detail = `winner not ready within ${BOOT_DEADLINE_MS}ms`;
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `generation=${generationId}`,
+      `reason=join_timeout`,
+      `detail=${ctx.audit.message(detail)}`,
+    );
+    return new ProcessWinnerConvergenceError(
+      daemonDir,
+      'join_timeout',
+      generationId,
+      `Winner generation ${generationId} for "${daemonDir}" did not converge to ready (join_timeout: ${detail})`,
+    );
+  });
 }
