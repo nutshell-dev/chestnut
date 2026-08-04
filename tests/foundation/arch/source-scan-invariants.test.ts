@@ -184,6 +184,7 @@ describe('resource-owner-presence', () => {
       { name: 'watchdog/claw-inactivity-guidance (phase 1258: claw_inactivity guidance codec owner)', rel: 'watchdog/claw-inactivity-guidance.ts' },
       { name: 'core/claw-topology/jobs/outbox-summary/guidance-state (phase 1259: claw_outbox_summary guidance codec owner)', rel: 'core/claw-topology/jobs/outbox-summary/guidance-state.ts' },
       { name: 'cli-protocol (phase 1253: claw command catalog + invocation owner)', rel: 'cli-protocol/index.ts' },
+      { name: 'daemon/entry-resolver (phase 1284: daemon-entry.js path owner)', rel: 'daemon/entry-resolver.ts' },
     ];
 
     it.each(owners)('$name file exists at expected path: $rel', ({ rel }) => {
