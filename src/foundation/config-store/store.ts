@@ -3,15 +3,15 @@
  * @layer L2 基础层
  *
  * Generic YAML config persistence：schema 参数化的 load/write/patch/exists。
- * 零业务字段含义 — root/claw schema、路径与业务错误文案归 L6 Assembly caller。
+ * 零业务字段含义 — owner schema、文件路径与业务错误措辞全部由 caller 决定。
  *
  * 保留：env var expansion（`${ENV_VAR}` → process.env.X）、atomic+fsync 写
  * （写委托 L1 FileSystem.writeAtomicSync）。
  * 预期失败经 typed failure protocol（./errors.ts）抛出，见 ConfigStoreError。
  *
  * Phase 10 Step B: thin YAML config loader（Refs: coding plan/phase10/Step B.md §3.2）
- * Phase 717: 自 foundation/config/loader.ts 迁入 assembly/
- * Phase 1297 Step A: 归位 L2a ConfigStore（assembly/config/config-loader.ts → 本文件）
+ * Phase 717: 迁入 L6
+ * Phase 1297 Step A: 归位 L2a ConfigStore（自 L6 config 目录物理迁入）
  * Phase 1297 Step B: typed failure protocol；error 格式化改为模块私有
  *   formatUnknownError，最终依赖只剩 FileSystem 与通用库（path/js-yaml）。
  */
@@ -134,10 +134,10 @@ export function writeYamlConfig(
 
 /**
  * In-place YAML patch (raw read/write, no schema round-trip).
- * Used by `chestnut config primary` to patch llm.primary fields without
- * triggering Zod default re-injection (preserves user-omitted optional fields).
+ * 供 caller 就地修补局部字段而不触发 schema default 重新注入
+ * （保留用户省略的 optional 字段）。
  *
- * read/YAML/root-shape 失败进入同一 typed taxonomy（read_failed /
+ * read/YAML/top-level-shape 失败进入同一 typed taxonomy（read_failed /
  * invalid_yaml / expected_object）；patcher 自己抛出的错误原样传播、不包装。
  */
 export function patchYamlConfig(

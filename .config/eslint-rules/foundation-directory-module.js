@@ -15,6 +15,7 @@ const DIRECTORY_MODULES = new Map([
   ['audit', 'L2a.AuditLog'],
   ['claw-identity', 'L2c.ClawIdentity'],
   ['command-tool', 'L2c.CommandTool'],
+  ['config-store', 'L2a.ConfigStore'],
   ['cron', 'L2a.Cron'],
   ['dialog-store', 'L2b.DialogStore'],
   ['file-tool', 'L2c.FileTool'],
