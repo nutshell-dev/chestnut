@@ -35,7 +35,7 @@ interface RunShadowOptions {
   /** L4 turn state snapshot — injected by shadow tool factory (not from ctx) */
   turnSnapshot?: {
     systemPrompt?: string;
-    tools?: import('../../foundation/llm-provider/types.js').ToolDefinition[];
+    tools?: import('../../foundation/llm-provider/index.js').ToolDefinition[];
     messages?: Message[];
   };
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */

@@ -1,1 +1,1 @@
-export { ProcessListUnavailable } from '../process-exec/errors.js';
+export { ProcessListUnavailable } from '../process-exec/index.js';

@@ -64,6 +64,52 @@
  * ============================================================
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
+
+/**
+ * L1-L5 barrel 边界程序化生成（phase 1291）：
+ * 跨模块 import 必经模块自身 index.ts，程序化遍历 src/core、src/foundation
+ * 子目录生成，不手工枚举（同 M#8 耦合界面最小 / M#7 耦合界面稳定）。
+ * severity 直接 error（同 no-circular 先例：phase1290 治理后 L1-L5 已 0 违反，
+ * 非「先 warn 观察」阶段）。范围显式限定 L1-L5，不覆盖 L6（assembly/cli/
+ * cli-protocol/daemon/watchdog）——L6 范围内已知存在 barrel 缺口，未治理。
+ */
+function barrelBoundaryRules() {
+  const bases = ['core', 'foundation'];
+  const rules = [];
+  for (const base of bases) {
+    const baseDir = path.join(__dirname, '..', 'src', base);
+    const mods = fs
+      .readdirSync(baseDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+    for (const mod of mods) {
+      rules.push({
+        // rule name 需 kebab-case（phase 649 invariant test）：目录名可能含
+        // `_`（如 core/context_manager），name 里转 `-`，path 仍用真实目录名。
+        name: `no-deep-into-l1l5-${base}-${mod.replace(/_/g, '-')}`,
+        comment: [
+          `M#8 耦合界面最小 / M#7 耦合界面稳定：跨模块 import 必经`,
+          `${base}/${mod}/index.ts barrel，不得深路径直达内部文件。`,
+          'phase 1291 立：程序化生成、遍历 src/core + src/foundation 子目录，',
+          '范围限定 L1-L5、不覆盖 L6（assembly/cli 等按 code review 守，',
+          '已知存在 barrel 缺口未治理）。',
+        ].join(' '),
+        severity: 'error',
+        from: {
+          path: '^src/(core|foundation)/',
+          pathNot: [`^src/${base}/${mod}/`],
+        },
+        to: {
+          path: `^src/${base}/${mod}/(?!index\.ts$).+`,
+        },
+      });
+    }
+  }
+  return rules;
+}
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
@@ -284,6 +330,7 @@ module.exports = {
       from: {},
       to: { circular: true },
     },
+    ...barrelBoundaryRules(),
   ],
   options: {
     tsConfig: { fileName: 'tsconfig.json' },

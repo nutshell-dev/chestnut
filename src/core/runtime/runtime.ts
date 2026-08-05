@@ -154,7 +154,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   private dialogStoreFactory!: () => DialogStore;
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
   // phase 1190：上下文管理器运行时配置（filterSubtypes 已移除）
-  private contextManagerConfig?: import('../step-executor/types.js').ContextManagerRuntimeConfig;
+  private contextManagerConfig?: import('../step-executor/index.js').ContextManagerRuntimeConfig;
   /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
   private lastLLMCallAt: number = 0;
   /** phase 69: L6 Assembly 装配期注入 claw 子目录列表 */

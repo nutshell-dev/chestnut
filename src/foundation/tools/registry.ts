@@ -66,7 +66,7 @@ export class ToolRegistryImpl implements ToolRegistry {
   formatForLLM(tools: Tool[]): Array<{
     name: string;
     description: string;
-    input_schema: import('../llm-provider/types.js').JSONSchema7;
+    input_schema: import('../llm-provider/index.js').JSONSchema7;
   }> {
     return tools.map(tool => ({
       name: tool.name,

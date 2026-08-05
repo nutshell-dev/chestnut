@@ -76,7 +76,7 @@ export interface RuntimeDependencies {
   readonly fsFactory: (baseDir: string) => FileSystem;
 
   // 构造期注入（phase182 B.p166-5 升档：setter 双阶段消除）
-  readonly parentStreamLog?: import('../../foundation/stream/types.js').StreamLog;
+  readonly parentStreamLog?: import('../../foundation/stream/index.js').StreamLog;
 
   /** phase 521: regime 切换协调装配 / Assembly own factory / per L5.G1-G4 closure 2026-05-07 */
   readonly dialogStoreFactory: () => DialogStore;

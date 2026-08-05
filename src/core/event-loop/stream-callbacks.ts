@@ -22,7 +22,7 @@ export function createStreamCallbacks(
   sink: StreamLog,
   runtime: Runtime,
 ): StreamCallbacks {
-  const checkWrite = (event: import('../../foundation/stream/types.js').StreamEvent) => {
+  const checkWrite = (event: import('../../foundation/stream/index.js').StreamEvent) => {
     const traceId = runtime.getCurrentTraceId();
     if (traceId) {
       (event as Record<string, unknown>).trace_id = traceId;
