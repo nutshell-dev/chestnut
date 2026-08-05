@@ -10,10 +10,7 @@ export {
 } from './system.js';
 export { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 export {
-  RetrospectiveStore,
   type RegisterRetrospectiveInput,
-  type RetrospectiveWorkItemV1,
-  type LegacyPendingRetrospective,
 } from './retrospective-store.js';
 
 import { EvolutionSystem, type EvolutionSystemDeps } from './system.js';

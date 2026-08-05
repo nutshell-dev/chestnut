@@ -16,9 +16,7 @@ export type {
 export type { InboxMessage, OutboxMessage, Priority } from './foundation/messaging/index.js';
 export { PRIORITY_VALUES } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
-export {
-  PathNotInClawSpaceError, WriteOperationForbiddenError,
-} from './core/permissions/index.js';
+
 export { ToolError, ToolTimeoutError } from './foundation/tools/index.js';
 export {
   LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError,

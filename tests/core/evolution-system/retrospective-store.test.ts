@@ -6,10 +6,9 @@ import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import {
-  RetrospectiveStore,
   type RegisterRetrospectiveInput,
 } from '../../../src/core/evolution-system/index.js';
-import { READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
+import { RetrospectiveStore, READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { makeContractId, type ContractId } from '../../../src/core/contract/types.js';
 import { makeFullTaskId, type FullTaskId } from '../../../src/core/async-task-system/types.js';
