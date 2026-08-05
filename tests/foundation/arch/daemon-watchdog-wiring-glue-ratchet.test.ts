@@ -43,9 +43,10 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
     // phase 1289 Step B: watchdog config 迁移协议新增两处特许消费——Assembly config-load
     // （legacy root `watchdog:` 段 raw 读/删原语，永久保留以支持旧安装迁移）与 CLI
     // 同层编排模块 watchdog-config-migration；均为迁移协议组成，非 daemon/监督依赖。
+    // phase 1289 Step D: compose-config 边已删（root schema 移除 watchdog 段）；
+    // init.ts 仅经 watchdog/workspace-config + config-migration-journal 消费（迁移协议）。
     const expected = [
       'assembly/business-systems.ts',
-      'assembly/config/compose-config.ts',
       'assembly/config/config-load.ts',
       'assembly/file-routing-aggregator.ts',
       // phase 1263 Step C / phase 1264 Step A: claw_crashed / claw_inactivity composer 原子迁为 typed binding

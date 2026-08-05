@@ -1,8 +1,6 @@
 /**
- * Phase 1287 Step C: Watchdog 布局 owner 与 legacy IO 隔离 ratchet。
- *
- * Phase 1287 Step B 建立零 IO 布局协议（src/watchdog/layout.ts）并把 ownership
- * 目录常量改为派生后，本 ratchet 冻结：
+ * Phase 1287 Step C: Watchdog 布局 owner 与 legacy IO 隔离 ratchet。Phase 1287 Step B
+ * 建立零 IO 布局协议（src/watchdog/layout.ts）并把 ownership 目录常量改为派生后，本 ratchet 冻结：
  *  - WATCHDOG_PATHS / WATCHDOG_LEGACY_PATHS production 定义恰在
  *    watchdog/layout.ts 一处；目标/legacy 键值与 Phase 1286 逐项一致、不缺不溢；
  *  - layout 模块零 import、零 IO；
@@ -28,9 +26,9 @@ const OWNERSHIP_FILE = path.join(WATCHDOG_DIR, 'watchdog-ownership.ts');
 const INTERNAL_SPECIFIER = './layout.js';
 
 /**
- * Phase 1289 Step B 特许的 Watchdog 外 layout 消费方（迁移协议原语）：
- * Assembly config-load 负责 legacy root YAML 段 IO，CLI watchdog-config-migration
- * 负责编排；其余模块外消费仍禁止。Step D 计划回收本白名单。
+ * Phase 1289 Step B 特许的 Watchdog 外 layout 消费方（迁移协议原语）：Assembly
+ * config-load 负责 legacy root YAML 段 IO，CLI watchdog-config-migration 编排；
+ * 其余模块外消费仍禁止（迁移原语永久保留、白名单不回收）。
  */
 const OUTSIDE_CONSUMER_WHITELIST: ReadonlyArray<readonly [string, string]> = [
   ['src/assembly/config/config-load.ts', '../../watchdog/layout.js'],

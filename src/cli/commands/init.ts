@@ -18,11 +18,6 @@ import {
   INIT_LLM_IDLE_TIMEOUT_MS,
 } from '../../foundation/llm-orchestrator/index.js';
 
-import {
-  WATCHDOG_INTERVAL_MS,
-  DEFAULT_DISK_WARNING_MB,
-  CLAW_INACTIVITY_TIMEOUT_MS,
-} from '../../watchdog/watchdog.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index.js';
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -301,12 +296,9 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
         },
       },
       tool_timeout_ms: 60_000,
-      watchdog: {
-        interval_ms: WATCHDOG_INTERVAL_MS,
-        disk_warning_mb: DEFAULT_DISK_WARNING_MB,
-        log_archive_days: 30,
-        claw_inactivity_timeout_ms: CLAW_INACTIVITY_TIMEOUT_MS,
-      },
+      // Phase 1289 Step D: root YAML 不再写 watchdog 段 — fresh init 的默认值由
+      // initWorkspaceWatchdogConfig 落入 .chestnut/watchdog/config.yaml；
+      // log_archive_days 随块显式退役（捕获进迁移 journal retired_fields）。
       motion: {
         heartbeat_interval_ms: 0,
         // phase 1485: max_steps 不写入初始 config — agent-executor 持默认值、user 显式覆盖时再设。
@@ -323,8 +315,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     const chestnutRootFs = deps.fsFactory(getChestnutRoot());
     initWorkspaceAuditConfig(chestnutRootFs);
     publishAuditLayout(chestnutRootFs);
-    // Phase 1289 Step B: fresh init 创建默认 workspace watchdog config（同型协议；
-    // root YAML 的 watchdog: 块本 Step 仍保留，Step D 才删）。
+    // Phase 1289 Step B/D: fresh init 创建默认 workspace watchdog config（同型协议；
+    // Step D 起 root YAML 的 watchdog: 块同步退役，不再写入）。
     initWorkspaceWatchdogConfig(chestnutRootFs);
     publishWatchdogLayout(chestnutRootFs);
 

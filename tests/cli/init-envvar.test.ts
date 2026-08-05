@@ -104,6 +104,16 @@ describe('initCommand — default circuit breaker (phase 1268 Step E)', () => {
       reset_timeout_ms: 60_000,
     });
   });
+
+  it('Phase 1289 Step D: root YAML 不再写 watchdog 段，默认值落入 .chestnut/watchdog/config.yaml', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env-test');
+    rlAnswers.queue = ['1', '1', ''];
+
+    await initCommand({ fsFactory }, true);
+    const rootYaml = fs.readFileSync(path.join(tempDir, '.chestnut', 'config.yaml'), 'utf8');
+    expect(rootYaml).not.toContain('watchdog');
+    expect(fs.existsSync(path.join(tempDir, '.chestnut', 'watchdog', 'config.yaml'))).toBe(true);
+  });
 });
 
 describe('initCommand — Branch 1: 扫描环境变量', () => {
