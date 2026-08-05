@@ -8,9 +8,6 @@
 
 export type {
   Gateway,
-  GatewayInput,
-  ClientMessage,
-  ServerMessage,
 } from './types.js';
 
 export { createGateway } from './gateway.js';

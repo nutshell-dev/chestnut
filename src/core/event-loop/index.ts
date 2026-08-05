@@ -10,16 +10,9 @@
  */
 
 export { EventLoop } from './event-loop.js';
-export type { EventLoopOptions, LLMRetryWaitingState, RecoverableLLMErrorClass } from './types.js';
 export {
-  LLM_COOLDOWN_MS,
-  LLM_MAX_RETRIES,
-  LLM_RETRY_INITIAL_DELAY_MS,
-  LLM_RETRY_MAX_DELAY_MS,
-  LLM_RETRY_STATE_FILE,
+
 } from './constants.js';
-export { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
-export { dispatchError } from './error-handlers.js';
-export { waitForInbox } from './inbox-watcher.js';
+export { EVENTLOOP_AUDIT_EVENTS } from './audit-events.js';
 export { createStreamCallbacks } from './stream-callbacks.js';
 export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';
