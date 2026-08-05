@@ -3,7 +3,7 @@
  * phase 298: V12 (b) real-治、wrapper 反向迁 foundation → assembly
  *
  * Owns: root config wrapper (load/save/exists/patch) + LLM merge
- * Generic yaml CRUD remains in ./config-loader.ts (phase 717)
+ * Generic yaml CRUD delegates to L2a ConfigStore barrel (phase 1297 Step A; loader moved out of assembly)
  * path primitive: getGlobalConfigPath in ./global-config-path.ts (phase 704)
  */
 import * as path from 'path';
@@ -20,7 +20,7 @@ import {
   writeYamlConfig,
   patchYamlConfig,
   configExists,
-} from './config-loader.js';
+} from '../../foundation/config-store/index.js';
 import { getGlobalConfigPath } from './global-config-path.js';
 import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
 import { auditConfigSchema, AUDIT_LEGACY_PATHS, type AuditConfig } from '../../foundation/audit/index.js';

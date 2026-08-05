@@ -9,8 +9,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
-vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
+vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/config-store/index.js')>();
   return {
     ...actual,
   };

@@ -1,20 +1,21 @@
 /**
- * @module L6.Assembly
+ * @module L2a.ConfigStore
+ * @layer L2 基础层
  *
- * Phase 10 Step B: thin YAML config loader
- *
- * Generic YAML read/write + Zod parse、不持任何业务字段含义。
- * Replace 既往 crud.ts 内的 schema-specific 加载、改为 caller 传 schema。
+ * Generic YAML config persistence：schema 参数化的 load/write/patch/exists。
+ * 零业务字段含义 — root/claw schema、路径与业务错误文案归 L6 Assembly caller。
  *
  * 保留：env var expansion（`${ENV_VAR}` → process.env.X）、错误归类抛、atomic+fsync 写
- * Refs: coding plan/phase10/Step B.md §3.2
+ * （写委托 L1 FileSystem.writeAtomicSync）。
  *
- * Phase 717: 自 foundation/config/loader.ts 迁入 assembly/，归属 L6.Assembly。
+ * Phase 10 Step B: thin YAML config loader（Refs: coding plan/phase10/Step B.md §3.2）
+ * Phase 717: 自 foundation/config/loader.ts 迁入 assembly/
+ * Phase 1297 Step A: 归位 L2a ConfigStore（assembly/config/config-loader.ts → 本文件）
  */
 import * as path from 'path';
-import { formatErr } from "../../foundation/node-utils/index.js";
+import { formatErr } from '../node-utils/index.js';
 import * as yaml from 'js-yaml';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { FileSystem } from '../fs/index.js';
 
 // Expand ${ENV_VAR} syntax in config values
 function expandEnvVars(obj: unknown): unknown {
