@@ -5,7 +5,7 @@
 
 import { ContractSystem, type ContractSystemDeps } from './manager.js';
 
-export { ContractSystem, type ContractSystemDeps } from './manager.js';
+export { ContractSystem } from './manager.js';
 
 // phase 1260 Step A: ContractSystem-owned typed notification protocol
 // （Step B：transport adapter 已物理归位 src/assembly/contract-notification-adapter.ts，
@@ -13,16 +13,10 @@ export { ContractSystem, type ContractSystemDeps } from './manager.js';
 export type {
   ContractNotification,
   ContractNotificationSink,
-  ContractCreatedNotification,
-  ContractCompletedNotification,
-  ContractCancelledNotification,
-  SubtaskCompletedNotification,
-  VerificationFailedNotification,
-  CompletedSubtaskNotification,
 } from './notification.js';
 
 // phase 1424: contract auditor exports
-export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type AuditorDrift, type AuditRequest, type AuditOutcome, parseVerdict } from './contract-auditor.js';
+export { ContractAuditor } from './contract-auditor.js';
 
 // phase 465: errors barrel re-export
 export {
@@ -36,10 +30,9 @@ export type { NotifyClawFn, VerificationGatewayResult } from './verification-typ
 // Phase 1136 Step B: verification attempt transition types
 export type {
   VerificationAttemptTransition,
-  VerificationTransitionResult,
 } from './verification-transition-types.js';
 export { contractFootprint, type ContractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
-export { buildAuditorPrompt, type AuditorPromptInput } from './auditor-prompt.js';
+export { buildAuditorPrompt } from './auditor-prompt.js';
 
 export {
   type ContractId,
@@ -66,9 +59,6 @@ export { CONTRACT_SUBTASKS_DIR } from './dirs.js';
 export {
   type PersistedContractYaml,
   type SubtaskRuntimeRecord,
-  type VerificationAttemptRecord,
-  type SubtaskRuntimeStatus,
-  type VerificationAttemptStatus,
 } from './types.js';
 
 export {
@@ -79,13 +69,7 @@ export {
 
 export {
   readStrictContractLayoutAtRoot,
-  deriveContractAggregate,
-  deriveSubtaskRetrySummary,
   projectArchivePayloadRuntime,
-  type ArchivePayloadLayoutSnapshot,
-  type ContractAggregateStatus,
-  type SubtaskRetrySummary,
-  type ArchivePayloadRuntimeView,
 } from './archive-payload-layout.js';
 
 export {
@@ -100,7 +84,6 @@ export {
 
 export {
   readArchivePayload,
-  type ArchivePayloadReadResult,
   type ArchivePayloadView,
   type ArchiveReadIssue,
   type ArchiveReadIssueCode,
@@ -118,36 +101,25 @@ export {
   readArchiveProgress,
   getLatestContractStats,
 } from './lightweight-query.js';
-export type { ContractSummary, ContractMetadata, ContractSubtaskStats, LegacyPausedContractRef } from './lightweight-query.js';
+export type { ContractSubtaskStats, LegacyPausedContractRef } from './lightweight-query.js';
 
 export { collectContractEvents } from './jobs/event-collector.js';
 
 // phase 1261 Step A: ContractSystem-owned contract_events persisted guidance codec
 export {
-  CONTRACT_EVENTS_GUIDANCE_SCHEMA_VERSION,
-  ContractEventsGuidanceDecodeError,
   encodeContractEventsGuidance,
   decodeContractEventsGuidance,
   type ContractEventGuidanceRef,
-  type ContractEventsGuidanceState,
-  type ContractEventsGuidanceWire,
-  type ContractEventsGuidanceDecodeErrorReason,
 } from './contract-events-guidance.js';
 
 // phase 1262 Step A: ContractSystem-owned contract_cancelled persisted guidance codec
 export {
-  CONTRACT_CANCELLED_GUIDANCE_SCHEMA_VERSION,
-  ContractCancelledGuidanceDecodeError,
   encodeContractCancelledGuidance,
   decodeContractCancelledGuidance,
   type ContractCancelledGuidanceRef,
-  type ContractCancelledGuidanceState,
-  type ContractCancelledGuidanceWire,
-  type ContractCancelledGuidanceDecodeErrorReason,
 } from './contract-cancelled-guidance.js';
 
 export {
-  CONTRACT_DIR,
   CONTRACT_ACTIVE_DIR,
   CONTRACT_ARCHIVE_DIR,
   PROGRESS_FILE,
@@ -159,12 +131,9 @@ export { listArchiveContracts } from './persistence.js';
 export type { ArchiveContractRef } from './types.js';
 
 // Phase 1146 Step C: structured cross-claw archive time query
-export { queryArchiveContracts } from './archive-query.js';
 export type {
   ArchiveTime,
-  ArchiveTimeUnknownReason,
   ArchiveQueryIssue,
-  ArchiveQueryIssueCode,
   ArchiveQueryFilter,
   ArchiveQueryEntry,
   ArchiveQueryResult,
@@ -173,7 +142,6 @@ export type {
 export {
   readOnboardingStatus,
   type OnboardingStatus,
-  type OnboardingStatusKind,
 } from './onboarding-discovery.js';
 
 /**
