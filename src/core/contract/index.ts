@@ -25,14 +25,12 @@ export {
 // phase 482: audit-events barrel re-export (CONTRACT_AUDIT_EVENTS for evolution-system; ID/file routing constants for assembly remain deep-imported per allowlist)
 export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 // phase 484: verification-types barrel re-export
-export type { NotifyClawFn, VerificationGatewayResult } from './verification-types.js';
+export type { NotifyClawFn } from './verification-types.js';
 
 // Phase 1136 Step B: verification attempt transition types
 export type {
   VerificationAttemptTransition,
 } from './verification-transition-types.js';
-export { contractFootprint, type ContractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
-export { buildAuditorPrompt } from './auditor-prompt.js';
 
 export {
   type ContractId,
@@ -44,9 +42,7 @@ export {
   type ContractYaml,
   type ContractCreatePolicy,
   type CreatePolicyContext,
-  type CreateContractOptions,
   ContractCreatePolicyViolationError,
-  ContractProgressInvariantViolatedError,
   makeContractId,
 } from './types.js';
 
@@ -54,39 +50,22 @@ export {
 export { ContractYamlSchema } from './schemas.js';
 
 // Phase 1193 Step B: archive current-format payload reader primitives only.
-export { CONTRACT_SUBTASKS_DIR } from './dirs.js';
 
 export {
-  type PersistedContractYaml,
   type SubtaskRuntimeRecord,
 } from './types.js';
 
 export {
   PersistedContractYamlSchema,
   SubtaskRuntimeRecordSchema,
-  VerificationAttemptRecordSchema,
 } from './schemas.js';
 
 export {
-  readStrictContractLayoutAtRoot,
-  projectArchivePayloadRuntime,
-} from './archive-payload-layout.js';
-
-export {
-  getContractSubtasksDir,
-  getContractYamlPath,
-} from './archive-payload-layout.js';
-
-export {
   ContractLayoutCorruptedError,
-  ContractArchiveReadError,
 } from './errors.js';
 
 export {
-  readArchivePayload,
-  type ArchivePayloadView,
   type ArchiveReadIssue,
-  type ArchiveReadIssueCode,
 } from './archive-reader.js';
 
 // phase 744 + 752: lightweight read-only query helpers (0-instance-dep)
@@ -128,15 +107,10 @@ export {
 
 // Phase 1335 (r138 F fork): cross-module query API
 export { listArchiveContracts } from './persistence.js';
-export type { ArchiveContractRef } from './types.js';
 
 // Phase 1146 Step C: structured cross-claw archive time query
 export type {
-  ArchiveTime,
   ArchiveQueryIssue,
-  ArchiveQueryFilter,
-  ArchiveQueryEntry,
-  ArchiveQueryResult,
 } from './types.js';
 
 export {
