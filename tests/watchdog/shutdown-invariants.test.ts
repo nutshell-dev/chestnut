@@ -13,7 +13,7 @@ import { randomUUID } from 'crypto';
 import { _resetShutdownGuard, runWatchdogLoop } from '../../src/watchdog/watchdog.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
+import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { setTimeout as setTimeoutP } from 'timers/promises';
 
@@ -43,6 +43,15 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   buildLLMConfig: vi.fn(),
 }));
 
+// Phase 1289 Step C: watchdog runtime 消费自家 workspace config store
+vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/watchdog/workspace-config.js')>();
+  return {
+    ...actual,
+    readWorkspaceWatchdogConfig: vi.fn(),
+  };
+});
+
 vi.mock('../../src/foundation/process-manager/factories.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/process-manager/factories.js')>();
   return {
@@ -68,10 +77,9 @@ describe('watchdog-shutdown-guard', () => {
       fs.mkdirSync(path.join(chestnutDir, 'motion', 'logs'), { recursive: true });
       fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
       vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-      vi.mocked(loadGlobalConfig).mockReturnValue({
-        watchdog: { interval_ms: 100, claw_inactivity_timeout_ms: 300_000 },
-        audit: { retention: { max_size_mb: null } },
-      } as any);
+      vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+        interval_ms: 100, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      });
 
       const mockPm = {
         getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
@@ -141,10 +149,9 @@ describe('handler-idempotent-install', () => {
       fs.mkdirSync(path.join(chestnutDir, 'motion', 'logs'), { recursive: true });
       fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
       vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-      vi.mocked(loadGlobalConfig).mockReturnValue({
-        watchdog: { interval_ms: 100, claw_inactivity_timeout_ms: 300_000 },
-        audit: { retention: { max_size_mb: null } },
-      } as any);
+      vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+        interval_ms: 100, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      });
 
       const mockPm = {
         getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),

@@ -16,7 +16,6 @@ import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/
 import { clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import { clawHasContract, gatherClawSnapshot, clawHasActiveContract } from '../../src/watchdog/watchdog-utils.js';
 import { notifyClaw } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -71,12 +70,12 @@ vi.mock('../../src/watchdog/watchdog-context.js', async (importOriginal) => {
   return {
     ...actual,
     getChestnutFs: vi.fn(),
-    getGlobalConfig: vi.fn(),
+    getWatchdogConfig: vi.fn(),
     getChestnutDir: vi.fn(),
   };
 });
 
-import { getChestnutFs, getGlobalConfig, getChestnutDir } from '../../src/watchdog/watchdog-context.js';
+import { getChestnutFs, getWatchdogConfig, getChestnutDir } from '../../src/watchdog/watchdog-context.js';
 
 describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () => {
   let tmpDir: string;
@@ -93,13 +92,14 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     fs.mkdirSync(clawsDir, { recursive: true });
 
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(clawHasContract).mockReturnValue(true);
     vi.mocked(gatherClawSnapshot).mockReturnValue({
       contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'stopped',
     } as any);
     vi.mocked(getChestnutDir).mockReturnValue(chestnutDir);
-    vi.mocked(getGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
+    vi.mocked(getWatchdogConfig).mockReturnValue({
+      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+    });
 
     mockPm = { isAlive: vi.fn() } as unknown as ProcessManager;
     mockAudit = {

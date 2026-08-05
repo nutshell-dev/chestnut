@@ -6,8 +6,8 @@
  *  - createWorkspaceAudit 是 workspace 根审计唯一工厂：固定 AUDIT_PATHS.audit +
  *    自家 config store、经 barrel 导出；
  *  - Watchdog/CLI 根审计调用方统一 createWorkspaceAudit、零路径/retention/config 接触；
- *  - Watchdog audit wiring 零 Assembly config import（watchdog-context 仅保留
- *    自身 interval 消费、无 audit 段访问）。
+ *  - Watchdog audit wiring 零 Assembly config import（Phase 1289 Step C 校准：
+ *    watchdog-context 已切自家 config store、零 Assembly config 引用、无 audit 段访问）。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -57,15 +57,18 @@ describe('phase 1288 Step C: workspace audit capability 接管根数据路径', 
     }
   });
 
-  it('Watchdog audit wiring 零 Assembly config import（watchdog-context 仅保留自身 interval 消费、无 audit 段访问）', () => {
+  it('Watchdog audit wiring 零 Assembly config import（watchdog-context 已切自家 config store、无 audit 段访问）', () => {
     for (const rel of ['src/watchdog/audit-wiring.ts', 'src/watchdog/watchdog.ts']) {
       const text = fs.readFileSync(path.join(PROJECT_ROOT, rel), 'utf8');
       expect(text.includes('assembly/config'), `${rel} must not import Assembly config for audit`).toBe(false);
     }
-    // watchdog-context.ts 保留 loadGlobalConfig（watchdog.interval_ms / claw_inactivity_timeout_ms
-    // 等自身消费，Phase 1288 不迁 Watchdog 自身配置），但不得访问 audit 配置段
+    // Phase 1289 Step C：watchdog runtime 监控参数消费已切至自家 workspace config store
+    //（.chestnut/watchdog/config.yaml），watchdog-context.ts 不得再引用 Assembly config；
+    // 且仍不得访问 audit 配置段
     const ctx = fs.readFileSync(path.join(PROJECT_ROOT, 'src/watchdog/watchdog-context.ts'), 'utf8');
-    expect(ctx).toContain('loadGlobalConfig');
+    expect(ctx.includes('loadGlobalConfig'), 'watchdog-context.ts must not reference loadGlobalConfig').toBe(false);
+    expect(ctx.includes('assembly/config'), 'watchdog-context.ts must not import Assembly config').toBe(false);
+    expect(ctx).toContain('getWatchdogConfig');
     expect(ctx.includes('audit.retention')).toBe(false);
     expect(/config\.audit\b/.test(ctx)).toBe(false);
     expect(/globalConfig\.audit\b/i.test(ctx)).toBe(false);

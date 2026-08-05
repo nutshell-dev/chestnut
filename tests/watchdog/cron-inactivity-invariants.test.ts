@@ -16,7 +16,7 @@ import { maybeCronClawInactivity, maybeCronCheckSubscriptions } from '../../src/
 import { clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
+import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { clawHasActiveContract, gatherClawSnapshot, getClawActivityInfo } from '../../src/watchdog/watchdog-utils.js';
 import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
 import { listSubscriptions, consumeSubscription } from '../../src/watchdog/subscription-store.js';
@@ -41,6 +41,15 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   clawExists: vi.fn(() => true),
   buildLLMConfig: vi.fn(),
 }));
+
+// Phase 1289 Step C: watchdog runtime 消费自家 workspace config store
+vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/watchdog/workspace-config.js')>();
+  return {
+    ...actual,
+    readWorkspaceWatchdogConfig: vi.fn(),
+  };
+});
 
 vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();
@@ -89,9 +98,9 @@ describe('phase 1258 Step A: claw_inactivity v1 wire — two trigger paths, one 
     fs.mkdirSync(path.join(chestnutDir, 'motion', 'inbox', 'pending'), { recursive: true });
 
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(loadGlobalConfig).mockReturnValue({
-      watchdog: { interval_ms: 5_000, claw_inactivity_timeout_ms: 300_000 },
-    } as any);
+    vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+      interval_ms: 5_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+    });
     vi.mocked(clawHasActiveContract).mockReturnValue(true);
     vi.mocked(gatherClawSnapshot).mockReturnValue({
       contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'running',

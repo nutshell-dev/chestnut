@@ -5,8 +5,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
-import { buildTestGlobalConfig } from '../helpers/global-config.js';
+import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { setAuditWriter, getAuditWriter, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { ensureAuditWired } from '../../src/watchdog/ensure.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
@@ -40,6 +39,15 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   buildLLMConfig: vi.fn(),
 }));
 
+// Phase 1289 Step C: watchdog runtime 消费自家 workspace config store
+vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/watchdog/workspace-config.js')>();
+  return {
+    ...actual,
+    readWorkspaceWatchdogConfig: vi.fn(),
+  };
+});
+
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
     findProcesses: mockFindProcesses,
@@ -59,7 +67,9 @@ describe('audit wired in CLI', () => {
     chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(loadGlobalConfig).mockReturnValue(buildTestGlobalConfig());
+    vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+    });
 
     setAuditWriter(null);
 

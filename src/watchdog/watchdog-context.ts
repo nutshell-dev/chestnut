@@ -2,7 +2,7 @@
  * @module L6.Watchdog.Context
  * Module-level singleton state for watchdog daemon
  *
- * 5 lazy cache（_motionCtx / _chestnutFs / globalConfigCache / _auditWriter）
+ * 5 lazy cache（_motionCtx / _chestnutFs / watchdogConfigCache / _auditWriter）
  * + 3 Map（cron 状态：lastInactivityNotified / clawPreviouslyAlive / inactivityNotifyCount）
  *
  * ESM live binding 保跨 sub-file 同实例（const Map reference 跨 file 共享 / let 经 getter/setter）
@@ -11,7 +11,8 @@
 import * as path from 'path';
 import { resolveWatchdogEntry } from './entry-resolver.js';
 import { getNamedSubrootDir } from '../core/claw-topology/index.js';
-import { loadGlobalConfig } from '../assembly/config/config-load.js';
+import { readWorkspaceWatchdogConfig } from './workspace-config.js';
+import type { WatchdogConfig } from './config-schema.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
@@ -160,7 +161,7 @@ export const clawStateAPI = {
 let _motionCtx: { fs: FileSystem; audit: AuditLog } | null = null;
 let _chestnutFs: FileSystem | null = null;
 let _chestnutFsBaseDir: string | null = null;
-let globalConfigCache: ReturnType<typeof loadGlobalConfig> | null = null;
+let watchdogConfigCache: WatchdogConfig | null = null;
 let _auditWriter: AuditLog | null = null;
 
 /** 1:1 保 watchdog.ts:29-31 */
@@ -203,13 +204,16 @@ export function getChestnutFs(fsFactory: (baseDir: string) => FileSystem): FileS
   return _chestnutFs;
 }
 
-// Global config (loaded lazily on first access)
+// Watchdog 自家 workspace config（Phase 1289 Step C：监控参数消费自 Assembly global config
+// 切换至 .chestnut/watchdog/config.yaml；lazy load on first access）
+// 失败契约：missing/invalid 由 readWorkspaceWatchdogConfig throw fail-loud
+//   （不回退 root YAML、不静默默认），上抛；cache 保持 null，下 tick 重试
 /** 1:1 保 watchdog.ts:252-257 */
-export function getGlobalConfig(fsFactory: (baseDir: string) => FileSystem) {
-  if (!globalConfigCache) {
-    globalConfigCache = loadGlobalConfig({ fsFactory });
+export function getWatchdogConfig(fsFactory: (baseDir: string) => FileSystem): WatchdogConfig {
+  if (!watchdogConfigCache) {
+    watchdogConfigCache = readWorkspaceWatchdogConfig(getChestnutFs(fsFactory));
   }
-  return globalConfigCache;
+  return watchdogConfigCache;
 }
 
 /** 1:1 保 watchdog.ts:260-262 */
@@ -230,7 +234,7 @@ export function getAuditWriter(): AuditLog | null {
  * partial cleanup via scattered `setAuditWriter(null)` and `clawStateAPI.*.clear()`
  * calls in their afterEach blocks. That style is leak-prone — a single forgotten
  * call (or a new test file added without copying the dance) leaves stale
- * `_motionCtx` / `_chestnutFs` / `globalConfigCache` / `_auditWriter` / cron-state
+ * `_motionCtx` / `_chestnutFs` / `watchdogConfigCache` / `_auditWriter` / cron-state
  * Maps for the next test. This helper is a single-call replacement that resets
  * every module-level mutable surface deterministically.
  *
@@ -246,7 +250,7 @@ export function _resetWatchdogContextForTest(): void {
   _motionCtx = null;
   _chestnutFs = null;
   _chestnutFsBaseDir = null;
-  globalConfigCache = null;
+  watchdogConfigCache = null;
   _auditWriter = null;
   // 5 cron-state Maps/Sets
   _lastInactivityNotified.clear();

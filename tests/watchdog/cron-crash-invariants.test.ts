@@ -15,7 +15,7 @@ import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
+import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -47,6 +47,15 @@ vi.mock('../../src/assembly/config/config-load.js', async () => ({
   clawExists: vi.fn(() => true),
   buildLLMConfig: vi.fn(),
 }));
+
+// Phase 1289 Step C: watchdog runtime 消费自家 workspace config store
+vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/watchdog/workspace-config.js')>();
+  return {
+    ...actual,
+    readWorkspaceWatchdogConfig: vi.fn(),
+  };
+});
 
 vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();
@@ -103,7 +112,9 @@ describe('watchdog-cron-skip-audit', () => {
       fs.mkdirSync(path.join(chestnutDir, 'motion', 'inbox', 'pending'), { recursive: true });
 
       vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-      vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
+      vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+        interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      });
       vi.mocked(clawHasContract).mockReturnValue(true);
       vi.mocked(gatherClawSnapshot).mockReturnValue({
         contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'stopped',
@@ -241,7 +252,9 @@ describe('watchdog-cron-dedup', () => {
       fs.mkdirSync(path.join(chestnutDir, 'motion', 'inbox', 'pending'), { recursive: true });
 
       vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-      vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
+      vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+        interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      });
       vi.mocked(clawHasContract).mockReturnValue(true);
       vi.mocked(gatherClawSnapshot).mockReturnValue({
         contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'stopped',
@@ -417,7 +430,9 @@ describe('watchdog-ever-spawned-crash', () => {
       fs.mkdirSync(path.join(chestnutDir, 'motion', 'inbox', 'pending'), { recursive: true });
 
       vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-      vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
+      vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
+        interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      });
       vi.mocked(clawHasContract).mockReturnValue(true);
       vi.mocked(gatherClawSnapshot).mockReturnValue({
         contract: 'c1', outboxPending: 0, inboxPending: 0, status: 'alive',

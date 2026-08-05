@@ -52,7 +52,7 @@ vi.mock('../../src/watchdog/watchdog-context.js', async (importOriginal) => {
   return {
     ...actual,
     getChestnutFs: vi.fn(),
-    getGlobalConfig: vi.fn(),
+    getWatchdogConfig: vi.fn(),
   };
 });
 
@@ -67,8 +67,7 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
 });
 
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
-import { getChestnutFs, getGlobalConfig, clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
+import { getChestnutFs, getWatchdogConfig, clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -92,14 +91,10 @@ describe('watchdog A.8 final audit emit (phase 155)', () => {
     fsNode.mkdirSync(subscriptionsDir, { recursive: true });
 
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(loadGlobalConfig).mockReturnValue({
-      watchdog: { interval_ms: 5_000, claw_inactivity_timeout_ms: 300_000 },
-      audit: { retention: { max_size_mb: null } },
-    } as any);
-    vi.mocked(getGlobalConfig).mockReturnValue({
-      watchdog: { interval_ms: 5_000, claw_inactivity_timeout_ms: 300_000 },
-      audit: { retention: { max_size_mb: null } },
-    } as any);
+    // Phase 1289 Step C: watchdog runtime 消费自家 workspace config store（此处经 context mock）
+    vi.mocked(getWatchdogConfig).mockReturnValue({
+      interval_ms: 5_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+    });
     vi.mocked(getChestnutFs).mockImplementation(
       (factory: (baseDir: string) => FileSystem) => factory(chestnutDir),
     );

@@ -11,7 +11,7 @@ import { isFileNotFound } from '../foundation/fs/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import {
-  getChestnutDir, getChestnutFs, getGlobalConfig, getMotionContext,
+  getChestnutDir, getChestnutFs, getWatchdogConfig, getMotionContext,
   clawStateAPI,
 } from './watchdog-context.js';
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
@@ -101,7 +101,7 @@ function fireInactivityNotification(opts: FireInactivityOpts): { failureClass: F
 // Check for claws with an active contract but no progress for a long time, and send a reminder
 /** 1:1 保 watchdog.ts:271-349 / 78 行 / inactivity timeout + backoff */
 export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
-  const timeoutMs = getGlobalConfig(fsFactory).watchdog.claw_inactivity_timeout_ms;
+  const timeoutMs = getWatchdogConfig(fsFactory).claw_inactivity_timeout_ms;
   const fs = getChestnutFs(fsFactory);
   // 枚举 claws 并清理已不存在的 claw 的 Map 条目
   let clawNames: string[];

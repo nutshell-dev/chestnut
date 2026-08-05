@@ -44,7 +44,7 @@ import { resolveDaemonEntry } from '../daemon/entry-resolver.js';
 
 
 import {
-  getChestnutDir, getChestnutFs, getGlobalConfig, setAuditWriter, getAuditWriter,
+  getChestnutDir, getChestnutFs, getWatchdogConfig, setAuditWriter, getAuditWriter,
   motionRestartStateAPI,
   type MotionRestartState,
 } from './watchdog-context.js';
@@ -523,7 +523,7 @@ export async function runWatchdogLoop(
       `present=${presentClawIds.join(',')}`,
     );
 
-    const intervalMs = getGlobalConfig(fsFactory).watchdog.interval_ms;
+    const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
     const prior = motionRestartStateAPI.snapshot();
     const decision = decideMotionRestart(prior, status.alive, now, maxRestart);
     motionRestartStateAPI.replace(decision.state);
@@ -625,7 +625,7 @@ export {
 } from './watchdog-cron.js';
 
 export type { WatchdogProcessDeps } from './types.js';
-export { getAuditWriter, getChestnutFs, getGlobalConfig } from './watchdog-context.js';
+export { getAuditWriter, getChestnutFs, getWatchdogConfig } from './watchdog-context.js';
 export { WatchdogPidForeignWorkspaceError } from './watchdog-pid.js';
 export { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 export { spawnWatchdogCandidate } from './spawn.js';
