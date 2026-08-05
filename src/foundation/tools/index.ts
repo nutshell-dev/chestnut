@@ -31,14 +31,13 @@ export { ExecContextImpl } from './context.js';
 export * from './constants.js';
 
 // Types (Tool, ExecContext now owned by L2c Tools)
-export type { ToolResult, ToolDescriptor } from '../tool-protocol/index.js';
+export type { ToolResult } from '../tool-protocol/index.js';
 export type {
   Tool,
   ExecContext,
   FileState,
   ToolRegistry,
   IToolExecutor,
-  ExecuteOptions,
   // phase 1459 α-1: 5 子接口 export for α-5 narrow helper 用例
   ClawIdentity,
   ToolPermissions,

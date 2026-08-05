@@ -21,7 +21,7 @@ function createStubTransport(): Transport & {
   const connectCbs: Array<(conn: Connection) => void> = [];
   const disconnectCbs: Array<(conn: Connection, reason?: Error) => void> = [];
   const messageCbs: Array<(conn: Connection, data: string) => void> = [];
-  const transportErrorCbs: Array<(evt: import('../../src/foundation/transport/index.js').TransportErrorEvent) => void> = [];
+  const transportErrorCbs: Array<(evt: import('../../src/foundation/transport/types.js').TransportErrorEvent) => void> = [];
 
   return {
     listen: vi.fn().mockResolvedValue(undefined),

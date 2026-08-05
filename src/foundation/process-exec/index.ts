@@ -18,7 +18,6 @@ export type {
   ExecutionTerminationFact,
 } from './types.js';
 export { terminateExecutionGroup, probeExecutionGroup } from './execution-group.js';
-export type { GroupTerminationOptions } from './execution-group.js';
 export { probeLegacyProcess, terminateLegacyProcess } from './legacy-process.js';
 export { spawnDetached } from './spawn-detached.js';
 export { kill, isAlive } from './process-control.js';
@@ -28,7 +27,6 @@ export { getProcessStartTime, makeProcessStartTime } from './process-starttime.j
 export type { ProcessStartTime } from './process-starttime.js';
 export { ProcessExecError, ProcessListUnavailable } from './errors.js';
 export {
-  PROCESS_EXEC_TIMEOUT_MIN_MS,
   PROCESS_EXEC_DEFAULT_TIMEOUT_MS,
   // Needed by command-tool to render the overflow message with the same
   // limit that L1 enforces (phase 1271 F6).

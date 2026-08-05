@@ -22,7 +22,7 @@ export interface CommandToolModule {
   exec: Tool;
 }
 
-export { TASKS_SYNC_EXEC_DIR, EXEC_MAX_OUTPUT } from './constants.js';
+export { TASKS_SYNC_EXEC_DIR } from './constants.js';
 
 /**
  * 创建 CommandTool 模块

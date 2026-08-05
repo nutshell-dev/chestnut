@@ -16,7 +16,6 @@ import type { CronJob, CronEventSink } from './runner.js';
 
 export { CronRunner, parseSchedule } from './runner.js';
 export type { CronJob, CronJobGlobalConfig } from './runner.js';
-export type { CronAuditEvent } from './audit-events.js';
 
 /**
  * 构造 CronRunner。

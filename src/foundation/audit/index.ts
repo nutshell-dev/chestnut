@@ -49,8 +49,6 @@ export { AuditWriter, AUDIT_FILE, reconcileFallbackDumps } from './writer.js';
 export { AUDIT_LAYOUT_SCHEMA_VERSION, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from './layout.js';
 export {
   auditConfigSchema,
-  auditWorkspaceConfigFileSchema,
-  createDefaultAuditWorkspaceConfig,
   type AuditConfig,
 } from './config-schema.js';
 export {

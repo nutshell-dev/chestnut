@@ -22,9 +22,7 @@ export { createNotifyClawTool } from './tools/notify-claw.js';
 export { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 export type {
   ClawTopology,
-  ClawTopologyDeps,
 } from './types.js';
 export {
   ClawIdResolveError,
-  CrossClawReadError,
 } from './types.js';

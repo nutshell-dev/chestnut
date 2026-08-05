@@ -24,7 +24,7 @@ import { multiEditTool } from './multi_edit.js';
 
 // Re-export tool objects（让 caller 可单独 import 任一）
 export { readTool, writeTool, searchTool, lsTool, editTool, multiEditTool };
-export { TASKS_SYNC_WRITE_DIR, TASKS_SYNC_READ_DIR, TASKS_SYNC_SEARCH_DIR } from './constants.js';
+export { TASKS_SYNC_WRITE_DIR, TASKS_SYNC_SEARCH_DIR } from './constants.js';
 
 /**
  * FileTool 装配选项 (phase 1006: permissionChecker 改由 ExecContext 注入，此 options 保留为未来扩展)

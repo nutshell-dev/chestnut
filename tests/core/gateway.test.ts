@@ -15,13 +15,13 @@ function createStubTransport(): Transport & {
   _disconnect(conn: Connection): void;
   _message(conn: Connection, data: string): void;
   simulateMessage(conn: Connection, data: string): void;
-  fireTransportError(evt: import('../../src/foundation/transport/index.js').TransportErrorEvent): void;
+  fireTransportError(evt: import('../../src/foundation/transport/types.js').TransportErrorEvent): void;
 } {
   const connections = new Map<string, Connection>();
   const connectCbs: Array<(conn: Connection) => void> = [];
   const disconnectCbs: Array<(conn: Connection, reason?: Error) => void> = [];
   const messageCbs: Array<(conn: Connection, data: string) => void> = [];
-  const transportErrorCbs: Array<(evt: import('../../src/foundation/transport/index.js').TransportErrorEvent) => void> = [];
+  const transportErrorCbs: Array<(evt: import('../../src/foundation/transport/types.js').TransportErrorEvent) => void> = [];
 
   return {
     listen: vi.fn().mockResolvedValue(undefined),

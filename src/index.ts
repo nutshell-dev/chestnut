@@ -14,7 +14,6 @@ export type {
   Contract,
 } from './core/contract/types.js';
 export type { InboxMessage, OutboxMessage, Priority } from './foundation/messaging/index.js';
-export { PRIORITY_VALUES } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
 
 export { ToolError, ToolTimeoutError } from './foundation/tools/index.js';

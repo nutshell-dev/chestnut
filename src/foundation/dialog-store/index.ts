@@ -9,7 +9,7 @@
 export { DialogStore } from './store.js';
 // phase 483: audit-events barrel re-export
 export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-export { MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './validate.js';
+export { migrateAndValidateSession, validateSessionData } from './validate.js';
 export type { SessionData } from './types.js';
 // phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module
 export { performRegimeSwitch } from './regime-switch.js';
@@ -36,8 +36,8 @@ export type {
 export { BlockIdIndex } from './block-id-index.js';
 
 // Phase 992: barrel export error classes + core types to stop cross-module deep imports.
-export { DialogIOError, DialogStoreError, CorruptionError } from './errors.js';
-export type { LoadResult, DialogMarker, RestoreResult } from './types.js';
+export { DialogIOError, DialogStoreError } from './errors.js';
+export type { DialogMarker, RestoreResult } from './types.js';
 
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
