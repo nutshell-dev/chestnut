@@ -12,14 +12,13 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import {
   writeAuditMigrationIntent,
   writeAuditMigrationOutcome,
-  readAuditMigrationJournal,
   findPendingAuditMigration,
   publishAuditLayout,
   AUDIT_LAYOUT_SCHEMA_VERSION,
   AUDIT_PATHS,
-  type AuditMigrationIntent,
   type AuditMigrationOutcome,
 } from '../../../src/foundation/audit/index.js';
+import { readAuditMigrationJournal, type AuditMigrationIntent } from '../../../src/foundation/audit/migration-journal.js';
 import { createTrackedTempDirSync } from '../../utils/temp.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });

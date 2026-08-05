@@ -16,10 +16,10 @@ import {
   readWorkspaceAuditRetentionMaxSizeMb,
   initWorkspaceAuditConfig,
   publishMigratedWorkspaceAuditConfig,
-  AuditWorkspaceConfigConflictError,
   AUDIT_PATHS,
   type AuditConfig,
 } from '../../../src/foundation/audit/index.js';
+import { AuditWorkspaceConfigConflictError } from '../../../src/foundation/audit/workspace-config.js';
 import { createTrackedTempDirSync } from '../../utils/temp.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });

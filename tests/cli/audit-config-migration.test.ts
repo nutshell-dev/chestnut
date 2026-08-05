@@ -22,12 +22,12 @@ import {
   loadWorkspaceAuditConfig,
   writeAuditMigrationIntent,
   publishMigratedWorkspaceAuditConfig,
-  readAuditMigrationJournal,
   findPendingAuditMigration,
   AUDIT_LAYOUT_SCHEMA_VERSION,
   AUDIT_PATHS,
   type AuditConfig,
 } from '../../src/foundation/audit/index.js';
+import { readAuditMigrationJournal } from '../../src/foundation/audit/migration-journal.js';
 import { createTrackedTempDirSync } from '../utils/temp.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });

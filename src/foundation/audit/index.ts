@@ -7,7 +7,6 @@ export {
   auditFileContains,
   auditFileGetMtime,
   auditFirstTimestamp,
-  type LightweightResult,
 } from './lightweight-read.js';
 
 /**
@@ -53,15 +52,12 @@ export {
   auditWorkspaceConfigFileSchema,
   createDefaultAuditWorkspaceConfig,
   type AuditConfig,
-  type AuditWorkspaceConfigFile,
 } from './config-schema.js';
 export {
   loadWorkspaceAuditConfig,
   readWorkspaceAuditRetentionMaxSizeMb,
   initWorkspaceAuditConfig,
   publishMigratedWorkspaceAuditConfig,
-  AuditWorkspaceConfigConflictError,
-  type WorkspaceAuditConfigResult,
 } from './workspace-config.js';
 // Phase 1288 Step C: workspace 根审计 capability（唯一生产构造入口；caller 不传路径/retention）
 export { createWorkspaceAudit } from './workspace-audit.js';
@@ -70,22 +66,15 @@ export { createWorkspaceAudit } from './workspace-audit.js';
 export {
   listWorkspaceAuditSegments,
   readWorkspaceAuditMerged,
-  type WorkspaceAuditSegmentOrigin,
-  type WorkspaceAuditSegment,
   type WorkspaceAuditSegmentIssue,
-  type WorkspaceAuditSegmentRecord,
-  type WorkspaceAuditMergedOptions,
 } from './workspace-segments.js';
 
 export {
   writeAuditMigrationIntent,
   writeAuditMigrationOutcome,
-  readAuditMigrationJournal,
   findPendingAuditMigration,
   publishAuditLayout,
-  type AuditMigrationIntent,
   type AuditMigrationOutcome,
-  type AuditMigrationJournal,
 } from './migration-journal.js';
 
 // phase 693 Step A: audit 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
