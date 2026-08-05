@@ -10,7 +10,7 @@
  */
 
 export { EventLoop } from './event-loop.js';
-export type { EventLoopOptions, LLMRetryState, LLMRetryWaitingState, LLMRetryWaitingStreamEvent, LLMRetryWaitingStreamAction, RecoverableLLMErrorClass, LoopErrorContext } from './types.js';
+export type { EventLoopOptions, LLMRetryWaitingState, RecoverableLLMErrorClass } from './types.js';
 export {
   LLM_COOLDOWN_MS,
   LLM_MAX_RETRIES,
@@ -19,7 +19,7 @@ export {
   LLM_RETRY_STATE_FILE,
 } from './constants.js';
 export { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
-export { dispatchError, ERROR_HANDLERS } from './error-handlers.js';
+export { dispatchError } from './error-handlers.js';
 export { waitForInbox } from './inbox-watcher.js';
 export { createStreamCallbacks } from './stream-callbacks.js';
 export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';

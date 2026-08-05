@@ -6,7 +6,8 @@ import { randomUUID } from 'crypto';
 
 import { EvolutionSystem } from '../../../src/core/evolution-system/system.js';
 import type { MotionReviewContext } from '../../../src/core/evolution-system/system.js';
-import { RetrospectiveStore, READY_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/index.js';
+import { RetrospectiveStore } from '../../../src/core/evolution-system/index.js';
+import { READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/retro-scheduler.js';
