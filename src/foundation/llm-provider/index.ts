@@ -25,23 +25,18 @@ export {
   type AbortReason,
   makeExternalAbortError,
 } from './abort-helper.js';
-export type { ApiFormat, ProviderPreset } from './presets.js';
+export type { ApiFormat } from './presets.js';
 export { PRESETS, resolvePreset } from './presets.js';
 
-export type { Message, LLMResponse, ContentBlock, ToolUseBlock, ToolResultBlock, ToolDefinition, ThinkingBlock, UnknownBlock, JSONSchema7, TextBlock, Role } from './types.js';
+export type { Message, LLMResponse, ContentBlock, ToolUseBlock, ToolResultBlock, ToolDefinition, ThinkingBlock, JSONSchema7, TextBlock } from './types.js';
 export { sanitizeForLLMCall } from './sanitize.js';
 export { LLMInvalidRequestError, serializeProviderRequest } from './request-unicode.js';
 
 export {
   estimateTextTokens,
-  estimateMessageTokens,
   estimateMessagesTokens,
-  estimateToolTokens,
   estimateToolsTokens,
-  estimateInputTokens,
-  PER_MESSAGE_OVERHEAD_TOKENS,
 } from './token-estimator.js';
-export type { InputTokenEstimateOptions, InputTokenEstimate } from './token-estimator.js';
 
 // phase 691 Step A: ToolUseId 物理位置从 tool-protocol（L2b）迁回 L1 LLMProvider canonical owner
 // SoT: Anthropic LLM protocol (tool_use block id) — 与 L1 protocol primitive 同语义层
@@ -49,11 +44,10 @@ export type { ToolUseId } from './tool-use-id.js';
 export { makeToolUseId } from './tool-use-id.js';
 
 export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from './errors.js';
-export type { LLMErrorCode } from './errors.js';
 
 export { isAbortError } from './is-abort-error.js';
 
-export { resolveContextWindow, DEFAULT_MODEL_CONTEXT_WINDOW } from './model-context-windows.js';
+export { resolveContextWindow } from './model-context-windows.js';
 
 /**
  * LLMProvider interface — single provider call primitive

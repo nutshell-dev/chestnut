@@ -8,7 +8,6 @@
 
 import type { LLMOrchestratorConfig, LLMOrchestrator } from './types.js';
 
-export { LLMOrchestratorImpl } from './orchestrator.js';
 export type {
   LLMOrchestratorConfig,
   LLMEventSink,
