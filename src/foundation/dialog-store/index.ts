@@ -13,7 +13,6 @@ export { MarkerNotFoundError, migrateAndValidateSession, validateSessionData } f
 export type { SessionData } from './types.js';
 // phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module
 export { performRegimeSwitch } from './regime-switch.js';
-export type { PerformRegimeSwitchOpts } from './regime-switch.js';
 
 // phase 1432 F6: dirs path const re-export — 跨模块 (cli) 路径合成走 barrel。
 // allowlist: assembly/assemble.ts (装配根 bootstrap by-design)。
@@ -21,7 +20,6 @@ export { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE } from './dirs.js';
 
 // phase 751-752: lightweight archive listing
 export { listArchiveDialogFiles } from './list-archive.js';
-export type { ArchiveDialogRef } from './list-archive.js';
 
 // phase 147 Step B: lookup helper + 4 级降级路径
 export {
@@ -36,7 +34,6 @@ export type {
 
 // Phase 1186: blockId short ↔ full UUID index
 export { BlockIdIndex } from './block-id-index.js';
-export type { BlockIdMap } from './block-id-index.js';
 
 // Phase 992: barrel export error classes + core types to stop cross-module deep imports.
 export { DialogIOError, DialogStoreError, CorruptionError } from './errors.js';

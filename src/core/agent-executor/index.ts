@@ -8,7 +8,6 @@
  */
 
 // runAgent: agent-executor module internal core / 仅 loop.ts internal 调 / 不进 barrel（M#8 单 public API / phase 522 / ν）
-export type { AgentInput, AgentResult } from './agent-executor.js';
 
 // runReact shim（装配 StepExecutor + AgentExecutor 完整 React 循环）
 export { runReact } from './loop.js';
@@ -16,7 +15,7 @@ export type { ReactOptions, ReactResult } from './loop.js';
 export { DEFAULT_MAX_STEPS } from './defaults.js';
 export { AGENT_STREAM_EVENTS } from './stream-events.js';
 export { commitTurnEvent } from './turn-event-commit.js';
-export type { TurnEvent, TurnEventCommitDeps } from './turn-event-commit.js';
+export type { TurnEventCommitDeps } from './turn-event-commit.js';
 export { AGENT_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 export {
   MaxStepsExceededError,
@@ -24,6 +23,5 @@ export {
   ConsecutiveMaxTokensToolUseError,
   WallTimeExceededError,
 } from './errors.js';
-export type { StreamCallbacks, DaemonStreamCallbacks } from './stream-callbacks.js';
-export type { StepNumber } from './step-number.js';
+export type { StreamCallbacks } from './stream-callbacks.js';
 export { makeStepNumber } from './step-number.js';

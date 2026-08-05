@@ -14,7 +14,7 @@ import { AsyncTaskSystem } from './system.js';
 import type { AsyncTaskSystemOptions } from './types.js';
 
 export { AsyncTaskSystem } from './system.js';
-export type { AsyncTaskSystemOptions, SubAgentTask, PreparedSubagentSchedule, PreparedScheduleResult, TaskId, FullTaskId, ShortTaskId, ShortIdIndex, CallerType, DispatchCallerType } from './types.js';
+export type { AsyncTaskSystemOptions, SubAgentTask, PreparedSubagentSchedule, PreparedScheduleResult, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
 export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';
 export type { AsyncExecWrapperParams } from './async-exec-wrapper.js';
@@ -60,4 +60,4 @@ export function createAsyncTaskSystem(
 
 // phase 843: migrated exec task query API
 export { listMigratedExecTasks } from './list-migrated-exec.js';
-export type { MigratedExecTaskInfo, TaskReadError, MigratedExecListResult } from './list-migrated-exec.js';
+export type { MigratedExecTaskInfo, TaskReadError } from './list-migrated-exec.js';

@@ -51,7 +51,6 @@ export type { LLMOrchestratorConfig, ProviderConfig, LLMCallOptions } from './fo
 export type { ToolResult } from './foundation/tool-protocol/index.js';
 export type { ExecContext, Tool } from './foundation/tools/index.js';
 export type { ToolRegistry, IToolExecutor } from './foundation/tools/index.js';
-export { ToolRegistryImpl } from './foundation/tools/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
 export type { ProgressData, VerificationResult } from './core/contract/types.js';
 
