@@ -6,19 +6,18 @@
 
 // Types (canonical sources)
 export type {
-  Role, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, UnknownBlock,
+  TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock,
   ContentBlock, Message, ToolDefinition, LLMResponse, JSONSchema7,
 } from './foundation/llm-provider/index.js';
 export type {
   DerivableStatus, SubtaskStatus, LastFailedFeedback,
-  SubTask, Contract,
+  Contract,
 } from './core/contract/types.js';
 export type { InboxMessage, OutboxMessage, Priority } from './foundation/messaging/index.js';
 export { PRIORITY_VALUES } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
-export type { CallerType } from './core/async-task-system/index.js';
 export {
-  PermissionError, PathNotInClawSpaceError, WriteOperationForbiddenError,
+  PathNotInClawSpaceError, WriteOperationForbiddenError,
 } from './core/permissions/index.js';
 export { ToolError, ToolTimeoutError } from './foundation/tools/index.js';
 export {
@@ -54,7 +53,6 @@ export type { ToolResult } from './foundation/tool-protocol/index.js';
 export type { ExecContext, Tool } from './foundation/tools/index.js';
 export type { ToolRegistry, IToolExecutor } from './foundation/tools/index.js';
 export { ToolRegistryImpl } from './foundation/tools/index.js';
-export type { SkillMeta } from './foundation/skill-system/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
 export type { ProgressData, VerificationResult } from './core/contract/types.js';
 
