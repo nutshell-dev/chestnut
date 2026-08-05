@@ -296,7 +296,9 @@ export function removeLegacyWatchdogConfigSection(deps: { fsFactory: (baseDir: s
 }
 
 // Build LLMOrchestratorConfig from global + claw config
-export function buildLLMConfig(
+// phase 1300 Step A: resolveLLMConfig 成为 owner 名称；buildLLMConfig 保留为
+// deprecated 兼容 alias（同一函数引用，无双实现），外部深链 caller 迁移后删除。
+export function resolveLLMConfig(
   globalConfig: ClawGlobalConfig,
   clawConfig?: ClawConfig
 ): LLMOrchestratorConfig {
@@ -322,3 +324,10 @@ export function buildLLMConfig(
     } : undefined,
   };
 }
+
+/**
+ * @deprecated phase 1300 Step A 起 owner 名称为 `resolveLLMConfig`；
+ * 本 alias 指向同一函数（无双实现），仅供未迁移的深链 caller/测试使用，
+ * 后续 CLI/Daemon 迁移 phase 删除。
+ */
+export const buildLLMConfig = resolveLLMConfig;

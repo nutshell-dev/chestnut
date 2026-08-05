@@ -245,9 +245,12 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   CURRENT_DIALOG_FILE: 'current.json',
 }));
 
-vi.mock('../../src/assembly/config/config-load.js', () => ({
-  buildLLMConfig: vi.fn(() => ({ provider: 'mock' })),
-}));
+vi.mock('../../src/assembly/config/config-load.js', () => {
+  // phase 1300 Step A: owner 名称改为 resolveLLMConfig；同一 mock fn 同时挂在
+  // 新旧两名下，保持 buildLLMConfig 断言与 mockImplementationOnce 语义不变。
+  const llmConfigFn = vi.fn(() => ({ provider: 'mock' }));
+  return { buildLLMConfig: llmConfigFn, resolveLLMConfig: llmConfigFn };
+});
 
 vi.mock('../../src/core/contract/index.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../src/core/contract/index.js')>();

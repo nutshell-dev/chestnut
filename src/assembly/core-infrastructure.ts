@@ -12,7 +12,7 @@ import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
 import { createLLMOrchestrator, type LLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
-import { buildLLMConfig } from './config/config-load.js';
+import { resolveLLMConfig } from './config/config-load.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
@@ -47,7 +47,7 @@ export interface CoreInfraOutput {
   parentFs: FileSystem;
   auditWriter: AuditLog;
   processManager: ProcessManager;
-  llmConfig: ReturnType<typeof buildLLMConfig>;
+  llmConfig: ReturnType<typeof resolveLLMConfig>;
   llm: LLMOrchestrator;
   maxSteps: number | undefined;
   maxConcurrent: number;
@@ -147,11 +147,11 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     }
 
     // --- 3. LLM Config / Orchestrator (daemon.ts L111-137 的 L3-L5 部分) ---
-    let llmConfig: ReturnType<typeof buildLLMConfig>;
+    let llmConfig: ReturnType<typeof resolveLLMConfig>;
     try {
       llmConfig = isMotion
-        ? buildLLMConfig(globalConfig)
-        : buildLLMConfig(globalConfig, clawConfig!);
+        ? resolveLLMConfig(globalConfig)
+        : resolveLLMConfig(globalConfig, clawConfig!);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm_config`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: buildLLMConfig failed: ${formatErr(e)}`, { cause: e });

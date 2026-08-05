@@ -24,3 +24,11 @@ export { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 // 与 architecture §29 严格一致。lint `no-deep-into-assembly-snapshot-patterns` 守 barrel-only。
 export { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 
+// phase 1300 Step A: Assembly RootConfig 稳定 capability（M#8 最小表面）。
+// 只导出 factory、resolver 与三种接口类型；config-load 离散函数、path helper、
+// generic ConfigStore 与 legacy migration 原语不进入 barrel（临时兼容出口，
+// 后续 CLI/Daemon 迁移 phase 消化）。
+export { createRootConfig } from './config/root-config.js';
+export type { RootConfigReader, RootConfigAdmin, RootConfigDeps } from './config/root-config.js';
+export { resolveLLMConfig } from './config/config-load.js';
+
