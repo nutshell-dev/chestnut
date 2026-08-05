@@ -4,6 +4,7 @@
  *
  * Owns: root config wrapper (load/save/exists/patch) + LLM merge
  * Generic yaml CRUD delegates to L2a ConfigStore barrel (phase 1297 Step A; loader moved out of assembly)
+ * Failure mapping: ConfigStore typed code → global/claw 业务文案 (phase 1297 Step B)
  * path primitive: getGlobalConfigPath in ./global-config-path.ts (phase 704)
  */
 import * as path from 'path';
@@ -20,6 +21,8 @@ import {
   writeYamlConfig,
   patchYamlConfig,
   configExists,
+  isConfigStoreError,
+  type ConfigStoreError,
 } from '../../foundation/config-store/index.js';
 import { getGlobalConfigPath } from './global-config-path.js';
 import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
@@ -30,6 +33,44 @@ import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
+/**
+ * ConfigStore typed failure → Assembly 业务文案（phase 1297 Step B）。
+ * exhaustive switch：新增 ConfigStoreErrorCode 时 default 分支 never 赋值触发编译错误。
+ * 对外 message 与 cause 链保持 phase 1297 前兼容：
+ * - global missing 固定为 `Global config not found.`；
+ * - read/YAML 失败原文重抛（包一层带 cause）；
+ * - env/schema 仅替换 global/claw 前缀。
+ */
+function mapConfigStoreError(err: ConfigStoreError, kind: 'global' | 'claw'): Error {
+  switch (err.code) {
+    case 'not_found':
+      // claw 路径先经 configExists 检查；竞态下原样传播 generic 文案（同旧行为）。
+      return kind === 'global'
+        ? new Error('Global config not found.', { cause: err })
+        : err;
+    case 'read_failed':
+    case 'invalid_yaml':
+      return new Error(err.message, { cause: err });
+    case 'missing_env':
+      return new Error(
+        err.message.replace('Invalid config (env var):', `Invalid ${kind} config (env var):`),
+        { cause: err },
+      );
+    case 'invalid_schema':
+      return new Error(
+        err.message.replace('Invalid config:', `Invalid ${kind} config:`),
+        { cause: err },
+      );
+    case 'expected_object':
+      // load 路径不产生（仅 patch root-shape）；原样传播。
+      return err;
+    default: {
+      const exhaustive: never = err.code;
+      throw new Error(`Unhandled ConfigStoreError code: ${String(exhaustive)}`);
+    }
+  }
+}
+
 export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }): ClawGlobalConfig {
   const configPath = getGlobalConfigPath();
   const schema = createGlobalConfigSchema();
@@ -38,22 +79,10 @@ export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSys
       { fsFactory: deps.fsFactory },
       configPath,
       schema,
-      { notFoundMessage: 'Global config not found.' },
     );
   } catch (err) {
-    if (err instanceof Error) {
-      if (err.message.startsWith('Failed to read config:')) {
-        throw new Error(err.message, { cause: err });
-      }
-      if (err.message.startsWith('Invalid YAML in config:')) {
-        throw new Error(err.message, { cause: err });
-      }
-      if (err.message.startsWith('Invalid config (env var):')) {
-        throw new Error(err.message.replace('Invalid config (env var):', 'Invalid global config (env var):'), { cause: err });
-      }
-      if (err.message.startsWith('Invalid config:')) {
-        throw new Error(err.message.replace('Invalid config:', 'Invalid global config:'), { cause: err });
-      }
+    if (isConfigStoreError(err)) {
+      throw mapConfigStoreError(err, 'global');
     }
     throw err;
   }
@@ -86,19 +115,8 @@ export function loadClawConfig(deps: { fsFactory: (baseDir: string) => FileSyste
       getClawConfigSchema(),
     );
   } catch (err) {
-    if (err instanceof Error) {
-      if (err.message.startsWith('Failed to read config:')) {
-        throw new Error(err.message, { cause: err });
-      }
-      if (err.message.startsWith('Invalid YAML in config:')) {
-        throw new Error(err.message, { cause: err });
-      }
-      if (err.message.startsWith('Invalid config (env var):')) {
-        throw new Error(err.message.replace('Invalid config (env var):', 'Invalid claw config (env var):'), { cause: err });
-      }
-      if (err.message.startsWith('Invalid config:')) {
-        throw new Error(err.message.replace('Invalid config:', 'Invalid claw config:'), { cause: err });
-      }
+    if (isConfigStoreError(err)) {
+      throw mapConfigStoreError(err, 'claw');
     }
     throw err;
   }
