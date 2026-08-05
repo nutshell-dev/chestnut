@@ -4,7 +4,7 @@ export { resolveWorkspacePath } from './resolve-path.js';
 // Phase 1229 Step A: Runtime calls persistReadFileState at complete step boundary.
 export { loadReadFileState, clearReadFileState, persistReadFileState } from './file-state-persist.js';
 // phase 1209: truncate-head-tail barrel re-export
-export { truncateHeadTail, TRUNCATE_HEAD_LIMIT, TRUNCATE_TAIL_LIMIT, TRUNCATE_TOTAL_LIMIT } from './truncate-head-tail.js';
+export { truncateHeadTail } from './truncate-head-tail.js';
 
 /**
  * @module L2c.FileTool

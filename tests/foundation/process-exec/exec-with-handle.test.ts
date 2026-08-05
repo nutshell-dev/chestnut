@@ -6,7 +6,8 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { execWithHandle, ProcessExecError, isProcessGroupAlive, probeExecutionGroup, terminateExecutionGroup, getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { execWithHandle, ProcessExecError, probeExecutionGroup, terminateExecutionGroup, getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { isProcessGroupAlive } from '../../../src/foundation/process-exec/execution-group.js';
 import { PROCESS_EXEC_TIMEOUT_MAX_MS } from '../../../src/foundation/process-exec/constants.js';
 import * as os from 'os';
 

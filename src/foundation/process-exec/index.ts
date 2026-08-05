@@ -17,15 +17,13 @@ export type {
   ExecutionTerminationOutcome,
   ExecutionTerminationFact,
 } from './types.js';
-export { terminateExecutionGroup, isProcessGroupAlive, probeExecutionGroup } from './execution-group.js';
-export type { GroupTerminationOptions, ExecutionGroupRecoveryState } from './execution-group.js';
+export { terminateExecutionGroup, probeExecutionGroup } from './execution-group.js';
+export type { GroupTerminationOptions } from './execution-group.js';
 export { probeLegacyProcess, terminateLegacyProcess } from './legacy-process.js';
-export type { LegacyProcessRecoveryState, LegacyProcessTerminationOutcome } from './legacy-process.js';
 export { spawnDetached } from './spawn-detached.js';
 export { kill, isAlive } from './process-control.js';
-export type { Signal } from './process-control.js';
 export { findByPattern } from './find-by-pattern.js';
-export { isPidArgvMatching, readPidArgv } from './argv-verify.js';
+export { isPidArgvMatching } from './argv-verify.js';
 export { getProcessStartTime, makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
 export { ProcessExecError, ProcessListUnavailable } from './errors.js';

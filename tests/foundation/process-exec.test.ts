@@ -13,7 +13,8 @@ import { tmpdir } from 'os';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 
-import { exec, kill, isAlive, findByPattern, isProcessGroupAlive } from '../../src/foundation/process-exec/index.js';
+import { exec, kill, isAlive, findByPattern } from '../../src/foundation/process-exec/index.js';
+import { isProcessGroupAlive } from '../../src/foundation/process-exec/execution-group.js';
 import { ProcessExecError, ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 

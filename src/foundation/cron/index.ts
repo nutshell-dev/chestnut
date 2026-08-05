@@ -15,7 +15,7 @@ import { CronRunner } from './runner.js';
 import type { CronJob, CronEventSink } from './runner.js';
 
 export { CronRunner, parseSchedule } from './runner.js';
-export type { CronSchedule, CronJob, CronJobGlobalConfig, CronEventSink } from './runner.js';
+export type { CronJob, CronJobGlobalConfig } from './runner.js';
 export type { CronAuditEvent } from './audit-events.js';
 
 /**
