@@ -6,22 +6,19 @@
  * Dependencies: FileSystem
  */
 
-// phase 128 M#8 ratify: makeOutboxPath production cross-module 0 caller、tests/assembly/ 5 file use only
-// 保留 export 维持 test reachability、若未来 src 无 caller 浮出 0 增加可降为 deep import
-export { OutboxWriter, makeOutboxPath } from './outbox-writer.js';
+export { OutboxWriter } from './outbox-writer.js';
 
 // phase 1243: Messaging 自家 inbox message type declarations
 export { MESSAGING_INBOX_MESSAGE_TYPES } from './inbox-formatters.js';
 
 // phase 42: outbox 读侧（业主入口、用于聚合查询如 outbox-summary 未读计数）
 export { OutboxReader } from './outbox-reader.js';
-export type { ClaimResult } from './outbox-reader.js';
 
 export { InboxWriter, makeInboxPath } from './inbox-writer.js';
 export type { InboxMessageOptionsBase } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
-export type { InboxEntry, ScannedInboxLocation, DrainInboxResult, PendingView, PendingViewIssue } from './inbox-reader.js';
+export type { InboxEntry, ScannedInboxLocation } from './inbox-reader.js';
 export { PendingViewError } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
 export { PRIORITY_VALUES } from './types.js';
@@ -33,7 +30,6 @@ export {
   INBOX_PENDING_DIR,
   INBOX_DONE_DIR,
   INBOX_FAILED_DIR,
-  INBOX_INFLIGHT_DIR,
   OUTBOX_PENDING_DIR,
   OUTBOX_DONE_DIR,
   OUTBOX_FAILED_DIR,
@@ -60,21 +56,13 @@ export {
   registerInboxMessageTypes,
 } from './formatter-registry.js';
 
-// phase 436: system/user 消息识别 helper
-export {
-  SYSTEM_MESSAGE_PREFIX,
-  isSystemMessage,
-  isUserMessage,
-} from './system-message-helper.js';
 
 // phase 743: parseFrontmatterFrame barrel 导出，SkillSystem 等消费者不再 deep import
 export { parseFrontmatterFrame } from './frontmatter-frame.js';
 export type {
   MessageFormatter,
   InboxMessageTypeRegistry,
-  InboxMessageRendering,
   InboxMessageTypeDeclaration,
-  StandardMessagePresentation,
 } from './formatter-registry.js';
 
 import type { FileSystem } from '../fs/index.js';
@@ -114,7 +102,6 @@ export function createOutboxWriter(
 export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 
 export { createSendContentTracker, feedSendContentDelta } from './tools/send-content-extractor.js';
-export type { SendContentTracker } from './tools/send-content-extractor.js';
 
 // phase 1476: drainOutboxes / Messaging / createMessaging 全砍。
 // claw→motion 通信改 pull 模型（motion 见 claw_outbox_summary 索引 → CLI claw <id> outbox 拉取消费）。
