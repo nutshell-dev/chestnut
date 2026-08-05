@@ -11,7 +11,6 @@
 export type {
   FileEntry,
   FileSystem,
-  FileSystemOptions,
   StatInfo,
 } from './types.js';
 export { FileNotFoundError, isFileNotFound, PathGuardError } from './types.js';
@@ -21,15 +20,6 @@ export { NodeFileSystem } from './node-fs.js';
 
 // Atomic file operations
 export {
-  readFile,
-  writeAtomic,
-  appendFile,
-  ensureDir,
-  deleteFile,
-  removeDir,
-  moveFile,
-  exists,
   stat,
-  isDirectory,
   IGNORE_PATTERN,
 } from './atomic.js';

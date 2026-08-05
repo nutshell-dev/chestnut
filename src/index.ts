@@ -39,7 +39,7 @@ export type { PermissionChecker } from './foundation/tool-protocol/permission.js
 export { Runtime, type RuntimeOptions } from './core/runtime/index.js';
 
 // Foundation modules (selective exports)
-export type { FileSystem, FileEntry, FileSystemOptions } from './foundation/fs/index.js';
+export type { FileSystem, FileEntry } from './foundation/fs/index.js';
 export { NodeFileSystem } from './foundation/fs/index.js';
 
 export { Heartbeat, createHeartbeat } from './core/heartbeat/index.js';

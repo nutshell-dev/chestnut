@@ -21,10 +21,8 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-import {
-  NodeFileSystem,
-  writeAtomic,
-} from '../../src/foundation/fs/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/index.js';
+import { writeAtomic } from '../../src/foundation/fs/atomic.js';
 import { PathGuardError } from '../../src/foundation/fs/types.js';
 import { FileNotFoundError } from '../../src/foundation/fs/types.js';
 
