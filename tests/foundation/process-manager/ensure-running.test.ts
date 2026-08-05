@@ -198,10 +198,15 @@ describe('ensureRunning', () => {
     // spawn precheck 已对 foreign spawning 写 commit_lost 审计 → join 已开始轮询
     await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
     // winner child 写 ready 事实并 activate
-    await fs.writeFile(path.join(getSpawningDir(daemonDir), READY_FILE), JSON.stringify({
-      schema_version: 1, generation_id: generationId, pid: process.pid,
-      created_at: new Date().toISOString(),
-    }), 'utf-8');
+    // Phase 1299：与 production writeReadyFact 同协议原子写（temp+rename），
+    // 消除 join 轮询读到写入中间态误判 malformed 的 flaky 窗口
+    await nodeFs.writeAtomicExisting(
+      path.join(getSpawningDir(daemonDir), READY_FILE),
+      JSON.stringify({
+        schema_version: 1, generation_id: generationId, pid: process.pid,
+        created_at: new Date().toISOString(),
+      }),
+    );
     await activateWinnerFromSpawning(daemonDir);
 
     const outcome = await promise;
@@ -246,10 +251,14 @@ describe('ensureRunning', () => {
     // commit collision 已重读 winner 并写 commit_lost 审计 → join 已开始轮询
     await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
     expect(injected).toBe(true);
-    await fs.writeFile(path.join(getSpawningDir(daemonDir), READY_FILE), JSON.stringify({
-      schema_version: 1, generation_id: generationId, pid: process.pid,
-      created_at: new Date().toISOString(),
-    }), 'utf-8');
+    // Phase 1299：同 production writeReadyFact 原子写协议，防 join 轮询 partial-read
+    await nodeFs.writeAtomicExisting(
+      path.join(getSpawningDir(daemonDir), READY_FILE),
+      JSON.stringify({
+        schema_version: 1, generation_id: generationId, pid: process.pid,
+        created_at: new Date().toISOString(),
+      }),
+    );
     await activateWinnerFromSpawning(daemonDir);
 
     const outcome = await promise;
