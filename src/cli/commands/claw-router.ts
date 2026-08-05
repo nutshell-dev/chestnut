@@ -38,7 +38,9 @@ import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
+// phase 1301 Step B：Router 只通过窄 Pick 消费 Assembly RootConfig capability（type-only
+// barrel import），不再 deep-import Assembly config internal 离散函数。
+import type { RootConfigReader } from '../../assembly/index.js';
 import { listMigratedExecTasks } from '../../core/async-task-system/index.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { makeContractId } from '../../core/contract/index.js';
@@ -54,6 +56,9 @@ import {
 
 export interface RouterDeps {
   fsFactory: (baseDir: string) => FileSystem;
+  // phase 1301 Step B：required 窄 DI（M#8/M#9）。不接 Admin 宽面、不 optional、
+  // 不提供 fallback 自构造；漏注入在 tsc 编译期失败。
+  rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'>;
 }
 
 function verbAction<TArgs extends unknown[]>(
@@ -229,7 +234,7 @@ async function runCreate(deps: RouterDeps, name: string, args: string[]): Promis
   if (args.length > 0) {
     throw new CliError(`'create' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
   const { audit } = createDirContext(deps, getClawDir(name));
   await createCommand(deps, name, { audit });
 }
@@ -245,7 +250,7 @@ async function runStop(deps: RouterDeps, name: string, args: string[]): Promise<
   if (args.length > 0) {
     throw new CliError(`'stop' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
   const { audit } = createDirContext(deps, getClawDir(name));
   await stopCommand(deps, name, { audit });
 }
@@ -292,7 +297,7 @@ async function runOutbox(deps: RouterDeps, name: string, args: string[]): Promis
   } catch (err) {
     throw new CliError(`invalid 'claw <name> outbox' options: ${(err as Error).message}`, { cause: err });
   }
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
   const { audit } = createDirContext(deps, getClawDir(name));
   const opts = parser.opts() as { limit: string };
   const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
@@ -416,7 +421,7 @@ async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise
   if (parser.args.length > 0) {
     throw new CliError(`'watch' takes no positional arguments (got: ${parser.args.join(' ')})`);
   }
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
   const { audit } = createDirContext(deps, getClawDir(name));
   const opts = parser.opts<{ inactiveAfter?: string }>();
   await watchCommand(deps, name, { inactiveAfter: opts.inactiveAfter }, { audit });
@@ -426,8 +431,10 @@ async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<vo
   if (args.length > 0) {
     throw new CliError(`'ps' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  // phase 1301 Step B：ps existence guard 由「只看文件存在」改为 loadClaw typed load
+  // （Phase1295 拍板的稳定替代）。undefined 才是 missing；schema/IO 错误原样上抛
+  // fail-loud，不把损坏配置伪装成“claw 存在”或“claw 不存在”。
+  if (deps.rootConfig.loadClaw(getClawConfigPath(name)) === undefined) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
   const clawDir = getClawDir(name);

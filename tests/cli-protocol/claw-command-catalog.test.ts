@@ -199,6 +199,16 @@ describe('getClawCommandSpec', () => {
 
 const fakeDeps = {
   fsFactory: (() => ({})) as never,
+  // phase 1301 Step B：RouterDeps 新增 required 窄 RootConfig；help 路径不触发 guard，
+  // stub 仅满足类型，不应被调用。
+  rootConfig: {
+    loadGlobal: () => {
+      throw new Error('loadGlobal must not be called from help routing');
+    },
+    loadClaw: () => {
+      throw new Error('loadClaw must not be called from help routing');
+    },
+  },
 };
 
 describe('claw help routing', () => {
