@@ -24,8 +24,8 @@
  * protocol-only 方式 import（同 watchdog/claw-inactivity-guidance.ts 模式）。
  */
 
-import { makeClawId } from '../../../../foundation/claw-identity/claw-id.js';
-import type { ClawId } from '../../../../foundation/claw-identity/claw-id.js';
+import { makeClawId } from '../../../../foundation/claw-identity/index.js';
+import type { ClawId } from '../../../../foundation/claw-identity/index.js';
 import { SUMMARY_HASH_META_KEY } from './dedup.js';
 import { HASH_LEN } from './hash.js';
 import type { OutboxSummaryState } from './types.js';
