@@ -10,7 +10,7 @@
 
 export {
   maybeTrimProactive,
-  type MaybeTrimProactiveInputs,
+
 } from './maybe-trim-proactive.js';
 export {
   CONTEXT_TRIM_RECENT_WINDOW_MS,
@@ -22,16 +22,11 @@ export {
   trimV2,
   buildReactiveTrimPolicy,
   buildProactiveTrimPolicy,
-  type TrimV2Options,
-  type TrimV2Result,
-  type TrimCandidateOutcome,
+
   type ContextTrimOutcome,
   type TrimPolicy,
   type AuditWriter,
 } from './trim-v2.js';
-export { ContextTrimExhaustedError } from './errors.js';
 
 export { createContextInjector, ContextInjector } from './injector.js';
-export type { ContextInjectorOptions } from './injector.js';
 export { trimAndPersist } from './trim-and-persist.js';
-export type { TriggerKind, TrimAndPersistInputs } from './trim-and-persist.js';
