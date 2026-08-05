@@ -38,7 +38,9 @@ import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { getChestnutRoot, getClawDir } from '../core/claw-topology/index.js';
-import { loadGlobalConfig } from '../assembly/config/config-load.js';
+// phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
+// 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
+import { createRootConfig } from '../assembly/index.js';
 import { createSummonVerifyPolicy } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { resolveChestnutRoot } from '../core/claw-topology/index.js';
@@ -67,6 +69,8 @@ function deferredRequiredAction<TArgs extends unknown[]>(
 }
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
+// phase 1301 Step A：composition root 唯一构造点（无 IO）；后续 command 族迁移沿用同一实例。
+const rootConfig = createRootConfig({ fsFactory });
 
 program
   .name('chestnut')
@@ -154,7 +158,7 @@ const clawCommand = program
   .helpOption(false)
   .action(
     action('disabled', async (subject: string | undefined, args: string[]) => {
-      await dispatchClawSubcommand(subject, args, { fsFactory });
+      await dispatchClawSubcommand(subject, args, { fsFactory, rootConfig });
     }),
   );
 // Replace commander's default help output with CLIProtocol-driven text.
@@ -250,7 +254,7 @@ contractCmd
   .option('--file <path>', 'Path to contract YAML file')
   .option('--dir <path>', 'Directory containing contract.yaml and verification/ folder')
   .action(action('required', async (opts: { claw: string; file?: string; dir?: string }) => {
-    loadGlobalConfig({ fsFactory });
+    rootConfig.loadGlobal();
     const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
     if (opts.file && opts.dir) {
       throw new CliError('--file and --dir are mutually exclusive. Use one of --file or --dir, not both.');
@@ -312,7 +316,7 @@ contractCmd
   .requiredOption('--reason <text>', 'Cancel reason (recorded as immutable lifecycle intent)')
   .option('--contract <id>', 'Contract ID (default: active contract)')
   .action(action('required', async (opts: { claw: string; reason: string; contract?: string }) => {
-    loadGlobalConfig({ fsFactory });
+    rootConfig.loadGlobal();
     const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
     await contractCancelCommand({ fsFactory }, opts.claw, opts.reason, opts.contract, { audit });
   }));
@@ -350,7 +354,7 @@ skillCmd
       if (!opts.skill) {
         throw new CliError('--skill <name> is required with --claw');
       }
-      loadGlobalConfig({ fsFactory });
+      rootConfig.loadGlobal();
       const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
       await skillInstallClawCommand({ fsFactory }, opts.claw, opts.skill, { audit });
     } else {
