@@ -7,7 +7,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { createSpawnTool, spawnTool } from '../../../src/core/spawn-system/index.js';
+import { createSpawnTool } from '../../../src/core/spawn-system/index.js';
+import { spawnTool } from '../../../src/core/spawn-system/tools/spawn.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { makeAudit } from '../../helpers/audit.js';

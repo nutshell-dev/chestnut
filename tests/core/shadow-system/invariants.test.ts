@@ -21,7 +21,8 @@ import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/index
 import { NoopAuditWriter } from '../../../src/core/subagent/noop-writers.js';
 import { synthesizeFormB } from '../../../src/core/shadow-system/_helpers.js';
 import { SHADOW_INSTRUCTION_PREFIX } from '../../../src/templates/prompts/shadow.js';
-import { createSpawnTool, SPAWN_TOOL_NAME } from '../../../src/core/spawn-system/index.js';
+import { createSpawnTool } from '../../../src/core/spawn-system/index.js';
+import { SPAWN_TOOL_NAME } from '../../../src/core/spawn-system/tools/spawn.js';
 import { SummonTool, SUMMON_TOOL_NAME } from '../../../src/core/summon-system/tools/summon.js';
 import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/core/claw-topology/tools/notify-claw.js';
 import { createExecTool, EXEC_TOOL_NAME } from '../../../src/foundation/command-tool/index.js';

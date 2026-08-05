@@ -3,8 +3,8 @@
  * SubAgent exports
  */
 
-export { SubAgent, type SubAgentOptions } from './agent.js';
-export { NoopStreamWriter, NoopAuditWriter } from './noop-writers.js';
+export { SubAgent } from './agent.js';
+export { NoopAuditWriter } from './noop-writers.js';
 export { runSubagent, getDisplayResult } from './run.js';
 export { createDoneTool, DONE_TOOL_NAME } from './tools/done.js';
 export { createPerTaskRegistry } from './registry-helper.js';

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { CliError, handleCliError } from '../../src/cli/errors.js';
 import { parseIntOption } from '../../src/cli/parse-int-option.js';
-import { findOrphans } from '../../src/core/status-service/index.js';
+import { findOrphans } from '../../src/core/status-service/forum-aggregators.js';
 import { ProcessListUnavailable } from '../../src/foundation/process-manager/index.js';
 import { motionStepsCommand, motionStepCommand } from '../../src/cli/commands/motion-steps.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';

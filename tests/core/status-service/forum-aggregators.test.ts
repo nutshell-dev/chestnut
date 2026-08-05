@@ -17,16 +17,17 @@ import { describe, it, expect, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import {
+  computeForumStatusView,
+  formatForumStatusView,
+} from '../../../src/core/status-service/index.js';
+import {
   computeProcessUptimeMs,
   computeClawInboxUnread,
   computeClawLastActivityAgoMs,
-  computeForumStatusView,
   computeOrphans,
-  formatForumStatusView,
-  humanizeUptime,
-  humanizeAgo,
-} from '../../../src/core/status-service/index.js';
-import type { ForumStatusDeps } from '../../../src/core/status-service/index.js';
+  type ForumStatusDeps,
+} from '../../../src/core/status-service/forum-aggregators.js';
+import { humanizeUptime, humanizeAgo } from '../../../src/core/status-service/forum-formatter.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { ProcessManager } from '../../../src/foundation/process-manager/index.js';
 import * as messaging from '../../../src/foundation/messaging/index.js';

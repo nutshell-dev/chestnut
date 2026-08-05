@@ -8,12 +8,9 @@
  * 见 design/modules/l4_spawn_system.md。
  */
 
-export { spawnTool, createSpawnTool, SPAWN_TOOL_NAME } from './tools/spawn.js';
-export type { SpawnToolDeps } from './tools/spawn.js';
+export { createSpawnTool } from './tools/spawn.js';
 export { TASKS_SYNC_SPAWN_DIR } from './constants.js';
 export {
-  SPAWN_TEMPLATES,
   DEFAULT_SPAWN_TEMPLATE,
   resolveSpawnTemplate,
 } from './templates.js';
-export type { SpawnTemplateName } from './templates.js';

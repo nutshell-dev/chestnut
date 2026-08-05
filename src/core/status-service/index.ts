@@ -33,16 +33,8 @@ export type {
   StatusMotionGuidance,
 } from './motion-guidance.js';
 export {
-  computeProcessUptimeMs,
-  computeClawInboxUnread,
-  computeClawLastActivityAgoMs,
   computeForumStatusView,
-  computeOrphans,
-  findOrphans,
 } from './forum-aggregators.js';
-export type {
-  ForumStatusDeps,
-} from './forum-aggregators.js';
-export { formatForumStatusView, humanizeUptime, humanizeAgo } from './forum-formatter.js';
+export { formatForumStatusView } from './forum-formatter.js';
 
 export { STATUS_AUDIT_EVENTS } from './audit-events.js';
