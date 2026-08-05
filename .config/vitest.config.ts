@@ -30,6 +30,7 @@ const VI_MOCK_FILES = [
   'tests/core/agent-executor/maxsteps-default.test.ts',  // phase 221: vi.mock DEFAULT_MAX_STEPS → 5 (was 23s/run)
   'tests/cli/audit-command-invariants.test.ts',
   'tests/cli/audit-query.test.ts',
+  'tests/cli/audit-query-workspace-scope.test.ts',  // phase 1288: vi.mock claw-instance-paths + config-load
   'tests/cli/daemon-handlers.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — tests no longer need vi.mock for process-exec isAlive.
   // 'tests/cli/chat-viewport-claw-manager-narrow.test.ts',
