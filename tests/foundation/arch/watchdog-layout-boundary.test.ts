@@ -43,14 +43,18 @@ const IMPORT_CLAUSE_RE = /import\s+(?:type\s+)?([^'"]*?)\s+from\s+['"]([^'"]+)['
 
 interface LayoutImport { file: string; specifier: string; }
 
+/** watchdog/layout.ts 全部导出符号（layout 协议对外封闭的判定依据，与 layout.ts 导出同步维护）。 */
+const LAYOUT_SYMBOLS = ['WATCHDOG_PATHS', 'WATCHDOG_LEGACY_PATHS', 'WATCHDOG_LAYOUT_SCHEMA_VERSION'];
+
 /** 扫描 dir 下 .ts 文件中消费 layout 符号或 layout specifier 的 import。 */
 function collectLayoutImports(dir: string): LayoutImport[] {
   const out: LayoutImport[] = [];
   for (const file of walkTsFiles(dir)) {
     const text = fs.readFileSync(file, 'utf8');
     for (const m of text.matchAll(IMPORT_CLAUSE_RE)) {
-      const isLayoutSpecifier = m[2] === INTERNAL_SPECIFIER || m[2].includes('watchdog/layout');
-      if (!m[1].includes('WATCHDOG_PATHS') && !m[1].includes('WATCHDOG_LEGACY_PATHS') && !isLayoutSpecifier) continue;
+      const isLayoutSymbol = LAYOUT_SYMBOLS.some((s) => m[1].includes(s));
+      const isLayoutSpecifier = m[2].includes('watchdog/layout');
+      if (!isLayoutSymbol && !isLayoutSpecifier) continue;
       out.push({ file: path.relative(PROJECT_ROOT, file), specifier: m[2] });
     }
   }
