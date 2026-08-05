@@ -7,6 +7,7 @@ import * as readline from 'readline';
 import { Command } from 'commander';
 import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config/config-load.js';
 import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
+import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
 import type { ClawGlobalConfig } from '../../assembly/config/compose-config.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
@@ -433,6 +434,8 @@ export function createConfigCommand(deps: { fsFactory: (baseDir: string) => File
     return cliAction(policy, async (...args: TArgs) => {
       // Phase 1288 Step B: config 命令族入口编排 audit config 迁移（幂等；冲突 fail-loud）
       ensureAuditConfigMigrated(deps);
+      // Phase 1289 Step B: 同型编排 watchdog config 迁移（幂等；冲突 fail-loud）
+      ensureWatchdogConfigMigrated(deps);
       await handler(...args);
     }, { fsFactory: deps.fsFactory });
   }

@@ -27,6 +27,8 @@ import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { initWorkspaceAuditConfig, publishAuditLayout } from '../../foundation/audit/index.js';
+import { initWorkspaceWatchdogConfig } from '../../watchdog/workspace-config.js';
+import { publishWatchdogLayout } from '../../watchdog/config-migration-journal.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
@@ -321,6 +323,10 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     const chestnutRootFs = deps.fsFactory(getChestnutRoot());
     initWorkspaceAuditConfig(chestnutRootFs);
     publishAuditLayout(chestnutRootFs);
+    // Phase 1289 Step B: fresh init 创建默认 workspace watchdog config（同型协议；
+    // root YAML 的 watchdog: 块本 Step 仍保留，Step D 才删）。
+    initWorkspaceWatchdogConfig(chestnutRootFs);
+    publishWatchdogLayout(chestnutRootFs);
 
     // Create logs directory
     const root = getWorkspaceRoot();

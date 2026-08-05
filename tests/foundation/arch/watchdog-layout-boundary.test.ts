@@ -7,7 +7,8 @@
  *    watchdog/layout.ts 一处；目标/legacy 键值与 Phase 1286 逐项一致、不缺不溢；
  *  - layout 模块零 import、零 IO；
  *  - ownership 四个目录常量均从 WATCHDOG_PATHS 派生，文件内无目标路径字面；
- *  - Watchdog 外 production 模块不得 deep-import layout；模块内经 ./layout.js；
+ *  - Watchdog 外 production 模块不得 deep-import layout；模块内经 ./layout.js
+ *    （Phase 1289 Step B 特许两个迁移协议消费方，见 OUTSIDE_CONSUMER_WHITELIST）；
  *  - 阶段隔离：当前 state/subscription/log 生产 IO 仍在 legacy 位置，不得提前
  *    引用 target 值（非永久规则——后续资源迁移 Phase 必须显式校准本约束）。
  * 正反 fixture 自证 scanner 能识别模块外 owner 复制与合法模块内 import。
@@ -26,6 +27,16 @@ const LAYOUT_FILE = path.join(WATCHDOG_DIR, 'layout.ts');
 const OWNERSHIP_FILE = path.join(WATCHDOG_DIR, 'watchdog-ownership.ts');
 const INTERNAL_SPECIFIER = './layout.js';
 
+/**
+ * Phase 1289 Step B 特许的 Watchdog 外 layout 消费方（迁移协议原语）：
+ * Assembly config-load 负责 legacy root YAML 段 IO，CLI watchdog-config-migration
+ * 负责编排；其余模块外消费仍禁止。Step D 计划回收本白名单。
+ */
+const OUTSIDE_CONSUMER_WHITELIST: ReadonlyArray<readonly [string, string]> = [
+  ['src/assembly/config/config-load.ts', '../../watchdog/layout.js'],
+  ['src/cli/watchdog-config-migration.ts', '../watchdog/layout.js'],
+];
+
 const TARGET_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ['root', 'watchdog'], ['layout', 'watchdog/layout.json'], ['config', 'watchdog/config.yaml'],
   ['state', 'watchdog/state.json'], ['log', 'watchdog/watchdog.log'],
@@ -36,6 +47,8 @@ const TARGET_ENTRIES: ReadonlyArray<readonly [string, string]> = [
 const LEGACY_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ['state', 'watchdog-state.json'], ['subscriptions', 'watchdog-subscriptions'],
   ['log', 'logs/watchdog.log'], ['pid', 'watchdog.pid'],
+  // Phase 1289 Step B: legacy root YAML watchdog 配置段顶层键名。
+  ['configSection', 'watchdog'],
 ];
 
 const DEFINITION_RE = /export\s+const\s+(WATCHDOG_PATHS|WATCHDOG_LEGACY_PATHS)\b/;
@@ -52,6 +65,9 @@ function collectLayoutImports(dir: string): LayoutImport[] {
   for (const file of walkTsFiles(dir)) {
     const text = fs.readFileSync(file, 'utf8');
     for (const m of text.matchAll(IMPORT_CLAUSE_RE)) {
+      // Phase 1292 Step C: 符号绑定收集（LAYOUT_SYMBOLS 全部导出符号）+ 模块外深链
+      // specifier；裸 './layout.js' 不再单独收集（其他模块如 foundation/audit 的
+      // ./layout.js 是自家 layout，不在本 ratchet 范围；模块内消费经符号绑定覆盖）。
       const isLayoutSymbol = LAYOUT_SYMBOLS.some((s) => m[1].includes(s));
       const isLayoutSpecifier = m[2].includes('watchdog/layout');
       if (!isLayoutSymbol && !isLayoutSpecifier) continue;
@@ -100,10 +116,18 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
     }
   });
 
-  it('Watchdog 外 production 模块不得 deep-import layout；模块内经 ./layout.js', () => {
+  it('Watchdog 外 production 模块不得 deep-import layout；模块内经 ./layout.js（Phase 1289 特许迁移消费方除外）', () => {
     for (const i of collectLayoutImports(SRC_ROOT)) {
-      expect(i.file.startsWith('src/watchdog/'), `${i.file} must not consume layout outside Watchdog`).toBe(true);
-      expect(i.specifier, `${i.file} must use module-local specifier`).toBe(INTERNAL_SPECIFIER);
+      if (i.file.startsWith('src/watchdog/')) {
+        expect(i.specifier, `${i.file} must use module-local specifier`).toBe(INTERNAL_SPECIFIER);
+        continue;
+      }
+      // Phase 1289 Step B 特许消费方（迁移协议 Assembly/CLI 两侧原语，Step D 计划回收本白名单）；
+      // 其余模块外消费仍禁止。
+      expect(
+        OUTSIDE_CONSUMER_WHITELIST.some(([file, specifier]) => file === i.file && specifier === i.specifier),
+        `${i.file} (${i.specifier}) must not consume layout outside Watchdog`,
+      ).toBe(true);
     }
   });
 
