@@ -12,6 +12,7 @@ import type {
   LLMCallOptions as L1LLMCallOptions,
 } from '../llm-provider/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
+import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
 
 // Re-export L1 base types for backward compat
@@ -50,33 +51,33 @@ export interface LLMOrchestratorConfig {
 export type LLMEvent =
   // Phase 1268 Step C: 显式 maxAttempts + 可选 retryAfterSec；attempt 保持 owner 现有 0-based 语义，
   // 指“刚失败的 attempt”；presentation 自转 1-based，消费者不解析错误文本。
-  | { type: 'provider_attempt_failed'; provider: string; attempt: number; maxAttempts: number; error: string; errorClass: LLMErrorClass; userActionHint: UserActionHint; retryAfterSec?: number }
-  | { type: 'retry_scheduled'; provider: string; attempt: number; maxAttempts: number; backoffMs: number }
-  | { type: 'provider_exhausted'; provider: string; error: string }
-  | { type: 'fallback_switched'; from: string; to: string; reason: string }
-  | { type: 'breaker_opened'; provider: string; consecutiveFailures: number }
-  | { type: 'breaker_half_open'; provider: string }
-  | { type: 'breaker_closed'; provider: string }
-  | { type: 'healthcheck_failed'; provider: string; error: string }
-  | { type: 'stream_reset'; provider: string; error: string }
-  | { type: 'stream_parse_error'; provider: string; raw: string; error: string }
-  | { type: 'tool_arg_parse_error'; provider: string; toolName: string; rawArgs: string; error: string }
-  | { type: 'idle_failover_triggered'; provider: string; ms: number }
-  | { type: 'stream_idle_probe_attempted'; provider: string; timeoutMs: number }
-  | { type: 'stream_idle_probe_succeeded'; provider: string }
-  | { type: 'context_exceeded_failover'; provider: string; stopReason: string }
-  | { type: 'context_exceeded_throwthrough'; provider: string }
-  | { type: 'permanent_skip_retry'; provider: string; attempt: number; errorClass: 'permanent' }
-  | { type: 'hedge_started'; primary: string; fallbackChain: string[]; triggerErrorClass: LLMErrorClass }
-  | { type: 'hedge_primary_recovered'; provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
-  | { type: 'hedge_primary_post_first_chunk_failure'; provider: string; error: Error }
-  | { type: 'hedge_fallback_committed'; winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: LLMErrorClass; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
-  | { type: 'hedge_primary_succeeded_after_race_lost'; primaryProvider: string; winnerProvider: string }
-  | { type: 'all_providers_context_exceeded'; totalAttempted: number; skippedCount: number }
-  | { type: 'race_loser_cleaned'; provider: string; reason: string }
-  | { type: 'sdk_client_cache_hit'; preset: string; model: string }
-  | { type: 'sdk_client_cache_miss'; preset: string; model: string }
-  | { type: 'provider_close_failed'; error: string };
+  | { type: typeof STREAM_EVENT_NAMES.PROVIDER_ATTEMPT_FAILED; provider: string; attempt: number; maxAttempts: number; error: string; errorClass: LLMErrorClass; userActionHint: UserActionHint; retryAfterSec?: number }
+  | { type: typeof STREAM_EVENT_NAMES.RETRY_SCHEDULED; provider: string; attempt: number; maxAttempts: number; backoffMs: number }
+  | { type: typeof STREAM_EVENT_NAMES.PROVIDER_EXHAUSTED; provider: string; error: string }
+  | { type: typeof STREAM_EVENT_NAMES.FALLBACK_SWITCHED; from: string; to: string; reason: string }
+  | { type: typeof STREAM_EVENT_NAMES.BREAKER_OPENED; provider: string; consecutiveFailures: number }
+  | { type: typeof STREAM_EVENT_NAMES.BREAKER_HALF_OPEN; provider: string }
+  | { type: typeof STREAM_EVENT_NAMES.BREAKER_CLOSED; provider: string }
+  | { type: typeof STREAM_EVENT_NAMES.HEALTHCHECK_FAILED; provider: string; error: string }
+  | { type: typeof STREAM_EVENT_NAMES.STREAM_RESET; provider: string; error: string }
+  | { type: typeof STREAM_EVENT_NAMES.STREAM_PARSE_ERROR; provider: string; raw: string; error: string }
+  | { type: typeof STREAM_EVENT_NAMES.TOOL_ARG_PARSE_ERROR; provider: string; toolName: string; rawArgs: string; error: string }
+  | { type: typeof STREAM_EVENT_NAMES.IDLE_FAILOVER_TRIGGERED; provider: string; ms: number }
+  | { type: typeof STREAM_EVENT_NAMES.STREAM_IDLE_PROBE_ATTEMPTED; provider: string; timeoutMs: number }
+  | { type: typeof STREAM_EVENT_NAMES.STREAM_IDLE_PROBE_SUCCEEDED; provider: string }
+  | { type: typeof STREAM_EVENT_NAMES.CONTEXT_EXCEEDED_FAILOVER; provider: string; stopReason: string }
+  | { type: typeof STREAM_EVENT_NAMES.CONTEXT_EXCEEDED_THROWTHROUGH; provider: string }
+  | { type: typeof STREAM_EVENT_NAMES.PERMANENT_SKIP_RETRY; provider: string; attempt: number; errorClass: 'permanent' }
+  | { type: typeof STREAM_EVENT_NAMES.HEDGE_STARTED; primary: string; fallbackChain: string[]; triggerErrorClass: LLMErrorClass }
+  | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_RECOVERED; provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
+  | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_POST_FIRST_CHUNK_FAILURE; provider: string; error: Error }
+  | { type: typeof STREAM_EVENT_NAMES.HEDGE_FALLBACK_COMMITTED; winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: LLMErrorClass; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
+  | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_SUCCEEDED_AFTER_RACE_LOST; primaryProvider: string; winnerProvider: string }
+  | { type: typeof STREAM_EVENT_NAMES.ALL_PROVIDERS_CONTEXT_EXCEEDED; totalAttempted: number; skippedCount: number }
+  | { type: typeof STREAM_EVENT_NAMES.RACE_LOSER_CLEANED; provider: string; reason: string }
+  | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_HIT; preset: string; model: string }
+  | { type: typeof STREAM_EVENT_NAMES.SDK_CLIENT_CACHE_MISS; preset: string; model: string }
+  | { type: typeof STREAM_EVENT_NAMES.PROVIDER_CLOSE_FAILED; error: string };
 
 /**
  * LLM event sink protocol — defined here (L2b), implemented by assembly layer (L6)
