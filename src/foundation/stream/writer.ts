@@ -3,7 +3,7 @@
  */
 import type { FileSystem } from '../fs/index.js';
 import { formatErr } from "../node-utils/index.js";
-import { STREAM_FILE, type StreamEvent, type StreamLog } from './types.js';
+import { STREAM_FILE, STREAM_EVENT_NAMES, type StreamEvent, type StreamLog } from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid } from  '../node-utils/index.js';
@@ -117,7 +117,7 @@ export class StreamWriter implements StreamLog {
     this.pruneArchives();
     this.isOpen = true;
     if (archiveFailed) {
-      this.write({ ts: Date.now(), type: 'session_boundary', reason: 'archive_failed' });
+      this.write({ ts: Date.now(), type: STREAM_EVENT_NAMES.SESSION_BOUNDARY, reason: 'archive_failed' });
     }
   }
 

@@ -25,6 +25,7 @@ import type { FileSystem } from '../../fs/index.js';
 import type { AuditLog } from '../index.js';
 type NotifySink = { write(event: Record<string, unknown>): void };
 import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from './audit-size-monitor-audit-events.js';
+import { STREAM_EVENT_NAMES } from '../../stream/index.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
@@ -93,7 +94,7 @@ export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promis
           const mb = Math.round(size / 1024 / 1024);
           opts.streamLog?.write({
             ts: Date.now(),
-            type: 'user_notify',
+            type: STREAM_EVENT_NAMES.USER_NOTIFY,
             subtype: 'dev_warning',
             kind: 'audit_size',
             path: p,

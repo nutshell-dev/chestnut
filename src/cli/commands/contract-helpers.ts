@@ -9,7 +9,7 @@ import type { ContractYaml } from '../../core/contract/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
+import { STREAM_FILE, STREAM_EVENT_NAMES, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ContractId } from '../../core/contract/index.js';
@@ -54,7 +54,7 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
   const streamWriter = createPerResourceStreamWriter(fs, STREAM_FILE, contractAudit);
   streamWriter.write({
     ts: Date.now(),
-    type: 'user_notify',
+    type: STREAM_EVENT_NAMES.USER_NOTIFY,
     subtype: 'contract_created',
     contractId,
     clawId,

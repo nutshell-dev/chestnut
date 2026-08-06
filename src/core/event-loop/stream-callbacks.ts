@@ -93,15 +93,15 @@ export function createStreamCallbacks(
       checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_INTERRUPTED, cause, ...(message ? { message } : {}) });
     },
     onProviderInfo: (info: { name: string; model: string; isFallback: boolean }) => {
-      checkWrite({ ts: Date.now(), type: 'provider_info', ...info });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.PROVIDER_INFO, ...info });
     },
     onProviderFailover: (info: { from: string; timeoutMs: number }) => {
-      checkWrite({ ts: Date.now(), type: 'provider_failover', ...info });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.PROVIDER_FAILOVER, ...info });
     },
     onProviderFailed: (info: { provider: string; model: string; error: string }) => {
       // Phase 1176 Step C: 不再用正则 heuristic 伪造 provider_attempt_failed。
       // 结构化 owner event 已由 LLMOrchestrator → composite LLMEventSink 写入 stream。
-      checkWrite({ ts: Date.now(), type: 'provider_failed', ...info });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.PROVIDER_FAILED, ...info });
     },
   };
 }

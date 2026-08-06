@@ -88,10 +88,14 @@ vi.mock('../../src/foundation/stream/writer.js', () => ({
   createStreamWriter: vi.fn(() => mockStreamWriter),
 }));
 
-vi.mock('../../src/foundation/stream/index.js', () => ({
-  createStreamWriter: vi.fn(() => mockStreamWriter),
-  STREAM_FILE_ROUTING: {},
-}));
+vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../src/foundation/stream/index.js')>();
+  return {
+    ...mod,
+    createStreamWriter: vi.fn(() => mockStreamWriter),
+    STREAM_FILE_ROUTING: {},
+  };
+});
 
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
   NodeFileSystem: vi.fn(({ baseDir }: { baseDir: string }) => ({

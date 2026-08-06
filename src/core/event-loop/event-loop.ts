@@ -16,6 +16,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import type { Runtime, TurnResult } from '../runtime/index.js';
 import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
+import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import {
@@ -308,7 +309,7 @@ export class EventLoop {
     try {
       this.streamWriter.write({
         ts: Date.now(),
-        type: 'llm_retry_waiting',
+        type: STREAM_EVENT_NAMES.LLM_RETRY_WAITING,
         stage: waiting.kind,
         action,
         attempt: waiting.kind === 'retry' ? waiting.attempt : waiting.attempts,
