@@ -13,7 +13,7 @@ export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
  */
 
 export { ProcessManager, ProcessGenerationStateError, ProcessSpawnConflictError } from './manager.js';
-export type { EnsureRunningOutcome, ProcessSpawnConflictReason, SpawnOptions } from './manager.js';
+export type { ProcessSpawnConflictReason } from './manager.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
 export { ProcessListUnavailable } from './errors.js';

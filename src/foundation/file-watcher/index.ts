@@ -5,7 +5,7 @@
  * 文件系统变化通知。polling 补漏、多平台差异抹平。
  */
 
-export type { WatchEventType, WatchEvent, Watcher, WatcherErrorContext, WatcherFactory } from './types.js';
+export type { Watcher, WatcherFactory } from './types.js';
 export {
   createWatcher,
 

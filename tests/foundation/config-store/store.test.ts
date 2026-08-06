@@ -20,9 +20,9 @@ import {
   configExists,
   ConfigStoreError,
   isConfigStoreError,
-  type ConfigSchema,
-  type ConfigStoreErrorCode,
 } from '../../../src/foundation/config-store/index.js';
+import type { ConfigSchema } from '../../../src/foundation/config-store/store.js';
+import type { ConfigStoreErrorCode } from '../../../src/foundation/config-store/errors.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 interface TestConfig {

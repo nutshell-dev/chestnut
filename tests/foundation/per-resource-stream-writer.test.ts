@@ -4,9 +4,9 @@ import * as nativeFs from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import {
   createPerResourceStreamWriter,
-  PerResourceStreamWriter,
   STREAM_FILE,
 } from '../../src/foundation/stream/index.js';
+import { PerResourceStreamWriter } from '../../src/foundation/stream/per-resource-writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createAuditWriter, type AuditLog } from '../../src/foundation/audit/index.js';
 

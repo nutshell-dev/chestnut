@@ -28,8 +28,7 @@ export {
 export { PRESETS, resolvePreset } from './presets.js';
 
 export type { Message, LLMResponse, ContentBlock, ToolUseBlock, ToolResultBlock, ToolDefinition, ThinkingBlock, JSONSchema7, TextBlock } from './types.js';
-export { sanitizeForLLMCall } from './sanitize.js';
-export { LLMInvalidRequestError, serializeProviderRequest } from './request-unicode.js';
+export { LLMInvalidRequestError } from './request-unicode.js';
 
 export {
   estimateTextTokens,

@@ -26,7 +26,8 @@ import { createSpawnTool } from '../../../src/core/spawn-system/index.js';
 import { SPAWN_TOOL_NAME } from '../../../src/core/spawn-system/tools/spawn.js';
 import { SummonTool, SUMMON_TOOL_NAME } from '../../../src/core/summon-system/tools/summon.js';
 import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/core/claw-topology/tools/notify-claw.js';
-import { createExecTool, EXEC_TOOL_NAME } from '../../../src/foundation/command-tool/index.js';
+import { createExecTool } from '../../../src/foundation/command-tool/exec.js';
+import { EXEC_TOOL_NAME } from '../../../src/foundation/command-tool/exec.js';
 import type { Tool, ToolRegistry } from '../../../src/foundation/tools/types.js';
 
 describe('shadow-signal-propagation', () => {

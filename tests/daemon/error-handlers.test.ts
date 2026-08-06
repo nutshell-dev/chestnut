@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   isContextExceededError,
-  LLMContextExceededError,
   LLMAllProvidersFailedError,
 } from '../../src/foundation/llm-orchestrator/index.js';
+import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError } from '../../src/foundation/llm-provider/errors.js';
 
 describe('isContextExceededError', () => {

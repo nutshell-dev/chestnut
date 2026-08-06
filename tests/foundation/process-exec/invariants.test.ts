@@ -206,7 +206,6 @@ describe('phase 1269 Step B: process-exec group termination invariants', () => {
   it('L1 index exports identity/termination types and recovery entry, not KillEscalator', () => {
     const indexSrc = readFileSync(`${SRC_ROOT}/foundation/process-exec/index.ts`, 'utf8');
     expect(indexSrc).toContain('terminateExecutionGroup');
-    expect(indexSrc).toContain('ExecutionTerminationOutcome');
     expect(indexSrc).toContain('ExecutionIdentity');
     expect(indexSrc).not.toContain('KillEscalator');
   });

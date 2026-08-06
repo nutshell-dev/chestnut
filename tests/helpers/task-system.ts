@@ -10,7 +10,8 @@ import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../src/core/async-task-system/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
-import type { Watcher, WatcherFactory, WatchEvent } from '../../src/foundation/file-watcher/index.js';
+import type { Watcher, WatcherFactory } from '../../src/foundation/file-watcher/index.js';
+import type { WatchEvent } from '../../src/foundation/file-watcher/types.js';
 
 export function makeTestRegistry(): ToolRegistryImpl {
   return new ToolRegistryImpl();

@@ -15,23 +15,18 @@
  * 不感知具体 guard 规则，保持 L2c 与 runtime 存活语义解耦。
  */
 
-import type { Tool } from '../tools/index.js';
 import { createExecTool, type PreExecGuard } from './exec.js';
-
-export interface CommandToolModule {
-  exec: Tool;
-}
 
 export { TASKS_SYNC_EXEC_DIR } from './constants.js';
 
 /**
  * 创建 CommandTool 模块
  */
-export function createCommandTools(preExecGuard?: PreExecGuard): CommandToolModule {
+export function createCommandTools(preExecGuard?: PreExecGuard): { exec: import('../tools/index.js').Tool } {
   return { exec: createExecTool(preExecGuard) };
 }
 
-export { createExecTool, createExecWithHandle, execTool } from './exec.js';
+export { createExecWithHandle } from './exec.js';
 export { EXEC_TOOL_NAME } from './exec.js';
 export type { ExecWithHandleArgs, PreExecGuard } from './exec.js';
 export { processExecErrorToToolResult } from './exec.js';

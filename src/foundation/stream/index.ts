@@ -23,7 +23,7 @@ export { LLM_OUTPUT_EVENTS } from './types.js';
 // phase 749: sync NDJSON line parser for incremental stream readers
 export { parseStreamLines } from './parse-stream-lines.js';
 
-export { STREAM_AUDIT_EVENTS } from './audit-events.js';
+
 
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
@@ -38,5 +38,5 @@ export function createStreamWriter(
   return new StreamWriter(fs, audit, retention);
 }
 
-export { PerResourceStreamWriter, createPerResourceStreamWriter } from './per-resource-writer.js';
+export { createPerResourceStreamWriter } from './per-resource-writer.js';
 export { STREAM_FILE_ROUTING } from './audit-events.js';

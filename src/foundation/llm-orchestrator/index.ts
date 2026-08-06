@@ -12,10 +12,8 @@ export type {
   LLMOrchestratorConfig,
   LLMEventSink,
   LLMEvent,
-  StreamChunk,
   LLMCallOptions,
   ProviderConfig,
-  ProviderAdapter,
   LLMOrchestrator,
 } from './types.js';
 
@@ -44,7 +42,7 @@ export {
 // errors.ts 内 symbol 会漏）。如 future caller 需更多 symbol、按需逐个 append。
 // SDK 顶层 re-export (src/index.ts) + sister L2 (foundation/config/schemas.ts) 按 by-design
 // 保留 deep import、depcruise rule 显式 pathNot allowlist 这两 entry。
-export { LLMAllProvidersFailedError, LLMTimeoutError, LLMContextExceededError, LLMInvalidRequestError, LLMAuthError, LLMRateLimitError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
+export { LLMAllProvidersFailedError, LLMTimeoutError, LLMInvalidRequestError, LLMAuthError, LLMRateLimitError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
 export { toProviderConfig } from './config-adapter.js';

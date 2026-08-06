@@ -15,7 +15,7 @@ import { createSendTool } from '../../src/foundation/messaging/tools/send.js';
 import { readTool, writeTool, lsTool, searchTool, editTool, multiEditTool } from '../../src/foundation/file-tool/index.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
-import { execTool } from '../../src/foundation/command-tool/index.js';
+import { execTool } from '../../src/foundation/command-tool/exec.js';
 import { createSpawnTool } from '../../src/core/spawn-system/index.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 

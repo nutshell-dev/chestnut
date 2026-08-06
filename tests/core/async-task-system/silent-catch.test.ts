@@ -11,7 +11,8 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import type { WatcherFactory, WatchEvent } from '../../../src/foundation/file-watcher/index.js';
+import type { WatcherFactory } from '../../../src/foundation/file-watcher/index.js';
+import type { WatchEvent } from '../../../src/foundation/file-watcher/types.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { waitFor } from '../../helpers/wait-for.js';
 

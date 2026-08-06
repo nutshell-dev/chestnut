@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 
-import { createExecTool } from '../../../src/foundation/command-tool/index.js';
+import { createExecTool } from '../../../src/foundation/command-tool/exec.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';

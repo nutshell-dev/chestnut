@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { connect as netConnect, type Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import { UnixDomainSocketTransport } from '../../src/foundation/transport/index.js';
-import type { Connection } from '../../src/foundation/transport/index.js';
+import { UnixDomainSocketTransport } from '../../src/foundation/transport/unix-socket.js';
+import type { Connection } from '../../src/foundation/transport/types.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 
 /** Test-level safety deadline (2s). 远大于 unix-domain socket I/O 实测 << 100ms / 防 hang */

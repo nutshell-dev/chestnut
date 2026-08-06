@@ -7,9 +7,9 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import {
   createSystemAudit,
   DispatchingAuditWriter,
-  AuditWriter,
   type AuditLog,
 } from '../../../src/foundation/audit/index.js';
+import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import { _resetFallbackForTest } from '../../../src/foundation/audit/writer.js';
 
 describe('DispatchingAuditWriter (phase 159)', () => {

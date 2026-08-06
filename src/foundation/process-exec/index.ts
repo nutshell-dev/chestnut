@@ -13,8 +13,6 @@ export type {
   ExecHandle,
   ProcessInfo,
   ExecutionIdentity,
-  ExecutionTerminationTrigger,
-  ExecutionTerminationOutcome,
   ExecutionTerminationFact,
 } from './types.js';
 export { terminateExecutionGroup, probeExecutionGroup } from './execution-group.js';

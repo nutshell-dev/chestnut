@@ -37,7 +37,6 @@ export { BlockIdIndex } from './block-id-index.js';
 
 // Phase 992: barrel export error classes + core types to stop cross-module deep imports.
 export { DialogIOError, DialogStoreError } from './errors.js';
-export type { DialogMarker, RestoreResult } from './types.js';
 
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';

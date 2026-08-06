@@ -18,9 +18,10 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { Runtime, TurnResult } from '../../src/core/runtime/index.js';
-import type { Watcher, WatchEvent } from '../../src/foundation/file-watcher/index.js';
+import type { Watcher } from '../../src/foundation/file-watcher/index.js';
+import type { WatchEvent } from '../../src/foundation/file-watcher/types.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
-import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/index.js';
+import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/errors.js';
 import type { Message, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
 import type { InboxHandle, InboxMessage } from '../../src/foundation/messaging/types.js';
 

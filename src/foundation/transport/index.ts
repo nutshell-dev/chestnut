@@ -14,6 +14,4 @@
 
 export type { Connection, Transport } from './types.js';
 
-// Latent advertise — 0 production caller, retained as future transport hook
-// per phase 1055 ⚓ accepted-stable β. Detail: l1_transport.md §7.A A.r125-unix-socket-dead-code
-export { UnixDomainSocketTransport } from './unix-socket.js';
+

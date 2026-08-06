@@ -10,11 +10,8 @@ export {
   writeYamlConfig,
   patchYamlConfig,
   configExists,
-  type ConfigSchema,
-  type LoaderDeps,
 } from './store.js';
 export {
   ConfigStoreError,
   isConfigStoreError,
-  type ConfigStoreErrorCode,
 } from './errors.js';
