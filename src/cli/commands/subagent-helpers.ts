@@ -29,8 +29,11 @@ import { deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-s
 
 
 
-export type SubagentKind = 'summon' | 'spawn' | 'shadow' | 'verifier' | 'random_dream' | 'cron';
-export type SubagentStatus = 'completed' | 'running' | 'failed' | 'error';
+export const SUBAGENT_KIND_VALUES = ['summon', 'spawn', 'shadow', 'verifier', 'random_dream', 'cron'] as const;
+export type SubagentKind = typeof SUBAGENT_KIND_VALUES[number];
+
+export const SUBAGENT_STATUS_VALUES = ['completed', 'running', 'failed', 'error'] as const;
+export type SubagentStatus = typeof SUBAGENT_STATUS_VALUES[number];
 
 /** Phase 849: resolve a task id (short or full) to the id used for filesystem paths. */
 function resolvePathTaskId(id: string, shortIdIndex?: ShortIdIndex): string {

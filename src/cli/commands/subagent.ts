@@ -6,6 +6,7 @@
 import { Command } from 'commander';
 import { subagentListCommand } from './subagent-list.js';
 import { subagentStepsCommand, subagentStepCommand } from './subagent-steps.js';
+import { SUBAGENT_KIND_VALUES, SUBAGENT_STATUS_VALUES } from './subagent-helpers.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
@@ -24,8 +25,8 @@ export function createSubagentCommand(deps: { fsFactory: (baseDir: string) => Fi
     .command('list')
     .description('List subagent tasks')
     .requiredOption('-c, --claw <claw>', 'Claw to query')
-    .option('--status <status>', 'Filter by status (completed|running|failed)')
-    .option('--kind <kind>', 'Filter by kind (dispatch|spawn|verifier|random_dream|cron)')
+    .option('--status <status>', `Filter by status (${SUBAGENT_STATUS_VALUES.join('|')})`)
+    .option('--kind <kind>', `Filter by kind (${SUBAGENT_KIND_VALUES.join('|')})`)
     .option('--contract <id>', 'Filter by contractId')
     .option('--limit <n>', 'Max rows (default: 20)')
     .option('--from <ts>', 'Filter started_at >= ts')
