@@ -1732,3 +1732,18 @@ function canonicalJsonStringify(value: unknown): string {
 function hashTaskPayload(payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>): string {
   return sha256Hex(canonicalJsonStringify(payload));
 }
+
+
+/**
+ * AsyncTaskSystem 工厂函数。签名与 constructor 1:1；纯透传不加工。
+ *
+ * 调用方：Assembly。
+ * 不调 initialize / startDispatch——业务动作归 Runtime（见 l4_task_system.md §2 "#2 归属辨析"）。
+ */
+export function createAsyncTaskSystem(
+  clawDir: string,
+  fs: FileSystem,
+  options: AsyncTaskSystemOptions,
+): AsyncTaskSystem {
+  return new AsyncTaskSystem(clawDir, fs, options);
+}

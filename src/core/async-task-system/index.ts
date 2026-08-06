@@ -9,11 +9,7 @@ export {
  * Task system exports
  */
 
-import type { FileSystem } from '../../foundation/fs/index.js';
-import { AsyncTaskSystem } from './system.js';
-import type { AsyncTaskSystemOptions } from './types.js';
-
-export { AsyncTaskSystem } from './system.js';
+export { AsyncTaskSystem, createAsyncTaskSystem } from './system.js';
 export type { SubAgentTask, PreparedSubagentSchedule, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
 export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';
@@ -42,20 +38,6 @@ export type { SummonDecisionMetadata } from './task-schemas.js';
 
 
 
-
-/**
- * AsyncTaskSystem 工厂函数。签名与 constructor 1:1；纯透传不加工。
- *
- * 调用方：Assembly。
- * 不调 initialize / startDispatch——业务动作归 Runtime（见 l4_task_system.md §2 "#2 归属辨析"）。
- */
-export function createAsyncTaskSystem(
-  clawDir: string,
-  fs: FileSystem,
-  options: AsyncTaskSystemOptions,
-): AsyncTaskSystem {
-  return new AsyncTaskSystem(clawDir, fs, options);
-}
 
 // phase 843: migrated exec task query API
 export { listMigratedExecTasks } from './list-migrated-exec.js';

@@ -72,11 +72,15 @@ vi.mock('../../src/daemon/daemon-loop.js', () => ({
   startDaemonLoop: mockState.mockStartDaemonLoop,
 }));
 
-vi.mock('../../src/core/contract/manager.js', () => ({
-  ContractSystem: vi.fn().mockImplementation(() => ({
+vi.mock('../../src/core/contract/manager.js', () => {
+  const ContractSystem = vi.fn().mockImplementation(() => ({
     createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })),
-  })),
-}));
+  }));
+  return {
+    ContractSystem,
+    createContractSystem: vi.fn((deps: any) => new (ContractSystem as any)(deps)),
+  };
+});
 
 vi.mock('../../src/foundation/audit/index.js', () => ({
   AUDIT_FILE: 'audit.tsv',

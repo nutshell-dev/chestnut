@@ -3,9 +3,8 @@
  * Contract module exports
  */
 
-import { ContractSystem, type ContractSystemDeps } from './manager.js';
-
-export { ContractSystem } from './manager.js';
+export { ContractSystem, createContractSystem } from './manager.js';
+export type { ContractSystemDeps } from './manager.js';
 
 // phase 1260 Step A: ContractSystem-owned typed notification protocol
 // （Step B：transport adapter 已物理归位 src/assembly/contract-notification-adapter.ts，
@@ -88,16 +87,5 @@ export {
   type OnboardingStatus,
 } from './onboarding-discovery.js';
 
-/**
- * ContractSystem 工厂 —— 严格对齐 ctor 7 参数
- *
- * 输入：clawDir / clawId / fs 必填；llm / verifierScheduler 可选
- * 输出：ContractSystem 实例
- * 边界：可选参数未传时运行期能力降级（见 design/modules/l4_contract_system.md §2.a）
- * 失败：不抛；能力降级延迟到方法调用
- */
-export function createContractSystem(deps: ContractSystemDeps): ContractSystem {
-  return new ContractSystem(deps);
-}
 export { listArchiveContractLocations, archiveContainerDir } from './locations.js';
 export { CONTRACT_FILE_ROUTING } from './audit-events.js';

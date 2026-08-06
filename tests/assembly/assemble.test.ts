@@ -199,17 +199,25 @@ vi.mock('../../src/foundation/tools/executor.js', () => {
   };
 });
 
-vi.mock('../../src/core/contract/manager.js', () => ({
-  ContractSystem: trackCtor('ContractSystem', () => {
+vi.mock('../../src/core/contract/manager.js', () => {
+  const ContractSystem = trackCtor('ContractSystem', () => {
     const instance = { setOnNotify: vi.fn(), loadPaused: vi.fn(), resume: vi.fn(), onContractCompleted: vi.fn(() => () => {}), init: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), registerCreatePolicy: vi.fn(), createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })) };
     capturedContractManagers.push(instance);
     return instance;
-  }),
-}));
+  });
+  return {
+    ContractSystem,
+    createContractSystem: vi.fn((deps: any) => new (ContractSystem as any)(deps)),
+  };
+});
 
-vi.mock('../../src/core/async-task-system/system.js', () => ({
-  AsyncTaskSystem: trackCtor('AsyncTaskSystem', () => ({ initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() })),
-}));
+vi.mock('../../src/core/async-task-system/system.js', () => {
+  const AsyncTaskSystem = trackCtor('AsyncTaskSystem', () => ({ initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() }));
+  return {
+    AsyncTaskSystem,
+    createAsyncTaskSystem: vi.fn((clawDir: any, fs: any, options: any) => new (AsyncTaskSystem as any)(clawDir, fs, options)),
+  };
+});
 
 vi.mock('../../src/core/dialog/injector.js', () => {
   const Ctor = trackCtor('ContextInjector', () => ({ buildSystemPrompt: vi.fn(), buildParts: vi.fn() }));

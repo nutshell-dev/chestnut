@@ -182,8 +182,8 @@ vi.mock('../../src/core/evolution-system/index.js', () => ({
   DISPATCH_SKILLS_SUBDIR: 'dispatch-skills',
 }));
 
-vi.mock('../../src/core/contract/manager.js', () => ({
-  ContractSystem: vi.fn(() => ({
+vi.mock('../../src/core/contract/manager.js', () => {
+  const ContractSystem = vi.fn(() => ({
     setOnNotify: vi.fn(),
     loadPaused: vi.fn(),
     resume: vi.fn(),
@@ -195,16 +195,24 @@ vi.mock('../../src/core/contract/manager.js', () => ({
     close: vi.fn().mockResolvedValue(undefined),
     registerCreatePolicy: vi.fn(),
     createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })),
-  })),
-}));
+  }));
+  return {
+    ContractSystem,
+    createContractSystem: vi.fn((deps: any) => new (ContractSystem as any)(deps)),
+  };
+});
 
-vi.mock('../../src/core/async-task-system/system.js', () => ({
-  AsyncTaskSystem: vi.fn(() => {
+vi.mock('../../src/core/async-task-system/system.js', () => {
+  const AsyncTaskSystem = vi.fn(() => {
     const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() };
     capturedTaskSystems.push(instance);
     return instance;
-  }),
-}));
+  });
+  return {
+    AsyncTaskSystem,
+    createAsyncTaskSystem: vi.fn((clawDir: any, fs: any, options: any) => new (AsyncTaskSystem as any)(clawDir, fs, options)),
+  };
+});
 
 vi.mock('../../src/core/dialog/injector.js', () => ({
   ContextInjector: vi.fn(() => ({ buildSystemPrompt: vi.fn(), buildParts: vi.fn() })),

@@ -1,6 +1,10 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
-import { type ContractId } from '../contract/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
+import { type ContractId, makeContractId } from '../contract/index.js';
 
 /** kebab-case claw id 模式 — 与 schema 内 targetClaw description 字面一致 */
 const TARGET_CLAW_PATTERN = /^[a-z0-9-]+$/;
@@ -65,4 +69,56 @@ export async function readPendingRetrospective(opts: {
     shadowTaskId: typeof p.shadowTaskId === 'string' ? p.shadowTaskId : undefined,
     createdAt: typeof p.createdAt === 'string' ? p.createdAt : undefined,
   };
+}
+
+
+// bulk API: per-file silent skip + audit emit (DP「不丢弃静默」修复)
+export async function listPendingRetrospectives(opts: {
+  fs: FileSystem;
+  audit?: AuditLog;
+  filter?: { contractId?: string };
+}): Promise<PendingRetroRef[]> {
+  const results: PendingRetroRef[] = [];
+  const dir = `${CLAWSPACE_DIR}/pending-retrospective/by-contract`;
+  if (!opts.fs.existsSync(dir)) return results;
+
+  for (const e of opts.fs.listSync(dir, { includeDirs: false })) {
+    if (!e.name.endsWith('.json')) continue;
+    const contractId = makeContractId(e.name.replace(/\.json$/, ''));
+    if (opts.filter?.contractId !== undefined && contractId !== opts.filter.contractId) continue;
+    try {
+      const ref = await readPendingRetrospective({ fs: opts.fs, contractId });
+      results.push(ref);
+    } catch (e) {
+      // silent: bulk listing per-file parse-fail audit-emitted + skip
+      opts.audit?.write(SUMMON_AUDIT_EVENTS.RETRO_INDEX_PARSE_FAILED, `contractId=${contractId}`, `reason=${formatErr(e)}`);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Phase 1206 Step B: legacy retrospective migration ack.
+ * EvolutionSystem calls this only after the new ready row has been published
+ * and re-read successfully. Non-FNF errors are propagated so migration can
+ * preserve the original legacy row.
+ */
+export async function ackPendingRetrospective(opts: {
+  fs: FileSystem;
+  contractId: ContractId;
+  audit?: AuditLog;
+}): Promise<void> {
+  const filePath = `${CLAWSPACE_DIR}/pending-retrospective/by-contract/${opts.contractId}.json`;
+  try {
+    await opts.fs.delete(filePath);
+  } catch (e) {
+    if (isFileNotFound(e)) return;
+    opts.audit?.write(
+      SUMMON_AUDIT_EVENTS.LEGACY_RETRO_ACK_FAILED,
+      `contractId=${opts.contractId}`,
+      `reason=${formatErr(e)}`,
+    );
+    throw e;
+  }
 }

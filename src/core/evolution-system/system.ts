@@ -327,3 +327,8 @@ export class EvolutionSystem {
     }
   }
 }
+
+
+export function createEvolutionSystem(deps: EvolutionSystemDeps): EvolutionSystem {
+  return new EvolutionSystem(deps);
+}

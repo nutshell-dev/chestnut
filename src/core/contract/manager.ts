@@ -1626,3 +1626,16 @@ export class ContractSystem {
     this.audit?.write(CONTRACT_AUDIT_EVENTS.CONTRACT_SYSTEM_CLOSED, `clawId=${this.clawId}`);
   }
 }
+
+
+/**
+ * ContractSystem 工厂 —— 严格对齐 ctor 7 参数
+ *
+ * 输入：clawDir / clawId / fs 必填；llm / verifierScheduler 可选
+ * 输出：ContractSystem 实例
+ * 边界：可选参数未传时运行期能力降级（见 design/modules/l4_contract_system.md §2.a）
+ * 失败：不抛；能力降级延迟到方法调用
+ */
+export function createContractSystem(deps: ContractSystemDeps): ContractSystem {
+  return new ContractSystem(deps);
+}
