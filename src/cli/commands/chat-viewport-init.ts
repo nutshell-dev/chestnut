@@ -12,6 +12,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TurnTracker } from './chat-viewport-types.js';
+import type { StreamEvent } from '../../foundation/stream/index.js';
 
 /** chat-viewport crash audit 写入时 stack trace top-N 行截取（防 audit row 过长）*/
 const CHAT_CRASH_STACK_TOP_N = 5;
@@ -78,7 +79,7 @@ export function initOwnStateFromHistory(deps: InitOwnStateDeps): void {
         // phase 355 C3 (review-2026-06-13): 验对象 shape 防 .type NPE
         const raw: unknown = JSON.parse(line);
         if (typeof raw !== 'object' || raw === null) continue;
-        const ev = raw as { type?: string };
+        const ev = raw as Partial<StreamEvent>;
         if (ev.type === 'turn_start')       { deps.turnTracker.begin(); }
         else if (ev.type === 'turn_end' || ev.type === 'turn_interrupted' || ev.type === 'turn_error') {
           deps.turnTracker.forceReset();
