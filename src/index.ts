@@ -12,7 +12,7 @@ export type {
 export type {
   DerivableStatus, SubtaskStatus, LastFailedFeedback,
   Contract,
-} from './core/contract/types.js';
+} from './core/contract/index.js';
 export type { InboxMessage, OutboxMessage, Priority } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
 
@@ -21,16 +21,16 @@ export {
   LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError,
   LLMEmptyResponseError, LLMModelNotFoundError, LLMAllProvidersFailedError,
   classifyLLMError, getUserActionHint,
-} from './foundation/llm-orchestrator/errors.js';
-export type { LLMErrorClass, UserActionHint } from './foundation/llm-orchestrator/errors.js';
+} from './foundation/llm-orchestrator/index.js';
+export type { LLMErrorClass, UserActionHint } from './foundation/llm-orchestrator/index.js';
 export { FileNotFoundError } from './foundation/fs/index.js';
 export {
   MaxStepsExceededError, ConsecutiveParseErrorsExceededError,
   ConsecutiveMaxTokensToolUseError, WallTimeExceededError,
-} from './core/agent-executor/errors.js';
+} from './core/agent-executor/index.js';
 export { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './core/step-executor/index.js';
-export { formatErr } from './foundation/node-utils/format.js';
-export type { PermissionChecker } from './foundation/tool-protocol/permission.js';
+export { formatErr } from './foundation/node-utils/index.js';
+export type { PermissionChecker } from './foundation/tool-protocol/index.js';
 
 // Core runtime and modules
 export { Runtime, type RuntimeOptions } from './core/runtime/index.js';
@@ -49,5 +49,5 @@ export type { ToolResult } from './foundation/tool-protocol/index.js';
 export type { ExecContext, Tool } from './foundation/tools/index.js';
 export type { ToolRegistry, IToolExecutor } from './foundation/tools/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
-export type { ProgressData, VerificationResult } from './core/contract/types.js';
+export type { ProgressData, VerificationResult } from './core/contract/index.js';
 
