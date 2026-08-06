@@ -15,6 +15,14 @@ export const DAEMON_SHUTDOWN_GRACE_MS = 5000;
  */
 export const SPAWN_POLL_INTERVAL_MS = 50;
 /**
+ * Deadline for daemon to become ready (ms). Shared by self-winner spawn and
+ * foreign-winner join（phase 1282 Step C 起由 awaitReadyConvergence 唯一判定）。
+ *
+ * Value: 30s = 自 spawn.ts 迁入、production 时序不变；测试可 mock 缩短时间尺度
+ * （join 每轮 poll 做真实磁盘读、假时钟推进 30s 会产生 ~3000 轮真实 I/O）。
+ */
+export const BOOT_DEADLINE_MS = 30_000;
+/**
  * SIGTERM 后等进程退出的轮询间隔（ms）.
  * 在 DAEMON_SHUTDOWN_GRACE_MS deadline 内每隔此周期 isAlive check.
  */

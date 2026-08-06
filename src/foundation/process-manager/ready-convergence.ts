@@ -3,7 +3,8 @@
  * Ready convergence 等待原语（Phase 1282 Step C）。
  *
  * ProcessManager 内部唯一拥有 ready convergence 的调度骨架：
- *   - BOOT_DEADLINE_MS 起止与 timeout 判定（唯一 deadline 持有点）；
+ *   - BOOT_DEADLINE_MS 起止与 timeout 判定（deadline 判定唯一持有点；
+ *     数值定义归 constants.ts，phase 1303 迁出使测试可经 constants mock 缩短）；
  *   - SPAWN_POLL_INTERVAL_MS 轮询调度（唯一 poll 循环持有点）；
  *   - pending / ready / failed 收敛骨架。
  *
@@ -15,13 +16,7 @@
  * （避免扩大耦合表面、防止第二套时限策略）。
  */
 
-import { SPAWN_POLL_INTERVAL_MS } from './constants.js';
-
-/**
- * 30s for daemon to become ready（自 spawn.ts 迁入，Step A 起由
- * self-winner 与 foreign-winner 共享；数值与 production 时序不变）。
- */
-export const BOOT_DEADLINE_MS = 30_000;
+import { BOOT_DEADLINE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));

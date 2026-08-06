@@ -24,9 +24,9 @@ import {
   makeProcessStartTime,
 } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
+import { BOOT_DEADLINE_MS } from './constants.js';
 import {
   awaitReadyConvergence,
-  BOOT_DEADLINE_MS,
   type ConvergenceObservation,
 } from './ready-convergence.js';
 import {
