@@ -23,6 +23,9 @@
 import type { ClawCommandSpec } from './command-spec.js';
 import { PRIORITY_ORDER } from '../foundation/messaging/index.js';
 
+/** claw outbox read 默认读取条数。 */
+export const DEFAULT_OUTBOX_READ_LIMIT = 1;
+
 export const CLAW_COMMAND_CATALOG = [
   // ── Lifecycle ──────────────────────────────────────────────────────────
   {
@@ -102,7 +105,7 @@ export const CLAW_COMMAND_CATALOG = [
     group: 'messaging',
     form: 'instance',
     summary: "Read the claw's outbox (pulled messages are marked consumed)",
-    options: [{ flag: '--limit <n>', desc: 'Max messages to read', defaultValue: '1' }],
+    options: [{ flag: '--limit <n>', desc: 'Max messages to read', defaultValue: String(DEFAULT_OUTBOX_READ_LIMIT) }],
     examples: ['chestnut claw alice outbox', 'chestnut claw alice outbox --limit 5'],
   },
   {

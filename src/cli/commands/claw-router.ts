@@ -50,6 +50,7 @@ import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import { psCommand } from './claw-ps.js';
 import {
   CLAW_INSTANCE_COMMAND_IDS,
+  DEFAULT_OUTBOX_READ_LIMIT,
   renderClawHelp,
   renderClawCommandHelp,
   type ClawInstanceCommandId,
@@ -291,7 +292,7 @@ async function runSend(deps: RouterDeps, name: string, args: string[]): Promise<
 
 async function runOutbox(deps: RouterDeps, name: string, args: string[]): Promise<void> {
   const parser = makeVerbParser('outbox');
-  parser.option('--limit <n>', 'Max messages to read (default: 1)', '1');
+  parser.option('--limit <n>', 'Max messages to read', String(DEFAULT_OUTBOX_READ_LIMIT));
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {

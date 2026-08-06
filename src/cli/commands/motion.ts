@@ -45,6 +45,9 @@ const __dirname = path.dirname(__filename);
 // Template file names (supports both build artifacts and source directory)
 const TEMPLATE_FILES = [CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, CLAW_HEARTBEAT_FILE];
 
+/** motion outbox drain 默认读取条数。 */
+export const DEFAULT_OUTBOX_DRAIN_LIMIT = 1;
+
 /**
  * Read template file content (falls back from build artifacts to source directory)
  */
@@ -248,7 +251,7 @@ export async function motionOutboxCommand(
     );
   }
 
-  audit?.write(CLI_AUDIT_EVENTS.MOTION_OUTBOX_DRAIN_START, `limit=${options.limit ?? 1}`);
+  audit?.write(CLI_AUDIT_EVENTS.MOTION_OUTBOX_DRAIN_START, `limit=${options.limit ?? DEFAULT_OUTBOX_DRAIN_LIMIT}`);
   const { drained, remaining } = await drainOutbox(
     motionFs,
     audit ?? { write: () => {} } as unknown as AuditLog,

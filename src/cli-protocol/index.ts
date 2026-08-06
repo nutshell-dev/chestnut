@@ -17,6 +17,7 @@ export type {
 export {
   CLAW_COMMAND_CATALOG,
   CLAW_INSTANCE_COMMAND_IDS,
+  DEFAULT_OUTBOX_READ_LIMIT,
   getClawCommandSpec,
   type ClawCommandId,
   type ClawInstanceCommandId,

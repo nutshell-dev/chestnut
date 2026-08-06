@@ -25,6 +25,7 @@ import {
   chatCommand as motionChatCommand,
   stopCommand as motionStopCommand,
   motionOutboxCommand,
+  DEFAULT_OUTBOX_DRAIN_LIMIT,
 } from './commands/motion.js';
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
@@ -199,7 +200,7 @@ motionCmd
 motionCmd
   .command('outbox')
   .description("Drain Motion's outbox (send tool messages)")
-  .option('--limit <n>', 'Maximum messages to drain (default: 1)', '1')
+  .option('--limit <n>', 'Maximum messages to drain', String(DEFAULT_OUTBOX_DRAIN_LIMIT))
   .action(action('required', async (options: { limit: string }) => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
     const limit = parseIntOption(options.limit, '--limit must be a non-negative integer');
