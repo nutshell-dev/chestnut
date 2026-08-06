@@ -263,6 +263,10 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
 // 调用方负责通过 fs.baseDir 或 createSystemAudit helper 拼接完整路径。
 export const AUDIT_FILE = 'audit.tsv';
 
+// phase 693 Step A: audit 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
+// Assembly 装配期 aggregate 各 owner 声明、注入 Snapshot ctor (per architecture §29)
+export const AUDIT_SNAPSHOT_IGNORE: readonly string[] = [AUDIT_FILE];
+
 export class AuditWriter implements AuditLog {
   readonly __brand = 'AuditLog' as const;
   private readonly maxBytes: number | null;

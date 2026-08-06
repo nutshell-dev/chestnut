@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import {
   createSystemAudit,
-  DispatchingAuditWriter,
   type AuditLog,
 } from '../../../src/foundation/audit/index.js';
+import { DispatchingAuditWriter } from '../../../src/foundation/audit/dispatching-writer.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import { _resetFallbackForTest } from '../../../src/foundation/audit/writer.js';
 

@@ -24,7 +24,8 @@ import { promises as fs } from 'fs';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
-import { readTool, writeTool } from '../../../src/foundation/file-tool/index.js';
+import { readTool } from '../../../src/foundation/file-tool/index.js';
+import { writeTool } from '../../../src/foundation/file-tool/write.js';
 import {
   persistReadFileState,
   clearReadFileState,
