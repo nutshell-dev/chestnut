@@ -38,8 +38,13 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
   });
 
   describe('phase 523 Step B: handleEvent default case', () => {
-    it('handleEvent switch 含 default case', () => {
-      const match = sourceCode.match(/default:\s*\{[\s\S]*?VIEWPORT_AUDIT_EVENTS\.UNKNOWN_EVENT[\s\S]*?\}/);
+    it('handleEvent switch 含 default case（phase 1309 改为 never 穷尽断言）', () => {
+      const match = sourceCode.match(/default:\s*\{[\s\S]*?const _exhaustive:\s*never\s*=\s*event\.type[\s\S]*?\}/);
+      expect(match).toBeTruthy();
+    });
+
+    it('handleEvent 非消费事件仍走 UNKNOWN_EVENT audit（phase 1309 显式分组 case）', () => {
+      const match = sourceCode.match(/case 'tool_use_input':[\s\S]*?VIEWPORT_AUDIT_EVENTS\.UNKNOWN_EVENT[\s\S]*?break;/);
       expect(match).toBeTruthy();
     });
 
