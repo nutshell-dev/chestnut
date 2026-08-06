@@ -12,7 +12,7 @@ import type { ToolExecutor } from '../../../src/foundation/tools/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
-import { AGENT_STREAM_EVENTS } from '../../../src/core/agent-executor/index.js';
+import { STREAM_EVENT_NAMES } from '../../../src/foundation/stream/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 
 /**
@@ -130,7 +130,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
       (call: any[]) => call[0] === 'tool_result',
     );
     const streamIdx = swWriteSpy.mock.calls.findIndex(
-      (call: any[]) => (call[0] as StreamEvent).type === AGENT_STREAM_EVENTS.TOOL_RESULT,
+      (call: any[]) => (call[0] as StreamEvent).type === STREAM_EVENT_NAMES.TOOL_RESULT,
     );
 
     expect(auditIdx).toBeGreaterThanOrEqual(0);
@@ -179,7 +179,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
 
     // stream 仍正常写入
     const toolResultStreamEvents = swWriteSpy.mock.calls.filter(
-      (call: any[]) => (call[0] as StreamEvent).type === AGENT_STREAM_EVENTS.TOOL_RESULT,
+      (call: any[]) => (call[0] as StreamEvent).type === STREAM_EVENT_NAMES.TOOL_RESULT,
     );
     expect(toolResultStreamEvents.length).toBe(1);
   });
@@ -252,7 +252,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
 
     // stream 被 safeSwWrite gate 掉（silent skip）
     const toolResultStreamEvents = swWriteSpy.mock.calls.filter(
-      (call: any[]) => (call[0] as StreamEvent).type === AGENT_STREAM_EVENTS.TOOL_RESULT,
+      (call: any[]) => (call[0] as StreamEvent).type === STREAM_EVENT_NAMES.TOOL_RESULT,
     );
     expect(toolResultStreamEvents.length).toBe(0);
   });

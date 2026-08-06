@@ -10,7 +10,7 @@
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { StreamCallbacks, Runtime } from '../runtime/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
+import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
 
@@ -32,33 +32,33 @@ export function createStreamCallbacks(
   let sendTracker = createSendContentTracker();
   return {
     onBeforeLLMCall: () => {
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.LLM_START });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.LLM_START });
     },
     onThinkingDelta: (delta: string) => {
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.THINKING_DELTA, delta });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.THINKING_DELTA, delta });
     },
     onTextDelta: (delta: string) => {
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_DELTA, delta });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TEXT_DELTA, delta });
     },
     onTextEnd: () => {
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_END });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TEXT_END });
     },
     onToolCall: (name: string, toolUseId: ToolUseId) => {
       if (name === 'send') sendTracker = createSendContentTracker();
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_CALL, name, tool_use_id: toolUseId });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TOOL_CALL, name, tool_use_id: toolUseId });
     },
     onToolUseInput: (name: string, toolUseId: ToolUseId, input: Record<string, unknown>) => {
       // phase 688: API 收到的 args body 必落 stream.jsonl（catch 路径 drain 时也走此回调）
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
       if (name === 'send') {
-        checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_END });
+        checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.USER_REPLY_END });
       }
     },
     onToolUseInputDelta: (name: string, _toolUseId: ToolUseId, partialInput: string) => {
       if (name !== 'send') return;
       const delta = feedSendContentDelta(sendTracker, partialInput);
       if (delta) {
-        checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_DELTA, delta });
+        checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.USER_REPLY_DELTA, delta });
       }
     },
     onToolResult: (name: string, toolUseId: ToolUseId, result: { success: boolean; content: string }, step: number, maxSteps: number) => {
@@ -67,7 +67,7 @@ export function createStreamCallbacks(
       const summary = content.length <= STREAM_SUMMARY_MAX_CHARS ? content : content.slice(0, STREAM_SUMMARY_MAX_CHARS) + '…';
       checkWrite({
         ts: Date.now(),
-        type: AGENT_STREAM_EVENTS.TOOL_RESULT,
+        type: STREAM_EVENT_NAMES.TOOL_RESULT,
         name,
         tool_use_id: toolUseId,
         success: result.success,
@@ -79,18 +79,18 @@ export function createStreamCallbacks(
     onTurnStart: (sources: Array<{ text: string; type: string }>) => {
       checkWrite({
         ts: Date.now(),
-        type: AGENT_STREAM_EVENTS.TURN_START,
+        type: STREAM_EVENT_NAMES.TURN_START,
         sources: sources.length > 0 ? sources : undefined,
       });
     },
     onTurnEnd: () => {
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_END });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_END });
     },
     onTurnError: (error: string) => {
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_ERROR, error });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_ERROR, error });
     },
     onTurnInterrupted: (cause: string, message?: string) => {
-      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_INTERRUPTED, cause, ...(message ? { message } : {}) });
+      checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_INTERRUPTED, cause, ...(message ? { message } : {}) });
     },
     onProviderInfo: (info: { name: string; model: string; isFallback: boolean }) => {
       checkWrite({ ts: Date.now(), type: 'provider_info', ...info });

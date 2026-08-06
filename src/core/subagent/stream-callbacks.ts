@@ -14,7 +14,7 @@
 import type { StreamEvent, StreamLog } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
+import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
@@ -77,20 +77,20 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
 
   const callbacks: PrimitiveStreamCallbacks = {
     onBeforeLLMCall: () => {
-      safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.LLM_START });
+      safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.LLM_START });
     },
     onTextDelta: (delta) => {
-      safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_DELTA, delta });
+      safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TEXT_DELTA, delta });
     },
     onThinkingDelta: (delta) => {
-      safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.THINKING_DELTA, delta });
+      safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.THINKING_DELTA, delta });
     },
     onTextEnd: () => {
-      safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_END });
+      safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TEXT_END });
     },
     onToolCall: (name, toolUseId) => {
       if (name === 'send') sendTracker = createSendContentTracker();
-      safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_CALL, name, tool_use_id: toolUseId });
+      safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TOOL_CALL, name, tool_use_id: toolUseId });
     },
     onToolCallInput: (name, toolUseId, args) => {
       // phase 1411 (reframe of phase 1409): typed emit `tool_call_input` index row.
@@ -102,16 +102,16 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       // phase 688: args body 落 stream.jsonl（流式产物全文契约）。
       // 与 onToolCallInput(audit only size) 互补：audit 仍只 index、stream.jsonl 才存 body。
       // catch 路径 drain 时也走此回调，确保 LLM 流中已 parse 的 input 不被静默丢弃。
-      safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
+      safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
       if (name === 'send') {
-        safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_END });
+        safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.USER_REPLY_END });
       }
     },
     onToolUseInputDelta: (name, _toolUseId, partialInput) => {
       if (name !== 'send') return;
       const delta = feedSendContentDelta(sendTracker, partialInput);
       if (delta) {
-        safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.USER_REPLY_DELTA, delta });
+        safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.USER_REPLY_DELTA, delta });
       }
     },
     onToolResult: (name, toolUseId, result, step, maxSteps) => {
@@ -130,7 +130,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       );
       safeSwWrite({
         ts: Date.now(),
-        type: AGENT_STREAM_EVENTS.TOOL_RESULT,
+        type: STREAM_EVENT_NAMES.TOOL_RESULT,
         name,
         tool_use_id: toolUseId,
         success: result.success,
