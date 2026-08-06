@@ -19,7 +19,7 @@ import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
-import { SHUTDOWN_DRAIN_GRACE_MS } from '../../src/core/async-task-system/constants.js';
+
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { TEST_LLM_TIMEOUT_MS, SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/constants.js';
@@ -127,14 +127,11 @@ function createAbortableHangingMockLLM(): LLMOrchestrator {
 }
 
 async function shutdownWithVirtualGrace(system: AsyncTaskSystem): Promise<boolean> {
-  vi.useFakeTimers();
-  try {
-    const shutdown = system.shutdown(1);
-    await vi.advanceTimersByTimeAsync(SHUTDOWN_DRAIN_GRACE_MS + 1);
-    return await shutdown;
-  } finally {
-    vi.useRealTimers();
-  }
+  // phase 1310: 放弃 fake timers，改为真实 timer 跑 shutdown(1)。
+  // 原 fake-timer 方案在并发全量跑时会冻结飞行中的真实 timer（如 watcher close、
+  // abort 传播链中的在途 setTimeout），导致 case 偶发 15s testTimeout。
+  // 真实 timer 下 1ms shutdown timeout + 1000ms drain grace ≈ 1s，在 15s 预算内。
+  return system.shutdown(1);
 }
 
 describe('Task System + SubAgent', () => {
