@@ -112,17 +112,23 @@ export async function removeDir(dirPath: string): Promise<void> {
 }
 
 /**
- * Move/rename a file or directory (atomic on same filesystem)
+ * Move/rename a file (atomic on same filesystem).
+ * For directories, use moveDir().
  */
 export async function moveFile(src: string, dst: string): Promise<void> {
   try {
     await fs.rename(src, dst);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    // single-file semantics: directories should use moveDir(); copyFile on a directory
+    // throws EISDIR with a misleading message, so reject early with a clear guide.
+    const srcStat = await fs.stat(src);
+    if (srcStat.isDirectory()) {
+      throw new Error(`moveFile only supports files; use moveDir() for directories: ${src}`);
+    }
     // phase 289 Step B: cross-filesystem fallback (mirror `mv` behavior)
     // atomicity is lost across fs boundaries, but business paths stay intact
     // phase 454 (review N3-M): fsync dst + size verify 让跨 fs 路径 crash-safe + 防 copyFile 截断
-    const srcStat = await fs.stat(src);
     await fs.copyFile(src, dst);
     const fh = await fs.open(dst, 'r+');
     try { await fh.sync(); } finally { await fh.close(); }
@@ -132,6 +138,42 @@ export async function moveFile(src: string, dst: string): Promise<void> {
       throw new Error(`moveFile EXDEV size mismatch: src=${src} (${srcStat.size}) dst=${dst} (${dstStat.size})`);
     }
     await fs.unlink(src);
+  }
+}
+
+/**
+ * Recursively compute the total byte size of all regular files under a directory.
+ */
+async function dirTotalSize(dirPath: string): Promise<number> {
+  let total = 0;
+  for (const entry of await fs.readdir(dirPath, { withFileTypes: true })) {
+    const entryPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      total += await dirTotalSize(entryPath);
+    } else if (entry.isFile()) {
+      total += (await fs.stat(entryPath)).size;
+    }
+  }
+  return total;
+}
+
+/**
+ * Move/rename a directory (atomic on same filesystem);
+ * cross-filesystem EXDEV fallback: recursive copy + size verify + unlink src.
+ */
+export async function moveDir(src: string, dst: string): Promise<void> {
+  try {
+    await fs.rename(src, dst);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    await fs.cp(src, dst, { recursive: true });
+    const srcSize = await dirTotalSize(src);
+    const dstSize = await dirTotalSize(dst);
+    if (srcSize !== dstSize) {
+      // size mismatch: do not unlink src (preserve data) and let caller decide
+      throw new Error(`moveDir EXDEV size mismatch: src=${src} (${srcSize}) dst=${dst} (${dstSize})`);
+    }
+    await fs.rm(src, { recursive: true });
   }
 }
 

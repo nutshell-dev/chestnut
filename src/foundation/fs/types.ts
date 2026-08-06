@@ -138,7 +138,8 @@ export interface FileSystem {
   delete(path: string): Promise<void>;
 
   /**
-   * Move/rename a file atomically
+   * Move/rename a file atomically.
+   * For directories, use moveDir().
    * @param fromPath - Source path (relative within configured baseDir)
    * @param toPath - Destination path (relative within configured baseDir)
    */
@@ -159,6 +160,14 @@ export interface FileSystem {
    * @param path - Relative path within configured baseDir
    */
   removeDir(path: string): Promise<void>;
+
+  /**
+   * Move/rename a directory atomically (same filesystem);
+   * cross-filesystem EXDEV fallback: recursive copy + size verify + unlink src.
+   * @param fromPath - Source directory path (relative within configured baseDir)
+   * @param toPath - Destination path (relative within configured baseDir)
+   */
+  moveDir(fromPath: string, toPath: string): Promise<void>;
   
   /**
    * List directory contents
@@ -275,6 +284,7 @@ export interface FileSystem {
 
   /**
    * Move/rename a file synchronously.
+   * For directories, use moveDirSync().
    * @param fromPath - Source path (relative within configured baseDir)
    * @param toPath - Destination path (relative within configured baseDir)
    */
@@ -304,6 +314,14 @@ export interface FileSystem {
    * @throws if path is not a directory or other I/O error
    */
   removeDirSync(path: string): void;
+
+  /**
+   * Move/rename a directory atomically (same filesystem), synchronously;
+   * cross-filesystem EXDEV fallback: recursive copy + size verify + unlink src.
+   * @param fromPath - Source directory path (relative within configured baseDir)
+   * @param toPath - Destination path (relative within configured baseDir)
+   */
+  moveDirSync(fromPath: string, toPath: string): void;
 
   /**
    * Resolve symlinks to canonical absolute path (sync).

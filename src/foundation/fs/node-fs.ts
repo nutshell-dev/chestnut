@@ -23,6 +23,7 @@ import {
   deleteFile,
   removeDir,
   moveFile,
+  moveDir,
   exists,
   stat,
   isDirectory,
@@ -56,6 +57,22 @@ function wrapENOENTSync<T>(
     }
     throw error;
   }
+}
+
+/**
+ * Recursively compute the total byte size of all regular files under a directory.
+ */
+function dirTotalSizeSync(dirPath: string): number {
+  let total = 0;
+  for (const entry of fsSync.readdirSync(dirPath, { withFileTypes: true })) {
+    const entryPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      total += dirTotalSizeSync(entryPath);
+    } else if (entry.isFile()) {
+      total += fsSync.statSync(entryPath).size;
+    }
+  }
+  return total;
 }
 
 /**
@@ -448,6 +465,16 @@ export class NodeFileSystem implements FileSystem {
     return wrapENOENT(fromPath, () => moveFile(fromAbsolute, toAbsolute));
   }
 
+  async moveDir(fromPath: string, toPath: string): Promise<void> {
+    const fromAbsolute = this.resolveAndCheck(fromPath);
+    const toAbsolute = this.resolveAndCheck(toPath);
+
+    // Ensure destination directory exists
+    await ensureDir(path.dirname(toAbsolute));
+
+    return wrapENOENT(fromPath, () => moveDir(fromAbsolute, toAbsolute));
+  }
+
   resolve(relativePath: string): string {
     return this.resolveAndCheck(relativePath);
   }
@@ -559,9 +586,45 @@ export class NodeFileSystem implements FileSystem {
         fsSync.renameSync(fromAbsolute, toAbsolute);
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+        // single-file semantics: directories should use moveDirSync(); copyFile on a directory
+        // throws EISDIR with a misleading message, so reject early with a clear guide.
+        const srcStat = fsSync.statSync(fromAbsolute);
+        if (srcStat.isDirectory()) {
+          throw new Error(`moveSync only supports files; use moveDirSync() for directories: ${fromAbsolute}`);
+        }
         // phase 289 Step B: cross-filesystem fallback (mirror `mv` behavior)
+        // phase 1314: mirror async moveFile fallback with fsync + size verify to prevent
+        // partial-copy-then-unlink data loss across filesystems.
         fsSync.copyFileSync(fromAbsolute, toAbsolute);
+        const fd = fsSync.openSync(toAbsolute, 'r+');
+        try { fsSync.fsyncSync(fd); } finally { fsSync.closeSync(fd); }
+        const dstStat = fsSync.statSync(toAbsolute);
+        if (srcStat.size !== dstStat.size) {
+          // size mismatch: do not unlink src (preserve data) and let caller decide
+          throw new Error(`moveSync EXDEV size mismatch: src=${fromAbsolute} (${srcStat.size}) dst=${toAbsolute} (${dstStat.size})`);
+        }
         fsSync.unlinkSync(fromAbsolute);
+      }
+    });
+  }
+
+  moveDirSync(fromPath: string, toPath: string): void {
+    return wrapENOENTSync(fromPath, () => {
+      const fromAbsolute = this.resolveAndCheck(fromPath);
+      const toAbsolute = this.resolveAndCheck(toPath);
+      fsSync.mkdirSync(path.dirname(toAbsolute), { recursive: true });
+      try {
+        fsSync.renameSync(fromAbsolute, toAbsolute);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+        fsSync.cpSync(fromAbsolute, toAbsolute, { recursive: true });
+        const srcSize = dirTotalSizeSync(fromAbsolute);
+        const dstSize = dirTotalSizeSync(toAbsolute);
+        if (srcSize !== dstSize) {
+          // size mismatch: do not unlink src (preserve data) and let caller decide
+          throw new Error(`moveDirSync EXDEV size mismatch: src=${fromAbsolute} (${srcSize}) dst=${toAbsolute} (${dstSize})`);
+        }
+        fsSync.rmSync(fromAbsolute, { recursive: true });
       }
     });
   }
