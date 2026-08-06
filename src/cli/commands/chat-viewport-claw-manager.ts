@@ -212,7 +212,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
               }
             }
           } catch {
-            // 保持原 try/catch：malformed event skip
+            // silent: malformed event skip — single event parse failure, next event continues; track partial state remains
           }
         }
         updateClawPanel(clawTrackMap);
