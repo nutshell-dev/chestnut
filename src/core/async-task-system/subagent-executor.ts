@@ -8,7 +8,7 @@ import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/to
 import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
 import { createDialogStore, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 
-import { STREAM_TASK_EVENTS } from './stream-events.js';
+import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
 import {
   emitTaskCompleted,
@@ -116,7 +116,7 @@ export async function executeSubAgentTask(
   // task_started emitted here (after dir exists) so viewport per-task reader won't ENOENT
   parentStreamLog?.write({
     ts: Date.now(),
-    type: STREAM_TASK_EVENTS.TASK_STARTED,
+    type: STREAM_EVENT_NAMES.TASK_STARTED,
     taskId: task.id,
     taskKind: task.callerType ?? 'spawn_subagent',
     silent: false,
@@ -125,7 +125,7 @@ export async function executeSubAgentTask(
   const taskStreamWriter = createPerResourceStreamWriter(fs, taskStreamPath, auditWriter);
   taskStreamWriter.write({
     ts: Date.now(),
-    type: STREAM_TASK_EVENTS.TASK_ATTEMPT_START,
+    type: STREAM_EVENT_NAMES.TASK_ATTEMPT_START,
     taskId: task.id,
   });
 
