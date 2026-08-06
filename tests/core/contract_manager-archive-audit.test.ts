@@ -176,7 +176,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         verification: [],
       }));
 
-      const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('disk full'));
+      const moveSpy = vi.spyOn(nodeFs, 'moveDir').mockRejectedValue(new Error('disk full'));
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
@@ -210,8 +210,8 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         verification: [],
       }));
 
-      // Spy on fs.move to make the terminal directory rename fail.
-      const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('disk full'));
+      // Spy on fs.moveDir to make the terminal directory rename fail.
+      const moveSpy = vi.spyOn(nodeFs, 'moveDir').mockRejectedValue(new Error('disk full'));
 
       // Complete the subtask (no verification = allCompleted = true, sync path)
       await completeSubtask(testManager, { contractId, subtaskId: 't1', evidence: 'done' });

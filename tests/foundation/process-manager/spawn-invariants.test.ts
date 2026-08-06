@@ -132,7 +132,7 @@ describe('spawn', () => {
 
       // 模拟并发：precheck 通过（无 spawning），另一进程在 move 前留下 malformed spawning
       let moveCallCount = 0;
-      vi.spyOn(nodeFs, 'moveSync').mockImplementation((src: string, dest: string) => {
+      vi.spyOn(nodeFs, 'moveDirSync').mockImplementation((src: string, dest: string) => {
         if (src.includes('/candidates/')) {
           moveCallCount++;
           if (moveCallCount === 1) {
@@ -144,7 +144,7 @@ describe('spawn', () => {
             throw err;
           }
         }
-        return (NodeFileSystem.prototype as any).moveSync.call(nodeFs, src, dest);
+        return (NodeFileSystem.prototype as any).moveDirSync.call(nodeFs, src, dest);
       });
 
       const ctx = defaultCtx(nodeFs, audit);
@@ -515,7 +515,7 @@ describe('spawn', () => {
 
       // 模拟并发：precheck 后另一进程先 commit，本进程 move 时 collision
       let moveCallCount = 0;
-      vi.spyOn(nodeFs, 'moveSync').mockImplementation((src: string, dest: string) => {
+      vi.spyOn(nodeFs, 'moveDirSync').mockImplementation((src: string, dest: string) => {
         if (src.includes('/candidates/')) {
           moveCallCount++;
           if (moveCallCount === 1) {
@@ -538,7 +538,7 @@ describe('spawn', () => {
             throw err;
           }
         }
-        return (NodeFileSystem.prototype as any).moveSync.call(nodeFs, src, dest);
+        return (NodeFileSystem.prototype as any).moveDirSync.call(nodeFs, src, dest);
       });
 
       const ctx = defaultCtx(nodeFs, audit);

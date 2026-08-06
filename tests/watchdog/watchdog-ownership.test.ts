@@ -86,7 +86,7 @@ describe('NodeFileSystem move 前提证明（协议依赖 rename 不覆盖非空
     fs.mkdirSync(path.join(chestnutDir, 'dst-dir'), { recursive: true });
     fs.writeFileSync(path.join(chestnutDir, 'dst-dir', 'owner.json'), 'DST');
 
-    expect(() => chestnutFs.moveSync('src-dir', 'dst-dir')).toThrow();
+    expect(() => chestnutFs.moveDirSync('src-dir', 'dst-dir')).toThrow();
 
     expect(fs.readFileSync(path.join(chestnutDir, 'src-dir', 'owner.json'), 'utf-8')).toBe('SRC');
     expect(fs.readFileSync(path.join(chestnutDir, 'dst-dir', 'owner.json'), 'utf-8')).toBe('DST');
@@ -96,7 +96,7 @@ describe('NodeFileSystem move 前提证明（协议依赖 rename 不覆盖非空
     fs.mkdirSync(path.join(chestnutDir, 'src-dir'), { recursive: true });
     fs.writeFileSync(path.join(chestnutDir, 'src-dir', 'owner.json'), 'SRC');
 
-    chestnutFs.moveSync('src-dir', 'dst-dir');
+    chestnutFs.moveDirSync('src-dir', 'dst-dir');
 
     expect(fs.existsSync(path.join(chestnutDir, 'src-dir'))).toBe(false);
     expect(fs.readFileSync(path.join(chestnutDir, 'dst-dir', 'owner.json'), 'utf-8')).toBe('SRC');

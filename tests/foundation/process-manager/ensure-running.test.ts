@@ -237,12 +237,12 @@ describe('ensureRunning', () => {
     const daemonDir = testClawDaemonDir(tempDir, 'ensure-join-commit-lost');
     const generationId = randomUUID();
 
-    // candidate → spawning commit 的 moveSync 前注入 foreign winner ——
-    // prepare/commit 是同步段，audit gate 无法在两者之间插入；hook moveSync 确定性制造 commit_lost。
+    // candidate → spawning commit 的 moveDirSync 前注入 foreign winner ——
+    // prepare/commit 是同步段，audit gate 无法在两者之间插入；hook moveDirSync 确定性制造 commit_lost。
     let injected = false;
     const fsProxy = new Proxy(nodeFs, {
       get(target, prop, receiver) {
-        if (prop === 'moveSync') {
+        if (prop === 'moveDirSync') {
           return (src: string, dest: string) => {
             if (!injected && src.includes('candidates')) {
               injected = true;

@@ -108,6 +108,29 @@ function makeCtx(overrides: { moveThrow?: Error } = {}) {
       dirs.delete(src);
       addDir(dst);
     }),
+    moveDir: vi.fn(async (src: string, dst: string) => {
+      if (overrides.moveThrow) throw overrides.moveThrow;
+      const entries: Array<[string, string]> = [];
+      for (const [k, v] of files.entries()) {
+        if (k === src || k.startsWith(src + '/')) {
+          entries.push([k, v]);
+        }
+      }
+      if (entries.length === 0) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      }
+      for (const [k, v] of entries) {
+        const relative = k.slice(src.length);
+        const newKey = dst + relative;
+        addDir(path.dirname(newKey));
+        files.set(newKey, v);
+        files.delete(k);
+      }
+      dirs.delete(src);
+      addDir(dst);
+    }),
     list: vi.fn(async () => []),
     listSync: vi.fn(() => []),
   } as unknown as typeof nodeFs;

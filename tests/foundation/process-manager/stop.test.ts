@@ -209,7 +209,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
       l1IsAlive: () => {
         if (!moved) {
           // Simulate child activate between intent write and signal delivery.
-          nodeFs.moveSync(spawningDir, getActiveDir(daemonDir));
+          nodeFs.moveDirSync(spawningDir, getActiveDir(daemonDir));
           moved = true;
         }
         return alive;
@@ -269,7 +269,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     vi.spyOn(nodeFs, 'readSync').mockImplementation((p) => {
       if (p === activeGenerationPath && !moved) {
         moved = true;
-        nodeFs.moveSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
+        nodeFs.moveDirSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
         const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
         err.code = 'ENOENT';
         throw err;
@@ -308,7 +308,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
         // 第三次：retireGeneration 读 spawning generation（触发 move）
         if (readCount === 3 && !moved) {
           moved = true;
-          nodeFs.moveSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
+          nodeFs.moveDirSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
           const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
           err.code = 'ENOENT';
           throw err;

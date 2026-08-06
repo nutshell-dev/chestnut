@@ -284,7 +284,7 @@ export function recordGenerationTerminal(
 export function commitOwnership(fs: FileSystem, record: WatchdogOwnerRecord): CommitOwnership {
   const src = candidateDir(record.attempt_id);
   try {
-    fs.moveSync(src, WATCHDOG_ACTIVE_DIR);
+    fs.moveDirSync(src, WATCHDOG_ACTIVE_DIR);
   } catch (moveErr) {
     return resolveCommitCollision(fs, record, formatErr(moveErr));
   }
@@ -395,7 +395,7 @@ export function retireOwnership(
     return { kind: 'collision', owner };
   }
   try {
-    fs.moveSync(WATCHDOG_ACTIVE_DIR, retiredDest);
+    fs.moveDirSync(WATCHDOG_ACTIVE_DIR, retiredDest);
   } catch (moveErr) {
     if (fs.existsSync(retiredDest)) return { kind: 'collision', owner };
     return { kind: 'retryable_failure', cause: formatErr(moveErr) };

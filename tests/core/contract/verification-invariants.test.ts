@@ -109,6 +109,29 @@ describe('archiveAndEmit (phase 951)', () => {
         dirs.delete(src);
         addDir(dst);
       }),
+      moveDir: vi.fn(async (src: string, dst: string) => {
+        if (opts.moveThrow) throw opts.moveThrow;
+        const entries: Array<[string, string]> = [];
+        for (const [k, v] of files.entries()) {
+          if (k === src || k.startsWith(src + '/')) {
+            entries.push([k, v]);
+          }
+        }
+        if (entries.length === 0) {
+          const err = new Error('ENOENT') as NodeJS.ErrnoException;
+          err.code = 'ENOENT';
+          throw err;
+        }
+        for (const [k, v] of entries) {
+          const relative = k.slice(src.length);
+          const newKey = dst + relative;
+          addDir(path.dirname(newKey));
+          files.set(newKey, v);
+          files.delete(k);
+        }
+        dirs.delete(src);
+        addDir(dst);
+      }),
       list: vi.fn(async () => []),
       listSync: vi.fn(() => []),
       removeDir: vi.fn(async () => {}),
@@ -578,8 +601,8 @@ describe('archiveAndEmit failure recovery (phase 1132 Step D)', () => {
     progress.subtasks['t1'].completed_at = new Date().toISOString();
     await (manager as any).saveActiveProgressExisting(contractId, progress);
 
-    // Spy fs.move to throw (simulating archive failure)
-    vi.spyOn(nodeFs, 'move').mockRejectedValue(new Error('disk full'));
+    // Spy fs.moveDir to throw (simulating archive failure)
+    vi.spyOn(nodeFs, 'moveDir').mockRejectedValue(new Error('disk full'));
 
     await archiveAndEmit(
       (manager as any)._verificationCtx(),

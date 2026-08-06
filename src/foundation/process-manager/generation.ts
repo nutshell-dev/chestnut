@@ -396,7 +396,7 @@ export function commitSpawning(ctx: ProcessManagerContext, record: ProcessGenera
   const daemonDir = record.daemon_dir as DaemonDir;
   const src = getCandidateDir(daemonDir, record.generation_id);
   try {
-    ctx.fs.moveSync(src, getSpawningDir(daemonDir));
+    ctx.fs.moveDirSync(src, getSpawningDir(daemonDir));
   } catch (moveErr) {
     return resolveCommitCollision(ctx, record, formatErr(moveErr));
   }
@@ -619,7 +619,7 @@ export function activateGeneration(
     return { kind: 'identity_mismatch', record };
   }
   try {
-    ctx.fs.moveSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
+    ctx.fs.moveDirSync(getSpawningDir(daemonDir), getActiveDir(daemonDir));
   } catch (moveErr) {
     return resolveActivateCollision(ctx, daemonDir, record, formatErr(moveErr));
   }
@@ -708,7 +708,7 @@ export function retireGeneration(
     return { kind: 'collision', record };
   }
   try {
-    ctx.fs.moveSync(srcDir, retiredDest);
+    ctx.fs.moveDirSync(srcDir, retiredDest);
   } catch (moveErr) {
     if (ctx.fs.existsSync(retiredDest)) return { kind: 'collision', record };
     return { kind: 'retryable_failure', cause: formatErr(moveErr) };

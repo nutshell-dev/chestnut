@@ -144,7 +144,7 @@ export async function commitTerminalLifecycle(
   const targetRoot = `${targetContainer}/${contractId}`;
 
   try {
-    await ctx.fs.move(sourceRoot, targetRoot);
+    await ctx.fs.moveDir(sourceRoot, targetRoot);
     return {
       kind: 'committed',
       state: targetState,

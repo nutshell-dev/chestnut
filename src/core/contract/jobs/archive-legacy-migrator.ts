@@ -146,7 +146,7 @@ export async function migrateLegacyArchiveEntries(
       }
 
       await ctx.fs.ensureDir(stateContainer);
-      await ctx.fs.move(e.contractRoot, targetDir);
+      await ctx.fs.moveDir(e.contractRoot, targetDir);
       migrated++;
       emitContractArchiveLegacyMigrated(ctx.audit, {
         clawId,
