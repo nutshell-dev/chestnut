@@ -222,6 +222,7 @@ const VI_MOCK_FILES = [
   'tests/watchdog/watchdog-claws-dir-list-failed-audit.test.ts',
   'tests/watchdog/watchdog-cron-map-cleanup-no-claws-dir.test.ts',
   'tests/watchdog/watchdog-cli-stop-pid-missing.test.ts',
+  'tests/cli/claw-router-root-config.test.ts',  // phase 1301 Step C: vi.mock claw/stop/ps/ensure/pid/audit factories
 ];
 
 /**
