@@ -280,6 +280,7 @@ const INTEGRATION_IO_FILES = [
   // watcher / symlink
   'tests/foundation/file-watcher*.test.ts',
   'tests/foundation/file-watcher/**/*.test.ts',
+  'tests/foundation/fs/exdev-fallback.test.ts',
   'tests/foundation/fs/node-fs-symlink*.test.ts',
 ];
 
