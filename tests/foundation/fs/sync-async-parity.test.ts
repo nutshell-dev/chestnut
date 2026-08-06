@@ -5,9 +5,10 @@ import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 describe('fs/types.ts: sync/async parity', () => {
-  it('interface contains removeDirSync, realpathSync, isDirectorySync', () => {
+  it('interface contains removeDirSync, moveDirSync, realpathSync, isDirectorySync', () => {
     const src = fs.readFileSync('src/foundation/fs/types.ts', 'utf-8');
     expect(src).toMatch(/removeDirSync\(/);
+    expect(src).toMatch(/moveDirSync\(/);
     expect(src).toMatch(/realpathSync\(/);
     expect(src).toMatch(/isDirectorySync\(/);
   });
