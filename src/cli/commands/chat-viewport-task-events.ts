@@ -10,6 +10,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import type { TaskStatusBarController } from './chat-viewport-task-status-bar.js';
 import type { TaskId } from '../../core/async-task-system/index.js';
+import type { StreamEvent } from '../../foundation/stream/index.js';
 
 
 export interface TaskEventHandlerDeps {
@@ -18,19 +19,10 @@ export interface TaskEventHandlerDeps {
   audit?: AuditLog;
 }
 
-export type TaskEvent = {
-  type: string;
-  name?: unknown;
-  success?: unknown;
-  step?: unknown;
-  maxSteps?: unknown;
-  summary?: unknown;
-  delta?: unknown;
-  [key: string]: unknown;
-};
+export type TaskEvent = StreamEvent;
 
 export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
-  return (taskId: TaskId, event: TaskEvent) => {
+  return (taskId: TaskId, event: StreamEvent) => {
     switch (event.type) {
       case 'tool_call':
       case 'tool_result':
@@ -56,7 +48,22 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
         break;
       }
 
-      default: {
+      // 非消费类型显式声明：保持原 default 的 UNKNOWN audit
+      case 'turn_start': case 'llm_start': case 'text_end':
+      case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end': case 'user_reply':
+      case 'provider_info': case 'provider_failover': case 'provider_failed':
+      case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
+      case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':
+      case 'stream_reset': case 'stream_parse_error': case 'tool_arg_parse_error':
+      case 'idle_failover_triggered': case 'stream_idle_probe_attempted': case 'stream_idle_probe_succeeded':
+      case 'context_exceeded_failover': case 'context_exceeded_throwthrough': case 'permanent_skip_retry':
+      case 'hedge_started': case 'hedge_primary_recovered': case 'hedge_primary_post_first_chunk_failure':
+      case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
+      case 'all_providers_context_exceeded': case 'race_loser_cleaned':
+      case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':
+      case 'user_notify': case 'contract_events': case 'contract_cancelled':
+      case 'session_boundary': case 'daemon_started':
+      case 'task_started': case 'task_completed': case 'task_attempt_start': {
         deps.audit?.write(
           VIEWPORT_AUDIT_EVENTS.UNKNOWN_EVENT,
           `context=task_event`,
@@ -64,6 +71,11 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
           `taskId=${taskId}`,
         );
         break;
+      }
+
+      default: {
+        const _exhaustive: never = event.type;
+        void _exhaustive;
       }
     }
   };

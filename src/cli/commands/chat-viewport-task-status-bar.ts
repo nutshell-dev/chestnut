@@ -14,6 +14,7 @@
 
 import { fitLine } from '../utils/string.js';
 import { formatIsoClock } from '../utils/time.js';
+import type { StreamEvent } from '../../foundation/stream/index.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
 import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
 
@@ -85,7 +86,7 @@ export interface MigratedExecTrack {
 export interface TaskStatusBarController {
   addTrack(taskId: TaskId, taskKind: string): void;
   removeTrack(taskId: TaskId): void;
-  updateTrack(taskId: TaskId, event: { type: string; [key: string]: unknown }): void;
+  updateTrack(taskId: TaskId, event: StreamEvent): void;
   addMigratedExec(track: MigratedExecTrack): void;
   removeMigratedExec(taskId: TaskId): void;
   renderSpawn(cols: number): string;   // 多行 join、堆顶 = 数组 head
@@ -130,7 +131,7 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
     return spawnTracks.find(tr => tr.taskId === taskId) ?? shadowTracks.find(tr => tr.taskId === taskId);
   };
 
-  const updateTrack = (taskId: TaskId, event: { type: string; [key: string]: unknown }) => {
+  const updateTrack = (taskId: TaskId, event: StreamEvent) => {
     const tr = find(taskId);
     if (!tr) return;   // 未注册 task 不处理
     switch (event.type) {
@@ -180,8 +181,29 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
       case 'retry_scheduled':
         // task 流不消费 provider 级事件（owner 写主 stream）；不落入 UNKNOWN audit。
         return;
-      default:
+
+      // 非消费类型显式声明：状态条不处理（保持原静默语义）
+      case 'turn_start': case 'llm_start': case 'text_end':
+      case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end': case 'user_reply':
+      case 'provider_info': case 'provider_failover': case 'provider_failed':
+      case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
+      case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':
+      case 'stream_reset': case 'stream_parse_error': case 'tool_arg_parse_error':
+      case 'idle_failover_triggered': case 'stream_idle_probe_attempted': case 'stream_idle_probe_succeeded':
+      case 'context_exceeded_failover': case 'context_exceeded_throwthrough': case 'permanent_skip_retry':
+      case 'hedge_started': case 'hedge_primary_recovered': case 'hedge_primary_post_first_chunk_failure':
+      case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
+      case 'all_providers_context_exceeded': case 'race_loser_cleaned':
+      case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':
+      case 'user_notify': case 'contract_events': case 'contract_cancelled':
+      case 'session_boundary': case 'daemon_started':
+      case 'task_started': case 'task_completed': case 'task_attempt_start':
         return;
+
+      default: {
+        const _exhaustive: never = event.type;
+        void _exhaustive;
+      }
     }
     deps.updateRender();
   };

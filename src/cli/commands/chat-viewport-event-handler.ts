@@ -12,7 +12,7 @@ import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.j
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
-import type { StreamReader } from '../../foundation/stream/index.js';
+import type { StreamEvent, StreamReader } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { TurnTracker } from './chat-viewport-types.js';
@@ -83,7 +83,7 @@ export type EventHandlerDeps = TurnLifecycleRole & DisplayRenderRole & InboxFilt
 export function createEventHandler(deps: EventHandlerDeps) {
   // phase 1277: 连续失败序列中 ALL_FAILED 只报第一次；成功 turn（turn_end）重置。
   let allFailedReported = false;
-  return function handleEvent(event: { type: string; [key: string]: unknown }): void {
+  return function handleEvent(event: StreamEvent): void {
     deps.observability.recordEvent(event.type);
     switch (event.type) {
       case 'turn_start': {
@@ -431,12 +431,31 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
-      default: {
-        // 未识别 event 防 silent drift / audit-only / 不 console.warn 防 TUI raw mode 渲染污染
+      // 非消费类型显式声明：保持原 default 的 UNKNOWN audit 可观测性
+      case 'tool_use_input':
+      case 'provider_failover':
+      case 'retry_scheduled':
+      case 'breaker_half_open': case 'breaker_closed':
+      case 'healthcheck_failed': case 'stream_reset': case 'stream_parse_error':
+      case 'tool_arg_parse_error': case 'idle_failover_triggered':
+      case 'stream_idle_probe_attempted': case 'stream_idle_probe_succeeded':
+      case 'context_exceeded_failover': case 'context_exceeded_throwthrough':
+      case 'permanent_skip_retry':
+      case 'hedge_started': case 'hedge_primary_recovered': case 'hedge_primary_post_first_chunk_failure':
+      case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
+      case 'all_providers_context_exceeded': case 'race_loser_cleaned':
+      case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':
+      case 'contract_events': case 'contract_cancelled': case 'session_boundary':
+      case 'daemon_started': case 'task_attempt_start': {
         try {
           deps.audit.write(VIEWPORT_AUDIT_EVENTS.UNKNOWN_EVENT, `type=${event.type}`);
         } catch { /* audit self-failure tolerated */ }
         break;
+      }
+
+      default: {
+        const _exhaustive: never = event.type;
+        void _exhaustive;
       }
     }
   };

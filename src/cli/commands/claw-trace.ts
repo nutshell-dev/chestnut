@@ -8,6 +8,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
+import type { StreamEvent } from '../../foundation/stream/index.js';
 import * as yaml from 'js-yaml';
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
@@ -19,17 +20,6 @@ import type { ContractId } from '../../core/contract/index.js';
 
 /** claw-trace separator console.log 输出截断 cap（防 terminal 过长）*/
 const SEP_DISPLAY_CHARS = 50;
-
-interface StreamEvent {
-  ts: number;
-  type: string;
-  name?: string;
-  success?: boolean;
-  subtype?: string;
-  delta?: string;
-  tool_use_id?: string;
-  summary?: string;
-}
 
 interface DialogMessage {
   role: string;
@@ -261,7 +251,7 @@ function showTraceOverview(
         break;
       }
       case 'text_delta': {
-        if (ev.delta) textBuf += ev.delta;
+        if (typeof ev.delta === 'string') textBuf += ev.delta;
         break;
       }
       case 'text_end': {
@@ -275,18 +265,40 @@ function showTraceOverview(
       case 'tool_result': {
         const slotChar = slotLetter(slotInTurn);
         slotInTurn++;
-        const name = ev.name || 'unknown';
+        const name = (ev.name as string | undefined) || 'unknown';
         const mark = ev.success === false ? ' ✗' : '';
-        const summaryPart = ev.summary ? ` ${ev.summary}` : '';
+        const summaryPart = (ev.summary as string | undefined) ? ` ${ev.summary as string}` : '';
         console.log(`[${turn}.${slotChar}] ${name}:${mark}${summaryPart}`);
         break;
       }
       case 'user_notify': {
         // user_notify 标记影响下一 turn 的 LLM 反应、trigger 标注下一 turn header
         if (ev.subtype) {
-          pendingTrigger = ev.subtype;
+          pendingTrigger = ev.subtype as string;
         }
         break;
+      }
+      // 非消费类型显式声明：trace 不显示（保持原静默语义）
+      case 'turn_start': case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end': case 'user_reply':
+      case 'provider_info': case 'provider_failover': case 'provider_failed':
+      case 'llm_retry_waiting': case 'provider_attempt_failed': case 'retry_scheduled':
+      case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
+      case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':
+      case 'stream_reset': case 'stream_parse_error': case 'tool_arg_parse_error':
+      case 'idle_failover_triggered': case 'stream_idle_probe_attempted': case 'stream_idle_probe_succeeded':
+      case 'context_exceeded_failover': case 'context_exceeded_throwthrough': case 'permanent_skip_retry':
+      case 'hedge_started': case 'hedge_primary_recovered': case 'hedge_primary_post_first_chunk_failure':
+      case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
+      case 'all_providers_context_exceeded': case 'race_loser_cleaned':
+      case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':
+      case 'contract_events': case 'contract_cancelled': case 'session_boundary':
+      case 'daemon_started': case 'task_started': case 'task_completed': case 'task_attempt_start':
+      case 'turn_end': case 'turn_error': case 'turn_interrupted':
+        break;
+
+      default: {
+        const _exhaustive: never = ev.type;
+        void _exhaustive;
       }
     }
   }
@@ -324,8 +336,8 @@ async function showStepDetail(
     }
     if (ev.type === 'tool_result' && curTurn === targetTurn) {
       if (curSlot === targetSlot) {
-        targetToolName = ev.name || 'unknown';
-        targetToolUseId = ev.tool_use_id || '';
+        targetToolName = (ev.name as string | undefined) || 'unknown';
+        targetToolUseId = (ev.tool_use_id as string | undefined) || '';
         break;
       }
       curSlot++;
@@ -462,7 +474,7 @@ async function showStepDetail(
   console.log('');
 
   if (targetToolResult) {
-    const streamResult = events.find(ev => ev.type === 'tool_result' && ev.tool_use_id === targetToolUseId);
+    const streamResult = events.find(ev => ev.type === 'tool_result' && (ev.tool_use_id as string | undefined) === targetToolUseId);
     const success = streamResult ? streamResult.success !== false : true;
     console.log(`Result (${success ? 'success' : 'failed'}):`);
     console.log(formatToolResultContent(targetToolResult.content));
