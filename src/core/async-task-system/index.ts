@@ -15,7 +15,7 @@ import type { AsyncTaskSystemOptions } from './types.js';
 
 export { AsyncTaskSystem } from './system.js';
 export type { SubAgentTask, PreparedSubagentSchedule, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
-export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
+export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';
 
 export {
@@ -37,8 +37,8 @@ export { TASK_AUDIT_EVENTS } from './audit-events.js';
 export type { SummonDecisionMetadata } from './task-schemas.js';
 
 // phase 1130: typed audit emit functions
-// phase 132 M#8 ratify: wildcard export * by-design、20 个 emit* 中 18 个目前 cross-module 0-caller、保 wildcard M#7 模块对外承诺扩张策略优先 M#8、未来若大量 0-caller cluster 浮出可议改显式 list
-export * from './audit-emit.js';
+// phase 1302: 32 个 emit* 符号在 src + tests 中经 barrel 消费全为 0；撤销 phase 132 wildcard。
+// audit-emit.js 仍由模块内文件深链消费，barrel 不再对外 re-export。
 
 
 
