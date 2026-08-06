@@ -43,25 +43,25 @@ describe('chat-viewport Phase 72', () => {
   // Step 5: bufferType 赋值
   // ==========================================================================
   describe('Step 5: bufferType = text 赋值', () => {
+    const clawManagerSource = fs.readFileSync(clawManagerPath, 'utf-8');
+
     it('text_delta handler 中应设置 bufferType = text', () => {
-      // 找到 text_delta 处理逻辑
-      const textDeltaMatch = sourceCode.match(
-        /\} else if \(ev\.type === 'text_delta'\) \{[\s\S]{0,400}?\}/
-      );
-      expect(textDeltaMatch).toBeTruthy();
-      
-      const textDeltaBlock = textDeltaMatch![0];
-      
+      // phase 1309: claw-manager 重构为 switch/case，从 claw-manager 源文件定位
+      const startIdx = clawManagerSource.indexOf("case 'text_delta': {");
+      expect(startIdx).toBeGreaterThanOrEqual(0);
+      const endIdx = clawManagerSource.indexOf('break;', startIdx);
+      expect(endIdx).toBeGreaterThan(startIdx);
+      const textDeltaBlock = clawManagerSource.slice(startIdx, endIdx + 6);
+
       // 应该在 if (track.bufferType !== 'text') 块内设置 bufferType
       expect(textDeltaBlock).toContain("track.bufferType = 'text'");
     });
 
     it('bufferType 赋值应在 if 块内，而非每次 delta 都赋值', () => {
-      const textDeltaSection = sourceCode.slice(
-        sourceCode.indexOf("} else if (ev.type === 'text_delta')"),
-        sourceCode.indexOf("} else if (ev.type === 'tool_result')")
-      );
-      
+      const startIdx = clawManagerSource.indexOf("case 'text_delta': {");
+      const endIdx = clawManagerSource.indexOf('break;', startIdx);
+      const textDeltaSection = clawManagerSource.slice(startIdx, endIdx + 6);
+
       // 确认有 if 检查（条件可能含额外子句如 || track.clearOnNextDelta）
       expect(textDeltaSection).toMatch(/if\s*\(track\.bufferType !== 'text'/);
       // 确认 bufferType 赋值在里面
@@ -604,7 +604,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(new Set(lines).size).toBe(3);  // 三种 fixture 输出互不相同
   });
 
-  it('llm_retry_waiting 不触发 UNKNOWN_EVENT audit；未知 event 仍走可观察 fallback', async () => {
+  it('llm_retry_waiting 不触发 UNKNOWN_EVENT audit；非消费 event 仍走可观察 fallback', async () => {
     const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
     const { deps, auditWrites } = makeHandlerDeps();
     const handle = createEventHandler(deps as any);
@@ -613,9 +613,9 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
       type: 'llm_retry_waiting', ts: FIXED_TS, stage: 'retry', action: 'gated',
       attempt: 2, maxAttempts: 3, delayMs: 30_000, resumeAt: RESUME_AT, errorClass: 'transient',
     });
-    handle({ type: 'totally_unknown_event', ts: FIXED_TS });
+    handle({ type: 'provider_failover', ts: FIXED_TS, from: 'a', to: 'b', reason: 'test' });
 
-    expect(auditWrites.filter(w => String(w[0]).includes('unknown') || String(w[1]).includes('totally_unknown_event'))).toHaveLength(1);
+    expect(auditWrites.filter(w => String(w[0]).includes('unknown') || String(w[1]).includes('provider_failover'))).toHaveLength(1);
   });
 
   it('ALL_FAILED 连续失败序列只报第一次，成功 turn 后恢复（phase 1277）', async () => {
