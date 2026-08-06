@@ -13,6 +13,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { formatNoActiveContractHint } from './claw-shared.js';
 import { formatClawStatusHint } from '../../cli-protocol/index.js';
+import type { Priority } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -24,7 +25,7 @@ export async function sendCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   name: string, 
   message: string, 
-  options?: { priority?: 'critical' | 'high' | 'normal' | 'low' }
+  options?: { priority?: Priority }
 ): Promise<void> {
   loadGlobalConfig(deps);
   

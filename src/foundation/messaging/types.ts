@@ -8,6 +8,9 @@ export const PRIORITY_VALUES: Record<Priority, number> = {
   low: 1,
 };
 
+// 派生：keys 声明顺序即 CLI 渲染/校验顺序（critical/high/normal/low，与现状 help 一致）。
+export const PRIORITY_ORDER = Object.keys(PRIORITY_VALUES) as readonly Priority[];
+
 export interface InboxMessage {
   id: string;
   type: string;

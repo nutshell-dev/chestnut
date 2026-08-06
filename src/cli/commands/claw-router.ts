@@ -43,6 +43,7 @@ import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js
 import type { RootConfigReader } from '../../assembly/index.js';
 import { listMigratedExecTasks } from '../../core/async-task-system/index.js';
 import { parseIntOption } from '../parse-int-option.js';
+import { PRIORITY_ORDER, type Priority } from '../../foundation/messaging/index.js';
 import { makeContractId } from '../../core/contract/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
@@ -272,7 +273,7 @@ async function runHealth(deps: RouterDeps, name: string, args: string[]): Promis
 async function runSend(deps: RouterDeps, name: string, args: string[]): Promise<void> {
   const parser = makeVerbParser('send');
   parser.argument('<message>', 'message body');
-  parser.option('--priority <level>', 'Message priority (critical/high/normal/low)', 'normal');
+  parser.option('--priority <level>', `Message priority (${PRIORITY_ORDER.join('/')})`, 'normal');
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
@@ -280,12 +281,11 @@ async function runSend(deps: RouterDeps, name: string, args: string[]): Promise<
   }
   const [message] = parser.processedArgs;
   const opts = parser.opts() as { priority: string };
-  const validPriorities = ['critical', 'high', 'normal', 'low'];
-  if (!validPriorities.includes(opts.priority)) {
-    throw new CliError(`Invalid priority: ${opts.priority}. Must be one of: ${validPriorities.join(', ')}`);
+  if (!PRIORITY_ORDER.includes(opts.priority as Priority)) {
+    throw new CliError(`Invalid priority: ${opts.priority}. Must be one of: ${PRIORITY_ORDER.join(', ')}`);
   }
   await sendCommand(deps, name, message as string, {
-    priority: opts.priority as 'critical' | 'high' | 'normal' | 'low',
+    priority: opts.priority as Priority,
   });
 }
 

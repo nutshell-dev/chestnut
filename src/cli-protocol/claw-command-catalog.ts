@@ -21,6 +21,7 @@
  */
 
 import type { ClawCommandSpec } from './command-spec.js';
+import { PRIORITY_ORDER } from '../foundation/messaging/index.js';
 
 export const CLAW_COMMAND_CATALOG = [
   // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ export const CLAW_COMMAND_CATALOG = [
       {
         flag: '--priority <level>',
         desc: 'Message priority',
-        defaultValue: 'normal (critical|high|normal|low)',
+        defaultValue: `normal (${PRIORITY_ORDER.join('|')})`,
       },
     ],
     examples: [
