@@ -37,7 +37,7 @@ export type {
 } from './types.js';
 export { makeTraceId } from './types.js';
 
-export { AUDIT_FILE, reconcileFallbackDumps } from './writer.js';
+export { AUDIT_FILE, AUDIT_FILE_STEM, reconcileFallbackDumps } from './writer.js';
 
 // Phase 1288 Step B: audit namespace layout / config store / migration journal
 // （模块外消费一律经本 barrel；layout.ts 禁止 deep import）

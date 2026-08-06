@@ -46,7 +46,7 @@ import { createSummonVerifyPolicy } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { resolveChestnutRoot } from '../core/claw-topology/index.js';
 // CLAWS_DIR removed: phase 263
-import { createSystemAudit } from '../foundation/audit/index.js';
+import { AUDIT_FILE_STEM, createSystemAudit } from '../foundation/audit/index.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
@@ -425,7 +425,7 @@ auditCmd
   .command('query')
   .description('Query audit log records with filters and optional follow')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .option('--file <name>', "Audit file name (default 'audit'; multi-file aware)", 'audit')
+  .option('--file <name>', 'Audit file name (multi-file aware)', AUDIT_FILE_STEM)
   .option('--all-files', 'Query across all audit files in this claw')
   .option('--type <pattern>', 'Glob pattern matched against event type (e.g. cron_*)')
   .option('--since-ts <iso>', 'Inclusive lower bound on ts (ISO 8601)')
@@ -481,7 +481,7 @@ auditCmd
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--tool-use-id <id>', 'Look up by tool_use_id')
   .option('--block-id <id>', 'Look up by block ID (8-char short form, from context-trim suffix)')
-  .option('--file <name>', "Audit file name (default 'audit'; multi-file aware)", 'audit')
+  .option('--file <name>', 'Audit file name (multi-file aware)', AUDIT_FILE_STEM)
   .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (--tool-use-id mode only)')
   .option('--json', 'Output as JSON')
   .action(action('observe_only', async (opts: {

@@ -17,6 +17,7 @@ import {
   listAuditFiles,
   listWorkspaceAuditSegments,
   readWorkspaceAuditMerged,
+  AUDIT_FILE_STEM,
   type AuditRecord,
   type ReadOptions,
   type WorkspaceAuditSegmentIssue,
@@ -68,7 +69,7 @@ export async function auditQueryCommand(
   }
 
   // 2. validate flag combinations
-  if (opts.allFiles && opts.file !== 'audit') {
+  if (opts.allFiles && opts.file !== AUDIT_FILE_STEM) {
     throw new CliError('--file and --all-files are mutually exclusive');
   }
   if (opts.follow && opts.allFiles) {
@@ -80,7 +81,7 @@ export async function auditQueryCommand(
     if (opts.allFiles) {
       throw new CliError('--all-files is claw-scoped (workspace scope reads the root audit segments)');
     }
-    if (opts.file !== 'audit') {
+    if (opts.file !== AUDIT_FILE_STEM) {
       throw new CliError('--file is claw-scoped (workspace scope reads the root audit only)');
     }
   }
@@ -95,7 +96,7 @@ export async function auditQueryCommand(
       : [{
           name: opts.file,
           path: path.join(clawDir, `${opts.file}.tsv`),
-          isBusinessMain: opts.file === 'audit',
+          isBusinessMain: opts.file === AUDIT_FILE_STEM,
         }];
 
   if (!isWorkspace && files.length === 0) {
