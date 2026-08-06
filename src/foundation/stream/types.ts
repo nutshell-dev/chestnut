@@ -77,13 +77,79 @@ export const STREAM_EVENT_NAMES = {
 export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVENT_NAMES];
 
 /**
- * stream.jsonl 中的单行事件
+ * stream.jsonl 事件 payload 判别映射（phase 1316）。
+ * payload 权威双份策略：LLMEvent 27 个的 payload 在此重定义（orchestrator 特有类型降级）；
+ * 漂移由编译互检 + 契约测试兜底。非 LLMEvent 23 个以写端对象字面量为准。
+ * 全部成员含 trace_id?: string，因为 stream-callbacks checkWrite 可能注入 trace_id。
  */
-export interface StreamEvent {
-  ts: number;
-  type: StreamEventType;
-  [key: string]: unknown;
+interface StreamEventMap {
+  // agent-executor（13）
+  turn_start: { sources?: Array<{ text: string; type: string }>; trace_id?: string };
+  llm_start: { trace_id?: string };
+  thinking_delta: { delta: string; trace_id?: string };
+  text_delta: { delta: string; trace_id?: string };
+  text_end: { trace_id?: string };
+  tool_call: { name: string; tool_use_id: string; trace_id?: string };
+  tool_use_input: { name: string; tool_use_id: string; input: Record<string, unknown>; trace_id?: string };
+  user_reply_delta: { delta: string; trace_id?: string };
+  user_reply_end: { trace_id?: string };
+  tool_result: { name: string; tool_use_id: string; success: boolean; summary: string; step: number; maxSteps: number; trace_id?: string };
+  turn_end: { trace_id?: string };
+  turn_interrupted: { cause: string; message?: string; trace_id?: string };
+  turn_error: { error: string; trace_id?: string };
+  // agent-executor stream-callbacks 裸字面量（3）
+  provider_info: { name: string; model: string; isFallback: boolean; trace_id?: string };
+  provider_failover: { from: string; timeoutMs: number; trace_id?: string };
+  provider_failed: { provider: string; model: string; error: string; trace_id?: string };
+  // event-loop（1）
+  llm_retry_waiting: { stage: 'retry' | 'cooldown'; action: 'scheduled' | 'gated' | 'released'; attempt: number; maxAttempts: number; delayMs: number; resumeAt: string; errorClass: string; trace_id?: string };
+  // llm-orchestrator LLMEvent（27，payload 重定义、orchestrator 特有类型降级）
+  provider_attempt_failed: { provider: string; attempt: number; maxAttempts: number; error: string; errorClass: string; userActionHint: string; retryAfterSec?: number; trace_id?: string };
+  retry_scheduled: { provider: string; attempt: number; maxAttempts: number; backoffMs: number; trace_id?: string };
+  provider_exhausted: { provider: string; error: string; trace_id?: string };
+  fallback_switched: { from: string; to: string; reason: string; trace_id?: string };
+  breaker_opened: { provider: string; consecutiveFailures: number; trace_id?: string };
+  breaker_half_open: { provider: string; trace_id?: string };
+  breaker_closed: { provider: string; trace_id?: string };
+  healthcheck_failed: { provider: string; error: string; trace_id?: string };
+  stream_reset: { provider: string; error: string; trace_id?: string };
+  stream_parse_error: { provider: string; raw: string; error: string; trace_id?: string };
+  tool_arg_parse_error: { provider: string; toolName: string; rawArgs: string; error: string; trace_id?: string };
+  idle_failover_triggered: { provider: string; ms: number; trace_id?: string };
+  stream_idle_probe_attempted: { provider: string; timeoutMs: number; trace_id?: string };
+  stream_idle_probe_succeeded: { provider: string; trace_id?: string };
+  context_exceeded_failover: { provider: string; stopReason: string; trace_id?: string };
+  context_exceeded_throwthrough: { provider: string; trace_id?: string };
+  permanent_skip_retry: { provider: string; attempt: number; errorClass: string; trace_id?: string };
+  hedge_started: { primary: string; fallbackChain: string[]; triggerErrorClass: string; trace_id?: string };
+  hedge_primary_recovered: { provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; trace_id?: string };
+  hedge_primary_post_first_chunk_failure: { provider: string; error: string; trace_id?: string };
+  hedge_fallback_committed: { winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; trace_id?: string };
+  hedge_primary_succeeded_after_race_lost: { primaryProvider: string; winnerProvider: string; trace_id?: string };
+  all_providers_context_exceeded: { totalAttempted: number; skippedCount: number; trace_id?: string };
+  race_loser_cleaned: { provider: string; reason: string; trace_id?: string };
+  sdk_client_cache_hit: { preset: string; model: string; trace_id?: string };
+  sdk_client_cache_miss: { preset: string; model: string; trace_id?: string };
+  provider_close_failed: { error: string; trace_id?: string };
+  // contract 通知（1，边界 co-writer 宽松契约）
+  user_notify: { subtype: string; [key: string]: unknown };
+  // assembly（1）
+  daemon_started: { clawId: string; pid: number; trace_id?: string };
+  // stream writer（1）
+  session_boundary: { reason: string; trace_id?: string };
+  // async-task-system task 生命周期（3）
+  task_started: { taskId: string; taskKind: string; silent: boolean; fullTaskId?: string; command?: string; startedAt?: number; trace_id?: string };
+  task_attempt_start: { taskId: string; trace_id?: string };
+  task_completed: { taskId: string; trace_id?: string };
 }
+
+/**
+ * StreamEvent 判别联合：type 判别键 + payload + ts。
+ * 消费者 switch(event.type) 分支内 payload 自动类型安全。
+ */
+export type StreamEvent = {
+  [K in StreamEventType]: { type: K; ts: number } & StreamEventMap[K];
+}[StreamEventType];
 
 /**
  * stream.jsonl 写入接口（由 StreamWriter 结构兼容，无需 implements 声明）

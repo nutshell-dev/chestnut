@@ -297,7 +297,7 @@ function showTraceOverview(
         break;
 
       default: {
-        const _exhaustive: never = ev.type;
+        const _exhaustive: never = ev;
         void _exhaustive;
       }
     }
@@ -475,7 +475,7 @@ async function showStepDetail(
 
   if (targetToolResult) {
     const streamResult = events.find(ev => ev.type === 'tool_result' && (ev.tool_use_id as string | undefined) === targetToolUseId);
-    const success = streamResult ? streamResult.success !== false : true;
+    const success = streamResult ? (streamResult as { success?: boolean }).success !== false : true;
     console.log(`Result (${success ? 'success' : 'failed'}):`);
     console.log(formatToolResultContent(targetToolResult.content));
   } else {

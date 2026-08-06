@@ -206,7 +206,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
               case 'task_started': case 'task_completed': case 'task_attempt_start':
                 break;
               default: {
-                const _exhaustive: never = ev.type;
+                const _exhaustive: never = ev;
                 void _exhaustive;
               }
             }

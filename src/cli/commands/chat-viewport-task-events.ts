@@ -74,7 +74,7 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
       }
 
       default: {
-        const _exhaustive: never = event.type;
+        const _exhaustive: never = event;
         void _exhaustive;
       }
     }

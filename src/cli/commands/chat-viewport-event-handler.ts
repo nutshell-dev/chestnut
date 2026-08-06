@@ -443,7 +443,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       default: {
-        const _exhaustive: never = event.type;
+        const _exhaustive: never = event;
         void _exhaustive;
       }
     }

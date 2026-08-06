@@ -40,7 +40,7 @@ function toStreamEvent(event: LLMEvent): StreamEvent {
     ts: Date.now(),
     ...event,
     ...('error' in event ? { error: normalizedError } : {}),
-  };
+  } as StreamEvent;
 }
 
 function writeLLMAuditEvent(audit: AuditLog, event: LLMEvent): void {
