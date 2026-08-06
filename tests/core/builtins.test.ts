@@ -10,7 +10,6 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { makeContractYaml } from '../helpers/contract-yaml.js';
-import { createStatusTool } from '../../src/core/status-service/index.js';
 import { createSendTool } from '../../src/foundation/messaging/tools/send.js';
 import { readTool, lsTool, searchTool } from '../../src/foundation/file-tool/index.js';
 import { writeTool } from '../../src/foundation/file-tool/write.js';
@@ -26,13 +25,8 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
 import { makeAudit } from '../helpers/audit.js';
-import { ContractSystem } from '../../src/core/contract/manager.js';
 
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-import { TASKS_QUEUES_RUNNING_DIR } from '../../src/core/async-task-system/index.js';
-import { ToolExecutor } from '../../src/foundation/tools/executor.js';
-import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
-import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
 const { mockSchedule } = vi.hoisted(() => ({
   mockSchedule: vi.fn(),

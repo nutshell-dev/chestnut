@@ -6,14 +6,25 @@
  *  - assemble-evolution-guard.test.ts
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { assemble } from '../../src/assembly/assemble.js';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
-import { createMemorySystem } from '../../src/core/memory/index.js';
-import { CronRunner } from '../../src/foundation/cron/runner.js';
-import { createEvolutionSystem } from '../../src/core/evolution-system/index.js';
-import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
-import { buildLLMConfig } from '../../src/assembly/config/config-load.js';
+
+// 重依赖延迟加载：collect 段不执行 assembly 大图顶层代码
+let assemble: typeof import('../../src/assembly/assemble.js').assemble;
+let createMemorySystem: typeof import('../../src/core/memory/index.js').createMemorySystem;
+let CronRunner: typeof import('../../src/foundation/cron/runner.js').CronRunner;
+let createEvolutionSystem: typeof import('../../src/core/evolution-system/index.js').createEvolutionSystem;
+
+beforeAll(async () => {
+  const assembleMod = await import('../../src/assembly/assemble.js');
+  assemble = assembleMod.assemble;
+  const memoryMod = await import('../../src/core/memory/index.js');
+  createMemorySystem = memoryMod.createMemorySystem;
+  const cronMod = await import('../../src/foundation/cron/runner.js');
+  CronRunner = cronMod.CronRunner;
+  const evolutionMod = await import('../../src/core/evolution-system/index.js');
+  createEvolutionSystem = evolutionMod.createEvolutionSystem;
+});
 
 const { mockSkillFactory } = vi.hoisted(() => ({
   mockSkillFactory: vi.fn(() => ({
