@@ -1210,7 +1210,9 @@ describe('phase 1272 Step C: production 30s-default survival regression (real OS
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
   });
 
-  it('migrated exec crosses the production 30s L1 default and completes naturally before the deadline', async () => {
+  // Phase 1305：全量默认跳过（31s 真实等待、占全量墙钟 1/3）；保真语义不动。
+  // 手动回归：VITEST_RUN_SLOW=1 npx vitest run tests/core/async-task-system/migrated-exec.test.ts
+  it.skipIf(process.env.VITEST_RUN_SLOW !== '1')('migrated exec crosses the production 30s L1 default and completes naturally before the deadline', async () => {
     // Named budget derivation (no magic numbers):
     const SURVIVE_BEYOND_L1_DEFAULT_MS = 1_000; // command provably outlives the production default
     const COMMAND_SLEEP_MS = PROCESS_EXEC_DEFAULT_TIMEOUT_MS + SURVIVE_BEYOND_L1_DEFAULT_MS; // 31_000
