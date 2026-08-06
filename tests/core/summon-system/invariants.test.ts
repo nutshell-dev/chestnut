@@ -22,7 +22,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/index.js';
-import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError } from '../../../src/core/summon-system/index.js';
+import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError } from '../../../src/core/summon-system/pending-retrospective.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { SubAgentTaskSchema } from '../../../src/core/async-task-system/task-schemas.js';
 

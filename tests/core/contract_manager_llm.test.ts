@@ -83,7 +83,7 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 
-import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/index.js';
+import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/defaults.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import * as yaml from 'js-yaml';  // phase 258: hoist; was per-call dynamic in writeContractFiles helper.
 import { createToolRegistry } from '../../src/foundation/tools/index.js';

@@ -21,7 +21,6 @@ export {
   buildReactiveTrimPolicy,
 
   type ContextTrimOutcome,
-  type AuditWriter,
 } from './trim-v2.js';
 
 export { createContextInjector, ContextInjector } from './injector.js';

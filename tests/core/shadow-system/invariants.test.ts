@@ -9,7 +9,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { createShadowTool, SHADOW_TOOL_NAME } from '../../../src/core/shadow-system/index.js';
+import { createShadowTool } from '../../../src/core/shadow-system/index.js';
+import { SHADOW_TOOL_NAME } from '../../../src/core/shadow-system/constants.js';
 import type { Message, ToolDefinition, LLMResponse, StreamChunk } from '../../../src/foundation/llm-provider/types.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';

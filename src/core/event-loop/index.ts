@@ -10,9 +10,4 @@
  */
 
 export { EventLoop } from './event-loop.js';
-export {
-
-} from './constants.js';
-export { EVENTLOOP_AUDIT_EVENTS } from './audit-events.js';
-export { createStreamCallbacks } from './stream-callbacks.js';
 export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';

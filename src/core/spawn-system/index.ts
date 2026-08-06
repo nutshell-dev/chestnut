@@ -10,7 +10,3 @@
 
 export { createSpawnTool } from './tools/spawn.js';
 export { TASKS_SYNC_SPAWN_DIR } from './constants.js';
-export {
-  DEFAULT_SPAWN_TEMPLATE,
-  resolveSpawnTemplate,
-} from './templates.js';

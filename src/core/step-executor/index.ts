@@ -10,6 +10,6 @@ export { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './sign
 export { throwAbortError } from './abort-helpers.js';
 export { asFinalStopReason } from './types.js';
 export type {
-  StepInput, StepResult, StepCallbacks, StepMeta, LLMCallInfo, FinalStopReason,
+  StepCallbacks, StepMeta, LLMCallInfo, FinalStopReason,
   ContextManagerRuntimeConfig,
 } from './types.js';

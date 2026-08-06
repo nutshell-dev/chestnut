@@ -19,10 +19,6 @@ export { makeAgentDirResolver } from './agent-dir-resolver.js';
 export { resolveClawDaemonDir } from './daemon-dir.js';
 // phase 765: notify_claw tool (moved from L2c Messaging)
 export { createNotifyClawTool } from './tools/notify-claw.js';
-export { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 export type {
   ClawTopology,
-} from './types.js';
-export {
-  ClawIdResolveError,
 } from './types.js';

@@ -6,8 +6,6 @@
  */
 
 export { createShadowTool } from './tools/shadow.js';
-export { SHADOW_TOOL_NAME } from './constants.js';
-
 export { TASKS_SYNC_SHADOW_DIR } from './constants.js';
 // phase 1142: primitives for L4 consumers (SummonSystem.shadow mode)
 export { stripIncompleteToolUse } from './_helpers.js';
@@ -15,5 +13,4 @@ export { stripIncompleteToolUse } from './_helpers.js';
 // phase 1185: spawnShadowSubagent helper — shadow subagent 装配业务归位
 export { spawnShadowSubagent } from './spawn-shadow-subagent.js';
 
-// phase 61: SHADOW_CALLER_LABEL 常量定义在 constants.ts（避 tools/shadow.ts → index.ts 循环依赖）
-export { SHADOW_CALLER_LABEL } from './constants.js';
+

@@ -16,7 +16,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
-import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/index.js';  // phase 262: hoist
+import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/defaults.js';  // phase 262: hoist
 import { completeSubtask } from '../helpers/contract-subtask.js';
 
 
