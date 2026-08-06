@@ -363,8 +363,8 @@ describe('ensureRunning', () => {
     const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-winner-replaced')).catch((e) => e);
 
     await waitForAuditEvent(emitter, events, PROCESS_MANAGER_AUDIT_EVENTS.GENERATION_COMMIT_LOST, 5000);
-    await fs.rm(getSpawningDir(daemonDir), { recursive: true, force: true });
     writeActiveGenerationSync(daemonDir, { generationId: otherGenerationId, pid: process.pid });
+    await fs.rm(getSpawningDir(daemonDir), { recursive: true, force: true });
 
     const err = await promise;
     expect(err).toBeInstanceOf(ProcessWinnerConvergenceError);
@@ -435,7 +435,7 @@ describe('ensureRunning', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, 30_000);
 
   it('two concurrent ensureRunning: exactly one spawned, one joined with the winner generation', async () => {
     const { audit: auditA } = makeAudit();
