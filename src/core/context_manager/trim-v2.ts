@@ -504,18 +504,22 @@ function dropTurnsSelective(
       continue;
     }
 
+    // 增量估算 token：只计算本 turn 丢前/丢后的差值，避免每轮全量重算
+    const beforeTurn = estimateMessagesTokens(turnMsgs);
+    const afterTurn = estimateMessagesTokens(kept);
+    const after = bestAfter - beforeTurn + afterTurn;
+
+    // reactive 必须保留 >= floor；若 dropping 后低于 floor，则此 turn 不能丢
+    if (opts.policy.kind === 'reactive' && after < floorTokens) {
+      break;
+    }
+
     // 重建 messages 数组
     const candidate = [
       ...bestMessages.slice(0, seg.start),
       ...kept,
       ...bestMessages.slice(seg.endExclusive),
     ];
-    const after = opts.fixedTokens + estimateMessagesTokens(candidate);
-
-    // reactive 必须保留 >= floor；若 dropping 后低于 floor，则此 turn 不能丢
-    if (opts.policy.kind === 'reactive' && after < floorTokens) {
-      break;
-    }
 
     allDropped.push(...dropped);
     bestMessages = candidate;
