@@ -277,13 +277,38 @@ describe('MainTurnUIController', () => {
     });
   });
 
-  // —— phase 954: flushStreaming empty branch symmetric invariant ——
-  it('flushStreaming with empty buffer calls deps.updateDisplay (反向: empty/non-empty branch symmetric, phase 954)', () => {
+  // —— phase 1306: preview 清理唯一归 clearPreview ——
+  it('flushStreaming with empty buffer 不触发任何动作、不动 preview（preview 清理唯一归 clearPreview）', () => {
     const updateDisplaySpy = vi.fn();
     const deps = { ...makeDeps(), updateDisplay: updateDisplaySpy };
     const ui = createMainTurnUI(deps);
+    ui.setPreview('stale');
     updateDisplaySpy.mockClear();
     ui.flushStreaming();   // streamingBuffer empty
+    expect(updateDisplaySpy).not.toHaveBeenCalled();
+    expect(ui.getPreview()).toBe('stale');
+  });
+
+  it('flushStreaming 落盘后不写 preview（preview 清理唯一归 clearPreview）', () => {
+    const updateDisplaySpy = vi.fn();
+    const deps = { ...makeDeps(), updateDisplay: updateDisplaySpy };
+    const ui = createMainTurnUI(deps);
+    ui.appendToBuffer('hello');
+    ui.setPreview('preview-stale');
+    updateDisplaySpy.mockClear();
+    ui.flushStreaming();
+    expect(deps.appendOutput).toHaveBeenCalled();
+    expect(ui.getPreview()).toBe('preview-stale');
+  });
+
+  it('clearPreview 清 preview 并触发 updateDisplay', () => {
+    const updateDisplaySpy = vi.fn();
+    const deps = { ...makeDeps(), updateDisplay: updateDisplaySpy };
+    const ui = createMainTurnUI(deps);
+    ui.setPreview('x');
+    updateDisplaySpy.mockClear();
+    ui.clearPreview();
+    expect(ui.getPreview()).toBe('');
     expect(updateDisplaySpy).toHaveBeenCalled();
   });
 

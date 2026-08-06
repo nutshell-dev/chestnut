@@ -535,6 +535,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     process.removeListener('unhandledRejection', uncaughtHandler);
     mainUI.flushThinking();
     mainUI.flushStreaming();
+    mainUI.clearPreview();
     mainUI.enterPhase('idle');
     observability.recordShutdown(shutdownReason);
     if (clawScanInterval) clearInterval(clawScanInterval);

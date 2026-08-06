@@ -220,32 +220,20 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
   };
   const flushStreaming = () => {
     guardWrite('flushStreaming');
-    if (!streamingBuffer) {
-      preview = '';
-      deps.updateDisplay();   // NEW: mirror non-empty branch line 224 / 双 branch 对称 invariant
-      return;
-    }
+    if (!streamingBuffer) return;
     const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
     const formatted = prefixLines(content, '⏺ ', '  ');
     streamingBuffer = '';
-    preview = '';
-    deps.appendOutput('\x1b[2m', formatted, true, '  ');
-    deps.updateDisplay();
+    deps.appendOutput('\x1b[2m', formatted, true, '  ');   // appendOutput 内部已 updateDisplay
   };
 
   const flushStreamingNormal = () => {
     guardWrite('flushStreamingNormal');
-    if (!streamingBuffer) {
-      preview = '';
-      deps.updateDisplay();
-      return;
-    }
+    if (!streamingBuffer) return;
     const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
     const formatted = prefixLines(content, '➤ ', '  ');
     streamingBuffer = '';
-    preview = '';
     deps.appendOutput('', formatted, true, '  ');
-    deps.updateDisplay();
   };
 
   const appendToThinking = (delta: string) => {

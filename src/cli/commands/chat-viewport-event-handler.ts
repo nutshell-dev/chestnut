@@ -169,6 +169,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'user_reply': {
         deps.mainUI.flushThinking();
         deps.mainUI.flushStreaming();
+        deps.mainUI.clearPreview();
         const content = String(event.content ?? '');
         const msgType = String(event.msgType ?? 'report');
         const text = prefixLines(content, `➤ [${msgType}] `, '  ');
