@@ -51,6 +51,7 @@ import { psCommand } from './claw-ps.js';
 import {
   CLAW_INSTANCE_COMMAND_IDS,
   DEFAULT_OUTBOX_READ_LIMIT,
+  WATCH_INACTIVE_AFTER_DEFAULT,
   renderClawHelp,
   renderClawCommandHelp,
   type ClawInstanceCommandId,
@@ -413,7 +414,7 @@ async function runStatus(deps: RouterDeps, name: string, args: string[]): Promis
 // phase 5: claw <name> watch [--inactive-after <duration>]
 async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise<void> {
   const parser = makeVerbParser('watch');
-  parser.option('--inactive-after <duration>', 'Notify if Claw remains inactive after this duration (e.g. 5m / 30m / 1h, max 24h)', '5m');
+  parser.option('--inactive-after <duration>', 'Notify if Claw remains inactive after this duration (e.g. 5m / 30m / 1h, max 24h)', WATCH_INACTIVE_AFTER_DEFAULT);
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {

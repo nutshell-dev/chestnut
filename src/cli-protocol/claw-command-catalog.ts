@@ -26,6 +26,9 @@ import { PRIORITY_ORDER } from '../foundation/messaging/index.js';
 /** claw outbox read 默认读取条数。 */
 export const DEFAULT_OUTBOX_READ_LIMIT = 1;
 
+/** claw watch 默认 inactive-after 时长。 */
+export const WATCH_INACTIVE_AFTER_DEFAULT = '5m';
+
 export const CLAW_COMMAND_CATALOG = [
   // ── Lifecycle ──────────────────────────────────────────────────────────
   {
@@ -70,7 +73,7 @@ export const CLAW_COMMAND_CATALOG = [
     group: 'lifecycle',
     form: 'instance',
     summary: 'Subscribe to a one-shot notification if the claw remains inactive after a duration',
-    options: [{ flag: '--inactive-after <duration>', desc: 'Duration (e.g. 5m / 30m / 1h, max 24h). Default 5m.' }],
+    options: [{ flag: '--inactive-after <duration>', desc: `Duration (e.g. 5m / 30m / 1h, max 24h). Default ${WATCH_INACTIVE_AFTER_DEFAULT}.` }],
     examples: ['chestnut claw alice watch', 'chestnut claw alice watch --inactive-after 30m'],
   },
 

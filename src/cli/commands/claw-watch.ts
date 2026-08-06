@@ -22,8 +22,7 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { parseDurationMs, DurationParseError } from '../utils/duration.js';
 import { writeSubscription, MAX_THRESHOLD_MS } from '../../watchdog/watchdog.js';
-
-const DEFAULT_WATCH_DURATION = '5m';
+import { WATCH_INACTIVE_AFTER_DEFAULT } from '../../cli-protocol/index.js';
 
 interface WatchOptions {
   inactiveAfter?: string;   // e.g. '5m' / '30m' / '1h'
@@ -43,7 +42,7 @@ export async function watchCommand(
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
-  const durationStr = options?.inactiveAfter ?? DEFAULT_WATCH_DURATION;
+  const durationStr = options?.inactiveAfter ?? WATCH_INACTIVE_AFTER_DEFAULT;
   let thresholdMs: number;
   try {
     thresholdMs = parseDurationMs(durationStr);
