@@ -42,10 +42,7 @@ function parseBarrelExports(text: string): string[] {
 }
 
 const EXPECTED_BARREL_SURFACE = [
-  'ConfigSchema',
   'ConfigStoreError',
-  'ConfigStoreErrorCode',
-  'LoaderDeps',
   'configExists',
   'isConfigStoreError',
   'loadYamlConfig',
