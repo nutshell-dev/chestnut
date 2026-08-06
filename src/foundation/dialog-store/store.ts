@@ -768,5 +768,16 @@ export class DialogStore {
   }
 }
 
+export function createDialogStore(
+  fs: FileSystem,
+  dialogDir: string,
+  audit: AuditLog,
+  filename: string,                       // phase 450: 必填
+  clawId?: string,                        // phase 450: 可选
+  archiveDir?: string,                    // phase 450: 可选
+): DialogStore {
+  return new DialogStore(fs, dialogDir, audit, filename, clawId, archiveDir);
+}
+
 // phase 46 Step B: re-export 保直接从 store.js import 的 caller 0 改（barrel 透明）
 export { MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './validate.js';

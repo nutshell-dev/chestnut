@@ -259,6 +259,13 @@ export interface LLMCallOptions {
 }
 
 /**
+ * LLMProvider interface — single provider call primitive
+ *
+ * Implemented by all provider adapters (Anthropic, OpenAI, Gemini, etc.)
+ */
+export interface LLMProvider extends ProviderAdapter {}
+
+/**
  * LLM Provider adapter interface
  * Each provider (Anthropic, OpenAI, etc.) implements this
  */

@@ -6,8 +6,6 @@
  *          createLLMOrchestrator factory
  */
 
-import type { LLMOrchestratorConfig, LLMOrchestrator } from './types.js';
-
 export type {
   LLMOrchestratorConfig,
   LLMEventSink,
@@ -21,11 +19,7 @@ export type {
 export { llmProviderConfigSchema, FORMAT_MAP } from './llm-provider-config-schema.js';
 export type { LLMProviderConfig } from './llm-provider-config-schema.js';
 
-import { LLMOrchestratorImpl } from './orchestrator.js';
-
-export function createLLMOrchestrator(config: LLMOrchestratorConfig): LLMOrchestrator {
-  return new LLMOrchestratorImpl(config);
-}
+export { createLLMOrchestrator } from './orchestrator.js';
 
 export {
   DEFAULT_LLM_IDLE_TIMEOUT_MS,

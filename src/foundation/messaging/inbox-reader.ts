@@ -1076,3 +1076,22 @@ export class InboxReader {
     }
   }
 }
+
+
+export function createInboxReader(
+  fs: FileSystem,
+  audit: AuditLog,
+  baseDir: string,
+): InboxReader {
+  // β 方案：三子目录名是 Messaging 模块不可变约定（phase148），工厂固定拼接。
+  // ctor 顺序 (pendingDir, doneDir, failedDir, fs, audit, inflightDir)，工厂内部适配。
+  return new InboxReader(
+    `${baseDir}/pending`,
+    `${baseDir}/done`,
+    `${baseDir}/failed`,
+    fs,
+    audit,
+    `${baseDir}/inflight`,
+    `${baseDir}/misrouted`,  // phase 442
+  );
+}

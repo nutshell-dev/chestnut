@@ -75,3 +75,7 @@ export class ToolRegistryImpl implements ToolRegistry {
     }));
   }
 }
+
+export function createToolRegistry(): ToolRegistry {
+  return new ToolRegistryImpl();
+}

@@ -8,6 +8,8 @@ import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid } from  '../node-utils/index.js';
 
+export const STREAM_SNAPSHOT_IGNORE: readonly string[] = [STREAM_FILE];
+
 export interface StreamRetentionOptions {
   maxFiles?: number | null;
   maxDays?: number | null;
@@ -208,4 +210,13 @@ export class StreamWriter implements StreamLog {
       );
     }
   }
+}
+
+
+export function createStreamWriter(
+  fs: FileSystem,
+  audit: AuditLog,
+  retention?: StreamRetentionOptions,
+): StreamWriter {
+  return new StreamWriter(fs, audit, retention);
 }

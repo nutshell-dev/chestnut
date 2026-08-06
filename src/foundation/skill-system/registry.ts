@@ -405,3 +405,15 @@ export class SkillSystem {
   }
 
 }
+
+/**
+ * 构造 SkillSystem。
+ * loadAll 为 lazy init — 首次调用 `loadFull()` / `getMeta()` 时自动触发。
+ */
+export function createSkillSystem(
+  fs: FileSystem,
+  skillsDir: string,
+  audit?: AuditLog,
+): SkillSystem {
+  return new SkillSystem(fs, skillsDir, audit);
+}

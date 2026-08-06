@@ -63,39 +63,8 @@ export type {
   InboxMessageTypeDeclaration,
 } from './formatter-registry.js';
 
-import type { FileSystem } from '../fs/index.js';
-import type { AuditLog } from '../audit/index.js';
-import { InboxReader } from './inbox-reader.js';
-import type { ClawId } from '../claw-identity/index.js';
-import { OutboxWriter, makeOutboxPath } from './outbox-writer.js';
-
-export function createInboxReader(
-  fs: FileSystem,
-  audit: AuditLog,
-  baseDir: string,
-): InboxReader {
-  // β 方案：三子目录名是 Messaging 模块不可变约定（phase148），工厂固定拼接。
-  // ctor 顺序 (pendingDir, doneDir, failedDir, fs, audit, inflightDir)，工厂内部适配。
-  return new InboxReader(
-    `${baseDir}/pending`,
-    `${baseDir}/done`,
-    `${baseDir}/failed`,
-    fs,
-    audit,
-    `${baseDir}/inflight`,
-    `${baseDir}/misrouted`,  // phase 442
-  );
-}
-
-export function createOutboxWriter(
-  clawId: ClawId,
-  clawDir: string,
-  fs: FileSystem,
-  audit: AuditLog,
-): OutboxWriter {
-  return OutboxWriter.__internal_create(clawId, makeOutboxPath(clawId, clawDir), fs, audit);
-}
-
+export { createInboxReader } from './inbox-reader.js';
+export { createOutboxWriter } from './outbox-writer.js';
 
 export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 

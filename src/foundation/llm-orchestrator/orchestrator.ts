@@ -31,8 +31,8 @@ import type {
   LLMEventSink,
   ProviderConfig,
   ProviderAdapter,
+  LLMOrchestrator,
 } from './types.js';
-import type { LLMOrchestrator } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { createLLMProvider, type LLMProvider, type AuditSink } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
@@ -1243,3 +1243,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   }
 }
 
+
+
+export function createLLMOrchestrator(config: LLMOrchestratorConfig): LLMOrchestrator {
+  return new LLMOrchestratorImpl(config);
+}

@@ -75,6 +75,7 @@ vi.mock('../../src/assembly/config/snapshot-patterns.js', () => ({
 
 vi.mock('../../src/foundation/stream/writer.js', () => ({
   StreamWriter: vi.fn(() => mockStreamWriter),
+  createStreamWriter: vi.fn(() => mockStreamWriter),
 }));
 
 vi.mock('../../src/foundation/stream/index.js', () => ({
@@ -110,10 +111,14 @@ vi.mock('../../src/core/runtime/index.js', () => {
   };
 });
 
-vi.mock('../../src/foundation/cron/runner.js', () => ({
-  CronRunner: vi.fn(() => mockCronRunner),
-  parseSchedule: vi.fn((s: string) => s),
-}));
+vi.mock('../../src/foundation/cron/runner.js', () => {
+  const CronRunner = vi.fn(() => mockCronRunner);
+  return {
+    CronRunner,
+    parseSchedule: vi.fn((s: string) => s),
+    createCronRunner: vi.fn((jobs: any, sink: any) => new (CronRunner as any)(jobs, sink)),
+  };
+});
 
 vi.mock('../../src/core/memory/index.js', () => ({
   createMemorySystem: vi.fn(() => mockMemorySystem),
@@ -145,6 +150,7 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
 
 vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => ({
   LLMOrchestratorImpl: vi.fn(() => ({ close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() })),
+  createLLMOrchestrator: vi.fn(() => ({ close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() })),
 }));
 
 vi.mock('../../src/foundation/monitor/monitor.js', () => ({
@@ -153,6 +159,7 @@ vi.mock('../../src/foundation/monitor/monitor.js', () => ({
 
 vi.mock('../../src/foundation/tools/registry.js', () => ({
   ToolRegistryImpl: vi.fn(() => ({ register: vi.fn(), getForProfile: vi.fn(() => []), getAll: vi.fn(() => []), formatForLLM: vi.fn(), unregister: vi.fn() })),
+  createToolRegistry: vi.fn(() => ({ register: vi.fn(), getForProfile: vi.fn(() => []), getAll: vi.fn(() => []), formatForLLM: vi.fn(), unregister: vi.fn() })),
 }));
 
 vi.mock('../../src/foundation/tools/executor.js', () => ({

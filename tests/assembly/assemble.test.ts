@@ -85,6 +85,7 @@ vi.mock('../../src/assembly/config/snapshot-patterns.js', () => ({
 
 vi.mock('../../src/foundation/stream/writer.js', () => ({
   StreamWriter: vi.fn(() => mockStreamWriter),
+  createStreamWriter: vi.fn(() => mockStreamWriter),
 }));
 
 vi.mock('../../src/foundation/stream/index.js', () => ({
@@ -134,10 +135,14 @@ vi.mock('../../src/core/heartbeat/index.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/foundation/cron/runner.js', () => ({
-  CronRunner: vi.fn(() => mockCronRunner),
-  parseSchedule: vi.fn((s: string) => s),
-}));
+vi.mock('../../src/foundation/cron/runner.js', () => {
+  const CronRunner = vi.fn(() => mockCronRunner);
+  return {
+    CronRunner,
+    parseSchedule: vi.fn((s: string) => s),
+    createCronRunner: vi.fn((jobs: any, sink: any) => new (CronRunner as any)(jobs, sink)),
+  };
+});
 
 const mockMemorySystem = {
   runDeepDream: vi.fn(),
@@ -166,17 +171,25 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
   };
 });
 
-vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => ({
-  LLMOrchestratorImpl: trackCtor('LLMOrchestratorImpl', () => ({ close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() })),
-}));
+vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => {
+  const LLMOrchestratorImpl = trackCtor('LLMOrchestratorImpl', () => ({ close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() }));
+  return {
+    LLMOrchestratorImpl,
+    createLLMOrchestrator: vi.fn((config: any) => new (LLMOrchestratorImpl as any)(config)),
+  };
+});
 
 vi.mock('../../src/foundation/monitor/monitor.js', () => ({
   JsonlLogger: trackCtor('JsonlLogger', () => ({ log: vi.fn(), close: vi.fn() })),
 }));
 
-vi.mock('../../src/foundation/tools/registry.js', () => ({
-  ToolRegistryImpl: trackCtor('ToolRegistryImpl', () => ({ register: vi.fn(), getForProfile: vi.fn(() => []), getAll: vi.fn(() => []), formatForLLM: vi.fn(), unregister: vi.fn() })),
-}));
+vi.mock('../../src/foundation/tools/registry.js', () => {
+  const ToolRegistryImpl = trackCtor('ToolRegistryImpl', () => ({ register: vi.fn(), getForProfile: vi.fn(() => []), getAll: vi.fn(() => []), formatForLLM: vi.fn(), unregister: vi.fn() }));
+  return {
+    ToolRegistryImpl,
+    createToolRegistry: vi.fn(() => new (ToolRegistryImpl as any)()),
+  };
+});
 
 vi.mock('../../src/foundation/tools/executor.js', () => {
   const Ctor = trackCtor('ToolExecutorImpl', () => ({ execute: vi.fn() }));

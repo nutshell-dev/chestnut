@@ -11,17 +11,8 @@
  * jobs 物理迁出到各业务 owner 模块时统一改）。
  */
 
-import { CronRunner } from './runner.js';
-import type { CronJob, CronEventSink } from './runner.js';
-
 export { CronRunner, parseSchedule } from './runner.js';
 export type { CronJob, CronJobGlobalConfig } from './runner.js';
 
-/**
- * 构造 CronRunner。
- * 调用方必须在使用前显式 `runner.start(tickMs)` 启动 setInterval（契约 §2.1）。
- */
-export function createCronRunner(jobs: CronJob[], sink: CronEventSink): CronRunner {
-  return new CronRunner(jobs, sink);
-}
+export { createCronRunner } from './runner.js';
 export { CRON_FILE_ROUTING } from './audit-events.js';

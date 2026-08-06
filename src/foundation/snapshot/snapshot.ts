@@ -474,3 +474,14 @@ export class Snapshot {
     }
   }
 }
+
+
+export function createSnapshot(
+  dir: string,
+  fs: FileSystem,
+  audit: AuditLog,
+  ignorePatterns: readonly string[],
+  syncCleanupDirs?: readonly string[],
+): Snapshot {
+  return new Snapshot(dir, fs, audit, ignorePatterns, syncCleanupDirs);
+}

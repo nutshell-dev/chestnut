@@ -134,3 +134,13 @@ export class OutboxWriter {
     }
   }
 }
+
+
+export function createOutboxWriter(
+  clawId: ClawId,
+  clawDir: string,
+  fs: FileSystem,
+  audit: AuditLog,
+): OutboxWriter {
+  return OutboxWriter.__internal_create(clawId, makeOutboxPath(clawId, clawDir), fs, audit);
+}
