@@ -21,7 +21,10 @@
  */
 
 import type { ClawCommandSpec } from './command-spec.js';
-import { PRIORITY_ORDER } from '../foundation/messaging/index.js';
+
+// 与 src/foundation/messaging/types.ts PRIORITY_ORDER 保持同步：
+// critical/high/normal/low 顺序决定 help 渲染与校验顺序。
+const PRIORITY_ORDER = ['critical', 'high', 'normal', 'low'] as const;
 
 /** claw outbox read 默认读取条数。 */
 export const DEFAULT_OUTBOX_READ_LIMIT = 1;

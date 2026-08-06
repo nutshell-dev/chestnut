@@ -25,3 +25,4 @@ export {
 
 export { createContextInjector, ContextInjector } from './injector.js';
 export { trimAndPersist } from './trim-and-persist.js';
+export { ContextTrimExhaustedError } from './errors.js';
