@@ -2,8 +2,9 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 
 import { getActiveContractTimestamp } from '../../core/contract/index.js';
-import { LLM_OUTPUT_EVENTS, parseStreamLines } from '../../foundation/stream/index.js';
+import { parseStreamLines } from '../../foundation/stream/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
+import type { StreamEvent } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -116,70 +117,102 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         track.fileSize += buf.length;
         const { events, leftover } = parseStreamLines(buf.toString('utf-8'), track.leftover);
         track.leftover = leftover;
-        for (const ev of events as Array<Record<string, unknown> & { type: string }>) {
+        for (const ev of events as StreamEvent[]) {
           try {
-            if (ev.type === 'turn_start') { track.turnCount++; track.step = 0; track.active = true; }
-            else if (ev.type === 'tool_result') { track.step = (ev.step as number) ?? track.step; track.maxSteps = (ev.maxSteps as number) ?? track.maxSteps; }
-            else if (ev.type === 'turn_error') { track.active = false; track.lastError = (ev.error as string) ?? 'error'; }
-            else if (ev.type === 'turn_end' || ev.type === 'turn_interrupted') { track.active = false; track.lastError = null; }
-
-            if (LLM_OUTPUT_EVENTS.has(ev.type)) {
-              if (track.active === false) track.lastOutput = '';
-              track.active = true;
-              if (ev.type === 'thinking_delta') {
+            switch (ev.type) {
+              case 'turn_start':
+                track.turnCount++; track.step = 0; track.active = true;
+                track.lastOutput = '';
+                track.lastInterrupted = false;
+                track.currentTool = null;
+                track.textBuffer = '';
+                track.toolSuccess = null;
+                track.bufferType = null;
+                track.clearOnNextDelta = false;
+                break;
+              case 'tool_result':
+                track.step = (ev.step as number) ?? track.step;
+                track.maxSteps = (ev.maxSteps as number) ?? track.maxSteps;
+                track.toolSuccess = (ev.success as boolean) ?? null;
+                break;
+              case 'turn_error':
+                track.active = false; track.lastError = (ev.error as string) ?? 'error';
+                track.lastOutput = ''; track.referenceMs = Date.now();
+                break;
+              case 'turn_end':
+                track.active = false; track.lastError = null;
+                if (track.textBuffer) track.lastOutput = track.textBuffer;
+                track.referenceMs = Date.now();
+                break;
+              case 'turn_interrupted':
+                track.active = false; track.lastError = null;
+                track.lastInterrupted = true; track.lastOutput = '';
+                track.referenceMs = Date.now();
+                break;
+              case 'thinking_delta': {
+                if (track.active === false) track.lastOutput = '';
+                track.active = true;
                 if (track.clearOnNextDelta) {
-                  track.textBuffer = '';
-                  track.bufferType = null;
-                  track.toolSuccess = null;
-                  track.clearOnNextDelta = false;
+                  track.textBuffer = ''; track.bufferType = null;
+                  track.toolSuccess = null; track.clearOnNextDelta = false;
                 }
                 appendCappedBuffer(track, (ev.delta as string) ?? '');
                 track.bufferType = 'thinking';
-              } else if (ev.type === 'tool_call') {
-                // 首轮 tool_call（toolSuccess 仍 null）保留旧 thinking/text 显示执行上下文；
-                // 续轮（上一 tool 已 result、toolSuccess 已非 null）旧 buffer 已显示一轮，立即清防 stale 跨多 round 滞留。
-                // user 2026-05-29 ratify by phase 1429.
+                break;
+              }
+              case 'tool_call': {
+                if (track.active === false) track.lastOutput = '';
+                track.active = true;
                 if (track.toolSuccess !== null) {
-                  track.textBuffer = '';
-                  track.bufferType = null;
-                  track.clearOnNextDelta = false;
+                  track.textBuffer = ''; track.bufferType = null; track.clearOnNextDelta = false;
                 } else {
                   track.clearOnNextDelta = true;
                 }
                 track.currentTool = (ev.name as string) ?? null;
                 track.toolSuccess = null;
-              } else if (ev.type === 'text_delta') {
+                break;
+              }
+              case 'text_delta': {
+                if (track.active === false) track.lastOutput = '';
+                track.active = true;
                 if (track.bufferType !== 'text' || track.clearOnNextDelta) {
-                  track.textBuffer = '';
-                  track.bufferType = 'text';
-                  track.toolSuccess = null;
-                  track.clearOnNextDelta = false;
+                  track.textBuffer = ''; track.bufferType = 'text'; track.toolSuccess = null; track.clearOnNextDelta = false;
                 }
                 appendCappedBuffer(track, (ev.delta as string) ?? '');
+                break;
               }
-            } else if (ev.type === 'tool_result') {
-              track.toolSuccess = (ev.success as boolean) ?? null;
-            } else if (ev.type === 'turn_start') {
-              track.lastOutput = '';
-              track.lastInterrupted = false;
-              track.currentTool = null;
-              track.textBuffer = '';
-              track.toolSuccess = null;
-              track.bufferType = null;
-              track.clearOnNextDelta = false;
-            } else if (ev.type === 'turn_end') {
-              if (track.textBuffer) track.lastOutput = track.textBuffer;
-              track.referenceMs = Date.now();
-            } else if (ev.type === 'turn_error') {
-              track.lastOutput = '';
-              track.referenceMs = Date.now();
-            } else if (ev.type === 'turn_interrupted') {
-              track.lastInterrupted = true;
-              track.lastOutput = '';
-              track.referenceMs = Date.now();
+              case 'user_reply':
+              case 'user_reply_delta':
+              case 'user_reply_end': {
+                // 原 LLM_OUTPUT_EVENTS 通用分支：仅 active/lastOutput（无专用处理）
+                if (track.active === false) track.lastOutput = '';
+                track.active = true;
+                break;
+              }
+              // 非消费类型显式声明：claw track 不消费（保持原 if/else 未匹配静默语义）
+              case 'llm_start': case 'text_end': case 'tool_use_input':
+              case 'provider_info': case 'provider_failover': case 'provider_failed':
+              case 'llm_retry_waiting': case 'provider_attempt_failed': case 'retry_scheduled':
+              case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
+              case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':
+              case 'stream_reset': case 'stream_parse_error': case 'tool_arg_parse_error':
+              case 'idle_failover_triggered': case 'stream_idle_probe_attempted': case 'stream_idle_probe_succeeded':
+              case 'context_exceeded_failover': case 'context_exceeded_throwthrough': case 'permanent_skip_retry':
+              case 'hedge_started': case 'hedge_primary_recovered': case 'hedge_primary_post_first_chunk_failure':
+              case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
+              case 'all_providers_context_exceeded': case 'race_loser_cleaned':
+              case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':
+              case 'user_notify': case 'contract_events': case 'contract_cancelled':
+              case 'session_boundary': case 'daemon_started':
+              case 'task_started': case 'task_completed': case 'task_attempt_start':
+                break;
+              default: {
+                const _exhaustive: never = ev.type;
+                void _exhaustive;
+              }
             }
           } catch {
-            // silent: malformed event skip — single event parse failure, next event continues; track partial state remains
+            // 保持原 try/catch：malformed event skip
           }
         }
         updateClawPanel(clawTrackMap);
