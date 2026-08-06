@@ -72,8 +72,6 @@ export const STREAM_EVENT_NAMES = {
   TASK_STARTED: 'task_started',
   TASK_COMPLETED: 'task_completed',
   TASK_ATTEMPT_START: 'task_attempt_start',
-  // 幽灵类型（处置留后续 phase）
-  USER_REPLY: 'user_reply',
 } as const;
 
 export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVENT_NAMES];
@@ -99,5 +97,5 @@ export interface StreamLog {
  * Used by watchdog (claw activity tracking) and chat-viewport (UI rendering).
  */
 export const LLM_OUTPUT_EVENTS = new Set<StreamEventType>([
-  'thinking_delta', 'text_delta', 'tool_call', 'user_reply', 'user_reply_delta', 'user_reply_end',
+  'thinking_delta', 'text_delta', 'tool_call', 'user_reply_delta', 'user_reply_end',
 ]);

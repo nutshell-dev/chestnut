@@ -166,17 +166,6 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
-      case 'user_reply': {
-        deps.mainUI.flushThinking();
-        deps.mainUI.flushStreaming();
-        deps.mainUI.clearPreview();
-        const content = String(event.content ?? '');
-        const msgType = String(event.msgType ?? 'report');
-        const text = prefixLines(content, `➤ [${msgType}] `, '  ');
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[1;32m', text, wrap: true, hangIndent: '  ' });
-        break;
-      }
-
       case 'tool_call': {
         deps.mainUI.flushThinking();
         deps.mainUI.flushStreaming();

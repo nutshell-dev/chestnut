@@ -184,7 +184,7 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
 
       // 非消费类型显式声明：状态条不处理（保持原静默语义）
       case 'turn_start': case 'llm_start': case 'text_end':
-      case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end': case 'user_reply':
+      case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end':
       case 'provider_info': case 'provider_failover': case 'provider_failed':
       case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
       case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':

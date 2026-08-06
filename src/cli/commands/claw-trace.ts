@@ -279,7 +279,7 @@ function showTraceOverview(
         break;
       }
       // 非消费类型显式声明：trace 不显示（保持原静默语义）
-      case 'turn_start': case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end': case 'user_reply':
+      case 'turn_start': case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end':
       case 'provider_info': case 'provider_failover': case 'provider_failed':
       case 'llm_retry_waiting': case 'provider_attempt_failed': case 'retry_scheduled':
       case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':

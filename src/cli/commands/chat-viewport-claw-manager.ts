@@ -181,7 +181,6 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 appendCappedBuffer(track, (ev.delta as string) ?? '');
                 break;
               }
-              case 'user_reply':
               case 'user_reply_delta':
               case 'user_reply_end': {
                 // 原 LLM_OUTPUT_EVENTS 通用分支：仅 active/lastOutput（无专用处理）
