@@ -42,7 +42,7 @@ export {
 // errors.ts 内 symbol 会漏）。如 future caller 需更多 symbol、按需逐个 append。
 // SDK 顶层 re-export (src/index.ts) + sister L2 (foundation/config/schemas.ts) 按 by-design
 // 保留 deep import、depcruise rule 显式 pathNot allowlist 这两 entry。
-export { LLMError, LLMAllProvidersFailedError, LLMTimeoutError, LLMContextExceededError, LLMInvalidRequestError, LLMAuthError, LLMRateLimitError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
+export { LLMError, LLMAllProvidersFailedError, LLMTimeoutError, LLMInvalidRequestError, LLMAuthError, LLMRateLimitError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, classifyLLMError, isContextExceededError, getUserActionHint } from './errors.js';
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
 export { toProviderConfig } from './config-adapter.js';
