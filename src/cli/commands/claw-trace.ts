@@ -291,7 +291,7 @@ function showTraceOverview(
       case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
       case 'all_providers_context_exceeded': case 'race_loser_cleaned':
       case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':
-      case 'contract_events': case 'contract_cancelled': case 'session_boundary':
+      case 'session_boundary':
       case 'daemon_started': case 'task_started': case 'task_completed': case 'task_attempt_start':
       case 'turn_end': case 'turn_error': case 'turn_interrupted':
         break;

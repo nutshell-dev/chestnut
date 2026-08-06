@@ -61,10 +61,9 @@ export const STREAM_EVENT_NAMES = {
   SDK_CLIENT_CACHE_HIT: 'sdk_client_cache_hit',
   SDK_CLIENT_CACHE_MISS: 'sdk_client_cache_miss',
   PROVIDER_CLOSE_FAILED: 'provider_close_failed',
-  // contract 通知 / CLI co-writer / audit jobs（3）
+  // contract 通知 / CLI co-writer / audit jobs（1）——contract_events/contract_cancelled 是
+  // inbox sender type（guidanceRegistry 命名空间）、非 stream 事件（phase 1313 纠错）
   USER_NOTIFY: 'user_notify',
-  CONTRACT_EVENTS: 'contract_events',
-  CONTRACT_CANCELLED: 'contract_cancelled',
   // assembly daemon 启动（1）
   DAEMON_STARTED: 'daemon_started',
   // stream writer 归档（1）

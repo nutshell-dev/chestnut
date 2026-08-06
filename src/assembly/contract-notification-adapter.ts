@@ -62,7 +62,7 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
       //   跨 claw 通知归 contract-observer cron
       notifyInbox(deps.systemFs, {
         inboxDir: deps.selfInboxDir,
-        type: STREAM_EVENT_NAMES.CONTRACT_EVENTS,
+        type: 'contract_events',   // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
         source: 'system',
         priority: 'high',
         body: `[${event.type}] claw=${deps.clawId} ${formatNotifyData(data)}`,
@@ -80,7 +80,7 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
       // 取消原因已由 body 与 stream 持久化、不重复跨边界）
       notifyInbox(deps.systemFs, {
         inboxDir: deps.selfInboxDir,
-        type: STREAM_EVENT_NAMES.CONTRACT_CANCELLED,
+        type: 'contract_cancelled',  // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
         source: 'system',
         priority: 'high',
         body: `[contract_cancelled] claw=${deps.clawId} ${formatNotifyData(data)}`,

@@ -445,7 +445,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'hedge_fallback_committed': case 'hedge_primary_succeeded_after_race_lost':
       case 'all_providers_context_exceeded': case 'race_loser_cleaned':
       case 'sdk_client_cache_hit': case 'sdk_client_cache_miss': case 'provider_close_failed':
-      case 'contract_events': case 'contract_cancelled': case 'session_boundary':
+      case 'session_boundary':
       case 'daemon_started': case 'task_attempt_start': {
         try {
           deps.audit.write(VIEWPORT_AUDIT_EVENTS.UNKNOWN_EVENT, `type=${event.type}`);
