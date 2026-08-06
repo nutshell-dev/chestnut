@@ -1363,10 +1363,14 @@ export class ContractSystem {
    * progress.json. Archive payloads continue to support current/legacy dual-format
    * via readArchivePayload.
    *
-   * TOCTOU mitigation: active→archive race is handled by one re-resolve back to
-   * the top-level dispatcher.
+   * TOCTOU mitigation: active→archive / archive→active race 通过单次重试回到顶层
+   * dispatcher；持久双位置仍 fail-closed。
    */
   async getProgress(contractId: ContractId): Promise<ProgressData | null> {
+    return this._getProgressWithRetry(contractId, 0);
+  }
+
+  private async _getProgressWithRetry(contractId: ContractId, retry: number): Promise<ProgressData | null> {
     const activeLoc = await resolveActiveContractLocation({
       fs: this.fs,
       activeDir: this.activeDir,
@@ -1382,6 +1386,10 @@ export class ContractSystem {
         audit: this.audit,
       });
       if (archiveLoc && archiveLoc.kind !== 'active') {
+        if (retry === 0) {
+          // TOCTOU: contract moved to archive between the two resolves; retry once.
+          return this._getProgressWithRetry(contractId, retry + 1);
+        }
         const locations = [activeLoc.contractRoot, archiveLoc.contractRoot];
         this.audit.write(
           CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR,
@@ -1404,7 +1412,17 @@ export class ContractSystem {
     if (!loc) return null;
     if (loc.kind === 'active') {
       // TOCTOU: contract became active after the first resolve; retry once from top.
-      return this.getProgress(contractId);
+      if (retry === 0) {
+        return this._getProgressWithRetry(contractId, retry + 1);
+      }
+      const locations = [this.activeDir + '/' + contractId, loc.contractRoot];
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR,
+        `contractId=${contractId}`,
+        `dirs=${locations.join(',')}`,
+        `context=getProgress`,
+      );
+      throw new ContractLocationAmbiguityError(contractId, locations);
     }
 
     const result = await readArchivePayload({

@@ -123,20 +123,18 @@ function auditAmbiguity(audit: AuditLog | undefined, contractId: ContractId, loc
   );
 }
 
-/**
- * Resolve a single contract's location across active, current archive state dirs and legacy flat.
- *
- * Fail-closed when the same id exists in multiple locations (emit audit + throw).
- * Returns null when not found in any location.
- */
-export async function resolveContractLocation(opts: {
+type ResolveOnceResult =
+  | { tag: 'found'; location: ContractLocation }
+  | { tag: 'not_found' }
+  | { tag: 'ambiguous'; locations: string[] };
+
+async function resolveContractLocationOnce(opts: {
   fs: FileSystem;
   activeDir: string;
   archiveDir: string;
   contractId: ContractId;
-  audit?: AuditLog;
-}): Promise<ContractLocation | null> {
-  const { fs, activeDir, archiveDir, contractId, audit } = opts;
+}): Promise<ResolveOnceResult> {
+  const { fs, activeDir, archiveDir, contractId } = opts;
   const candidates: ContractLocation[] = [];
 
   const activeRoot = contractRoot(activeDir, contractId);
@@ -160,13 +158,44 @@ export async function resolveContractLocation(opts: {
     candidates.push({ kind: 'archived-legacy', containerDir: archiveDir, contractRoot: legacyRoot });
   }
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return { tag: 'not_found' };
   if (candidates.length > 1) {
-    const locations = candidates.map(c => c.contractRoot);
-    auditAmbiguity(audit, contractId, locations);
-    throw new ContractLocationAmbiguityError(contractId, locations);
+    return { tag: 'ambiguous', locations: candidates.map(c => c.contractRoot) };
   }
-  return candidates[0];
+  return { tag: 'found', location: candidates[0] };
+}
+
+/**
+ * Resolve a single contract's location across active, current archive state dirs and legacy flat.
+ *
+ * Fail-closed when the same id exists in multiple locations (emit audit + throw).
+ * Returns null when not found in any location.
+ *
+ * Phase 1310 Step C: retry once on transient active↔archive TOCTOU ambiguity;
+ * persistent dual-location still fail-closed.
+ */
+export async function resolveContractLocation(opts: {
+  fs: FileSystem;
+  activeDir: string;
+  archiveDir: string;
+  contractId: ContractId;
+  audit?: AuditLog;
+}): Promise<ContractLocation | null> {
+  const { contractId, audit } = opts;
+  const first = await resolveContractLocationOnce(opts);
+  // Fast path: unambiguous result.
+  if (first.tag === 'found') return first.location;
+  if (first.tag === 'not_found') return null;
+
+  // Transient ambiguity can happen when a concurrent lifecycle move renames
+  // active/<id> to archive/<state>/<id> while we are scanning. Retry once.
+  const second = await resolveContractLocationOnce(opts);
+  if (second.tag === 'found') return second.location;
+  if (second.tag === 'not_found') return null;
+
+  const locations = first.locations;
+  auditAmbiguity(audit, contractId, locations);
+  throw new ContractLocationAmbiguityError(contractId, locations);
 }
 
 /**
