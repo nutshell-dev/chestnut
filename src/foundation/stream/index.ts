@@ -6,7 +6,7 @@
  * 依赖：FileSystem
  */
 
-export type { StreamEvent, StreamLog } from './types.js';
+export type { StreamEvent, StreamEventType, StreamLog } from './types.js';
 export { STREAM_FILE } from './types.js';
 
 // phase 693 Step A: stream 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
