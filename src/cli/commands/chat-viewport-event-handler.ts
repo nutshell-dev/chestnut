@@ -92,7 +92,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushStreaming();
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
-        const srcs = event.sources as Array<{ text: string; type: string }> | undefined;
+        const srcs = event.sources;
         const userCount = srcs?.filter(s => s.type === 'user_chat' || s.type === 'user_inbox_message').length ?? 0;
         deps.resolvePending(userCount);
         if (deps.showSystemMessages && srcs && srcs.length > 0) {
@@ -118,7 +118,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
 
       case 'thinking_delta': {
         deps.mainUI.enterPhase('waiting_llm');   // idempotent — spinner 继续转
-        const thinkingBuf = deps.mainUI.appendToThinking(event.delta as string);
+        const thinkingBuf = deps.mainUI.appendToThinking(event.delta);
         if (deps.getThinkingMode() === 'full') {
           const prefix = '⏺ [thinking] ';
           deps.mainUI.setPreview('\x1b[2m' + prefix + thinkingBuf + '\x1b[0m');
@@ -132,7 +132,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'text_delta': {
         deps.mainUI.flushThinking();
         deps.mainUI.enterPhase('streaming_text');
-        const streamBuf = deps.mainUI.appendToBuffer(event.delta as string);
+        const streamBuf = deps.mainUI.appendToBuffer(event.delta);
         const previewText = prefixLines(streamBuf + '▋', '⏺ ', '  ');
         deps.mainUI.setPreview('\x1b[2m' + previewText + '\x1b[0m');
         break;
@@ -154,7 +154,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         // and llm-start already flush stale text residue before the reply
         // stream; the accumulated buffer is flushed once at user_reply_end.
         deps.mainUI.enterPhase('streaming_text');
-        const streamBuf = deps.mainUI.appendToBuffer(event.delta as string);
+        const streamBuf = deps.mainUI.appendToBuffer(event.delta);
         const previewText = prefixLines(streamBuf + '▋', '➤ ', '  ');
         deps.mainUI.setPreview(previewText);
         break;
@@ -172,7 +172,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const toolName = String(event.name ?? '');
         const displayName = toolName;
         deps.sink.emit({ kind: 'text-line', color: '\x1b[36m', text: `⚙ ${displayName}` });
-        deps.mainUI.enterPhase('running_tool', event.name as string);
+        deps.mainUI.enterPhase('running_tool', event.name);
         deps.mainUI.clearPreview();
         break;
       }
@@ -188,7 +188,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.sink.emit({
           kind: 'text-line',
           color: '\x1b[2m',
-          text: `  ${icon} [${step}/${maxSteps}] ${event.summary as string}`,
+          text: `  ${icon} [${step}/${maxSteps}] ${event.summary}`,
         });
         break;
       }
@@ -205,7 +205,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushStreaming();
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
-        const msg = (event as Record<string, unknown>).message;
+        const msg = event.message;
         const interruptSrc = deps.turnTracker.getInterruptSource();
         const display = typeof msg === 'string' ? msg
           : interruptSrc === 'esc' ? 'Interrupted (Esc)' : 'Interrupted';
@@ -229,9 +229,9 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'provider_info': {
-        const providerName = event.name as string;
-        const providerModel = event.model as string;
-        const isFallback = event.isFallback as boolean;
+        const providerName = event.name;
+        const providerModel = event.model;
+        const isFallback = event.isFallback;
         const fallbackNote = isFallback ? ' \x1b[38;5;214m(fallback)\x1b[0m' : '';
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `Model: ${providerModel} · ${providerName}${fallbackNote}` });
         break;
@@ -247,8 +247,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'llm_retry_waiting': {
         // Phase 1268 Step D: EventLoop-owned turn retry/cooldown 调度行。
         // CLI 只渲染 owner 结构化字段，不解析 error 文本、不自行决定调度。
-        const stage = event.stage as 'retry' | 'cooldown' | undefined;
-        const action = event.action as 'scheduled' | 'gated' | 'released' | undefined;
+        const stage = event.stage;
+        const action = event.action;
         // phase 1276: gated 与 scheduled 表达同一等待（scheduled 已带 resume 锚点），去重。
         if (action === 'gated') break;
         const attempt = typeof event.attempt === 'number' ? event.attempt : '?';
@@ -278,15 +278,15 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'fallback_switched': {
-        const from = event.from as string;
-        const to = event.to as string;
-        const reason = event.reason as string;
+        const from = event.from;
+        const to = event.to;
+        const reason = event.reason;
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;214m→\x1b[0m \x1b[2mswitched from ${from} to ${to} (${reason})` });
         break;
       }
 
       case 'provider_exhausted': {
-        const providerName = event.provider as string;
+        const providerName = event.provider;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${errStr})` });
@@ -294,8 +294,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'provider_failed': {
-        const providerName = event.provider as string;
-        const providerModel = event.model as string;
+        const providerName = event.provider;
+        const providerModel = event.model;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${errStr}` });
@@ -307,19 +307,32 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushStreaming();
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
-        const sub = event.subtype as string;
-        const subtaskId = event.subtaskId as string;
+        // user_notify 宽松契约（StreamEventMap: { subtype: string; [key: string]: unknown }）——
+        // 除 subtype 外其余字段类型 unknown，统一断言为可选字段对象后访问；断言保留（不可删）
+        const notify = event as {
+          subtype: string;
+          clawId?: string;
+          subtaskId?: string;
+          title?: string;
+          subtaskCount?: number;
+          completedCount?: number;
+          subtaskTotal?: number;
+          feedback?: string;
+          error?: string;
+          message?: string;
+        };
+        const sub = notify.subtype;
+        const claw = notify.clawId ?? '';
+        const subtaskId = notify.subtaskId;
         if (sub === 'contract_created') {
-          const claw = (event.clawId as string) ?? '';
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知
-          const title = (event.title as string) ?? '';
-          const count = (event.subtaskCount as number) ?? 0;
+          const title = notify.title ?? '';
+          const count = notify.subtaskCount ?? 0;
           if (deps.showContractEvents) deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `  ✓ [contract] "${title}" created for ${claw} (${count} subtasks)` });
         } else if (sub === 'subtask_completed') {
-          const claw = (event.clawId as string) ?? '';
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知
-          const completed = event.completedCount as number | undefined;
-          const total = event.subtaskTotal as number | undefined;
+          const completed = notify.completedCount;
+          const total = notify.subtaskTotal;
           const progress = completed != null && total != null ? `, ${completed} of ${total}` : '';
           // phase 1405: force-accept 区分显示、让用户看见质量信号（DP「用户可观察」）
           const forceAccepted = event.force_accepted === true;
@@ -330,29 +343,27 @@ export function createEventHandler(deps: EventHandlerDeps) {
             deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: line });
           }
         } else if (sub === 'verification_failed') {
-          const claw = (event.clawId as string) ?? '';
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知
-          const fb = (event.feedback as string) ?? '';
+          const fb = notify.feedback ?? '';
           if (deps.showContractEvents) deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `  ✗ [contract] ${subtaskId} failed: ${fb} (${claw})` });
         } else if (sub === 'llm_error') {
           // llm_error 始终显示（无论来源）
-          const claw = (event.clawId as string) ?? '';
-          const errMsg = (event.error as string) ?? '';
+          const errMsg = notify.error ?? '';
           const forClaw = claw ? ` (${claw})` : '';
           deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}` });
         } else if (sub === 'dev_warning') {
           // phase 8: dev-attention 阈值警告（informational only / 不可 motion action / 供 developer 参考）
           // 来源：cron audit-size-monitor / 等
-          const msg = (event.message as string) ?? '';
+          const msg = notify.message ?? '';
           deps.sink.emit({ kind: 'text-line', color: '\x1b[33m', text: `  ⚠ [dev] ${msg} (informational only, no action)` });
         }
         break;
       }
 
       case 'task_started': {
-        const rawTaskId = event.taskId as string;
-        const fullTaskId = (event.fullTaskId as string | undefined) ?? rawTaskId;
-        const taskKind = (event.taskKind as string) ?? 'spawn_subagent';
+        const rawTaskId = event.taskId;
+        const fullTaskId = event.fullTaskId ?? rawTaskId;
+        const taskKind = event.taskKind ?? 'spawn_subagent';
         // Phase 537 — defensive guard against malformed stream events (D7+D11)
         // Phase 849: taskId is the shortId; fullTaskId is the persistence key.
         const taskId = typeof rawTaskId === 'string' && rawTaskId.length === 36
@@ -373,8 +384,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
         if (taskKind === 'exec_migrated') {
           deps.taskStatusBar.addMigratedExec({
             taskId: makeShortTaskId(taskId),
-            command: (event.command as string) ?? 'exec',
-            startedAt: (event.startedAt as number) ?? Date.now(),
+            command: event.command ?? 'exec',
+            startedAt: event.startedAt ?? Date.now(),
           });
           break;
         }
@@ -399,7 +410,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         }
         const tw: TaskWatch = {
           taskKind,
-          silent: (event.silent as boolean) ?? false,
+          silent: event.silent ?? false,
           fileSize: 0, leftover: '', streamReader: taskReader,
           lastEventMs: Date.now(),
         };
@@ -411,7 +422,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'task_completed': {
-        const rawTaskId = event.taskId as string;
+        const rawTaskId = event.taskId;
         if (typeof rawTaskId !== 'string' || rawTaskId === '') break;
         const taskId = rawTaskId.length === 36
           ? deriveShortIdFromTaskId(makeFullTaskId(rawTaskId))

@@ -265,16 +265,16 @@ function showTraceOverview(
       case 'tool_result': {
         const slotChar = slotLetter(slotInTurn);
         slotInTurn++;
-        const name = (ev.name as string | undefined) || 'unknown';
+        const name = ev.name || 'unknown';
         const mark = ev.success === false ? ' ✗' : '';
-        const summaryPart = (ev.summary as string | undefined) ? ` ${ev.summary as string}` : '';
+        const summaryPart = ev.summary ? ` ${ev.summary}` : '';
         console.log(`[${turn}.${slotChar}] ${name}:${mark}${summaryPart}`);
         break;
       }
       case 'user_notify': {
         // user_notify 标记影响下一 turn 的 LLM 反应、trigger 标注下一 turn header
         if (ev.subtype) {
-          pendingTrigger = ev.subtype as string;
+          pendingTrigger = ev.subtype;
         }
         break;
       }
@@ -336,8 +336,8 @@ async function showStepDetail(
     }
     if (ev.type === 'tool_result' && curTurn === targetTurn) {
       if (curSlot === targetSlot) {
-        targetToolName = (ev.name as string | undefined) || 'unknown';
-        targetToolUseId = (ev.tool_use_id as string | undefined) || '';
+        targetToolName = ev.name || 'unknown';
+        targetToolUseId = ev.tool_use_id || '';
         break;
       }
       curSlot++;
@@ -474,8 +474,11 @@ async function showStepDetail(
   console.log('');
 
   if (targetToolResult) {
-    const streamResult = events.find(ev => ev.type === 'tool_result' && (ev.tool_use_id as string | undefined) === targetToolUseId);
-    const success = streamResult ? (streamResult as { success?: boolean }).success !== false : true;
+    const streamResults = events.filter(
+      (ev): ev is Extract<StreamEvent, { type: 'tool_result' }> => ev.type === 'tool_result',
+    );
+    const streamResult = streamResults.find(ev => ev.tool_use_id === targetToolUseId);
+    const success = streamResult ? streamResult.success !== false : true;
     console.log(`Result (${success ? 'success' : 'failed'}):`);
     console.log(formatToolResultContent(targetToolResult.content));
   } else {

@@ -131,12 +131,12 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 track.clearOnNextDelta = false;
                 break;
               case 'tool_result':
-                track.step = (ev.step as number) ?? track.step;
-                track.maxSteps = (ev.maxSteps as number) ?? track.maxSteps;
-                track.toolSuccess = (ev.success as boolean) ?? null;
+                track.step = ev.step ?? track.step;
+                track.maxSteps = ev.maxSteps ?? track.maxSteps;
+                track.toolSuccess = ev.success ?? null;
                 break;
               case 'turn_error':
-                track.active = false; track.lastError = (ev.error as string) ?? 'error';
+                track.active = false; track.lastError = ev.error ?? 'error';
                 track.lastOutput = ''; track.referenceMs = Date.now();
                 break;
               case 'turn_end':
@@ -156,7 +156,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                   track.textBuffer = ''; track.bufferType = null;
                   track.toolSuccess = null; track.clearOnNextDelta = false;
                 }
-                appendCappedBuffer(track, (ev.delta as string) ?? '');
+                appendCappedBuffer(track, ev.delta ?? '');
                 track.bufferType = 'thinking';
                 break;
               }
@@ -168,7 +168,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 } else {
                   track.clearOnNextDelta = true;
                 }
-                track.currentTool = (ev.name as string) ?? null;
+                track.currentTool = ev.name ?? null;
                 track.toolSuccess = null;
                 break;
               }
@@ -178,7 +178,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 if (track.bufferType !== 'text' || track.clearOnNextDelta) {
                   track.textBuffer = ''; track.bufferType = 'text'; track.toolSuccess = null; track.clearOnNextDelta = false;
                 }
-                appendCappedBuffer(track, (ev.delta as string) ?? '');
+                appendCappedBuffer(track, ev.delta ?? '');
                 break;
               }
               case 'user_reply_delta':
