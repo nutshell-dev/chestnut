@@ -27,18 +27,11 @@ export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 // phase 484: verification-types barrel re-export
 export type { NotifyClawFn } from './verification-types.js';
 
-// Phase 1136 Step B: verification attempt transition types
-export type {
-  VerificationAttemptTransition,
-} from './verification-transition-types.js';
-
 export {
   type ContractId,
   type Contract,
   type ProgressData,
   type VerificationResult,
-  type VerifierConfig,
-  type VerifierResult,
   type ContractYaml,
   type ContractCreatePolicy,
   type CreatePolicyContext,
@@ -50,23 +43,6 @@ export {
 export { ContractYamlSchema } from './schemas.js';
 
 // Phase 1193 Step B: archive current-format payload reader primitives only.
-
-export {
-  type SubtaskRuntimeRecord,
-} from './types.js';
-
-export {
-  PersistedContractYamlSchema,
-  SubtaskRuntimeRecordSchema,
-} from './schemas.js';
-
-export {
-  ContractLayoutCorruptedError,
-} from './errors.js';
-
-export {
-  type ArchiveReadIssue,
-} from './archive-reader.js';
 
 // phase 744 + 752: lightweight read-only query helpers (0-instance-dep)
 export {
@@ -88,30 +64,21 @@ export { collectContractEvents } from './jobs/event-collector.js';
 export {
   encodeContractEventsGuidance,
   decodeContractEventsGuidance,
-  type ContractEventGuidanceRef,
 } from './contract-events-guidance.js';
 
 // phase 1262 Step A: ContractSystem-owned contract_cancelled persisted guidance codec
 export {
   encodeContractCancelledGuidance,
   decodeContractCancelledGuidance,
-  type ContractCancelledGuidanceRef,
 } from './contract-cancelled-guidance.js';
 
 export {
   CONTRACT_ACTIVE_DIR,
-  CONTRACT_ARCHIVE_DIR,
-  PROGRESS_FILE,
   CONTRACT_YAML_FILE,
 } from './dirs.js';
 
 // Phase 1335 (r138 F fork): cross-module query API
 export { listArchiveContracts } from './persistence.js';
-
-// Phase 1146 Step C: structured cross-claw archive time query
-export type {
-  ArchiveQueryIssue,
-} from './types.js';
 
 export {
   readOnboardingStatus,

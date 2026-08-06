@@ -19,11 +19,11 @@ import { OutboxSummaryGuidanceDecodeError } from '../../../src/core/claw-topolog
 import {
   ContractEventsGuidanceDecodeError,
   encodeContractEventsGuidance,
-  type ContractEventGuidanceRef,
   ContractCancelledGuidanceDecodeError,
   encodeContractCancelledGuidance,
-  type ContractCancelledGuidanceRef,
 } from '../../../src/core/contract/index.js';
+import type { ContractEventGuidanceRef } from '../../../src/core/contract/contract-events-guidance.js';
+import type { ContractCancelledGuidanceRef } from '../../../src/core/contract/contract-cancelled-guidance.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 
