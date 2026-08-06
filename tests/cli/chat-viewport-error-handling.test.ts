@@ -39,7 +39,7 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
 
   describe('phase 523 Step B: handleEvent default case', () => {
     it('handleEvent switch 含 default case（phase 1309 改为 never 穷尽断言）', () => {
-      const match = sourceCode.match(/default:\s*\{[\s\S]*?const _exhaustive:\s*never\s*=\s*event\.type[\s\S]*?\}/);
+      const match = sourceCode.match(/default:\s*\{[\s\S]*?const _exhaustive:\s*never\s*=\s*event[\s\S]*?\}/);
       expect(match).toBeTruthy();
     });
 
