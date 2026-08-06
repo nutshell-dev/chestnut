@@ -11,9 +11,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
+import { BOOT_DEADLINE_MS } from '../../../src/foundation/process-manager/constants.js';
 import {
   awaitReadyConvergence,
-  BOOT_DEADLINE_MS,
   type ConvergenceObservation,
 } from '../../../src/foundation/process-manager/ready-convergence.js';
 
@@ -112,8 +112,13 @@ describe('ready convergence single-owner architecture (phase 1282 Step C)', () =
     expect(ensureSrc).toContain('awaitReadyConvergence(');
   });
 
-  it('deadline 数值唯一定义于 ready-convergence.ts 且不暴露等待参数', () => {
-    expect(primitiveSrc).toMatch(/export const BOOT_DEADLINE_MS = 30_000/);
+  it('deadline 数值唯一定义于 constants.ts 且不暴露等待参数', () => {
+    // Phase 1303：数值定义自 ready-convergence.ts 迁入 constants.ts（跨模块导入
+    // 绑定、可被测试 mock 覆盖）；判定持点仍在 ready-convergence.ts。
+    const constantsSrc = fs.readFileSync(path.join(PM_DIR, 'constants.ts'), 'utf-8');
+    expect(constantsSrc).toMatch(/export const BOOT_DEADLINE_MS = 30_000/);
+    expect(primitiveSrc).not.toMatch(/BOOT_DEADLINE_MS\s*=/);
+    expect(primitiveSrc).toContain("from './constants.js'");
     // 原语签名不接受 poll interval / deadline 参数（防第二套时限策略）
     const signature = primitiveSrc.slice(
       primitiveSrc.indexOf('export async function awaitReadyConvergence'),

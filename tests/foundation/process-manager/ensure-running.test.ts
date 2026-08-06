@@ -30,6 +30,7 @@ import {
   getRetiredDirFor,
 } from '../../../src/foundation/process-manager/generation.js';
 import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
+import { BOOT_DEADLINE_MS } from '../../../src/foundation/process-manager/constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import {
   ProcessGenerationStateError,
@@ -46,9 +47,17 @@ import {
 import type { DaemonDir } from '../../../src/foundation/process-manager/index.js';
 
 // Mock constants to eliminate sleep delays
+// Phase 1303：BOOT_DEADLINE_MS 从 30s 缩到 500ms —— fake timers 推进 deadline +
+// 100ms 时 poll 轮数 3100 → 60，消除 join 每轮 4 次真实磁盘读（含 3 次 ENOENT）
+// 在全量并行负载下超 15s testTimeout 的 flaky。判定逻辑不变、只缩短时间尺度。
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
+  return {
+    ...actual,
+    DAEMON_SHUTDOWN_GRACE_MS: 0,
+    SPAWN_POLL_INTERVAL_MS: 10,
+    BOOT_DEADLINE_MS: 500,
+  };
 });
 
 // Phase 1282 Step C：call-through 包装共享等待原语，断言 self-winner（spawn）与
@@ -58,6 +67,8 @@ vi.mock('../../../src/foundation/process-manager/ready-convergence.js', async (i
   const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/ready-convergence.js')>();
   return {
     ...actual,
+    // Phase 1303：BOOT_DEADLINE_MS 覆盖移入 constants.js mock（模块内部 const
+    // 闭包不可被导出 mock 替换，数值须经跨模块导入绑定覆盖）
     awaitReadyConvergence: (...args: Parameters<typeof actual.awaitReadyConvergence>) => {
       h.convergenceCalls++;
       return actual.awaitReadyConvergence(...args);
@@ -405,12 +416,12 @@ describe('ensureRunning', () => {
     writeSpawningGenerationSync(daemonDir, { generationId, pid: process.pid });
 
     vi.useFakeTimers();
+    // 共享原语 deadline = BOOT_DEADLINE_MS（本文件 mock 为 500ms）；poll 由本文件 mock 为 10ms
+    const ADVANCE_PAST_DEADLINE_MS = BOOT_DEADLINE_MS + 100; // 略超 deadline，保证 timeout 分支触发
     try {
       const ctx = defaultCtx(nodeFs, audit);
       const promise = ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-timeout')).catch((e) => e);
 
-      // 共享原语 deadline = BOOT_DEADLINE_MS(30s)；poll 由本文件 mock 为 10ms
-      const ADVANCE_PAST_DEADLINE_MS = 31_000; // 略超 30s deadline，保证 timeout 分支触发
       await vi.advanceTimersByTimeAsync(ADVANCE_PAST_DEADLINE_MS);
 
       const err = await promise;
