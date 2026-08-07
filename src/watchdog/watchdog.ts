@@ -37,7 +37,7 @@ import { isFileNotFound } from '../foundation/fs/index.js';
 import { type AuditLog, createWorkspaceAudit, createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
-import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 
 import { resolveDaemonEntry } from '../daemon/entry-resolver.js';
@@ -427,7 +427,7 @@ export async function runWatchdogLoop(
   // 先建 auditWriter，让 ownership commit 与 loadWatchdogState corrupt 路径可写 audit（N1 修复）
   // Phase 1288 Step C: 构造委托 AuditLog 自家 createWorkspaceAudit（固定写 audit/audit.tsv、
   // retention 自 AuditLog config store 自读）；Watchdog 不再接触路径 / maxSizeMb / Assembly config
-  const auditWriter = createWorkspaceAudit(fsFactory, getChestnutDir());
+  const auditWriter = createWorkspaceAudit(fsFactory, getChestnutDir(), WATCHDOG_FILE_ROUTING);
   setAuditWriter(auditWriter);
 
   // Phase 1203 Step B: 子进程在任何监控副作用（state load / WATCHDOG_START /

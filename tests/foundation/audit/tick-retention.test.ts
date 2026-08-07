@@ -2,9 +2,9 @@
  * Phase 1318 Step A: tick.tsv 30 天滚动（按天归档 + prune）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { createTrackedTempDirSync } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../../src/foundation/audit/index.js';
 import { TICK_RETENTION_DAYS } from '../../../src/foundation/audit/writer.js';
@@ -14,7 +14,7 @@ describe('tick.tsv 30-day rolling retention (phase 1318 Step A)', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'phase1318-tick-'));
+    tmpDir = createTrackedTempDirSync('phase1318-tick-');
     _resetFallbackForTest();
   });
 

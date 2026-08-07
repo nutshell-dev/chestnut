@@ -9,6 +9,7 @@ import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { createWorkspaceAudit } from '../../foundation/audit/index.js';
+import { WATCHDOG_FILE_ROUTING } from '../../watchdog/audit-events.js';
 import { setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog.js';
 import { stopCommand as watchdogStop } from './watchdog-cli.js';
 import { stopCommand as motionStop } from './motion.js';
@@ -49,7 +50,7 @@ export async function stopAllCommand(
   // 路径 / maxSizeMb / Assembly config
   const baseDir = path.dirname(getGlobalConfigPath());
   try {
-    setWatchdogAuditWriter(createWorkspaceAudit(deps.fsFactory, baseDir));
+    setWatchdogAuditWriter(createWorkspaceAudit(deps.fsFactory, baseDir, WATCHDOG_FILE_ROUTING));
   } catch (err) {
     console.error('Failed to wire watchdog audit:', err);
     // fail-soft: 既有 silent no-op fallback 保 (audit 不阻 stop 流程)

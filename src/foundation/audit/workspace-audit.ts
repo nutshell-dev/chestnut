@@ -9,7 +9,8 @@
  * 设计契约（Phase 1288 总览拍板 + phase 1318 心跳路由）：
  * - caller 只给 fsFactory + chestnutRoot；不得传路径、maxSizeMb 或 raw config；
  * - 目标路径固定 AUDIT_PATHS.audit（audit/audit.tsv，相对 chestnutRoot）；
- * - 心跳类事件经 WATCHDOG_FILE_ROUTING 分发到 audit/tick.tsv（30 天滚动）；
+ * - 心跳类事件由调用方通过 routing 参数注入，分发到 audit/tick.tsv（30 天滚动）；
+ *   foundation 不 import 任何业务模块（mirror daemon-entry auditFileRouting 先例）。
  * - retention 自 AuditLog 自家 config store 读取（missing → null；invalid → throw）。
  *
  * legacy 根 audit.tsv 本模块不读不写；
@@ -22,7 +23,7 @@ import type { AuditLog, AuditFileName } from './types.js';
 import { createSystemAudit } from './factory.js';
 import { AUDIT_PATHS } from './layout.js';
 import { readWorkspaceAuditRetentionMaxSizeMb } from './workspace-config.js';
-import { WATCHDOG_FILE_ROUTING } from '../../watchdog/audit-events.js';
+
 
 /**
  * 构造 workspace 根审计 writer（固定写 `audit/audit.tsv`，心跳事件 → `audit/tick.tsv`）。
@@ -31,10 +32,11 @@ import { WATCHDOG_FILE_ROUTING } from '../../watchdog/audit-events.js';
 export function createWorkspaceAudit(
   fsFactory: (baseDir: string) => FileSystem,
   chestnutRoot: string,
+  routing?: Readonly<Record<string, AuditFileName>>,
 ): AuditLog {
   const fs = fsFactory(chestnutRoot);
   const maxSizeMb = readWorkspaceAuditRetentionMaxSizeMb(fs);
-  const typeToFile = new Map<string, AuditFileName>(Object.entries(WATCHDOG_FILE_ROUTING));
+  const typeToFile = new Map<string, AuditFileName>(Object.entries(routing ?? {}));
   return createSystemAudit(fs, path.dirname(AUDIT_PATHS.audit), {
     typeToFile,
     maxSizeMb,

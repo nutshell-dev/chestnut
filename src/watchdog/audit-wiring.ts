@@ -1,6 +1,7 @@
 import { createWorkspaceAudit } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutDir, getAuditWriter, setAuditWriter } from './watchdog-context.js';
+import { WATCHDOG_FILE_ROUTING } from './audit-events.js';
 
 /**
  * Lazy-init workspace audit writer for CLI-side watchdog operations.
@@ -14,7 +15,7 @@ import { getChestnutDir, getAuditWriter, setAuditWriter } from './watchdog-conte
 export function ensureAuditWired(fsFactory: (baseDir: string) => FileSystem): void {
   if (getAuditWriter() !== null) return;
   try {
-    setAuditWriter(createWorkspaceAudit(fsFactory, getChestnutDir()));
+    setAuditWriter(createWorkspaceAudit(fsFactory, getChestnutDir(), WATCHDOG_FILE_ROUTING));
   } catch (err) {
     console.error('Failed to wire watchdog audit in CLI:', err);
   }
