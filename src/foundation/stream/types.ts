@@ -8,30 +8,31 @@
 export const STREAM_FILE = 'stream.jsonl';
 
 /**
- * stream.jsonl type 权威单源 const（phase 1312 治理）。
+ * stream.jsonl type 权威单源 const（phase 1312 治理；phase 1321 分层收窄 50→40）。
  * StreamEventType 由本 const 派生（typeof）→ 值集合 0 漂移。
- * 写端一律引用 STREAM_EVENT_NAMES.X（禁裸字面量）；新增事件类型先加此 const。
+ * 本 const 只含协议层事件（40）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 27
+ * + 通用系统通知通道 1 + stream 自身 1。上层业务事件 const 归各语义模块（phase 1321 分层拆件，
+ * 修复 M#1/M#3/M#5——stream 不再为不属于自己的业务语义负责）：
+ *   - agent-executor STREAM_AGENT_EVENTS（6：turn_start/llm_start/tool_result/turn_end/turn_interrupted/turn_error）
+ *   - async-task-system STREAM_TASK_EVENTS（3：task_started/task_completed/task_attempt_start）
+ *   - assembly ASSEMBLY_STREAM_EVENTS（1：daemon_started）
+ * 写端一律引用 STREAM_EVENT_NAMES.X（禁裸字面量）；新增协议层事件类型先加此 const。
  */
 export const STREAM_EVENT_NAMES = {
-  // agent-executor（13）
-  TURN_START: 'turn_start',
-  LLM_START: 'llm_start',
+  // LLM 输出（7，L1 LLMProvider 协议层——工具调用 input 流也是 LLM 输出的一部分）。
+  // send_content_* 曾名 user_reply_*（2026-08-07 phase 1321 改名消歧：user_ 前缀族语义为
+  // 「用户来源」，而此事件是 send 工具 input 的 LLM 生成内容流、非用户来源事件）。
   THINKING_DELTA: 'thinking_delta',
   TEXT_DELTA: 'text_delta',
   TEXT_END: 'text_end',
   TOOL_CALL: 'tool_call',
   TOOL_USE_INPUT: 'tool_use_input',
-  USER_REPLY_DELTA: 'user_reply_delta',
-  USER_REPLY_END: 'user_reply_end',
-  TOOL_RESULT: 'tool_result',
-  TURN_END: 'turn_end',
-  TURN_INTERRUPTED: 'turn_interrupted',
-  TURN_ERROR: 'turn_error',
-  // agent-executor stream-callbacks 裸字面量（3）
+  SEND_CONTENT_DELTA: 'send_content_delta',
+  SEND_CONTENT_END: 'send_content_end',
+  // LLM 调用调度/呈现（4；写端在 event-loop（L5）只是装配位置、语义属 LLM 协议层）
   PROVIDER_INFO: 'provider_info',
   PROVIDER_FAILOVER: 'provider_failover',
   PROVIDER_FAILED: 'provider_failed',
-  // event-loop（1）
   LLM_RETRY_WAITING: 'llm_retry_waiting',
   // llm-orchestrator LLMEvent（27）
   PROVIDER_ATTEMPT_FAILED: 'provider_attempt_failed',
@@ -61,47 +62,38 @@ export const STREAM_EVENT_NAMES = {
   SDK_CLIENT_CACHE_HIT: 'sdk_client_cache_hit',
   SDK_CLIENT_CACHE_MISS: 'sdk_client_cache_miss',
   PROVIDER_CLOSE_FAILED: 'provider_close_failed',
-  // system_notify（1）：系统/契约侧主动通知用户（subtype 区分 contract_created 等）；
-  // 曾名 user_notify（2026-08-07 phase 1319 改名——user_ 前缀族语义为「用户来源」、此事件是「通知用户」接收方、命名歧义治理）
+  // 通用系统通知通道（1）：系统/契约侧主动通知用户（subtype 区分 contract_created 等）；
+  // 曾名 user_notify（2026-08-07 phase 1319 改名——user_ 前缀族语义为「用户来源」、此事件是「通知用户」接收方、命名歧义治理）。
+  // 归协议层另因：写端跨 L2-L6，L2 写端（audit-size-monitor）引用上层 const 会反向依赖违规；
+  // 业务语义在 subtype payload（与 session_boundary 同性质）。
   SYSTEM_NOTIFY: 'system_notify',
-  // assembly daemon 启动（1）
-  DAEMON_STARTED: 'daemon_started',
-  // stream writer 归档（1）
+  // stream writer 归档（1，stream 自身）
   SESSION_BOUNDARY: 'session_boundary',
-  // async-task-system task 生命周期（3）
-  TASK_STARTED: 'task_started',
-  TASK_COMPLETED: 'task_completed',
-  TASK_ATTEMPT_START: 'task_attempt_start',
 } as const;
 
 export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVENT_NAMES];
 
 /**
- * stream.jsonl 事件 payload 判别映射（phase 1316）。
+ * stream.jsonl 协议层事件 payload 判别映射（40 key，phase 1316；phase 1321 收窄）。
  * payload 权威双份策略：LLMEvent 27 个的 payload 在此重定义（orchestrator 特有类型降级）；
- * 漂移由编译互检 + 契约测试兜底。非 LLMEvent 23 个以写端对象字面量为准。
+ * 漂移由编译互检 + 契约测试兜底。非 LLMEvent 13 个以写端对象字面量为准。
  * 全部成员含 trace_id?: string，因为 stream-callbacks checkWrite 可能注入 trace_id。
+ * 上层 10 事件（agent 6 / task 3 / daemon 1）的 payload 判别归 CLI 汇总
+ * （cli/commands/stream-event-types.ts 的 UpperPayloadMap）。
  */
-interface StreamEventMap {
-  // agent-executor（13）
-  turn_start: { sources?: Array<{ text: string; type: string }>; trace_id?: string };
-  llm_start: { trace_id?: string };
+export interface StreamEventMap {
+  // LLM 输出（7）
   thinking_delta: { delta: string; trace_id?: string };
   text_delta: { delta: string; trace_id?: string };
   text_end: { trace_id?: string };
   tool_call: { name: string; tool_use_id: string; trace_id?: string };
   tool_use_input: { name: string; tool_use_id: string; input: Record<string, unknown>; trace_id?: string };
-  user_reply_delta: { delta: string; trace_id?: string };
-  user_reply_end: { trace_id?: string };
-  tool_result: { name: string; tool_use_id: string; success: boolean; summary: string; step: number; maxSteps: number; trace_id?: string };
-  turn_end: { trace_id?: string };
-  turn_interrupted: { cause: string; message?: string; trace_id?: string };
-  turn_error: { error: string; trace_id?: string };
-  // agent-executor stream-callbacks 裸字面量（3）
+  send_content_delta: { delta: string; trace_id?: string };
+  send_content_end: { trace_id?: string };
+  // LLM 调用调度/呈现（4）
   provider_info: { name: string; model: string; isFallback: boolean; trace_id?: string };
   provider_failover: { from: string; timeoutMs: number; trace_id?: string };
   provider_failed: { provider: string; model: string; error: string; trace_id?: string };
-  // event-loop（1）
   llm_retry_waiting: { stage: 'retry' | 'cooldown'; action: 'scheduled' | 'gated' | 'released'; attempt: number; maxAttempts: number; delayMs: number; resumeAt: string; errorClass: string; trace_id?: string };
   // llm-orchestrator LLMEvent（27，payload 重定义、orchestrator 特有类型降级）
   provider_attempt_failed: { provider: string; attempt: number; maxAttempts: number; error: string; errorClass: string; userActionHint: string; retryAfterSec?: number; trace_id?: string };
@@ -133,23 +125,20 @@ interface StreamEventMap {
   provider_close_failed: { error: string; trace_id?: string };
   // system_notify（1，边界 co-writer 宽松契约）
   system_notify: { subtype: string; [key: string]: unknown };
-  // assembly（1）
-  daemon_started: { clawId: string; pid: number; trace_id?: string };
   // stream writer（1）
   session_boundary: { reason: string; trace_id?: string };
-  // async-task-system task 生命周期（3）
-  task_started: { taskId: string; taskKind: string; silent: boolean; fullTaskId?: string; command?: string; startedAt?: number; trace_id?: string };
-  task_attempt_start: { taskId: string; trace_id?: string };
-  task_completed: { taskId: string; trace_id?: string };
 }
 
 /**
- * StreamEvent 判别联合：type 判别键 + payload + ts。
- * 消费者 switch(event.type) 分支内 payload 自动类型安全。
+ * stream.jsonl 事件（协议基础形态，phase 1321 诚实化）。
+ * reader/writer 只保证 ts + type 存在（读 JSON 行的真实边界）；
+ * 全量判别联合（含上层事件 payload）归消费端汇总（cli/commands/stream-event-types.ts）。
  */
-export type StreamEvent = {
-  [K in StreamEventType]: { type: K; ts: number } & StreamEventMap[K];
-}[StreamEventType];
+export interface StreamEvent {
+  ts: number;
+  type: string;
+  [key: string]: unknown;
+}
 
 /**
  * stream.jsonl 写入接口（由 StreamWriter 结构兼容，无需 implements 声明）
@@ -161,7 +150,9 @@ export interface StreamLog {
 /**
  * Direct LLM output event types (excludes infrastructure events like llm_start/tool_result).
  * Used by watchdog (claw activity tracking) and chat-viewport (UI rendering).
+ * ReadonlySet<string>：成员值是协议层字面量，但 has() 接受任意 string（reader 读出的事件
+ * type 是宽松 string、含上层事件——phase 1321 StreamEvent 诚实化）。
  */
-export const LLM_OUTPUT_EVENTS = new Set<StreamEventType>([
-  'thinking_delta', 'text_delta', 'tool_call', 'user_reply_delta', 'user_reply_end',
+export const LLM_OUTPUT_EVENTS: ReadonlySet<string> = new Set([
+  'thinking_delta', 'text_delta', 'tool_call', 'send_content_delta', 'send_content_end',
 ]);

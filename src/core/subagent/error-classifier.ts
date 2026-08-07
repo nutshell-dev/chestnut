@@ -19,7 +19,7 @@ import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import type { AbortReason } from '../../foundation/llm-provider/index.js';
-import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
+import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import { REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
 
 export interface ClassifyErrorOptions {
@@ -35,27 +35,27 @@ export function classifyAndAuditError(opts: ClassifyErrorOptions): void {
   const errMsg = formatErr(error);
 
   if (error instanceof ToolTimeoutError) {
-    safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_INTERRUPTED, cause: 'turn_timeout', message: `Timeout after ${timeoutMs}ms` });
+    safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause: 'turn_timeout', message: `Timeout after ${timeoutMs}ms` });
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=turn_timeout', `turn_timeout_ms=${timeoutMs}`);
   } else if (error instanceof IdleTimeoutSignal) {
-    safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_INTERRUPTED, cause: 'idle_timeout', message: `Idle timeout after ${error.timeoutMs}ms` });
+    safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause: 'idle_timeout', message: `Idle timeout after ${error.timeoutMs}ms` });
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${error.timeoutMs}`);
   } else if (error instanceof UserInterrupt) {
-    safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_INTERRUPTED, cause: 'user_interrupt', message: 'User interrupt' });
+    safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause: 'user_interrupt', message: 'User interrupt' });
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt');
   } else if (error instanceof PriorityInboxInterrupt) {
-    safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_INTERRUPTED, cause: 'priority_inbox', message: 'Priority inbox' });
+    safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause: 'priority_inbox', message: 'Priority inbox' });
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');
   } else if ((error as Error)?.name === 'AbortError') {
     const cause = (error as Error & { cause?: AbortReason }).cause;
-    safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_INTERRUPTED, cause: 'external', message: errMsg });
+    safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause: 'external', message: errMsg });
     auditWriter.write(
       REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED,
       'cause=external',
       ...(cause ? [`type=${cause.type}`] : []),
     );
   } else {
-    safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_ERROR, error: errMsg });
+    safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_ERROR, error: errMsg });
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_ERROR, `error=${errMsg}`);
   }
 }

@@ -4,7 +4,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 
 import { type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
-import { STREAM_EVENT_NAMES } from '../foundation/stream/index.js';
+import { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';
 
 import { isFileNotFound } from '../foundation/fs/index.js';
 
@@ -134,7 +134,7 @@ export async function assemble(
 
     // --- 8. 契约 §4 audit daemon_started ---
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.DAEMON_STARTED, `clawId=${clawId}`, `pid=${process.pid}`);
-    streamWriter!.write({ ts: Date.now(), type: STREAM_EVENT_NAMES.DAEMON_STARTED, clawId, pid: process.pid });
+    streamWriter!.write({ ts: Date.now(), type: ASSEMBLY_STREAM_EVENTS.DAEMON_STARTED, clawId, pid: process.pid });
 
     return {
       clawId: config.clawId,

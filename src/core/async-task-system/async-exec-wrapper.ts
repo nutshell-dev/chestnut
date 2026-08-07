@@ -20,7 +20,7 @@ import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSe
 import type { SendToolResult, SendFallbackError, WriteInboxAsync } from './result-delivery-types.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
+import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { emitHandlerFailed, emitMigratedExecTermination } from './audit-emit.js';
 import { formatErr } from './_helpers.js';
 import type { ToolTask, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
@@ -396,7 +396,7 @@ export function createAsyncExecWrapper(
       const startedAt = Date.now();
       parentStreamLog?.write({
         ts: startedAt,
-        type: STREAM_EVENT_NAMES.TASK_STARTED,
+        type: STREAM_TASK_EVENTS.TASK_STARTED,
         taskId: shortId,
         fullTaskId: fullId,
         taskKind: 'exec_migrated',
@@ -550,7 +550,7 @@ export function createAsyncExecWrapper(
         // removes the migrated exec indicator.
         parentStreamLog?.write({
           ts: Date.now(),
-          type: STREAM_EVENT_NAMES.TASK_COMPLETED,
+          type: STREAM_TASK_EVENTS.TASK_COMPLETED,
           taskId: shortId,
           fullTaskId: fullId,
           taskKind: 'exec_migrated',

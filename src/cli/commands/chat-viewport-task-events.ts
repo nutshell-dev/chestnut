@@ -10,7 +10,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import type { TaskStatusBarController } from './chat-viewport-task-status-bar.js';
 import type { TaskId } from '../../core/async-task-system/index.js';
-import type { StreamEvent } from '../../foundation/stream/index.js';
+import type { CliStreamEvent } from './stream-event-types.js';
 
 
 export interface TaskEventHandlerDeps {
@@ -19,10 +19,10 @@ export interface TaskEventHandlerDeps {
   audit?: AuditLog;
 }
 
-export type TaskEvent = StreamEvent;
+export type TaskEvent = CliStreamEvent;
 
 export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
-  return (taskId: TaskId, event: StreamEvent) => {
+  return (taskId: TaskId, event: CliStreamEvent) => {
     switch (event.type) {
       case 'tool_call':
       case 'tool_result':
@@ -50,7 +50,7 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
 
       // 非消费类型显式声明：保持原 default 的 UNKNOWN audit
       case 'turn_start': case 'llm_start': case 'text_end':
-      case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end':
+      case 'tool_use_input': case 'send_content_delta': case 'send_content_end':
       case 'provider_info': case 'provider_failover': case 'provider_failed':
       case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
       case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':

@@ -12,7 +12,8 @@ import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.j
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
-import type { StreamEvent, StreamReader } from '../../foundation/stream/index.js';
+import type { StreamReader } from '../../foundation/stream/index.js';
+import type { CliStreamEvent } from './stream-event-types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { TurnTracker } from './chat-viewport-types.js';
@@ -83,7 +84,7 @@ export type EventHandlerDeps = TurnLifecycleRole & DisplayRenderRole & InboxFilt
 export function createEventHandler(deps: EventHandlerDeps) {
   // phase 1277: 连续失败序列中 ALL_FAILED 只报第一次；成功 turn（turn_end）重置。
   let allFailedReported = false;
-  return function handleEvent(event: StreamEvent): void {
+  return function handleEvent(event: CliStreamEvent): void {
     deps.observability.recordEvent(event.type);
     switch (event.type) {
       case 'turn_start': {
@@ -148,11 +149,11 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
-      case 'user_reply_delta': {
+      case 'send_content_delta': {
         // No flushStreaming() here: per-delta flush would commit each
         // streamed fragment as its own finished line (phase 1273). Turn-start
         // and llm-start already flush stale text residue before the reply
-        // stream; the accumulated buffer is flushed once at user_reply_end.
+        // stream; the accumulated buffer is flushed once at send_content_end.
         deps.mainUI.enterPhase('streaming_text');
         const streamBuf = deps.mainUI.appendToBuffer(event.delta);
         const previewText = prefixLines(streamBuf + '▋', '➤ ', '  ');
@@ -160,7 +161,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
-      case 'user_reply_end': {
+      case 'send_content_end': {
         deps.mainUI.flushStreamingNormal();
         deps.mainUI.clearPreview();
         break;

@@ -39,7 +39,7 @@ import { executeToolTask } from './tool-executor.js';
 import { createAsyncExecWrapper, type AsyncExecWrapperParams, ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
 import { createPendingWatcher, type PendingWatcherHandle } from './pending-watcher.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
+import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr } from './_helpers.js';
 import { sha256Hex } from '../../foundation/node-utils/index.js';
 import { assertTaskShapeOnSave, type SaveSource } from './invariants.js';
@@ -1160,7 +1160,7 @@ export class AsyncTaskSystem {
       if (task.kind === 'tool') {
         this.parentStreamLog?.write({
           ts: Date.now(),
-          type: STREAM_EVENT_NAMES.TASK_STARTED,
+          type: STREAM_TASK_EVENTS.TASK_STARTED,
           taskId: taskShortId(task),
           fullTaskId: task.id,
           taskKind: 'spawn_subagent',

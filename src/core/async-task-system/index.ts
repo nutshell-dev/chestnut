@@ -42,3 +42,6 @@ export type { SummonDecisionMetadata } from './task-schemas.js';
 // phase 843: migrated exec task query API
 export { listMigratedExecTasks } from './list-migrated-exec.js';
 export type { MigratedExecTaskInfo, TaskReadError } from './list-migrated-exec.js';
+
+// phase 1321: async-task-system 自有 stream 事件 const（分层拆件、恢复 1312 删的名）
+export { STREAM_TASK_EVENTS } from './stream-events.js';

@@ -15,6 +15,7 @@ import type { StreamEvent, StreamLog } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
+import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
@@ -77,7 +78,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
 
   const callbacks: PrimitiveStreamCallbacks = {
     onBeforeLLMCall: () => {
-      safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.LLM_START });
+      safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.LLM_START });
     },
     onTextDelta: (delta) => {
       safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TEXT_DELTA, delta });
@@ -104,14 +105,14 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       // catch 路径 drain 时也走此回调，确保 LLM 流中已 parse 的 input 不被静默丢弃。
       safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
       if (name === 'send') {
-        safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.USER_REPLY_END });
+        safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.SEND_CONTENT_END });
       }
     },
     onToolUseInputDelta: (name, _toolUseId, partialInput) => {
       if (name !== 'send') return;
       const delta = feedSendContentDelta(sendTracker, partialInput);
       if (delta) {
-        safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.USER_REPLY_DELTA, delta });
+        safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.SEND_CONTENT_DELTA, delta });
       }
     },
     onToolResult: (name, toolUseId, result, step, maxSteps) => {
@@ -130,7 +131,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       );
       safeSwWrite({
         ts: Date.now(),
-        type: STREAM_EVENT_NAMES.TOOL_RESULT,
+        type: STREAM_AGENT_EVENTS.TOOL_RESULT,
         name,
         tool_use_id: toolUseId,
         success: result.success,

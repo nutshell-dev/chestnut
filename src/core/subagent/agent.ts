@@ -15,7 +15,7 @@ import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, emitPartialAssistantDiscarded } from './audit-events.js';
-import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
+import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
@@ -148,7 +148,7 @@ export class SubAgent {
     });
 
     // Turn start: written before any potentially-throwing init so catch always pairs it
-    stream.safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_START });
+    stream.safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_START });
     this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START);
 
     try {
@@ -324,7 +324,7 @@ export class SubAgent {
       await this.appendToLog(`Stop reason: ${result.stopReason}\n`);
       await this.appendToLog(`Final text: ${result.finalText}\n`);
 
-      stream.safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_END });
+      stream.safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_END });
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
       stream.markTurnEnded();
 
@@ -349,7 +349,7 @@ export class SubAgent {
       timeout.cleanup();
       // Safety net: write turn_end only if no specific turn end event was already written
       if (!stream.isTurnEnded()) {
-        stream.safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TURN_END });
+        stream.safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_END });
         this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
         stream.closeSw();
       }

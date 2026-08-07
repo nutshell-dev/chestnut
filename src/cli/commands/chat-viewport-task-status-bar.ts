@@ -14,7 +14,7 @@
 
 import { fitLine } from '../utils/string.js';
 import { formatIsoClock } from '../utils/time.js';
-import type { StreamEvent } from '../../foundation/stream/index.js';
+import type { CliStreamEvent } from './stream-event-types.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
 import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
 
@@ -86,7 +86,7 @@ export interface MigratedExecTrack {
 export interface TaskStatusBarController {
   addTrack(taskId: TaskId, taskKind: string): void;
   removeTrack(taskId: TaskId): void;
-  updateTrack(taskId: TaskId, event: StreamEvent): void;
+  updateTrack(taskId: TaskId, event: CliStreamEvent): void;
   addMigratedExec(track: MigratedExecTrack): void;
   removeMigratedExec(taskId: TaskId): void;
   renderSpawn(cols: number): string;   // 多行 join、堆顶 = 数组 head
@@ -131,7 +131,7 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
     return spawnTracks.find(tr => tr.taskId === taskId) ?? shadowTracks.find(tr => tr.taskId === taskId);
   };
 
-  const updateTrack = (taskId: TaskId, event: StreamEvent) => {
+  const updateTrack = (taskId: TaskId, event: CliStreamEvent) => {
     const tr = find(taskId);
     if (!tr) return;   // 未注册 task 不处理
     switch (event.type) {
@@ -184,7 +184,7 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
 
       // 非消费类型显式声明：状态条不处理（保持原静默语义）
       case 'turn_start': case 'llm_start': case 'text_end':
-      case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end':
+      case 'tool_use_input': case 'send_content_delta': case 'send_content_end':
       case 'provider_info': case 'provider_failover': case 'provider_failed':
       case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
       case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':

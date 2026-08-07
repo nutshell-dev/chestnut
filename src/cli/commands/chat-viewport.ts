@@ -41,6 +41,7 @@ import { createTurnTracker } from './chat-viewport-turn-tracker.js';
 import { createDisplay } from './chat-viewport-display.js';
 import { createClawPanel, createRescanClawsDir } from './chat-viewport-claw-panel.js';
 import { createEventHandler, type TaskWatch } from './chat-viewport-event-handler.js';
+import type { CliStreamEvent } from './stream-event-types.js';
 import { initOwnStateFromHistory, createUncaughtHandler } from './chat-viewport-init.js';
 import { type TaskId, makeShortTaskId } from '../../core/async-task-system/index.js';
 
@@ -306,7 +307,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   });
 
   // tail stream.jsonl
-  const streamReader = createStreamReader(fs, STREAM_FILE, (ev) => mainUI.withScope('main', () => handleEvent(ev)), options.audit, { persistent: false });
+  // reader 返诚实化协议基础 StreamEvent（ts+type、payload unknown）——入口一处断言为 CLI 汇总判别联合（phase 1321）
+  const streamReader = createStreamReader(fs, STREAM_FILE, (ev) => mainUI.withScope('main', () => handleEvent(ev as CliStreamEvent)), options.audit, { persistent: false });
   const recentTurnOffset = findRecentTurnStartOffset(fs, STREAM_FILE);
   try {
     streamReader.start(recentTurnOffset);

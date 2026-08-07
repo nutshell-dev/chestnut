@@ -4,7 +4,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import { getActiveContractTimestamp } from '../../core/contract/index.js';
 import { parseStreamLines } from '../../foundation/stream/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
-import type { StreamEvent } from '../../foundation/stream/index.js';
+import type { CliStreamEvent } from './stream-event-types.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -117,7 +117,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         track.fileSize += buf.length;
         const { events, leftover } = parseStreamLines(buf.toString('utf-8'), track.leftover);
         track.leftover = leftover;
-        for (const ev of events as StreamEvent[]) {
+        for (const ev of events as CliStreamEvent[]) {
           try {
             switch (ev.type) {
               case 'turn_start':
@@ -181,8 +181,8 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 appendCappedBuffer(track, ev.delta ?? '');
                 break;
               }
-              case 'user_reply_delta':
-              case 'user_reply_end': {
+              case 'send_content_delta':
+              case 'send_content_end': {
                 // 原 LLM_OUTPUT_EVENTS 通用分支：仅 active/lastOutput（无专用处理）
                 if (track.active === false) track.lastOutput = '';
                 track.active = true;

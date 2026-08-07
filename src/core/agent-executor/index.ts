@@ -22,3 +22,6 @@ export {
 } from './errors.js';
 export type { StreamCallbacks } from './stream-callbacks.js';
 export { makeStepNumber } from './step-number.js';
+
+// phase 1321: agent-executor 自有 stream 事件 const（分层拆件）
+export { STREAM_AGENT_EVENTS } from './stream-events.js';

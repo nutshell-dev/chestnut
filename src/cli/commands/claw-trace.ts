@@ -8,7 +8,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import type { StreamEvent } from '../../foundation/stream/index.js';
+import type { CliStreamEvent } from './stream-event-types.js';
 import * as yaml from 'js-yaml';
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
@@ -137,7 +137,7 @@ async function readContractTitle(fileSystem: FileSystem, contractId: ContractId)
 /**
  * 扫描 stream*.jsonl 文件，过滤契约期间的事件
  */
-async function readStreamEvents(fileSystem: FileSystem, startedAt: string): Promise<StreamEvent[]> {
+async function readStreamEvents(fileSystem: FileSystem, startedAt: string): Promise<CliStreamEvent[]> {
   const startedTs = Date.parse(startedAt);
   if (isNaN(startedTs)) {
     throw new CliError(`Invalid contract start time: "${startedAt}"`);
@@ -165,7 +165,7 @@ async function readStreamEvents(fileSystem: FileSystem, startedAt: string): Prom
   files.sort((a, b) => a.mtime - b.mtime);
 
   // 读取并过滤事件
-  const events: StreamEvent[] = [];
+  const events: CliStreamEvent[] = [];
   for (const { relPath } of files) {
     try {
       const content = await fileSystem.read(relPath);
@@ -175,7 +175,7 @@ async function readStreamEvents(fileSystem: FileSystem, startedAt: string): Prom
           // phase 355 C3: 验对象 + ts 字段、否则 skip 行
           const raw: unknown = JSON.parse(line);
           if (typeof raw !== 'object' || raw === null) continue;
-          const ev = raw as StreamEvent;
+          const ev = raw as CliStreamEvent;
           if (typeof ev.ts === 'number' && ev.ts >= startedTs) {
             events.push(ev);
           }
@@ -197,7 +197,7 @@ function showTraceOverview(
   contractId: ContractId,
   title: string | undefined,
   startedAt: string,
-  events: StreamEvent[],
+  events: CliStreamEvent[],
   noHint?: boolean,
 ): void {
   // 头部信息
@@ -279,7 +279,7 @@ function showTraceOverview(
         break;
       }
       // 非消费类型显式声明：trace 不显示（保持原静默语义）
-      case 'turn_start': case 'tool_use_input': case 'user_reply_delta': case 'user_reply_end':
+      case 'turn_start': case 'tool_use_input': case 'send_content_delta': case 'send_content_end':
       case 'provider_info': case 'provider_failover': case 'provider_failed':
       case 'llm_retry_waiting': case 'provider_attempt_failed': case 'retry_scheduled':
       case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
@@ -316,7 +316,7 @@ function showTraceOverview(
  */
 async function showStepDetail(
   fileSystem: FileSystem,
-  events: StreamEvent[],
+  events: CliStreamEvent[],
   rawStep: string,
 ): Promise<void> {
   const { turn: targetTurn, slotIdx: targetSlot } = parseStepArg(rawStep);
@@ -475,7 +475,7 @@ async function showStepDetail(
 
   if (targetToolResult) {
     const streamResults = events.filter(
-      (ev): ev is Extract<StreamEvent, { type: 'tool_result' }> => ev.type === 'tool_result',
+      (ev): ev is Extract<CliStreamEvent, { type: 'tool_result' }> => ev.type === 'tool_result',
     );
     const streamResult = streamResults.find(ev => ev.tool_use_id === targetToolUseId);
     const success = streamResult ? streamResult.success !== false : true;

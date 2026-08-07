@@ -1,5 +1,4 @@
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import type { StreamEventType } from '../../foundation/stream/index.js';
 
 /**
  * 聚合阈值（B 类偏差）：启发式默认，smoke 后可调。
@@ -84,7 +83,7 @@ export function createViewportObservability(deps: Deps) {
     scrollbackClear = null;
   };
 
-  const recordEvent = (eventType: StreamEventType) => {
+  const recordEvent = (eventType: string) => {
     const t = now();
     if (!ingest) ingest = { size: 0, types: {}, firstTs: t };
     ingest.size += 1;
