@@ -346,11 +346,6 @@ export function createEventHandler(deps: EventHandlerDeps) {
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知
           const fb = notify.feedback ?? '';
           if (deps.showContractEvents) deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `  ✗ [contract] ${subtaskId} failed: ${fb} (${claw})` });
-        } else if (sub === 'llm_error') {
-          // llm_error 始终显示（无论来源）
-          const errMsg = notify.error ?? '';
-          const forClaw = claw ? ` (${claw})` : '';
-          deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}` });
         } else if (sub === 'dev_warning') {
           // phase 8: dev-attention 阈值警告（informational only / 不可 motion action / 供 developer 参考）
           // 来源：cron audit-size-monitor / 等
