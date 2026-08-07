@@ -82,15 +82,16 @@ export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promis
 
       const prevLevel = auditOverThreshold.get(p) ?? null;
       if (level) {
-        opts.audit.write(
-          AUDIT_SIZE_MONITOR_AUDIT_EVENTS.THRESHOLD_EXCEEDED,
-          `path=${p}`,
-          `size_bytes=${size}`,
-          `level=${level}`,
-          `opt_in_hint=audit.retention.max_size_mb`,
-        );
-        // phase 8: only emit on transition (level change / new entry) — dedup steady-state
+        // phase 1322: audit.write 移入翻转分支（mirror streamLog dedup）——
+        // 稳态超阈值 0 写入 audit.tsv（监控文件不再被监控自身写入、DP1 反噬消除）
         if (prevLevel !== level) {
+          opts.audit.write(
+            AUDIT_SIZE_MONITOR_AUDIT_EVENTS.THRESHOLD_EXCEEDED,
+            `path=${p}`,
+            `size_bytes=${size}`,
+            `level=${level}`,
+            `opt_in_hint=audit.retention.max_size_mb`,
+          );
           const mb = Math.round(size / 1024 / 1024);
           opts.streamLog?.write({
             ts: Date.now(),

@@ -102,20 +102,24 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
   });
 
   it('dedup: same level 二次跑不 re-fire；warn→critical 升级 re-fire', async () => {
-    const { audit } = makeAudit();
+    const { audit, events } = makeAudit();
     const streamLog = { write: vi.fn() };
     const fsWarn = makeFs({ [PRIMARY]: WARN, [SECONDARY]: WARN, [LEGACY]: WARN });
     await runAll(fsWarn, audit, streamLog);
     expect(streamLog.write).toHaveBeenCalledTimes(3); // primary + secondary + legacy warn
+    // phase 1322: audit 侧同款翻转写（进入超阈值各写 1 条）
+    expect(events).toHaveLength(3);
 
-    // 同 level 二次跑 → 0 新 write
+    // 同 level 二次跑 → 0 新 write（audit + streamLog 双侧）
     await runAll(fsWarn, audit, streamLog);
     expect(streamLog.write).toHaveBeenCalledTimes(3);
+    expect(events).toHaveLength(3);
 
-    // 升级 warn → critical
+    // 升级 warn → critical → 双侧 re-fire
     const fsCritical = makeFs({ [PRIMARY]: CRITICAL, [SECONDARY]: CRITICAL, [LEGACY]: CRITICAL });
     await runAll(fsCritical, audit, streamLog);
     expect(streamLog.write).toHaveBeenCalledTimes(6); // +3 critical
+    expect(events).toHaveLength(6);
   });
 });
 
