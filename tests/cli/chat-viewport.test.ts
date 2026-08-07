@@ -639,7 +639,7 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(lines).toHaveLength(3);
   });
 
-  it('user_reply_delta fragments accumulate and flush exactly once at user_reply_end (phase 1273)', async () => {
+  it('send_content_delta fragments accumulate and flush exactly once at send_content_end (phase 1273)', async () => {
     const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
     const { deps } = makeHandlerDeps();
     const flushStreaming = vi.fn();
@@ -648,10 +648,10 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     (deps.mainUI as any).flushStreamingNormal = flushStreamingNormal;
     const handle = createEventHandler(deps as any);
 
-    handle({ type: 'user_reply_delta', delta: '收到' });
-    handle({ type: 'user_reply_delta', delta: '，' });
-    handle({ type: 'user_reply_delta', delta: '已重启' });
-    handle({ type: 'user_reply_end' });
+    handle({ type: 'send_content_delta', delta: '收到' });
+    handle({ type: 'send_content_delta', delta: '，' });
+    handle({ type: 'send_content_delta', delta: '已重启' });
+    handle({ type: 'send_content_end' });
 
     // Regression (phase 1273): a per-delta flushStreaming committed each
     // streamed fragment (LLM token granularity) as its own finished line.
