@@ -1082,6 +1082,8 @@
   "fileRouting": {
     "daemon_liveness_heartbeat": "tick",
     "eventloop_iteration": "tick",
+    "watchdog_check": "tick",
+    "watchdog_claw_scan": "tick",
     "viewport_render_batch": "viewport",
     "viewport_event_ingest": "viewport",
     "viewport_scrollback_clear_suppressed": "viewport",

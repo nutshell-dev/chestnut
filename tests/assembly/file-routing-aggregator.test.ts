@@ -9,6 +9,7 @@ import {
 import { CLI_AUDIT_EVENTS } from '../../src/cli/audit-events.js';
 import { CRON_FILE_ROUTING } from '../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../src/daemon/audit-events.js';
+import { WATCHDOG_FILE_ROUTING } from '../../src/watchdog/audit-events.js';
 
 describe('file-routing-aggregator (phase 159 / 1243 / 1279 / 1281)', () => {
   it('AggregatedFileRouting contains all internal owner-declared types', () => {
@@ -24,6 +25,14 @@ describe('file-routing-aggregator (phase 159 / 1243 / 1279 / 1281)', () => {
   it('createAggregatedFileRouting merges external contributions (Daemon routing)', () => {
     const routing = createAggregatedFileRouting([DAEMON_FILE_ROUTING]);
     expect(routing.get('daemon_liveness_heartbeat')).toBe('tick');
+  });
+
+  it('phase 1318: watchdog heartbeat events route to tick.tsv', () => {
+    expect(AggregatedFileRouting.get('watchdog_check')).toBe('tick');
+    expect(AggregatedFileRouting.get('watchdog_claw_scan')).toBe('tick');
+    // 业务事件仍留 audit
+    expect(lookupFileForType('watchdog_start')).toBe('audit');
+    expect(lookupFileForType('watchdog_cleanup_failed')).toBe('audit');
   });
 
   it('lookupFileForType returns correct file for known internal types', () => {

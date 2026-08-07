@@ -638,13 +638,17 @@ describe('runWatchdogLoop', () => {
     expect(auditContent).toContain('watchdog_start');
   });
 
-  it('writes watchdog_check audit each tick', async () => {
+  it('writes watchdog_check to tick.tsv each tick (phase 1318 Step B)', async () => {
     await runLoopForOneTick();
 
-    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv'); // Phase 1288 Step C: 生产 writer 写 audit/audit.tsv
+    const tickPath = path.join(chestnutDir, 'audit', 'tick.tsv'); // phase 1318: 心跳 → tick.tsv
+    const tickContent = fs.existsSync(tickPath) ? fs.readFileSync(tickPath, 'utf-8') : '';
+    expect(tickContent).toContain('watchdog_check');
+    expect(tickContent).toContain('present=');
+
+    const auditPath = path.join(chestnutDir, 'audit', 'audit.tsv');
     const auditContent = fs.existsSync(auditPath) ? fs.readFileSync(auditPath, 'utf-8') : '';
-    expect(auditContent).toContain('watchdog_check');
-    expect(auditContent).toContain('present=');
+    expect(auditContent).not.toContain('watchdog_check');
   });
 
   it('writes watchdog_restart_triggered when motion is down', async () => {

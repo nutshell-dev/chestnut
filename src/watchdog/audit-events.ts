@@ -68,14 +68,16 @@ export const WATCHDOG_AUDIT_EVENTS = {
 
 
 /**
- * Phase 163 业主声明 file 归属（phase 122 §5.A + §6.7 + phase 159 模式）.
+ * Phase 163 / 1318 业主声明 file 归属（phase 122 §5.A + §6.7 + phase 159 模式）.
  *
- * 全 'audit'：业务事件归业务事件主 file（信噪比已通过 cron tick 分流改善）.
+ * 业务事件归 audit；心跳类事件（watchdog_check / watchdog_claw_scan）→ tick.tsv
+ * （独立文件、30 天滚动、不进 audit.tsv 主文件）。
+ * phase 1318 立（mirror daemon_liveness_heartbeat → tick 先例）。
  */
-export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
+export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> = {
   watchdog_cleanup_failed: 'audit',
   watchdog_crash: 'audit',
-  watchdog_claw_scan: 'audit',
+  watchdog_claw_scan: 'tick',
   claw_crash_detected: 'audit',
   watchdog_claw_crash_notify_deduped: 'audit',
   watchdog_claw_crash_skipped_no_contract: 'audit',
@@ -107,7 +109,7 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_start: 'audit',
   watchdog_orphan_sweep_pid_reuse_skipped: 'audit',
   watchdog_pid_reuse_detected: 'audit',
-  watchdog_check: 'audit',
+  watchdog_check: 'tick',
   watchdog_gave_up: 'audit',
   watchdog_restart_deferred: 'audit',
   watchdog_motion_stability_confirmed: 'audit',
