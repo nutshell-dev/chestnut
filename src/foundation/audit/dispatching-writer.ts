@@ -17,7 +17,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from './types.js';
-import { AuditWriter } from './writer.js';
+import { AuditWriter, TICK_RETENTION_DAYS } from './writer.js';
 import { clipPreview, clipMessage, clipSummary } from './_helpers.js';
 
 export class DispatchingAuditWriter implements AuditLog {
@@ -31,7 +31,7 @@ export class DispatchingAuditWriter implements AuditLog {
     fs: FileSystem,
     baseDir: string,
     typeToFile: ReadonlyMap<string, string>,
-    options?: { maxSizeMb?: number | null; defaultFile?: string },
+    options?: { maxSizeMb?: number | null; defaultFile?: string; tickRetentionDays?: number | null },
   ) {
     this.typeToFile = typeToFile;
     this.defaultFile = options?.defaultFile ?? 'audit'; // 'audit' 是 cross-process 字面契约
@@ -42,7 +42,9 @@ export class DispatchingAuditWriter implements AuditLog {
     this.writers = new Map();
     for (const name of fileNames) {
       const filePath = path.join(baseDir, `${name}.tsv`);
-      this.writers.set(name, new AuditWriter(fs, filePath, options?.maxSizeMb));
+      // phase 1318 Step A: tick.tsv 默认启用 30 天滚动；显式传 null 可关闭。
+      const retentionDays = name === 'tick' ? (options?.tickRetentionDays ?? TICK_RETENTION_DAYS) : null;
+      this.writers.set(name, new AuditWriter(fs, filePath, options?.maxSizeMb, retentionDays));
     }
   }
 

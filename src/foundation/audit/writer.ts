@@ -28,6 +28,7 @@
  * （依赖 AuditLog 的其他 L2 模块不得效仿）。
  */
 
+import * as path from 'node:path';
 import { newShortUuid } from  '../node-utils/index.js';
 import { formatErr } from "../node-utils/index.js";
 import type { TraceId } from './types.js';
@@ -40,6 +41,10 @@ import type { AuditLog } from './types.js';
 import { esc, clipPreview, clipMessage, clipSummary } from './_helpers.js';
 
 export const FALLBACK_BUFFER_CAP = 1000;
+
+/** phase 1318: tick.tsv 滚动保留天数（30 天）。 */
+export const TICK_RETENTION_DAYS = 30;
+
 const FALLBACK_FRONTMATTER_PREFIX = '# drop_count_since_last_dump=';
 function getFallbackDir(): string { return tmpdir(); }
 interface FallbackEntry {
@@ -273,6 +278,7 @@ export const AUDIT_SNAPSHOT_IGNORE: readonly string[] = [AUDIT_FILE];
 export class AuditWriter implements AuditLog {
   readonly __brand = 'AuditLog' as const;
   private readonly maxBytes: number | null;
+  private readonly retentionDays: number | null;
   private seq = 0; // NEW phase 1125
   /** phase 1343 α-6: turn-level trace id for cross-module audit correlation */
   traceId?: TraceId;
@@ -281,8 +287,10 @@ export class AuditWriter implements AuditLog {
     private readonly fs: FileSystem,
     private readonly filePath: string,
     maxSizeMb?: number | null,
+    retentionDays?: number | null,
   ) {
     this.maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : null;
+    this.retentionDays = retentionDays ?? null;
   }
 
   write(type: string, ...cols: (string | number)[]): void {
@@ -295,6 +303,7 @@ export class AuditWriter implements AuditLog {
     const line = parts.join('\t') + '\n';
     try {
       if (this.maxBytes) this.rotateIfNeeded();
+      if (this.retentionDays) this.rotateByDayIfNeeded();
       this.fs.appendSync(this.filePath, line);
       try {
         this.fs.syncSync(this.filePath);
@@ -334,6 +343,95 @@ export class AuditWriter implements AuditLog {
       }
     }
   }
+
+  /**
+   * phase 1318 Step A: tick.tsv 按天归档 + 30 天 prune。
+   * mirror stream retention `pruneArchives` 模式。
+   */
+  private rotateByDayIfNeeded(): void {
+    try {
+      const fileDate = this.readFirstLineDate(this.filePath);
+      const today = formatDateYyyyMmDd(new Date());
+      // 无论是否归档，都先 prune 过期归档（兼容空文件/首次写路径）。
+      this.pruneOldArchives(today);
+
+      if (!fileDate || fileDate >= today) {
+        // 文件不存在、同天或未来（时钟回拨）不归档。
+        return;
+      }
+
+      const archivePath = `${this.filePath.replace(/\.tsv$/, '')}.${fileDate.replace(/-/g, '')}.tsv`;
+      this.fs.moveSync(this.filePath, archivePath);
+    } catch (err) {
+      // 归档/prune 失败不阻塞写（与 rotateIfNeeded 同边界）
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (!(err instanceof FileNotFoundError) && code !== 'ENOENT') {
+        const reason = formatErr(err);
+        console.error(`[AUDIT CRITICAL] daily rotation check failed: path=${this.filePath} reason=${reason}`);
+      }
+    }
+  }
+
+  /** 读文件首行 ISO 日期前缀；文件不存在/空/无日期时返回 null。 */
+  private readFirstLineDate(filePath: string): string | null {
+    try {
+      const buf = this.fs.readBytesSync(filePath, 0, 64);
+      const text = buf.toString('utf8');
+      const nl = text.indexOf('\n');
+      const firstLine = nl === -1 ? text : text.slice(0, nl);
+      const m = firstLine.match(/^(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 删除超过 retentionDays 天的归档文件（文件名形如 tick.<yyyymmdd>.tsv）。 */
+  private pruneOldArchives(today: string): void {
+    if (!this.retentionDays || this.retentionDays <= 0) return;
+    const dir = path.dirname(this.filePath);
+    const base = path.basename(this.filePath);
+    const stem = base.replace(/\.tsv$/, '');
+    const archiveRe = new RegExp(`^${stem}\\.(\\d{8})\\.tsv$`);
+
+    const cutoff = offsetDateYyyyMmDd(today, -this.retentionDays);
+
+    let entries: import('../fs/index.js').FileEntry[];
+    try {
+      entries = this.fs.listSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile) continue;
+      const m = entry.name.match(archiveRe);
+      if (!m) continue;
+      const archiveDate = m[1];
+      // archiveDate 是 yyyymmdd；与 today 偏移后的 yyyymmdd 比较。
+      if (archiveDate < cutoff) {
+        try {
+          this.fs.deleteSync(path.join(dir, entry.name));
+        } catch (delErr) {
+          const reason = formatErr(delErr);
+          console.error(`[AUDIT WARNING] prune archive failed: path=${entry.name} reason=${reason}`);
+        }
+      }
+    }
+  }
+}
+
+function formatDateYyyyMmDd(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function offsetDateYyyyMmDd(yyyyMmDd: string, days: number): string {
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return formatDateYyyyMmDd(date).replace(/-/g, '');
 }
 
 /** Test-only: reset module-level fallback state (do not call in production) */
