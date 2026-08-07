@@ -19,6 +19,7 @@ export const DAEMON_AUDIT_EVENTS = {
   LOOP_INTERRUPT_POLLER_RECOVERY_FAILED: 'daemon_loop_interrupt_poller_recovery_failed',
   LOOP_FATAL: 'daemon_loop_fatal',
   LIVENESS_HEARTBEAT: 'daemon_liveness_heartbeat',
+  LIVENESS_HOURLY: 'daemon_liveness_hourly',
   // cleanup 路径
   CLEANUP_HEARTBEAT_FAILED: 'daemon_cleanup_heartbeat_failed',
   CLEANUP_PID_FAILED: 'daemon_cleanup_pid_failed',

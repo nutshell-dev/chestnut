@@ -77,6 +77,7 @@ export { AUDIT_SNAPSHOT_IGNORE } from './writer.js';
 export { createDirContext } from './dir-context.js';
 
 export { createSystemAudit, createAuditWriter } from './factory.js';
+export { createHourlyHeartbeatAccumulator } from './hourly-heartbeat.js';
 
 // Reader API (phase 126 + phase 147)
 export {

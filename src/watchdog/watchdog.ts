@@ -34,7 +34,7 @@ import {
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
-import { type AuditLog, createWorkspaceAudit } from '../foundation/audit/index.js';
+import { type AuditLog, createWorkspaceAudit, createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
@@ -488,14 +488,29 @@ export async function runWatchdogLoop(
 
   const maxRestart = getMaxRestart();
 
+  const hourlyHeartbeat = createHourlyHeartbeatAccumulator({
+    onHourly: (tickCount, elapsedMs) => {
+      auditWriter.write(
+        WATCHDOG_AUDIT_EVENTS.HEARTBEAT_HOURLY,
+        `ticks=${tickCount}`,
+        `elapsed_ms=${elapsedMs}`,
+        `alive=${aliveIds.join(',')}`,
+        `present=${presentClawIds.join(',')}`,
+      );
+    },
+  });
+
+  let aliveIds: string[] = [];
+  let presentClawIds: string[] = [];
+
   while (!stopped) {
     const now = Date.now();
     // 1. Check motion liveness
     const status = pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID));
 
     // watchdog_check: 枚举所有存活进程
-    const aliveIds: string[] = [];
-    const presentClawIds: string[] = [];
+    aliveIds = [];
+    presentClawIds = [];
     if (status.alive) aliveIds.push(MOTION_CLAW_ID);
     const fs = getChestnutFs(fsFactory);
     try {
@@ -522,6 +537,7 @@ export async function runWatchdogLoop(
       `alive=${aliveIds.join(',')}`,
       `present=${presentClawIds.join(',')}`,
     );
+    hourlyHeartbeat.tick(now);
 
     const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
     const prior = motionRestartStateAPI.snapshot();

@@ -72,6 +72,7 @@ vi.mock('../../src/foundation/audit/writer.js', () => ({
     summary: vi.fn((s: string) => s),
   })),
   AUDIT_FILE: 'audit.tsv',
+  TICK_RETENTION_DAYS: 30,
 }));
 
 vi.mock('../../src/foundation/snapshot/index.js', () => ({

@@ -68,6 +68,7 @@ vi.mock('../../src/foundation/audit/writer.js', () => ({
     summary: vi.fn((s: string) => s),
   })),
   AUDIT_FILE: 'audit.tsv',
+  TICK_RETENTION_DAYS: 30,
   reconcileFallbackDumps: vi.fn().mockResolvedValue(undefined),
 }));
 

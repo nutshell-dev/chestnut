@@ -168,4 +168,15 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
     const v = computeClawLastActivityAgoMs(fs, NOW);
     expect(v).toBe(2 * 60 * 1000);
   });
+
+  it('phase 1318: daily archive tick.<yyyymmdd>.tsv is ignored by listAuditFiles', () => {
+    const auditTs = '2026-05-30T13:58:00Z';
+    const archiveTs = '2026-05-30T13:59:00Z'; // newer than audit, but must be ignored
+    const fs = makeFs({
+      'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
+      'tick.20260530.tsv': `${archiveTs}\tseq=1\tdaemon_liveness_heartbeat\n`,
+    });
+    const v = computeClawLastActivityAgoMs(fs, NOW);
+    expect(v).toBe(2 * 60 * 1000);
+  });
 });

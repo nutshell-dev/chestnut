@@ -382,7 +382,9 @@ export function listAuditFiles(fs: FileSystem, baseDir: string): AuditFileInfo[]
   for (const e of entries) {
     if (!e.name.endsWith('.tsv')) continue;
     if (e.name.includes('.bak')) continue;
+    // phase 1318 Step C: 排除按天归档文件（*.<yyyymmdd>.tsv），防止 status-service / query 把归档当活跃文件读。
     const name = e.name.slice(0, -4);
+    if (/\.\d{8}$/.test(name)) continue;
     results.push({
       name,
       path: path.join(baseDir, e.name),

@@ -14,6 +14,7 @@ import * as path from 'path';
 import { formatErr } from "../foundation/node-utils/index.js";
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
+import { createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
@@ -66,12 +67,23 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
 
   // phase 1154 r+ derive: 60s liveness 心跳（B + 心跳混合方案）
   const LIVENESS_HEARTBEAT_MS = 60_000;
+  const hourlyHeartbeat = createHourlyHeartbeatAccumulator({
+    onHourly: (tickCount, elapsedMs) => {
+      audit.write(
+        DAEMON_AUDIT_EVENTS.LIVENESS_HOURLY,
+        `ticks=${tickCount}`,
+        `elapsed_ms=${elapsedMs}`,
+        `uptime_s=${Math.round(process.uptime())}`,
+      );
+    },
+  });
   const livenessTimer = setInterval(() => {
     audit.write(
       DAEMON_AUDIT_EVENTS.LIVENESS_HEARTBEAT,
       `pid=${process.pid}`,
       `uptime_s=${Math.round(process.uptime())}`,
     );
+    hourlyHeartbeat.tick();
   }, LIVENESS_HEARTBEAT_MS);
   livenessTimer.unref(); // 不阻 event loop 退出
 

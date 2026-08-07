@@ -37,6 +37,7 @@ export const WATCHDOG_AUDIT_EVENTS = {
   WATCHDOG_RESTART_TRIGGERED: 'watchdog_restart_triggered',
   WATCHDOG_START: 'watchdog_start',
   WATCHDOG_CHECK: 'watchdog_check',
+  HEARTBEAT_HOURLY: 'watchdog_heartbeat_hourly',
   // phase 324 H3: motion 连续 restart 失败触顶 → circuit-open、停 spawn
   WATCHDOG_GAVE_UP: 'watchdog_gave_up',
   // phase 723: GAVE_UP 后 motion 莫名恢复（外部 supervisor 拉起 / 手动重启）→ 解 circuit-open
