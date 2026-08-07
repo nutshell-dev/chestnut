@@ -6,7 +6,7 @@
  * ContractNotification → transport adapter：接 ContractSystem-owned typed event，
  * exhaustive mapper 显式恢复 legacy stream/inbox shape（camel/snake 历史混排是
  * 持久化观察协议事实，本 adapter 逐字段保持、不归一化），formatNotifyData 序列化 /
- * stream user_notify + completed/cancelled self-inbox 发出。
+ * stream system_notify + completed/cancelled self-inbox 发出。
  *
  * 抽出动机：assemble() M#1/SRP 治理（assembly-auditor §六.4 follow-up）。
  * phase 1260 Step B：物理归位 Assembly（原 core/contract/contract-notify-callback.ts），
@@ -49,7 +49,7 @@ export interface ContractNotificationAdapterDeps {
 export function createContractNotificationAdapter(deps: ContractNotificationAdapterDeps): ContractNotificationSink {
   return (event: ContractNotification) => {
     const data = toLegacyNotifyData(event);
-    deps.streamWriter.write({ ts: Date.now(), type: STREAM_EVENT_NAMES.USER_NOTIFY, subtype: event.type, ...data });
+    deps.streamWriter.write({ ts: Date.now(), type: STREAM_EVENT_NAMES.SYSTEM_NOTIFY, subtype: event.type, ...data });
 
     // §A.6 双链路：本 daemon 自家 inbox 接契约终态事件（决策点）
     // subtask_completed / verification_failed 仅 streamWriter（viewport 可见、决策无用）

@@ -54,7 +54,7 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
   const streamWriter = createPerResourceStreamWriter(fs, STREAM_FILE, contractAudit);
   streamWriter.write({
     ts: Date.now(),
-    type: STREAM_EVENT_NAMES.USER_NOTIFY,
+    type: STREAM_EVENT_NAMES.SYSTEM_NOTIFY,
     subtype: 'contract_created',
     contractId,
     clawId,

@@ -2,7 +2,7 @@
  * Phase 1260: ContractNotification transport adapter 行为测试。
  * （Step B：adapter 物理归位 src/assembly/contract-notification-adapter.ts）
  *
- * 锁死 legacy transport shape（stream user_notify payload + completed/cancelled
+ * 锁死 legacy transport shape（stream system_notify payload + completed/cancelled
  * self-inbox）：typed event 经 exhaustive mapper 恢复历史 camel/snake 混排输出，
  * 逐字段（含 key 集合与 body 文本）保持现状，不归一化。
  */
@@ -64,7 +64,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'contract_created',
       contractId: 'c1',
       title: 'T',
@@ -89,7 +89,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'contract_completed',
       contractId: 'c1',
       title: 'T',
@@ -127,11 +127,11 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       reason: 'user cancelled',
     });
 
-    // stream user_notify payload 保持（含 reason）
+    // stream system_notify payload 保持（含 reason）
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'contract_cancelled',
       contractId: 'c1',
       reason: 'user cancelled',
@@ -164,7 +164,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'subtask_completed',
       contractId: 'c1',
       subtaskId: 't1',
@@ -183,7 +183,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'subtask_completed',
       contract_id: 'c1',
       subtask_id: 't1',
@@ -206,7 +206,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'verification_failed',
       contract_id: 'c1',
       subtask_id: 't1',

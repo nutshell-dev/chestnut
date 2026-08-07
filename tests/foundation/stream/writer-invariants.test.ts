@@ -87,7 +87,7 @@ describe('PerResourceStreamWriter path forensics lock (phase 1189 β-4)', () => 
       'stream.jsonl',  // mirror cli/commands/contract.ts:45 literal pattern
       audit as any,
     );
-    writer.write({ ts: 1, type: 'user_notify' });
+    writer.write({ ts: 1, type: 'system_notify' });
     const pathCol = audit.events[0].find(c => c.startsWith('path='));
     expect(pathCol).toBe('path=stream.jsonl');  // 锁现状：literal 不含 claw-id
     // 升档锚 (c): 当真用例需 clawId 定位 root cause 时本测 should be 反转为 .toContain('claw-')

@@ -302,12 +302,12 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
-      case 'user_notify': {
+      case 'system_notify': {
         deps.mainUI.flushThinking();
         deps.mainUI.flushStreaming();
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
-        // user_notify 宽松契约（StreamEventMap: { subtype: string; [key: string]: unknown }）——
+        // system_notify 宽松契约（StreamEventMap: { subtype: string; [key: string]: unknown }）——
         // 除 subtype 外其余字段类型 unknown，统一断言为可选字段对象后访问；断言保留（不可删）
         const notify = event as {
           subtype: string;

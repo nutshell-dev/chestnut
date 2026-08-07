@@ -9,7 +9,7 @@
  * - `--step 5` defaults to slot a (first tool of turn 5)
  * - `--step 5.b` selects slot b
  * - `--step <invalid>` (e.g. `5x`) → CliError with helpful message
- * - user_notify trigger annotates the *next* turn header
+ * - system_notify trigger annotates the *next* turn header
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -175,12 +175,12 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     expect(idxSecondTool).toBeGreaterThan(idxTurn2);
   });
 
-  it('user_notify trigger annotates the NEXT turn header', async () => {
+  it('system_notify trigger annotates the NEXT turn header', async () => {
     writeProgress(clawDir, 'C-1', startedAt);
     writeStream(clawDir, [
       { ts: startedTs + 1, type: 'llm_start' },
       { ts: startedTs + 2, type: 'tool_result', name: 'submit', tool_use_id: 't1' },
-      { ts: startedTs + 3, type: 'user_notify', subtype: 'subtask_completed' },
+      { ts: startedTs + 3, type: 'system_notify', subtype: 'subtask_completed' },
       { ts: startedTs + 4, type: 'llm_start' },
       { ts: startedTs + 5, type: 'tool_result', name: 'next', tool_use_id: 't2' },
     ]);

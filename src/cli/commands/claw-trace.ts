@@ -271,8 +271,8 @@ function showTraceOverview(
         console.log(`[${turn}.${slotChar}] ${name}:${mark}${summaryPart}`);
         break;
       }
-      case 'user_notify': {
-        // user_notify 标记影响下一 turn 的 LLM 反应、trigger 标注下一 turn header
+      case 'system_notify': {
+        // system_notify 标记影响下一 turn 的 LLM 反应、trigger 标注下一 turn header
         if (ev.subtype) {
           pendingTrigger = ev.subtype;
         }

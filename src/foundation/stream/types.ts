@@ -61,9 +61,9 @@ export const STREAM_EVENT_NAMES = {
   SDK_CLIENT_CACHE_HIT: 'sdk_client_cache_hit',
   SDK_CLIENT_CACHE_MISS: 'sdk_client_cache_miss',
   PROVIDER_CLOSE_FAILED: 'provider_close_failed',
-  // contract 通知 / CLI co-writer / audit jobs（1）——contract_events/contract_cancelled 是
-  // inbox sender type（guidanceRegistry 命名空间）、非 stream 事件（phase 1313 纠错）
-  USER_NOTIFY: 'user_notify',
+  // system_notify（1）：系统/契约侧主动通知用户（subtype 区分 contract_created 等）；
+  // 曾名 user_notify（2026-08-07 phase 1319 改名——user_ 前缀族语义为「用户来源」、此事件是「通知用户」接收方、命名歧义治理）
+  SYSTEM_NOTIFY: 'system_notify',
   // assembly daemon 启动（1）
   DAEMON_STARTED: 'daemon_started',
   // stream writer 归档（1）
@@ -131,8 +131,8 @@ interface StreamEventMap {
   sdk_client_cache_hit: { preset: string; model: string; trace_id?: string };
   sdk_client_cache_miss: { preset: string; model: string; trace_id?: string };
   provider_close_failed: { error: string; trace_id?: string };
-  // contract 通知（1，边界 co-writer 宽松契约）
-  user_notify: { subtype: string; [key: string]: unknown };
+  // system_notify（1，边界 co-writer 宽松契约）
+  system_notify: { subtype: string; [key: string]: unknown };
   // assembly（1）
   daemon_started: { clawId: string; pid: number; trace_id?: string };
   // stream writer（1）

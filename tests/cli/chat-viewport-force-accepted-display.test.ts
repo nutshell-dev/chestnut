@@ -40,7 +40,7 @@ describe('phase 1405 Fix 4: viewport 区分 force-accepted', () => {
     const handler = createEventHandler(makeDeps(captured));
 
     handler({
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'subtask_completed',
       subtaskId: 'st1',
       clawId: 'other-claw',
@@ -62,7 +62,7 @@ describe('phase 1405 Fix 4: viewport 区分 force-accepted', () => {
     const handler = createEventHandler(makeDeps(captured));
 
     handler({
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'subtask_completed',
       subtaskId: 'st1',
       clawId: 'other-claw',
@@ -82,7 +82,7 @@ describe('phase 1405 Fix 4: viewport 区分 force-accepted', () => {
     const handler = createEventHandler(makeDeps(captured));
 
     handler({
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'subtask_completed',
       subtaskId: 'st1',
       clawId: 'self-claw',  // == deps.label

@@ -556,7 +556,7 @@ describe('assemble', () => {
     expect(runtimeOrder).toBeDefined();
     expect(attachOrder).toBeLessThan(runtimeOrder);
 
-    // transport 行为：typed event → stream user_notify legacy shape（详细逐字段 shape 见
+    // transport 行为：typed event → stream system_notify legacy shape（详细逐字段 shape 见
     // tests/assembly/contract-notification-adapter.test.ts）
     (sink as (event: unknown) => void)({
       type: 'contract_cancelled',
@@ -566,7 +566,7 @@ describe('assemble', () => {
     expect(mockStreamWriter.write).toHaveBeenCalledWith(
       expect.objectContaining({
         ts: expect.any(Number),
-        type: 'user_notify',
+        type: 'system_notify',
         subtype: 'contract_cancelled',
         contractId: 'c1',
         reason: 'user cancelled',

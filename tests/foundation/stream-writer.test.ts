@@ -223,7 +223,7 @@ describe('stream-writer-race', () => {
       w1.open();
 
       // 2) 模拟 CLI cross-process append: 在 daemon 新 session open() 前写入
-      const cliLine = JSON.stringify({ ts: 100, type: 'user_notify', subtype: 'contract_created', contractId: 'c-001' }) + '\n';
+      const cliLine = JSON.stringify({ ts: 100, type: 'system_notify', subtype: 'contract_created', contractId: 'c-001' }) + '\n';
       nativeFs.writeFileSync(streamPath, cliLine);
 
       // 3) 新 StreamWriter，mock existsSync 跳过 archive 阶段，直接触发 create EEXIST
@@ -249,7 +249,7 @@ describe('stream-writer-race', () => {
       w1.open();
 
       // 2) 模拟 CLI cross-process append
-      const cliLine = JSON.stringify({ ts: 100, type: 'user_notify' }) + '\n';
+      const cliLine = JSON.stringify({ ts: 100, type: 'system_notify' }) + '\n';
       nativeFs.writeFileSync(streamPath, cliLine);
 
       // 3) 新 StreamWriter，mock existsSync 跳过 archive
@@ -263,7 +263,7 @@ describe('stream-writer-race', () => {
       const content = nativeFs.readFileSync(streamPath, 'utf-8');
       const lines = content.trim().split('\n');
       expect(lines).toHaveLength(2);
-      expect(JSON.parse(lines[0])).toMatchObject({ ts: 100, type: 'user_notify' });
+      expect(JSON.parse(lines[0])).toMatchObject({ ts: 100, type: 'system_notify' });
       expect(JSON.parse(lines[1])).toMatchObject({ ts: 200, type: 'daemon_evt' });
     });
   });

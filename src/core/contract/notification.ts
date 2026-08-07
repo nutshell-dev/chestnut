@@ -8,7 +8,7 @@
  * `satisfies ContractNotification` 的单对象；manager / LifecycleContext /
  * VerificationContext / setOnNotify 只引用同一个 `ContractNotificationSink`。
  *
- * 注意：stream `user_notify` / self-inbox 的历史 transport shape（camel/snake
+ * 注意：stream `system_notify`（曾名 `user_notify`，2026-08-07 phase 1319 改名）/ self-inbox 的历史 transport shape（camel/snake
  * 混排）是持久化观察协议事实，不归本协议管；legacy-shape 映射归 Assembly
  * transport adapter（contract-notify-callback.ts，phase 1260 Step B 物理归位）。
  */

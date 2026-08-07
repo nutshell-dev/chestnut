@@ -63,7 +63,7 @@ export interface AuditSizeMonitorOptions {
   legacyAuditPath: string;
   warnBytes?: number;
   criticalBytes?: number;
-  streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
+  streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport system_notify 注入
   signal?: AbortSignal;
 }
 
@@ -94,7 +94,7 @@ export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promis
           const mb = Math.round(size / 1024 / 1024);
           opts.streamLog?.write({
             ts: Date.now(),
-            type: STREAM_EVENT_NAMES.USER_NOTIFY,
+            type: STREAM_EVENT_NAMES.SYSTEM_NOTIFY,
             subtype: 'dev_warning',
             kind: 'audit_size',
             path: p,

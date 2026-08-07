@@ -76,7 +76,7 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     expect(events[0]).toContain('level=warn');
     expect(streamLog.write).toHaveBeenCalledTimes(3);
     expect(streamLog.write).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'user_notify',
+      type: 'system_notify',
       subtype: 'dev_warning',
       kind: 'audit_size',
       level: 'warn',

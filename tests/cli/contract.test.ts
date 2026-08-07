@@ -50,7 +50,7 @@ describe('notifyContractCreated audit observability', () => {
     expect(audit.write).toHaveBeenCalledWith(
       'stream_append_failed',
       'path=stream.jsonl',
-      'type=user_notify',
+      'type=system_notify',
       expect.stringMatching(/reason=disk full/),
       expect.stringMatching(/"contractId":"test-contract-001"/),
     );
@@ -80,7 +80,7 @@ describe('notifyContractCreated audit observability', () => {
       const lines = streamContent.trim().split('\n');
       expect(lines).toHaveLength(1);
       const parsed = JSON.parse(lines[0]);
-      expect(parsed.type).toBe('user_notify');
+      expect(parsed.type).toBe('system_notify');
       expect(parsed.subtype).toBe('contract_created');
       expect(parsed.contractId).toBe('c-001');
       expect(parsed.clawId).toBe('claw-A');
@@ -115,7 +115,7 @@ describe('notifyContractCreated audit observability', () => {
     const call = streamFailedCalls[0];
     expect(call[0]).toBe('stream_append_failed');
     expect(call[1]).toBe('path=stream.jsonl');
-    expect(call[2]).toBe('type=user_notify');
+    expect(call[2]).toBe('type=system_notify');
     expect(call[3]).toMatch(/reason=disk full/);
     expect(call[4]).toMatch(/body=.*"contractId":"c-002"/);
   });
