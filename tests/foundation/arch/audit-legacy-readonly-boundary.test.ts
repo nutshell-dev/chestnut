@@ -3,8 +3,8 @@
  * （自 audit-layout-boundary.test.ts 拆出、Phase 1292 Step B）
  *
  * 冻结：
- *  - 目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰三处，唯 workspace-audit.ts
- *    构造 AuditWriter；
+ *  - 目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰三处，构造点收敛 factory.ts
+ *    （workspace-audit.ts 通过 createSystemAudit 委托 factory）；
  *  - legacy 根 audit.tsv 只读：AUDIT_LEGACY_PATHS.audit 引用白名单恰两处、
  *    零写/删/移/改名操作；
  *  - 其他 scope（motion/claw/tick/viewport）审计路径零迁移、值保持原值；
@@ -51,14 +51,17 @@ describe('phase 1288 Step D: legacy 根 audit 只读与 segments 边界 ratchet'
     return MUTATION_TOKENS.filter((t) => text.includes(t));
   }
 
-  it('目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰三处、唯 workspace-audit.ts 构造 AuditWriter', () => {
+  it('目标 writer 唯一：AUDIT_PATHS.audit 引用白名单恰三处、构造点收敛 factory.ts', () => {
     expect(filesReferencing('AUDIT_PATHS.audit', SRC_ROOT).sort()).toEqual([...TARGET_AUDIT_REF_FILES].sort());
+    const factoryText = fs.readFileSync(path.join(PROJECT_ROOT, 'src/foundation/audit/factory.ts'), 'utf8');
+    expect(factoryText).toContain('new AuditWriter');
+    expect(factoryText).toContain('new DispatchingAuditWriter');
     for (const rel of TARGET_AUDIT_REF_FILES) {
       const text = fs.readFileSync(path.join(PROJECT_ROOT, rel), 'utf8');
+      expect(text.includes('new AuditWriter'), `${rel} must not construct audit writers`).toBe(false);
+      expect(text.includes('new DispatchingAuditWriter'), `${rel} must not construct audit writers`).toBe(false);
       if (rel.endsWith('workspace-audit.ts')) {
-        expect(text).toContain('new AuditWriter');
-      } else {
-        expect(text.includes('new AuditWriter'), `${rel} must not construct audit writers`).toBe(false);
+        expect(text).toContain('createSystemAudit');
       }
     }
   });
