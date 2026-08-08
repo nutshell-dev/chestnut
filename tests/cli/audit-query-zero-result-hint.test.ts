@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Command } from 'commander';
-import { auditQueryCommand } from '../../src/cli/commands/audit-query.js';
+import { auditQueryCommand as auditQueryCommandImpl } from '../../src/cli/commands/audit-query.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as path from 'path';
 import * as fsSync from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import { makeAuditCommandDeps } from '../helpers/audit-command-deps.js';
 
 const shared = vi.hoisted(() => ({ baseDir: '' }));
 
@@ -17,16 +18,6 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getClawConfigPath: vi.fn((claw: string) => path.join(shared.baseDir, 'claws', claw, 'config.yaml')),
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn((deps: any, p: string) => p.includes('test-claw') || p.includes('empty-claw')),
-  buildLLMConfig: vi.fn(),
-}));
 
 function makeMockFs(baseDir: string): FileSystem {
   return new NodeFileSystem({ baseDir }) as FileSystem;
@@ -57,6 +48,11 @@ describe('audit-query 0 result hint std-2 (phase 216 Step D)', () => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
+
+  const auditQueryCommand = (
+    _deps: { fsFactory: (baseDir: string) => FileSystem },
+    opts: Parameters<typeof auditQueryCommandImpl>[1],
+  ) => auditQueryCommandImpl(makeAuditCommandDeps(fsFactory), opts);
 
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -208,7 +204,7 @@ describe('audit-query `--no-hint` commander wire (phase 219 Step A)', () => {
     let actionCalled = false;
     prog.action(async (opts: { hint?: boolean }) => {
       actionCalled = true;
-      await auditQueryCommand({ fsFactory }, {
+      await auditQueryCommandImpl(makeAuditCommandDeps(fsFactory), {
         claw: 'test-claw',
         file: 'audit',
         step: 99,
@@ -228,7 +224,7 @@ describe('audit-query `--no-hint` commander wire (phase 219 Step A)', () => {
     let actionCalled = false;
     prog.action(async (opts: { hint?: boolean }) => {
       actionCalled = true;
-      await auditQueryCommand({ fsFactory }, {
+      await auditQueryCommandImpl(makeAuditCommandDeps(fsFactory), {
         claw: 'test-claw',
         file: 'audit',
         step: 99,

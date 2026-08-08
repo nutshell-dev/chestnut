@@ -1,14 +1,19 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import * as path from 'path';
-import { auditQueryCommand } from '../../src/cli/commands/audit-query.js';
-import { auditLookupCommand } from '../../src/cli/commands/audit-lookup.js';
+import { auditQueryCommand as auditQueryCommandImpl } from '../../src/cli/commands/audit-query.js';
+import { auditLookupCommand as auditLookupCommandImpl } from '../../src/cli/commands/audit-lookup.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import * as fsNative from 'fs';  // phase 283: hoist 6 require('fs') calls
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import { makeAuditCommandDeps } from '../helpers/audit-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const auditQueryCommand = (_deps: { fsFactory: typeof fsFactory }, opts: Parameters<typeof auditQueryCommandImpl>[1]) =>
+  auditQueryCommandImpl(makeAuditCommandDeps(fsFactory), opts);
+const auditLookupCommand = (_deps: { fsFactory: typeof fsFactory }, opts: Parameters<typeof auditLookupCommandImpl>[1]) =>
+  auditLookupCommandImpl(makeAuditCommandDeps(fsFactory), opts);
 
 vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
@@ -24,19 +29,6 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists:
-    vi.fn((deps: any, p: string) => {
-      return p.includes('test-claw');
-    }),
-  buildLLMConfig: vi.fn(),
-}));
 
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;

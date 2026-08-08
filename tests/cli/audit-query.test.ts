@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { auditQueryCommand, collectColFilter } from '../../src/cli/commands/audit-query.js';
+import { auditQueryCommand as auditQueryCommandImpl, collectColFilter } from '../../src/cli/commands/audit-query.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 // phase 267: hoist 17 dynamic imports of 2 unique modules.
@@ -8,8 +8,13 @@ import { getClawDir } from '../../src/core/claw-topology/claw-instance-paths.js'
 import { parseIntOption } from '../../src/cli/parse-int-option.js';
 import * as fsNative from 'fs';  // phase 283: hoist 5 require('fs') calls
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import { makeAuditCommandDeps } from '../helpers/audit-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const auditQueryCommand = (
+  _deps: { fsFactory: typeof fsFactory },
+  opts: Parameters<typeof auditQueryCommandImpl>[1],
+) => auditQueryCommandImpl(makeAuditCommandDeps(fsFactory), opts);
 
 vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
@@ -19,20 +24,6 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getClawConfigPath: vi.fn((claw: string) => `/tmp/chestnut-test/claws/${claw}/config.yaml`),
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists:
-    vi.fn((deps: any, p: string) => {
-      // Mock: claw exists if path includes 'test-claw'
-      return p.includes('test-claw');
-    }),
-  buildLLMConfig: vi.fn(),
-}));
 
 describe('audit query', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;

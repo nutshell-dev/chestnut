@@ -12,13 +12,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsNative from 'fs';
 import * as path from 'path';
-import { auditQueryCommand, WORKSPACE_AUDIT_SCOPE } from '../../src/cli/commands/audit-query.js';
-import { auditInfoCommand } from '../../src/cli/commands/audit-info.js';
+import { auditQueryCommand as auditQueryCommandImpl, WORKSPACE_AUDIT_SCOPE } from '../../src/cli/commands/audit-query.js';
+import { auditInfoCommand as auditInfoCommandImpl } from '../../src/cli/commands/audit-info.js';
 import { getChestnutRoot } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import { makeAuditCommandDeps } from '../helpers/audit-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const auditQueryCommand = (_deps: { fsFactory: typeof fsFactory }, opts: Parameters<typeof auditQueryCommandImpl>[1]) =>
+  auditQueryCommandImpl(makeAuditCommandDeps(fsFactory), opts);
+const auditInfoCommand = (_deps: { fsFactory: typeof fsFactory }, opts: Parameters<typeof auditInfoCommandImpl>[1]) =>
+  auditInfoCommandImpl(makeAuditCommandDeps(fsFactory), opts);
 
 vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
@@ -27,16 +32,6 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getChestnutRoot: vi.fn(),
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => false),
-  buildLLMConfig: vi.fn(),
-}));
 
 const row = (ts: string, seq: number, type: string) => `${ts}\tseq=${seq}\t${type}\n`;
 
