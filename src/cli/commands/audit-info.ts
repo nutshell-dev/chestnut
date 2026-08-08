@@ -13,7 +13,6 @@
  */
 
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getChestnutRoot } from '../../core/claw-topology/index.js';
@@ -25,7 +24,7 @@ import {
   listWorkspaceAuditSegments,
   type AuditFileInfo,
 } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AuditCommandDeps } from './audit-command-deps.js';
 import { WORKSPACE_AUDIT_SCOPE } from './audit-query.js';
 
 
@@ -38,14 +37,14 @@ interface AuditInfoOpts {
 }
 
 export async function auditInfoCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: AuditCommandDeps,
   opts: AuditInfoOpts,
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const isWorkspace = opts.claw === WORKSPACE_AUDIT_SCOPE;
   const isMotion = opts.claw === MOTION_CLAW_ID;
-  if (!isWorkspace && !isMotion && !clawExists(deps, getClawConfigPath(opts.claw))) {
+  if (!isWorkspace && !isMotion && deps.rootConfig.loadClaw(getClawConfigPath(opts.claw)) === undefined) {
     throw new CliError(`Claw "${opts.claw}" does not exist`);
   }
 
@@ -107,7 +106,7 @@ export async function auditInfoCommand(
  * 输出骨架与 claw scope 一致，文件项增加 origin/status 字段。
  */
 function auditInfoWorkspaceScope(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: Pick<AuditCommandDeps, 'fsFactory'>,
   opts: AuditInfoOpts,
   snapshot: SnapshotJson,
 ): void {

@@ -7,7 +7,6 @@
  */
 
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
@@ -21,7 +20,7 @@ import {
   type LookupOptions,
   type BlockIdLookupResult,
 } from '../../foundation/dialog-store/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AuditCommandDeps } from './audit-command-deps.js';
 
 
 interface AuditLookupOpts {
@@ -34,7 +33,7 @@ interface AuditLookupOpts {
 }
 
 export async function auditLookupCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: AuditCommandDeps,
   opts: AuditLookupOpts,
 ): Promise<void> {
   // phase 682: caller 直 reach dialog-store/lookupContentByToolUseId、不走 audit reader facade。
@@ -47,10 +46,10 @@ export async function auditLookupCommand(
     throw new CliError('--tool-use-id and --block-id are mutually exclusive');
   }
 
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const isMotion = opts.claw === MOTION_CLAW_ID;
-  if (!isMotion && !clawExists(deps, getClawConfigPath(opts.claw))) {
+  if (!isMotion && deps.rootConfig.loadClaw(getClawConfigPath(opts.claw)) === undefined) {
     throw new CliError(`Claw "${opts.claw}" does not exist`);
   }
 

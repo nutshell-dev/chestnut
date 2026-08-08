@@ -464,7 +464,7 @@ auditCmd
     hint?: boolean;  // commander --no-X flag: --no-hint sets hint=false (default true)
   }) => {
     const { auditQueryCommand } = await import('./commands/audit-query.js');
-    await auditQueryCommand({ fsFactory }, {
+    await auditQueryCommand({ fsFactory, rootConfig }, {
       ...opts,
       fromSeq: opts.fromSeq !== undefined ? parseIntOption(opts.fromSeq, '--from-seq must be a number') : undefined,
       toSeq: opts.toSeq !== undefined ? parseIntOption(opts.toSeq, '--to-seq must be a number') : undefined,
@@ -493,7 +493,7 @@ auditCmd
     json?: boolean;
   }) => {
     const { auditLookupCommand } = await import('./commands/audit-lookup.js');
-    await auditLookupCommand({ fsFactory }, opts);
+    await auditLookupCommand({ fsFactory, rootConfig }, opts);
   }));
 
 // audit info
@@ -507,7 +507,7 @@ auditCmd
     json?: boolean;
   }) => {
     const { auditInfoCommand } = await import('./commands/audit-info.js');
-    await auditInfoCommand({ fsFactory }, opts);
+    await auditInfoCommand({ fsFactory, rootConfig }, opts);
   }));
 
 auditCmd.on('command:*', (ops) => {

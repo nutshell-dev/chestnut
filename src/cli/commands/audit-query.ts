@@ -6,7 +6,6 @@
  */
 
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getChestnutRoot } from '../../core/claw-topology/index.js';
@@ -22,7 +21,7 @@ import {
   type ReadOptions,
   type WorkspaceAuditSegmentIssue,
 } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { AuditCommandDeps } from './audit-command-deps.js';
 
 /**
  * Phase 1288 Step D: workspace 根 scope 保留 id（audit query/info 专用）。
@@ -55,16 +54,16 @@ export interface AuditQueryOpts {
 }
 
 export async function auditQueryCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: AuditCommandDeps,
   opts: AuditQueryOpts,
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   // 1. validate claw (motion-aware: motion does not require clawExists;
   // workspace scope 是根审计 segments 查询、非 claw 目录)
   const isWorkspace = opts.claw === WORKSPACE_AUDIT_SCOPE;
   const isMotion = opts.claw === MOTION_CLAW_ID;
-  if (!isWorkspace && !isMotion && !clawExists(deps, getClawConfigPath(opts.claw))) {
+  if (!isWorkspace && !isMotion && deps.rootConfig.loadClaw(getClawConfigPath(opts.claw)) === undefined) {
     throw new CliError(`Claw "${opts.claw}" does not exist`);
   }
 
@@ -188,7 +187,7 @@ const TOOL_EVENT_TYPES = new Set([
  * （source name 统一 'audit' = 根审计 business main）。
  */
 async function auditQueryWorkspaceScope(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: Pick<AuditCommandDeps, 'fsFactory'>,
   opts: AuditQueryOpts,
   readOpts: ReadOptions,
 ): Promise<{ scannedRows: number; matchedRows: number }> {
