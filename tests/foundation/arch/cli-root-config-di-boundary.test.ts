@@ -5,7 +5,7 @@
  * 1. cli/index.ts 只从 Assembly barrel 取 createRootConfig，构造文本恰好 1 处；
  * 2. cli/index.ts 与 commands/claw-router.ts 零 `assembly/config/**` import；
  * 3. RouterDeps 含 required 窄 Pick（不得 optional / 不得 Admin 宽面）；
- * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为下方 27 文件
+ * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为下方 24 文件
  *    migration baseline——只防新增与意外删除，不批准永久存在；后续每个命令族
  *    治理 phase 必须同步递减本清单。
  * 5. clawExists 不得回到 router。
@@ -18,6 +18,7 @@ import * as path from 'node:path';
 const CLI_ROOT = path.resolve(__dirname, '..', '..', '..', 'src', 'cli');
 const INDEX_TS = path.join(CLI_ROOT, 'index.ts');
 const ROUTER_TS = path.join(CLI_ROOT, 'commands', 'claw-router.ts');
+const AUDIT_COMMANDS = ['audit-info.ts', 'audit-lookup.ts', 'audit-query.ts'];
 
 /** 静态（含 multiline / type）与 dynamic import specifier 扫描。 */
 function importSpecifiers(text: string): string[] {
@@ -42,10 +43,9 @@ function configLoadImporters(): string[] {
     .sort();
 }
 
-// Migration baseline（phase 1301 Step C）：精确路径集合，非计数；一删一增抵消会被拒。
+// Migration baseline（phase 1323 Step C）：精确路径集合，非计数；一删一增抵消会被拒。
 const REMAINING_BASELINE = [
-  'audit-config-migration.ts', 'commands/audit-info.ts', 'commands/audit-lookup.ts',
-  'commands/audit-query.ts', 'commands/claw-chat.ts', 'commands/claw-create.ts',
+  'audit-config-migration.ts', 'commands/claw-chat.ts', 'commands/claw-create.ts',
   'commands/claw-daemon.ts', 'commands/claw-health.ts', 'commands/claw-import.ts',
   'commands/claw-list.ts', 'commands/claw-ls.ts', 'commands/claw-read.ts',
   'commands/claw-send.ts', 'commands/claw-status.ts', 'commands/claw-stop.ts',
@@ -106,7 +106,7 @@ describe('phase 1301: RouterDeps required 窄 Pick', () => {
 });
 
 describe('phase 1301: remaining deep-caller migration baseline', () => {
-  it('config-load.js importer 精确为 27 文件路径集合', () => {
+  it('config-load.js importer 精确为 24 文件路径集合', () => {
     expect(configLoadImporters()).toEqual(REMAINING_BASELINE);
   });
 
@@ -118,5 +118,24 @@ describe('phase 1301: remaining deep-caller migration baseline', () => {
     const swap = [...removed, 'commands/other.ts'].sort();
     expect(swap).toHaveLength(REMAINING_BASELINE.length);
     expect(swap).not.toEqual(REMAINING_BASELINE);
+  });
+});
+
+describe('phase 1323: Audit command family RootConfig DI boundary', () => {
+  it('三个命令只接 shared narrow deps，且 composition root 注入同一 reader', () => {
+    for (const file of AUDIT_COMMANDS) {
+      const text = fs.readFileSync(path.join(CLI_ROOT, 'commands', file), 'utf8');
+      expect(importSpecifiers(text).filter((s) => s.includes('assembly/config/'))).toEqual([]);
+      expect(importSpecifiers(text)).toContain('./audit-command-deps.js');
+      expect(text).toMatch(/deps:\s*AuditCommandDeps/);
+    }
+    const index = fs.readFileSync(INDEX_TS, 'utf8');
+    expect(index.match(/audit(?:Query|Lookup|Info)Command\(\{ fsFactory, rootConfig \}/g)).toHaveLength(3);
+  });
+
+  it('反向 fixture：命令回退 deep import 或 composition root 漏注入会被检出', () => {
+    expect(importSpecifiers("import { loadGlobalConfig } from '../../assembly/config/config-load.js';"))
+      .toContain('../../assembly/config/config-load.js');
+    expect('auditQueryCommand({ fsFactory }, opts)').not.toMatch(/\{ fsFactory, rootConfig \}/);
   });
 });
