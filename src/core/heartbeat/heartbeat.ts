@@ -37,13 +37,16 @@ export interface HeartbeatOptions {
  */
 export class Heartbeat {
   private readonly interval: number;
+  private readonly enabled: boolean;
   private lastRun: number;
   private readonly audit: AuditLog;
   private readonly inboxReader: InboxReader;
   private readonly notifyInbox: HeartbeatNotifyInboxFn;
 
   constructor(options: HeartbeatOptions) {
-    this.interval = (options.interval ?? HEARTBEAT_INTERVAL_SEC_DEFAULT) * 1000;
+    const intervalSec = options.interval ?? HEARTBEAT_INTERVAL_SEC_DEFAULT;
+    this.enabled = intervalSec > 0;
+    this.interval = Math.max(0, intervalSec) * 1000;
     this.lastRun = Date.now();  // 启动后等满一个 interval 再首次触发
     this.audit = options.audit;
     this.inboxReader = options.inboxReader;
@@ -54,6 +57,7 @@ export class Heartbeat {
    * 检查是否应该执行心跳
    */
   isDue(): boolean {
+    if (!this.enabled) return false;
     const now = Date.now();
     return now - this.lastRun >= this.interval;
   }
@@ -62,6 +66,7 @@ export class Heartbeat {
    * 触发心跳：向 motion inbox 写入 heartbeat 消息
    */
   async fire(): Promise<void> {
+    if (!this.enabled) return;
     try {
       // 走 InboxReader 受信路径（phase1059）：peek 不消费，带 dedup + race 处理
       const metas = await this.inboxReader.peekMetas();

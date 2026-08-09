@@ -58,6 +58,16 @@ describe('Heartbeat', () => {
       expect(heartbeat.isDue()).toBe(false);
     });
 
+    it('interval zero is disabled even when constructed directly', async () => {
+      heartbeat = createTestHeartbeat(tempDir, 0);
+      vi.useFakeTimers();
+      vi.advanceTimersByTime(60_000);
+      expect(heartbeat.isDue()).toBe(false);
+      await heartbeat.fire();
+      const inboxDir = path.join(tempDir, 'motion', 'inbox', 'pending');
+      expect(fs.readdirSync(inboxDir).filter(f => f.endsWith('.md'))).toHaveLength(0);
+    });
+
     describe('with fake timers', () => {
       beforeEach(() => { vi.useFakeTimers(); });
       afterEach(() => { vi.useRealTimers(); });
