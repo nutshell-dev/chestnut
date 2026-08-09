@@ -88,7 +88,6 @@ function makeRuntime(mockDialogStore: DialogStore): { runtime: AuthorityTestRunt
       snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) } as any,
       sessionManager: mockDialogStore,
       inboxReader: {} as any,
-      outboxWriter: {} as any,
       llm: {
         close: vi.fn().mockResolvedValue(undefined),
         resetLastSuccessProvider: vi.fn(),

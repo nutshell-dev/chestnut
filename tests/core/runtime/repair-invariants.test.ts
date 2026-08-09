@@ -15,7 +15,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import { Snapshot } from '../../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../../src/assembly/config/snapshot-patterns.js';
-import { InboxReader, createOutboxWriter, OutboxWriter } from '../../../src/foundation/messaging/index.js';
+import { InboxReader } from '../../../src/foundation/messaging/index.js';
 import { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
@@ -53,9 +53,7 @@ describe('repair-session-load-audit', () => {
 
       const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', 'test-claw');
       const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
-      const outboxWriter = createOutboxWriter('test-claw', clawDir, systemFs, auditWriter);
-
-      return { systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader, outboxWriter, clawSubdirs: CLAW_SUBDIRS };
+      return { systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader, clawSubdirs: CLAW_SUBDIRS };
     }
 
     function minimalMocks() {

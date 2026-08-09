@@ -68,7 +68,6 @@ function build(opts: MinOpts): TestRuntime {
       snapshot: {} as any,
       sessionManager: {} as any,
       inboxReader: {} as any,
-      outboxWriter: {} as any,
       llm: {} as any,
       toolRegistry: {
         register: vi.fn(),

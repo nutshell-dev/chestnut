@@ -43,9 +43,9 @@ describe('Runtime RetryOutboxInterrupt', () => {
     await cleanupTempDir(tempDir);
   });
 
-  // ─── processBatch() outbox error-path edge cases ──────────────────────────
+  // ─── processBatch() error-path edge cases ─────────────────────────────────
 
-  describe('processBatch() — outbox error notification edge cases', () => {
+  describe('processBatch() — error propagation edge cases', () => {
     /**
      * 子类覆盖 _drainOwnInbox 和 _runReact，
      * 绕过真实 LLM / FS 调用，专注测试 catch 块行为。
@@ -130,7 +130,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       markSpy.mockRestore();
     });
 
-    it('outbox write 失败不影响原始错误重抛', async () => {
+    it('non-interrupt failure preserves the original error object', async () => {
       const runtime = await makeTestRuntime();
       edgeRuntimes.push(runtime);
       await runtime.initialize();
@@ -153,12 +153,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       const originalError = new Error('LLM exploded');
       runtime.reactError = originalError;
 
-      // 注入一个会抛出的 outboxWriter
-      (runtime as unknown as RuntimeTestInternals).outboxWriter = {
-        write: async () => { throw new Error('outbox disk full'); },
-      };
-
-      // 应抛出原始错误，而非 outbox 错误
+      // 应重抛原始错误对象
       const err = await runLegacyBatch(runtime).catch(e => e);
       expect(err).toBe(originalError);
       expect(err.message).toBe('LLM exploded');

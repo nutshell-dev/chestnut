@@ -56,7 +56,6 @@ describe('stop-flush-barrier', () => {
           snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) } as any,
           sessionManager: mockDialogStore,
           inboxReader: {} as any,
-          outboxWriter: {} as any,
           llm: {
             close: vi.fn().mockImplementation(async () => {
               llmCloseCalled = true;
@@ -305,7 +304,6 @@ describe('shutdown-timeout', () => {
           snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) } as any,
           sessionManager: mockDialogStore,
           inboxReader: {} as any,
-          outboxWriter: {} as any,
           llm: { close: vi.fn().mockResolvedValue(undefined) } as any,
           toolRegistry: {} as any,
           toolExecutor: {} as any,
@@ -419,7 +417,6 @@ describe('regime-switch-archive-fail', () => {
           snapshot: { commit: vi.fn().mockResolvedValue({ ok: true }) } as any,
           sessionManager: mockDialogStore,
           inboxReader: {} as any,
-          outboxWriter: {} as any,
           llm: { close: vi.fn().mockResolvedValue(undefined) } as any,
           toolRegistry: {
             formatForLLM: vi.fn().mockReturnValue([]),

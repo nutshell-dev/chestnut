@@ -23,10 +23,6 @@ import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/config/snapshot-patterns.js';
 import { InboxReader } from '../../src/foundation/messaging/index.js';
-import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
-
-import { OutboxWriter } from '../../src/foundation/messaging/index.js';
-import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/messaging/dirs.js';
 import { CLAW_SUBDIRS } from '../../src/assembly/claw-subdirs.js';
 
@@ -46,10 +42,8 @@ describe('Runtime.initialize() failure audits', () => {
 
     const sessionManager = overrides.sessionManager ?? new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', 'test-claw');
     const inboxReader = overrides.inboxReader ?? new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
-    const outboxWriter = createOutboxWriter('test-claw', clawDir, systemFs, auditWriter);
-
     return {
-      systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader, outboxWriter,
+      systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader,
       clawSubdirs: CLAW_SUBDIRS,
     };
   }

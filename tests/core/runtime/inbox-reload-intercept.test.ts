@@ -59,7 +59,6 @@ function build(opts: BuildOpts): TestRuntime {
       snapshot: {} as any,
       sessionManager: {} as any,
       inboxReader: opts.inboxReader,
-      outboxWriter: {} as any,
       llm: opts.llm,
       toolRegistry: {
         register: vi.fn(),

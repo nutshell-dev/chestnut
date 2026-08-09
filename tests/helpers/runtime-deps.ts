@@ -6,7 +6,7 @@ import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/config/snapshot-patterns.js';
 
 import { DialogStore, createDialogStore } from '../../src/foundation/dialog-store/index.js';
-import { InboxReader, OutboxWriter } from '../../src/foundation/messaging/index.js';
+import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
@@ -100,7 +100,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
 
   return {
     systemFs, clawFs, auditWriter, snapshot, sessionManager,
-    inboxReader, outboxWriter, llm, toolRegistry, toolExecutor,
+    inboxReader, llm, toolRegistry, toolExecutor,
     skillRegistry, contractManager, taskSystem,
     permissionChecker,
     parentStreamLog: undefined,

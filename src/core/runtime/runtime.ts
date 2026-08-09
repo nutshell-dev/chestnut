@@ -34,7 +34,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { makeStepNumber } from '../agent-executor/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
-import type { InboxReader, InboxEntry, InboxHandle, OutboxWriter } from '../../foundation/messaging/index.js';
+import type { InboxReader, InboxEntry, InboxHandle } from '../../foundation/messaging/index.js';
 import { ExecContextImpl } from '../../foundation/tools/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
@@ -142,7 +142,6 @@ export class Runtime {
   protected execContext!: ExecContext;
   protected toolExecutor!: IToolExecutor;
   private inboxReader!: InboxReader;
-  protected outboxWriter!: OutboxWriter;
   private snapshot!: SnapshotCommitter;
   // phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家）
   private formatterRegistry!: InboxMessageTypeRegistry;
@@ -213,7 +212,6 @@ export class Runtime {
       auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.INBOX_INIT_FAILED, e);
       throw e;
     }
-    this.outboxWriter = deps.outboxWriter;
     // phase 1414: formatterRegistry 已在 ctor 期初始化（initialize 前可用）
     this.toolRegistry = deps.toolRegistry;
     this.toolExecutor = deps.toolExecutor;

@@ -55,7 +55,7 @@ export async function createRuntimeAssembly(
   const {
     systemFs, auditWriter, llm, llmConfig,
     maxSteps, toolProfile, idleTimeoutMs, toolTimeoutMs,
-    skillRegistry, contractManager, fsFactory, outboxWriter, streamWriter,
+    skillRegistry, contractManager, fsFactory, streamWriter,
   } = core;
   const {
     taskSystem, permissionChecker, sessionManager, makeDialogStore,
@@ -115,7 +115,6 @@ export async function createRuntimeAssembly(
     // === RuntimeDependencies 分组构造（assembly-auditor §六.5 follow-up / 可读性） ===
     const messagingDeps = {
       inboxReader,
-      outboxWriter,
       parentStreamLog: streamWriter,
     };
 

@@ -19,7 +19,6 @@
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/index.js';
-import type { OutboxWriter } from '../../src/foundation/messaging/outbox-writer.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { StreamCallbacks } from '../../src/core/runtime/types.js';
 
@@ -27,7 +26,6 @@ export interface RuntimeTestInternals {
   llm: LLMOrchestrator;
   sessionManager: DialogStore;
   toolRegistry: ToolRegistry;
-  outboxWriter: OutboxWriter;
   auditWriter: AuditLog;
   lastIdentityHash?: string;
   buildSystemPrompt(): Promise<{ full: string; identityContent: string }>;

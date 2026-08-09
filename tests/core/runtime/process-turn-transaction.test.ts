@@ -50,7 +50,6 @@ function createMockDeps() {
     } as unknown as import('../../../src/foundation/snapshot/index.js').Snapshot,
     sessionManager: createMockSessionManager() as unknown as import('../../../src/foundation/dialog-store/index.js').DialogStore,
     inboxReader: {} as unknown as import('../../../src/foundation/messaging/index.js').InboxReader,
-    outboxWriter: {} as unknown as import('../../../src/foundation/messaging/index.js').OutboxWriter,
     llm: {
       resetLastSuccessProvider: vi.fn(),
       getProviderInfo: vi.fn().mockReturnValue(undefined),
