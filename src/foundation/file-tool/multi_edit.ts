@@ -20,6 +20,7 @@ import { resolveWorkspacePath } from './resolve-path.js';
 import { enforceFullReadGate } from './fullread-gate.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
+import { throwIfFileToolAborted } from './abort.js';
 import { findFirstMatchLine, formatEditDiff, lineDelta, findNearMatches, findAllMatchLines } from './edit-text-utils.js';
 import { literalReplace } from './literal-replace.js';
 import { editCommit } from './edit-commit.js';
@@ -69,6 +70,8 @@ export const multiEditTool: Tool = {
       };
     }
 
+    throwIfFileToolAborted(ctx.signal);
+
     const { path: filePath, edits } = args;
 
     const resolved = resolveWorkspacePath(ctx, filePath);
@@ -96,6 +99,7 @@ export const multiEditTool: Tool = {
 
     // phase 1456 P3+P4: per-edit structural validation before any IO.
     for (let i = 0; i < edits.length; i++) {
+      throwIfFileToolAborted(ctx.signal);
       const e = edits[i];
       if (typeof e.oldText !== 'string' || e.oldText.length === 0) {
         return {
@@ -113,6 +117,7 @@ export const multiEditTool: Tool = {
 
     // File must exist
     const exists = await ctx.fs.exists(resolved);
+    throwIfFileToolAborted(ctx.signal);
     if (!exists) {
       return {
         success: false,
@@ -126,6 +131,7 @@ export const multiEditTool: Tool = {
     const hasReplaceAll = edits.some(e => e.replaceAll === true);
     if (hasReplaceAll) {
       const gate = await enforceFullReadGate(ctx, resolved, filePath);
+      throwIfFileToolAborted(ctx.signal);
       if (!gate.ok) {
         return {
           success: false,
@@ -135,6 +141,7 @@ export const multiEditTool: Tool = {
     }
 
     const original = await ctx.fs.read(resolved);
+    throwIfFileToolAborted(ctx.signal);
 
     // Apply edits in-memory
     let current = original;
@@ -142,6 +149,7 @@ export const multiEditTool: Tool = {
     let firstEditPreview = '';
 
     for (let i = 0; i < edits.length; i++) {
+      throwIfFileToolAborted(ctx.signal);
       const edit = edits[i];
       const replaceResult = literalReplace(current, edit.oldText, edit.newText, edit.replaceAll ? 'all' : 'unique');
       if (!replaceResult.ok) {
@@ -178,6 +186,7 @@ export const multiEditTool: Tool = {
 
     // phase 1109 Step C: commit through shared coordinator
     const totalReplaced = results.reduce((sum, r) => sum + r.replaced, 0);
+    throwIfFileToolAborted(ctx.signal);
     const commitResult = await editCommit({
       ctx,
       tool: 'multi_edit',

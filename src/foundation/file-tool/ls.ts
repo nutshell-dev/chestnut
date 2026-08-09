@@ -12,6 +12,7 @@ import { LS_MAX_ENTRIES } from './constants.js';
 
 import { resolveWorkspacePath } from './resolve-path.js';
 import { defineFileToolSchema } from './_zod-helper.js';
+import { isFileToolAbortError, throwIfFileToolAborted } from './abort.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 
@@ -50,6 +51,8 @@ export const lsTool: Tool = {
       };
     }
 
+    throwIfFileToolAborted(ctx.signal);
+
     const pathArg = args.path ?? '.';
     // From constants.ts: pagination limit
 
@@ -70,6 +73,7 @@ export const lsTool: Tool = {
 
     try {
       const entries = await ctx.fs.list(resolved, { includeDirs: true });
+      throwIfFileToolAborted(ctx.signal);
 
       if (entries.length === 0) {
         return {
@@ -82,6 +86,7 @@ export const lsTool: Tool = {
       const limited = entries.slice(0, LS_MAX_ENTRIES);
 
       const lines = limited.map(e => {
+        throwIfFileToolAborted(ctx.signal);
         const type = e.isDirectory ? '[DIR]' : '[FILE]';
         const size = e.isFile ? ` ${e.size} bytes` : '';
         const displayPath = nodePath.relative(resolved, e.path) || '.';
@@ -95,6 +100,7 @@ export const lsTool: Tool = {
         content: lines.join('\n') + suffix,
       };
     } catch (error) {
+      if (isFileToolAbortError(error)) throw error;
       return {
         success: false,
         content: `Error listing directory: ${formatErr(error)}`,

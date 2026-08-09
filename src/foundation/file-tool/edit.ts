@@ -20,6 +20,7 @@ import { resolveWorkspacePath } from './resolve-path.js';
 import { enforceFullReadGate } from './fullread-gate.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
+import { throwIfFileToolAborted } from './abort.js';
 import { formatEditDiff, lineDelta, findNearMatches, findAllMatchLines } from './edit-text-utils.js';
 import { literalReplace } from './literal-replace.js';
 import { editCommit } from './edit-commit.js';
@@ -65,6 +66,8 @@ export const editTool: Tool = {
       };
     }
 
+    throwIfFileToolAborted(ctx.signal);
+
     const { path: filePath, oldText, newText, replaceAll } = args;
 
     const resolved = resolveWorkspacePath(ctx, filePath);
@@ -101,6 +104,7 @@ export const editTool: Tool = {
 
     // File must exist
     const exists = await ctx.fs.exists(resolved);
+    throwIfFileToolAborted(ctx.signal);
     if (!exists) {
       return {
         success: false,
@@ -110,6 +114,7 @@ export const editTool: Tool = {
 
     // Read original content (phase 1109 Step C: conflict detection moves to editCommit via hash)
     const content = await ctx.fs.read(resolved);
+    throwIfFileToolAborted(ctx.signal);
 
     // Match checking (phase 1109 Step B: literal replacement primitive)
     const replaceResult = literalReplace(content, oldText, newText, replaceAll ? 'all' : 'unique');
@@ -140,6 +145,7 @@ export const editTool: Tool = {
     // contexts the agent may never have seen) → same gate as write overwrite.
     if (replaceAll) {
       const gate = await enforceFullReadGate(ctx, resolved, filePath);
+      throwIfFileToolAborted(ctx.signal);
       if (!gate.ok) {
         return {
           success: false,
@@ -150,6 +156,7 @@ export const editTool: Tool = {
 
     // phase 1109 Step C: commit through shared coordinator
     const replacedCount = replaceResult.replaced;
+    throwIfFileToolAborted(ctx.signal);
     const commitResult = await editCommit({
       ctx,
       tool: 'edit',

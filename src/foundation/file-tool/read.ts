@@ -32,6 +32,7 @@ import { truncateHeadTail } from './truncate-head-tail.js';
 import { recordReadResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
+import { isFileToolAbortError, throwIfFileToolAborted } from './abort.js';
 
 
 function toSafeNumber(v: unknown): number | undefined {
@@ -106,6 +107,8 @@ export const readTool: Tool = {
       };
     }
 
+    throwIfFileToolAborted(ctx.signal);
+
     const { path: filePath } = args;
     const offset = toSafeNumber(args.offset);
     const limit = toSafeNumber(args.limit);
@@ -127,6 +130,7 @@ export const readTool: Tool = {
 
     try {
       const rawContent = await ctx.fs.read(resolved);
+      throwIfFileToolAborted(ctx.signal);
 
       // Capture full file content for hash + future FileState write before slicing mutates it.
       const fullFileContent = rawContent;
@@ -140,6 +144,7 @@ export const readTool: Tool = {
         // silent: stat failure here means FileState cannot be written for this read;
         // downstream gate will reject overwrite (no isFullRead=true entry) — fail-safe.
       }
+      throwIfFileToolAborted(ctx.signal);
 
       const totalLines = fullFileContent.split('\n').length;
 
@@ -177,6 +182,7 @@ export const readTool: Tool = {
       if (content.length > READ_OUTPUT_HARD_CAP_BYTES) {
         byteCapTriggered = true;
         const relPath = await persistOverflow(ctx, content);
+        throwIfFileToolAborted(ctx.signal);
         content = relPath
           ? truncateHeadTail(content, relPath)
           : content.slice(0, READ_OUTPUT_HARD_CAP_BYTES) + '\n[truncated - overflow persist failed]';
@@ -184,6 +190,7 @@ export const readTool: Tool = {
 
       // readFileState write — same-claw only
       if (fileMtime !== undefined) {
+        throwIfFileToolAborted(ctx.signal);
         // phase 1444: isFullRead = "this read covered every current line of the file".
         // Decoupled from rangeRequested — an explicit `limit >= totalLines` read also counts.
         // (Removes the 200-line cliff that effectively banned overwrite of larger files.)
@@ -197,6 +204,7 @@ export const readTool: Tool = {
         content,
       };
     } catch (error) {
+      if (isFileToolAbortError(error)) throw error;
       return {
         success: false,
         content: `Error reading file: ${formatErr(error)}`,

@@ -18,6 +18,7 @@ import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { makeExecContext } from '../../helpers/exec-context.js';
 
 describe('zod-strict-reject-cwd', () => {
   describe('file-tool Zod strict reject cwd (phase 305 cluster G #9 A 类)', () => {
@@ -44,6 +45,30 @@ describe('zod-strict-reject-cwd', () => {
       });
     }
   });
+});
+
+describe('file-tool signal observance', () => {
+  const cases = [
+    { name: 'read', tool: readTool, args: { path: 'test.ts' } },
+    { name: 'write', tool: writeTool, args: { path: 'test.ts', content: 'hello' } },
+    { name: 'ls', tool: lsTool, args: { path: '.' } },
+    { name: 'edit', tool: editTool, args: { path: 'test.ts', oldText: 'a', newText: 'b' } },
+    { name: 'multi_edit', tool: multiEditTool, args: { path: 'test.ts', edits: [{ oldText: 'a', newText: 'b' }] } },
+  ] as const;
+
+  for (const testCase of cases) {
+    it(`${testCase.name} rejects a pre-aborted signal before filesystem access`, async () => {
+      const controller = new AbortController();
+      controller.abort({ type: 'tool_timeout', ms: 1 });
+      const fsNeverCalled = new Proxy({}, {
+        get: (_target, property) => () => { throw new Error(`unexpected fs access: ${String(property)}`); },
+      });
+      const ctx = makeExecContext({ signal: controller.signal, fs: fsNeverCalled as never });
+
+      await expect(testCase.tool.execute(testCase.args as Record<string, unknown>, ctx))
+        .rejects.toMatchObject({ name: 'AbortError' });
+    });
+  }
 });
 
 describe('search-signal-observance', () => {

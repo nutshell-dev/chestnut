@@ -22,6 +22,7 @@ import { resolveWorkspacePath } from './resolve-path.js';
 import { recordWriteResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { enforceFullReadGate } from './fullread-gate.js';
+import { isFileToolAbortError, throwIfFileToolAborted } from './abort.js';
 
 export const WRITE_TOOL_NAME = 'write' as const;
 
@@ -62,6 +63,8 @@ export const writeTool: Tool = {
       };
     }
 
+    throwIfFileToolAborted(ctx.signal);
+
     const { path: filePath, content, append: appendArg } = args;
     const append = appendArg === true;
 
@@ -83,8 +86,10 @@ export const writeTool: Tool = {
     // overwrite gate — phase 1430 hash + mtime + isFullRead, granular reason since phase 1457 followup
     if (!append) {
       const exists = await ctx.fs.exists(resolved);
+      throwIfFileToolAborted(ctx.signal);
       if (exists) {
         const gate = await enforceFullReadGate(ctx, resolved, filePath);
+        throwIfFileToolAborted(ctx.signal);
         if (!gate.ok) {
           // phase 695: 拆 path + reason 为两 col、与 phase 690-694 同模式
           ctx.auditWriter?.write(
@@ -104,8 +109,10 @@ export const writeTool: Tool = {
       let backupPath: string | null = null;
       if (!append) {
         backupPath = await backupToSync(ctx, resolved, 'file_backup');
+        throwIfFileToolAborted(ctx.signal);
       }
 
+      throwIfFileToolAborted(ctx.signal);
       if (append) {
         await ctx.fs.append(resolved, content);
       } else {
@@ -118,6 +125,7 @@ export const writeTool: Tool = {
       const backupHint = backupPath ? ` (backup: ${backupPath})` : '';
       return { success: true, content: `Written: ${filePath} (${content.length} chars)${backupHint}` };
     } catch (error) {
+      if (isFileToolAbortError(error)) throw error;
       return {
         success: false,
         content: `Error writing file: ${formatErr(error)}`,
