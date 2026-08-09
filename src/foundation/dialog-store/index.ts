@@ -10,7 +10,13 @@ export { DialogStore } from './store.js';
 // phase 483: audit-events barrel re-export
 export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 export { migrateAndValidateSession, validateSessionData } from './validate.js';
-export type { SessionData } from './types.js';
+export type {
+  SessionData,
+  LoadResult,
+  DialogSaveSnapshot,
+  DialogSessionLifecycle,
+} from './types.js';
+export { repairMessages as repairDialogMessages } from './repair.js';
 // phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module
 export { performRegimeSwitch } from './regime-switch.js';
 

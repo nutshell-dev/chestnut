@@ -27,6 +27,29 @@ export type LoadResult =
   | { source: 'current' | 'archive' | 'empty'; session: SessionData }
   | { source: 'io_error'; error: string; session: null };
 
+/** Dialog session snapshot accepted by the DialogStore persistence boundary. */
+export interface DialogSaveSnapshot {
+  systemPrompt: string;
+  messages: Message[];
+  toolsForLLM: ToolDefinition[];
+  trace_id?: TraceId;
+}
+
+/**
+ * Minimal lifecycle required by a dialog-session consumer.
+ *
+ * DialogStore owns the persistence semantics; consumers depend on this protocol
+ * instead of the concrete store and its unrelated lookup/restore capabilities.
+ */
+export interface DialogSessionLifecycle {
+  load(): Promise<LoadResult>;
+  save(snapshot: DialogSaveSnapshot): Promise<void>;
+  beginTurn(): Promise<void>;
+  commitTurn(reason?: string): Promise<void>;
+  rollbackTurn(reason?: string): Promise<void>;
+  archive(): Promise<void>;
+}
+
 /** phase 466: marker 模式 for subagent context restoration */
 export interface DialogMarker {
   clawId: string;

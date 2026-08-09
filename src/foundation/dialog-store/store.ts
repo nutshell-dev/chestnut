@@ -16,8 +16,14 @@ import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 
 import type { Message, ToolUseBlock, ToolResultBlock, ToolDefinition } from '../llm-provider/index.js';
-import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';
-import type { TraceId } from '../audit/index.js';
+import type {
+  SessionData,
+  LoadResult,
+  DialogMarker,
+  RestoreResult,
+  DialogSaveSnapshot,
+  DialogSessionLifecycle,
+} from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid, newUuid, uuidToShort } from '../node-utils/index.js';
@@ -86,7 +92,7 @@ function parseTurnTransactionRecord(raw: string): TurnTransactionRecord {
 /**
  * Manages a Claw's dialog session
  */
-export class DialogStore {
+export class DialogStore implements DialogSessionLifecycle {
   private readonly currentPath: string;
   private readonly turnTransactionPath: string;
   private readonly archiveDir: string;
@@ -392,14 +398,7 @@ export class DialogStore {
    * Phase 1218 Step C: DialogStore no longer serializes concurrent saves. The
    * single writer authority (Runtime / SubAgent) is responsible for ordering.
    */
-  async save(
-    snapshot: {
-      systemPrompt: string;
-      messages: Message[];
-      toolsForLLM: ToolDefinition[];
-      trace_id?: TraceId;
-    },
-  ): Promise<void> {
+  async save(snapshot: DialogSaveSnapshot): Promise<void> {
     await this.ensureTurnTransactionRecovered();
     // phase 227: schema invariant check（违例 emit audit、不 throw、不阻 save）
     assertDialogShapeInvariants(snapshot.messages, this.audit);
