@@ -136,6 +136,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             parentClawId: ctx.clawId,
             originClawId: deps.originClawId ?? ctx.clawId,
             callerType: 'spawn_subagent',
+            toolProfile: 'subagent',
             mainContextSnapshot,
           }));
 

@@ -57,7 +57,7 @@ export interface SubAgentOptions {
   maxConsecutiveParseErrors?: number;
   maxConsecutiveMaxTokensToolUse?: number;
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
-  toolProfile?: ToolProfile;             // caller 从 callerTypeToProfile 计算后传入
+  toolProfile?: ToolProfile;             // caller 直接声明 capability profile
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;

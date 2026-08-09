@@ -39,6 +39,7 @@ const commonSubAgentFields = {
   parentClawId: z.string(),
   createdAt: z.string(),
   callerType: CallerTypeSchema.optional(),
+  toolProfile: z.string().optional(),
   originClawId: z.string().optional(),
   motionClawDir: z.string().optional(),
   postProcessor: z.string().optional(),

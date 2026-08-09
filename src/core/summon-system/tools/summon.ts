@@ -272,6 +272,7 @@ export class SummonTool implements Tool {
       parentClawId: ctx.clawId,
       originClawId: this.originClawId ?? ctx.clawId,
       callerType,
+      toolProfile: 'miner',
       motionClawDir,
       postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
       mainContextSnapshot,

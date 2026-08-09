@@ -13,6 +13,7 @@ import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
+import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { uuidToShort } from '../../foundation/node-utils/index.js';
@@ -141,6 +142,8 @@ interface CommonSubAgentTaskFields {
   parentClawId: string;
   createdAt: string;
   callerType?: CallerType;
+  /** Persisted declarative tool capability; execution never derives it from caller identity. */
+  toolProfile?: ToolProfile;
   originClawId?: string;                   // 创建链路源头，传给子 SubAgent
   /**
    * Motion clawDir（仅 mining summon / phase 713 reframe）

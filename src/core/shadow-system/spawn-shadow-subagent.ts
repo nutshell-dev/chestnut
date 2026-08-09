@@ -68,6 +68,7 @@ export async function spawnShadowSubagent(
     parentClawId: opts.ctx.clawId ?? '',
     originClawId: opts.originClawId ?? opts.ctx.clawId ?? '',
     callerType: 'shadow_subagent',
+    toolProfile: 'full',
     isShadow: true,
     systemPrompt: opts.systemPrompt,
     shadowSystemPrompt: opts.systemPrompt,

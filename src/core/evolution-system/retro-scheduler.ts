@@ -90,6 +90,7 @@ export async function buildRetroSubagentPayload(
     // phase 1490: maxSteps 不传、task.maxSteps optional / undefined → SubAgent boundary fallback
     parentClawId: MOTION_CLAW_ID,
     originClawId: MOTION_CLAW_ID,
+    toolProfile: 'subagent',
   };
 }
 

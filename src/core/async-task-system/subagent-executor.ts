@@ -15,6 +15,7 @@ import {
   emitHandlerFailed,
   emitResultDeliveryFailed,
 } from './audit-emit.js';
+import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from './dirs.js';
 import * as nodePath from 'path';
 
@@ -29,10 +30,24 @@ import { taskShortId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
 
-function callerTypeToProfile(ct: string) {
+/** Compatibility for already-persisted tasks written before toolProfile existed. */
+function legacyCallerTypeToProfile(ct: string) {
   if (ct === 'miner_subagent') return 'miner';
   if (ct === 'shadow_subagent') return 'full';
   return 'subagent';
+}
+
+function resolveTaskToolProfile(task: SubAgentTask, auditWriter: AuditLog): string {
+  if (task.toolProfile) return task.toolProfile;
+  const profile = legacyCallerTypeToProfile(task.callerType ?? 'spawn_subagent');
+  auditWriter.write(
+    TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
+    'site=async-task-system/subagent-executor:resolveTaskToolProfile',
+    'kind=legacy_task_missing_tool_profile',
+    `taskId=${task.id}`,
+    `derived_profile=${profile}`,
+  );
+  return profile;
 }
 
 
@@ -134,7 +149,7 @@ export async function executeSubAgentTask(
 
     // Build per-task registry filtered by caller profile + motionClawDir 重建
     const isShadow = task.isShadow === true;
-    const subagentProfile = callerTypeToProfile(task.callerType ?? 'spawn_subagent');
+    const subagentProfile = resolveTaskToolProfile(task, auditWriter);
     const effectiveRegistry = (() => {
       const r = createPerTaskRegistry(registry, subagentProfile);
 
@@ -173,7 +188,7 @@ export async function executeSubAgentTask(
 
     const { text, capturedResult } = await (deps.runSubagent ?? defaultRunSubagent)({
       agentId: task.id,
-      toolProfile: callerTypeToProfile(task.callerType ?? 'spawn_subagent'),
+      toolProfile: subagentProfile,
       clawDir,
       fs,
       fsFactory,
