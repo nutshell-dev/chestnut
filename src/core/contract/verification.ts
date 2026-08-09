@@ -429,6 +429,14 @@ export async function runVerificationInBackground(
   ctx.registerController?.(contractId, controller, promise);
 
   try {
+    // Close the transition→background window: terminal lifecycle may commit
+    // after the start transition but before this background turn begins.
+    if (!(await ctx.isActiveContract(contractId))) {
+      outcomeKind = 'cancelled';
+      cancelReason = 'contract_not_active_before_verifier_start';
+      resolveVerification({ passed: false, feedback: '' });
+      return;
+    }
     const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
     const subtaskDesc = subtaskDef?.description || subtaskId;
     const contractAbsDir = path.join(ctx.clawDir, await ctx.getContractRoot(contractId));
