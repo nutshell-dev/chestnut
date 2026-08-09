@@ -46,8 +46,6 @@ export interface ContractAuditorDeps {
   fs: FileSystem;
   inbox: InboxWriter;
   llm: LLMOrchestrator;
-  /** inbox pending dir 绝对路径（用于去重 list + delete） */
-  inboxPendingDir: string;
   /** auditor LLM 最大 token 输出. Default: {@link DEFAULT_AUDITOR_MAX_OUTPUT_TOKENS} */
   maxOutputTokens?: number;
 }
@@ -209,7 +207,7 @@ export class ContractAuditor {
     }
 
     // 去重：删 pending 中同 sender 旧消息
-    await this.removeStaleAuditorMessages(sender);
+    await this.deps.inbox.removePendingBySource(sender);
 
     const driftLines = verdict.drifts.map((d, i) => `${i + 1}. ${d.what}（证据：${d.evidence}）`).join('\n');
     const body = `看了你最近的活动，几个点：
@@ -236,25 +234,6 @@ ${driftLines || '（auditor 标 drift 但未给具体条目）'}
       `step=${req.currentStep}`,
       `drifts=${verdict.drifts.length}`,
     );
-  }
-
-  private async removeStaleAuditorMessages(sender: string): Promise<void> {
-    let entries: { name: string }[];
-    try {
-      entries = await this.deps.fs.list(this.deps.inboxPendingDir, { includeDirs: false });
-    } catch {
-      return;  // pending dir 不存在或 list 失败，无需清理
-    }
-    // inbox 文件名格式 ${source}-${timestamp}_${priority}_${uuid8}.md（详 inbox-writer.ts:62）
-    const prefix = `${sender}-`;
-    for (const e of entries) {
-      if (!e.name.startsWith(prefix)) continue;
-      try {
-        await this.deps.fs.delete(`${this.deps.inboxPendingDir}/${e.name}`);
-      } catch {
-        // silent: dedup best-effort / 删失败时 agent 见 stale+new 两条不致灾、不重要到 audit
-      }
-    }
   }
 
   /**

@@ -94,7 +94,6 @@ describe('ContractAuditor', () => {
       fs: nfs,
       inbox,
       llm: makeMockLLM(verdictText),
-      inboxPendingDir: 'inbox/pending',
     });
     return { auditor, auditEvents: auditCtx.events };
   }

@@ -858,6 +858,7 @@
       "inbox_misrouted",
       "inbox_move_failed",
       "inbox_nack",
+      "inbox_pending_source_cleanup_failed",
       "inbox_peek_race_skip",
       "inbox_priority_unknown",
       "inbox_reconcile",

@@ -21,6 +21,7 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_PRIORITY_UNKNOWN: 'inbox_priority_unknown',
   INBOX_LEGACY_CLAW_ID_FIELD: 'inbox_legacy_claw_id_field',
   INBOX_DEDUPED: 'inbox_deduped',
+  INBOX_PENDING_SOURCE_CLEANUP_FAILED: 'inbox_pending_source_cleanup_failed',
   INBOX_MARK_DONE_FAILED: 'inbox_mark_done_failed',
   INBOX_RECONCILE: 'inbox_reconcile',
   INBOX_NACK: 'inbox_nack',

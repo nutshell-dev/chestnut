@@ -315,7 +315,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         fs: systemFs,
         inbox: clawInbox,
         llm,
-        inboxPendingDir: INBOX_PENDING_DIR,
       });
       contractManager.attachAuditor(auditor);
     } catch (e) {

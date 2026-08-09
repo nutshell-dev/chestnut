@@ -94,7 +94,6 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
       fs: makeFsMock(),
       inbox: makeInboxMock(),
       llm,
-      inboxPendingDir: '/tmp/inbox-pending-test',
     });
 
     // kick off audit (fire-and-forget pattern matches manager.ts:312)
@@ -128,7 +127,6 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
       fs: makeFsMock(),
       inbox: makeInboxMock(),
       llm,
-      inboxPendingDir: '/tmp/inbox-pending-test',
     });
 
     await auditor.close();
@@ -144,7 +142,6 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
       fs: makeFsMock(),
       inbox: makeInboxMock(),
       llm: { call: vi.fn(), stream: vi.fn(), close: vi.fn(), reloadConfig: vi.fn() } as unknown as LLMOrchestrator,
-      inboxPendingDir: '/tmp/inbox-pending-test',
     });
 
     await auditor.close();

@@ -17,6 +17,7 @@ import {
   emitInboxWritten,
   emitInboxBodyOversize,
 } from './audit-emit.js';
+import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { assertMessageShape } from './invariants.js';
 import { sanitizeMessageIdentifier } from './sanitize.js';
 type Result<T, E> =
@@ -115,6 +116,48 @@ export class InboxWriter {
     }
   }
 
+  /**
+   * Remove pending messages produced by one source. Messaging owns filename
+   * encoding and the pending directory; callers never inspect either detail.
+   */
+  async removePendingBySource(source: string): Promise<{ removed: number; failed: number }> {
+    const safeSource = sanitizeMessageIdentifier(source || 'unknown', 'source');
+    const prefix = `${safeSource}-`;
+    let entries: { name: string }[];
+    try {
+      entries = await this.fs.list(this.inboxDir, { includeDirs: false });
+    } catch (error) {
+      if (isFileNotFound(error)) return { removed: 0, failed: 0 };
+      this.audit.write(
+        MESSAGING_AUDIT_EVENTS.INBOX_PENDING_SOURCE_CLEANUP_FAILED,
+        `source=${safeSource}`,
+        'op=list',
+        `error=${formatErr(error)}`,
+      );
+      return { removed: 0, failed: 1 };
+    }
+
+    let removed = 0;
+    let failed = 0;
+    for (const entry of entries) {
+      if (!entry.name.startsWith(prefix)) continue;
+      try {
+        await this.fs.delete(path.join(this.inboxDir, entry.name));
+        removed++;
+      } catch (error) {
+        failed++;
+        this.audit.write(
+          MESSAGING_AUDIT_EVENTS.INBOX_PENDING_SOURCE_CLEANUP_FAILED,
+          `source=${safeSource}`,
+          `file=${entry.name}`,
+          'op=delete',
+          `error=${formatErr(error)}`,
+        );
+      }
+    }
+    return { removed, failed };
+  }
+
   /** sync 写，供 task/system 同步路径使用 */
   writeSync(opts: InboxMessageOptionsBase): string {
     const now = new Date();
@@ -197,5 +240,3 @@ export class InboxWriter {
     }
   }
 }
-
-
