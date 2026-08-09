@@ -1,6 +1,6 @@
 import { NodeFileSystem } from '../foundation/fs/index.js';
 import { constructShimAudit, registerShimHandlers } from './daemon-handlers.js';
-import { createDaemonCommand } from './index.js';
+import { createDaemonCommand } from './daemon.js';
 import { assemble, createRootConfig, disassemble } from '../assembly/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from '../assembly/index.js';
 import { DAEMON_FILE_ROUTING, DAEMON_INBOX_MESSAGE_TYPES } from './index.js';

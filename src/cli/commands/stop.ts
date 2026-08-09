@@ -18,7 +18,7 @@ import { kill, isPidArgvMatching, isAlive } from '../../foundation/process-exec/
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 
-import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
+import { resolveDaemonEntry } from '../../daemon/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';

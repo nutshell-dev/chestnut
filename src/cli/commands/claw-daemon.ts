@@ -16,7 +16,7 @@ import { createAgentProcessManager } from '../../foundation/process-manager/inde
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
-import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
+import { resolveDaemonEntry } from '../../daemon/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 

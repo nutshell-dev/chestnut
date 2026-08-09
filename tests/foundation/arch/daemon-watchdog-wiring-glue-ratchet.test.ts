@@ -7,8 +7,8 @@ import * as path from 'node:path';
  *
  * 方向约束由更精确的可执行 ratchet 承担：
  *   - phase 1247 daemon-watchdog-dependency-direction-ratchet：Daemon → Watchdog = 0
- *   - phase 1284 daemon-entry-resolver-boundary：Watchdog → Daemon 仅经登记稳定
- *     子入口 daemon/entry-resolver.js（consumer 集合显式锁定）
+ *   - phase 1343 daemon-entry-resolver-boundary：Watchdog → Daemon 仅经单一
+ *     daemon/index.js barrel（consumer 集合显式锁定）
  *
  * 历史：phase 456 lint rules 已于 phase 696 Step A 撤；phase 493 双向零 import
  * ratchet 因与 phase 1284 设计确认的 Watchdog → Daemon.entry-resolver 稳定单向边

@@ -28,7 +28,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
 import { CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, CLAW_HEARTBEAT_FILE } from '../../foundation/claw-identity/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/index.js';
-import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
+import { resolveDaemonEntry } from '../../daemon/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';

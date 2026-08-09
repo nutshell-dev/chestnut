@@ -4,8 +4,7 @@
  * Phase 1284 Step A 将 resolveDaemonEntry 自 Assembly 归位 Daemon 真 owner
  * （src/daemon/entry-resolver.ts）后，本 ratchet 冻结：
  *  - production 定义恰一处且在 daemon/entry-resolver.ts；
- *  - consumer 全部经稳定子入口 daemon/entry-resolver.js，零 Assembly 旧路径、
- *    零 Daemon 宽 barrel（当前 consumer 集合显式登记，合法新 caller 需显式更新）；
+ *  - consumer 全部经 Daemon 单一 public barrel，当前集合显式登记；
  *  - resolver 零参数签名、不 import fs/Assembly/Daemon 运行实现；
  *  - assembly/spawn-entry.ts 已物理删除（phase 1285 归位 Watchdog 后 Assembly 零残留）。
  * 正反 fixture 自证 scanner 能识别旧 Assembly import 与合法 Daemon stable path。
@@ -21,7 +20,7 @@ const PROJECT_ROOT = path.join(SRC_ROOT, '..');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 const ENTRY_RESOLVER = path.join(SRC_ROOT, 'daemon', 'entry-resolver.ts');
 const SPAWN_ENTRY = path.join(SRC_ROOT, 'assembly', 'spawn-entry.ts');
-const STABLE_SUFFIX = 'daemon/entry-resolver.js';
+const STABLE_SUFFIX = 'daemon/index.js';
 
 /** 完整 import 语句的 clause + specifier（global flag：只供 matchAll 使用）。 */
 const IMPORT_CLAUSE_RE = /import\s+(?:type\s+)?([^'"]*?)\s+from\s+['"]([^'"]+)['"]/g;
@@ -74,9 +73,8 @@ describe('phase 1284 Step B: Daemon entry resolver 归属边界', () => {
     const imports = collectResolverImports(SRC_ROOT);
     expect(imports.map((i) => i.file).sort()).toEqual(EXPECTED_CONSUMERS);
     for (const i of imports) {
-      expect(i.specifier.endsWith(STABLE_SUFFIX), `${i.file} must use stable sub-entry`).toBe(true);
+      expect(i.specifier.endsWith(STABLE_SUFFIX), `${i.file} must use public barrel`).toBe(true);
       expect(i.specifier).not.toContain('assembly/spawn-entry');
-      expect(i.specifier).not.toContain('daemon/index');
     }
   });
 

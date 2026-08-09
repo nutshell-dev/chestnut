@@ -18,7 +18,6 @@ export type { DaemonAuditEvent } from './audit-events.js';
 // phase 1243 Step B: Daemon inbox message type declarations（external contribution to Assembly）
 export { DAEMON_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
 
-export { createDaemonCommand } from './daemon.js';
-export type { DaemonCommandDeps } from './daemon.js';
 export type { DaemonInstances } from './types.js';
 export { DAEMON_FILE_ROUTING } from './audit-events.js';
+export { resolveDaemonEntry } from './entry-resolver.js';

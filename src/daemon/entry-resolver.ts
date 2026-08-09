@@ -9,8 +9,7 @@
  * 模式判别基础：basename 比较纯路径结构、无 fs 依赖。signature 零参数（phase 1284
  * 删除从未消费的 `_fs?` 伪依赖）。
  *
- * 稳定子入口：CLIProcess / Watchdog 经 `daemon/entry-resolver.js` 直接消费，不经
- * `daemon/index.js` 宽 barrel（路径查询不加载 Daemon 运行实现）。
+ * 外部只经 `daemon/index.js` 单一轻量 barrel 消费；本文件是 owner internal。
  */
 
 import * as path from 'path';

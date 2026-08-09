@@ -11,7 +11,7 @@ import { runChatViewport } from './chat-viewport.js';
 import { createViewportAudit } from './viewport-audit-events.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
+import { resolveDaemonEntry } from '../../daemon/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 

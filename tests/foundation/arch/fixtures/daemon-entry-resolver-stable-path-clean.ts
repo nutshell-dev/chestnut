@@ -4,7 +4,7 @@
  * (daemon/entry-resolver.js). This edge must NOT be flagged by the boundary scanner.
  */
 
-import { resolveDaemonEntry } from '../../../../src/daemon/entry-resolver.js';
+import { resolveDaemonEntry } from '../../../../src/daemon/index.js';
 
 // Reference the import so it is not flagged as unused.
 void resolveDaemonEntry;

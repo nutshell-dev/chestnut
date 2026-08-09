@@ -40,7 +40,7 @@ import { ProcessSpawnConflictError } from '../foundation/process-manager/index.j
 import { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 
-import { resolveDaemonEntry } from '../daemon/entry-resolver.js';
+import { resolveDaemonEntry } from '../daemon/index.js';
 
 
 import {
