@@ -76,6 +76,8 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
     }, { once: true });
   });
   timeoutPromise.catch((e) => {
+    const reason = controller.signal.reason as AbortReason | undefined;
+    if (reason?.type !== 'turn_timeout') return;
     opts.auditWriter.write(
       SUBAGENT_AUDIT_EVENTS.TIMEOUT_REJECTION,
       `agentId=${opts.agentId}`,
@@ -87,8 +89,8 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
     clearTimeout(timeoutId);
     clearTimeout(idleTimerId);
     opts.externalSignal?.removeEventListener('abort', onExternalAbort);
-    // 显式 abort 释放 timeoutPromise 的 signal-abort listener / mirror 原 agent.ts:405
-    // 行为 / idempotent — 二次 abort 不再触发 listener.
+    // 显式 abort 释放 timeoutPromise 的 signal-abort listener。正常 cleanup
+    // 产生的外部 abort 不是 timeout，不得污染 TIMEOUT_REJECTION audit。
     if (!controller.signal.aborted) controller.abort();
   };
 
