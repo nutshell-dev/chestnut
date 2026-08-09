@@ -30,6 +30,7 @@ vi.mock('../../../src/core/event-loop/constants.js', async () => {
     ...actual,
     LLM_RETRY_INITIAL_DELAY_MS: 10,
     LLM_RETRY_MAX_DELAY_MS: 50,
+    UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
     // Phase 1268 Step B: cooldown 独立常量，测试用小值锁状态机；
     // Retry-After 截短断言用远大于该值的秒数反向验证。
     LLM_COOLDOWN_MS: 80,

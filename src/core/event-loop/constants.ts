@@ -6,6 +6,13 @@
 export const INTERRUPT_RECOVERY_DELAY_MS = 1000;
 
 /**
+ * Unknown deterministic failures must not make daemon-loop hot-spin. One
+ * second matches the interrupt settle budget while keeping recovery prompt;
+ * the wait is abortable by EventLoop.abort().
+ */
+export const UNKNOWN_ERROR_RECOVERY_DELAY_MS = 1000;
+
+/**
  * Default fallback timeout for inbox wait operations (ms).
  * Derivation: 30000ms = 30s 给 inbox 真故障 cooldown 时间 / 与
  * DAEMON_FALLBACK_TIMEOUT_MS (daemon/constants.ts) 同型经验值.

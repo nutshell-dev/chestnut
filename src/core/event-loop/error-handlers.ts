@@ -8,11 +8,10 @@
  * 新增错误类型仅需加 entry、不改 catch 块本身（OCP）。
  */
 
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
-import { INTERRUPT_RECOVERY_DELAY_MS } from './constants.js';
+import { INTERRUPT_RECOVERY_DELAY_MS, UNKNOWN_ERROR_RECOVERY_DELAY_MS } from './constants.js';
+import type { LoopErrorContext } from './types.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import {
@@ -28,9 +27,18 @@ import {
  * EventLoop-owned 持久 waiting 状态机（event-loop.ts），handler 不再
  * 触碰 llmRetry 状态。
  */
-interface LoopErrorContext {
-  audit: AuditLog;
-  loopFs: FileSystem;
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }
 
 /**
@@ -57,7 +65,7 @@ const idleTimeoutHandler: ErrorHandler = {
       `cause=${LOOP_INTERRUPT_CAUSES.idle_timeout}`,
       `recovery_delay_ms=${INTERRUPT_RECOVERY_DELAY_MS}`,
     );
-    await new Promise(resolve => setTimeout(resolve, INTERRUPT_RECOVERY_DELAY_MS));
+    await abortableDelay(INTERRUPT_RECOVERY_DELAY_MS, ctx.signal);
   },
 };
 
@@ -125,12 +133,13 @@ const fallbackHandler: ErrorHandler = {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.FATAL,
       `reason=${isLLMMaxRetry ? 'llm_all_providers_failed' : 'non_llm_error'}`,
+      `recovery_delay_ms=${UNKNOWN_ERROR_RECOVERY_DELAY_MS}`,
       `error=${formatErr(err)}`,
     );
-    // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 drainInbox + processTurn，
-    // 把 nack 回 inbox/pending 的消息正常 drain 出来。
-    // pending 真空时 drainInbox 返回 0 自然走正常 waitForInbox。
-    // 与 userInterruptHandler / priorityInboxHandler 保持一致。
+    // Unknown deterministic errors may recur before drain reaches its empty
+    // wait path. Bound that residual hot-loop surface without consuming an LLM
+    // retry budget; shutdown can interrupt the delay.
+    await abortableDelay(UNKNOWN_ERROR_RECOVERY_DELAY_MS, ctx.signal);
   },
 };
 

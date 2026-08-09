@@ -87,7 +87,7 @@ export type LLMRetryWaitingState =
 
 export interface LoopErrorContext {
   audit: AuditLog;
-  loopFs: FileSystem;
+  signal?: AbortSignal;
 }
 
 /**

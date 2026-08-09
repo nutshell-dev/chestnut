@@ -181,7 +181,7 @@ export class EventLoop {
       // 错误调度 / fatal audit 由 _dispatchError 负责。
       await this.runtime.ackHandles(addressedHandles, 'agent_loop_crash');
     } else {
-      await this.runtime.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
+      await this.runtime.nackHandles(addressedHandles, formatErr(result.error), 'rollback');
     }
     if (isContextExceededError(result.error)) {
       await this._handleContextExceeded(result.error, failedRequestFingerprint);
@@ -796,7 +796,7 @@ export class EventLoop {
   private async _dispatchError(err: unknown): Promise<void> {
     await dispatchError(err, {
       audit: this.audit,
-      loopFs: this.loopFs,
+      signal: this.waitAbortController?.signal,
     });
   }
 
