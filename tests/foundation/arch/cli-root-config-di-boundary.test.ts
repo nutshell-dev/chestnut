@@ -7,7 +7,7 @@
  * 2. cli/index.ts 与 commands/claw-router.ts 零 `assembly/config/**` import；
  * 3. ClawCommandDeps 含 required 窄 Pick（不得 optional / 不得 Admin 宽面），
  *    RouterDeps 为同形状 type alias（phase 1324 Step A 收敛）；
- * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 9 文件
+ * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 8 文件
  *    migration baseline——只防新增与意外删除，不批准永久存在；后续每个命令族
  *    治理 phase 必须同步递减本清单；
  * 5. clawExists 不得回到 router；
@@ -93,7 +93,7 @@ describe('phase 1301/1324: 共享窄 Pick + RouterDeps required alias', () => {
 });
 
 describe('phase 1301: remaining deep-caller migration baseline', () => {
-  it('config-load.js importer 精确为 9 文件路径集合（phase 1333 迁出 stop）', () => {
+  it('config-load.js importer 精确为 8 文件路径集合（phase 1334 迁出 motion-daemon）', () => {
     expect(configLoadImporters()).toEqual(REMAINING_BASELINE);
   });
 
