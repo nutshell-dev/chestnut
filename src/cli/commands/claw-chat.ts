@@ -5,7 +5,6 @@
 import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
@@ -14,18 +13,17 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
-export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string): Promise<void> {
-  loadGlobalConfig(deps);
+export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<void> {
+  const globalConfig = deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
   }
 
   const clawDir = getClawDir(name);
-  const globalConfig = loadGlobalConfig(deps);
   // phase 1279 Step A: viewport routing 由 Chat Viewport owner 工厂兑现（四高频事件落 viewport.tsv）
   const systemAudit = createViewportAudit(deps.fsFactory(clawDir), clawDir);
   await runChatViewport({
