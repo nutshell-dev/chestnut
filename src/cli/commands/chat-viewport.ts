@@ -36,6 +36,7 @@ import { createTaskStatusBar } from './chat-viewport-task-status-bar.js';
 import { createClawManager } from './chat-viewport-claw-manager.js';
 import { createViewportCommands, type ViewportCommand, type ThinkingMode } from './chat-viewport-commands.js';
 import { createTuiInputHandler, type ShutdownReason } from './chat-viewport-input.js';
+import { loadViewportDraft, persistViewportDraft } from './chat-viewport-draft.js';
 
 import { createTurnTracker } from './chat-viewport-turn-tracker.js';
 import { createDisplay } from './chat-viewport-display.js';
@@ -232,6 +233,23 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   });
   mainUIHolder.ref = mainUI;
 
+  const draftLoad = loadViewportDraft(fs, options.audit);
+  if (draftLoad.kind === 'restored') {
+    editor.setText(draftLoad.text);
+    displayWithHolder.appendOutput(
+      '\x1b[33m',
+      `[draft restored: ${draftLoad.text.length} chars]`,
+      true,
+    );
+  } else if (draftLoad.kind === 'quarantined') {
+    displayWithHolder.appendOutput(
+      '\x1b[31m',
+      `[warning] unreadable draft preserved as ${draftLoad.path}`,
+      true,
+    );
+  }
+  editor.onChange = (text: string) => persistViewportDraft(fs, options.audit, text);
+
   // Single turn tracker instance shared across the viewport
   const turnTracker = createTurnTracker({ mainUI, INTERRUPT_CLEANUP_TIMEOUT_MS });
 
@@ -411,6 +429,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     }
 
     if (trimmed === 'exit' || trimmed === 'quit') {
+      editor.setText('');
       resolveExit();
       return;
     }
@@ -443,11 +462,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       return;
     }
 
-    // 显示用户消息
-    displayWithHolder.appendOutput('\x1b[32m', `> ${trimmed} (pending)`, true);
-    editor.setText('');
-    editor.addToHistory(trimmed);
-
     // 写入 inbox
     try {
       writeUserChat(
@@ -456,6 +470,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         options.fsFactory,
         options.userInputInlineMaxChars,  // undefined 时 writeUserChat 走默认 VIEWPORT_USER_INPUT_INLINE_MAX_CHARS_DEFAULT
       );
+      // inbox 已成为权威副本后才清除 draft，避免发送失败丢失输入。
+      displayWithHolder.appendOutput('\x1b[32m', `> ${trimmed} (pending)`, true);
+      editor.setText('');
+      editor.addToHistory(trimmed);
     } catch (err) {
       const msg = formatErr(err);
       displayWithHolder.appendOutput('\x1b[31m', `[error] failed to send message: ${msg} (retry or check disk / permissions)`, true);

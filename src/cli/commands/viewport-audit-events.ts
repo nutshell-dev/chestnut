@@ -24,6 +24,13 @@ export const VIEWPORT_AUDIT_EVENTS = {
   REFRESH_CLAWS_FAILED: 'chat_viewport_refresh_claws_failed',
   ATTACHMENT_PERSIST_FAILED: 'viewport_attachment_persist_failed',
   INTERRUPT_PERSIST_FAILED: 'viewport_interrupt_persist_failed',
+  DRAFT_PERSIST_FAILED: 'viewport_draft_persist_failed',
+  DRAFT_PERSISTED: 'viewport_draft_persisted',
+  DRAFT_RESTORE_FAILED: 'viewport_draft_restore_failed',
+  DRAFT_RESTORED: 'viewport_draft_restored',
+  DRAFT_QUARANTINED: 'viewport_draft_quarantined',
+  DRAFT_CLEAR_FAILED: 'viewport_draft_clear_failed',
+  DRAFT_CLEARED: 'viewport_draft_cleared',
 } as const;
 
 /**
@@ -39,6 +46,8 @@ export const VIEWPORT_FILE_ROUTING: Readonly<Record<string, 'audit' | 'viewport'
   viewport_event_ingest: 'viewport',
   viewport_spinner_lifecycle: 'viewport',
   viewport_scrollback_clear_suppressed: 'viewport',
+  viewport_draft_persisted: 'viewport',
+  viewport_draft_cleared: 'viewport',
 } as const;
 
 /**

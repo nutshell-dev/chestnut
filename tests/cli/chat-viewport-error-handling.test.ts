@@ -35,6 +35,19 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
       const match = sourceCode.match(/catch\s*\(err\)\s*\{[\s\S]*?\\x1b\[31m[\s\S]*?failed to send message[\s\S]*?\}/);
       expect(match).toBeTruthy();
     });
+
+    it('只在 inbox 写入成功后清除可恢复 draft', () => {
+      const submitStart = sourceCode.indexOf('// 写入 inbox');
+      const submitEnd = sourceCode.indexOf('tui.requestRender();', submitStart);
+      const block = sourceCode.slice(submitStart, submitEnd);
+      const writeIndex = block.indexOf('writeUserChat(');
+      const clearIndex = block.indexOf("editor.setText('')");
+      const catchIndex = block.indexOf('catch (err)');
+
+      expect(writeIndex).toBeGreaterThan(-1);
+      expect(clearIndex).toBeGreaterThan(writeIndex);
+      expect(clearIndex).toBeLessThan(catchIndex);
+    });
   });
 
   describe('phase 523 Step B: handleEvent default case', () => {
