@@ -147,7 +147,6 @@ describe('Gateway', () => {
     const input = createOfflineInput();
     const write = vi.spyOn(input.audit, 'write');
     gateway = createGateway(input);
-    expect(gateway.isOnline()).toBe(false);
 
     await gateway.start();
     expect(transport.listen).not.toHaveBeenCalled();
@@ -156,17 +155,17 @@ describe('Gateway', () => {
 
     await gateway.stop();
     expect(transport.close).not.toHaveBeenCalled();
-    expect(gateway.getActiveConnections()).toEqual([]);
     expect(write).toHaveBeenCalledWith('gateway_stopped');
   });
 
-  it('online: isOnline() is false before start, true after start, false after stop', async () => {
-    gateway = createGateway(createOnlineInput());
-    expect(gateway.isOnline()).toBe(false);
+  it('online lifecycle emits start and stop', async () => {
+    const input = createOnlineInput();
+    const write = vi.spyOn(input.audit, 'write');
+    gateway = createGateway(input);
     await gateway.start();
-    expect(gateway.isOnline()).toBe(true);
     await gateway.stop();
-    expect(gateway.isOnline()).toBe(false);
+    expect(write).toHaveBeenCalledWith('gateway_started', 'isOnline=true');
+    expect(write).toHaveBeenCalledWith('gateway_stopped');
   });
 
   it('online mode: start binds transport callbacks and calls stream.start', async () => {
@@ -306,15 +305,20 @@ describe('Gateway', () => {
   });
 
   it('onDisconnect removes connection from active set', async () => {
-    gateway = createGateway(createOnlineInput());
+    const input = createOnlineInput();
+    const write = vi.spyOn(input.audit, 'write');
+    gateway = createGateway(input);
     await gateway.start();
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
-    expect(gateway.getActiveConnections()).toHaveLength(1);
 
     transport._disconnect(conn);
-    expect(gateway.getActiveConnections()).toHaveLength(0);
+    expect(write).toHaveBeenCalledWith(
+      'gateway_connection_disconnected',
+      'connId=c1',
+      'reason=undefined',
+    );
   });
 
   it('interrupt callback throw is isolated by Transport safeFire, does not drop connection or block future messages', async () => {
@@ -331,14 +335,10 @@ describe('Gateway', () => {
     // first interrupt: callback throws, but Transport safeFire isolates it
     transport._message(conn, JSON.stringify({ type: 'interrupt', reason: 'user' }));
     expect(interruptFn).toHaveBeenCalledTimes(1);
-    // connection still alive
-    expect(gateway.getActiveConnections().some((c) => c.id === 'c1')).toBe(true);
-
     // second interrupt after debounce: callback called again, connection still alive
     vi.advanceTimersByTime(600);
     transport._message(conn, JSON.stringify({ type: 'interrupt', reason: 'user' }));
     expect(interruptFn).toHaveBeenCalledTimes(2);
-    expect(gateway.getActiveConnections().some((c) => c.id === 'c1')).toBe(true);
   });
 
   it('can be called again after failed stop due to reader error', async () => {

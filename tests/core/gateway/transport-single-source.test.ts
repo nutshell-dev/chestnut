@@ -121,7 +121,7 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
   }
 
   describe('offline mode (transport=undefined)', () => {
-    it('broadcast no-op + isOnline()=false', async () => {
+    it('offline lifecycle is explicit and transport-free', async () => {
       gateway = createGateway({
         streamFactory: streamStub.factory,
         transport: undefined,
@@ -129,7 +129,6 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
         audit,
       } as GatewayInput);
       await gateway.start();
-      expect(gateway.isOnline()).toBe(false);
       await gateway.stop();
       expect(audit.write).toHaveBeenNthCalledWith(1, 'gateway_started', 'isOnline=false');
       expect(audit.write).toHaveBeenNthCalledWith(2, 'gateway_stopped');

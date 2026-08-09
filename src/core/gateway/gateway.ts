@@ -357,13 +357,5 @@ export function createGateway(input: GatewayInput): Gateway {
         }
       });
     },
-
-    getActiveConnections() {
-      return Array.from(connections.values());
-    },
-
-    isOnline() {
-      return isOnlineMode && started;
-    },
   };
 }

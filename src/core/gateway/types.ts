@@ -10,7 +10,7 @@
  * 4. Gateway → Transport 连接视图派生（Map 跟随 onConnect/onDisconnect）
  */
 
-import type { Connection, Transport } from '../../foundation/transport/index.js';
+import type { Transport } from '../../foundation/transport/index.js';
 import type { StreamEvent, StreamReader } from '../../foundation/stream/index.js';
 import type { ToolResult, ExecContext } from '../../foundation/tools/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -59,10 +59,6 @@ export interface Gateway {
   stop(): Promise<void>;
   /** 向客户端发送 question、阻塞等待用户回复；超时 / abort / 无 listener / broadcast 失败 → 返回 failureResult。 */
   askUser(question: string, ctx: ExecContext): Promise<ToolResult>;
-  /** 返回当前连接快照（调用方不持有引用） */
-  getActiveConnections(): readonly Connection[];
-  /** online/offline 一次性定型 */
-  isOnline(): boolean;
 }
 
 // ---------------------------------------------------------------------------

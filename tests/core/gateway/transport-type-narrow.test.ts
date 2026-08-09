@@ -128,8 +128,6 @@ describe('Gateway transport type narrow (phase 932)', () => {
       audit,
     } as GatewayInput);
     await gateway.start();
-    expect(gateway.isOnline()).toBe(false);
-    expect(gateway.isOnline()).toBe(false);
     await gateway.stop();
     expect(audit.write).toHaveBeenNthCalledWith(1, 'gateway_started', 'isOnline=false');
     expect(audit.write).toHaveBeenNthCalledWith(2, 'gateway_stopped');
@@ -138,8 +136,6 @@ describe('Gateway transport type narrow (phase 932)', () => {
   it('online mode: transport=Transport → isOnlineMode=true, broadcast works', async () => {
     gateway = createGateway(createOnlineInput());
     await gateway.start();
-    expect(gateway.isOnline()).toBe(true);
-    expect(gateway.isOnline()).toBe(true);
 
     const conn: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
     transport._connect(conn);
@@ -150,16 +146,14 @@ describe('Gateway transport type narrow (phase 932)', () => {
     expect(transport.broadcast).toHaveBeenCalled();
   });
 
-  it('stop after online: transport=null, isOnlineMode still true (const captured), running()=false (started=false)', async () => {
+  it('stop after online drops late stream broadcasts', async () => {
     gateway = createGateway(createOnlineInput());
     await gateway.start();
-    expect(gateway.isOnline()).toBe(true);
 
     const conn: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
     transport._connect(conn);
 
     await gateway.stop();
-    expect(gateway.isOnline()).toBe(false);
 
     // late broadcast attempt: should silent due to transport=null guard line 63
     const broadcastCountAfterStop = transport.broadcast.mock.calls.length;
@@ -169,7 +163,5 @@ describe('Gateway transport type narrow (phase 932)', () => {
     streamStub.fireEvent(ev);
     expect(transport.broadcast.mock.calls.length).toBe(broadcastCountAfterStop);
 
-    // isOnline() returns false because started=false after stop
-    expect(gateway.isOnline()).toBe(false);
   });
 });

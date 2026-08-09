@@ -190,7 +190,6 @@ describe('Gateway askUser', () => {
     // second reply with same id
     transport._message(conn, JSON.stringify({ type: 'ask_user_reply', id: askId, answer: 'no' }));
 
-    expect(gateway.getActiveConnections().some((c) => c.id === 'c1')).toBe(true);
     const droppedCalls = getBroadcastPayloads(transport).filter(
       (p: { type: string }) => p.type === 'connection_dropped',
     );
@@ -335,8 +334,6 @@ describe('Gateway askUser', () => {
 
     // c2 reply on same id must be dropped
     transport._message(c2, JSON.stringify({ type: 'ask_user_reply', id: askId, answer: 'A2' }));
-    expect(gateway.getActiveConnections().some((c) => c.id === 'c2')).toBe(true);
-
     const resolvedPayloads = getBroadcastPayloads(transport).filter(
       (p: { type: string }) => p.type === 'ask_user_resolved',
     );
