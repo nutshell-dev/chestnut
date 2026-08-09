@@ -5,6 +5,7 @@ import { isFileNotFound, stat, type FileSystem } from '../../../foundation/fs/in
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import type { ArchiveState, LifecycleIntent } from '../types.js';
+import { deriveProgressStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { listArchiveContractLocations, archiveContainerDir, type ArchiveListEntry } from '../locations.js';
@@ -385,7 +386,8 @@ export async function scanArchivedContracts(
         formatted = await formatCurrentArchiveEvent(fs, clawDir, clawId, loc.contractId, meta, progress, loc.state);
       } else {
         // Step F: legacy flat archive — derive status from historical progress.json field.
-        (progress as unknown as Record<string, unknown>).status = result.data.status ?? 'completed';
+        (progress as unknown as Record<string, unknown>).status = result.data.status
+          ?? deriveProgressStatus(progress);
         formatted = formatLegacyFlatArchiveEvent(
           clawId,
           loc.contractId,

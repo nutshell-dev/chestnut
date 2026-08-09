@@ -240,6 +240,30 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     expect(activeEvents[0].join(' ')).toContain('status=running');
     expect(dedup.activeState).toContain('worker-1:1780-running');
   });
+
+  it('derives a missing legacy status instead of defaulting the archive entry to completed', async () => {
+    const { audit, events } = makeAudit();
+    await makeContract('claws/worker-1', '1780-status-missing', JSON.stringify({
+      schema_version: 1,
+      contract_id: '1780-status-missing',
+      subtasks: {
+        'st-1': { status: 'in_progress' },
+        'st-2': { status: 'todo' },
+      },
+    }));
+
+    const clawDir = path.join(chestnutRoot, 'claws/worker-1');
+    const { entries } = await scanArchivedContracts(fs, clawDir, 'worker-1', audit, {
+      corrupted: new Set(),
+      activeState: new Set(),
+    });
+
+    expect(entries).toHaveLength(0);
+    expect(events.some((event) => (
+      event[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED
+      && event.join(' ').includes('status=running')
+    ))).toBe(true);
+  });
 });
 
 /**
