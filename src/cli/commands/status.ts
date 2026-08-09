@@ -10,7 +10,7 @@
  */
 
 import * as path from 'path';
-import { loadGlobalConfig } from '../../assembly/config/config-load.js';
+import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
@@ -30,8 +30,13 @@ import { createClawTopology } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { STATUS_AUDIT_EVENTS } from '../../core/status-service/index.js';
 
-export async function statusCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
-  loadGlobalConfig(deps);
+export interface StatusCommandDeps {
+  fsFactory(baseDir: string): FileSystem;
+  rootConfig: Pick<RootConfigReader, 'loadGlobal'>;
+}
+
+export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
+  deps.rootConfig.loadGlobal();
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const baseDir = path.dirname(motionDir);

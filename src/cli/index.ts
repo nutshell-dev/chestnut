@@ -114,7 +114,7 @@ program
   .command('status')
   .description('Show status of all chestnut processes')
   .action(action('observe_only', async () => {
-    await statusCommand({ fsFactory });
+    await statusCommand({ fsFactory, rootConfig });
   }));
 
 // start command
