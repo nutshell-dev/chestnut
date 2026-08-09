@@ -117,7 +117,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     },
   );
 
-  it.each([['bare claw', undefined, []], ['claw list', 'list', []], ['claw alice chat', 'alice', ['chat']]] as const)(
+  it.each([['bare claw', undefined, []], ['claw list', 'list', []]] as const)(
     '%s 零 loadGlobal / 零 loadClaw',
     async (_label, subject, args) => {
       await dispatchClawSubcommand(subject, [...args], deps);
@@ -172,6 +172,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     ['trace', ['trace', '--contract', 'C-1'], h.clawTraceCommand],
     ['stream', ['stream'], h.runStreamFromArgs],
     ['watch', ['watch'], h.watchCommand],
+    ['chat', ['chat'], h.chatCommand],
   ] as const)(
     'claw alice %s：Router 透传同一 deps 对象给 handler，自身零 loadGlobal/loadClaw',
     async (_verb, args, handler) => {
