@@ -10,10 +10,10 @@ import * as path from 'path';
 import { healthCommand } from '../../../src/cli/commands/claw-health.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 // phase 268: hoist 11 dynamic imports of 2 unique modules
-import { loadGlobalConfig, clawExists } from '../../../src/assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { getGlobalConfigPath } from '../../../src/assembly/config/global-config-path.js';
 import { createProcessManagerForCLI } from '../../../src/foundation/process-manager/factories.js';
+import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { CliError } from '../../../src/cli/errors.js';
@@ -45,17 +45,6 @@ vi.mock('../../../src/assembly/config/global-config-path.js', async (importOrigi
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(),
-  buildLLMConfig: vi.fn(),
-}));
-
 vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/foundation/audit/index.js')>()),
   createDirContext: vi.fn((deps: any) => ({ audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} })),
@@ -67,12 +56,12 @@ vi.mock('../../../src/foundation/process-manager/factories.js', () => ({
 
 describe('claw-health', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let commandDeps: FakeClawCommandDeps;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
-    vi.mocked(clawExists).mockReturnValue(true);
+    commandDeps = makeClawCommandDeps(fsFactory);
     vi.mocked(getClawDir).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name));
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
@@ -90,8 +79,21 @@ describe('claw-health', () => {
   });
 
   it('throws CliError when claw does not exist', async () => {
-    vi.mocked(clawExists).mockReturnValue(false);
-    await expect(healthCommand({ fsFactory }, 'foo')).rejects.toBeInstanceOf(CliError);
+    commandDeps.rootConfig.loadClaw.mockReturnValue(undefined);
+    await expect(healthCommand(commandDeps, 'foo')).rejects.toBeInstanceOf(CliError);
+  });
+
+  it('propagates claw config corruption/IO unchanged', async () => {
+    const sentinel = new Error('claw config corrupt');
+    commandDeps.rootConfig.loadClaw.mockImplementation(() => { throw sentinel; });
+    await expect(healthCommand(commandDeps, 'foo')).rejects.toBe(sentinel);
+  });
+
+  it('propagates global config corruption/IO unchanged', async () => {
+    const sentinel = new Error('global config corrupt');
+    commandDeps.rootConfig.loadGlobal.mockImplementation(() => { throw sentinel; });
+    await expect(healthCommand(commandDeps, 'foo')).rejects.toBe(sentinel);
+    expect(commandDeps.rootConfig.loadClaw).not.toHaveBeenCalled();
   });
 
   it('displays running status with inbox/outbox counts', async () => {
@@ -113,7 +115,9 @@ describe('claw-health', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await healthCommand({ fsFactory }, 'test-claw');
+    await healthCommand(commandDeps, 'test-claw');
+    expect(commandDeps.rootConfig.loadGlobal).toHaveBeenCalledTimes(1);
+    expect(commandDeps.rootConfig.loadClaw).toHaveBeenCalledWith('/tmp/chestnut/claws/test-claw/config.yaml');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/running/);
@@ -132,7 +136,7 @@ describe('claw-health', () => {
       throw err;
     });
 
-    await healthCommand({ fsFactory }, 'test-claw');
+    await healthCommand(commandDeps, 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/stopped/);
@@ -152,7 +156,7 @@ describe('claw-health', () => {
       return sp.includes('contract/active');
     });
 
-    await healthCommand({ fsFactory }, 'test-claw');
+    await healthCommand(commandDeps, 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/stopped/);
@@ -179,7 +183,7 @@ describe('claw-health', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await healthCommand({ fsFactory }, 'test-claw');
+    await healthCommand(commandDeps, 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/contract: active/);
@@ -199,7 +203,7 @@ describe('claw-health', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await healthCommand({ fsFactory }, 'test-claw', { json: true });
+    await healthCommand(commandDeps, 'test-claw', { json: true });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);
@@ -225,7 +229,7 @@ describe('claw-health', () => {
       });
 
       // healthCommand 不 throw、inboxPending=0
-      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
+      await expect(healthCommand(commandDeps, 'test-claw')).resolves.toBeUndefined();
     });
 
     it('inbox EACCES → silent (lightweight query helper swallows)', async () => {
@@ -243,7 +247,7 @@ describe('claw-health', () => {
       });
 
       // phase 858: peekPendingCount returns Result error → inboxPending=-1, but command still succeeds
-      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
+      await expect(healthCommand(commandDeps, 'test-claw')).resolves.toBeUndefined();
     });
 
     it('outbox EACCES → silent (lightweight query helper returns Result error)', async () => {
@@ -262,7 +266,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await healthCommand({ fsFactory }, 'test-claw');
+      await healthCommand(commandDeps, 'test-claw');
 
       // phase 934: listOutboxPendingSync returns Result; I/O error surfaces as -1
       const output = consoleLogSpy.mock.calls.flat().join('\n');
@@ -287,7 +291,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
+      await expect(healthCommand(commandDeps, 'test-claw')).resolves.toBeUndefined();
     });
 
     it('contract scan ENOENT silent — 0 throw', async () => {
@@ -307,7 +311,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
+      await expect(healthCommand(commandDeps, 'test-claw')).resolves.toBeUndefined();
     });
   });
 });

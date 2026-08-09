@@ -14,6 +14,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -63,7 +64,7 @@ describe('healthCommand on stopped claw without runtime dirs', () => {
   it('does not crash when inbox/outbox/contract dirs do not exist', async () => {
     // phase 517 B1: pre-fix this throws because clawFs.listSync throws
     // FileNotFoundError with code='FS_NOT_FOUND' which doesn't match 'ENOENT'.
-    await expect(healthCommand({ fsFactory }, clawName, { json: true })).resolves.not.toThrow();
+    await expect(healthCommand(makeClawCommandDeps(fsFactory), clawName, { json: true })).resolves.not.toThrow();
     const jsonLine = logs.find(l => l.startsWith('{'));
     expect(jsonLine).toBeDefined();
     const payload = JSON.parse(jsonLine!);

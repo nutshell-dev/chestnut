@@ -14,10 +14,10 @@ import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { clawStatusCommand } from '../../../src/cli/commands/claw-status.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
-import { loadGlobalConfig, clawExists } from '../../../src/assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { STATUS_AUDIT_EVENTS } from '../../../src/core/status-service/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -63,21 +63,11 @@ vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(),
-  buildLLMConfig: vi.fn(),
-}));
-
 describe('claw-status (phase 1472 Step C)', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   let tmpRoot: string;
   let clawDir: string;
+  let commandDeps: FakeClawCommandDeps;
 
   beforeEach(async () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -85,9 +75,10 @@ describe('claw-status (phase 1472 Step C)', () => {
     clawDir = path.join(tmpRoot, '.chestnut', 'claws', 'foo');
     fs.mkdirSync(clawDir, { recursive: true });
 
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
-    vi.mocked(clawExists).mockImplementation((_: any, configPath: string) => configPath.includes('/claws/foo/'));
+    commandDeps = makeClawCommandDeps(fsFactory, {
+      loadClaw: (configPath) => configPath.includes('/claws/foo/') ? ({} as never) : undefined,
+    });
     vi.mocked(getClawDir).mockImplementation(() => clawDir);
   });
 
@@ -98,7 +89,9 @@ describe('claw-status (phase 1472 Step C)', () => {
   });
 
   it('empty claw → text output with idle / no-active / not-found', async () => {
-    await clawStatusCommand({ fsFactory }, 'foo', {});
+    await clawStatusCommand(commandDeps, 'foo', {});
+    expect(commandDeps.rootConfig.loadGlobal).toHaveBeenCalledTimes(1);
+    expect(commandDeps.rootConfig.loadClaw).toHaveBeenCalledWith('/tmp/chestnut/claws/foo/config.yaml');
 
     const out = consoleLogSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(out).toContain(`Claw: foo`);
@@ -111,7 +104,7 @@ describe('claw-status (phase 1472 Step C)', () => {
   });
 
   it('--json → structured output containing claw/clawDir/contract/tasks/storage', async () => {
-    await clawStatusCommand({ fsFactory }, 'foo', { json: true });
+    await clawStatusCommand(commandDeps, 'foo', { json: true });
 
     const out = consoleLogSpy.mock.calls.map((c) => String(c[0])).join('');
     const parsed = JSON.parse(out);
@@ -131,7 +124,7 @@ describe('claw-status (phase 1472 Step C)', () => {
     fs.writeFileSync(path.join(clawDir, 'clawspace', 'a.md'), 'a');
     fs.writeFileSync(path.join(clawDir, 'clawspace', 'b.md'), 'b');
 
-    await clawStatusCommand({ fsFactory }, 'foo', {});
+    await clawStatusCommand(commandDeps, 'foo', {});
 
     const out = consoleLogSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(out).toContain('MEMORY.md: 2.0KB');
@@ -139,10 +132,23 @@ describe('claw-status (phase 1472 Step C)', () => {
   });
 
   it('rejects unknown claw with `chestnut claw list` hint', async () => {
-    await expect(clawStatusCommand({ fsFactory }, 'nonexistent', {})).rejects.toThrow(
+    await expect(clawStatusCommand(commandDeps, 'nonexistent', {})).rejects.toThrow(
       /chestnut claw list/,
     );
-    await expect(clawStatusCommand({ fsFactory }, 'nonexistent', {})).rejects.toThrow(CliError);
+    await expect(clawStatusCommand(commandDeps, 'nonexistent', {})).rejects.toThrow(CliError);
+  });
+
+  it('propagates claw config corruption/IO unchanged', async () => {
+    const sentinel = new Error('claw config unreadable');
+    commandDeps.rootConfig.loadClaw.mockImplementation(() => { throw sentinel; });
+    await expect(clawStatusCommand(commandDeps, 'foo', {})).rejects.toBe(sentinel);
+  });
+
+  it('propagates global config corruption/IO unchanged', async () => {
+    const sentinel = new Error('global config unreadable');
+    commandDeps.rootConfig.loadGlobal.mockImplementation(() => { throw sentinel; });
+    await expect(clawStatusCommand(commandDeps, 'foo', {})).rejects.toBe(sentinel);
+    expect(commandDeps.rootConfig.loadClaw).not.toHaveBeenCalled();
   });
 
   it('writes TASK_RUNNING_ERROR audit when running dir fails', async () => {
@@ -161,7 +167,7 @@ describe('claw-status (phase 1472 Step C)', () => {
       listSync: vi.fn().mockReturnValue([]),
     } as unknown as ReturnType<typeof fsFactory>;
 
-    await clawStatusCommand({ fsFactory: () => mockFs }, 'foo', {});
+    await clawStatusCommand(makeClawCommandDeps(() => mockFs), 'foo', {});
 
     const runningErrors = currentAudit.events.filter(
       (e) => e[0] === STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR,

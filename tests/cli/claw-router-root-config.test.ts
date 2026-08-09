@@ -161,6 +161,8 @@ describe('claw-router RootConfig 窄 DI', () => {
   it.each([
     ['read', ['read', 'note.md'], h.readCommand],
     ['ls', ['ls'], h.lsCommand],
+    ['health', ['health'], h.healthCommand],
+    ['status', ['status'], h.clawStatusCommand],
   ] as const)(
     'claw alice %s：Router 透传同一 deps 对象给 handler，自身零 loadGlobal/loadClaw',
     async (_verb, args, handler) => {
