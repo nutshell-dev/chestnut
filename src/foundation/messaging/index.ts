@@ -21,7 +21,7 @@ export { InboxReader } from './inbox-reader.js';
 export type { InboxEntry, ScannedInboxLocation } from './inbox-reader.js';
 export { PendingViewError } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
-export { PRIORITY_VALUES, PRIORITY_ORDER } from './types.js';
+export { PRIORITY_ORDER } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 // phase 1423 F4: dirs path const re-export — 跨模块 (daemon / core) 路径合成走 barrel。
