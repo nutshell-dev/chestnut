@@ -332,6 +332,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   registerInboxMessageTypes(formatterRegistry, contributions?.inboxMessageTypes ?? []);
   if (isMotion) {
     formatterRegistry.register({
+      owner: 'motion-heartbeat',
       type: 'heartbeat',
       owner: 'motion-heartbeat',
       rendering: {
