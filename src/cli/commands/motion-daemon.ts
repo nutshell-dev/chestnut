@@ -8,7 +8,7 @@
 
 import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import * as path from 'path';
-import { loadGlobalConfig } from '../../assembly/config/config-load.js';
+import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
@@ -20,12 +20,13 @@ import type { DaemonPM } from './claw-daemon.js';
 
 interface MotionDaemonDeps {
   fsFactory: (baseDir: string) => FileSystem;
+  rootConfig: Pick<RootConfigReader, 'loadGlobal'>;
   /** Test seam — when provided, skips real ProcessManager construction. */
   processManager?: DaemonPM;
 }
 
 export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void> {
-  loadGlobalConfig({ fsFactory: deps.fsFactory });
+  deps.rootConfig.loadGlobal();
   const motionDir = getNamedSubrootDir('motion');
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
   const baseDir = path.dirname(motionDir);
