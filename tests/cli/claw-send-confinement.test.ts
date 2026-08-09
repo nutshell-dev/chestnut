@@ -7,6 +7,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 // phase 278: hoist 3 dyn imports
 import { sendCommand } from '../../src/cli/commands/claw-send.js';
 import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
+import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -33,17 +34,6 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
-
 describe('claw-send — confinement baseDir vs root (P0.2 phase 611)', () => {
   let tmpRoot: string;
 
@@ -64,7 +54,7 @@ describe('claw-send — confinement baseDir vs root (P0.2 phase 611)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
 
-    await sendCommand({ fsFactory }, 'test-claw', 'hello');
+    await sendCommand(makeClawCommandDeps(fsFactory), 'test-claw', 'hello');
 
     // Contract (phase 611 P0.2 + phase 232)：inbox-writing NodeFileSystem 必 confined、不可 baseDir=/。
     // phase 232: fs baseDir 从 clawDir 升为 chestnutRoot（notifyClaw wrapper 需解析 claws/ namespace）。

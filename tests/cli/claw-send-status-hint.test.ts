@@ -20,6 +20,7 @@ import { getGlobalConfigPath } from '../../src/assembly/config/global-config-pat
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/index.js';
 import { formatNoActiveContractHint } from '../../src/cli/commands/claw-shared.js';
 import { formatClawStatusHint } from '../../src/cli-protocol/index.js';
+import { makeClawCommandDeps, type FakeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -37,17 +38,6 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
-
 // Mock process manager
 vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/process-manager/index.js')>();
@@ -62,6 +52,7 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
 describe('cli claw send status hint (phase 232)', () => {
   let tmpRoot: string;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let commandDeps: FakeClawCommandDeps;
 
   beforeEach(() => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -72,6 +63,7 @@ describe('cli claw send status hint (phase 232)', () => {
     fs.writeFileSync(path.join(chestnutRoot, 'claws', 'test-claw', 'config.yaml'), 'name: test-claw\n');
     process.env.CHESTNUT_ROOT = tmpRoot;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    commandDeps = makeClawCommandDeps(fsFactory);
   });
 
   afterEach(() => {
@@ -87,7 +79,7 @@ describe('cli claw send status hint (phase 232)', () => {
       isAlive: () => false,
     } as any);
 
-    await sendCommand({ fsFactory }, 'test-claw', 'hello');
+    await sendCommand(commandDeps, 'test-claw', 'hello');
 
     const calls = consoleLogSpy.mock.calls.map(c => c[0]);
     expect(calls).toContain('Message sent to "test-claw"');
@@ -103,7 +95,7 @@ describe('cli claw send status hint (phase 232)', () => {
       isAlive: () => true,
     } as any);
 
-    await sendCommand({ fsFactory }, 'test-claw', 'hello');
+    await sendCommand(commandDeps, 'test-claw', 'hello');
 
     const calls = consoleLogSpy.mock.calls.map(c => c[0]);
     expect(calls).toContain('Message sent to "test-claw"');
@@ -119,7 +111,7 @@ describe('cli claw send status hint (phase 232)', () => {
       isAlive: () => true,
     } as any);
 
-    await sendCommand({ fsFactory }, 'test-claw', 'wrapper-msg');
+    await sendCommand(commandDeps, 'test-claw', 'wrapper-msg');
 
     const inboxDir = path.join(tmpRoot, '.chestnut', 'claws', 'test-claw', 'inbox', 'pending');
     const files = fs.readdirSync(inboxDir);
@@ -145,7 +137,7 @@ describe('cli claw send status hint (phase 232)', () => {
       isAlive: () => true,
     } as any);
 
-    await sendCommand({ fsFactory }, 'test-claw', 'hello');
+    await sendCommand(commandDeps, 'test-claw', 'hello');
 
     const calls = consoleLogSpy.mock.calls.map(c => c[0]);
     expect(calls).toContain('Message sent to "test-claw"');
@@ -164,7 +156,7 @@ describe('cli claw send status hint (phase 232)', () => {
       isAlive: () => true,
     } as any);
 
-    await sendCommand({ fsFactory }, 'test-claw', 'hello');
+    await sendCommand(commandDeps, 'test-claw', 'hello');
 
     const calls = consoleLogSpy.mock.calls.map(c => c[0]);
     expect(calls).toContain('Message sent to "test-claw"');
