@@ -32,6 +32,7 @@ function makeTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
 }
 
 function makeDeps() {
+  const parentStreamLog = { write: vi.fn() };
   return {
     fs: {
       ensureDir: vi.fn().mockResolvedValue(undefined),
@@ -70,6 +71,7 @@ function makeDeps() {
     moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
     askMotionToolFactory: () => ({ name: 'ask_motion', description: '', readonly: false, idempotent: false, schema: { type: 'object' }, execute: vi.fn(async () => ({ ok: true, content: '' })) } as unknown as import('../../src/foundation/tools/index.js').Tool),
     runSubagent: mockRunSubagent,
+    parentStreamLog,
   };
 }
 
@@ -107,6 +109,19 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
         systemPrompt: expect.stringContaining(DEFAULT_SUBAGENT_SYSTEM_PROMPT),
       }),
     );
+  });
+
+  it('emits parent task_completed even when subagent execution fails before turn_end', async () => {
+    const task = makeTask();
+    const deps = makeDeps();
+    mockRunSubagent.mockRejectedValueOnce(new Error('subagent crashed'));
+
+    await executeSubAgentTask(task, new AbortController().signal, deps);
+
+    expect(deps.parentStreamLog.write).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: 'task_completed',
+      taskId: task.id,
+    }));
   });
 
   it('always includes promptPrefix regardless of task.systemPrompt', async () => {

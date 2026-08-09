@@ -59,6 +59,7 @@ export interface TaskWatchRole {
   fsFactory: (baseDir: string) => FileSystem;
   taskWatchMap: Map<string, TaskWatch>;
   handleTaskEvent: (taskId: TaskId, ev: unknown) => void;
+  stopTaskWatch: (taskId: TaskId) => Promise<void>;
   taskStatusBar: {
     addTrack(taskId: TaskId, taskKind: string): void;
     addMigratedExec(track: { taskId: TaskId; command: string; startedAt: number }): void;
@@ -423,7 +424,17 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const taskId = rawTaskId.length === 36
           ? deriveShortIdFromTaskId(makeFullTaskId(rawTaskId))
           : rawTaskId;
-        deps.taskStatusBar.removeMigratedExec(makeShortTaskId(taskId));
+        const shortTaskId = makeShortTaskId(taskId);
+        deps.taskStatusBar.removeMigratedExec(shortTaskId);
+        if (deps.taskWatchMap.has(shortTaskId)) {
+          void deps.stopTaskWatch(shortTaskId).catch((err) => {
+            deps.audit.write(
+              VIEWPORT_AUDIT_EVENTS.TASK_WATCH_STOP_FAILED,
+              `taskId=${shortTaskId}`,
+              `reason=${formatErr(err)}`,
+            );
+          });
+        }
         break;
       }
 

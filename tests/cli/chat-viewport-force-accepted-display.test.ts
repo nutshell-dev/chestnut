@@ -28,6 +28,7 @@ function makeDeps(captured: { lines: string[] }): EventHandlerDeps {
     observability: { recordEvent: vi.fn() } as any,
     taskWatchMap: new Map(),
     handleTaskEvent: vi.fn(),
+    stopTaskWatch: vi.fn().mockResolvedValue(undefined),
     taskStatusBar: { addTrack: vi.fn() },
     getThinkingMode: () => 'auto',
     fsFactory: vi.fn() as any,

@@ -253,11 +253,21 @@ export async function executeSubAgentTask(
       subAuditPath: `tasks/queues/results/${task.id}/audit.tsv`,
     });
   } finally {
-    // Move from running to done/failed based on success
-    if (taskFailed) {
-      await moveTaskToFailed(task.id);
-    } else {
-      await moveTaskToDone(task.id);
+    try {
+      // Move from running to done/failed based on success
+      if (taskFailed) {
+        await moveTaskToFailed(task.id);
+      } else {
+        await moveTaskToDone(task.id);
+      }
+    } finally {
+      // Parent stream owns viewport watcher lifecycle. Emit on every terminal
+      // path, including crashes before the per-task stream can write turn_end.
+      parentStreamLog?.write({
+        ts: Date.now(),
+        type: STREAM_TASK_EVENTS.TASK_COMPLETED,
+        taskId: task.id,
+      });
     }
   }
 }

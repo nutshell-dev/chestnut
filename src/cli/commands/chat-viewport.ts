@@ -319,6 +319,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     observability,
     taskWatchMap,
     handleTaskEvent,
+    stopTaskWatch,
     taskStatusBar,
     getThinkingMode: () => thinkingMode,
     fsFactory: options.fsFactory,

@@ -26,11 +26,13 @@ vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => {
 describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register', () => {
   let taskWatchMap: Map<string, any>;
   let auditWrite: ReturnType<typeof vi.fn>;
+  let stopTaskWatch: ReturnType<typeof vi.fn>;
   let handleEvent: ReturnType<typeof createEventHandler>;
 
   beforeEach(() => {
     taskWatchMap = new Map();
     auditWrite = vi.fn();
+    stopTaskWatch = vi.fn().mockResolvedValue(undefined);
     mockCreateStreamReader.mockReset();
   });
 
@@ -66,7 +68,8 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
       observability: { recordEvent: vi.fn(), recordRenderBatch: vi.fn() } as any,
       taskWatchMap,
       handleTaskEvent: vi.fn(),
-      taskStatusBar: { addTrack: vi.fn() },
+      stopTaskWatch,
+      taskStatusBar: { addTrack: vi.fn(), removeMigratedExec: vi.fn() },
       getThinkingMode: () => 'off' as const,
       resolvePending: vi.fn(),
     });
@@ -88,5 +91,11 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
 
     // taskWatchMap 不应有该 taskId（不 register stale TaskWatch）
     expect(taskWatchMap.has(taskId)).toBe(false);
+
+    // A parent task_completed is the terminal fallback when the per-task
+    // stream crashed before it could publish turn_end.
+    taskWatchMap.set(taskId, { streamReader: {} });
+    handleEvent({ type: 'task_completed', taskId });
+    expect(stopTaskWatch).toHaveBeenCalledWith(taskId);
   });
 });
