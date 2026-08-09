@@ -4,6 +4,9 @@
  * Integration style (real tmpdir + NodeFileSystem) matching
  * tests/cli/claw-send-confinement.test.ts convention. Covers:
  *
+ * Phase 1324 Step B：不再 mock Assembly config internal，改为每次调用注入
+ * tests/helpers/claw-command-deps.ts 构造的窄 RootConfig fake。
+ *
  * - lists clawspace root entries (default path)
  * - lists a subdir within clawspace
  * - --recursive lists nested entries
@@ -21,32 +24,9 @@ import { randomUUID } from 'crypto';
 import { lsCommand } from '../../../src/cli/commands/claw-ls.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
+import { makeClawCommandDeps } from '../../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-
-vi.mock('../../../src/assembly/config/global-config-path.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/assembly/config/global-config-path.js')>();
-  return {
-    ...actual,
-    getGlobalConfigPath: vi.fn(),
-  };
-});
-vi.mock('../../../src/foundation/config-store/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/foundation/config-store/index.js')>();
-  return {
-    ...actual,
-  };
-});
-vi.mock('../../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
 
 describe('claw-ls (phase 1480)', () => {
   let tmpRoot: string;
@@ -87,7 +67,7 @@ describe('claw-ls (phase 1480)', () => {
   });
 
   it('default path lists clawspace root entries (dirs first, alphabetical)', async () => {
-    await lsCommand({ fsFactory }, 'test-claw', undefined, {});
+    await lsCommand(makeClawCommandDeps(fsFactory), 'test-claw', undefined, {});
     const out = writes.join('');
     expect(out).toContain('notes/');
     expect(out).toContain('a.md');
@@ -98,14 +78,14 @@ describe('claw-ls (phase 1480)', () => {
   });
 
   it('lists a subdirectory (path is workspace-relative, unix `cd` intuition)', async () => {
-    await lsCommand({ fsFactory }, 'test-claw', 'notes', {});
+    await lsCommand(makeClawCommandDeps(fsFactory), 'test-claw', 'notes', {});
     const out = writes.join('');
     expect(out).toContain('inner.md');
     expect(out).not.toContain('a.md');
   });
 
   it('--recursive includes nested files', async () => {
-    await lsCommand({ fsFactory }, 'test-claw', undefined, { recursive: true });
+    await lsCommand(makeClawCommandDeps(fsFactory), 'test-claw', undefined, { recursive: true });
     const out = writes.join('');
     expect(out).toContain('a.md');
     expect(out).toContain('b.md');
@@ -113,7 +93,7 @@ describe('claw-ls (phase 1480)', () => {
   });
 
   it('--json emits parseable JSON with size + mtime + isDirectory', async () => {
-    await lsCommand({ fsFactory }, 'test-claw', undefined, { json: true });
+    await lsCommand(makeClawCommandDeps(fsFactory), 'test-claw', undefined, { json: true });
     const out = writes.join('');
     const parsed = JSON.parse(out);
     expect(Array.isArray(parsed)).toBe(true);
@@ -128,17 +108,16 @@ describe('claw-ls (phase 1480)', () => {
     expect(notesEntry.isDirectory).toBe(true);
   });
 
-  it('unknown claw throws CliError', async () => {
-    const { clawExists } = await import('../../../src/assembly/config/config-load.js');
-    vi.mocked(clawExists).mockReturnValueOnce(false);
+  it('unknown claw (loadClaw → undefined) throws CliError', async () => {
+    const deps = makeClawCommandDeps(fsFactory, { loadClaw: () => undefined });
     await expect(
-      lsCommand({ fsFactory }, 'no-such-claw', undefined, {}),
+      lsCommand(deps, 'no-such-claw', undefined, {}),
     ).rejects.toBeInstanceOf(CliError);
   });
 
   it('path escape (..) throws CliError', async () => {
     await expect(
-      lsCommand({ fsFactory }, 'test-claw', '../../../etc', {}),
+      lsCommand(makeClawCommandDeps(fsFactory), 'test-claw', '../../../etc', {}),
     ).rejects.toBeInstanceOf(CliError);
   });
 });

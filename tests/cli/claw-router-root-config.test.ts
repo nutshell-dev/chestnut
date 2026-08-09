@@ -155,4 +155,20 @@ describe('claw-router RootConfig 窄 DI', () => {
     expect(h.handleCliError).toHaveBeenCalledWith(sentinel);
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
+
+  // phase 1324 Step B：read/ls 已迁入共享 ClawCommandDeps；Router 必须把同一个
+  // deps 对象原样透传给 handler（不新构窄对象），自身保持零 config call。
+  it.each([
+    ['read', ['read', 'note.md'], h.readCommand],
+    ['ls', ['ls'], h.lsCommand],
+  ] as const)(
+    'claw alice %s：Router 透传同一 deps 对象给 handler，自身零 loadGlobal/loadClaw',
+    async (_verb, args, handler) => {
+      await dispatchClawSubcommand('alice', [...args], deps);
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0]).toBe(deps);
+      expect(h.loadGlobal).not.toHaveBeenCalled();
+      expect(h.loadClaw).not.toHaveBeenCalled();
+    },
+  );
 });
