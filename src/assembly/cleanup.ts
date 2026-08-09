@@ -7,7 +7,7 @@
  */
 import * as path from 'node:path';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { IGNORE_PATTERN } from '../foundation/fs/atomic.js';
+import { IGNORE_PATTERN } from '../foundation/fs/index.js';
 
 export async function cleanupOrphanedTemp(
   fs: FileSystem,

@@ -8,3 +8,4 @@ export { SkillSystem } from './registry.js';
 export { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from './skill-paths.js';
 
 export { createSkillSystem } from './registry.js';
+export { createSkillTool } from './tools/skill.js';

@@ -276,7 +276,7 @@ contractCmd
       for (const tool of createFileTools()) {
         toolRegistry.register(tool);
       }
-      const { wireClawTopology } = await import('../assembly/wire-claw-topology.js');
+      const { wireClawTopology } = await import('../assembly/index.js');
       wireClawTopology({
         fs: clawFs,
         chestnutRoot,

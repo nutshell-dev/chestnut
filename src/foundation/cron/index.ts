@@ -16,3 +16,4 @@ export type { CronJob, CronJobGlobalConfig } from './runner.js';
 
 export { createCronRunner } from './runner.js';
 export { CRON_FILE_ROUTING } from './audit-events.js';
+export { cronConfigSchema } from './config-schema.js';

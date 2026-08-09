@@ -3,7 +3,7 @@
  * Moved from L2c command-tool/exec.ts (M#5 — phase 758).
  */
 
-import type { PreExecGuard } from '../foundation/command-tool/exec.js';
+import type { PreExecGuard } from '../foundation/command-tool/index.js';
 
 function looksLikeChestnutSelfKill(command: string): boolean {
   return /\bchestnut\s+(motion\s+)?stop\b/i.test(command);

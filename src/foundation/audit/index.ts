@@ -78,6 +78,7 @@ export { createDirContext } from './dir-context.js';
 
 export { createSystemAudit, createAuditWriter } from './factory.js';
 export { createHourlyHeartbeatAccumulator } from './hourly-heartbeat.js';
+export { runAuditSizeMonitor, AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from './jobs/audit-size-monitor.js';
 
 // Reader API (phase 126 + phase 147)
 export {

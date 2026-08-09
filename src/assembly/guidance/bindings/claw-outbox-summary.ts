@@ -25,7 +25,7 @@
  */
 
 import { defineCliGuidanceBinding } from '../../../cli-protocol/index.js';
-import { decodeOutboxSummaryGuidance } from '../../../core/claw-topology/jobs/outbox-summary/guidance-state.js';
+import { decodeOutboxSummaryGuidance } from '../../../core/claw-topology/index.js';
 
 export const clawOutboxSummaryGuidanceBinding = defineCliGuidanceBinding({
   type: 'claw_outbox_summary',

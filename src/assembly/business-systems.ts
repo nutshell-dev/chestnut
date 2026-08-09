@@ -4,24 +4,22 @@ import { resolveChestnutRoot } from '../core/claw-topology/index.js';
 import { DISPATCH_SKILLS_PATH } from '../core/evolution-system/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 
-import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
+import { createClawPermissionChecker } from '../core/permissions/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
-import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/constants.js';
+import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import { createAsyncTaskSystem } from '../core/async-task-system/index.js';
-import { PersistentShortIdIndex } from '../core/async-task-system/short-id-index.js';
-import type { AsyncTaskSystem } from '../core/async-task-system/system.js';
+import { PersistentShortIdIndex, type AsyncTaskSystem } from '../core/async-task-system/index.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
-} from '../core/async-task-system/dirs.js';
-import { validateTaskShape } from '../core/async-task-system/task-corrupt-helpers.js';
-import type { SubAgentTask, TaskId } from '../core/async-task-system/types.js';
+} from '../core/async-task-system/index.js';
+import { validateTaskShape, type SubAgentTask, type TaskId } from '../core/async-task-system/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import {
   createSummonContractExtractPostProcessor,
@@ -34,15 +32,15 @@ import {
 } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem, MotionReviewContext } from '../core/evolution-system/index.js';
-import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/retro-audit-events.js';
-import { CONTRACT_AUDIT_EVENTS } from '../core/contract/audit-events.js';
+import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/index.js';
+import { CONTRACT_AUDIT_EVENTS } from '../core/contract/index.js';
 
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
 import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
-import { createSkillTool } from '../foundation/skill-system/tools/skill.js';
+import { createSkillTool } from '../foundation/skill-system/index.js';
 import { CLAWS_DIR } from '../core/claw-topology/index.js';
-import { createSendTool } from '../foundation/messaging/tools/send.js';
+import { createSendTool } from '../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
@@ -50,7 +48,7 @@ import { createDialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../foundatio
 import type { DialogStore } from '../foundation/dialog-store/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
-import { ContractAuditor } from '../core/contract/contract-auditor.js';
+import { ContractAuditor } from '../core/contract/index.js';
 import {
   createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
@@ -59,9 +57,9 @@ import {
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../core/gateway/index.js';
 import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../watchdog/index.js';
 import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
-import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/inbox-formatters.js';
-import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/inbox-formatter.js';
-import { MEMORY_INBOX_MESSAGE_TYPES } from '../core/memory/inbox-formatter.js';
+import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/index.js';
+import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/index.js';
+import { MEMORY_INBOX_MESSAGE_TYPES } from '../core/memory/index.js';
 import type { AssemblyContributions } from './types.js';
 import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
 import type { MotionGuidanceRegistry } from './guidance/index.js';

@@ -70,6 +70,7 @@ export { createOutboxWriter } from './outbox-writer.js';
 export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 
 export { createSendContentTracker, feedSendContentDelta } from './tools/send-content-extractor.js';
+export { createSendTool } from './tools/send.js';
 
 // phase 1476: drainOutboxes / Messaging / createMessaging 全砍。
 // claw→motion 通信改 pull 模型（motion 见 claw_outbox_summary 索引 → CLI claw <id> outbox 拉取消费）。

@@ -68,12 +68,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 /**
- * L1-L5 barrel 边界程序化生成（phase 1291）：
+ * L1-L6 production barrel 边界程序化生成（phase 1291 / 1346）：
  * 跨模块 import 必经模块自身 index.ts，程序化遍历 src/core、src/foundation
  * 子目录生成，不手工枚举（同 M#8 耦合界面最小 / M#7 耦合界面稳定）。
  * severity 直接 error（同 no-circular 先例：phase1290 治理后 L1-L5 已 0 违反，
- * 非「先 warn 观察」阶段）。范围显式限定 L1-L5，不覆盖 L6（assembly/cli/
- * cli-protocol/daemon/watchdog）——L6 范围内已知存在 barrel 缺口，未治理。
+ * phase 1346 将 caller 扩至全部 src，并加入 L6 reusable owners。
  */
 function barrelBoundaryRules() {
   const bases = ['core', 'foundation'];
@@ -88,17 +87,15 @@ function barrelBoundaryRules() {
       rules.push({
         // rule name 需 kebab-case（phase 649 invariant test）：目录名可能含
         // `_`（如 core/context_manager），name 里转 `-`，path 仍用真实目录名。
-        name: `no-deep-into-l1l5-${base}-${mod.replace(/_/g, '-')}`,
+        name: `no-deep-into-module-${base}-${mod.replace(/_/g, '-')}`,
         comment: [
           `M#8 耦合界面最小 / M#7 耦合界面稳定：跨模块 import 必经`,
           `${base}/${mod}/index.ts barrel，不得深路径直达内部文件。`,
-          'phase 1291 立：程序化生成、遍历 src/core + src/foundation 子目录，',
-          '范围限定 L1-L5、不覆盖 L6（assembly/cli 等按 code review 守，',
-          '已知存在 barrel 缺口未治理）。',
+          'phase 1291 立、phase 1346 扩全部 src caller；owner internal 相对边排除。',
         ].join(' '),
         severity: 'error',
         from: {
-          path: '^src/(core|foundation)/',
+          path: '^src/',
           pathNot: [`^src/${base}/${mod}/`],
         },
         to: {
@@ -106,6 +103,15 @@ function barrelBoundaryRules() {
         },
       });
     }
+  }
+  for (const mod of ['assembly', 'cli-protocol', 'daemon', 'watchdog']) {
+    rules.push({
+      name: `no-deep-into-module-${mod}`,
+      comment: `phase 1346: L6 ${mod} cross-module imports must use its index.ts barrel.`,
+      severity: 'error',
+      from: { path: '^src/', pathNot: [`^src/${mod}/`] },
+      to: { path: `^src/${mod}/(?!index\\.ts$).+` },
+    });
   }
   return rules;
 }
@@ -305,16 +311,13 @@ module.exports = {
       to: { path: '^src/(?!cli-protocol/)' },
     },
     {
-      name: 'no-assembly-to-cli-process',
+      name: 'no-outside-to-cli-process',
       comment: [
-        'phase 1283 Step B 立：Assembly 对 CLIProcess（src/cli/**）零边通用禁令。',
-        'viewport 配置协议归位 CLIProtocol 后 production 边已归零；合法 Assembly→CLIProtocol',
-        '（src/cli-protocol/）不受影响——to.path 末尾 / 精确区分 src/cli/ 与 src/cli-protocol/。',
-        '取代 phase 1253 Step D 窄规则 no-assembly-to-cli-command-protocol-internals',
-        '（只禁 src/cli/help/* 与 src/cli/utils/cli-commands.ts，已被本规则严格覆盖）。',
+        'phase 1346：CLIProcess 是有副作用进程根，所有 production owner 对 src/cli/** 零入边。',
+        '可复用 CLI 语义唯一归 CLIProtocol；CLI owner internal 边排除。',
       ].join(' '),
       severity: 'error',
-      from: { path: '^src/assembly/' },
+      from: { path: '^src/', pathNot: ['^src/cli/'] },
       to: { path: '^src/cli/' },
     },
     // phase 696 Step A 撤 2 layer rule (no-assembly-to-cli-shared-formatter / no-audit-to-dialog-store)

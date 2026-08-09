@@ -7,18 +7,17 @@
  * Refs: coding plan/phase10/Phase 10 总览.md + Step A.md + Step B.md
  */
 import { z } from 'zod';
-import { llmOrchestratorConfigSchema } from '../../foundation/llm-orchestrator/config-schema.js';
-import { runtimeMotionConfigSchema } from '../../core/runtime/config-schema.js';
-import { toolsConfigSchema } from '../../foundation/tools/config-schema.js';
-import { cronConfigSchema } from '../../foundation/cron/config-schema.js';
+import { llmOrchestratorConfigSchema } from '../../foundation/llm-orchestrator/index.js';
+import { runtimeMotionConfigSchema, clawConfigSchema } from '../../core/runtime/index.js';
+import { toolsConfigSchema } from '../../foundation/tools/index.js';
+import { cronConfigSchema } from '../../foundation/cron/index.js';
 import { viewportConfigSchema } from '../../cli-protocol/index.js';
 // Phase 1288 Step B: audit 段移出 root schema — retention SoT 归 AuditLog 自家
 // config store（.chestnut/audit/config.yaml）；legacy 段读取/移除见 config-load.ts。
 // Phase 1289 Step D: Watchdog 段移出 root schema — 配置 SoT 归 Watchdog 自家
 // config store；legacy 段读取/移除见 config-load.ts。
-import { streamConfigSchema } from '../../foundation/stream/config-schema.js';
-import { agentExecutorConfigSchema } from '../../core/agent-executor/config-schema.js';
-import { clawConfigSchema } from '../../core/runtime/claw-config-schema.js';
+import { streamConfigSchema } from '../../foundation/stream/index.js';
+import { agentExecutorConfigSchema } from '../../core/agent-executor/index.js';
 
 export function createGlobalConfigSchema() {
   return z.object({

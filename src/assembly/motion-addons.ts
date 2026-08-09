@@ -15,18 +15,18 @@ import { createHeartbeat, type Heartbeat } from '../core/heartbeat/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import { createCronRunner, parseSchedule, type CronJob, type CronRunner } from '../foundation/cron/index.js';
 // phase 1242 Step A: AuditLog 只暴露 monitor capability；Assembly 负责 CronJob descriptor 组合
-import { runAuditSizeMonitor, AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from '../foundation/audit/jobs/audit-size-monitor.js';
+import { runAuditSizeMonitor, AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { createDreamTriggerJob } from '../core/memory/jobs/dream-trigger.js';
+import { createDreamTriggerJob } from '../core/memory/index.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
-import { createClawContractBridge } from '../core/memory/claw-contract-bridge.js';
-import { createContractObserverJob } from '../core/contract/jobs/contract-observer.js';
-import { createOutboxSummaryJob } from '../core/claw-topology/jobs/outbox-summary/index.js';
+import { createClawContractBridge } from '../core/memory/index.js';
+import { createContractObserverJob } from '../core/contract/index.js';
+import { createOutboxSummaryJob } from '../core/claw-topology/index.js';
 import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
-import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
+import { createStreamReader, STREAM_EVENT_NAMES, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../core/claw-topology/index.js';
 import { formatClawStatusHint } from '../cli-protocol/index.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
@@ -36,10 +36,10 @@ import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/retro-audit-events.js';
-import { CONTRACT_AUDIT_EVENTS } from '../core/contract/audit-events.js';
+import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/index.js';
+import { CONTRACT_AUDIT_EVENTS } from '../core/contract/index.js';
 import type { AssembleConfig } from './types.js';
-import type { ContractId } from '../core/contract/types.js';
+import type { ContractId } from '../core/contract/index.js';
 
 interface MotionAddonsInput {
   core: CoreInfraOutput;
@@ -59,6 +59,7 @@ export function createAuditSizeMonitorCronJob(
     /** Phase 1288 Step D：legacy 根 audit.tsv 常驻观察（必填，与 monitor 收口一致）。 */
     legacyAuditPath: string;
     streamLog?: Parameters<typeof runAuditSizeMonitor>[0]['streamLog'];
+    streamEventType?: string;
   },
   globalConfig: { cron: { jobs: { audit_size_monitor: { enabled: boolean; schedule: string } } } },
 ): CronJob {
@@ -253,6 +254,7 @@ export async function createMotionAddons(
           secondaryAuditPath: path.join(chestnutRoot, AUDIT_PATHS.audit),
           legacyAuditPath: path.join(chestnutRoot, AUDIT_LEGACY_PATHS.audit),
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
+          streamEventType: STREAM_EVENT_NAMES.SYSTEM_NOTIFY,
         }, globalConfig),
         createOutboxSummaryJob({
           clawTopology: core.topology,  // phase 259

@@ -23,6 +23,8 @@ export {
 } from './errors.js';
 // phase 482: audit-events barrel re-export (CONTRACT_AUDIT_EVENTS for evolution-system; ID/file routing constants for assembly remain deep-imported per allowlist)
 export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+export { CONTRACT_INBOX_MESSAGE_TYPES } from './inbox-formatters.js';
+export { createContractObserverJob } from './jobs/contract-observer.js';
 // phase 484: verification-types barrel re-export
 export type { NotifyClawFn } from './verification-types.js';
 

@@ -43,3 +43,4 @@ export { ToolError, ToolTimeoutError } from './errors.js';
 
 
 export { TOOLS_FILE_ROUTING } from './audit-events.js';
+export { toolsConfigSchema } from './config-schema.js';

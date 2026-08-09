@@ -26,3 +26,4 @@ export { createStreamWriter } from './writer.js';
 
 export { createPerResourceStreamWriter } from './per-resource-writer.js';
 export { STREAM_FILE_ROUTING } from './audit-events.js';
+export { streamConfigSchema } from './config-schema.js';

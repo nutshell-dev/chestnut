@@ -40,3 +40,4 @@ export { LLMError, LLMAllProvidersFailedError, LLMTimeoutError, LLMInvalidReques
 export type { LLMErrorClass, UserActionHint } from './errors.js';
 
 export { toProviderConfig } from './config-adapter.js';
+export { llmOrchestratorConfigSchema } from './config-schema.js';

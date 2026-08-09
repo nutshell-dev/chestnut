@@ -17,7 +17,7 @@ import type { AuditLog } from '../../../../foundation/audit/index.js';
 import { formatErr } from '../../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../../foundation/fs/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
-import type { ClawTopology } from '../../index.js';
+import type { ClawTopology } from '../../types.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { runOutboxSummaryTick } from './tick.js';
 import type { CronJob } from '../../../../foundation/cron/index.js';

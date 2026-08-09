@@ -1,7 +1,7 @@
 import type { CronJob } from '../../../foundation/cron/index.js';
 import { parseSchedule } from '../../../foundation/cron/index.js';
 import type { CronJobGlobalConfig } from '../../../foundation/cron/index.js';
-import type { MemorySystem } from '../index.js';
+import type { MemorySystem } from '../system.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.

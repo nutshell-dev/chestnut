@@ -21,7 +21,7 @@
 import {
   STATUS_MOTION_GUIDANCE_FACTS,
   type StatusMotionGuidance,
-} from '../core/status-service/motion-guidance.js';
+} from '../core/status-service/index.js';
 
 /** CLI binary 字面 —— 仓库内唯一 source of truth for motion guidance string assembly。 */
 const CLI_BINARY = 'chestnut';

@@ -12,7 +12,7 @@ import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxWriter } from '../../../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../../../foundation/messaging/index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
-import { MOTION_CLAW_ID } from '../../index.js';
+import { MOTION_CLAW_ID } from '../../motion-claw-id.js';
 import { encodeOutboxSummaryGuidance } from './guidance-state.js';
 import type { OutboxSummaryState } from './types.js';
 

@@ -22,3 +22,10 @@ export { createNotifyClawTool } from './tools/notify-claw.js';
 export type {
   ClawTopology,
 } from './types.js';
+export {
+  createCrossClawReadTool,
+  createCrossClawLsTool,
+  createCrossClawSearchTool,
+} from './agent-tools.js';
+export { decodeOutboxSummaryGuidance } from './jobs/outbox-summary/guidance-state.js';
+export { createOutboxSummaryJob } from './jobs/outbox-summary/index.js';

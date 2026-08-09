@@ -22,10 +22,9 @@ import { formatErr } from "../../node-utils/index.js";
 
 import { isFileNotFound } from '../../fs/index.js';
 import type { FileSystem } from '../../fs/index.js';
-import type { AuditLog } from '../index.js';
+import type { AuditLog } from '../types.js';
 type NotifySink = { write(event: Record<string, unknown>): void };
 import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from './audit-size-monitor-audit-events.js';
-import { STREAM_EVENT_NAMES } from '../../stream/index.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
@@ -64,6 +63,8 @@ export interface AuditSizeMonitorOptions {
   warnBytes?: number;
   criticalBytes?: number;
   streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport system_notify 注入
+  /** Stream-owned event discriminator, injected by the L6 composition root. */
+  streamEventType?: string;
   signal?: AbortSignal;
 }
 
@@ -93,9 +94,9 @@ export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promis
             `opt_in_hint=audit.retention.max_size_mb`,
           );
           const mb = Math.round(size / 1024 / 1024);
-          opts.streamLog?.write({
+          if (opts.streamLog && opts.streamEventType) opts.streamLog.write({
             ts: Date.now(),
-            type: STREAM_EVENT_NAMES.SYSTEM_NOTIFY,
+            type: opts.streamEventType,
             subtype: 'dev_warning',
             kind: 'audit_size',
             path: p,

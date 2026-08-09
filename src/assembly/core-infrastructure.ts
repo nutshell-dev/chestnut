@@ -4,12 +4,12 @@ import { resolveChestnutRoot } from '../core/claw-topology/index.js';
 // CLAWS_DIR removed: phase 263
 
 import type { FileSystem } from '../foundation/fs/index.js';
-import { NodeFileSystem } from '../foundation/fs/node-fs.js';
+import { NodeFileSystem } from '../foundation/fs/index.js';
 
 import { createSystemAudit, readWorkspaceAuditRetentionMaxSizeMb, type AuditLog } from '../foundation/audit/index.js';
 import { reconcileFallbackDumps } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
-import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
+import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { createLLMOrchestrator, type LLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { createLLMEventSink } from './llm-event-sink.js';
 import { resolveLLMConfig } from './config/config-load.js';

@@ -63,7 +63,7 @@ export async function stopAllCommand(
   await watchdogStop(deps.fsFactory);
 
   // 1b. phase 1269 sub-4: sweep orphan watchdogs (恢复 commit 4b5bf0b7 精确化版)
-  const { sweepOrphanWatchdogs } = await import('../../watchdog/orphan-sweep.js');
+  const { sweepOrphanWatchdogs } = await import('../../watchdog/index.js');
   const killed = await sweepOrphanWatchdogs(deps.fsFactory, { excludePid: null });  // stop 不留任何
   if (killed.length > 0) {
     console.log(`Cleaned up ${killed.length} orphan watchdog process(es): ${killed.join(', ')}`);
