@@ -17,7 +17,6 @@ import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { asFinalStopReason } from '../step-executor/index.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';
-import type { StreamCallbacks } from './stream-callbacks.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 
@@ -40,8 +39,8 @@ export interface AgentInput {
   idleTimeoutMs?: number;              // 透传给 StepInput
   wallTimeDeadlineMs?: number;         // 总 wall-time 上限（可选）
   stepCallbacks?: StepCallbacks;
-  /** Stream callbacks from Daemon for turn event emission (L6→L3 via Runtime). */
-  streamCallbacks?: StreamCallbacks;
+  /** Minimal stream sink for AgentExecutor-owned turn event commits. */
+  streamCallbacks?: TurnEventCommitDeps;
   /** phase 706: stepCount is maintained internally; caller receives it for persistence/audit. */
   onAfterStep?: (meta: StepMeta, stepCount: number) => void | Promise<void>;
   // phase 706: audit writer + per-turn contract id for tool_call_input emit.
@@ -106,22 +105,18 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
 
   // phase 729: stream dispatch moved from Runtime to AgentExecutor (M#2 own business semantics).
   if (input.streamCallbacks) {
-    const streamDeps: TurnEventCommitDeps = {
-      onTextEnd: input.streamCallbacks.onTextEnd,
-      onToolCall: input.streamCallbacks.onToolCall,
-      onToolResult: input.streamCallbacks.onToolResult,
-    };
+    const turnEventSink = input.streamCallbacks;
     callbacks.onTextEnd = () => {
-      commitTurnEvent({ kind: 'text_end' }, streamDeps);
+      commitTurnEvent({ kind: 'text_end' }, turnEventSink);
     };
     callbacks.onToolCall = (n, id) => {
-      commitTurnEvent({ kind: 'tool_call', name: n, toolUseId: id }, streamDeps);
+      commitTurnEvent({ kind: 'tool_call', name: n, toolUseId: id }, turnEventSink);
     };
     callbacks.onToolResult = (name, toolUseId, result) => {
       // phase 730: AgentExecutor owns TOOL_RESULT audit write + stream emit.
       commitTurnEvent(
         { kind: 'tool_result', name, toolUseId, result, step: stepCount, maxSteps },
-        streamDeps,
+        turnEventSink,
       );
       if (auditWriter) {
         const content = result.content ?? '';
