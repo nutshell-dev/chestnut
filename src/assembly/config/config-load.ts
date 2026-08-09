@@ -27,8 +27,11 @@ import {
 import { getGlobalConfigPath } from './global-config-path.js';
 import { formatErr, sha256Hex } from '../../foundation/node-utils/index.js';
 import { auditConfigSchema, AUDIT_LEGACY_PATHS, type AuditConfig } from '../../foundation/audit/index.js';
-import { watchdogConfigSchema, type WatchdogConfig } from '../../watchdog/config-schema.js';
-import { WATCHDOG_LEGACY_PATHS } from '../../watchdog/layout.js';
+import {
+  watchdogConfigSchema,
+  WATCHDOG_LEGACY_PATHS,
+  type WatchdogConfig,
+} from '../../watchdog/migration.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';

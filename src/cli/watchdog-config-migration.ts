@@ -23,23 +23,12 @@ import type { RootConfigLegacyMigration, RootConfigReader } from '../assembly/in
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import {
-  WATCHDOG_LAYOUT_SCHEMA_VERSION,
-  WATCHDOG_PATHS,
+  createWatchdogConfigMigration,
   WATCHDOG_LEGACY_PATHS,
-} from '../watchdog/layout.js';
-import type { WatchdogConfig } from '../watchdog/config-schema.js';
-import {
-  loadWorkspaceWatchdogConfig,
-  publishMigratedWorkspaceWatchdogConfig,
-  sameWatchdogConfig,
-} from '../watchdog/workspace-config.js';
-import {
-  writeWatchdogMigrationIntent,
-  writeWatchdogMigrationOutcome,
-  findPendingWatchdogMigration,
-  publishWatchdogLayout,
+  type WatchdogConfig,
+  type WatchdogConfigMigration,
   type WatchdogMigrationOutcome,
-} from '../watchdog/config-migration-journal.js';
+} from '../watchdog/migration.js';
 
 export type WatchdogConfigMigrationResult =
   /** root config.yaml 不存在（未初始化工作区）——不属本协议范围。 */
@@ -65,14 +54,14 @@ function migrationIdFor(legacy: LegacyWatchdogConfigSection): string {
 }
 
 function writeIntentIfAbsent(
-  rootFs: FileSystem,
+  migration: WatchdogConfigMigration,
   migrationId: string,
   legacy: LegacyWatchdogConfigSection,
   hasPending: boolean,
 ): void {
   if (hasPending) return; // intent 已在盘上（pending resume）
-  writeWatchdogMigrationIntent(rootFs, {
-    schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
+  migration.writeIntent({
+    schema_version: migration.schemaVersion,
     migration_id: migrationId,
     kind: 'watchdog-config-relocation',
     created_at: new Date().toISOString(),
@@ -90,12 +79,12 @@ function writeIntentIfAbsent(
 }
 
 function writeOutcome(
-  rootFs: FileSystem,
+  migration: WatchdogConfigMigration,
   migrationId: string,
   outcome: Omit<WatchdogMigrationOutcome, 'schema_version' | 'migration_id' | 'completed_at'>,
 ): void {
-  writeWatchdogMigrationOutcome(rootFs, {
-    schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
+  migration.writeOutcome({
+    schema_version: migration.schemaVersion,
     migration_id: migrationId,
     completed_at: new Date().toISOString(),
     ...outcome,
@@ -118,17 +107,18 @@ export function ensureWatchdogConfigMigrated(deps: WatchdogConfigMigrationDeps):
   if (!deps.rootConfig.isInitialized()) return { kind: 'not-initialized' };
 
   const rootFs = deps.fsFactory(getChestnutRoot());
-  const existing = loadWorkspaceWatchdogConfig(rootFs);
+  const migration = createWatchdogConfigMigration(rootFs);
+  const existing = migration.load();
   if (existing.kind === 'invalid') {
-    throw new Error(`Workspace watchdog config is invalid (${WATCHDOG_PATHS.config}): ${existing.message}`);
+    throw new Error(`Workspace watchdog config is invalid (${migration.configPath}): ${existing.message}`);
   }
   const legacy = deps.rootConfigLegacy.readWatchdogSection();
-  const pending = findPendingWatchdogMigration(rootFs);
+  const pending = migration.findPending();
 
   // 两边皆无 → missing（resume 时发现 pending 烂尾 → 以 noop 终态收口 journal）
   if (existing.kind === 'missing' && !legacy) {
     if (pending) {
-      writeOutcome(rootFs, pending.migrationId, {
+      writeOutcome(migration, pending.migrationId, {
         status: 'noop',
         published: false,
         legacy_removed: false,
@@ -141,13 +131,13 @@ export function ensureWatchdogConfigMigrated(deps: WatchdogConfigMigrationDeps):
   // 新配置在、legacy 段无 → 终态（pending 烂尾 = crash 于 outcome 前 → 补 outcome/layout）
   if (existing.kind === 'ok' && !legacy) {
     if (pending) {
-      writeOutcome(rootFs, pending.migrationId, {
+      writeOutcome(migration, pending.migrationId, {
         status: 'completed',
         published: false,
         legacy_removed: true,
         detail: 'resumed after legacy removal; outcome lost in crash',
       });
-      publishWatchdogLayout(rootFs);
+      migration.finalizeLayout();
     }
     return { kind: 'already' };
   }
@@ -156,9 +146,9 @@ export function ensureWatchdogConfigMigrated(deps: WatchdogConfigMigrationDeps):
   const migrationId = pending?.migrationId ?? migrationIdFor(legacy!);
 
   // 两边皆在且值冲突 → journal 留证（intent + conflict outcome）后 fail-loud，双方保留
-  if (existing.kind === 'ok' && !sameWatchdogConfig(existing.config, legacy!.config)) {
-    writeIntentIfAbsent(rootFs, migrationId, legacy!, pending !== undefined);
-    writeOutcome(rootFs, migrationId, {
+  if (existing.kind === 'ok' && !migration.same(existing.config, legacy!.config)) {
+    writeIntentIfAbsent(migration, migrationId, legacy!, pending !== undefined);
+    writeOutcome(migration, migrationId, {
       status: 'conflict',
       published: false,
       legacy_removed: false,
@@ -166,24 +156,24 @@ export function ensureWatchdogConfigMigrated(deps: WatchdogConfigMigrationDeps):
     });
     throw new Error(
       `Watchdog config conflict: ${legacy!.sourcePath}#${WATCHDOG_LEGACY_PATHS.configSection} and ` +
-      `${WATCHDOG_PATHS.config} both exist with different values ` +
+      `${migration.configPath} both exist with different values ` +
       `(legacy ${describeConfig(legacy!.config)}; workspace ${describeConfig(existing.config)}). ` +
       `Both preserved; resolve manually (migration ${migrationId}).`,
     );
   }
 
   // 可推进路径：仅 legacy（全量迁移）或 两边同值（crash 于 publish 后 / 续跑删 legacy）
-  writeIntentIfAbsent(rootFs, migrationId, legacy!, pending !== undefined);
+  writeIntentIfAbsent(migration, migrationId, legacy!, pending !== undefined);
   let published = false;
   if (existing.kind === 'missing') {
-    published = publishMigratedWorkspaceWatchdogConfig(rootFs, legacy!.config, legacy!.sourceHash) === 'published';
+    published = migration.publish(legacy!.config, legacy!.sourceHash) === 'published';
   }
   deps.rootConfigLegacy.removeWatchdogSection();
-  writeOutcome(rootFs, migrationId, {
+  writeOutcome(migration, migrationId, {
     status: 'completed',
     published,
     legacy_removed: true,
   });
-  publishWatchdogLayout(rootFs);
+  migration.finalizeLayout();
   return { kind: 'migrated', migrationId };
 }
