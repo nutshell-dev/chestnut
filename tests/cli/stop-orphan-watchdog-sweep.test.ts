@@ -42,17 +42,6 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
-
 vi.mock('../../src/watchdog/watchdog.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
   getWatchdogPid: vi.fn().mockReturnValue(null),
@@ -127,6 +116,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const stopDeps = { fsFactory, rootConfig: { loadGlobal: vi.fn() } };
 
 describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
   beforeEach(() => {
@@ -139,7 +129,7 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
     mockFindProcesses.mockReturnValue([1111, 2222]);
     mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
 
-    await stopAllCommand({ fsFactory });
+    await stopAllCommand(stopDeps);
 
     const sweepEvents = mockAuditState.events.filter(e => e[0] === WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_KILLED);
     expect(sweepEvents).toHaveLength(1);
@@ -151,5 +141,14 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
         'kept=none',
       ]),
     );
+  });
+
+  it('RootConfig guard error propagates before process side effects', async () => {
+    const sentinel = new Error('stop config sentinel');
+    stopDeps.rootConfig.loadGlobal.mockImplementationOnce(() => { throw sentinel; });
+
+    await expect(stopAllCommand(stopDeps)).rejects.toBe(sentinel);
+    expect(mockFindProcesses).not.toHaveBeenCalled();
+    expect(mockCreateSystemAudit).not.toHaveBeenCalled();
   });
 });

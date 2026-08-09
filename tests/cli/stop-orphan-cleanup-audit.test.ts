@@ -56,17 +56,6 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
-
 vi.mock('../../src/watchdog/watchdog.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
   getWatchdogPid: vi.fn().mockReturnValue(null),
@@ -130,6 +119,7 @@ import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const stopDeps = { fsFactory, rootConfig: { loadGlobal: vi.fn() } };
 
 describe('stop — orphan cleanup silent → audit (P1.4)', () => {
   beforeEach(() => {
@@ -162,7 +152,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       summary: (s: string) => s,
     });
 
-    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
+    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
 
     const sigtermEvents = mockAuditState.events.filter(e => e[0] === 'orphan_sigterm_failed');
     expect(sigtermEvents).toHaveLength(2);
@@ -191,7 +181,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
     mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
 
-    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
+    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
 
     const listFailedEvents = mockAuditState.events.filter(e => e[0] === 'process_list_failed');
     expect(listFailedEvents).toHaveLength(1);
@@ -212,7 +202,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
 
     // 不应抛错
-    await expect(stopAllCommand({ fsFactory })).resolves.not.toThrow();
+    await expect(stopAllCommand(stopDeps)).resolves.not.toThrow();
 
     // audit 为 null，所以没有任何 audit 事件
     expect(mockAuditState.events).toHaveLength(0);
@@ -233,7 +223,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       summary: (s: string) => s,
     });
 
-    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
+    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
 
     // TERM + KILL 各一次
     const termCalls = mockKill.mock.calls.filter(c => c[1] === 'TERM');
@@ -256,7 +246,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       summary: (s: string) => s,
     });
 
-    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
+    await stopAllCommand(stopDeps, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
 
     const partialEvents = mockAuditState.events.filter(e => e[0] === 'orphan_cleanup_partial');
     expect(partialEvents).toHaveLength(1);
