@@ -220,11 +220,11 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
       }
       if (clawParam === '*') {
         // DP11 enforce: Motion-only
-        if (!deps.allowed) {
+        if (!deps.allowed || ctx.clawId !== MOTION_CLAW_ID) {
           ctx.auditWriter?.write(
             CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_BROADCAST_MOTION_ONLY_VIOLATION,
             `callerClawId=${ctx.clawId}`,
-            'reason=not_motion_chain',
+            deps.allowed ? 'reason=runtime_claw_not_motion' : 'reason=not_motion_chain',
           );
           return {
             success: false,

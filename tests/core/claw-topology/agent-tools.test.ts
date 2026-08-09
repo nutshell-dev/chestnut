@@ -314,6 +314,24 @@ describe('createCrossClawSearchTool broadcast', () => {
     );
   });
 
+  it('装配误传 allowed=true 时仍以运行时 clawId 拒绝非 motion broadcast', async () => {
+    const auditSpy = vi.fn();
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const ctx = makeBaseCtx({
+      clawId: 'claw1',
+      auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
+    });
+
+    const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
+
+    expect(result.success).toBe(false);
+    expect(auditSpy).toHaveBeenCalledWith(
+      CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_BROADCAST_MOTION_ONLY_VIOLATION,
+      'callerClawId=claw1',
+      'reason=runtime_claw_not_motion',
+    );
+  });
+
   it('broadcast 单 claw 失败 → emit broadcast_claw_skipped + 继续其他', async () => {
     const failingTopology = {
       ...mockTopology,
