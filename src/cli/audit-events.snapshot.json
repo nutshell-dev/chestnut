@@ -210,6 +210,7 @@
       "short_id_index_rebuilt",
       "task_cancel_promise_rejected",
       "task_cancel_race_lost_to_dispatch",
+      "task_cancel_settle_timeout",
       "task_cancelled",
       "task_completed",
       "task_corrupt",

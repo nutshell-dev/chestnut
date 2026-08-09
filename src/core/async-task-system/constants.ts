@@ -26,6 +26,9 @@ export const SHUTDOWN_DRAIN_GRACE_MS = 1000;
  */
 export const SHUTDOWN_DEFAULT_TIMEOUT_MS = 30_000;
 
+/** Maximum time cancel() waits for a running task to cooperate after abort. */
+export const CANCEL_SETTLE_TIMEOUT_MS = 5_000;
+
 /**
  * Pending queue 上限 / 达此 cap 时 schedule 触发 reject + audit emit
  * + notify motion (overflow notification per phase 670).
@@ -38,5 +41,4 @@ export const PENDING_QUEUE_MAX = 1000;
  * instead of blocking the agent turn.
  */
 export const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
-
 

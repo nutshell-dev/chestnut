@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
+import { CANCEL_SETTLE_TIMEOUT_MS } from '../../../src/core/async-task-system/constants.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -428,6 +429,31 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
         'from=running',
       ]),
     );
+  });
+
+  it('cancel running non-cooperative task returns boundedly and records timeout', async () => {
+    vi.useFakeTimers();
+    const taskId = 'task-never-settles';
+    const abortController = new AbortController();
+    const promise = new Promise<void>(() => { /* intentionally non-cooperative */ });
+    (system as any).executingTasks.set(taskId, { abortController, promise });
+
+    try {
+      const cancelPromise = system.cancel(taskId);
+      const rejection = expect(cancelPromise).rejects.toThrow(/cancellation timed out/);
+      await vi.advanceTimersByTimeAsync(CANCEL_SETTLE_TIMEOUT_MS);
+      await rejection;
+      expect(abortController.signal.aborted).toBe(true);
+      expect(auditEvents).toContainEqual(expect.arrayContaining([
+        TASK_AUDIT_EVENTS.CANCEL_SETTLE_TIMEOUT,
+        expect.stringContaining('fullTaskId='),
+        expect.stringContaining(`timeout_ms=${CANCEL_SETTLE_TIMEOUT_MS}`),
+      ]));
+      expect(auditEvents.some((e) => e[0] === TASK_AUDIT_EVENTS.CANCELLED)).toBe(false);
+    } finally {
+      (system as any).executingTasks.delete(taskId);
+      vi.useRealTimers();
+    }
   });
 });
 

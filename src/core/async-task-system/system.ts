@@ -13,7 +13,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 
-import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
+import { CANCEL_SETTLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
@@ -53,6 +53,7 @@ import {
   emitStartFailed,
   emitMoveFailed,
   emitCancelPromiseRejected,
+  emitCancelSettleTimeout,
   emitCancelled,
   emitTaskCancelRaceLostToDispatch,
   emitParseFailed,
@@ -1459,22 +1460,41 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     const state = this.executingTasks.get(fullId);
     if (state) {
       state.abortController.abort();
-      try {
-        await state.promise;
-      } catch (err) {
+      let settleTimer: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        state.promise.then(
+          () => ({ kind: 'settled' } as const),
+          (error: unknown) => ({ kind: 'rejected', error } as const),
+        ),
+        new Promise<{ kind: 'timeout' }>((resolve) => {
+          settleTimer = setTimeout(() => resolve({ kind: 'timeout' }), CANCEL_SETTLE_TIMEOUT_MS);
+          settleTimer.unref?.();
+        }),
+      ]);
+      if (settleTimer !== undefined) clearTimeout(settleTimer);
+
+      if (outcome.kind === 'rejected') {
         // abort 设计意是同步 cancel 不等 settle，但 reject content forensics 留痕
         // per feedback_silent_x_audit_kit (silent catch swallow → audit 注入)
         try {
           emitCancelPromiseRejected(this.auditWriter, {
             fullTaskId: fullId,
             shortTaskId: shortId,
-            error: formatErr(err),
+            error: formatErr(outcome.error),
           });
         } catch (innerErr) {
           // L2 audit writer recursion border: align `[AUDIT CRITICAL]` console.error pattern
           // (foundation/audit/writer.ts:81+99 + foundation/audit/index.ts:14-16 design)
           console.error(`[AUDIT CRITICAL] task cancel audit nested throw: fullTaskId=${fullId} shortTaskId=${shortId} reason=${formatErr(innerErr)}`);
         }
+      }
+      if (outcome.kind === 'timeout') {
+        emitCancelSettleTimeout(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          timeoutMs: CANCEL_SETTLE_TIMEOUT_MS,
+        });
+        throw new Error(`Task cancellation timed out after ${CANCEL_SETTLE_TIMEOUT_MS}ms: ${shortId}`);
       }
       emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'running' });
       return;

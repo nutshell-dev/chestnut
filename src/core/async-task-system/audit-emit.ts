@@ -398,6 +398,18 @@ export function emitCancelPromiseRejected(
   );
 }
 
+export function emitCancelSettleTimeout(
+  audit: AuditLog,
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; timeoutMs: number },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.CANCEL_SETTLE_TIMEOUT,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+    `timeout_ms=${opts.timeoutMs}`,
+  );
+}
+
 // ─── RESULT_DELIVERY_ENSURE_DIR_FAILED ────────────────────────────────────────
 export function emitResultDeliveryEnsureDirFailed(
   audit: AuditLog,
