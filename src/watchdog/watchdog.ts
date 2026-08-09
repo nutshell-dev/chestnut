@@ -617,34 +617,3 @@ export async function runWatchdogLoop(
     await setTimeout(nextSleepMs);
   }
 }
-
-// === Barrel re-export 全集中（保 caller cascade 0 改）===
-
-export {
-  getWatchdogEntryPath, getMotionContext, setAuditWriter,
-} from './watchdog-context.js';
-
-export {
-  getWatchdogPid, isWatchdogAlive, removeWatchdogPid,
-} from './watchdog-pid.js';
-
-export {
-  log, logWithAudit, writeClawInactivityInbox,
-} from './watchdog-log.js';
-
-export {
-  loadWatchdogState, saveWatchdogState, writeWatchdogCrash,
-} from './watchdog-state.js';
-
-export {
-  maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
-} from './watchdog-cron.js';
-
-export type { WatchdogProcessDeps } from './types.js';
-export { getAuditWriter, getChestnutFs, getWatchdogConfig } from './watchdog-context.js';
-export { WatchdogPidForeignWorkspaceError } from './watchdog-pid.js';
-export { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-export { spawnWatchdogCandidate } from './spawn.js';
-export { WATCHDOG_INTERVAL_MS, DEFAULT_DISK_WARNING_MB, CLAW_INACTIVITY_TIMEOUT_MS } from './constants.js';
-export { writeSubscription, MAX_THRESHOLD_MS } from './subscription-store.js';
-export { WATCHDOG_FILE_ROUTING } from './audit-events.js';

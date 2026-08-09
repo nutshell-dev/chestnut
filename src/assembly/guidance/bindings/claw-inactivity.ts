@@ -24,7 +24,7 @@
  */
 
 import { defineCliGuidanceBinding } from '../../../cli-protocol/index.js';
-import { decodeClawInactivityGuidance } from '../../../watchdog/claw-inactivity-guidance.js';
+import { decodeClawInactivityGuidance } from '../../../watchdog/index.js';
 
 export const clawInactivityGuidanceBinding = defineCliGuidanceBinding({
   type: 'claw_inactivity',

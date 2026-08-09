@@ -18,7 +18,7 @@ import {
   getWatchdogPid,
   isWatchdogAlive,
   getWatchdogEntryPath,
-} from '../../watchdog/watchdog.js';
+} from '../../watchdog/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { getProcessStartTime } from '../../foundation/process-exec/index.js';
 import {

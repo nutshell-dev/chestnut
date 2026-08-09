@@ -19,7 +19,7 @@ import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { parseDurationMs, DurationParseError } from '../utils/duration.js';
-import { writeSubscription, MAX_THRESHOLD_MS } from '../../watchdog/watchdog.js';
+import { writeSubscription, MAX_THRESHOLD_MS } from '../../watchdog/index.js';
 import { WATCH_INACTIVE_AFTER_DEFAULT } from '../../cli-protocol/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 

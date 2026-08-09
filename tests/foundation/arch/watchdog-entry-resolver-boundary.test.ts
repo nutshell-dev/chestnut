@@ -29,7 +29,7 @@ const ENTRY_RESOLVER = path.join(SRC_ROOT, 'watchdog', 'entry-resolver.ts');
 const WATCHDOG_CONTEXT = path.join(SRC_ROOT, 'watchdog', 'watchdog-context.ts');
 const SPAWN_ENTRY = path.join(ASSEMBLY_DIR, 'spawn-entry.ts');
 const INTERNAL_SPECIFIER = './entry-resolver.js';
-const PUBLIC_BARREL_SUFFIX = 'watchdog/watchdog.js';
+const PUBLIC_BARREL_SUFFIX = 'watchdog/index.js';
 
 /** 完整 import 语句的 clause + specifier（global flag：只供 matchAll 使用）。 */
 const IMPORT_CLAUSE_RE = /import\s+(?:type\s+)?([^'"]*?)\s+from\s+['"]([^'"]+)['"]/g;

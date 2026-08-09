@@ -57,7 +57,7 @@ import {
   MESSAGING_INBOX_MESSAGE_TYPES,
 } from '../foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../core/gateway/index.js';
-import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../watchdog/inbox-formatter.js';
+import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../watchdog/index.js';
 import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/inbox-formatters.js';
 import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/inbox-formatter.js';

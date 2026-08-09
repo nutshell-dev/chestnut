@@ -14,7 +14,7 @@ import {
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
   WATCHDOG_AUDIT_EVENTS,
   spawnWatchdogCandidate,
-} from '../../watchdog/watchdog.js';
+} from '../../watchdog/index.js';
 import { CliError } from '../errors.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔

@@ -22,7 +22,7 @@ import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { initWorkspaceAuditConfig, publishAuditLayout } from '../../foundation/audit/index.js';
-import { createWatchdogConfigMigration } from '../../watchdog/migration.js';
+import { createWatchdogConfigMigration } from '../../watchdog/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';

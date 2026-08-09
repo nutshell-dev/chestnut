@@ -17,8 +17,7 @@
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
-import { isWatchdogAlive } from '../watchdog/watchdog-pid.js';
-import { ensureWatchdog } from '../watchdog/ensure.js';
+import { ensureWatchdog, isWatchdogAlive } from '../watchdog/index.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
 
 export type SupervisionPolicy =

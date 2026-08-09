@@ -95,20 +95,15 @@ vi.mock('../../src/foundation/process-manager/factories.js', async (importOrigin
 });
 
 import {
-  maybeCronClawInactivity,
   shutdownWatchdog,
   _resetShutdownGuard,
-  logWithAudit,
-  setAuditWriter,
-  maybeCronClawCrash,
-  writeWatchdogCrash,
-  getWatchdogPid,
-  isWatchdogAlive,
-  getWatchdogEntryPath,
   runWatchdogLoop,
-  loadWatchdogState,
-  saveWatchdogState,
 } from '../../src/watchdog/watchdog.js';
+import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
+import { logWithAudit } from '../../src/watchdog/watchdog-log.js';
+import { setAuditWriter, getWatchdogEntryPath } from '../../src/watchdog/watchdog-context.js';
+import { writeWatchdogCrash, loadWatchdogState, saveWatchdogState } from '../../src/watchdog/watchdog-state.js';
+import { getWatchdogPid, isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
 import { startCommand, stopCommand } from '../../src/cli/commands/watchdog-cli.js';
 import { motionRestartStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';

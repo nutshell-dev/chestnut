@@ -31,7 +31,7 @@ import {
   watchdogConfigSchema,
   WATCHDOG_LEGACY_PATHS,
   type WatchdogConfig,
-} from '../../watchdog/migration.js';
+} from '../../watchdog/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';

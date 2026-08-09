@@ -20,7 +20,7 @@
  */
 
 import { defineCliGuidanceBinding } from '../../../cli-protocol/index.js';
-import { decodeClawCrashedGuidance } from '../../../watchdog/claw-crashed-guidance.js';
+import { decodeClawCrashedGuidance } from '../../../watchdog/index.js';
 
 export const clawCrashedGuidanceBinding = defineCliGuidanceBinding({
   type: 'claw_crashed',

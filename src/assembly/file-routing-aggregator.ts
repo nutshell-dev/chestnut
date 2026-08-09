@@ -32,7 +32,7 @@ import { MESSAGING_FILE_ROUTING } from '../foundation/messaging/index.js';
 import { SNAPSHOT_FILE_ROUTING } from '../foundation/snapshot/index.js';
 import { STREAM_FILE_ROUTING } from '../foundation/stream/index.js';
 import { TOOLS_FILE_ROUTING } from '../foundation/tools/index.js';
-import { WATCHDOG_FILE_ROUTING } from '../watchdog/watchdog.js';
+import { WATCHDOG_FILE_ROUTING } from '../watchdog/index.js';
 
 export type FileName = AuditFileName;
 
