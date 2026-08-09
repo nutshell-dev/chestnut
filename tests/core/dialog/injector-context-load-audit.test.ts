@@ -52,7 +52,7 @@ describe('ContextInjector — context load audit (phase 646 P1.3)', () => {
     };
     const injector = new ContextInjector({
       fs: mockFs as any,
-      contractManager: mockContractManager as any,
+      loadActiveContract: () => mockContractManager.loadActive(),
       audit: mockAudit as any,
     });
 
@@ -77,7 +77,7 @@ describe('ContextInjector — context load audit (phase 646 P1.3)', () => {
     };
     const injector = new ContextInjector({
       fs: mockFs as any,
-      contractManager: mockContractManager as any,
+      loadActiveContract: () => mockContractManager.loadActive(),
       audit: mockAudit as any,
     });
 

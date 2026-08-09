@@ -551,7 +551,7 @@ describe('ContractSystem', () => {
       expect(active?.title).toBe('Older Contract');
 
       // ContextInjector injects only the foreground contract.
-      const injector = createContextInjector({ fs: nodeFs, contractManager: manager });
+      const injector = createContextInjector({ fs: nodeFs, loadActiveContract: () => manager.loadActive() });
       const parts = await injector.buildParts();
       expect(parts.contract).toContain('Older Contract');
       expect(parts.contract).not.toContain('Newer Contract');
@@ -583,7 +583,7 @@ describe('ContractSystem', () => {
       expect(next?.id).toBe('newer');
       expect(next?.title).toBe('Newer Contract');
 
-      const injector = createContextInjector({ fs: nodeFs, contractManager: manager });
+      const injector = createContextInjector({ fs: nodeFs, loadActiveContract: () => manager.loadActive() });
       const parts = await injector.buildParts();
       expect(parts.contract).toContain('Newer Contract');
       expect(parts.contract).not.toContain('Older Contract');

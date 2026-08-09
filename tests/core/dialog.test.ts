@@ -305,7 +305,7 @@ describe('Dialog', () => {
           ],
         }),
       } as any;
-      const inj = new ContextInjector({ fs: nodeFs, contractManager: mockContractManager });
+      const inj = new ContextInjector({ fs: nodeFs, loadActiveContract: () => mockContractManager.loadActive() });
 
       const parts = await inj.buildParts();
       expect(parts.contract).toContain('## Active Contract');
@@ -318,7 +318,7 @@ describe('Dialog', () => {
       const mockContractManager = {
         loadActive: vi.fn().mockRejectedValue(new Error('corrupted')),
       } as any;
-      const inj = new ContextInjector({ fs: nodeFs, contractManager: mockContractManager });
+      const inj = new ContextInjector({ fs: nodeFs, loadActiveContract: () => mockContractManager.loadActive() });
 
       const parts = await inj.buildParts();
       expect(parts.contract).toBe('');
@@ -343,7 +343,7 @@ describe('Dialog', () => {
           subtasks: [{ id: 'x', description: 'do x', status: 'pending' }],
         }),
       } as any;
-      const inj = new ContextInjector({ fs: nodeFs, skillRegistry: mockSkillRegistry, contractManager: mockContractManager });
+      const inj = new ContextInjector({ fs: nodeFs, skillRegistry: mockSkillRegistry, loadActiveContract: () => mockContractManager.loadActive() });
 
       const prompt = await inj.buildSystemPrompt();
       expect(prompt).toContain('Agent Instructions');

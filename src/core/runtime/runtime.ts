@@ -224,7 +224,7 @@ export class Runtime {
     this.contextInjector = createContextInjector({
       fs: this.systemFs,
       skillRegistry: deps.skillRegistry,
-      contractManager: this.contractManager,
+      loadActiveContract: () => this.contractManager.loadActive(),
       audit: this.auditWriter,
     });
     this.execContext = new ExecContextImpl({

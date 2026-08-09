@@ -15,9 +15,7 @@
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import type { Contract } from '../contract/index.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
-import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { CLAW_MEMORY_FILE, CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { DIALOG_AUDIT_EVENTS } from '../../foundation/dialog-store/index.js';
@@ -31,17 +29,23 @@ export interface ContextInjectorOptions {
   fs: FileSystem;
   /** Skill registry for skill metadata injection */
   skillRegistry?: SkillContextSource;
-  /** Contract manager for active contract injection */
-  contractManager?: Pick<ContractRuntimeLifecycle, 'loadActive'>;
+  /** Caller-owned data provider; ContextManager does not depend on ContractSystem. */
+  loadActiveContract?: () => Promise<ContextContractView | null>;
   /** Optional audit writer / phase 646 ⚓ context load failure audit (FNF silent / else audit) */
   audit?: AuditLog;
+}
+
+export interface ContextContractView {
+  title: string;
+  goal: string;
+  subtasks: Array<{ id: string; description: string; status: string }>;
 }
 
 /**
  * Format contract for prompt injection
  * Returns markdown with title, goal, and subtask progress
  */
-function formatContractForPrompt(contract: Contract): string {
+function formatContractForPrompt(contract: ContextContractView): string {
   const lines = [
     '## Active Contract',
     `**Title:** ${contract.title}`,
@@ -69,7 +73,7 @@ interface CacheEntry {
 export class ContextInjector {
   private fs: FileSystem;
   private skillRegistry?: SkillContextSource;
-  private contractManager?: Pick<ContractRuntimeLifecycle, 'loadActive'>;
+  private loadActiveContract?: () => Promise<ContextContractView | null>;
   private audit?: AuditLog;
   private cachedAgentsMd: CacheEntry | null = null;
   private cachedMemoryMd: CacheEntry | null = null;
@@ -77,7 +81,7 @@ export class ContextInjector {
   constructor(options: ContextInjectorOptions) {
     this.fs = options.fs;
     this.skillRegistry = options.skillRegistry;
-    this.contractManager = options.contractManager;
+    this.loadActiveContract = options.loadActiveContract;
     this.audit = options.audit;
   }
 
@@ -156,9 +160,9 @@ export class ContextInjector {
     }
 
     // Inject active contract if available
-    if (this.contractManager) {
+    if (this.loadActiveContract) {
       try {
-        const contractData = await this.contractManager.loadActive();
+        const contractData = await this.loadActiveContract();
         if (contractData) {
           contract = formatContractForPrompt(contractData);
         }
