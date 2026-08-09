@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
@@ -150,5 +150,15 @@ describe('readLastExitEvent', () => {
     } finally {
       await cleanupTempDir(tmpDir);
     }
+  });
+
+  it('reports unexpected I/O failure through the caller-owned observer', () => {
+    const onReadError = vi.fn();
+    const brokenFs = {
+      existsSync: () => { throw new Error('EACCES'); },
+    } as unknown as FileSystem;
+
+    expect(readLastExitEvent(brokenFs, 'audit.tsv', onReadError)).toBeNull();
+    expect(onReadError).toHaveBeenCalledWith(expect.objectContaining({ message: 'EACCES' }));
   });
 });

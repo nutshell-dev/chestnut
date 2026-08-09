@@ -32,7 +32,11 @@ interface RawEvent {
  *
  * @returns 解析后的 raw event；文件不存在 / 空 / 全部坏行 → null
  */
-export function readLastExitEvent(fs: FileSystem, auditPath: string): RawEvent | null {
+export function readLastExitEvent(
+  fs: FileSystem,
+  auditPath: string,
+  onReadError?: (error: unknown) => void,
+): RawEvent | null {
   let lines: string[];
   try {
     if (!fs.existsSync(auditPath)) return null;
@@ -55,11 +59,8 @@ export function readLastExitEvent(fs: FileSystem, auditPath: string): RawEvent |
       }
     }
   } catch (err) {
-    // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
     if (!isFileNotFound(err)) {
-      // last-exit-summary 是 pure helper / 0 audit writer / 失败 silent 接受
-      // 影响仅 = interruptionMessage null / DialogStore.repair 仍 OK / startup-only
-      // phase 904 / r115 O fork P2 re-eval: γ accepted-stable confirmed（caller DialogStore.repair audit cover repair attempt、不引 audit dep 保 M#8）
+      onReadError?.(err);
     }
     return null;
   }
@@ -86,8 +87,12 @@ export function readLastExitEvent(fs: FileSystem, auditPath: string): RawEvent |
  * audit.tsv 的 event 字符串值是跨进程契约（同 phase 393 测试字符串值断言模式）。
  * Assembly side event 字符串值改时 / 本处需同步 / 测试覆盖（last-exit-summary.test.ts）会 fail 暴露。
  */
-export function summarizeLastExit(fs: FileSystem, auditPath: string): string | null {
-  const ev = readLastExitEvent(fs, auditPath);
+export function summarizeLastExit(
+  fs: FileSystem,
+  auditPath: string,
+  onReadError?: (error: unknown) => void,
+): string | null {
+  const ev = readLastExitEvent(fs, auditPath, onReadError);
   if (!ev) return null;
 
   const colsText = ev.cols.length > 0 ? ` (${ev.cols.join(', ')})` : '';

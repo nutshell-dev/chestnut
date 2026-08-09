@@ -166,7 +166,15 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     await eventLoop.initialize();
 
     const auditAbsPath = preAssembleFs.resolve(AUDIT_FILE);
-    const interruptionMessage = summarizeLastExit(preAssembleFs, auditAbsPath) ?? undefined;
+    const interruptionMessage = summarizeLastExit(
+      preAssembleFs,
+      auditAbsPath,
+      (error) => auditWriter.write(
+        DAEMON_AUDIT_EVENTS.LAST_EXIT_SUMMARY_READ_FAILED,
+        `path=${auditAbsPath}`,
+        `reason=${formatErr(error)}`,
+      ),
+    ) ?? undefined;
 
     try {
       await runtime.initialize({ interruptionMessage });
