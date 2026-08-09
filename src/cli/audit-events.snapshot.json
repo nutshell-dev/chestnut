@@ -197,6 +197,8 @@
       }
     ],
     "core_async-task-system_audit-events": [
+      "async_exec_checkpoint_completed_sync",
+      "async_exec_identity_checkpointed",
       "async_task_invariant_violated",
       "async_task_invariant_violation",
       "async_task_queue_cross_source_mismatch",
@@ -678,6 +680,7 @@
       "daemon_fork_attempt",
       "daemon_fork_failed",
       "daemon_idle_timeout",
+      "daemon_last_exit_summary_read_failed",
       "daemon_liveness_heartbeat",
       "daemon_liveness_hourly",
       "daemon_llm_retry_state_invariant_violated",
