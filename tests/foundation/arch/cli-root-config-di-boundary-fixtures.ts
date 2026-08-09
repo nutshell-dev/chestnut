@@ -47,12 +47,8 @@ export function configLoadImporters(): string[] {
     .sort();
 }
 
-// Migration baseline（phase 1337 Step C：两migration迁出，5→3）：精确路径集合，
-// 非计数；一删一增抵消会被拒。后续每个命令族治理 phase 必须同步递减本清单。
-export const REMAINING_BASELINE = [
-  'commands/config.ts', 'commands/init.ts',
-  'llm-connection-check.ts',
-].sort();
+// Phase 1338 Step D：migration完成态。CLI production禁止再import config-load internal。
+export const REMAINING_BASELINE: string[] = [];
 
 export const NARROW_PICK = /rootConfig:\s*Pick<RootConfigReader,\s*'loadGlobal'\s*\|\s*'loadClaw'>/;
 export const CREATE_ADMIN_PICK = /Pick<RootConfigAdmin,\s*'saveClaw'>/;

@@ -7,9 +7,7 @@
  * 2. cli/index.ts 与 commands/claw-router.ts 零 `assembly/config/**` import；
  * 3. 普通Claw leaf含required Reader窄Pick；create专享saveClaw窄Pick，
  *    RouterDeps显式满足create-capable联合面；
- * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 3 文件
- *    migration baseline——只防新增与意外删除，不批准永久存在；后续每个命令族
- *    治理 phase 必须同步递减本清单；
+ * 4. CLI production 下 `assembly/config/config-load.js` importer精确为空；
  * 5. clawExists 不得回到 router；
  * 6. phase 1324/1325：claw read/ls 零 Assembly config internal；health/status 零旧
  *    config-load离散函数；四者共享ClawCommandDeps。
@@ -94,18 +92,16 @@ describe('phase 1301/1324/1336: Reader共享面 + create专属写面', () => {
 });
 
 describe('phase 1301: remaining deep-caller migration baseline', () => {
-  it('config-load.js importer 精确为 3 文件路径集合（phase 1337 迁出migration）', () => {
+  it('config-load.js importer精确为空（phase 1338 migration完成）', () => {
     expect(configLoadImporters()).toEqual(REMAINING_BASELINE);
   });
 
   it('反向 fixture：新增 / 意外删除 / 一删一增均被检出', () => {
-    const added = [...REMAINING_BASELINE, 'commands/new-caller.ts'].sort();
-    expect(added).not.toEqual(REMAINING_BASELINE);
-    const removed = REMAINING_BASELINE.filter((f) => f !== 'commands/init.ts');
-    expect(removed).not.toEqual(REMAINING_BASELINE);
-    const swap = [...removed, 'commands/other.ts'].sort();
-    expect(swap).toHaveLength(REMAINING_BASELINE.length);
-    expect(swap).not.toEqual(REMAINING_BASELINE);
+    expect(['commands/new-caller.ts']).not.toEqual(REMAINING_BASELINE);
+    const synthetic = ['commands/init.ts'];
+    expect(synthetic.filter((f) => f !== 'commands/init.ts')).not.toEqual(synthetic);
+    expect(['commands/other.ts']).toHaveLength(synthetic.length);
+    expect(['commands/other.ts']).not.toEqual(synthetic);
   });
 });
 
