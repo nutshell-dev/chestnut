@@ -133,6 +133,7 @@ function formatLegacyFlatArchiveEvent(
   meta: { title?: string; goal?: string },
   progress: ProgressData,
   audit: AuditLog,
+  activeStateDedup?: Set<string>,
 ): FormattedEvent | null {
   // Step F: progress.status is DerivableStatus at runtime type; legacy flat entries
   // may carry any historical literal, so cast through the legacy vocabulary.
@@ -163,26 +164,48 @@ function formatLegacyFlatArchiveEvent(
     case 'paused':
       // Active status in archive is a state-machine break.
       // Audit at collector level — the "upper layer" has no visibility into this.
-      audit.write(
-        CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-        `clawId=${clawId}`,
-        `contract=${contractDirName}`,
-        `status=${status}`,
-        `cause=active status in legacy flat archive`,
+      emitLegacyActiveStateOnce(
+        clawId,
+        contractDirName,
+        status,
+        'active status in legacy flat archive',
+        audit,
+        activeStateDedup,
       );
       return null;
     default: {
       // Unknown legacy literal: best-effort audit as active-state break and skip.
-      audit.write(
-        CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
-        `clawId=${clawId}`,
-        `contract=${contractDirName}`,
-        `status=${String(status)}`,
-        `cause=unknown status in legacy flat archive`,
+      emitLegacyActiveStateOnce(
+        clawId,
+        contractDirName,
+        String(status),
+        'unknown status in legacy flat archive',
+        audit,
+        activeStateDedup,
       );
       return null;
     }
   }
+}
+
+function emitLegacyActiveStateOnce(
+  clawId: ClawId,
+  contractDirName: string,
+  status: string,
+  cause: string,
+  audit: AuditLog,
+  activeStateDedup?: Set<string>,
+): void {
+  const dedupKey = `${clawId}:${contractDirName}`;
+  if (activeStateDedup?.has(dedupKey)) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+    `clawId=${clawId}`,
+    `contract=${contractDirName}`,
+    `status=${status}`,
+    `cause=${cause}`,
+  );
+  activeStateDedup?.add(dedupKey);
 }
 
 function formatCompleted(
@@ -363,7 +386,14 @@ export async function scanArchivedContracts(
       } else {
         // Step F: legacy flat archive — derive status from historical progress.json field.
         (progress as unknown as Record<string, unknown>).status = result.data.status ?? 'completed';
-        formatted = formatLegacyFlatArchiveEvent(clawId, loc.contractId, meta, progress, audit);
+        formatted = formatLegacyFlatArchiveEvent(
+          clawId,
+          loc.contractId,
+          meta,
+          progress,
+          audit,
+          dedup?.activeState,
+        );
       }
       if (formatted === null) continue;
       entries.push({

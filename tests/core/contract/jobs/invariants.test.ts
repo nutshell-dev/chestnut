@@ -226,7 +226,9 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     }));
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const { entries } = await scanArchivedContracts(fs, clawDir, 'worker-1', audit);
+    const dedup = { corrupted: new Set<string>(), activeState: new Set<string>() };
+    const { entries } = await scanArchivedContracts(fs, clawDir, 'worker-1', audit, dedup);
+    await scanArchivedContracts(fs, clawDir, 'worker-1', audit, dedup);
     // Active-state entries never reach the observer; the collector audits them.
     expect(entries).toHaveLength(0);
 
@@ -236,6 +238,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     expect(activeEvents).toHaveLength(1);
     expect(activeEvents[0].join(' ')).toContain('1780-running');
     expect(activeEvents[0].join(' ')).toContain('status=running');
+    expect(dedup.activeState).toContain('worker-1:1780-running');
   });
 });
 
