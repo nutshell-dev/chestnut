@@ -2,7 +2,7 @@
  * Phase 1301 Step B: ClawRouter RootConfig 窄 DI owner test。
  *
  * 冻结：
- * - create/stop/outbox/watch 各恰好一次 rootConfig.loadGlobal()；
+ * - create/outbox 各恰好一次 rootConfig.loadGlobal()；
  * - help/list/chat 等无 guard 路径零 loadGlobal；
  * - ps existence guard 走 loadClaw：undefined → 既有 CliError("does not exist")；
  *   valid config → 进入 psCommand；corrupt/IO 错误同一实例上抛到 CLI 错误边界
@@ -108,7 +108,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     stdoutSpy.mockRestore();
   });
 
-  it.each(['create', 'outbox', 'watch'] as const)(
+  it.each(['create', 'outbox'] as const)(
     'claw alice %s 恰好一次 loadGlobal',
     async (verb) => {
       await dispatchClawSubcommand('alice', [verb], deps);
@@ -171,6 +171,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     ['import', ['import', 'note.md'], h.importCommand],
     ['trace', ['trace', '--contract', 'C-1'], h.clawTraceCommand],
     ['stream', ['stream'], h.runStreamFromArgs],
+    ['watch', ['watch'], h.watchCommand],
   ] as const)(
     'claw alice %s：Router 透传同一 deps 对象给 handler，自身零 loadGlobal/loadClaw',
     async (_verb, args, handler) => {
