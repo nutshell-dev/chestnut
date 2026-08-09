@@ -33,6 +33,7 @@ const h = vi.hoisted(() => ({
   runStreamFromArgs: vi.fn(),
   clawTraceCommand: vi.fn(),
   psCommand: vi.fn(),
+  clawDaemonCommand: vi.fn(),
   ensureWatchdog: vi.fn(),
   isWatchdogAlive: vi.fn(),
   createDirContext: vi.fn(),
@@ -56,6 +57,7 @@ vi.mock('../../src/cli/commands/claw.js', () => ({
   clawTraceCommand: h.clawTraceCommand,
 }));
 vi.mock('../../src/cli/commands/claw-ps.js', () => ({ psCommand: h.psCommand }));
+vi.mock('../../src/cli/commands/claw-daemon.js', () => ({ clawDaemonCommand: h.clawDaemonCommand }));
 vi.mock('../../src/watchdog/ensure.js', () => ({ ensureWatchdog: h.ensureWatchdog }));
 vi.mock('../../src/watchdog/watchdog-pid.js', () => ({ isWatchdogAlive: h.isWatchdogAlive }));
 vi.mock('../../src/foundation/audit/index.js', () => ({ createDirContext: h.createDirContext }));
@@ -106,7 +108,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     stdoutSpy.mockRestore();
   });
 
-  it.each(['create', 'stop', 'outbox', 'watch'] as const)(
+  it.each(['create', 'outbox', 'watch'] as const)(
     'claw alice %s 恰好一次 loadGlobal',
     async (verb) => {
       await dispatchClawSubcommand('alice', [verb], deps);
@@ -163,6 +165,8 @@ describe('claw-router RootConfig 窄 DI', () => {
     ['ls', ['ls'], h.lsCommand],
     ['health', ['health'], h.healthCommand],
     ['status', ['status'], h.clawStatusCommand],
+    ['stop', ['stop'], h.stopCommand],
+    ['daemon', ['daemon'], h.clawDaemonCommand],
   ] as const)(
     'claw alice %s：Router 透传同一 deps 对象给 handler，自身零 loadGlobal/loadClaw',
     async (_verb, args, handler) => {

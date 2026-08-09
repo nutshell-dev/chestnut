@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stopCommand } from '../../src/cli/commands/claw-stop.js';
 import { CliError } from '../../src/cli/errors.js';
-import { loadGlobalConfig, clawExists } from '../../src/assembly/config/config-load.js';
 import {
   getClawConfigPath,
   getChestnutRoot,
@@ -13,6 +12,7 @@ import {
   resolveClawDaemonDir,
 } from '../../src/core/claw-topology/index.js';
 import { createProcessManagerForCLI, signalCleanStop, clearCleanStop } from '../../src/foundation/process-manager/index.js';
+import { makeClawCommandDeps, type FakeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
 const fsFactory = (baseDir: string) => ({
   writeAtomic: vi.fn(),
@@ -21,11 +21,6 @@ const fsFactory = (baseDir: string) => ({
   statSync: vi.fn(),
   readBytesSync: vi.fn(),
 } as any);
-
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  clawExists: vi.fn(),
-}));
 
 vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/index.js')>();
@@ -50,6 +45,7 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
 
 describe('claw-stop', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let commandDeps: FakeClawCommandDeps;
   const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
 
   beforeEach(() => {
@@ -57,8 +53,7 @@ describe('claw-stop', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     mockAudit.write.mockClear();
 
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
-    vi.mocked(clawExists).mockReturnValue(true);
+    commandDeps = makeClawCommandDeps(fsFactory);
     vi.mocked(getClawConfigPath).mockReturnValue('/tmp/chestnut/claws/test-claw/config.yaml');
     vi.mocked(getChestnutRoot).mockReturnValue('/tmp/chestnut');
     vi.mocked(makeChestnutRoot).mockReturnValue('/tmp/chestnut' as any);
@@ -79,7 +74,7 @@ describe('claw-stop', () => {
       stop: vi.fn().mockResolvedValue(true),
     } as any);
 
-    await stopCommand({ fsFactory }, 'test-claw', { audit: mockAudit as any });
+    await stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any });
 
     expect(signalCleanStop).toHaveBeenCalledWith(
       expect.anything(),
@@ -100,7 +95,7 @@ describe('claw-stop', () => {
       stop: vi.fn().mockResolvedValue(false),
     } as any);
 
-    await expect(stopCommand({ fsFactory }, 'test-claw', { audit: mockAudit as any }))
+    await expect(stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any }))
       .rejects.toBeInstanceOf(CliError);
 
     expect(signalCleanStop).toHaveBeenCalledWith(
@@ -126,9 +121,29 @@ describe('claw-stop', () => {
       stop: vi.fn(),
     } as any);
 
-    await stopCommand({ fsFactory }, 'test-claw', { audit: mockAudit as any });
+    await stopCommand(commandDeps, 'test-claw', { audit: mockAudit as any });
 
     expect(signalCleanStop).not.toHaveBeenCalled();
     expect(clearCleanStop).not.toHaveBeenCalled();
+  });
+
+  it('missing claw → existing CliError before ProcessManager construction', async () => {
+    commandDeps.rootConfig.loadClaw.mockReturnValue(undefined);
+    await expect(stopCommand(commandDeps, 'test-claw')).rejects.toThrow('Claw "test-claw" does not exist');
+    expect(createProcessManagerForCLI).not.toHaveBeenCalled();
+  });
+
+  it('global config failure propagates the same instance before loadClaw', async () => {
+    const sentinel = new Error('global config sentinel');
+    commandDeps.rootConfig.loadGlobal.mockImplementation(() => { throw sentinel; });
+    await expect(stopCommand(commandDeps, 'test-claw')).rejects.toBe(sentinel);
+    expect(commandDeps.rootConfig.loadClaw).not.toHaveBeenCalled();
+  });
+
+  it('claw config failure propagates the same instance', async () => {
+    const sentinel = new Error('claw config sentinel');
+    commandDeps.rootConfig.loadClaw.mockImplementation(() => { throw sentinel; });
+    await expect(stopCommand(commandDeps, 'test-claw')).rejects.toBe(sentinel);
+    expect(createProcessManagerForCLI).not.toHaveBeenCalled();
   });
 });

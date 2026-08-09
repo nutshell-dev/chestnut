@@ -17,6 +17,7 @@ import { clawDaemonCommand, type DaemonPM } from '../../src/cli/commands/claw-da
 import { motionDaemonCommand } from '../../src/cli/commands/motion-daemon.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../src/cli/errors.js';
+import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
 /**
  * Early-return upper bound (ms) for clawDaemonCommand happy path.
@@ -75,9 +76,13 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
     };
   }
 
+  function daemonDeps(options: Parameters<typeof makeClawCommandDeps>[1] = {}) {
+    return { ...makeClawCommandDeps(fsFactory, options), processManager: aliveFakePM() };
+  }
+
   it('clawDaemonCommand warns ⚠ when isAlive=true', async () => {
     setupClaw('running-claw');
-    await clawDaemonCommand({ fsFactory, processManager: aliveFakePM() }, 'running-claw');
+    await clawDaemonCommand(daemonDeps(), 'running-claw');
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('⚠'));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
   });
@@ -90,14 +95,14 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
 
   it('clawDaemonCommand throws CliError when claw does not exist (no static fallthrough)', async () => {
     await expect(
-      clawDaemonCommand({ fsFactory, processManager: aliveFakePM() }, 'ghost-claw'),
+      clawDaemonCommand(daemonDeps({ loadClaw: () => undefined }), 'ghost-claw'),
     ).rejects.toBeInstanceOf(CliError);
   });
 
   it('clawDaemonCommand happy-path early-return completes in <500ms', async () => {
     setupClaw('running-claw');
     const start = Date.now();
-    await clawDaemonCommand({ fsFactory, processManager: aliveFakePM() }, 'running-claw');
+    await clawDaemonCommand(daemonDeps(), 'running-claw');
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(EARLY_RETURN_UPPER_BOUND_MS);
   });
@@ -107,5 +112,19 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
     expect(typeof pm.isAlive).toBe('function');
     expect(typeof pm.spawn).toBe('function');
     expect(pm.isAlive('whatever-id' as any)).toBe(true);
+  });
+
+  it('clawDaemonCommand propagates global config failure before loadClaw', async () => {
+    const sentinel = new Error('global config sentinel');
+    const deps = daemonDeps({ loadGlobal: () => { throw sentinel; } });
+    await expect(clawDaemonCommand(deps, 'running-claw')).rejects.toBe(sentinel);
+    expect(deps.rootConfig.loadClaw).not.toHaveBeenCalled();
+  });
+
+  it('clawDaemonCommand propagates claw config failure unchanged', async () => {
+    const sentinel = new Error('claw config sentinel');
+    const deps = daemonDeps({ loadClaw: () => { throw sentinel; } });
+    await expect(clawDaemonCommand(deps, 'running-claw')).rejects.toBe(sentinel);
+    expect(deps.processManager.isAlive).toBeDefined();
   });
 });
