@@ -1,6 +1,8 @@
 import * as path from 'path';
 import type { ExecContext } from '../tools/index.js';
 
+export type WorkspacePathContext = Pick<ExecContext, 'clawDir' | 'workspaceDir'>;
+
 /**
  * Resolve file tool path argument against workspaceDir (default) or explicit cwd.
  * Returns clawDir-relative path for ctx.fs operations + PermissionChecker.
@@ -18,7 +20,7 @@ import type { ExecContext } from '../tools/index.js';
  * cwdArg 仅 search.ts 仍用（递归扫描根独立语义）。
  */
 export function resolveWorkspacePath(
-  ctx: ExecContext,
+  ctx: WorkspacePathContext,
   relPath: string,
   cwdArg?: string,
 ): string {

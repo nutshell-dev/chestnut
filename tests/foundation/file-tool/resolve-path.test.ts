@@ -5,7 +5,7 @@ function mockCtx(opts: { clawDir: string; workspaceDir: string }) {
   return {
     clawDir: opts.clawDir,
     workspaceDir: opts.workspaceDir,
-  } as any;
+  };
 }
 
 describe('resolveWorkspacePath', () => {

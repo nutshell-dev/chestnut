@@ -77,8 +77,7 @@ export async function lsCommand(
   const fs = deps.fsFactory(clawDir);
 
   const requested = subPath ?? '.';
-  const miniCtx = { clawDir, workspaceDir } as { clawDir: string; workspaceDir: string };
-  const resolved = resolveWorkspacePath(miniCtx as never, requested);
+  const resolved = resolveWorkspacePath({ clawDir, workspaceDir }, requested);
   if (resolved.startsWith('..') || resolved.startsWith('/')) {
     throw new CliError(`Path escapes claw directory: "${requested}"`);
   }
