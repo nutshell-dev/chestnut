@@ -6,8 +6,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import {
   lookupContentByToolUseId,
+  lookupContentByBlockId,
   type LookupResult,
 } from '../../../src/foundation/dialog-store/lookup.js';
+import { BlockIdIndex } from '../../../src/foundation/dialog-store/block-id-index.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
 import { DialogIOError } from '../../../src/foundation/dialog-store/errors.js';
 import { makeToolUseId } from '../../../src/foundation/llm-provider/tool-use-id.js';
@@ -88,6 +90,27 @@ describe('lookupContentByToolUseId', () => {
     const result = lookupContentByToolUseId(fs, '/dialog', 't1');
     expect(result.source).toBe('current');
     expect((result as Extract<LookupResult, { source: 'current' }>).content).toBe('hello current');
+  });
+
+  it('uses the DialogStore-injected filename and archive directory', () => {
+    const fs = makeFs({
+      '/dialog/messages.json': currentJson([]),
+      '/dialog/history': { size: 0, isDirectory: true },
+      '/dialog/history/1704067200000_abc123.json': currentJson([
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'custom layout' }] },
+      ]),
+    });
+
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', {
+      filename: 'messages.json',
+      archiveDir: 'history',
+    });
+
+    expect(result).toMatchObject({
+      source: 'archive',
+      content: 'custom layout',
+      degradationNotes: ['messages.json: not_found'],
+    });
   });
 
   it('level 2: falls back to archive when missing in current', () => {
@@ -448,5 +471,34 @@ describe('lookupContentByToolUseId', () => {
     expect(detail[0]).toContain('EIO');
     expect(detail[1]).toContain('archive');
     expect(detail[1]).toContain('EACCES');
+  });
+});
+
+describe('lookupContentByBlockId layout', () => {
+  it('uses the DialogStore-injected archive directory', () => {
+    const fullId = '12345678-1234-1234-1234-123456789abc';
+    const fs = makeFs({
+      '/dialog/history': { size: 0, isDirectory: true },
+      '/dialog/history/1704067200000_abc123.json': currentJson([
+        { role: 'assistant', content: [{ type: 'text', text: 'custom block layout', blockId: fullId }] },
+      ]),
+    });
+    const index = new BlockIdIndex(fs, '/dialog');
+    index.add('12345678', fullId);
+
+    const result = lookupContentByBlockId(
+      fs,
+      '/dialog',
+      '12345678',
+      index,
+      undefined,
+      { archiveDir: 'history' },
+    );
+
+    expect(result).toMatchObject({
+      source: 'archive',
+      content: 'custom block layout',
+      blockId: fullId,
+    });
   });
 });

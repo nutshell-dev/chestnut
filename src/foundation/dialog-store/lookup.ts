@@ -6,6 +6,7 @@
  * Owner: dialog-store (M#3: dialog content 归 dialog-store SoT).
  */
 
+import * as path from 'node:path';
 import { sha256ShortHex } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
@@ -14,6 +15,7 @@ import type { ToolUseId } from '../tool-protocol/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../node-utils/index.js';
 import { BlockIdIndex } from './block-id-index.js';
+import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR } from './dirs.js';
 
 /** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
 export type LookupResult =
@@ -26,6 +28,10 @@ export type LookupResult =
 export interface LookupOptions {
   /** Optional sha8 hash for integrity verification (level 3 降级). */
   contentHash?: string;
+  /** DialogStore constructor-injected active session filename. */
+  filename?: string;
+  /** DialogStore constructor-injected archive sub-directory. */
+  archiveDir?: string;
 }
 
 /**
@@ -34,7 +40,7 @@ export interface LookupOptions {
  * 1. current → 2. archive → 3. hash 核 → 4. unavailable
  *
  * @param fs - FileSystem 实例
- * @param dialogDir - 绝对路径 dialog 目录（含 current.json + archive/）
+ * @param dialogDir - 绝对路径 dialog 目录；文件和归档子目录由 options 注入
  * @param toolUseId - 目标 tool_use_id
  * @param options - 可选 contentHash 用于完整性核（level 3）
  */
@@ -46,6 +52,8 @@ export function lookupContentByToolUseId(
   audit?: AuditLog,
 ): LookupResult {
   const idStr = String(toolUseId);
+  const filename = options?.filename ?? CURRENT_DIALOG_FILE;
+  const archiveSubdir = options?.archiveDir ?? DIALOG_ARCHIVE_SUBDIR;
 
   // phase 987: existsSync itself can throw (EACCES on parent), treat as io_error
   let dialogExists: boolean;
@@ -66,14 +74,14 @@ export function lookupContentByToolUseId(
   }
 
   // Level 1: current
-  const currentPath = `${dialogDir}/current.json`;
+  const currentPath = path.join(dialogDir, filename);
   let currentAccessible: boolean;
   try {
     currentAccessible = fs.existsSync(currentPath);
   } catch (err) {
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-      'file=current.json',
+      `file=${filename}`,
       `toolUseId=${idStr}`,
       `reason=${formatErr(err)}`,
     );
@@ -82,14 +90,14 @@ export function lookupContentByToolUseId(
 
   let currentResult: CurrentLookupResult | undefined;
   if (currentAccessible) {
-    currentResult = lookupInCurrent(fs, dialogDir, idStr, audit);
+    currentResult = lookupInCurrent(fs, currentPath, filename, idStr, audit);
     if (currentResult.found) {
       return { source: 'current', content: currentResult.content };
     }
   }
 
   // Level 2: archive 扫
-  const archiveResult = lookupInArchive(fs, dialogDir, idStr, audit);
+  const archiveResult = lookupInArchive(fs, path.join(dialogDir, archiveSubdir), archiveSubdir, idStr, audit);
   if (archiveResult.found) {
     // Level 3: hash 核（若提供 contentHash）
     if (options?.contentHash) {
@@ -102,14 +110,14 @@ export function lookupContentByToolUseId(
         content: archiveResult.content,
         archivedAt: archiveResult.archivedAt,
         hashVerified: true,
-        degradationNotes: buildDegradationNotes(currentResult),
+        degradationNotes: buildDegradationNotes(currentResult, filename),
       };
     }
     return {
       source: 'archive',
       content: archiveResult.content,
       archivedAt: archiveResult.archivedAt,
-      degradationNotes: buildDegradationNotes(currentResult),
+      degradationNotes: buildDegradationNotes(currentResult, filename),
     };
   }
 
@@ -149,12 +157,11 @@ type CurrentLookupResult =
 
 function lookupInCurrent(
   fs: FileSystem,
-  dialogDir: string,
+  currentPath: string,
+  filename: string,
   toolUseId: string,
   audit?: AuditLog,
 ): CurrentLookupResult {
-  const currentPath = `${dialogDir}/current.json`;
-
   // Phase 987: read→parse separation. Read faults (except ENOENT) are io_error;
   // parse failures are parse_failed.
   let raw: string;
@@ -168,7 +175,7 @@ function lookupInCurrent(
     // Phase 990: any non-ENOENT read fault is an I/O error.
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-      'file=current.json',
+      `file=${filename}`,
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
@@ -185,7 +192,7 @@ function lookupInCurrent(
     const content = findContentInMessages(session.messages ?? [], toolUseId);
     return content !== null ? { found: true, content } : { found: false, reason: 'not_found' };
   } catch (err) {
-    process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`); // silent: fallback log, non-critical
+    process.stderr.write(`[dialog-lookup] ${filename} parse failed: ${err}\n`); // silent: fallback log, non-critical
     return { found: false, reason: 'parse_failed' };
   }
 }
@@ -198,19 +205,18 @@ type ArchiveLookupResult =
 
 function lookupInArchive(
   fs: FileSystem,
-  dialogDir: string,
+  archiveDir: string,
+  archiveLabel: string,
   toolUseId: string,
   audit?: AuditLog,
 ): ArchiveLookupResult {
-  const archiveDir = `${dialogDir}/archive`;
-
   let archiveExists: boolean;
   try {
     archiveExists = fs.existsSync(archiveDir);
   } catch (err) {
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-      'dir=archive',
+      `dir=${archiveLabel}`,
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
@@ -229,7 +235,7 @@ function lookupInArchive(
     // Phase 990: any non-ENOENT list fault is an I/O error.
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-      'dir=archive',
+      `dir=${archiveLabel}`,
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
@@ -308,10 +314,10 @@ function findContentInMessages(messages: unknown[], toolUseId: string): string |
   return null;
 }
 
-function buildDegradationNotes(currentResult: CurrentLookupResult | undefined): [string, ...string[]] | undefined {
+function buildDegradationNotes(currentResult: CurrentLookupResult | undefined, filename: string): [string, ...string[]] | undefined {
   if (currentResult && !currentResult.found) {
     const detail = currentResult.reason === 'io_error' ? ` (${currentResult.errorDetail})` : '';
-    return [`current.json: ${currentResult.reason}${detail}`];
+    return [`${filename}: ${currentResult.reason}${detail}`];
   }
   return undefined;
 }
@@ -338,6 +344,7 @@ export function lookupContentByBlockId(
   shortBlockId: string,
   blockIdIndex: BlockIdIndex,
   audit?: AuditLog,
+  options?: Pick<LookupOptions, 'archiveDir'>,
 ): BlockIdLookupResult {
   let dialogExists: boolean;
   try {
@@ -363,7 +370,14 @@ export function lookupContentByBlockId(
   }
 
   // Archive-first lookup (current.json holds collapsed placeholders, not original content).
-  const archiveResult = lookupBlockIdInArchive(fs, dialogDir, fullBlockId, audit);
+  const archiveSubdir = options?.archiveDir ?? DIALOG_ARCHIVE_SUBDIR;
+  const archiveResult = lookupBlockIdInArchive(
+    fs,
+    path.join(dialogDir, archiveSubdir),
+    archiveSubdir,
+    fullBlockId,
+    audit,
+  );
   if (archiveResult.found) {
     return {
       source: 'archive',
@@ -388,19 +402,18 @@ type BlockIdArchiveLookupResult =
 
 function lookupBlockIdInArchive(
   fs: FileSystem,
-  dialogDir: string,
+  archiveDir: string,
+  archiveLabel: string,
   fullBlockId: string,
   audit?: AuditLog,
 ): BlockIdArchiveLookupResult {
-  const archiveDir = `${dialogDir}/archive`;
-
   let archiveExists: boolean;
   try {
     archiveExists = fs.existsSync(archiveDir);
   } catch (err) {
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-      'dir=archive',
+      `dir=${archiveLabel}`,
       `blockId=${fullBlockId}`,
       `reason=${formatErr(err)}`,
     );
@@ -418,7 +431,7 @@ function lookupBlockIdInArchive(
     }
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
-      'dir=archive',
+      `dir=${archiveLabel}`,
       `blockId=${fullBlockId}`,
       `reason=${formatErr(err)}`,
     );

@@ -7,8 +7,6 @@
  * - Crash recovery from archive
  */
 
-const ARCHIVE_SUBDIR_DEFAULT = 'archive';
-/** Default archive sub-directory name (when caller doesn't inject) */
 const CORRUPTED_SUBDIR = 'corrupted';
 /** Sub-directory name for isolated corrupt dialog artifacts */
 
@@ -27,7 +25,7 @@ import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
 import { BlockIdIndex } from './block-id-index.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
-import { CURRENT_DIALOG_FILE } from './dirs.js';
+import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR } from './dirs.js';
 import { repairMessages } from './repair.js';
 import { restoreMessages } from './restore.js';
 import { assertDialogShapeInvariants } from './invariants.js';
@@ -71,7 +69,7 @@ export class DialogStore {
     blockIdIndex?: BlockIdIndex,
   ) {
     this.currentPath = path.join(dialogDir, filename);
-    this.archiveDir = path.join(dialogDir, archiveDir ?? ARCHIVE_SUBDIR_DEFAULT);
+    this.archiveDir = path.join(dialogDir, archiveDir ?? DIALOG_ARCHIVE_SUBDIR);
     this.blockIdIndex = blockIdIndex ?? new BlockIdIndex(this.fs, dialogDir);
     this.blockIdIndex.load(this.audit);
   }
