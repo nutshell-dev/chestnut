@@ -504,3 +504,10 @@ export type LifecycleCommitOutcome =
       requestId: string;
       cause: string;
     };
+
+/** Runtime-owned lifecycle view of ContractSystem. */
+export interface ContractRuntimeLifecycle {
+  loadActive(): Promise<Contract | null>;
+  maybeAuditStep(currentStep: number): Promise<void>;
+  close(): Promise<void>;
+}

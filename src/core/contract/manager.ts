@@ -55,7 +55,7 @@ import { type ClawId } from '../../foundation/claw-identity/index.js';
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
-  LifecycleCommitOutcome,
+  LifecycleCommitOutcome, ContractRuntimeLifecycle,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
@@ -146,7 +146,7 @@ export interface ContractSystemDeps {
   runSubagent?: VerifierConfig['runSubagent'];
 }
 
-export class ContractSystem {
+export class ContractSystem implements ContractRuntimeLifecycle {
   private fs: FileSystem;
   private clawDir: string;
   private readonly clawId: ClawId;

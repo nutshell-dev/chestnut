@@ -39,7 +39,7 @@ import { ExecContextImpl } from '../../foundation/tools/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from '../context_manager/index.js';
-import type { ContractSystem } from '../contract/index.js';
+import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
@@ -137,7 +137,7 @@ export class Runtime {
   protected contextInjector!: ContextInjector;
   protected toolRegistry!: ToolRegistry;
   private taskSystem!: AsyncTaskRuntimeLifecycle;
-  private contractManager!: ContractSystem;
+  private contractManager!: ContractRuntimeLifecycle;
   protected execContext!: ExecContext;
   protected toolExecutor!: IToolExecutor;
   private inboxReader!: InboxReader;

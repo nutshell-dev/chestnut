@@ -38,6 +38,7 @@ export {
   type ContractYaml,
   type ContractCreatePolicy,
   type CreatePolicyContext,
+  type ContractRuntimeLifecycle,
   ContractCreatePolicyViolationError,
   makeContractId,
 } from './types.js';

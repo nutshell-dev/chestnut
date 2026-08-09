@@ -15,7 +15,7 @@ import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from '../context_manager/index.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
-import type { ContractSystem } from '../contract/index.js';
+import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
@@ -63,7 +63,7 @@ export interface RuntimeDependencies {
   readonly toolExecutor: IToolExecutor;
   /** Phase 773: base registry with plain sync exec for subagent spawn paths. */
   readonly baseToolRegistry?: ToolRegistry;
-  readonly contractManager: ContractSystem;
+  readonly contractManager: ContractRuntimeLifecycle;
   readonly taskSystem: AsyncTaskRuntimeLifecycle;
   readonly skillRegistry: SkillSystem;
 
