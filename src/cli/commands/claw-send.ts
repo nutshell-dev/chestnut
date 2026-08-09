@@ -5,11 +5,9 @@
 
 import * as path from 'path';
 
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { CliError } from '../errors.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { formatNoActiveContractHint } from './claw-shared.js';
 import { formatClawStatusHint } from '../../cli-protocol/index.js';
@@ -20,17 +18,18 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { hasActiveContract } from '../../core/contract/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export async function sendCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   name: string, 
   message: string, 
   options?: { priority?: Priority }
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
   
   const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
 

@@ -8,12 +8,12 @@
  */
 
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem, StatInfo } from '../../foundation/fs/index.js';
 import { copyDir, type CopyStats } from '../utils/copy-dir.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 async function tryStat(fs: FileSystem, p: string): Promise<StatInfo | null> {
   try {
@@ -24,15 +24,15 @@ async function tryStat(fs: FileSystem, p: string): Promise<StatInfo | null> {
 }
 
 export async function importCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   source: string,
   clawName: string,
   target?: string,
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(clawName);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${clawName}" does not exist`);
   }
 
