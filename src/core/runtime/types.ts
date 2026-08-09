@@ -7,7 +7,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { Snapshot } from '../../foundation/snapshot/index.js';
+import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { InboxReader, OutboxWriter, InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
 
@@ -52,7 +52,7 @@ export interface RuntimeDependencies {
 
   // === L2 ===
   readonly auditWriter: AuditLog;
-  readonly snapshot: Snapshot;
+  readonly snapshot: SnapshotCommitter;
   readonly sessionManager: DialogStore;
   readonly inboxReader: InboxReader;
   readonly outboxWriter: OutboxWriter;

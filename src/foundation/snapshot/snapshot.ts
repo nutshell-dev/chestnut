@@ -37,6 +37,12 @@ type Result<T, E> =
   | { ok: false; error: E };
 import { classifyGitError, type ExpectedGitFailure, type GitExecError } from './git-errors.js';
 
+export type SnapshotCommitResult = Result<void, ExpectedGitFailure>;
+
+export interface SnapshotCommitter {
+  commit(message: string): Promise<SnapshotCommitResult>;
+}
+
 
 // Node.js child_process / exec 抛错时未声明的 dynamic property
 // 显式 Error & Partial<GitExecError> intersection 替 `(e as any)`、编译期可检 Partial 字段
@@ -171,7 +177,7 @@ function toGitExecError(e: unknown): GitExecError {
   return { message: String(e) };
 }
 
-export class Snapshot {
+export class Snapshot implements SnapshotCommitter {
   private dir: string;
   private fs: FileSystem;
   private readonly audit: AuditLog;
@@ -311,7 +317,7 @@ export class Snapshot {
    * - 预期失败 → Result.err（降级；连续 3 次触发 snapshot_degraded）
    * - 不可预期失败 → throw
    */
-  async commit(message: string): Promise<Result<void, ExpectedGitFailure>> {
+  async commit(message: string): Promise<SnapshotCommitResult> {
     // Throttle: skip commits within COMMIT_THROTTLE_MS (phase 1051)
     const now = Date.now();
     if (now - this._lastCommitMs < COMMIT_THROTTLE_MS) {
