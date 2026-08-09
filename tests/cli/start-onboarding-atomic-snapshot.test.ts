@@ -13,8 +13,14 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { createRootConfig, createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const snapshotDeps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
+};
 
 const { getInitializationSnapshot, getOnboardingStatus } =
   await import('../../src/cli/commands/start.js');
@@ -64,7 +70,7 @@ describe('getInitializationSnapshot', () => {
 
   it('一致性: 无 contract → isInitialized=false, onboarding=not_found', () => {
     writeConfig(tmpDir);
-    const snapshot = getInitializationSnapshot({ fsFactory }, tmpDir);
+    const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
     expect(snapshot.isInitialized).toBe(true);
     expect(snapshot.onboarding).toEqual({ state: 'not_found' });
   });
@@ -75,7 +81,7 @@ describe('getInitializationSnapshot', () => {
       language: { status: 'completed' },
       identity: { status: 'pending' },
     });
-    const snapshot = getInitializationSnapshot({ fsFactory }, tmpDir);
+    const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
     expect(snapshot.isInitialized).toBe(true);
     expect(snapshot.onboarding.state).toBe('in_progress');
   });
@@ -86,7 +92,7 @@ describe('getInitializationSnapshot', () => {
       language: { status: 'completed' },
       identity: { status: 'completed' },
     });
-    const snapshot = getInitializationSnapshot({ fsFactory }, tmpDir);
+    const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
     expect(snapshot.isInitialized).toBe(true);
     expect(snapshot.onboarding).toEqual({ state: 'complete' });
   });
@@ -96,7 +102,7 @@ describe('getInitializationSnapshot', () => {
     writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
       language: { status: 'pending' },
     });
-    const snapshot = getInitializationSnapshot({ fsFactory }, tmpDir);
+    const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
     const standalone = getOnboardingStatus(tmpDir, { fsFactory });
     expect(snapshot.onboarding).toEqual(standalone);
   });
@@ -106,7 +112,7 @@ describe('getInitializationSnapshot', () => {
     writeContract(tmpDir, 'active', 'ob1', 'Onboarding', {
       language: { status: 'pending' },
     });
-    const snapshot = getInitializationSnapshot({ fsFactory }, tmpDir);
+    const snapshot = getInitializationSnapshot(snapshotDeps, tmpDir);
     // 只要返回值结构正确即证明 atomic snapshot 机制存在
     expect(snapshot).toHaveProperty('isInitialized');
     expect(snapshot).toHaveProperty('onboarding');
