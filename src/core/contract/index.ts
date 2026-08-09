@@ -4,7 +4,6 @@
  */
 
 export { ContractSystem, createContractSystem } from './manager.js';
-export type { ContractSystemDeps } from './manager.js';
 
 // phase 1260 Step A: ContractSystem-owned typed notification protocol
 // （Step B：transport adapter 已物理归位 src/assembly/contract-notification-adapter.ts，
