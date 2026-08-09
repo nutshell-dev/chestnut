@@ -4,7 +4,7 @@
 
 import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { saveGlobalConfig, isInitialized } from '../../assembly/config/config-load.js';
+import type { RootConfigAdmin } from '../../assembly/index.js';
 import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
@@ -42,10 +42,15 @@ const PROVIDER_LIST = [
   'qwen-coder',
 ];
 
-export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export interface InitCommandDeps {
+  fsFactory(baseDir: string): FileSystem;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
+}
+
+export async function initCommand(deps: InitCommandDeps, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
   // Check if already initialized
-  if (isInitialized(deps)) {
+  if (deps.rootConfig.isInitialized()) {
     console.log('✓ Already initialized (.chestnut/config.yaml exists)');
     return;
   }
@@ -308,7 +313,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     };
 
     // Save config
-    saveGlobalConfig(deps, config);
+    deps.rootConfig.saveGlobal(config);
 
     // Phase 1288 Step B: fresh init 创建默认 workspace audit config ——
     // 唯一允许默认创建的路径（普通启动 missing 不静默创建）；root YAML 不再写 audit 段。

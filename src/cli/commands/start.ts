@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import * as readline from 'readline';
 
-import type { RootConfigLegacyMigration, RootConfigReader } from '../../assembly/index.js';
+import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/index.js';
 import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
 import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
@@ -131,7 +131,7 @@ export interface StartCommandRuntime {
 
 export interface StartCommandDeps {
   fsFactory(baseDir: string): FileSystem;
-  rootConfig: Pick<RootConfigReader, 'isInitialized' | 'loadGlobal'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
   rootConfigLegacy: RootConfigLegacyMigration;
 }
 

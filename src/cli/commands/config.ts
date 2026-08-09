@@ -5,7 +5,6 @@
 import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
-import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config/config-load.js';
 import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
 import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
 import type { ClawGlobalConfig } from '../../assembly/config/compose-config.js';
@@ -20,7 +19,7 @@ import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { RootConfigLegacyMigration, RootConfigReader } from '../../assembly/index.js';
+import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../core/claw-topology/index.js';
@@ -134,8 +133,8 @@ function findProviderIndex(config: ClawGlobalConfig, label: string): { type: 'pr
 }
 
 // provider add command
-async function providerAdd(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
-  const config = loadGlobalConfig(deps);
+async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
+  const config = deps.rootConfig.loadGlobal();
   const rl = createRL();
   
   try {
@@ -232,7 +231,7 @@ async function providerAdd(deps: { fsFactory: (baseDir: string) => FileSystem })
       console.log(`\n✓ Provider "${label}" added as fallback #${position + 1}`);
     }
     
-    saveGlobalConfig(deps, config);
+    deps.rootConfig.saveGlobal(config);
     notifyRunningDaemons(deps, 'add');
 
     // phase 451: 改 config 必 probe
@@ -275,8 +274,8 @@ function formatApiKey(apiKey: string): string {
 }
 
 // provider list command
-async function providerList(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
-  const config = loadGlobalConfig(deps);
+async function providerList(deps: ConfigCommandDeps): Promise<void> {
+  const config = deps.rootConfig.loadGlobal();
 
   const primary = config.llm.primary;
   const fallbacks = config.llm.fallbacks ?? [];
@@ -312,8 +311,8 @@ async function providerList(deps: { fsFactory: (baseDir: string) => FileSystem }
 }
 
 // provider remove command
-async function providerRemove(deps: { fsFactory: (baseDir: string) => FileSystem }, label: string): Promise<void> {
-  const config = loadGlobalConfig(deps);
+async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<void> {
+  const config = deps.rootConfig.loadGlobal();
   
   const found = findProviderIndex(config, label);
   if (!found) {
@@ -326,14 +325,14 @@ async function providerRemove(deps: { fsFactory: (baseDir: string) => FileSystem
   
   // Remove from fallbacks
   config.llm.fallbacks!.splice(found.index, 1);
-  saveGlobalConfig(deps, config);
+  deps.rootConfig.saveGlobal(config);
   console.log(`✓ Removed "${label}" from fallbacks`);
   notifyRunningDaemons(deps, 'remove');
 }
 
 // provider set-primary command
-async function providerSetPrimary(deps: { fsFactory: (baseDir: string) => FileSystem }, label: string): Promise<void> {
-  const config = loadGlobalConfig(deps);
+async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promise<void> {
+  const config = deps.rootConfig.loadGlobal();
   
   const found = findProviderIndex(config, label);
   if (!found) {
@@ -367,7 +366,7 @@ async function providerSetPrimary(deps: { fsFactory: (baseDir: string) => FileSy
   // Set target as primary
   config.llm.primary = target;
 
-  saveGlobalConfig(deps, config);
+  deps.rootConfig.saveGlobal(config);
   console.log(`✓ "${label}" is now primary`);
   notifyRunningDaemons(deps, 'set-primary');
 
@@ -395,8 +394,8 @@ async function providerSetPrimary(deps: { fsFactory: (baseDir: string) => FileSy
 }
 
 // provider move command
-async function providerMove(deps: { fsFactory: (baseDir: string) => FileSystem }, label: string, position: string): Promise<void> {
-  const config = loadGlobalConfig(deps);
+async function providerMove(deps: ConfigCommandDeps, label: string, position: string): Promise<void> {
+  const config = deps.rootConfig.loadGlobal();
   
   const found = findProviderIndex(config, label);
   if (!found) {
@@ -418,17 +417,19 @@ async function providerMove(deps: { fsFactory: (baseDir: string) => FileSystem }
   const [removed] = fallbacks.splice(found.index, 1);
   fallbacks.splice(newPos, 0, removed);
   
-  saveGlobalConfig(deps, config);
+  deps.rootConfig.saveGlobal(config);
   console.log(`✓ "${label}" moved to fallback #${newPos + 1}`);
   notifyRunningDaemons(deps, 'move');
 }
 
 // Build the config command
-export function createConfigCommand(deps: {
+export interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  rootConfig: Pick<RootConfigReader, 'isInitialized'>;
+  rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
   rootConfigLegacy: RootConfigLegacyMigration;
-}): Command {
+}
+
+export function createConfigCommand(deps: ConfigCommandDeps): Command {
   const configCommand = new Command('config')
     .description('Manage chestnut configuration');
 

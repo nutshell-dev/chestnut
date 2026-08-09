@@ -135,7 +135,7 @@ program
   .action(action('disabled', async () => {
     const { initCommand } = await import('./commands/init.js');
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
-    await initCommand({ fsFactory }, false, { audit });
+    await initCommand({ fsFactory, rootConfig }, false, { audit });
   }));
 
 // claw command group — phase 1472：subject-first 形态 / phase 1477：composer-driven help
