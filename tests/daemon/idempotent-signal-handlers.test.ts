@@ -110,6 +110,7 @@ const mockAssemble = vi.fn().mockResolvedValue({
 
 const daemonCommand = createDaemonCommand({
   fsFactory: () => mockFs as any,
+  rootConfig: { loadGlobal: () => ({} as any), loadClaw: () => ({} as any) },
   assemble: mockAssemble,
   disassemble: mockDisassemble,
   auditEvents: {

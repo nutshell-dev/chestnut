@@ -262,7 +262,7 @@ import { createDaemonCommand, _resetDaemonSignalHandlers } from '../../src/daemo
 
 const daemonCommand = createDaemonCommand({
   fsFactory,
-  configDefaults: {} as any,
+  rootConfig: { loadGlobal: () => ({} as any), loadClaw: () => ({} as any) },
   assemble: mockState.mockAssemble,
   disassemble: mockState.mockDisassemble,
   auditEvents: {
