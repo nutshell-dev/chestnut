@@ -46,12 +46,11 @@ export function configLoadImporters(): string[] {
     .sort();
 }
 
-// Migration baseline（phase 1334 Step C：motion-daemon 迁出，9→8）：精确路径集合，
+// Migration baseline（phase 1335 Step C：motion/start 迁出，8→6）：精确路径集合，
 // 非计数；一删一增抵消会被拒。后续每个命令族治理 phase 必须同步递减本清单。
 export const REMAINING_BASELINE = [
   'audit-config-migration.ts', 'commands/claw-create.ts',
   'commands/config.ts', 'commands/init.ts',
-  'commands/motion.ts', 'commands/start.ts',
   'llm-connection-check.ts',
   'watchdog-config-migration.ts',
 ].sort();
