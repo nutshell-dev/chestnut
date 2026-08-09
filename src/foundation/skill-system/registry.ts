@@ -57,7 +57,13 @@ export interface SkillMeta {
   skillDir: string;
 }
 
-export class SkillSystem {
+/** Read-only, load-aware skill context capability for prompt consumers. */
+export interface SkillContextSource {
+  ensureLoaded(): Promise<void>;
+  formatForContext(): string;
+}
+
+export class SkillSystem implements SkillContextSource {
   private fs: FileSystem;
   private skillsDir: string;
   private metaMap: Map<string, SkillMeta> = new Map();

@@ -14,7 +14,7 @@ import type { InboxReader, OutboxWriter, InboxMessageTypeRegistry } from '../../
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from '../context_manager/index.js';
-import type { SkillSystem } from '../../foundation/skill-system/index.js';
+import type { SkillContextSource } from '../../foundation/skill-system/index.js';
 import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
@@ -65,7 +65,7 @@ export interface RuntimeDependencies {
   readonly baseToolRegistry?: ToolRegistry;
   readonly contractManager: ContractRuntimeLifecycle;
   readonly taskSystem: AsyncTaskRuntimeLifecycle;
-  readonly skillRegistry: SkillSystem;
+  readonly skillRegistry: SkillContextSource;
 
   // === L4 (phase 1273) ===
   readonly permissionChecker: PermissionChecker;  // required / 编译期 enforce M#9

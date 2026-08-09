@@ -16,7 +16,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { Contract } from '../contract/index.js';
-import type { SkillSystem } from '../../foundation/skill-system/index.js';
+import type { SkillContextSource } from '../../foundation/skill-system/index.js';
 import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { CLAW_MEMORY_FILE, CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
@@ -30,7 +30,7 @@ export interface ContextInjectorOptions {
   /** File system instance */
   fs: FileSystem;
   /** Skill registry for skill metadata injection */
-  skillRegistry?: SkillSystem;
+  skillRegistry?: SkillContextSource;
   /** Contract manager for active contract injection */
   contractManager?: Pick<ContractRuntimeLifecycle, 'loadActive'>;
   /** Optional audit writer / phase 646 ⚓ context load failure audit (FNF silent / else audit) */
@@ -68,7 +68,7 @@ interface CacheEntry {
  */
 export class ContextInjector {
   private fs: FileSystem;
-  private skillRegistry?: SkillSystem;
+  private skillRegistry?: SkillContextSource;
   private contractManager?: Pick<ContractRuntimeLifecycle, 'loadActive'>;
   private audit?: AuditLog;
   private cachedAgentsMd: CacheEntry | null = null;

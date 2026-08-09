@@ -4,6 +4,7 @@
  */
 
 export { SkillSystem } from './registry.js';
+export type { SkillContextSource } from './registry.js';
 // phase 1435 F9: + BUNDLED_SKILLS_DIR_NAME barrel re-export
 export { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from './skill-paths.js';
 
