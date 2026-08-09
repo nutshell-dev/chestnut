@@ -8,7 +8,7 @@ import { searchTool } from '../../../src/foundation/file-tool/search.js';
 import { lsTool } from '../../../src/foundation/file-tool/ls.js';
 import { editTool } from '../../../src/foundation/file-tool/edit.js';
 import { multiEditTool } from '../../../src/foundation/file-tool/multi_edit.js';
-import { execTool } from '../../../src/foundation/command-tool/exec.js';
+import { createExecTool } from '../../../src/foundation/command-tool/exec.js';
 import { spawnTool } from '../../../src/core/spawn-system/tools/spawn.js';
 import { createShadowTool } from '../../../src/core/shadow-system/tools/shadow.js';
 import { memorySearchTool } from '../../../src/core/memory/tools/memory_search.js';
@@ -21,6 +21,7 @@ import { cloneExecContext } from '../../../src/foundation/tools/context.js';
 import type { ExecContext } from '../../../src/foundation/tools/context.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const execTool = createExecTool();
 
 /**
  * Phase 963 r119 B fork — Profile advertise invariant lint test

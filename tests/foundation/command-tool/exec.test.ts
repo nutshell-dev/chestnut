@@ -4,10 +4,12 @@
  * 验证空 output 时 placeholder 附加运行命令、长命令截断。
  */
 import { describe, it, expect } from 'vitest';
-import { execTool, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
+import { createExecTool, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
 import { EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
+
+const execTool = createExecTool();
 
 describe('phase 96 exec empty-output placeholder', () => {
   it('exit 0 + empty output → content carries (no output) + [command]', async () => {

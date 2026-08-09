@@ -9,7 +9,9 @@ import { multiEditTool } from '../../src/foundation/file-tool/multi_edit.js';
 import { spawnTool } from '../../src/core/spawn-system/tools/spawn.js';
 import { createShadowTool } from '../../src/core/shadow-system/tools/shadow.js';
 import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
-import { execTool } from '../../src/foundation/command-tool/exec.js';
+import { createExecTool } from '../../src/foundation/command-tool/exec.js';
+
+const execTool = createExecTool();
 
 describe('Tool Profiles', () => {
   it('should have correct tools in each profile', () => {

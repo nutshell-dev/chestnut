@@ -323,10 +323,6 @@ export function createExecWithHandle(preExecGuard?: PreExecGuard) {
   };
 }
 
-// singleton execTool export (phase 1280: factory now 0-arg / REFRAMED-OUT)
-export const execTool = createExecTool();
-
-
 /**
  * 创建 CommandTool 模块
  */

@@ -17,7 +17,7 @@ import { editTool } from '../../src/foundation/file-tool/edit.js';
 import { multiEditTool } from '../../src/foundation/file-tool/multi_edit.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
-import { execTool } from '../../src/foundation/command-tool/exec.js';
+import { createExecTool } from '../../src/foundation/command-tool/exec.js';
 import { createSpawnTool } from '../../src/core/spawn-system/index.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 
@@ -27,6 +27,8 @@ import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
 import { makeAudit } from '../helpers/audit.js';
 
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
+
+const execTool = createExecTool();
 
 const { mockSchedule } = vi.hoisted(() => ({
   mockSchedule: vi.fn(),
