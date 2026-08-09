@@ -47,7 +47,7 @@ function formatField(value: FieldValue): string {
 interface ClawEntry {
   name: string;
   status: 'running' | 'stopped';
-  pid?: number;
+  pid?: number | 'spawning';
   pidError?: string;
   lastActiveIso: string | null;
   contract: string;
@@ -175,11 +175,12 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   // phase 687 (audit T2.11): 删 outer try/catch + handleCliError、外层 clawCommand (cli/index.ts:139) 已包 withCliErrorHandling
   const baseDirFs = deps.fsFactory(baseDir);
   const clawsDirName = 'claws';
-  if (!baseDirFs.existsSync(clawsDirName)) {
-    baseDirFs.ensureDirSync(clawsDirName);
-  }
   const clawsDirFs = deps.fsFactory(clawsDir);
-  const entries = enumerateClaws(clawsDirFs, '.');
+  // Listing is read-only: an absent container means an empty catalog, not an
+  // instruction to create filesystem state.
+  const entries = baseDirFs.existsSync(clawsDirName)
+    ? enumerateClaws(clawsDirFs, '.')
+    : [];
   const claws: ClawEntry[] = [];
   const diagnostics: { claw: string; field: string; reason: string }[] = [];
 
@@ -197,8 +198,10 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
       if (lastContractField.kind === 'error') diagnostics.push({ claw: entry, field: 'lastContract', reason: lastContractField.reason });
       if (pidField.kind === 'error') diagnostics.push({ claw: entry, field: 'pid', reason: pidField.reason });
 
-      let pid: number | undefined;
-      if (pidField.kind === 'value') pid = Number(pidField.text);
+      let pid: number | 'spawning' | undefined;
+      if (pidField.kind === 'value') {
+        pid = pidField.text === 'spawning' ? 'spawning' : Number(pidField.text);
+      }
 
       const lastMs = await formatLastActiveMs(clawFs);
       let lastActive = '-';

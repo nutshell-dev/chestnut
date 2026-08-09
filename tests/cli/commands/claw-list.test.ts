@@ -138,6 +138,46 @@ describe('claw-list', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('No claws'));
   });
 
+  it('does not create the claws container from the read-only list path', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    const ensureDirSpy = vi.spyOn(NodeFileSystem.prototype, 'ensureDirSync');
+
+    await listCommand(commandDeps);
+
+    expect(ensureDirSpy).not.toHaveBeenCalled();
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('No claws'));
+  });
+
+  it('preserves spawning as a PID state in table and JSON output', async () => {
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      isAlive: vi.fn().mockReturnValue(false),
+      getAliveStatus: vi.fn(),
+      inspectSpawning: vi.fn().mockReturnValue({ status: 'ok', generation: 'g1' }),
+    } as any);
+    vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
+      const sp = String(p);
+      if (sp.endsWith('config.yaml')) return true;
+      if (sp.includes('contract/active') || sp.includes('contract/paused')) return false;
+      return true;
+    });
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
+      const sp = String(p);
+      if (sp.endsWith('claws')) {
+        return [{ name: 'claw-a', isDirectory: () => true, isFile: () => false }] as any;
+      }
+      if (sp.endsWith('outbox/pending') || sp.includes('contract')) return [] as any;
+      throw new Error(`Unexpected readdirSync: ${sp}`);
+    });
+
+    await listCommand(commandDeps);
+    expect(consoleLogSpy.mock.calls.flat().join('\n')).toMatch(/claw-a.*spawning/);
+
+    consoleLogSpy.mockClear();
+    await listCommand(commandDeps, { json: true });
+    const parsed = JSON.parse(consoleLogSpy.mock.calls.flat().join('\n'));
+    expect(parsed.claws[0].pid).toBe('spawning');
+  });
+
   it('propagates RootConfig loadGlobal error outside the list body', async () => {
     const sentinel = new Error('config corrupt');
     loadGlobal.mockImplementation(() => {
