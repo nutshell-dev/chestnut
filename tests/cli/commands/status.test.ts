@@ -46,10 +46,6 @@ vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../src/assembly/config/config-load.js', () => ({
-  loadGlobalConfig: vi.fn(),
-}));
-
 vi.mock('../../../src/core/claw-topology/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/claw-topology/index.js')>();
   return {
@@ -100,6 +96,8 @@ vi.mock('../../../src/core/status-service/index.js', async (importOriginal) => {
 
 import { computeForumStatusView } from '../../../src/core/status-service/index.js';
 
+const loadGlobal = vi.fn();
+
 function makeFakeFs(): any {
   return {
     existsSync: vi.fn().mockReturnValue(false),
@@ -127,12 +125,18 @@ function baseForumView(): ForumStatusView {
 describe('statusCommand (Phase 977)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    loadGlobal.mockReturnValue({});
+  });
+
+  const deps = () => ({
+    fsFactory: () => makeFakeFs(),
+    rootConfig: { loadGlobal },
   });
 
   it('writes FORUM_STATUS audit event', async () => {
     vi.mocked(computeForumStatusView).mockResolvedValue(baseForumView());
 
-    await statusCommand({ fsFactory: () => makeFakeFs() });
+    await statusCommand(deps());
 
     const events = currentAudit.events.filter(
       (e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_STATUS,
@@ -151,7 +155,7 @@ describe('statusCommand (Phase 977)', () => {
       ],
     });
 
-    await statusCommand({ fsFactory: () => makeFakeFs() });
+    await statusCommand(deps());
 
     const clawErrors = currentAudit.events.filter(
       (e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR,
@@ -175,7 +179,7 @@ describe('statusCommand (Phase 977)', () => {
       orphans: { watchdog: [], daemon: [], error: 'process list unavailable' },
     });
 
-    await statusCommand({ fsFactory: () => makeFakeFs() });
+    await statusCommand(deps());
 
     const orphanErrors = currentAudit.events.filter(
       (e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR,
@@ -185,5 +189,13 @@ describe('statusCommand (Phase 977)', () => {
       STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR,
       'error=process list unavailable',
     ]);
+  });
+
+  it('propagates RootConfig error before status computation', async () => {
+    const sentinel = new Error('status config sentinel');
+    loadGlobal.mockImplementation(() => { throw sentinel; });
+
+    await expect(statusCommand(deps())).rejects.toBe(sentinel);
+    expect(computeForumStatusView).not.toHaveBeenCalled();
   });
 });
