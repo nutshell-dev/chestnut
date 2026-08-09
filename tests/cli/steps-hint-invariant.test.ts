@@ -8,6 +8,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import { makeClawCommandDeps, type FakeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
 vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config-store/index.js')>();
@@ -15,17 +16,6 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
-
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 function makeSteps(count: number) {
@@ -276,6 +266,7 @@ describe('clawTraceCommand hint wire', () => {
   let tmpDir: string;
   let originalRoot: string | undefined;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let commandDeps: FakeClawCommandDeps;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -283,6 +274,7 @@ describe('clawTraceCommand hint wire', () => {
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    commandDeps = makeClawCommandDeps(fsFactory);
   });
 
   afterEach(async () => {
@@ -323,7 +315,7 @@ describe('clawTraceCommand hint wire', () => {
 
   it('trace overview 含 --step hint', async () => {
     setupClawTrace('test-claw', 'contract-1');
-    await clawTraceCommand({ fsFactory }, 'test-claw', 'contract-1');
+    await clawTraceCommand(commandDeps, 'test-claw', 'contract-1');
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toContain('→ chestnut claw test-claw trace --contract contract-1 --step <n> for full detail');
     expect(output).toContain('n=1..1');
@@ -331,14 +323,14 @@ describe('clawTraceCommand hint wire', () => {
 
   it('trace overview noHint 抑制 hint', async () => {
     setupClawTrace('test-claw', 'contract-1');
-    await clawTraceCommand({ fsFactory }, 'test-claw', 'contract-1', undefined, { noHint: true });
+    await clawTraceCommand(commandDeps, 'test-claw', 'contract-1', undefined, { noHint: true });
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).not.toContain('→ chestnut');
   });
 
   it('trace step detail 不加 hint (leaf node)', async () => {
     setupClawTrace('test-claw', 'contract-1');
-    await clawTraceCommand({ fsFactory }, 'test-claw', 'contract-1', '1');
+    await clawTraceCommand(commandDeps, 'test-claw', 'contract-1', '1');
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).not.toContain('→ chestnut');
   });

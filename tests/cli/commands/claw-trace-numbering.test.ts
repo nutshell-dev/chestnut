@@ -20,8 +20,8 @@ import { clawTraceCommand } from '../../../src/cli/commands/claw-trace.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
-import { loadGlobalConfig, clawExists } from '../../../src/assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -33,17 +33,6 @@ vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importO
     getClawConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(),
-  buildLLMConfig: vi.fn(),
-}));
-
 interface StreamEv {
   ts: number;
   type: string;
@@ -74,6 +63,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
   let logs: string[];
   let tmpRoot: string;
   let clawDir: string;
+  let commandDeps: FakeClawCommandDeps;
   const startedAt = '2026-05-31T00:00:00.000Z';
   const startedTs = Date.parse(startedAt);
 
@@ -86,8 +76,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     clawDir = path.join(tmpRoot, '.chestnut', 'claws', 'alice');
     fs.mkdirSync(clawDir, { recursive: true });
 
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as never);
-    vi.mocked(clawExists).mockReturnValue(true);
+    commandDeps = makeClawCommandDeps(fsFactory);
     vi.mocked(getClawDir).mockReturnValue(clawDir as never);
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join(clawDir, name, 'config.yaml'));
   });
@@ -106,7 +95,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 4, type: 'tool_result', name: 'write', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
+    await clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toContain('Turns: 2');
@@ -122,7 +111,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 4, type: 'tool_result', name: 'write', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
+    await clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toMatch(/Turn 1\b/);
@@ -141,7 +130,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 6, type: 'tool_result', name: 'submit', tool_use_id: 't4' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
+    await clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toContain('[1.a] read');
@@ -161,7 +150,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 4, type: 'tool_result', name: 'second', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
+    await clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     const idxTurn1 = out.indexOf('Turn 1');
@@ -185,7 +174,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 5, type: 'tool_result', name: 'next', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
+    await clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toMatch(/Turn 2 \(subtask_completed\)/);
@@ -202,7 +191,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 2, type: 'tool_result', name: 'mytool', tool_use_id: 't1' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '1');
+    await clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'), '1');
     const out = logs.join('\n');
     expect(out).toContain('[1.a] mytool');
   });
@@ -215,7 +204,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 3, type: 'tool_result', name: 'second', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '1.b');
+    await clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'), '1.b');
     const out = logs.join('\n');
     expect(out).toContain('[1.b] second');
     expect(out).not.toContain('[1.a]');
@@ -226,7 +215,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     writeStream(clawDir, [{ ts: startedTs + 1, type: 'llm_start' }]);
 
     await expect(
-      clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '5x'),
+      clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'), '5x'),
     ).rejects.toBeInstanceOf(CliError);
   });
 
@@ -238,7 +227,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     ]);
 
     await expect(
-      clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '99.a'),
+      clawTraceCommand(commandDeps, 'alice', makeContractId('C-1'), '99.a'),
     ).rejects.toBeInstanceOf(CliError);
   });
 });

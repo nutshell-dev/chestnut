@@ -10,10 +10,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { streamCommand, parseStartMode } from '../../../src/cli/commands/claw-stream.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { loadGlobalConfig, clawExists } from '../../../src/assembly/config/config-load.js';
 import { getRelativeClawDir, getClawConfigPath } from '../../../src/core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../../src/assembly/config/global-config-path.js';
 import { CliError } from '../../../src/cli/errors.js';
+import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -32,17 +32,6 @@ vi.mock('../../../src/assembly/config/global-config-path.js', async (importOrigi
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  clawExists: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  saveClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  buildLLMConfig: vi.fn(),
-}));
-
 describe('parseStartMode', () => {
   it('default (no args) → recent-turn', () => {
     expect(parseStartMode([])).toEqual({ kind: 'recent-turn' });
@@ -87,9 +76,10 @@ describe('parseStartMode', () => {
 });
 
 describe('streamCommand', () => {
+  let commandDeps: FakeClawCommandDeps;
+
   beforeEach(() => {
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
-    vi.mocked(clawExists).mockReturnValue(true);
+    commandDeps = makeClawCommandDeps(fsFactory);
     vi.mocked(getRelativeClawDir).mockImplementation((name: string) => path.join('claws', name));
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
@@ -100,10 +90,10 @@ describe('streamCommand', () => {
   });
 
   it('throws CliError when claw does not exist', async () => {
-    vi.mocked(clawExists).mockReturnValue(false);
-    await expect(streamCommand({ fsFactory }, 'nonexistent-claw'))
+    commandDeps.rootConfig.loadClaw.mockReturnValue(undefined);
+    await expect(streamCommand(commandDeps, 'nonexistent-claw'))
       .rejects.toBeInstanceOf(CliError);
-    await expect(streamCommand({ fsFactory }, 'nonexistent-claw'))
+    await expect(streamCommand(commandDeps, 'nonexistent-claw'))
       .rejects.toThrow(/does not exist/);
   });
 });
