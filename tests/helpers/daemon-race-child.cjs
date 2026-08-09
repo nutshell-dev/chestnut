@@ -28,7 +28,11 @@ function readJson(p) {
 }
 
 function writeJson(p, obj) {
-  fs.writeFileSync(p, JSON.stringify(obj, null, 2));
+  // Mirror ProcessManager writeReadyFact: a reader may observe either the old
+  // path state or the complete JSON record, never a partially-written file.
+  const tempPath = `${p}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tempPath, JSON.stringify(obj, null, 2), { flag: 'wx' });
+  fs.renameSync(tempPath, p);
 }
 
 function waitFor(predicate, timeoutMs = 5000) {
