@@ -40,7 +40,7 @@ import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 // phase 1324 Step A：RouterDeps 收敛为 Claw 命令族共享 deps 的 type alias
 // （type-only barrel import）；Router 自身不再另行声明窄 RootConfig 形状。
-import type { ClawCommandDeps } from './claw-command-deps.js';
+import type { ClawCreateCommandDeps } from './claw-command-deps.js';
 import { listMigratedExecTasks } from '../../core/async-task-system/index.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { PRIORITY_ORDER, type Priority } from '../../foundation/messaging/index.js';
@@ -56,7 +56,7 @@ import {
   type ClawInstanceCommandId,
 } from '../../cli-protocol/index.js';
 
-export type RouterDeps = ClawCommandDeps;
+export type RouterDeps = ClawCreateCommandDeps;
 
 function verbAction<TArgs extends unknown[]>(
   policy: SupervisionPolicy,
@@ -231,7 +231,6 @@ async function runCreate(deps: RouterDeps, name: string, args: string[]): Promis
   if (args.length > 0) {
     throw new CliError(`'create' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  deps.rootConfig.loadGlobal();
   const { audit } = createDirContext(deps, getClawDir(name));
   await createCommand(deps, name, { audit });
 }

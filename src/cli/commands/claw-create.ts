@@ -2,7 +2,6 @@
  * @module L6.CLI.Claw.Create
  */
 
-import { loadGlobalConfig, saveClawConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CLAW_SUBDIRS } from '../../assembly/claw-subdirs.js';
 // path module intentionally not used in this file after refactor
@@ -10,17 +9,17 @@ import { CliError } from '../errors.js';
 import { buildAgentsMdTemplate } from '../../templates/prompts/index.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
+import type { ClawCreateCommandDeps } from './claw-command-deps.js';
 
-export async function createCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, opts?: { audit?: AuditLog }): Promise<void> {
+export async function createCommand(deps: ClawCreateCommandDeps, name: string, opts?: { audit?: AuditLog }): Promise<void> {
   const audit = opts?.audit;
   // Load global config (ensures initialized)
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
   
   // Check if claw already exists
   const configPath = getClawConfigPath(name);
-  if (clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) !== undefined) {
     throw new CliError(`Claw "${name}" already exists`);
   }
   
@@ -39,7 +38,7 @@ export async function createCommand(deps: { fsFactory: (baseDir: string) => File
     max_concurrent_tasks: 3,
   };
   
-  saveClawConfig(deps, configPath, config);
+  deps.rootConfig.saveClaw(configPath, config);
   
   // Create AGENTS.md template
   const agentsTemplate = buildAgentsMdTemplate(name);

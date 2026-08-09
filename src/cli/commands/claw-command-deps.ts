@@ -12,11 +12,17 @@
  *   具体命令族。
  */
 
-import type { RootConfigReader } from '../../assembly/index.js';
+import type { RootConfigAdmin, RootConfigReader } from '../../assembly/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 export interface ClawCommandDeps {
   fsFactory(baseDir: string): FileSystem;
   // phase 1301 Step B 起：required 窄 DI（M#8/M#9）。漏注入在 tsc 编译期失败。
   rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'>;
+}
+
+/** Create独享的最小写面；普通Claw leaf仍只接收上方Reader。 */
+export interface ClawCreateCommandDeps {
+  fsFactory: ClawCommandDeps['fsFactory'];
+  rootConfig: ClawCommandDeps['rootConfig'] & Pick<RootConfigAdmin, 'saveClaw'>;
 }
