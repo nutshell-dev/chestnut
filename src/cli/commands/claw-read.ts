@@ -5,23 +5,23 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export async function readCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   clawName: string,
   filePath: string,
   options?: { offset?: number; limit?: number },
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(clawName);
-  if (!clawExists(deps, configPath)) {
+  // undefined 才是 missing；parse/corrupt/IO 异常原实例 fail-loud 上抛，不 catch。
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${clawName}" does not exist`);
   }
 

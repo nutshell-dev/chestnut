@@ -38,14 +38,13 @@ import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { cliAction, type SupervisionPolicy } from '../supervision-policy.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
-// phase 1301 Step B：Router 只通过窄 Pick 消费 Assembly RootConfig capability（type-only
-// barrel import），不再 deep-import Assembly config internal 离散函数。
-import type { RootConfigReader } from '../../assembly/index.js';
+// phase 1324 Step A：RouterDeps 收敛为 Claw 命令族共享 deps 的 type alias
+// （type-only barrel import）；Router 自身不再另行声明窄 RootConfig 形状。
+import type { ClawCommandDeps } from './claw-command-deps.js';
 import { listMigratedExecTasks } from '../../core/async-task-system/index.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { PRIORITY_ORDER, type Priority } from '../../foundation/messaging/index.js';
 import { makeContractId } from '../../core/contract/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import { psCommand } from './claw-ps.js';
 import {
@@ -57,12 +56,7 @@ import {
   type ClawInstanceCommandId,
 } from '../../cli-protocol/index.js';
 
-export interface RouterDeps {
-  fsFactory: (baseDir: string) => FileSystem;
-  // phase 1301 Step B：required 窄 DI（M#8/M#9）。不接 Admin 宽面、不 optional、
-  // 不提供 fallback 自构造；漏注入在 tsc 编译期失败。
-  rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'>;
-}
+export type RouterDeps = ClawCommandDeps;
 
 function verbAction<TArgs extends unknown[]>(
   policy: SupervisionPolicy,
