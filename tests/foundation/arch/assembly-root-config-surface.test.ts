@@ -35,14 +35,16 @@ function parseBarrelExports(text: string): string[] {
 
 /** barrel 导出中 RootConfig 相关（本 phase 新增候选）的子集。 */
 function rootConfigSurface(exports: string[]): string[] {
-  return exports.filter((n) => /^(createRootConfig|resolveLLMConfig|RootConfig\w*)$/.test(n)).sort();
+  return exports.filter((n) => /^(createRootConfig(?:LegacyMigration)?|resolveLLMConfig|RootConfig\w*)$/.test(n)).sort();
 }
 
 const EXPECTED_SURFACE = [
   'RootConfigAdmin',
   'RootConfigDeps',
+  'RootConfigLegacyMigration',
   'RootConfigReader',
   'createRootConfig',
+  'createRootConfigLegacyMigration',
   'resolveLLMConfig',
 ];
 
@@ -83,7 +85,7 @@ describe('phase 1300: Assembly barrel RootConfig 精确新增表面', () => {
     const withClawExists = parseBarrelExports(`${text}\nexport { clawExists } from './config/config-load.js';`);
     expect(rootConfigSurface(withClawExists)).toEqual(EXPECTED_SURFACE);
     expect(withClawExists.filter((n) => FORBIDDEN.includes(n))).toEqual(['clawExists']);
-    const missing = parseBarrelExports(text.replace(/^export \{ createRootConfig \}.*$/m, ''));
+    const missing = parseBarrelExports(text.replace('createRootConfig, ', ''));
     expect(rootConfigSurface(missing)).not.toEqual(EXPECTED_SURFACE);
   });
 });

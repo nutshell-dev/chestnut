@@ -7,7 +7,7 @@
  * 2. cli/index.ts 与 commands/claw-router.ts 零 `assembly/config/**` import；
  * 3. 普通Claw leaf含required Reader窄Pick；create专享saveClaw窄Pick，
  *    RouterDeps显式满足create-capable联合面；
- * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 5 文件
+ * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 3 文件
  *    migration baseline——只防新增与意外删除，不批准永久存在；后续每个命令族
  *    治理 phase 必须同步递减本清单；
  * 5. clawExists 不得回到 router；
@@ -94,7 +94,7 @@ describe('phase 1301/1324/1336: Reader共享面 + create专属写面', () => {
 });
 
 describe('phase 1301: remaining deep-caller migration baseline', () => {
-  it('config-load.js importer 精确为 5 文件路径集合（phase 1336 迁出 create）', () => {
+  it('config-load.js importer 精确为 3 文件路径集合（phase 1337 迁出migration）', () => {
     expect(configLoadImporters()).toEqual(REMAINING_BASELINE);
   });
 

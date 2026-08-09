@@ -47,13 +47,11 @@ export function configLoadImporters(): string[] {
     .sort();
 }
 
-// Migration baseline（phase 1336 Step C：create 迁出，6→5）：精确路径集合，
+// Migration baseline（phase 1337 Step C：两migration迁出，5→3）：精确路径集合，
 // 非计数；一删一增抵消会被拒。后续每个命令族治理 phase 必须同步递减本清单。
 export const REMAINING_BASELINE = [
-  'audit-config-migration.ts',
   'commands/config.ts', 'commands/init.ts',
   'llm-connection-check.ts',
-  'watchdog-config-migration.ts',
 ].sort();
 
 export const NARROW_PICK = /rootConfig:\s*Pick<RootConfigReader,\s*'loadGlobal'\s*\|\s*'loadClaw'>/;
