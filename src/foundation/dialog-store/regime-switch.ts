@@ -22,6 +22,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { Message, ToolDefinition } from '../llm-provider/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { DialogStore } from './store.js';
+import type { DialogSessionLifecycle } from './types.js';
 import { DIALOG_DIR } from './dirs.js';
 
 /** Regime switch 继承策略：identity 变化时 inherited messages 算法。*/
@@ -47,9 +48,9 @@ export interface PerformRegimeSwitchOpts {
   /** 新 system prompt（caller 已 build） */
   newSystemPrompt: string;
   /** 当前 DialogStore 实例（即将 archive） */
-  currentStore: DialogStore;
+  currentStore: DialogSessionLifecycle;
   /** DialogStore factory（产 new instance for new regime） */
-  dialogStoreFactory: () => DialogStore;
+  dialogStoreFactory: () => DialogSessionLifecycle;
   /** 新 regime 的工具列表（caller's toolRegistry 已 format） */
   toolsForLLM: ToolDefinition[];
   /** clawDir（用于 recovery dump path 构造） */
@@ -73,7 +74,7 @@ export interface PerformRegimeSwitchOpts {
 }
 
 export interface PerformRegimeSwitchResult {
-  newStore: DialogStore;
+  newStore: DialogSessionLifecycle;
   inheritedCount: number;
   discardedCount: number;
 }

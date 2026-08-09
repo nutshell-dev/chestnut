@@ -8,7 +8,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
+import type { DialogSessionLifecycle } from '../../foundation/dialog-store/index.js';
 import type { InboxReader, InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
@@ -53,7 +53,7 @@ export interface RuntimeDependencies {
   // === L2 ===
   readonly auditWriter: AuditLog;
   readonly snapshot: SnapshotCommitter;
-  readonly sessionManager: DialogStore;
+  readonly sessionManager: DialogSessionLifecycle;
   readonly inboxReader: InboxReader;
 
   // === L3-L5 ===
@@ -76,7 +76,7 @@ export interface RuntimeDependencies {
   readonly parentStreamLog?: import('../../foundation/stream/index.js').StreamLog;
 
   /** phase 521: regime 切换协调装配 / Assembly own factory / per L5.G1-G4 closure 2026-05-07 */
-  readonly dialogStoreFactory: () => DialogStore;
+  readonly dialogStoreFactory: () => DialogSessionLifecycle;
 
   /** phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家 formatter）*/
   readonly formatterRegistry: InboxMessageTypeRegistry;

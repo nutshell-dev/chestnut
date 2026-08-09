@@ -17,7 +17,11 @@ import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/ind
 import type { InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
 import { renderStandardInboxMessage } from '../../foundation/messaging/index.js';
 
-import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
+import {
+  performRegimeSwitch,
+  repairDialogMessages,
+  type DialogSessionLifecycle,
+} from '../../foundation/dialog-store/index.js';
 import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
 import { loadReadFileState, clearReadFileState, persistReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
@@ -130,7 +134,7 @@ export class Runtime {
   protected llm!: LLMOrchestrator;
 
   // Core
-  protected sessionManager!: DialogStore;
+  protected sessionManager!: DialogSessionLifecycle;
   /**
    * @protected allows create-runtime helper to call buildParts() / customize prompt injection order
    * (phase 266 reframed MotionRuntime subclass to identity-based dispatch; treat as read-only — no injector state mutation)
@@ -149,7 +153,7 @@ export class Runtime {
   private guidanceCompose?: import('./types.js').GuidanceCompose;
 
   // phase 521: regime switch coordination
-  private dialogStoreFactory!: () => DialogStore;
+  private dialogStoreFactory!: () => DialogSessionLifecycle;
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
   // phase 1190：上下文管理器运行时配置（filterSubtypes 已移除）
   private contextManagerConfig?: import('../step-executor/index.js').ContextManagerRuntimeConfig;
@@ -309,7 +313,7 @@ export class Runtime {
     const { session, source } = loadResult;
     // interruptionMessage 由 caller（daemon）传入，runtime 不再直读 audit 文件
     this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_LOADED, `source=${source}`);
-    const { repaired, toolCount } = DialogStore.repair(
+    const { repaired, toolCount } = repairDialogMessages(
       session.messages,
       interruptionMessage ? { interruptionMessage } : undefined,
     );
