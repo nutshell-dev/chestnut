@@ -88,9 +88,22 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
   });
 
   it('motionDaemonCommand warns ⚠ when isAlive=true', async () => {
-    await motionDaemonCommand({ fsFactory, processManager: aliveFakePM() });
+    await motionDaemonCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() }, processManager: aliveFakePM() });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('⚠'));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
+  });
+
+  it('motionDaemonCommand propagates global config failure before process inspection', async () => {
+    const sentinel = new Error('motion daemon config sentinel');
+    const processManager = aliveFakePM();
+    const isAliveSpy = vi.spyOn(processManager, 'isAlive');
+
+    await expect(motionDaemonCommand({
+      fsFactory,
+      rootConfig: { loadGlobal: () => { throw sentinel; } },
+      processManager,
+    })).rejects.toBe(sentinel);
+    expect(isAliveSpy).not.toHaveBeenCalled();
   });
 
   it('clawDaemonCommand throws CliError when claw does not exist (no static fallthrough)', async () => {
