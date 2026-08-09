@@ -106,7 +106,7 @@ program
   .description('Stop all chestnut processes (watchdog → motion → claws)')
   .action(action('disabled', async () => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
-    await stopAllCommand({ fsFactory }, { audit });
+    await stopAllCommand({ fsFactory, rootConfig }, { audit });
   }));
 
 // status command

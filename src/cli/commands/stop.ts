@@ -4,7 +4,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { loadGlobalConfig } from '../../assembly/config/config-load.js';
+import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
@@ -24,11 +24,16 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
 
+export interface StopCommandDeps {
+  fsFactory(baseDir: string): FileSystem;
+  rootConfig: Pick<RootConfigReader, 'loadGlobal'>;
+}
+
 export async function stopAllCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: StopCommandDeps,
   extraDeps?: { audit?: AuditLog; kill?: typeof kill; isPidArgvMatching?: typeof isPidArgvMatching; isAlive?: typeof isAlive },
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   // motion-level audit（α 模板复用 / 同 daemon-entry shim / fail-soft）
   let audit: AuditLog | null = extraDeps?.audit ?? null;
