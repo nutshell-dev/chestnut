@@ -20,6 +20,7 @@ import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js
 import type { Message } from '../../src/foundation/llm-provider/types.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
+import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
 async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
   for (const block of response.content) {
@@ -133,8 +134,8 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
       .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
       .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     // sessionManager should still be the old one because save threw before commit
     expect(runtime.testGetSessionManager()).toBe(oldSessionManager);
@@ -181,8 +182,8 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
       .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
       .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     // Verify recovery file exists in dialog dir
     const dialogDir = path.join(clawDir, 'dialog');
@@ -248,8 +249,8 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
       .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
       .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     const failedCall = auditSpy.mock.calls.find(c =>
       c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED && c[1] === 'phase=save_and_dump'
@@ -306,8 +307,8 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
       .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
       .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     // sessionManager should be the new one
     expect(runtime.testGetSessionManager()).toBe(capturedNewSessionManager);

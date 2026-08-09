@@ -39,14 +39,6 @@ class AuthorityTestRuntime extends Runtime {
     return { status: 'success' };
   }
 
-  protected override async _processWithMessageImpl(
-    _msg: Message,
-    _callbacks?: StreamCallbacks,
-  ): Promise<TurnResult> {
-    // Bypass load/tools setup; just exercise the internal nested turn path.
-    return this._processTurnImpl([], 'sp', [], _callbacks);
-  }
-
   protected override async _proactiveTrimIfNeededImpl(
     messages: Message[],
     _systemPrompt: string,
@@ -204,20 +196,6 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     await first;
   });
 
-  it('processWithMessage nests into processTurn without duplicate authority acquire', async () => {
-    const { runtime, auditEvents } = makeRuntime(makeMockDialogStore());
-
-    const msg: Message = { role: 'user', content: 'hello' };
-    const turnPromise = runtime.processWithMessage(msg);
-    await vi.waitUntil(() => runtime.turnStarted, { timeout: 1000 });
-
-    // No concurrent violation should have been emitted for the internal nested call.
-    expect(auditEvents.some((e) => e[0] === RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_CONCURRENT)).toBe(false);
-
-    runtime.turnRelease!();
-    await turnPromise;
-  });
-
   it('operation rejection clears handle and preserves original error', async () => {
     const { runtime } = makeRuntime(makeMockDialogStore());
     const originalError = new Error('turn crashed');
@@ -265,22 +243,6 @@ describe('Runtime dialog mutation authority (Phase 1218 Step A)', () => {
     await expect(runtime.proactiveTrimIfNeeded([], 'sp', [])).rejects.toThrow('Runtime is stopping');
 
     expect(auditEvents.some((e) => e[0] === RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_WHILE_STOPPING)).toBe(true);
-  });
-
-  it('processWithMessage internal proactive trim does not double-acquire authority (Phase 1218 Step D)', async () => {
-    const { runtime, auditEvents } = makeRuntime(makeMockDialogStore());
-    runtime.proactiveShouldBlock = true;
-
-    const msg: Message = { role: 'user', content: 'hello' };
-    const turnPromise = runtime.processWithMessage(msg);
-    await vi.waitUntil(() => runtime.turnStarted, { timeout: 1000 });
-
-    // Internal path should call _proactiveTrimIfNeededImpl while already holding
-    // authority, without triggering a concurrent-acquire violation.
-    expect(auditEvents.some((e) => e[0] === RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_CONCURRENT)).toBe(false);
-
-    runtime.turnRelease!();
-    await turnPromise;
   });
 
   it('stop awaits active proactive trim before shutting down dependencies (Phase 1218 Step D)', async () => {

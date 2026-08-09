@@ -11,6 +11,7 @@ import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-p
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
 import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
+import { processRuntimeMessage } from '../../helpers/process-runtime-message.js';
 
 function createMockLLMConfig() {
   return {
@@ -117,7 +118,7 @@ describe('runtime proactive trim integration', () => {
     expect(runtime.runReactMessages).toEqual([trimmed]);
   });
 
-  it('3. processWithMessage calls maybeTrimProactive and replaces messages', async () => {
+  it('3. test message driver calls maybeTrimProactive and replaces messages', async () => {
     const original = { role: 'user', content: 'original' } as Message;
     const trimmed = { role: 'assistant', content: 'trimmed' } as Message;
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue({
@@ -127,7 +128,7 @@ describe('runtime proactive trim integration', () => {
     });
     const runtime = await makeRuntime({ filterSubtypes: new Set() });
 
-    await runtime.processWithMessage(original);
+    await processRuntimeMessage(runtime, original);
 
     expect(runtime.runReactMessages).toEqual([trimmed]);
   });
@@ -142,7 +143,7 @@ describe('runtime proactive trim integration', () => {
     runtime.callSuperRunReact = true;
     expect((runtime as any).lastLLMCallAt).toBe(0);
 
-    await runtime.processWithMessage({ role: 'user', content: 'hi' } as Message);
+    await processRuntimeMessage(runtime, { role: 'user', content: 'hi' } as Message);
 
     expect(runReactSpy).toHaveBeenCalled();
     expect((runtime as any).lastLLMCallAt).toBeGreaterThan(0);

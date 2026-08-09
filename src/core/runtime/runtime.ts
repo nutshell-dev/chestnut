@@ -767,7 +767,7 @@ export class Runtime {
     // phase 786: stopRequested 是 per-turn flag，每 turn 起首 reset
     // 防 P0.14 跨 turn sticky bug（done 工具误调后下 turn silent empty）
     this.execContext.stopRequested = false;
-    // 解析一次 regime/identity 信息；LLM 仍使用 caller 传入的 systemPrompt（兼容 processWithMessage 等旧入口）
+    // 解析一次 regime/identity 信息；LLM 仍使用 caller 传入的 systemPrompt。
     const { systemPrompt: resolvedSystemPrompt, identityContent } = await this._resolveSystemPromptForRun();
 
     // phase 518 (review-round4 N4-Core-H3): per-turn cache contract_id for tool event audit
@@ -965,8 +965,7 @@ export class Runtime {
 
   /**
    * Phase 1218 Step A: internal turn implementation. Must only be invoked
-   * inside an active _withDialogOperation guard (either the public processTurn
-   * wrapper or the public processWithMessage wrapper).
+   * inside the public processTurn entry's active _withDialogOperation guard.
    */
   private async _processTurnImpl(
     messages: Message[],
@@ -1031,52 +1030,6 @@ export class Runtime {
       }
     }
   }
-
-
-  /**
-   * Process a single synthetic message directly (without draining inbox).
-   * Used by daemon-loop for in-process startup trigger — message is never persisted to disk.
-   *
-   * Phase 1218 Step A: public entry guarded by _withDialogOperation. The internal
-   * turn implementation is invoked directly so the two public entries share a
-   * single authority acquisition instead of nesting guards.
-   */
-  async processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-    return this._withDialogOperation(() => this._processWithMessageImpl(msg, callbacks));
-  }
-
-  /**
-   * Phase 1218 Step A: internal processWithMessage implementation. Must only be
-   * invoked inside an active _withDialogOperation guard.
-   */
-  private async _processWithMessageImpl(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult> {
-    const { traceId, cleanup } = this._setupTurnContext();
-    try {
-      const loadResult = await this.sessionManager.load();
-      if (loadResult.source === 'io_error') {
-        throw new Error(`Session load failed: ${loadResult.error}`);
-      }
-      const { session } = loadResult;
-      const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
-      const tools = this.getToolsForLLM();
-      const systemPrompt = session.systemPrompt;
-      let messages = [...session.messages, enrichedMsg];
-      messages = await this._proactiveTrimIfNeededImpl(messages, systemPrompt, tools);
-
-      callbacks?.onTurnStart?.([]);
-      // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-      // phase 722: 加 caller col 区分 with_message caller 路径
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-
-      return await this._processTurnImpl(messages, systemPrompt, tools, callbacks, traceId);
-    } finally {
-      cleanup();
-    }
-  }
-
   // P1-10: retryLastTurn 方法已删除。rollback-first 流程下其「截断到 lastUserIdx 重放」
   // 语义必然命中上一轮成功 turn，导致非幂等副作用重复执行；删除后 LLM 类失败重试走
   // rollback + nack + 退避 → re-drain 全新 turn。
@@ -1230,8 +1183,7 @@ export class Runtime {
    * Public proactive context trim before a turn; returns the (possibly trimmed) messages.
    *
    * Phase 1218 Step D: this is a public mutation operation and must acquire the
-   * dialog operation authority. The internal implementation is used by
-   * `_processWithMessageImpl` while already holding authority.
+   * dialog operation authority.
    */
   async proactiveTrimIfNeeded(
     messages: Message[],

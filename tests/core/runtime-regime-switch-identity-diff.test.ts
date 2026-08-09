@@ -25,6 +25,7 @@ import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js
 import type { Message } from '../../src/foundation/llm-provider/types.js';
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
+import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
 async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
   for (const block of response.content) {
@@ -128,8 +129,8 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce({ full: 'agents\n\nmemory-v1\n\nskills', identityContent: 'agents\n\nskills' })
       .mockResolvedValueOnce({ full: 'agents\n\nmemory-v2\n\nskills', identityContent: 'agents\n\nskills' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     expect(archiveSpy).toHaveBeenCalledTimes(0);
   });
@@ -160,8 +161,8 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce({ full: 'agents\n\ncontract-unchecked', identityContent: 'agents\n\nskills' })
       .mockResolvedValueOnce({ full: 'agents\n\ncontract-checked', identityContent: 'agents\n\nskills' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     expect(archiveSpy).toHaveBeenCalledTimes(0);
   });
@@ -192,8 +193,8 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce({ full: 'agents\n\ncontract-A', identityContent: 'agents\n\nskills' })
       .mockResolvedValueOnce({ full: 'agents\n\ncontract-B', identityContent: 'agents\n\nskills' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     expect(archiveSpy).toHaveBeenCalledTimes(0);
   });
@@ -226,8 +227,8 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce({ full: 'agents-v1\n\nskills', identityContent: 'agents-v1\n\nskills' })
       .mockResolvedValueOnce({ full: 'agents-v2\n\nskills', identityContent: 'agents-v2\n\nskills' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     expect(archiveSpy).toHaveBeenCalledTimes(1);
     expect(factorySpy).toHaveBeenCalledTimes(1);
@@ -259,8 +260,8 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce({ full: 'agents\n\nS1', identityContent: 'agents\n\nS1' })
       .mockResolvedValueOnce({ full: 'agents\n\nS1\nS2', identityContent: 'agents\n\nS1\nS2' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     expect(archiveSpy).toHaveBeenCalledTimes(1);
   });
@@ -294,9 +295,9 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
       .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' }); // turn 1 still returns normally
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' }); // turn 1 still returns normally
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' }); // turn 2 also returns normally despite factory throw
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' }); // turn 2 also returns normally despite factory throw
 
     const failedCall = auditSpy.mock.calls.find(c => c[0] === 'regime_switch_failed');
     expect(failedCall).toBeDefined();
@@ -343,10 +344,10 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
 
     // Turn 1: sets lastIdentityHash = 'identity-A'
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
 
     // Turn 2: identity changed, factory throws, audit failed, lastIdentityHash NOT updated
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     // Factory should have been called once (threw)
     expect(factorySpy).toHaveBeenCalledTimes(1);
@@ -356,7 +357,7 @@ describe('phase 539: identity-only diff', () => {
 
     // Turn 3: same identity as turn 2, factory succeeds (retry)
     // Because lastIdentityHash is still 'identity-A', and identityContent is 'identity-B', it retries
-    await runtime.processWithMessage({ role: 'user', content: 'Message 3' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 3' });
 
     // Factory should have been called twice (first threw, second succeeded)
     expect(factorySpy).toHaveBeenCalledTimes(2);
@@ -390,8 +391,8 @@ describe('phase 539: identity-only diff', () => {
       .mockResolvedValueOnce('custom-prompt-A')
       .mockResolvedValueOnce('custom-prompt-B');
 
-    await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-    await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     // With custom systemPromptBuilder, identityContent = full systemPrompt
     // Any change triggers regime switch (compatible with phase 521 behavior)

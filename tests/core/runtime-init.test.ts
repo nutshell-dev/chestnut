@@ -11,6 +11,7 @@ import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../src/foundation/mess
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
+import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
 
 describe('Runtime Init', () => {
@@ -216,7 +217,7 @@ describe('Runtime Init', () => {
       await runtime.initialize();
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await runtime.processWithMessage({ role: 'user', content: 'Hi!' });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Hi!' });
     });
 
     it('should maintain conversation history across calls', async () => {
@@ -234,8 +235,8 @@ describe('Runtime Init', () => {
       await runtime.initialize();
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await runtime.processWithMessage({ role: 'user', content: 'Message 1' });
-      await runtime.processWithMessage({ role: 'user', content: 'Message 2' });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
       // LLM should have been called twice
       expect(mockLLM.call).toHaveBeenCalledTimes(2);
@@ -260,7 +261,7 @@ describe('Runtime Init', () => {
       await runtime.initialize();
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await runtime.processWithMessage({ role: 'user', content: 'Save this' });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Save this' });
 
       // Check current.json exists
       const currentPath = path.join(clawDir, 'dialog', 'current.json');

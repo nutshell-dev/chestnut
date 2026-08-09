@@ -189,28 +189,6 @@ Test message
       auditSpy.mockRestore();
     });
 
-    it('processWithMessage emits turn_start + turn_end on success', async () => {
-      const runtime = trackRuntime(await createTestRuntime({
-        clawId: 'test-claw',
-        clawDir,
-        llmConfig: createMockLLMConfig(),
-      }));
-      await runtime.initialize();
-
-      const mockLLM = createMockLLM([{
-        content: [{ type: 'text', text: 'Reply' }],
-        stop_reason: 'end_turn',
-      }]);
-      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
-
-      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      await runtime.processWithMessage({ role: 'user', content: 'hello' });
-      const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
-      expect(calls).toContain('turn_start');
-      expect(calls).toContain('turn_end');
-      auditSpy.mockRestore();
-    });
-
   });
 
   describe('Runtime audit events - llm_call / llm_error', () => {

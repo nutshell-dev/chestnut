@@ -18,6 +18,7 @@ import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrato
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
+import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
 async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
   for (const block of response.content) {
@@ -119,7 +120,7 @@ describe('runtime stopRequested reset (phase 900)', () => {
     // Simulate previous turn's abort leaving stopRequested=true
     runtime.execContext.stopRequested = true;
 
-    await runtime.processWithMessage({ role: 'user', content: 'test message' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'test message' });
 
     // stopRequested was reset to false at turn entry
     expect(runtime.execContext.stopRequested).toBe(false);

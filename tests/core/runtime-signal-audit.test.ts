@@ -17,6 +17,7 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
 import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
+import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
 
 describe('Runtime SignalAudit', () => {
@@ -184,7 +185,7 @@ describe('Runtime SignalAudit', () => {
       (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const onProviderInfo = vi.fn();
-      await runtime.processWithMessage({ role: 'user', content: 'Hi' }, { onProviderInfo });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Hi' }, { onProviderInfo });
 
       expect(onProviderInfo).toHaveBeenCalledTimes(1);
       expect(onProviderInfo).toHaveBeenCalledWith({ name: 'anthropic', model: 'claude-opus-4-6', isFallback: false });
@@ -216,7 +217,7 @@ describe('Runtime SignalAudit', () => {
       (runtime as unknown as RuntimeTestInternals).llm = multiDeltaLLM;
 
       const onProviderInfo = vi.fn();
-      await runtime.processWithMessage({ role: 'user', content: 'Hi' }, { onProviderInfo });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Hi' }, { onProviderInfo });
 
       expect(onProviderInfo).toHaveBeenCalledTimes(1);
     });
@@ -238,7 +239,7 @@ describe('Runtime SignalAudit', () => {
       (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const onProviderInfo = vi.fn();
-      await runtime.processWithMessage({ role: 'user', content: 'Hi' }, { onProviderInfo });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Hi' }, { onProviderInfo });
 
       expect(onProviderInfo).toHaveBeenCalledWith(
         expect.objectContaining({ isFallback: true, name: 'openai' })
@@ -260,8 +261,8 @@ describe('Runtime SignalAudit', () => {
       (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const onProviderInfo = vi.fn();
-      await runtime.processWithMessage({ role: 'user', content: 'Turn 1' }, { onProviderInfo });
-      await runtime.processWithMessage({ role: 'user', content: 'Turn 2' }, { onProviderInfo });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Turn 1' }, { onProviderInfo });
+      await processRuntimeMessage(runtime, { role: 'user', content: 'Turn 2' }, { onProviderInfo });
 
       expect(onProviderInfo).toHaveBeenCalledTimes(2);
     });
