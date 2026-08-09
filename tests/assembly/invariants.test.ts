@@ -185,8 +185,7 @@ vi.mock('../../src/foundation/tools/executor.js', () => ({
   createToolExecutor: vi.fn((...args: any[]) => new (vi.fn(() => ({ execute: vi.fn() })) as any)(...args)),
 }));
 
-vi.mock('../../src/core/evolution-system/index.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/core/evolution-system/index.js')>()),
+vi.mock('../../src/core/evolution-system/index.js', () => ({
   EvolutionSystem: vi.fn(() => ({ notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }), init: vi.fn().mockResolvedValue(undefined) })),
   createEvolutionSystem: vi.fn(() => ({
     notifyContractCompleted: vi.fn(async (_contractId: string, ctx: any) => {
@@ -199,6 +198,7 @@ vi.mock('../../src/core/evolution-system/index.js', async (importOriginal) => ({
   })),
   DISPATCH_SKILLS_PATH: 'clawspace/dispatch-skills',
   DISPATCH_SKILLS_SUBDIR: 'dispatch-skills',
+  RETRO_AUDIT_EVENTS: { RETRO_TRIGGERED: 'retro_triggered' },
 }));
 
 vi.mock('../../src/core/contract/manager.js', () => {
