@@ -1,0 +1,19 @@
+diff --git a/dist/stdin-buffer.js b/dist/stdin-buffer.js
+index f48d9b8ba7ce608e4b0e02910c90edc4d043e8e8..78955fd86a0342365e78dcb01792d92f4868bb80 100644
+--- a/dist/stdin-buffer.js
++++ b/dist/stdin-buffer.js
+@@ -231,9 +231,13 @@ export class StdinBuffer extends EventEmitter {
+         }
+         this.buffer += str;
+         if (this.pasteMode) {
++            const previousPasteLength = this.pasteBuffer.length;
+             this.pasteBuffer += this.buffer;
+             this.buffer = "";
+-            const endIndex = this.pasteBuffer.indexOf(BRACKETED_PASTE_END);
++            // The previous prefix was already searched. Only rescan enough
++            // overlap to detect an end marker split across stdin chunks.
++            const searchStart = Math.max(0, previousPasteLength - BRACKETED_PASTE_END.length + 1);
++            const endIndex = this.pasteBuffer.indexOf(BRACKETED_PASTE_END, searchStart);
+             if (endIndex !== -1) {
+                 const pastedContent = this.pasteBuffer.slice(0, endIndex);
+                 const remaining = this.pasteBuffer.slice(endIndex + BRACKETED_PASTE_END.length);
