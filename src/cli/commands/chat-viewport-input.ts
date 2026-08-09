@@ -45,7 +45,10 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
       deps.requestRender();
       return { consume: true };
     }
-    if (data.includes('\x1b') && !data.includes('\x1b[') && !data.includes('\r') && !data.includes('\n')) {
+    // StdinBuffer may prefix high UTF-8 bytes or Option/meta keys with ESC.
+    // Only the exact single-byte ESC sequence represents the user's interrupt
+    // intent; matching any string containing ESC causes false interrupts.
+    if (data === '\x1b') {
       if (!deps.turnTracker.isActive()) {
         deps.mainUI.enterPhase('idle');
         deps.mainUI.clearPreview();
