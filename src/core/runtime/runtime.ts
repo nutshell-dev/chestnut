@@ -876,28 +876,49 @@ export class Runtime {
       });
       await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
 
-      // turn auto-commit
-      this.turnCount++;
-      const commitResult = await this.snapshot.commit(`turn-${this.turnCount} ${new Date().toISOString()}`).catch((err: unknown): null => {
-        // 不可预期失败：audit 已在 snapshot 内写；此处仅暴露给诊断
-        // phase 567: 加 trace_id forensic field（turn 末路径 execContext.trace_id 已设）
-        auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, err, `context=turn-${this.turnCount}`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-        return null;
-      });
-      if (commitResult && !commitResult.ok) {
-        // phase 567: 加 trace_id forensic field
-        const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
-        if (commitResult.error.kind === 'uncategorized') {
-          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=turn-${this.turnCount}`, `exitCode=${commitResult.error.exitCode}`, traceCol);
-        } else {
-          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=turn-${this.turnCount}`, `kind=${commitResult.error.kind}`, traceCol);
-        }
-      }
-
       // phase 521: turn 末 regime change 检测（per L5.G3 (a) 自动检测）
       await this._checkRegimeSwitch(resolvedSystemPrompt, identityContent);
     } finally {
       // phase 146: mirror state removed — no reset needed
+    }
+  }
+
+  /** Persist one forensic boundary for every completed turn disposition. */
+  private async _commitTurnSnapshot(outcome: TurnResult['status']): Promise<void> {
+    this.turnCount++;
+    const context = `turn-${this.turnCount}`;
+    const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
+    const commitResult = await this.snapshot
+      .commit(`${context} outcome=${outcome} ${new Date().toISOString()}`)
+      .catch((err: unknown): null => {
+        auditError(
+          this.auditWriter,
+          RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED,
+          err,
+          `context=${context}`,
+          `outcome=${outcome}`,
+          traceCol,
+        );
+        return null;
+      });
+    if (commitResult && !commitResult.ok) {
+      if (commitResult.error.kind === 'uncategorized') {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED,
+          `context=${context}`,
+          `outcome=${outcome}`,
+          `exitCode=${commitResult.error.exitCode}`,
+          traceCol,
+        );
+      } else {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED,
+          `context=${context}`,
+          `outcome=${outcome}`,
+          `kind=${commitResult.error.kind}`,
+          traceCol,
+        );
+      }
     }
   }
 
@@ -955,6 +976,7 @@ export class Runtime {
     reuseTraceId?: TraceId,
   ): Promise<TurnResult> {
     const { cleanup } = this._setupTurnContext(reuseTraceId);
+    let outcome: TurnResult['status'] = 'failed';
     try {
       // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
       // phase 722: 加 caller col 区分 processTurn caller 路径
@@ -979,6 +1001,7 @@ export class Runtime {
         // phase 722: 加 caller col 区分 processTurn caller 路径
         this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=processTurn`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
         await this.sessionManager.commitTurn();
+        outcome = 'success';
         return { status: 'success' };
       } catch (error) {
         handleTurnInterrupt(error, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
@@ -990,6 +1013,7 @@ export class Runtime {
                        :                                         'idle_timeout';
           try {
             await this.sessionManager.commitTurn(cause);
+            outcome = 'interrupted';
             return { status: 'interrupted', error, cause };
           } catch (commitError) {
             return this._rollbackFailedTurn(
@@ -1000,7 +1024,11 @@ export class Runtime {
         return this._rollbackFailedTurn(error);
       }
     } finally {
-      cleanup();
+      try {
+        await this._commitTurnSnapshot(outcome);
+      } finally {
+        cleanup();
+      }
     }
   }
 

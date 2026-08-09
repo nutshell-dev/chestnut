@@ -45,7 +45,9 @@ function createMockDeps() {
   return {
     systemFs: {} as unknown as import('../../../src/foundation/fs/types.js').FileSystem,
     auditWriter: { write: vi.fn() } as unknown as import('../../../src/foundation/audit/types.js').AuditLog,
-    snapshot: {} as unknown as import('../../../src/foundation/snapshot/index.js').Snapshot,
+    snapshot: {
+      commit: vi.fn().mockResolvedValue({ ok: true }),
+    } as unknown as import('../../../src/foundation/snapshot/index.js').Snapshot,
     sessionManager: createMockSessionManager() as unknown as import('../../../src/foundation/dialog-store/index.js').DialogStore,
     inboxReader: {} as unknown as import('../../../src/foundation/messaging/index.js').InboxReader,
     outboxWriter: {} as unknown as import('../../../src/foundation/messaging/index.js').OutboxWriter,
@@ -94,6 +96,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     (runtime as any).initialized = true;
     (runtime as any).auditWriter = deps.auditWriter;
     (runtime as any).sessionManager = deps.sessionManager;
+    (runtime as any).snapshot = deps.snapshot;
     (runtime as any).llm = deps.llm;
     (runtime as any).execContext = { trace_id: undefined, signal: undefined };
     return { runtime, deps };
@@ -108,6 +111,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect((deps.sessionManager as any).save).toHaveBeenCalledTimes(1);
     expect((deps.sessionManager as any).commitTurn).toHaveBeenCalledTimes(1);
     expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
+    expect((deps.snapshot as any).commit).toHaveBeenCalledWith(expect.stringContaining('outcome=success'));
   });
 
   it('beginTurn reject -> {status:failed, error:beginError}, rollback once', async () => {
@@ -122,6 +126,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledTimes(1);
     expect((deps.sessionManager as any).rollbackTurn).toHaveBeenCalledWith('begin failed');
     expect((deps.sessionManager as any).commitTurn).not.toHaveBeenCalled();
+    expect((deps.snapshot as any).commit).toHaveBeenCalledWith(expect.stringContaining('outcome=failed'));
   });
 
   it('initial save reject -> {status:failed, error:saveError}, rollback once', async () => {
@@ -179,6 +184,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
     expect((deps.sessionManager as any).commitTurn).toHaveBeenCalledTimes(1);
     expect((deps.sessionManager as any).commitTurn).toHaveBeenCalledWith('user_interrupt');
     expect((deps.sessionManager as any).rollbackTurn).not.toHaveBeenCalled();
+    expect((deps.snapshot as any).commit).toHaveBeenCalledWith(expect.stringContaining('outcome=interrupted'));
   });
 
   it('IdleTimeoutSignal -> commitTurn(idle_timeout) -> {status:interrupted}', async () => {
