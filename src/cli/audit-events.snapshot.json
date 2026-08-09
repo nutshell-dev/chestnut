@@ -945,7 +945,7 @@
       "skill_version_invalid"
     ],
     "foundation_command-tool_audit-events": [
-      "exec_motion_self_kill_blocked",
+      "exec_guard_rejected",
       "exec_termination",
       "overflow_persist_failed"
     ],

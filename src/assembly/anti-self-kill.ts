@@ -14,6 +14,7 @@ export function createAntiSelfKillGuard(): PreExecGuard {
     if (looksLikeChestnutSelfKill(command)) {
       return {
         allow: false,
+        guardKind: 'motion_self_kill',
         reason:
           'Error: motion-chain cannot exec `chestnut stop` / `chestnut motion stop` ' +
           'via shell. The command SIGTERMs motion itself; the in-flight tool result ' +

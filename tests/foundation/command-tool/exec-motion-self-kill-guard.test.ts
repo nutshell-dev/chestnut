@@ -24,8 +24,9 @@ describe('phase 758 exec tool self-kill guard integration', () => {
     expect(result.success).toBe(false);
     expect(result.content).toContain(BLOCKED_MESSAGE);
     expect(audit.write).toHaveBeenCalledWith(
-      'exec_motion_self_kill_blocked',
+      'exec_guard_rejected',
       'clawId=test-claw',
+      'guard_kind=motion_self_kill',
       expect.stringMatching(/^reason=/),
     );
   });
@@ -65,7 +66,8 @@ describe('phase 758 exec tool self-kill guard integration', () => {
 
     // guard did not fire → no audit emit for blocked event + not the guard message
     expect(audit.write).not.toHaveBeenCalledWith(
-      'exec_motion_self_kill_blocked',
+      'exec_guard_rejected',
+      expect.anything(),
       expect.anything(),
       expect.anything(),
     );
@@ -79,7 +81,8 @@ describe('phase 758 exec tool self-kill guard integration', () => {
     const result = await guardedExecTool.execute({ command: 'chestnut status' }, ctx);
 
     expect(audit.write).not.toHaveBeenCalledWith(
-      'exec_motion_self_kill_blocked',
+      'exec_guard_rejected',
+      expect.anything(),
       expect.anything(),
       expect.anything(),
     );

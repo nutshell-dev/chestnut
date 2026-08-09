@@ -29,7 +29,7 @@ function toSafeNumber(v: unknown): number | undefined {
 }
 
 export interface PreExecGuard {
-  (command: string): { allow: true } | { allow: false; reason: string };
+  (command: string): { allow: true } | { allow: false; guardKind: string; reason: string };
 }
 
 /**
@@ -218,8 +218,9 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
         const result = preExecGuard(command);
         if (!result.allow) {
           ctx.auditWriter?.write(
-            COMMAND_TOOL_AUDIT_EVENTS.EXEC_MOTION_SELF_KILL_BLOCKED,
+            COMMAND_TOOL_AUDIT_EVENTS.EXEC_GUARD_REJECTED,
             `clawId=${ctx.clawId}`,
+            `guard_kind=${result.guardKind}`,
             `reason=${result.reason}`,
           );
           return { success: false, content: result.reason };
