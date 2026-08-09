@@ -14,31 +14,30 @@
  * 24h 上限：超出 → CLI reject + audit emit (CLAW_WATCH_REJECTED)
  */
 
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getChestnutRoot, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { parseDurationMs, DurationParseError } from '../utils/duration.js';
 import { writeSubscription, MAX_THRESHOLD_MS } from '../../watchdog/watchdog.js';
 import { WATCH_INACTIVE_AFTER_DEFAULT } from '../../cli-protocol/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 interface WatchOptions {
   inactiveAfter?: string;   // e.g. '5m' / '30m' / '1h'
 }
 
 export async function watchCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   name: string,
   options?: WatchOptions,
   extraDeps?: { audit?: AuditLog },
 ): Promise<void> {
   const audit = extraDeps?.audit;
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
 

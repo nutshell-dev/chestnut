@@ -416,7 +416,6 @@ async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise
   if (parser.args.length > 0) {
     throw new CliError(`'watch' takes no positional arguments (got: ${parser.args.join(' ')})`);
   }
-  deps.rootConfig.loadGlobal();
   const { audit } = createDirContext(deps, getClawDir(name));
   const opts = parser.opts<{ inactiveAfter?: string }>();
   await watchCommand(deps, name, { inactiveAfter: opts.inactiveAfter }, { audit });
