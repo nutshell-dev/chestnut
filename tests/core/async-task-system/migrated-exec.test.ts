@@ -236,6 +236,10 @@ describe('createAsyncExecWrapper', () => {
 
     expect(result.success).toBe(true);
     expect(result.content).toContain('hi');
+    const doneFiles = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_DONE_DIR));
+    expect(doneFiles.some(name => name.endsWith('.json'))).toBe(true);
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.EXEC_IDENTITY_CHECKPOINTED)).toBe(true);
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.EXEC_CHECKPOINT_COMPLETED_SYNC)).toBe(true);
   });
 
   it('should return taskId for long command (soft timeout) and not kill process', async () => {
@@ -504,24 +508,24 @@ describe('createAsyncExecWrapper', () => {
     await waitUntilGone(runningFile, 5000);
   });
 
-  it('persist failure terminates the execution group and audits the outcome', async () => {
+  it('identity checkpoint failure terminates the execution group and audits the outcome', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
       softTimeoutMs: 100,
     });
 
-    vi.spyOn(nodeFs, 'writeAtomic').mockRejectedValue(new Error('disk full'));
+    vi.spyOn(nodeFs, 'writeAtomicSync').mockImplementation(() => { throw new Error('disk full'); });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'sleep 30' }, ctx);
 
     expect(result.success).toBe(false);
-    expect(result.content).toContain('Failed to persist migrated exec task');
+    expect(result.content).toContain('Failed to checkpoint exec identity');
 
     const termEvents = auditEvents.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_EXEC_TERMINATION);
     expect(termEvents.length).toBe(1);
-    expect(termEvents[0]).toContain('context=persist_failed');
+    expect(termEvents[0]).toContain('context=identity_checkpoint_failed');
     expect(termEvents[0].some(c => c === 'status=gone')).toBe(true);
 
     // The terminated leader must actually be gone (outcome was awaited).
@@ -531,16 +535,15 @@ describe('createAsyncExecWrapper', () => {
     expect(isAlive(leaderPid)).toBe(false);
   });
 
-  it('persist-ok but short-id-index save failure removes the running task file', async () => {
+  it('checkpoint file remains recoverable when short-id-index save fails', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
       softTimeoutMs: 100,
     });
 
-    const deleteSpy = vi.spyOn(nodeFs, 'delete');
-    // Task file write succeeds (persistRunningTask), the index save fails
-    // (shortIdIndex.save is synchronous) — the F5 duplicate-notification path.
+    // The authoritative task file is durable before the rebuildable index.
+    // If index persistence fails, keep the file for restart recovery.
     const saveSpy = vi.spyOn(InMemoryShortIdIndex.prototype, 'save').mockImplementation(() => {
       throw new Error('index write failed');
     });
@@ -550,11 +553,9 @@ describe('createAsyncExecWrapper', () => {
       const result = await tool.execute({ command: 'sleep 30' }, ctx);
 
       expect(result.success).toBe(false);
-      expect(result.content).toContain('Failed to persist migrated exec task');
-      // catch branch removes the just-persisted running task file so restart
-      // recovery never re-notifies "exited without producing output".
-      expect(deleteSpy).toHaveBeenCalledTimes(1);
-      expect(String(deleteSpy.mock.calls[0][0])).toContain(TASKS_QUEUES_RUNNING_DIR);
+      expect(result.content).toContain('Failed to checkpoint exec identity');
+      const runningFiles = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR));
+      expect(runningFiles.some(name => name.endsWith('.json'))).toBe(true);
     } finally {
       saveSpy.mockRestore();
     }

@@ -14,6 +14,13 @@ export interface ExecBaseOptions {
   /** Content to pipe to the child process stdin (phase 1321) */
   stdin?: string;
   /**
+   * Synchronous observation point for a newly-created OS execution identity.
+   * Called after the handle is fully wired and before execWithHandle returns,
+   * allowing an upper layer to durably checkpoint ownership without polling
+   * ChildProcess internals. L1 supplies only its neutral identity fact.
+   */
+  onExecutionIdentity?: (identity: ExecutionIdentity) => void;
+  /**
    * Max combined stdout+stderr bytes before SIGTERM is delivered.
    * Defaults to PROCESS_EXEC_DEFAULT_MAX_BUFFER (1 MiB) when omitted.
    * Use to opt-in to higher limits for known-large outputs; sub-1 byte

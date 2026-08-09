@@ -451,12 +451,16 @@ export function execWithHandle(
     });
   });
 
-  return {
+  const handle: ExecHandle = {
     promise,
     child: proc,
     identity,
     terminate: (trigger?: ExecutionTerminationTrigger) => terminate(trigger ?? 'caller_requested'),
   };
+  if (identity !== undefined) {
+    options.onExecutionIdentity?.(identity);
+  }
+  return handle;
 }
 
 /**

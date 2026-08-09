@@ -495,7 +495,7 @@ export function emitMigratedExecTermination(
   audit: AuditLog,
   opts: {
     taskId: string;
-    context: 'caller_abort' | 'persist_failed' | 'hard_timeout' | 'recovery_hard_timeout' | 'pre_deadline_termination';
+    context: 'caller_abort' | 'persist_failed' | 'identity_checkpoint_failed' | 'hard_timeout' | 'recovery_hard_timeout' | 'pre_deadline_termination';
     /** Identity cols, e.g. ['leader_pid=123', 'process_group_id=123'] or ['identity=legacy_pid_only', 'leader_pid=123']. */
     identityCols: string[];
     trigger: string;

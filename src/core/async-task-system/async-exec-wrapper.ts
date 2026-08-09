@@ -96,19 +96,6 @@ function buildMigratedToolTask(
 }
 
 /**
- * Persist the running task file so AsyncTaskSystem will recover and monitor it.
- */
-async function persistRunningTask(
-  fs: FileSystem,
-  task: ToolTask,
-): Promise<void> {
-  await fs.writeAtomic(
-    `${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`,
-    JSON.stringify(task, null, 2),
-  );
-}
-
-/**
  * Race a process handle against a soft timeout and an optional abort signal.
  */
 async function raceHandle(
@@ -255,6 +242,42 @@ export function createAsyncExecWrapper(
       // monitor and restart recovery — one fact, no re-derivation.
       const deadlineAtMs = Date.now() + timeout + migratedHardTimeoutMs;
 
+      // Allocate the durable identity before spawn. L1 invokes the callback
+      // after its handle is fully wired and before execWithHandle returns, so
+      // every later state (including the former soft-timeout window) can be
+      // reconstructed from disk after a daemon crash.
+      let fullId: FullTaskId;
+      let shortId: ShortTaskId;
+      do {
+        fullId = makeFullTaskId(newUuid());
+        shortId = shortIdIndex.deriveShortId(fullId);
+      } while (shortIdIndex.has(shortId));
+
+      let task: ToolTask | undefined;
+      let checkpointError: unknown;
+      const checkpointIdentity = (identity: ExecutionIdentity): void => {
+        if (task !== undefined || checkpointError !== undefined) return;
+        const candidate = buildMigratedToolTask(fullId, shortId, command, ctx, identity, deadlineAtMs);
+        try {
+          fs.writeAtomicSync(
+            `${TASKS_QUEUES_RUNNING_DIR}/${candidate.id}.json`,
+            JSON.stringify(candidate, null, 2),
+          );
+          shortIdIndex.add(shortId, fullId);
+          shortIdIndex.save();
+          task = candidate;
+          auditWriter.write(
+            TASK_AUDIT_EVENTS.EXEC_IDENTITY_CHECKPOINTED,
+            `taskId=${fullId}`,
+            `pid=${identity.leaderPid}`,
+            `pgid=${identity.processGroupId}`,
+            `deadline_ms=${deadlineAtMs}`,
+          );
+        } catch (err) {
+          checkpointError = err;
+        }
+      };
+
       let handle: ExecHandle;
       let partialOutput = '';
       let winner: Awaited<ReturnType<typeof raceHandle>>;
@@ -265,9 +288,40 @@ export function createAsyncExecWrapper(
             cwd: args.cwd as string | undefined,
             deadlineAtMs,
             stdin: args.stdin as string | undefined,
+            onExecutionIdentity: checkpointIdentity,
           },
           proxyCtx,
         );
+
+        // Test doubles and alternative implementations may not yet call the
+        // hook. Enforce the same invariant locally before the first await.
+        if (handle.identity !== undefined && task === undefined && checkpointError === undefined) {
+          checkpointIdentity(handle.identity);
+        }
+        if (checkpointError !== undefined) {
+          const outcome = await handle.terminate('caller_requested');
+          // terminate() and the execution promise are separate observations;
+          // consume the latter before returning so the expected termination
+          // rejection cannot become an unhandledRejection.
+          await handle.promise.catch(() => { /* termination fact audited below */ });
+          emitMigratedExecTermination(auditWriter, {
+            taskId: fullId,
+            context: 'identity_checkpoint_failed',
+            identityCols: handle.identity === undefined ? [] : [
+              `leader_pid=${handle.identity.leaderPid}`,
+              `process_group_id=${handle.identity.processGroupId}`,
+            ],
+            trigger: outcome.trigger,
+            termSent: outcome.termSent,
+            killSent: outcome.killSent,
+            status: outcome.status,
+            reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
+          });
+          return {
+            success: false,
+            content: `Failed to checkpoint exec identity: ${formatErr(checkpointError)}`,
+          };
+        }
 
         const collect = (chunk: Buffer): void => {
           partialOutput += chunk.toString();
@@ -288,15 +342,28 @@ export function createAsyncExecWrapper(
       // when spawn itself failed, which rejects above). Fail-observable, never
       // guess an identity.
       const identity = handle.identity;
-      if (identity === undefined) {
+      if (identity === undefined || task === undefined) {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
-        throw new Error('execWithHandle resolved without an execution identity');
+        throw new Error('execWithHandle resolved without a durable execution identity');
       }
 
       // 4. Sync completion: return result directly.
       if (winner.type === 'result') {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
         const result = winner.value;
+        const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+        fs.ensureDirSync(resultDir);
+        fs.writeAtomicSync(path.join(resultDir, 'result.txt'), result.output);
+        fs.writeAtomicSync(
+          path.join(resultDir, 'exit.json'),
+          JSON.stringify({ completedAt: new Date().toISOString() }),
+        );
+        await moveTaskToDone(task.id);
+        auditWriter.write(
+          TASK_AUDIT_EVENTS.EXEC_CHECKPOINT_COMPLETED_SYNC,
+          `taskId=${task.id}`,
+          `shortTaskId=${shortId}`,
+        );
         return {
           success: true,
           content: result.output || `(no output)\n[command]: ${command}`,
@@ -310,7 +377,7 @@ export function createAsyncExecWrapper(
         originalSignal?.removeEventListener('abort', onOriginalAbort);
         const outcome = await handle.terminate('abort');
         emitMigratedExecTermination(auditWriter, {
-          taskId: 'n/a', // no task file exists before migration
+          taskId: task.id,
           context: 'caller_abort',
           identityCols: [
             `leader_pid=${identity.leaderPid}`,
@@ -322,6 +389,7 @@ export function createAsyncExecWrapper(
           status: outcome.status,
           reason: outcome.status === 'indeterminate' ? outcome.reason : undefined,
         });
+        await moveTaskToFailed(task.id);
         return {
           success: false,
           content: 'Command aborted by caller',
@@ -334,36 +402,14 @@ export function createAsyncExecWrapper(
       originalSignal?.removeEventListener('abort', onOriginalAbort);
       handle.child.unref();
 
-      // Phase 849: dual-key task IDs. fullId for persistence, shortId for agent output.
-      let fullId: FullTaskId;
-      let shortId: ShortTaskId;
-      do {
-        fullId = makeFullTaskId(newUuid());
-        shortId = shortIdIndex.deriveShortId(fullId);
-      } while (shortIdIndex.has(shortId));
-
-      const task = buildMigratedToolTask(fullId, shortId, command, ctx, identity, deadlineAtMs);
-
       try {
-        await persistRunningTask(fs, task);
-        // Only register index after successful file write to avoid dangling entries.
-        shortIdIndex.add(shortId, fullId);
+        // Re-save at the presentation transition. The task itself was already
+        // durable before execWithHandle crossed the spawn boundary.
         shortIdIndex.save();
       } catch (persistErr) {
-        // If persistRunningTask succeeded but shortIdIndex.save() failed, the
-        // task file is already on disk in running/. The process is about to be
-        // terminated and the task can never be recovered — remove the file so
-        // restart recovery does not re-notify "exited without producing
-        // output". Removal failure is audited; the residue is then safely
-        // handled by recovery's fallback marker (no duplicate notification).
-        await fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`).catch((cleanupErr) => {
-          auditWriter.write(
-            TASK_AUDIT_EVENTS.HANDLER_FAILED,
-            `taskId=${task.id}`,
-            'context=async_exec_wrapper_persist_cleanup_failed',
-            `error=${formatErr(cleanupErr)}`,
-          );
-        });
+        // The authoritative running artifact remains on disk. Terminate the
+        // process, but keep that history for recovery/index rebuild instead of
+        // deleting evidence after an auxiliary index persistence failure.
         // Migration persistence failed: terminate the execution group via L1,
         // wait for the outcome, and audit it before reporting the error.
         // L1 has no 'persist_failed' word — caller_requested is the correct L1
@@ -560,8 +606,8 @@ export function createAsyncExecWrapper(
       // Fire-and-forget: do not await the background chain in the caller path.
       backgroundMonitor.catch((err) => {
         emitHandlerFailed(auditWriter, {
-          fullTaskId: task.id as FullTaskId,
-          shortTaskId: taskShortId(task),
+          fullTaskId: task!.id as FullTaskId,
+          shortTaskId: taskShortId(task!),
           context: 'async_exec_wrapper_background',
           error: formatErr(err),
         });

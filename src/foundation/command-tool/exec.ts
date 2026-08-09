@@ -43,6 +43,8 @@ export type ExecWithHandleArgs = {
   command: string;
   cwd?: string;
   stdin?: string;
+  /** Internal lifecycle checkpoint; never exposed in the agent tool schema. */
+  onExecutionIdentity?: (identity: import('../process-exec/index.js').ExecutionIdentity) => void;
 } & (
   | { timeoutMs?: number; deadlineAtMs?: never }
   | { timeoutMs?: never; deadlineAtMs?: number }
@@ -55,10 +57,11 @@ interface ResolvedExecArgs {
   deadlineAtMs: number | undefined;
   env: Record<string, string> | undefined;
   stdin: string | undefined;
+  onExecutionIdentity: ExecWithHandleArgs['onExecutionIdentity'];
 }
 
 function resolveExecArgs(
-  args: { command: string; cwd?: string; timeoutMs?: number; deadlineAtMs?: number; stdin?: string },
+  args: { command: string; cwd?: string; timeoutMs?: number; deadlineAtMs?: number; stdin?: string; onExecutionIdentity?: ExecWithHandleArgs['onExecutionIdentity'] },
   ctx: ExecContext,
 ): ResolvedExecArgs {
   const cwd = args.cwd
@@ -76,6 +79,7 @@ function resolveExecArgs(
     deadlineAtMs,
     env,
     stdin: args.stdin,
+    onExecutionIdentity: args.onExecutionIdentity,
   };
 }
 
@@ -298,7 +302,7 @@ export function createExecWithHandle(preExecGuard?: PreExecGuard) {
     args: ExecWithHandleArgs,
     ctx: ExecContext,
   ): Promise<ExecHandle> {
-    const { command, cwd, timeoutMs, deadlineAtMs, env, stdin } = resolveExecArgs(args, ctx);
+    const { command, cwd, timeoutMs, deadlineAtMs, env, stdin, onExecutionIdentity } = resolveExecArgs(args, ctx);
 
     if (preExecGuard) {
       const result = preExecGuard(command);
@@ -320,6 +324,7 @@ export function createExecWithHandle(preExecGuard?: PreExecGuard) {
       signal: ctx.signal,
       stdin,
       env,
+      onExecutionIdentity,
     });
   };
 }

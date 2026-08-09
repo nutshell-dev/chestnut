@@ -19,6 +19,18 @@ import * as os from 'os';
 const SUBPROCESS_HANG_MS = 60_000;
 
 describe('execWithHandle', () => {
+  it('publishes the execution identity synchronously before returning the handle', async () => {
+    let observedPid: number | undefined;
+    const handle = execWithHandle('sh', ['-c', 'echo checkpoint'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+      cwd: os.tmpdir(),
+      onExecutionIdentity: (identity) => { observedPid = identity.leaderPid; },
+    });
+
+    expect(observedPid).toBe(handle.identity?.leaderPid);
+    await expect(handle.promise).resolves.toMatchObject({ exitCode: 0 });
+  });
+
   it('should resolve with output for successful command', async () => {
     const handle = execWithHandle('sh', ['-c', 'echo hello'], {
       // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
