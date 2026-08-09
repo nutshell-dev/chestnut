@@ -166,6 +166,8 @@ export function clawExists(deps: { fsFactory: (baseDir: string) => FileSystem },
 
 export interface LegacyAuditConfigSection {
   config: AuditConfig;
+  /** legacy section 所在 owner resource；供迁移 journal 留证。 */
+  sourcePath: string;
   /** legacy 段原文（js-yaml canonical dump）的 sha256 hex。 */
   sourceHash: string;
 }
@@ -196,7 +198,7 @@ export function readLegacyAuditConfigSection(deps: { fsFactory: (baseDir: string
   } catch (err) {
     throw new Error(`Invalid global config: legacy audit section: ${formatErr(err)}`, { cause: err });
   }
-  return { config, sourceHash: sha256Hex(yaml.dump(section)) };
+  return { config, sourcePath: configPath, sourceHash: sha256Hex(yaml.dump(section)) };
 }
 
 /**
@@ -229,6 +231,8 @@ export function removeLegacyAuditConfigSection(deps: { fsFactory: (baseDir: stri
 
 export interface LegacyWatchdogConfigSection {
   config: WatchdogConfig;
+  /** legacy section 所在 owner resource；供迁移 journal 留证。 */
+  sourcePath: string;
   /**
    * 显式退役字段：legacy 段中 log_archive_days（现有 schema 会静默剥离）为
    * number 时捕获于此，由编排层写入 journal intent；不进入新 schema。
@@ -272,7 +276,7 @@ export function readLegacyWatchdogConfigSection(deps: { fsFactory: (baseDir: str
       retired.log_archive_days = logArchiveDays;
     }
   }
-  return { config, retired, sourceHash: sha256Hex(yaml.dump(section)) };
+  return { config, retired, sourcePath: configPath, sourceHash: sha256Hex(yaml.dump(section)) };
 }
 
 /**

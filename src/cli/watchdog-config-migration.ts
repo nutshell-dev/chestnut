@@ -20,7 +20,6 @@
  */
 import { getChestnutRoot } from '../core/claw-topology/index.js';
 import type { RootConfigLegacyMigration, RootConfigReader } from '../assembly/index.js';
-import { getGlobalConfigPath } from '../assembly/config/global-config-path.js';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import {
@@ -78,7 +77,7 @@ function writeIntentIfAbsent(
     kind: 'watchdog-config-relocation',
     created_at: new Date().toISOString(),
     source: {
-      path: getGlobalConfigPath(),
+      path: legacy.sourcePath,
       section: WATCHDOG_LEGACY_PATHS.configSection,
       sha256: legacy.sourceHash,
     },
@@ -166,7 +165,7 @@ export function ensureWatchdogConfigMigrated(deps: WatchdogConfigMigrationDeps):
       detail: `legacy ${describeConfig(legacy!.config)}; workspace ${describeConfig(existing.config)}`,
     });
     throw new Error(
-      `Watchdog config conflict: ${getGlobalConfigPath()}#${WATCHDOG_LEGACY_PATHS.configSection} and ` +
+      `Watchdog config conflict: ${legacy!.sourcePath}#${WATCHDOG_LEGACY_PATHS.configSection} and ` +
       `${WATCHDOG_PATHS.config} both exist with different values ` +
       `(legacy ${describeConfig(legacy!.config)}; workspace ${describeConfig(existing.config)}). ` +
       `Both preserved; resolve manually (migration ${migrationId}).`,

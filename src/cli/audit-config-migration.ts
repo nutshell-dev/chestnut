@@ -19,7 +19,6 @@
  */
 import { getChestnutRoot } from '../core/claw-topology/index.js';
 import type { RootConfigLegacyMigration, RootConfigReader } from '../assembly/index.js';
-import { getGlobalConfigPath } from '../assembly/config/global-config-path.js';
 import {
   loadWorkspaceAuditConfig,
   publishMigratedWorkspaceAuditConfig,
@@ -76,7 +75,7 @@ function writeIntentIfAbsent(
     kind: 'audit-config-relocation',
     created_at: new Date().toISOString(),
     source: {
-      path: getGlobalConfigPath(),
+      path: legacy.sourcePath,
       section: AUDIT_LEGACY_PATHS.configSection,
       sha256: legacy.sourceHash,
     },
@@ -154,7 +153,7 @@ export function ensureAuditConfigMigrated(deps: AuditConfigMigrationDeps): Audit
         `workspace max_size_mb=${existing.config.retention.max_size_mb}`,
     });
     throw new Error(
-      `Audit config conflict: ${getGlobalConfigPath()}#${AUDIT_LEGACY_PATHS.configSection} and ` +
+      `Audit config conflict: ${legacy!.sourcePath}#${AUDIT_LEGACY_PATHS.configSection} and ` +
       `${AUDIT_PATHS.config} both exist with different values ` +
       `(legacy max_size_mb=${legacy!.config.retention.max_size_mb}, ` +
       `workspace max_size_mb=${existing.config.retention.max_size_mb}). ` +
