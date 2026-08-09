@@ -16,6 +16,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { throwAbortError } from './abort-helpers.js';
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 import { LLMAllProvidersFailedError, LLMTimeoutError } from '../../foundation/llm-orchestrator/index.js';
+import { formatToolInputParseError } from './tool-input-parse-error.js';
 
 
 export interface StreamState {
@@ -101,7 +102,7 @@ export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, audi
       state.contentBlocks.push({
         type: 'tool_result',
         tool_use_id: state.currentToolUse.id,
-        content: `Tool input JSON parse failed for "${state.currentToolUse.name}". Raw: ${parsed.raw}`,
+        content: formatToolInputParseError(state.currentToolUse.name, parsed.raw),
         is_error: true,
       });
     } else {
@@ -179,7 +180,7 @@ export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, a
       state.contentBlocks.push({
         type: 'tool_result',
         tool_use_id: state.currentToolUse.id,
-        content: `Tool input JSON parse failed for "${toolName}". Raw: ${parsed.raw}`,
+        content: formatToolInputParseError(toolName, parsed.raw),
         is_error: true,
       } as ContentBlock);
     } else {

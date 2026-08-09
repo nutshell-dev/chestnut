@@ -11,6 +11,7 @@ import { extractText, extractToolCalls, appendAssistantMessage, appendToolResult
 import { executeToolCalls } from './tool-execution.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { throwAbortError } from './abort-helpers.js';
+import { isToolInputParseError, parseToolInputErrorName } from './tool-input-parse-error.js';
 
 
 export async function handleToolUseStop(
@@ -63,8 +64,7 @@ export async function handleToolUseStop(
   // Extract tool names from stream-layer parse-error results for error messages
   const toolNames = prebuiltResults
     .map(pr => {
-      const m = pr.content.match(/^Tool input JSON parse failed for "([^"]+)"/);
-      return m ? m[1] : '';
+      return parseToolInputErrorName(pr.content) ?? '';
     })
     .filter(Boolean)
     .join(', ');
@@ -110,7 +110,7 @@ export function handleMaxTokensStop(
     // phase 1282: prebuilt 已 cover 的 tool_use id 不再 synthesize [TRUNCATED] / 防 duplicate tool_result 同 id
     // 仅透传 stream-side parseError 结果（M#9「不丢弃静默」），historical/orphan tool_result 仍丢弃
     const parseErrorPrebuilt = prebuiltResults.filter(pr =>
-      /^Tool input JSON parse failed for/.test(pr.content)
+      isToolInputParseError(pr.content)
     );
     const prebuiltIds = new Set(parseErrorPrebuilt.map(r => r.tool_use_id));
     const newToolCallIds = toolCalls.map(tc => tc.id).filter(id => !prebuiltIds.has(id));
@@ -119,7 +119,7 @@ export function handleMaxTokensStop(
     // 该路径 prebuilt 仍 drop (messages[] schema pair invariant ratify 锚不破) / 补 audit observability
     const toolCallIdSet = new Set(toolCalls.map(tc => tc.id));
     const orphanPrebuilt = prebuiltResults.filter(pr =>
-      !/^Tool input JSON parse failed for/.test(pr.content) &&
+      !isToolInputParseError(pr.content) &&
       !toolCallIdSet.has(pr.tool_use_id)
     );
     if (orphanPrebuilt.length > 0) {
