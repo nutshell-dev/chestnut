@@ -18,9 +18,13 @@ import {
 } from '../../src/core/agent-executor/errors.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
-import { RUNTIME_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
 import { formatErr } from '../../src/foundation/node-utils/index.js';
 import type { TurnResult } from '../../src/core/runtime/types.js';
+
+const LEGACY_PROCESS_BATCH_AUDIT_EVENTS = {
+  INBOX_HANDLER_FAILED: 'inbox_handler_failed',
+  CATCH_UNHANDLED: 'runtime_catch_unhandled',
+} as const;
 
 /**
  * Run one legacy batch: drain inbox, proactive trim, processTurn, ack/nack.
@@ -45,7 +49,7 @@ export async function runLegacyBatch(
       await (callbacks as any).onInboxMessages(infos);
     } catch (e) {
       const reason = formatErr(e);
-      auditWriter.write(RUNTIME_AUDIT_EVENTS.INBOX_HANDLER_FAILED, 'handler=onInboxMessages', `reason=${reason}`);
+      auditWriter.write(LEGACY_PROCESS_BATCH_AUDIT_EVENTS.INBOX_HANDLER_FAILED, 'handler=onInboxMessages', `reason=${reason}`);
     }
   }
 
@@ -98,7 +102,7 @@ export async function runLegacyBatch(
       const hasContract = infos.some(i => i.metadata?.contract_id);
       if (!hasContract) {
         auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
+          LEGACY_PROCESS_BATCH_AUDIT_EVENTS.CATCH_UNHANDLED,
           `path=agent_loop_crash_no_contract`,
           `err=${(err as Error).constructor.name}`,
           `reason=${formatErr(err)}`,
@@ -106,7 +110,7 @@ export async function runLegacyBatch(
       }
     } else if (!(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal)) {
       auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
+        LEGACY_PROCESS_BATCH_AUDIT_EVENTS.CATCH_UNHANDLED,
         `path=non_interrupt_error`,
         `err=${(err as Error).constructor.name ?? 'Error'}`,
         `reason=${formatErr(err)}`,

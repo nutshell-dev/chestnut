@@ -481,34 +481,29 @@
       "heartbeat_fire_failed"
     ],
     "core_runtime_runtime-audit-events": [
-      "inbox_handler_failed",
+      "guidance_composer_failed",
       "inbox_inject",
       "inbox_unaddressed",
       "llm_call",
-      "llm_empty_response",
       "llm_error",
-      "llm_unknown_stop_reason",
-      "llm_unparseable_tool_use",
-      "max_tokens_assistant_empty_skipped",
-      "max_tokens_prebuilt_only_final",
-      "max_tokens_state_a_orphan_drop",
       "regime_switch",
       "regime_switch_committed",
       "regime_switch_failed",
       "regime_switch_hard_fail",
-      "runtime_catch_unhandled",
       "runtime_dialog_operation_concurrent",
       "runtime_dialog_operation_join_failed",
       "runtime_dialog_operation_while_stopping",
-      "runtime_inbox_drain_errors",
       "runtime_inbox_ack_failed",
+      "runtime_inbox_drain_errors",
       "runtime_inbox_drain_failed",
       "runtime_inbox_init_failed",
       "runtime_inbox_nack_failed",
       "runtime_inbox_unknown_type",
+      "runtime_llm_reload_failed",
+      "runtime_llm_reload_skipped",
+      "runtime_llm_reloaded",
       "runtime_maybe_audit_step_failed",
       "runtime_optional_section_read_failed",
-      "runtime_process_batch_failed",
       "runtime_reactive_trim_exhausted",
       "runtime_reactive_trim_triggered",
       "runtime_session_repair_failed",
@@ -517,102 +512,12 @@
       "session_repaired",
       "snapshot_commit_failed",
       "snapshot_commit_uncategorized",
-      "step_executor_callback_failed",
       "task_system_init_failed",
       "task_system_start_dispatch_failed",
-      {
-        "type": "tool_call_input",
-        "cols": [
-          {
-            "name": "tool_name",
-            "type": "string",
-            "required": true
-          },
-          {
-            "name": "tool_use_id",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "step",
-            "type": "number",
-            "required": false
-          },
-          {
-            "name": "contract_id",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "args_size",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "trace_id",
-            "type": "string",
-            "required": false
-          }
-        ]
-      },
-      "tool_execution_failed",
-      "tool_input_parse_failed",
-      {
-        "type": "tool_result",
-        "cols": [
-          {
-            "name": "tool_name",
-            "type": "string",
-            "required": true
-          },
-          {
-            "name": "tool_use_id",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "step",
-            "type": "number",
-            "required": false
-          },
-          {
-            "name": "contract_id",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "trace_id",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "status",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "summary",
-            "type": "string",
-            "required": false,
-            "max_chars": 200
-          },
-          {
-            "name": "content_size",
-            "type": "number",
-            "required": false
-          }
-        ]
-      },
       "turn_end",
-      "turn_completeness_mismatch",
       "turn_error",
       "turn_interrupted",
-      "turn_start",
-      "guidance_composer_failed",
-      "partial_assistant_discarded",
-      "runtime_llm_reloaded",
-      "runtime_llm_reload_failed",
-      "runtime_llm_reload_skipped"
+      "turn_start"
     ],
     "core_shadow-system_audit-events": [
       "shadow_failed",
