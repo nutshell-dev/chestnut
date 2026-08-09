@@ -10,13 +10,13 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 import * as yaml from 'js-yaml';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { getContractMetadata, readContractYamlLightweight } from '../../core/contract/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/index.js';
 import type { ContractId } from '../../core/contract/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 /** claw-trace separator console.log 输出截断 cap（防 terminal 过长）*/
 const SEP_DISPLAY_CHARS = 50;
@@ -43,16 +43,16 @@ interface ToolResultBlock {
  * Show claw execution trace for a contract
  */
 export async function clawTraceCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   clawId: string,
   contractId: ContractId,
   step?: string,
   opts: { noHint?: boolean } = {},
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(clawId);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${clawId}" does not exist`);
   }
 

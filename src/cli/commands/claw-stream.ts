@@ -12,11 +12,9 @@
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { CliError } from '../errors.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
@@ -24,6 +22,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export type StreamStartMode =
   | { kind: 'recent-turn' }
@@ -57,14 +56,14 @@ export function parseStartMode(args: string[]): StreamStartMode {
 }
 
 export async function streamCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   name: string,
   options?: StreamOptions,
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
@@ -143,7 +142,7 @@ export async function streamCommand(
 }
 
 export async function runStreamFromArgs(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   name: string,
   args: string[],
 ): Promise<void> {
