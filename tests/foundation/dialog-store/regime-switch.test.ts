@@ -2,9 +2,15 @@
  * Phase 918 Step B: regime-switch extractLastTurn behavior
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
-import { extractLastTurn } from '../../../src/foundation/dialog-store/regime-switch.js';
+import type { FileSystem } from '../../../src/foundation/fs/index.js';
+import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import type { DialogSessionLifecycle } from '../../../src/foundation/dialog-store/index.js';
+import {
+  extractLastTurn,
+  performRegimeSwitch,
+} from '../../../src/foundation/dialog-store/regime-switch.js';
 
 describe('extractLastTurn (phase 918)', () => {
   it('returns messages from the last genuine user input, skipping pure tool_result user messages', () => {
@@ -62,5 +68,65 @@ describe('extractLastTurn (phase 918)', () => {
     ];
     const inherited = extractLastTurn(messages);
     expect(inherited).toEqual(messages);
+  });
+});
+
+describe('performRegimeSwitch dialog repair', () => {
+  it('persists a synthetic result for a trailing unpaired tool_use', async () => {
+    const messages: Message[] = [{
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'tu1', name: 'old_tool', input: {} }],
+    }];
+    const currentStore = {
+      load: vi.fn().mockResolvedValue({
+        source: 'current',
+        session: {
+          version: 2,
+          createdAt: '2026-08-09T00:00:00.000Z',
+          updatedAt: '2026-08-09T00:00:00.000Z',
+          systemPrompt: 'old prompt',
+          messages,
+          toolsForLLM: [],
+        },
+      }),
+      save: vi.fn(),
+      beginTurn: vi.fn(),
+      commitTurn: vi.fn(),
+      rollbackTurn: vi.fn(),
+      archive: vi.fn().mockResolvedValue(undefined),
+    } satisfies DialogSessionLifecycle;
+    const newStore = {
+      ...currentStore,
+      save: vi.fn().mockResolvedValue(undefined),
+    } satisfies DialogSessionLifecycle;
+
+    await performRegimeSwitch({
+      strategy: 'all',
+      newSystemPrompt: 'new prompt',
+      currentStore,
+      dialogStoreFactory: () => newStore,
+      toolsForLLM: [],
+      clawDir: '/unused',
+      systemFs: {} as FileSystem,
+      audit: { write: vi.fn() } as unknown as AuditLog,
+      auditEvents: {
+        REGIME_SWITCH: 'regime_switch',
+        REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
+        REGIME_SWITCH_FAILED: 'regime_switch_failed',
+        REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
+      },
+    });
+
+    expect(newStore.save).toHaveBeenCalledOnce();
+    const snapshot = newStore.save.mock.calls[0][0];
+    expect(snapshot.messages.at(-1)).toEqual({
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'tu1',
+        content: expect.stringContaining("Tool call 'old_tool'"),
+        is_error: true,
+      }],
+    });
   });
 });

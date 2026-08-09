@@ -86,14 +86,14 @@ describe('Runtime.initialize() failure audits', () => {
     vi.spyOn(deps.sessionManager, 'load').mockResolvedValue({
       session: {
         messages: [
-          { role: 'assistant', content: 'ok', tool_use: { id: 't1', name: 'test', input: {} } },
+          {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 't1', name: 'test', input: {} }],
+          },
         ],
       },
       source: 'current',
     } as any);
-
-    // Mock DialogStore.repair to return toolCount > 0 so save() is triggered
-    vi.spyOn(DialogStore, 'repair').mockReturnValue({ repaired: [], toolCount: 1 } as any);
 
     // Mock sessionManager.save to throw
     const saveError = new Error('ENOSPC: no space left on device');
@@ -159,14 +159,14 @@ describe('Runtime.initialize() failure audits', () => {
     vi.spyOn(deps.sessionManager, 'load').mockResolvedValue({
       session: {
         messages: [
-          { role: 'assistant', content: 'ok', tool_use: { id: 't1', name: 'test', input: {} } },
+          {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 't1', name: 'test', input: {} }],
+          },
         ],
       },
       source: 'current',
     } as any);
-
-    // Mock DialogStore.repair to return toolCount > 0 so save() and commit() are triggered
-    vi.spyOn(DialogStore, 'repair').mockReturnValue({ repaired: [], toolCount: 1 } as any);
 
     // Mock snapshot.commit to throw (unhandled failure path)
     const commitError = new Error('git write-tree failed');

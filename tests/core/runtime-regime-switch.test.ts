@@ -21,7 +21,6 @@ import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrato
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import type { Message } from '../../src/foundation/llm-provider/types.js';
-import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
@@ -272,49 +271,6 @@ describe('Runtime regime switch (phase 521)', () => {
     // factory should create new DialogStore with 'system-prompt-B'
     expect(factorySpy).toHaveBeenCalledTimes(1);
     expect(factorySpy).toHaveBeenCalledWith();
-  });
-
-  it('tool_use 悬空 / DialogStore.repair 被调用', async () => {
-    const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
-    const runtime = new TestRuntime({
-      clawId: 'test-claw',
-      clawDir,
-      llmConfig: createMockLLMConfig(),
-      dependencies: deps,
-    });
-    runtimesToStop.push(runtime);
-
-    vi.spyOn(deps.sessionManager, 'archive').mockResolvedValue(undefined);
-    const repairSpy = vi.spyOn(DialogStore, 'repair');
-
-    const mockLLM = createMockLLM([
-      { content: [{ type: 'text', text: 'First' }], stop_reason: 'end_turn' },
-      { content: [{ type: 'text', text: 'Second' }], stop_reason: 'end_turn' },
-    ]);
-
-    await runtime.initialize();
-    runtime.testSetLLM(mockLLM);
-
-    // Seed messages with an incomplete tool_use at the end
-    const seededMessages: Message[] = [
-      { role: 'user', content: 'user-A' },
-      {
-        role: 'assistant',
-        content: [
-          { type: 'text', text: 'Using tool' },
-          { type: 'tool_use', id: 'tu1', name: 'old_tool', input: {} },
-        ] as any,
-      },
-    ];
-    await deps.sessionManager.save({ systemPrompt: 'test-system-prompt', messages: seededMessages, toolsForLLM: [] });
-
-    vi.spyOn(runtime.contextInjector, 'buildSystemPromptForRegime')
-      .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
-      .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
-
-    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
-
-    expect(repairSpy).toHaveBeenCalledTimes(1);
   });
 
   it('regime_switch audit event 载荷完整', async () => {
