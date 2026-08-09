@@ -5,8 +5,7 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { RootConfigReader } from '../../assembly/index.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
+import { getChestnutRoot, getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { createWorkspaceAudit } from '../../foundation/audit/index.js';
 import { WATCHDOG_FILE_ROUTING } from '../../watchdog/audit-events.js';
@@ -53,7 +52,7 @@ export async function stopAllCommand(
   // Phase 1288 Step C: 构造委托 AuditLog 自家 createWorkspaceAudit（固定写
   // audit/audit.tsv、retention 自 AuditLog config store 自读）；CLI 不再接触
   // 路径 / maxSizeMb / Assembly config
-  const baseDir = path.dirname(getGlobalConfigPath());
+  const baseDir = getChestnutRoot();
   try {
     setWatchdogAuditWriter(createWorkspaceAudit(deps.fsFactory, baseDir, WATCHDOG_FILE_ROUTING));
   } catch (err) {

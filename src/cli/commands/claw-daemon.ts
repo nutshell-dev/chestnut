@@ -10,8 +10,7 @@
 import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
+import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -38,7 +37,7 @@ export async function clawDaemonCommand(
     throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
   }
   const clawDir = getClawDir(name);
-  const baseDir = path.dirname(getGlobalConfigPath());
+  const baseDir = getChestnutRoot();
   const nodeFs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager

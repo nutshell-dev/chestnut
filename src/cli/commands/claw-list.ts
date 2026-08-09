@@ -6,9 +6,9 @@
 import * as path from 'path';
 import {
   enumerateClaws,
+  getChestnutRoot,
   resolveClawDaemonDir,
 } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -62,8 +62,7 @@ interface ClawEntry {
 export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean; summary?: boolean }): Promise<void> {
   deps.rootConfig.loadGlobal();
 
-  const globalConfigPath = getGlobalConfigPath();
-  const baseDir = path.dirname(globalConfigPath);
+  const baseDir = getChestnutRoot();
   const clawsDir = path.join(baseDir, 'claws');
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });

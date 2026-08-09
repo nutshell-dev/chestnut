@@ -12,8 +12,7 @@
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
-import { getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
+import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 
@@ -67,7 +66,7 @@ export async function streamCommand(
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
-  const baseDir = path.dirname(getGlobalConfigPath());
+  const baseDir = getChestnutRoot();
   const clawDir = path.join(baseDir, getRelativeClawDir(name));
   const fs = deps.fsFactory(clawDir);
   // audit reused for stream reader internal failure logging; stream session itself does not emit

@@ -3,10 +3,8 @@
  * Claw health report
  */
 
-import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
+import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -28,8 +26,7 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
   }
 
   const clawDir = getClawDir(name);
-  const globalConfigPath = getGlobalConfigPath();
-  const baseDir = path.dirname(globalConfigPath);
+  const baseDir = getChestnutRoot();
   const clawFs = deps.fsFactory(clawDir);
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });

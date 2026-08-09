@@ -5,8 +5,7 @@
 
 import * as path from 'path';
 
-import { getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
+import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { formatNoActiveContractHint } from './claw-shared.js';
@@ -33,8 +32,7 @@ export async function sendCommand(
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
-  const globalConfigPath = getGlobalConfigPath();
-  const baseDir = path.dirname(globalConfigPath);
+  const baseDir = getChestnutRoot();
   const clawDir = path.join(baseDir, getRelativeClawDir(name));
   const fileSystem = deps.fsFactory(baseDir);
   const audit = createSystemAudit(fileSystem, clawDir);
