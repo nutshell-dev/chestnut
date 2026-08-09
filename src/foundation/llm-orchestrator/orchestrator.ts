@@ -345,11 +345,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         failures.push({ provider: this.primary.name, error: new LLMCircuitBreakerOpenError(this.primary.name) });
       }
 
-      // Primary exhausted — try remaining fallbacks
-      if (this.fallbacks.length > 0 && primaryFailed) {
-        this.events.emit({ type: 'fallback_switched', from: this.primary.name, to: this.fallbacks[0].name, reason: 'primary_exhausted' });
-      }
-
+      // Primary exhausted/open — announce the fallback that is actually about
+      // to be attempted. Emitting before filtering sticky/open fallbacks made
+      // the forensic payload point at a provider that never ran.
       for (let i = 0; i < this.fallbacks.length; i++) {
         if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
         if (stickyFb && this.fallbacks[i].name === stickyFb.name) continue;
@@ -359,6 +357,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         }
 
         try {
+          this.events.emit({
+            type: 'fallback_switched',
+            from: this.primary.name,
+            to: this.fallbacks[i].name,
+            reason: primaryFailed ? 'primary_exhausted' : 'primary_breaker_open',
+          });
           return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options);
         } catch (err) {
           // User abort is not a provider failure — propagate immediately

@@ -184,6 +184,41 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
     expect(fallbackCallSpy).not.toHaveBeenCalled();
   });
 
+  it('call() announces the fallback actually attempted after filtering open breakers', async () => {
+    const primary = createMockProvider('primary', {
+      callError: new LLMNetworkError('primary', new Error('primary down')),
+    });
+    const skipped = createMockProvider('fb1');
+    const attempted = createMockProvider('fb2');
+    const service = createOrchestrator(primary, [skipped, attempted]);
+    forceBreakerOpen(service, 1, 'transient');
+    const events = attachEventSpy(service);
+
+    await expect(service.call({ messages: [{ role: 'user', content: 'hi' }] })).resolves.toBeDefined();
+
+    const switches = events.filter((event) => event.type === 'fallback_switched');
+    expect(switches).toEqual([
+      expect.objectContaining({ from: 'primary', to: 'fb2', reason: 'primary_exhausted' }),
+    ]);
+  });
+
+  it('call() records failover when the primary breaker is already open', async () => {
+    const primary = createMockProvider('primary');
+    const fallback = createMockProvider('fb1');
+    const service = createOrchestrator(primary, [fallback]);
+    forceBreakerOpen(service, 0, 'transient');
+    const events = attachEventSpy(service);
+
+    await expect(service.call({ messages: [{ role: 'user', content: 'hi' }] })).resolves.toBeDefined();
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'fallback_switched',
+      from: 'primary',
+      to: 'fb1',
+      reason: 'primary_breaker_open',
+    }));
+  });
+
   it('hedge A-win emits reset and provider_failed when primary drain ends without done', async () => {
     const primary = createMockProvider('primary', {
       streamChunks: [{ type: 'text_delta', delta: 'hello' }], // clean EOF, no done
