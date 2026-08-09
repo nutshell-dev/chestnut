@@ -103,6 +103,12 @@ describe('writeUserChat - phase 142 attachment fallback', () => {
     expect(latestFile).toBeDefined();
     const inboxContent = fs.readFileSync(path.join(inboxPending, latestFile!), 'utf-8');
     expect(inboxContent).toContain(longMessage);
+
+    const auditContent = fs.readFileSync(path.join(motionDir, 'audit.tsv'), 'utf-8');
+    expect(auditContent).toContain('viewport_attachment_persist_failed');
+    expect(auditContent).toContain('chars=3000');
+    expect(auditContent).toContain('reason=disk full');
+    expect(auditContent).toContain('fallback=inline');
   });
 
   it('phase 142 Step B: writeUserChat reads config-injected threshold', () => {

@@ -12,6 +12,8 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
+import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 const ATTACHMENT_SUBDIR = 'inbox/attachments';
 const PREVIEW_HEAD_CHARS = 200;
@@ -34,7 +36,7 @@ export function writeUserChat(
 
   let body: string;
   if (message.length > maxInlineChars) {
-    const attachmentRelPath = persistAttachment(fs, agentDir, message);
+    const attachmentRelPath = persistAttachment(fs, audit, agentDir, message);
     if (attachmentRelPath) {
       body = formatAttachmentBody(message, attachmentRelPath);
     } else {
@@ -55,7 +57,12 @@ export function writeUserChat(
 }
 
 /** 写 attachment 到 inbox/attachments/<ts>_<uuid>.txt、返回 clawspace-relative path 或 null（写失败）。 */
-function persistAttachment(fs: FileSystem, agentDir: string, content: string): string | null {
+function persistAttachment(
+  fs: FileSystem,
+  audit: ReturnType<typeof createDirContext>['audit'],
+  agentDir: string,
+  content: string,
+): string | null {
   try {
     const ts = Date.now();
     const id = newShortUuid();
@@ -64,7 +71,15 @@ function persistAttachment(fs: FileSystem, agentDir: string, content: string): s
     fs.writeAtomicSync(absPath, content);
     // clawspace-relative: inbox/attachments/ 在 agentDir 下，clawspace 在 agentDir/clawspace 下
     return path.join('..', relPath);
-  } catch {
+  } catch (err) {
+    try {
+      audit.write(
+        VIEWPORT_AUDIT_EVENTS.ATTACHMENT_PERSIST_FAILED,
+        `chars=${content.length}`,
+        `reason=${formatErr(err)}`,
+        'fallback=inline',
+      );
+    } catch { /* audit self-failure must not discard the user message */ }
     return null;
   }
 }
@@ -90,5 +105,4 @@ export function fmtDuration(ms: number): string {
   if (h > 0) return `${h}h ${m % 60}m`;
   return `${m}m`;
 }
-
 

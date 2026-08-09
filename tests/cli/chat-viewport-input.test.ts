@@ -4,6 +4,7 @@ import { createTuiInputHandler, type InputHandlerDeps } from '../../src/cli/comm
 function createDeps(active = true): InputHandlerDeps {
   return {
     fs: { writeAtomicSync: vi.fn() } as unknown as InputHandlerDeps['fs'],
+    audit: { write: vi.fn() } as unknown as InputHandlerDeps['audit'],
     agentDir: '/agent',
     turnTracker: {
       isActive: vi.fn(() => active),
@@ -41,4 +42,20 @@ describe('chat viewport Esc input', () => {
       expect(deps.turnTracker.requestInterrupt).not.toHaveBeenCalled();
     },
   );
+
+  it('keeps the turn active and audits when the interrupt intent cannot be persisted', () => {
+    const deps = createDeps();
+    vi.mocked(deps.fs.writeAtomicSync).mockImplementation(() => {
+      throw new Error('disk full');
+    });
+
+    expect(createTuiInputHandler(deps)('\x1b')).toEqual({ consume: true });
+
+    expect(deps.audit.write).toHaveBeenCalledWith(
+      'viewport_interrupt_persist_failed',
+      'reason=disk full',
+      'local_state=active',
+    );
+    expect(deps.turnTracker.requestInterrupt).not.toHaveBeenCalled();
+  });
 });

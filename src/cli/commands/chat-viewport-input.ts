@@ -2,6 +2,9 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { TurnTracker } from './chat-viewport-types.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
+import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 export type ShutdownReason = 'daemon_dead' | 'user_quit' | 'stream_end';
 
@@ -12,6 +15,7 @@ export interface EditorHandle {
 
 export interface InputHandlerDeps {
   fs: FileSystem;
+  audit: AuditLog;
   agentDir: string;
   turnTracker: TurnTracker;
   mainUI: MainTurnUIController;
@@ -57,7 +61,16 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
       const interruptFile = path.join(deps.agentDir, 'interrupt');
       try {
         deps.fs.writeAtomicSync(interruptFile, '');
-      } catch { /* silent: best-effort interrupt write */ }
+      } catch (err) {
+        try {
+          deps.audit.write(
+            VIEWPORT_AUDIT_EVENTS.INTERRUPT_PERSIST_FAILED,
+            `reason=${formatErr(err)}`,
+            'local_state=active',
+          );
+        } catch { /* audit self-failure tolerated */ }
+        return { consume: true };
+      }
       deps.turnTracker.requestInterrupt('esc');
       return { consume: true };
     }

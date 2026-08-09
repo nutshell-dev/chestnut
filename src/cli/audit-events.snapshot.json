@@ -75,6 +75,8 @@
       "viewport_clawsdir_scan_failed",
       "viewport_command_error",
       "viewport_event_ingest",
+      "viewport_attachment_persist_failed",
+      "viewport_interrupt_persist_failed",
       "viewport_render_batch",
       "viewport_scrollback_clear_suppressed",
       "viewport_shutdown",

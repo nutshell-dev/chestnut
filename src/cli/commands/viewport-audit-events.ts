@@ -22,6 +22,8 @@ export const VIEWPORT_AUDIT_EVENTS = {
   STREAM_READER_START_FAILED: 'chat_viewport_stream_reader_start_failed',
   HISTORY_REPLAY_FAILED: 'chat_viewport_history_replay_failed',
   REFRESH_CLAWS_FAILED: 'chat_viewport_refresh_claws_failed',
+  ATTACHMENT_PERSIST_FAILED: 'viewport_attachment_persist_failed',
+  INTERRUPT_PERSIST_FAILED: 'viewport_interrupt_persist_failed',
 } as const;
 
 /**

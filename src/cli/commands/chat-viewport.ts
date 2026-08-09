@@ -469,7 +469,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   let shutdownReason: ShutdownReason = 'user_quit';
 
   tui.addInputListener(createTuiInputHandler({
-    fs, agentDir: options.agentDir, turnTracker, mainUI, editor,
+    fs, audit: options.audit, agentDir: options.agentDir, turnTracker, mainUI, editor,
     requestRender: () => tui.requestRender(),
     resolveExit: () => resolveExit(),
     setShutdownReason: (r) => { shutdownReason = r; },
