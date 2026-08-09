@@ -2,6 +2,7 @@
 // Do not edit manually; edit the original per-topic tests instead.
 
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import config from '../../../.config/dependency-cruiser.cjs';
 
@@ -188,6 +189,28 @@ describe('depcruise-cli-protocol-boundary-rules', () => {
  * - 临时让 src/assembly/* import 旧 '../cli/help/index.js' → 规则/不存在路径至少一道失败
  */
 describe('dependency-cruiser: CLIProtocol boundary rules (phase 1253 Step D)', () => {
+  const srcDir = path.join(process.cwd(), 'src');
+
+  function directoriesWithOwnIndex(parentDir: string): string[] {
+    return fs.readdirSync(parentDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter((name) => fs.existsSync(path.join(parentDir, name, 'index.ts')));
+  }
+
+  function expectedProductionModuleRoots(): string[] {
+    const grouped = ['core', 'foundation'].flatMap((group) =>
+      directoriesWithOwnIndex(path.join(srcDir, group)).map((name) => `${group}/${name}`),
+    );
+    const topLevel = directoriesWithOwnIndex(srcDir)
+      .filter((name) => name !== 'core' && name !== 'foundation');
+    return [...grouped, ...topLevel].sort();
+  }
+
+  function barrelRuleName(moduleRoot: string): string {
+    return `no-deep-into-module-${moduleRoot.replace(/[\/_]/g, '-')}`;
+  }
+
   it('no-cli-protocol-to-outside present with exact from/to shape', () => {
     const rule = config.forbidden.find(
       (r: { name: string }) => r.name === 'no-cli-protocol-to-outside',
@@ -209,15 +232,33 @@ describe('dependency-cruiser: CLIProtocol boundary rules (phase 1253 Step D)', (
     expect(rule.to.path).toBe('^src/cli/');
   });
 
-  it('L6 reusable owners have generated barrel-only error rules', () => {
-    for (const owner of ['assembly', 'cli-protocol', 'daemon', 'watchdog']) {
+  it('every production module root has the same generated barrel-only error rule (phase 1348)', () => {
+    const moduleRoots = expectedProductionModuleRoots();
+    for (const owner of moduleRoots) {
       const rule = config.forbidden.find(
-        (r: { name: string }) => r.name === `no-deep-into-module-${owner}`,
+        (r: { name: string }) => r.name === barrelRuleName(owner),
       );
       expect(rule?.severity).toBe('error');
       expect(rule?.from).toEqual({ path: '^src/', pathNot: [`^src/${owner}/`] });
       expect(rule?.to.path).toBe(`^src/${owner}/(?!index\\.ts$).+`);
     }
+
+    const generatedNames = config.forbidden
+      .filter((r: { name: string }) => r.name.startsWith('no-deep-into-module-'))
+      .map((r: { name: string }) => r.name)
+      .sort();
+    expect(generatedNames).toEqual(moduleRoots.map(barrelRuleName).sort());
+    expect(new Set(generatedNames).size).toBe(generatedNames.length);
+  });
+
+  it('module discovery covers CLIProcess but not nested implementation or resource directories', () => {
+    const generatedNames = config.forbidden.map((r: { name: string }) => r.name);
+    expect(generatedNames).toContain('no-deep-into-module-cli');
+    expect(generatedNames).toContain('no-outside-to-cli-process');
+    expect(generatedNames).not.toContain('no-deep-into-module-assembly-guidance');
+    expect(generatedNames).not.toContain('no-deep-into-module-core-claw-topology-jobs-outbox-summary');
+    expect(generatedNames).not.toContain('no-deep-into-module-templates-prompts');
+    expect(generatedNames).not.toContain('no-deep-into-module-skills');
   });
 
   it('no-assembly-to-cli-command-protocol-internals 已退役（phase 1283 Step B：被零边规则严格覆盖）', () => {

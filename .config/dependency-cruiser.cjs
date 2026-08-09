@@ -1,11 +1,11 @@
 /**
- * dependency-cruiser config — phase 696 精简版
+ * dependency-cruiser config — production architecture invariants
  *
  * ============================================================
- * Policy: lint 范围治理 (phase 696 立、phase 691 Step D 撤)
+ * Policy: lint 范围治理（phase 696 精简；phase 1346/1348 恢复并泛化 barrel 边界）
  * ============================================================
  *
- * **本 config 只守两类规则**：
+ * **本 config 守三类规则**：
  *
  * (a) **资源唯一归属**（M#3）：fs / crypto / child_process / net 等 Node 资源
  *     必经具体 owner 模块、按文件名 allowlist 锁定。这类 rule 不依赖应然层
@@ -15,52 +15,27 @@
  *     不依赖物理路径）、no-orphans（warn、死代码警告）、no-root-constants-readd
  *     （phase 520 治理回退守）、no-unused-node-modules（防误 import）。
  *
- * **保留 rule 清单（12 条）**：
- *   - no-circular
- *   - fs-only-via-foundation-filesystem
- *   - crypto-only-from-foundation
- *   - child-process-only-from-foundation-process-exec
- *   - net-only-from-foundation-transport
- *   - nodefilesystem-only-from-bootstrap
- *   - no-unused-node-modules
- *   - no-orphans
- *   - no-root-constants-readd
- *   - no-foundation-to-outside（phase 725：foundation 零上层依赖、lint 已验证 0 违反后守 invariant）
- *   - no-cli-protocol-to-outside（phase 1253：CLIProtocol 零实现依赖、同型 precedent）
- *   - no-assembly-to-cli-process（phase 1283 Step B：Assembly→CLIProcess 零边通用禁令，
- *     覆盖并取代 phase 1253 窄规则 no-assembly-to-cli-command-protocol-internals）
- *
- * **本 config 不守的**：
- *
- * 应然原则（M#5 单向依赖、M#7 接口稳定、M#11 边界对齐）由 **code review** 守、
- * 不靠 lint 编码。理由：
- *
- * - 应然层应决定物理位置、不反过来。phase 695 mismatch（Cron @module L2a
- *   但 src/core/cron/ 物理仍 core）暴露物理路径 lint 假设的脆性：应然漂移时
- *   lint 强制 churn 物理位置、反向 force impl 适配 lint。
- * - 「太多 lint 有负面导向」（用户 ratify N=3+）：lint 越多、智能体（含主会话）
- *   决策负担越大、与 Philosophy「系统为智能体服务」相反。
- * - 应然违反不该 lint allowlist ratify（phase 691 立判例）、应启 M#11 重构。
- *   barrel-only 整族（39 no-deep-into-* rule）同型噪音、phase 696 拆除。
+ * (c) **模块耦合表面**（M#7/M#8/M#9）：全部生产模块的跨模块 import 必经 owner
+ *     `index.ts` barrel。phase 696 曾撤旧的逐层手写规则；phase 1291 重立程序化规则，
+ *     phase 1346 扩至全部 `src/**` caller，phase 1348 改为从整个源码树发现模块根。
  *
  * **phase 696 撤的 rule 族**：
  *
  * - 7 物理路径层 rule：no-foundation-to-core / no-core-to-assembly /
  *   no-subagent-to-runtime / no-daemon-to-watchdog / no-watchdog-to-daemon /
  *   no-audit-to-dialog-store / no-assembly-to-cli-shared-formatter
- * - 39 barrel-only rule：no-deep-into-* 整族
+ * - 39 barrel-only rule：no-deep-into-* 整族（phase 1291 起以程序化形态重立）
  *
  * **治理判例链**：
  * - phase 682：撤「audit→dialog-store 防 cycle」allowlist + 立反向 forbid rule
  * - phase 691：撤 3 处「防 cycle 类」allowlist + 立 phase 691 Step D policy 头
  * - phase 695：Cron @module L5→L2a 应然重分类（design-only、物理 path 未迁）
- * - phase 696：拆物理路径层 rule + barrel-only 一族（本 phase）
+ * - phase 696：拆物理路径层 rule + 当时的 barrel-only 一族
+ * - phase 1291/1346：程序化重立 barrel boundary，并扩全部 production caller
+ * - phase 1348：owner 发现从按层/手写名单扩为整个 production source tree
  *
- * **未来加 rule 准入**：新 rule 必须同时满足：
- *   (i) 守的是「资源唯一归属」或「tool-detected 结构属性」类
- *   (ii) 不依赖物理路径 → 应然层假设
- *   (iii) 不是「lint 替 review 守」噪音
- *   不满足任一条 → 不加、改 code review 守。
+ * 物理路径只用于表达已经由 architecture 确立的模块根；模块边界变化须先按 M#11
+ * 讨论并同步目录，而不是为 lint 加 allowlist。
  * ============================================================
  */
 
@@ -68,52 +43,46 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 /**
- * L1-L6 production barrel 边界程序化生成（phase 1291 / 1346）：
- * 跨模块 import 必经模块自身 index.ts，程序化遍历 src/core、src/foundation
- * 子目录生成，不手工枚举（同 M#8 耦合界面最小 / M#7 耦合界面稳定）。
- * severity 直接 error（同 no-circular 先例：phase1290 治理后 L1-L5 已 0 违反，
- * phase 1346 将 caller 扩至全部 src，并加入 L6 reusable owners。
+ * 全 production source tree 的 barrel 边界程序化生成（phase 1291 / 1346 / 1348）。
+ * 模块物理形态只有两种：core/foundation grouping 下的直接子目录模块，及拥有
+ * 自身 index.ts 的 src 顶层模块。只发现模块根，不把模块内部 nested index 误判
+ * 为独立模块。跨模块 import 必经 owner index.ts（M#7/M#8/M#9）。
  */
+function childDirectoriesWithIndex(parentDir) {
+  return fs
+    .readdirSync(parentDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => fs.existsSync(path.join(parentDir, name, 'index.ts')));
+}
+
+function discoverProductionModuleRoots() {
+  const srcDir = path.join(__dirname, '..', 'src');
+  const grouped = ['core', 'foundation'].flatMap((group) =>
+    childDirectoriesWithIndex(path.join(srcDir, group)).map((name) => `${group}/${name}`),
+  );
+  const topLevel = childDirectoriesWithIndex(srcDir)
+    .filter((name) => name !== 'core' && name !== 'foundation');
+  return [...grouped, ...topLevel].sort();
+}
+
 function barrelBoundaryRules() {
-  const bases = ['core', 'foundation'];
-  const rules = [];
-  for (const base of bases) {
-    const baseDir = path.join(__dirname, '..', 'src', base);
-    const mods = fs
-      .readdirSync(baseDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-    for (const mod of mods) {
-      rules.push({
-        // rule name 需 kebab-case（phase 649 invariant test）：目录名可能含
-        // `_`（如 core/context_manager），name 里转 `-`，path 仍用真实目录名。
-        name: `no-deep-into-module-${base}-${mod.replace(/_/g, '-')}`,
-        comment: [
-          `M#8 耦合界面最小 / M#7 耦合界面稳定：跨模块 import 必经`,
-          `${base}/${mod}/index.ts barrel，不得深路径直达内部文件。`,
-          'phase 1291 立、phase 1346 扩全部 src caller；owner internal 相对边排除。',
-        ].join(' '),
-        severity: 'error',
-        from: {
-          path: '^src/',
-          pathNot: [`^src/${base}/${mod}/`],
-        },
-        to: {
-          path: `^src/${base}/${mod}/(?!index\.ts$).+`,
-        },
-      });
-    }
-  }
-  for (const mod of ['assembly', 'cli-protocol', 'daemon', 'watchdog']) {
-    rules.push({
-      name: `no-deep-into-module-${mod}`,
-      comment: `phase 1346: L6 ${mod} cross-module imports must use its index.ts barrel.`,
+  return discoverProductionModuleRoots().map((moduleRoot) => {
+    // rule name 需 kebab-case（phase 649 invariant test）：路径分隔符和 `_`
+    // （如 core/context_manager）均转 `-`，path 仍保留真实 module root。
+    const ruleSuffix = moduleRoot.replace(/[\/_]/g, '-');
+    return {
+      name: `no-deep-into-module-${ruleSuffix}`,
+      comment: [
+        'M#8 耦合界面最小 / M#7 耦合界面稳定：跨模块 import 必经',
+        `${moduleRoot}/index.ts barrel，不得深路径直达内部文件。`,
+        'owner internal 相对边排除；phase 1348 全 production module root 自动纳管。',
+      ].join(' '),
       severity: 'error',
-      from: { path: '^src/', pathNot: [`^src/${mod}/`] },
-      to: { path: `^src/${mod}/(?!index\\.ts$).+` },
-    });
-  }
-  return rules;
+      from: { path: '^src/', pathNot: [`^src/${moduleRoot}/`] },
+      to: { path: `^src/${moduleRoot}/(?!index\\.ts$).+` },
+    };
+  });
 }
 
 /** @type {import('dependency-cruiser').IConfiguration} */
