@@ -13,7 +13,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import type { Runtime, TurnResult } from '../runtime/index.js';
+import type { TurnResult } from '../runtime/index.js';
 import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
@@ -46,10 +46,10 @@ import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js'
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
-import type { LLMRequestBlockedState, LLMRequestGateDecision, LLMRetryWaitingState, RecoverableLLMErrorClass, EventLoopOptions } from './types.js';
+import type { LLMRequestBlockedState, LLMRequestGateDecision, LLMRetryWaitingState, RecoverableLLMErrorClass, EventLoopOptions, EventLoopRuntime } from './types.js';
 
 export class EventLoop {
-  private runtime: Runtime;
+  private runtime: EventLoopRuntime;
   private clawId: string;
   private audit: AuditLog;
   private loopFs: FileSystem;

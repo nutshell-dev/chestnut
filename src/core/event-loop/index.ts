@@ -10,4 +10,5 @@
  */
 
 export { EventLoop } from './event-loop.js';
+export type { EventLoopRuntime, EventLoopTraceSource } from './types.js';
 export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';

@@ -1,8 +1,51 @@
-import type { AuditLog } from '../../foundation/audit/index.js';
+import type { AuditLog, TraceId } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { Runtime } from '../runtime/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
+import type { InboxHandle } from '../../foundation/messaging/index.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { StreamCallbacks } from '../agent-executor/index.js';
+import type { ContextTrimOutcome } from '../context_manager/index.js';
+import type { TurnResult } from '../runtime/index.js';
+
+/** Consumer-owned trace capability used by EventLoop stream projection. */
+export interface EventLoopTraceSource {
+  getCurrentTraceId(): TraceId | undefined;
+}
+
+/**
+ * Runtime capability actually consumed by EventLoop.
+ *
+ * This interface deliberately lives with the consumer. Runtime satisfies it structurally;
+ * EventLoop does not depend on the concrete Runtime class or expose fields it never reads.
+ */
+export interface EventLoopRuntime extends EventLoopTraceSource {
+  abort(): void;
+  ackHandles(handles: InboxHandle[], path: string): Promise<void>;
+  nackHandles(handles: InboxHandle[], reason: string, path: string): Promise<void>;
+  computeTurnRequestFingerprint(): Promise<string>;
+  drainInbox(): Promise<{
+    injected: Message[];
+    sources: Array<{ text: string; type: string }>;
+    count: number;
+    addressedHandles: InboxHandle[];
+  }>;
+  getMessages(): Promise<Message[]>;
+  getSystemPrompt(): Promise<string>;
+  getToolsForLLM(): ToolDefinition[];
+  proactiveTrimIfNeeded(
+    messages: Message[],
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+  ): Promise<Message[]>;
+  processTurn(
+    messages: Message[],
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+    callbacks?: StreamCallbacks,
+  ): Promise<TurnResult>;
+  reactiveTrim(): Promise<ContextTrimOutcome>;
+}
 
 export interface LLMRetryState {
   count: number;
@@ -107,7 +150,7 @@ export type LLMRequestGateDecision =
   | { kind: 'indeterminate'; error: import('../../foundation/messaging/index.js').PendingViewError };
 
 export interface EventLoopOptions {
-  runtime: Runtime;
+  runtime: EventLoopRuntime;
   fsFactory: (baseDir: string) => FileSystem;
   agentDir: string;
   clawId: string;
