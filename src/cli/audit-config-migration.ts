@@ -18,12 +18,7 @@
  *   legacy source hash 派生（content-derived），同输入重入收敛到同一 journal。
  */
 import { getChestnutRoot } from '../core/claw-topology/index.js';
-import {
-  isInitialized,
-  readLegacyAuditConfigSection,
-  removeLegacyAuditConfigSection,
-  type LegacyAuditConfigSection,
-} from '../assembly/config/config-load.js';
+import type { RootConfigLegacyMigration, RootConfigReader } from '../assembly/index.js';
 import { getGlobalConfigPath } from '../assembly/config/global-config-path.js';
 import {
   loadWorkspaceAuditConfig,
@@ -50,6 +45,14 @@ export type AuditConfigMigrationResult =
   | { kind: 'already' }
   /** 本次运行推进了迁移（含 resume 续跑完成）。 */
   | { kind: 'migrated'; migrationId: string };
+
+type LegacyAuditConfigSection = NonNullable<ReturnType<RootConfigLegacyMigration['readAuditSection']>>;
+
+export interface AuditConfigMigrationDeps {
+  fsFactory(baseDir: string): FileSystem;
+  rootConfig: Pick<RootConfigReader, 'isInitialized'>;
+  rootConfigLegacy: Pick<RootConfigLegacyMigration, 'readAuditSection' | 'removeAuditSection'>;
+}
 
 function sameAuditConfig(a: AuditConfig, b: AuditConfig): boolean {
   return a.retention.max_size_mb === b.retention.max_size_mb;
@@ -98,15 +101,15 @@ function writeOutcome(
  * 确保 workspace audit config 迁移到位（幂等、可重入）。
  * conflict / invalid 场景抛错（fail-loud）；其余以 typed result 返回。
  */
-export function ensureAuditConfigMigrated(deps: { fsFactory: (baseDir: string) => FileSystem }): AuditConfigMigrationResult {
-  if (!isInitialized(deps)) return { kind: 'not-initialized' };
+export function ensureAuditConfigMigrated(deps: AuditConfigMigrationDeps): AuditConfigMigrationResult {
+  if (!deps.rootConfig.isInitialized()) return { kind: 'not-initialized' };
 
   const rootFs = deps.fsFactory(getChestnutRoot());
   const existing = loadWorkspaceAuditConfig(rootFs);
   if (existing.kind === 'invalid') {
     throw new Error(`Workspace audit config is invalid (${AUDIT_PATHS.config}): ${existing.message}`);
   }
-  const legacy = readLegacyAuditConfigSection(deps);
+  const legacy = deps.rootConfigLegacy.readAuditSection();
   const pending = findPendingAuditMigration(rootFs);
 
   // 两边皆无 → missing（resume 时发现 pending 烂尾 → 以 noop 终态收口 journal）
@@ -165,7 +168,7 @@ export function ensureAuditConfigMigrated(deps: { fsFactory: (baseDir: string) =
   if (existing.kind === 'missing') {
     published = publishMigratedWorkspaceAuditConfig(rootFs, legacy!.config, legacy!.sourceHash) === 'published';
   }
-  removeLegacyAuditConfigSection(deps);
+  deps.rootConfigLegacy.removeAuditSection();
   writeOutcome(rootFs, migrationId, {
     status: 'completed',
     published,

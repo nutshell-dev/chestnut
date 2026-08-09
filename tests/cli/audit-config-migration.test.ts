@@ -29,9 +29,14 @@ import {
 } from '../../src/foundation/audit/index.js';
 import { readAuditMigrationJournal } from '../../src/foundation/audit/migration-journal.js';
 import { createTrackedTempDirSync } from '../utils/temp.js';
+import { createRootConfig, createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
-const deps = { fsFactory };
+const deps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
+};
 
 const LEGACY_32: AuditConfig = { retention: { max_size_mb: 32 } };
 

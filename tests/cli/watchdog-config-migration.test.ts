@@ -31,9 +31,14 @@ import {
   findPendingWatchdogMigration,
 } from '../../src/watchdog/config-migration-journal.js';
 import { createTrackedTempDirSync } from '../utils/temp.js';
+import { createRootConfig, createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
-const deps = { fsFactory };
+const deps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
+};
 
 const LEGACY_CUSTOM: WatchdogConfig = {
   interval_ms: 60000,

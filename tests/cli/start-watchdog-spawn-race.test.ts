@@ -35,6 +35,7 @@ import {
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../src/foundation/process-manager/audit-events.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { ProcessManagerContext } from '../../src/foundation/process-manager/types.js';
+import { createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const h = vi.hoisted(() => ({
   counts: { contractCreate: 0, notify: 0, chat: 0, motionInit: 0 },
@@ -104,6 +105,7 @@ const startDeps = () => ({
     isInitialized: () => fs.existsSync(path.join(tmpDir, '.chestnut', 'config.yaml')),
     loadGlobal: vi.fn(),
   },
+  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
 });
 
 let tmpDir: string;

@@ -18,6 +18,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
+import { createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const h = vi.hoisted(() => ({
   order: [] as string[],
@@ -94,6 +95,7 @@ const startDeps = () => ({
     isInitialized: () => fs.existsSync(path.join(h.workspaceRoot, '.chestnut', 'config.yaml')),
     loadGlobal: vi.fn(),
   },
+  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
 });
 
 let tmpDir: string;

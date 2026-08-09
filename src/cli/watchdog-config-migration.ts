@@ -19,12 +19,7 @@
  *   legacy source hash 派生（content-derived），同输入重入收敛到同一 journal。
  */
 import { getChestnutRoot } from '../core/claw-topology/index.js';
-import {
-  isInitialized,
-  readLegacyWatchdogConfigSection,
-  removeLegacyWatchdogConfigSection,
-  type LegacyWatchdogConfigSection,
-} from '../assembly/config/config-load.js';
+import type { RootConfigLegacyMigration, RootConfigReader } from '../assembly/index.js';
 import { getGlobalConfigPath } from '../assembly/config/global-config-path.js';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
@@ -56,6 +51,14 @@ export type WatchdogConfigMigrationResult =
   | { kind: 'already' }
   /** 本次运行推进了迁移（含 resume 续跑完成）。 */
   | { kind: 'migrated'; migrationId: string };
+
+type LegacyWatchdogConfigSection = NonNullable<ReturnType<RootConfigLegacyMigration['readWatchdogSection']>>;
+
+export interface WatchdogConfigMigrationDeps {
+  fsFactory(baseDir: string): FileSystem;
+  rootConfig: Pick<RootConfigReader, 'isInitialized'>;
+  rootConfigLegacy: Pick<RootConfigLegacyMigration, 'readWatchdogSection' | 'removeWatchdogSection'>;
+}
 
 /** content-derived 迁移 id：同 legacy 输入重入/续跑收敛到同一 journal 目录。 */
 function migrationIdFor(legacy: LegacyWatchdogConfigSection): string {
@@ -112,15 +115,15 @@ function describeConfig(config: WatchdogConfig): string {
  * 确保 workspace watchdog config 迁移到位（幂等、可重入）。
  * conflict / invalid 场景抛错（fail-loud）；其余以 typed result 返回。
  */
-export function ensureWatchdogConfigMigrated(deps: { fsFactory: (baseDir: string) => FileSystem }): WatchdogConfigMigrationResult {
-  if (!isInitialized(deps)) return { kind: 'not-initialized' };
+export function ensureWatchdogConfigMigrated(deps: WatchdogConfigMigrationDeps): WatchdogConfigMigrationResult {
+  if (!deps.rootConfig.isInitialized()) return { kind: 'not-initialized' };
 
   const rootFs = deps.fsFactory(getChestnutRoot());
   const existing = loadWorkspaceWatchdogConfig(rootFs);
   if (existing.kind === 'invalid') {
     throw new Error(`Workspace watchdog config is invalid (${WATCHDOG_PATHS.config}): ${existing.message}`);
   }
-  const legacy = readLegacyWatchdogConfigSection(deps);
+  const legacy = deps.rootConfigLegacy.readWatchdogSection();
   const pending = findPendingWatchdogMigration(rootFs);
 
   // 两边皆无 → missing（resume 时发现 pending 烂尾 → 以 noop 终态收口 journal）
@@ -176,7 +179,7 @@ export function ensureWatchdogConfigMigrated(deps: { fsFactory: (baseDir: string
   if (existing.kind === 'missing') {
     published = publishMigratedWorkspaceWatchdogConfig(rootFs, legacy!.config, legacy!.sourceHash) === 'published';
   }
-  removeLegacyWatchdogConfigSection(deps);
+  deps.rootConfigLegacy.removeWatchdogSection();
   writeOutcome(rootFs, migrationId, {
     status: 'completed',
     published,
