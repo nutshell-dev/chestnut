@@ -5,26 +5,25 @@
 
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { hasActiveContract, listLegacyPausedContracts } from '../../core/contract/index.js';
 import { peekPendingCount, listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 /**
  * Display Claw health status (reads directory in real time)
  */
-export async function healthCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, opts?: { json?: boolean }): Promise<void> {
-  loadGlobalConfig(deps);
+export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: { json?: boolean }): Promise<void> {
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
 

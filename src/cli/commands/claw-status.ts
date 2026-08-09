@@ -18,7 +18,6 @@
 
 import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
@@ -37,21 +36,21 @@ import {
   formatStorageView,
 } from '../../core/status-service/index.js';
 import { STATUS_AUDIT_EVENTS } from '../../core/status-service/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 interface ClawStatusOpts {
   json?: boolean;
 }
 
 export async function clawStatusCommand(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: ClawCommandDeps,
   name: string,
   opts: ClawStatusOpts = {},
 ): Promise<void> {
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
   }
 
