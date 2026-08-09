@@ -17,7 +17,6 @@ import { stripProgressDerivedFields, ContractProgressInvariantViolatedError } fr
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
 import { listArchiveContractLocations } from './locations.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -242,7 +241,8 @@ export async function checkAllSubtasksCompleted(
 }
 
 import { CONTRACT_ARCHIVE_DIR } from './dirs.js';
-import { CLAWS_DIR } from '../../core/claw-topology/index.js';
+import * as path from 'node:path';
+import { MOTION_CLAW_ID, type ClawTopology } from '../../core/claw-topology/index.js';
 import type { ArchiveContractRef } from './types.js';
 import { type ContractId, makeContractId } from './types.js';
 
@@ -253,17 +253,27 @@ import { type ContractId, makeContractId } from './types.js';
  */
 export async function listArchiveContracts(opts: {
   fs: FileSystem;
+  clawTopology: Pick<ClawTopology, 'enumerate' | 'resolve'>;
   filter?: { sinceMs?: number; untilMs?: number };
   audit?: AuditLog;  // NEW phase 164
 }): Promise<ArchiveContractRef[]> {
   const { fs, filter } = opts;
   const results: ArchiveContractRef[] = [];
 
-  if (!fs.existsSync(CLAWS_DIR)) return results;
+  let clawIds;
+  try {
+    clawIds = opts.clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
+  } catch (err) {
+    if (isFileNotFound(err)) return results;
+    throw err;
+  }
 
-  for (const e of fs.listSync(CLAWS_DIR, { includeDirs: true })) {
-    const clawId = e.name;
-    const archiveDir = `${CLAWS_DIR}/${clawId}/${CONTRACT_ARCHIVE_DIR}`;
+  for (const clawId of clawIds) {
+    const location = opts.clawTopology.resolve(clawId);
+    if (location.kind !== 'local') {
+      throw new ToolError(`Cannot list archive contracts for remote claw "${clawId}"`);
+    }
+    const archiveDir = path.join(location.clawDir, CONTRACT_ARCHIVE_DIR);
     if (!fs.existsSync(archiveDir)) continue;
 
     const archiveEntries = listArchiveContractLocations({ fs, archiveDir });
@@ -306,7 +316,7 @@ export async function listArchiveContracts(opts: {
         if (filter.untilMs !== undefined && at > filter.untilMs) continue;
       }
 
-      results.push({ clawId: makeClawId(clawId), contractId: makeContractId(contractId), contractDir, archivedAt });
+      results.push({ clawId, contractId: makeContractId(contractId), contractDir, archivedAt });
     }
   }
 

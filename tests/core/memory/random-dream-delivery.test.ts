@@ -17,7 +17,7 @@ import { promises as fs } from 'fs';
 import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memory/random-dream.js';
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
+import { createClawTopology, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -40,6 +40,7 @@ const mockAudit = {
 function makeOpts(chestnutRoot: string, motionDir: string, notifyMotion?: RandomDreamOptions['notifyMotion']): RandomDreamOptions {
   const fileSystem = new NodeFileSystem({ baseDir: chestnutRoot });
   return {
+    clawTopology: createClawTopology({ fs: fileSystem, chestnutRoot, motionDir }),
     motionDir: motionDir as any,
     taskSystem: makeMockTaskSystem(),
     fs: fileSystem,

@@ -62,6 +62,7 @@ export class MemorySystem {
   async runRandomDream(opts?: { signal?: AbortSignal }): Promise<void> {
     const run = this.opts.runRandomDream ?? runRandomDream;
     return run({
+      clawTopology: this.opts.clawTopology,
       motionDir: this.opts.motionDir,
       taskSystem: this.opts.taskSystem,
       fs: this.opts.fs,

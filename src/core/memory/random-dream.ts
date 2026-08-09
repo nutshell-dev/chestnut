@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { MOTION_CLAW_ID } from '../claw-topology/index.js';
+import { MOTION_CLAW_ID, type ClawTopology } from '../claw-topology/index.js';
 import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
@@ -53,6 +53,7 @@ const LATE_SETTLE_GRACE_MS = 7 * 24 * 60 * 60_000;
 export type RandomDreamNotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
 
 export interface RandomDreamOptions {
+  clawTopology: ClawTopology;
   motionDir: string;
   taskSystem: SubAgentTaskScheduler;
   fs: FileSystem;             // baseDir = chestnutRoot
@@ -374,6 +375,7 @@ async function computeWeight(
 
 async function discoverWeightedContracts(
   fs: FileSystem,
+  clawTopology: ClawTopology,
   state: RandomDreamState,
   audit: AuditLog,
   getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>,
@@ -383,7 +385,7 @@ async function discoverWeightedContracts(
 
   // Phase 1335 (r138 F fork): cross-module query API 替代直扫
   // phase 925: 不再使用单一高水位线过滤；改为按 completed/pending contractIds 集合过滤
-  const archiveContracts = await listArchiveContracts({ fs });
+  const archiveContracts = await listArchiveContracts({ fs, clawTopology });
 
   // phase 925: exclude contracts already completed or covered by pending late-settle tasks
   const completedIds = new Set<ContractId>(state.completedContractIds);
@@ -739,7 +741,13 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   let state = loaded.state;
   state = await flushPendingNotifications(opts, state);   // phase 1159 Step D: recover prior crash
   state = await sweepLateSettlePending(opts, state);   // NEW phase 170
-  const weightedContracts = await discoverWeightedContracts(opts.fs, state, opts.audit, opts.getContractProgress);
+  const weightedContracts = await discoverWeightedContracts(
+    opts.fs,
+    opts.clawTopology,
+    state,
+    opts.audit,
+    opts.getContractProgress,
+  );
 
   if (weightedContracts.length === 0) {
     opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=skip_empty`);

@@ -23,6 +23,11 @@ import { listArchiveContracts } from '../../../src/core/contract/persistence.js'
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { archiveAndEmit } from '../../../src/core/contract/verification-lifecycle.js';
 import { createManagerVerificationContext } from '../../helpers/contract-subtask.js';
+import { createClawTopology } from '../../../src/core/claw-topology/index.js';
+
+function archiveTopology(nodeFs: NodeFileSystem, chestnutDir: string) {
+  return createClawTopology({ fs: nodeFs, chestnutRoot: chestnutDir, motionDir: 'motion' });
+}
 
 
 
@@ -171,7 +176,7 @@ describe('listArchiveContracts', () => {
 
   it('returns empty array when claws dir missing', async () => {
     const nodeFs = new NodeFileSystem({ baseDir: chestnutDir });
-    const result = await listArchiveContracts({ fs: nodeFs });
+    const result = await listArchiveContracts({ fs: nodeFs, clawTopology: archiveTopology(nodeFs, chestnutDir) });
     expect(result).toEqual([]);
   });
 
@@ -184,13 +189,35 @@ describe('listArchiveContracts', () => {
     );
 
     const nodeFs = new NodeFileSystem({ baseDir: chestnutDir });
-    const result = await listArchiveContracts({ fs: nodeFs });
+    const result = await listArchiveContracts({ fs: nodeFs, clawTopology: archiveTopology(nodeFs, chestnutDir) });
 
     expect(result).toHaveLength(1);
     expect(result[0].clawId).toBe('c1');
     expect(result[0].contractId).toBe('ct-1');
-    expect(result[0].contractDir).toBe('claws/c1/contract/archive/ct-1');
+    expect(result[0].contractDir).toBe(path.join(chestnutDir, 'claws/c1/contract/archive/ct-1'));
     expect(result[0].archivedAt).toBe('2024-01-15T00:00:00Z');
+  });
+
+  it('enumerates and resolves claw roots only through the injected topology', async () => {
+    const archiveDir = path.join(chestnutDir, 'catalog-root', 'c1', 'contract', 'archive', 'ct-1');
+    await fs.mkdir(archiveDir, { recursive: true });
+    await fs.writeFile(
+      path.join(archiveDir, 'progress.json'),
+      JSON.stringify({ completed_at: '2024-01-15T00:00:00Z' }),
+    );
+    const nodeFs = new NodeFileSystem({ baseDir: chestnutDir });
+    const enumerate = vi.fn(() => ['c1'] as any);
+    const resolve = vi.fn(() => ({ kind: 'local' as const, clawDir: path.join(chestnutDir, 'catalog-root', 'c1') }));
+
+    const result = await listArchiveContracts({
+      fs: nodeFs,
+      clawTopology: { enumerate, resolve },
+    });
+
+    expect(enumerate).toHaveBeenCalledOnce();
+    expect(resolve).toHaveBeenCalledWith('c1');
+    expect(result).toHaveLength(1);
+    expect(result[0].contractId).toBe('ct-1');
   });
 
   it('filters by sinceMs/untilMs', async () => {
@@ -211,6 +238,7 @@ describe('listArchiveContracts', () => {
     const nodeFs = new NodeFileSystem({ baseDir: chestnutDir });
     const result = await listArchiveContracts({
       fs: nodeFs,
+      clawTopology: archiveTopology(nodeFs, chestnutDir),
       filter: { sinceMs: new Date('2024-03-01').getTime() },
     });
 
@@ -262,7 +290,7 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
     // intentionally NO progress.json
 
     const nodeFs = new NodeFileSystem({ baseDir: chestnutDir });
-    const result = await listArchiveContracts({ fs: nodeFs, audit: makeAudit() });
+    const result = await listArchiveContracts({ fs: nodeFs, clawTopology: archiveTopology(nodeFs, chestnutDir), audit: makeAudit() });
 
     expect(result).toHaveLength(1);
     expect(result[0].clawId).toBe('c1');
@@ -282,7 +310,7 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
     await fs.writeFile(path.join(archiveDir, 'progress.json'), '{invalid json');
 
     const nodeFs = new NodeFileSystem({ baseDir: chestnutDir });
-    const result = await listArchiveContracts({ fs: nodeFs, audit: makeAudit() });
+    const result = await listArchiveContracts({ fs: nodeFs, clawTopology: archiveTopology(nodeFs, chestnutDir), audit: makeAudit() });
 
     expect(result).toHaveLength(1);
     expect(result[0].clawId).toBe('c1');
@@ -312,7 +340,7 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
       return fs.readFileSync(path.join(chestnutDir, p), 'utf-8');
     });
 
-    const result = await listArchiveContracts({ fs: nodeFs, audit: makeAudit() });
+    const result = await listArchiveContracts({ fs: nodeFs, clawTopology: archiveTopology(nodeFs, chestnutDir), audit: makeAudit() });
 
     expect(result).toHaveLength(1);
     expect(result[0].clawId).toBe('c1');
@@ -338,7 +366,7 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
     );
 
     const nodeFs = new NodeFileSystem({ baseDir: chestnutDir });
-    const result = await listArchiveContracts({ fs: nodeFs, audit: makeAudit() });
+    const result = await listArchiveContracts({ fs: nodeFs, clawTopology: archiveTopology(nodeFs, chestnutDir), audit: makeAudit() });
 
     expect(result).toHaveLength(1);
     expect(result[0].clawId).toBe('c1');
