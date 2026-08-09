@@ -3,7 +3,7 @@
  * Phase 1285 reverse tests
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DialogStore } from '../../../src/foundation/dialog-store/store.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -83,5 +83,65 @@ describe('DialogStore turn transaction (phase 1285)', () => {
 
     const rollbackEvents = audit.events.filter(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_ROLLBACK);
     expect(rollbackEvents).toHaveLength(0);
+  });
+
+  it('new process rolls an open transaction back to the last complete session', async () => {
+    await store.save({ systemPrompt: 'sp', messages: [{ role: 'user', content: 'complete' }], toolsForLLM: [] });
+    await store.beginTurn();
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'complete' }, { role: 'assistant', content: 'partial' }],
+      toolsForLLM: [],
+    });
+
+    const restarted = new DialogStore(fs, '', audit.audit, filename, clawId);
+    const result = await restarted.load();
+
+    expect(result.source).toBe('current');
+    if (result.source !== 'current') throw new Error(`unexpected source ${result.source}`);
+    expect(result.session.messages).toEqual([{ role: 'user', content: 'complete' }]);
+    await expect(fs.read('turn-transaction.json')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+    expect(audit.events).toContainEqual(expect.arrayContaining([
+      DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+      expect.stringMatching(/^transaction_id=/),
+      'action=rollback_open',
+    ]));
+  });
+
+  it('new process retains a committed turn when decision-record cleanup previously failed', async () => {
+    await store.save({ systemPrompt: 'sp', messages: [{ role: 'user', content: 'complete' }], toolsForLLM: [] });
+    await store.beginTurn();
+    await store.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'complete' }, { role: 'assistant', content: 'committed' }],
+      toolsForLLM: [],
+    });
+    const deleteSpy = vi.spyOn(fs, 'delete').mockRejectedValueOnce(new Error('cleanup unavailable'));
+    await store.commitTurn();
+    deleteSpy.mockRestore();
+
+    const restarted = new DialogStore(fs, '', audit.audit, filename, clawId);
+    const result = await restarted.load();
+
+    expect(result.source).toBe('current');
+    if (result.source !== 'current') throw new Error(`unexpected source ${result.source}`);
+    expect(result.session.messages.at(-1)?.content).toBe('committed');
+    await expect(fs.read('turn-transaction.json')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' });
+    expect(audit.events).toContainEqual(expect.arrayContaining([
+      DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+      expect.stringMatching(/^transaction_id=/),
+      'action=retain_committed',
+    ]));
+  });
+
+  it('malformed transaction record fails closed without reading partial current as authoritative', async () => {
+    await store.save({ systemPrompt: 'sp', messages: [{ role: 'assistant', content: 'partial' }], toolsForLLM: [] });
+    await fs.writeAtomic('turn-transaction.json', '{broken');
+
+    const restarted = new DialogStore(fs, '', audit.audit, filename, clawId);
+    const result = await restarted.load();
+
+    expect(result.source).toBe('io_error');
+    expect(audit.events.some(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_RECOVERY_FAILED)).toBe(true);
   });
 });

@@ -11,3 +11,5 @@ export const DIALOG_ARCHIVE_DIR = `${DIALOG_DIR}/${DIALOG_ARCHIVE_SUBDIR}`;
  * phase 395: 抽 14 site inline 'current.json' literal 为 const (M#1 + ML#9)。
  */
 export const CURRENT_DIALOG_FILE = 'current.json' as const;
+/** Crash-recoverable turn transaction decision record (open snapshot / committed fact). */
+export const TURN_TRANSACTION_FILE = 'turn-transaction.json' as const;

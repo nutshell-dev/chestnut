@@ -30,6 +30,9 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_BEGIN: 'dialog_turn_begin',
   TURN_COMMIT: 'dialog_turn_commit',
   TURN_ROLLBACK: 'dialog_turn_rollback',
+  TURN_RECOVERED: 'dialog_turn_recovered',
+  TURN_RECOVERY_FAILED: 'dialog_turn_recovery_failed',
+  TURN_CLEANUP_FAILED: 'dialog_turn_cleanup_failed',
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
   CLAWID_MISMATCH: 'dialog_clawid_mismatch',
 } as const;

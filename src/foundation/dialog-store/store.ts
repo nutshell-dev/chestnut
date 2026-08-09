@@ -25,7 +25,7 @@ import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
 import { BlockIdIndex } from './block-id-index.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
-import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR } from './dirs.js';
+import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR, TURN_TRANSACTION_FILE } from './dirs.js';
 import { repairMessages } from './repair.js';
 import { restoreMessages } from './restore.js';
 import { assertDialogShapeInvariants } from './invariants.js';
@@ -41,23 +41,63 @@ const LOAD_STABLE_RETRY_BASE_DELAY_MS = 50;
  */
 const LOAD_STABLE_DEFAULT_RETRIES = 3;
 
+interface OpenTurnTransactionRecord {
+  readonly version: 1;
+  readonly state: 'open';
+  readonly transactionId: string;
+  readonly begunAt: string;
+  readonly snapshot: SessionData;
+}
+
+interface CommittedTurnTransactionRecord {
+  readonly version: 1;
+  readonly state: 'committed';
+  readonly transactionId: string;
+  readonly committedAt: string;
+  readonly reason: string;
+}
+
+type TurnTransactionRecord = OpenTurnTransactionRecord | CommittedTurnTransactionRecord;
+
+function parseTurnTransactionRecord(raw: string): TurnTransactionRecord {
+  const value: unknown = JSON.parse(raw);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CorruptionError('turn transaction record must be an object', value);
+  }
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1 || typeof record.transactionId !== 'string') {
+    throw new CorruptionError('turn transaction record has invalid version or transactionId', value);
+  }
+  if (record.state === 'open') {
+    if (typeof record.begunAt !== 'string' || record.snapshot === null || typeof record.snapshot !== 'object') {
+      throw new CorruptionError('open turn transaction record has invalid snapshot', value);
+    }
+    return record as unknown as OpenTurnTransactionRecord;
+  }
+  if (record.state === 'committed') {
+    if (typeof record.committedAt !== 'string' || typeof record.reason !== 'string') {
+      throw new CorruptionError('committed turn transaction record has invalid decision', value);
+    }
+    return record as unknown as CommittedTurnTransactionRecord;
+  }
+  throw new CorruptionError('turn transaction record has invalid state', value);
+}
+
 /**
  * Manages a Claw's dialog session
  */
 export class DialogStore {
   private readonly currentPath: string;
+  private readonly turnTransactionPath: string;
   private readonly archiveDir: string;
   private readonly blockIdIndex: BlockIdIndex;
   private createdAt: string | null = null;
   private corruptedPoisoned: boolean = false;
   private prevMessagesLength: number | undefined = undefined;
 
-  // phase 1285: turn transaction snapshot (memory-based)
-  private _turnSnapshot: {
-    messages: Message[];
-    systemPrompt: string;
-    toolsForLLM: ToolDefinition[];
-  } | null = null;
+  private _turnTransaction: OpenTurnTransactionRecord | null = null;
+  private _turnRecoveryChecked = false;
+  private _turnRecoveryPromise: Promise<void> | null = null;
 
   constructor(
     private readonly fs: FileSystem,
@@ -69,6 +109,7 @@ export class DialogStore {
     blockIdIndex?: BlockIdIndex,
   ) {
     this.currentPath = path.join(dialogDir, filename);
+    this.turnTransactionPath = path.join(dialogDir, TURN_TRANSACTION_FILE);
     this.archiveDir = path.join(dialogDir, archiveDir ?? DIALOG_ARCHIVE_SUBDIR);
     this.blockIdIndex = blockIdIndex ?? new BlockIdIndex(this.fs, dialogDir);
     this.blockIdIndex.load(this.audit);
@@ -81,6 +122,11 @@ export class DialogStore {
    * - Returns empty session if nothing found
    */
   async load(): Promise<LoadResult> {
+    try {
+      await this.ensureTurnTransactionRecovered();
+    } catch (err) {
+      return { source: 'io_error', error: formatErr(err), session: null };
+    }
     if (this.corruptedPoisoned) {
       if (await this.fs.exists(this.currentPath)) {
         // Phase 984: a fresh save (or transient I/O recovery) made current.json available again.
@@ -354,6 +400,7 @@ export class DialogStore {
       trace_id?: TraceId;
     },
   ): Promise<void> {
+    await this.ensureTurnTransactionRecovered();
     // phase 227: schema invariant check（违例 emit audit、不 throw、不阻 save）
     assertDialogShapeInvariants(snapshot.messages, this.audit);
 
@@ -419,35 +466,53 @@ export class DialogStore {
 
   /**
    * Begin a turn transaction.
-   * Captures current in-memory state as rollback point.
-   * All save() calls within the turn are accumulated in memory;
-   * commitTurn() flushes atomically, rollbackTurn() restores snapshot.
+   * Persists the current session as an open rollback point before returning.
+   * Incremental save() remains observable in current.json; a new process restores
+   * this snapshot unless commitTurn() has atomically published a committed fact.
    */
   async beginTurn(): Promise<void> {
+    if (this._turnTransaction !== null) {
+      throw new DialogStoreError('Dialog turn transaction already active');
+    }
     const loadResult = await this.load();
     if (loadResult.source === 'io_error') {
       throw new Error(`Session load failed: ${loadResult.error}`);
     }
-    const { session } = loadResult;
-    this._turnSnapshot = {
-      messages: JSON.parse(JSON.stringify(session.messages)) as Message[],
-      systemPrompt: session.systemPrompt,
-      toolsForLLM: JSON.parse(JSON.stringify(session.toolsForLLM)) as ToolDefinition[],
+    const record: OpenTurnTransactionRecord = {
+      version: 1,
+      state: 'open',
+      transactionId: newUuid(),
+      begunAt: new Date().toISOString(),
+      snapshot: JSON.parse(JSON.stringify(loadResult.session)) as SessionData,
     };
-    this.audit.write(DIALOG_AUDIT_EVENTS.TURN_BEGIN);
+    await this.fs.writeAtomic(this.turnTransactionPath, JSON.stringify(record, null, 2));
+    this._turnTransaction = record;
+    this.audit.write(DIALOG_AUDIT_EVENTS.TURN_BEGIN, `transaction_id=${record.transactionId}`);
   }
 
   /**
-   * Commit turn transaction: snapshot is discarded; save() already wrote incrementally.
+   * Commit turn transaction: atomically publish the decision before cleanup.
    * No-op if no transaction in progress.
    */
   async commitTurn(reason?: string): Promise<void> {
-    if (!this._turnSnapshot) return;
-    this._turnSnapshot = null;
+    if (!this._turnTransaction) return;
+    const transactionId = this._turnTransaction.transactionId;
+    const commitReason = reason ?? 'normal_end';
+    const committed: CommittedTurnTransactionRecord = {
+      version: 1,
+      state: 'committed',
+      transactionId,
+      committedAt: new Date().toISOString(),
+      reason: commitReason,
+    };
+    await this.fs.writeAtomic(this.turnTransactionPath, JSON.stringify(committed, null, 2));
+    this._turnTransaction = null;
     this.audit.write(
       DIALOG_AUDIT_EVENTS.TURN_COMMIT,
-      reason ? `reason=${reason}` : 'reason=normal_end',
+      `transaction_id=${transactionId}`,
+      `reason=${commitReason}`,
     );
+    await this.cleanupTurnTransactionRecord('commit');
   }
 
   /**
@@ -455,16 +520,84 @@ export class DialogStore {
    * Guarantees Phase 1105 all-or-nothing rollback semantics.
    */
   async rollbackTurn(reason?: string): Promise<void> {
-    if (!this._turnSnapshot) return;
-    const { messages, systemPrompt, toolsForLLM } = this._turnSnapshot;
+    if (!this._turnTransaction) return;
+    const { transactionId, snapshot } = this._turnTransaction;
     // phase 227: rollback 是 intentional regression、reset prevLength 防 length_regressed 误报
-    this.prevMessagesLength = messages.length;
-    await this.save({ systemPrompt, messages, toolsForLLM });
-    this._turnSnapshot = null;
+    await this.restoreTurnSnapshot(snapshot);
+    this._turnTransaction = null;
     this.audit.write(
       DIALOG_AUDIT_EVENTS.TURN_ROLLBACK,
+      `transaction_id=${transactionId}`,
       reason ? `reason=${reason}` : 'reason=unknown',
     );
+    await this.cleanupTurnTransactionRecord('rollback');
+  }
+
+  private async ensureTurnTransactionRecovered(): Promise<void> {
+    if (this._turnRecoveryChecked || this._turnTransaction !== null) return;
+    if (this._turnRecoveryPromise !== null) return this._turnRecoveryPromise;
+    this._turnRecoveryPromise = this.recoverTurnTransaction();
+    try {
+      await this._turnRecoveryPromise;
+      this._turnRecoveryChecked = true;
+    } finally {
+      this._turnRecoveryPromise = null;
+    }
+  }
+
+  private async recoverTurnTransaction(): Promise<void> {
+    let raw: string;
+    try {
+      raw = await this.fs.read(this.turnTransactionPath);
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      this.audit.write(DIALOG_AUDIT_EVENTS.TURN_RECOVERY_FAILED, `reason=${formatErr(err)}`);
+      throw err;
+    }
+
+    let record: TurnTransactionRecord;
+    try {
+      record = parseTurnTransactionRecord(raw);
+      if (record.state === 'open') {
+        await this.restoreTurnSnapshot(record.snapshot);
+        this.audit.write(
+          DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+          `transaction_id=${record.transactionId}`,
+          'action=rollback_open',
+        );
+      } else {
+        this.audit.write(
+          DIALOG_AUDIT_EVENTS.TURN_RECOVERED,
+          `transaction_id=${record.transactionId}`,
+          'action=retain_committed',
+        );
+      }
+    } catch (err) {
+      this.audit.write(DIALOG_AUDIT_EVENTS.TURN_RECOVERY_FAILED, `reason=${formatErr(err)}`);
+      throw err;
+    }
+    await this.cleanupTurnTransactionRecord('recovery');
+  }
+
+  private async restoreTurnSnapshot(snapshot: SessionData): Promise<void> {
+    const validated = this.validateSession(snapshot);
+    await this.fs.writeAtomic(this.currentPath, JSON.stringify(validated, null, 2));
+    this.createdAt = validated.createdAt;
+    this.prevMessagesLength = validated.messages.length;
+    this.corruptedPoisoned = false;
+  }
+
+  private async cleanupTurnTransactionRecord(context: 'commit' | 'rollback' | 'recovery'): Promise<void> {
+    try {
+      await this.fs.delete(this.turnTransactionPath);
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      this.audit.write(
+        DIALOG_AUDIT_EVENTS.TURN_CLEANUP_FAILED,
+        `context=${context}`,
+        `reason=${formatErr(err)}`,
+      );
+    }
   }
 
   /**
