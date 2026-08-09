@@ -198,7 +198,6 @@ const VI_MOCK_FILES = [
   'tests/assembly/assemble.test.ts',
   'tests/cli/audit-query-zero-result-hint.test.ts',
   'tests/cli/claw-send-status-hint.test.ts',
-  'tests/cli/commands/claw-ls.test.ts',
   'tests/cli/commands/claw-status.test.ts',
   'tests/cli/commands/claw-trace-numbering.test.ts',
   'tests/cli/cross-cli-id-consistency.test.ts',

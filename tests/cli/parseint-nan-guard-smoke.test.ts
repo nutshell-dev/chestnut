@@ -4,7 +4,7 @@
  *
  * Verifies:
  * - npx tsx src/cli/index.ts boots
- * - commander parses --limit + dispatches to outboxCommand
+ * - commander parses --limit + dispatches to auditQueryCommand
  * - successful exec exits with code 0
  * - parseIntOption integration via helper to commander wiring works
  *
@@ -106,7 +106,7 @@ function makeTempRoot(): string {
   // which is 'observe_only' and still exercises --limit wiring.
   fs.writeFileSync(
     path.join(dir, '.chestnut', 'claws', 'test-claw', 'config.yaml'),
-    'preset: anthropic\n'
+    'name: test-claw\npreset: anthropic\n'
   );
   fs.writeFileSync(
     path.join(dir, '.chestnut', 'claws', 'test-claw', 'audit.tsv'),
@@ -131,7 +131,7 @@ describe('CLI smoke - parseInt NaN guard Layer B canary', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('outbox --limit 10 → exit 0, no NaN error (Layer B integration canary)', async () => {
+  it('audit query --limit 10 → exit 0, no NaN error (Layer B integration canary)', async () => {
     const { stderr, exitCode } = await runCli(
       ['audit', 'query', '-c', 'test-claw', '--limit', '10'],
       { CHESTNUT_ROOT: root }
