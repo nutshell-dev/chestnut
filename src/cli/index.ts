@@ -29,9 +29,7 @@ import {
 } from './commands/motion.js';
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
-import { runWatchdogLoop } from '../watchdog/index.js';
 import { startCommand as watchdogStart, stopCommand as watchdogStop } from './commands/watchdog-cli.js';
-import { DAEMON_LOG } from '../daemon/index.js';
 import { createConfigCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
 import { statusCommand } from './commands/status.js';
@@ -396,15 +394,6 @@ watchdogCmd
   .description('Stop watchdog')
   .action(action('disabled', async () => {
     await watchdogStop(fsFactory);
-  }));
-
-// watchdog daemon (internal command, spawned by startCommand)
-watchdogCmd
-  .command('daemon')
-  .description('Run watchdog daemon (internal)')
-  .action(action('internal', async () => {
-    // phase 444 Step B DI：装配传入 daemon stdout log（M#5 watchdog 不直 import daemon）。
-    await runWatchdogLoop(fsFactory, DAEMON_LOG);
   }));
 
 watchdogCmd.on('command:*', (ops) => {

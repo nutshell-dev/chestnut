@@ -73,4 +73,11 @@ describe('chestnut top-level help (phase 1488)', () => {
     expect(out).toContain('Messaging:');
     expect(out).not.toContain('<subject>');
   });
+
+  it('watchdog exposes lifecycle commands only; daemon runs exclusively via watchdog-entry', () => {
+    const out = runHelp(['watchdog', '--help']);
+    expect(out).toMatch(/^\s{2,}start\s{2,}Start watchdog/m);
+    expect(out).toMatch(/^\s{2,}stop\s{2,}Stop watchdog/m);
+    expect(out).not.toMatch(/^\s{2,}daemon\s/m);
+  });
 });
