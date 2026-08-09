@@ -16,6 +16,7 @@ export const CLAW_DEPS_TS = path.join(CLI_ROOT, 'commands', 'claw-command-deps.t
 export const AUDIT_COMMANDS = ['audit-info.ts', 'audit-lookup.ts', 'audit-query.ts'];
 export const CLAWSPACE_COMMANDS = ['claw-read.ts', 'claw-ls.ts'];
 export const CLAW_INSPECTION_COMMANDS = ['claw-health.ts', 'claw-status.ts'];
+export const CLAW_DAEMON_LIFECYCLE_COMMANDS = ['claw-daemon.ts', 'claw-stop.ts'];
 
 /** 静态（含 multiline / type）与 dynamic import specifier 扫描。 */
 export function importSpecifiers(text: string): string[] {
@@ -40,13 +41,13 @@ export function configLoadImporters(): string[] {
     .sort();
 }
 
-// Migration baseline（phase 1325 Step C：health/status 迁出，22→20）：精确路径集合，
+// Migration baseline（phase 1326 Step C：daemon/stop 迁出，20→18）：精确路径集合，
 // 非计数；一删一增抵消会被拒。后续每个命令族治理 phase 必须同步递减本清单。
 export const REMAINING_BASELINE = [
   'audit-config-migration.ts', 'commands/claw-chat.ts', 'commands/claw-create.ts',
-  'commands/claw-daemon.ts', 'commands/claw-import.ts', 'commands/claw-list.ts',
+  'commands/claw-import.ts', 'commands/claw-list.ts',
   'commands/claw-send.ts',
-  'commands/claw-stop.ts', 'commands/claw-stream.ts', 'commands/claw-trace.ts',
+  'commands/claw-stream.ts', 'commands/claw-trace.ts',
   'commands/claw-watch.ts', 'commands/config.ts', 'commands/init.ts',
   'commands/motion-daemon.ts', 'commands/motion.ts', 'commands/start.ts',
   'commands/status.ts', 'commands/stop.ts', 'llm-connection-check.ts',

@@ -7,7 +7,7 @@
  * 2. cli/index.ts 与 commands/claw-router.ts 零 `assembly/config/**` import；
  * 3. ClawCommandDeps 含 required 窄 Pick（不得 optional / 不得 Admin 宽面），
  *    RouterDeps 为同形状 type alias（phase 1324 Step A 收敛）；
- * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 20 文件
+ * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 18 文件
  *    migration baseline——只防新增与意外删除，不批准永久存在；后续每个命令族
  *    治理 phase 必须同步递减本清单；
  * 5. clawExists 不得回到 router；
@@ -26,6 +26,7 @@ import {
   AUDIT_COMMANDS,
   CLAWSPACE_COMMANDS,
   CLAW_INSPECTION_COMMANDS,
+  CLAW_DAEMON_LIFECYCLE_COMMANDS,
   importSpecifiers,
   configLoadImporters,
   REMAINING_BASELINE,
@@ -87,7 +88,7 @@ describe('phase 1301/1324: 共享窄 Pick + RouterDeps required alias', () => {
 });
 
 describe('phase 1301: remaining deep-caller migration baseline', () => {
-  it('config-load.js importer 精确为 20 文件路径集合（phase 1325 迁出 health/status）', () => {
+  it('config-load.js importer 精确为 18 文件路径集合（phase 1326 迁出 daemon/stop）', () => {
     expect(configLoadImporters()).toEqual(REMAINING_BASELINE);
   });
 
@@ -121,14 +122,15 @@ describe('phase 1323: Audit command family RootConfig DI boundary', () => {
   });
 });
 
-describe('phase 1324/1325: claw leaf 共享窄 deps 边界', () => {
-  it('read/ls/health/status 零config-load、type-import共享deps、参数为ClawCommandDeps', () => {
-    for (const file of [...CLAWSPACE_COMMANDS, ...CLAW_INSPECTION_COMMANDS]) {
+describe('phase 1324-1326: claw leaf 共享窄 deps 边界', () => {
+  it('已迁leaf零config-load、type-import共享deps、参数为共享/扩展ClawCommandDeps', () => {
+    for (const file of [...CLAWSPACE_COMMANDS, ...CLAW_INSPECTION_COMMANDS, ...CLAW_DAEMON_LIFECYCLE_COMMANDS]) {
       const text = read(path.join(CLI_ROOT, 'commands', file));
       expect(importSpecifiers(text).filter((s) => s.endsWith('assembly/config/config-load.js'))).toEqual([]);
       expect(importSpecifiers(text)).toContain('./claw-command-deps.js');
-      expect(text).toMatch(/deps:\s*ClawCommandDeps/);
+      expect(text).toMatch(/deps:\s*(?:ClawCommandDeps|ClawDaemonDeps)/);
     }
+    expect(read(path.join(CLI_ROOT, 'commands', 'claw-daemon.ts'))).toMatch(/ClawDaemonDeps extends ClawCommandDeps/);
   });
 
   it('反向 fixture：leaf deep import 回流 / 退回只传 fsFactory 必须被检出', () => {
