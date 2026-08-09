@@ -5,14 +5,12 @@
  * phase 501: 4 interface 抽 to types.ts (C-α 极保守整理性)
  */
 
-import * as path from 'path';
 import { formatErr } from "../node-utils/index.js";
 import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
   ToolTimeoutError,
 } from './errors.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
@@ -469,7 +467,7 @@ export class ToolExecutor extends ToolExecutorImpl {
     super(options.registry, options.defaultTimeoutMs, options.baseRegistry);
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
-    this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
+    this.workspaceDir = options.workspaceDir;
     this.fs = options.fs;
     this.fsFactory = options.fsFactory;
     this.llm = options.llm;

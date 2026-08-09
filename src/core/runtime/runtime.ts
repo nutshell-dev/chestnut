@@ -36,6 +36,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { InboxReader, InboxEntry, InboxHandle, OutboxWriter } from '../../foundation/messaging/index.js';
 import { ExecContextImpl } from '../../foundation/tools/index.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from '../context_manager/index.js';
@@ -229,6 +230,7 @@ export class Runtime {
     this.execContext = new ExecContextImpl({
       clawId: this.options.clawId,
       clawDir: this.options.clawDir,
+      workspaceDir: path.join(this.options.clawDir, CLAWSPACE_DIR),
       syncDir: path.join(this.options.clawDir, TASKS_SYNC_DIR),
       profile: this.options.toolProfile ?? 'full',
       permissionChecker: deps.permissionChecker,  // NEW phase 1273

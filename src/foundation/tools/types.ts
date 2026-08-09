@@ -264,7 +264,8 @@ export interface ToolExecutorOptions {
   registry: ToolRegistry;
   clawDir: string;
   syncDir: string;
-  workspaceDir?: string;
+  /** Caller-owned workspace root; required to keep Tools free of claw layout knowledge. */
+  workspaceDir: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;

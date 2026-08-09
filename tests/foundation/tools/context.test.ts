@@ -7,15 +7,16 @@ describe('ExecContextImpl', () => {
     vi.restoreAllMocks();
   });
 
-  it('ctor 默认 workspaceDir = clawDir/clawspace', () => {
+  it('ctor uses caller-owned workspaceDir without deriving claw layout', () => {
     const ctx = new ExecContextImpl({
       clawId: 'test',
       clawDir: '/tmp/test-claw',
+      workspaceDir: '/tmp/injected-workspace',
       syncDir: '/tmp/test-claw/tasks/sync',
       profile: 'full',
       fs: {} as any,
     });
-    expect(ctx.workspaceDir).toBe('/tmp/test-claw/clawspace');
+    expect(ctx.workspaceDir).toBe('/tmp/injected-workspace');
   });
 
   it('ctor 显式 workspaceDir 覆盖 default', () => {

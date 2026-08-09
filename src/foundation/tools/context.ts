@@ -15,10 +15,6 @@ import type { ExecContext, FileState } from './types.js';
 import type { TraceId } from '../audit/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 
-import path from 'path';
-import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
-
-
 import type { AuditLog } from '../audit/index.js';
 
 import type { ToolRegistry } from './types.js';
@@ -35,8 +31,8 @@ export interface ExecContextImplOptions {
   /** Claw workspace directory */
   clawDir: string;
 
-  /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, CLAWSPACE_DIR) */
-  workspaceDir?: string;
+  /** Caller-owned workspace root; Tools does not know claw layout semantics. */
+  workspaceDir: string;
 
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7） */
   syncDir: string;
@@ -163,7 +159,7 @@ export class ExecContextImpl implements ExecContext {
   constructor(options: ExecContextImplOptions) {
     this.clawId = options.clawId;
     this.clawDir = options.clawDir;
-    this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
+    this.workspaceDir = options.workspaceDir;
     this.syncDir = options.syncDir;
     this.profile = options.profile;
     this.fs = options.fs;

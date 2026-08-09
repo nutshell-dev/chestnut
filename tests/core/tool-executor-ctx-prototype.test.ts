@@ -33,7 +33,14 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     registry.register(readTool);
     registry.register(lsTool);
     registry.register(searchTool);
-    executor = new ToolExecutor({ registry, clawDir: tmpDir, clawsDir: path.join(path.join(tmpDir, '..'), 'claws'), fs, fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }) });
+    executor = new ToolExecutor({
+      registry,
+      clawDir: tmpDir,
+      workspaceDir: path.join(tmpDir, 'clawspace'),
+      syncDir: path.join(tmpDir, 'tasks', 'sync'),
+      fs,
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    });
 
   });
 
@@ -45,6 +52,8 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     return new ExecContextImpl({
       clawId: MOTION_CLAW_ID,
       clawDir: tmpDir,
+      workspaceDir: path.join(tmpDir, 'clawspace'),
+      syncDir: path.join(tmpDir, 'tasks', 'sync'),
       clawsDir: path.join(path.join(tmpDir, '..'), 'claws'),
       profile: 'full',
       fs,
@@ -109,6 +118,8 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     const ctx = new ExecContextImpl({
       clawId: 'normal-claw',
       clawDir: tmpDir,
+      workspaceDir: path.join(tmpDir, 'clawspace'),
+      syncDir: path.join(tmpDir, 'tasks', 'sync'),
       clawsDir: path.join(path.join(tmpDir, '..'), 'claws'),
       profile: 'full',
       fs,
