@@ -26,7 +26,7 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   ORPHAN_SIGTERM_FAILED: 'orphan_sigterm_failed',
   ORPHAN_CLEANUP_PARTIAL: 'orphan_cleanup_partial', // ← NEW phase 1060
   ORPHAN_MATCH_SKIPPED: 'orphan_match_skipped', // ← phase 346 B2: clawId token-match miss、防误杀 sibling claw
-  STOP_PID_REMOVED_BEFORE_DEAD: 'stop_pid_removed_before_dead', // ← phase 355 C1: SIGKILL 后超 grace 仍 isAlive、ops 诊断
+  STOP_PROCESS_SURVIVED_SIGKILL: 'stop_process_survived_sigkill',
   PID_SPAWNING_RACE_AVOIDED: 'pid_spawning_race_avoided', // ← NEW phase 1009: spawning CAS 删除时内容已变，避免误删真实 PID
   PID_SPAWNING_LOCK_RETRY: 'pid_spawning_lock_retry', // ← NEW phase 1014: stop 在 spawning 分支重试 acquire 互斥锁、超时不删 PID
   LOCKFILE_READ_FAILED: 'lockfile_read_failed',

@@ -412,7 +412,7 @@ async function stopAndRetire(
       }
       if (l1IsAlive(current.pid, current.startTime)) {
         ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.STOP_PID_REMOVED_BEFORE_DEAD,
+          PROCESS_MANAGER_AUDIT_EVENTS.STOP_PROCESS_SURVIVED_SIGKILL,
           `daemon_dir=${daemonDir}`,
           `pid=${current.pid}`,
           `grace_ms=${SIGKILL_DEAD_VERIFY_GRACE_MS}`,

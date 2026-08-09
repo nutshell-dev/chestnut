@@ -924,7 +924,7 @@
       "process_stopped",
       "starttime_mismatch",
       "starttime_verify_skipped_windows",
-      "stop_pid_removed_before_dead"
+      "stop_process_survived_sigkill"
     ],
     "foundation_skill-system_audit-events": [
       "skill_dir_not_found",

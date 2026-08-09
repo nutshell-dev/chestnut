@@ -119,6 +119,29 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
   });
 
+  it('reports a surviving process without claiming its PID was removed', async () => {
+    vi.useFakeTimers();
+    const { audit, events } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'stop-survived');
+    await writeGeneration(tempDir, daemonDir, 'active', 'gen-survived', FAKE_LIVE_PID);
+    const ctx = {
+      ...makeCtx(audit),
+      l1IsAlive: () => true,
+      kill: vi.fn(),
+    };
+
+    const resultPromise = stopProcess(ctx, daemonDir);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result).toBe(false);
+    expect(events.some((event) => (
+      event[0] === PROCESS_MANAGER_AUDIT_EVENTS.STOP_PROCESS_SURVIVED_SIGKILL
+    ))).toBe(true);
+    expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(true);
+    vi.useRealTimers();
+  });
+
   it('records stop intent when spawning generation has no pid yet', async () => {
     const { audit, events } = makeAudit();
     const clawId = 'stop-spawning-intent';
