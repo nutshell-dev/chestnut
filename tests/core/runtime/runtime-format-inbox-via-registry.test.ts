@@ -139,6 +139,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const systemFs = { read: vi.fn().mockRejectedValue(enoent) } as any;
     const registry = createInboxMessageTypeRegistry();
     registry.register({
+      owner: 'heartbeat-test',
       type: 'heartbeat',
       rendering: { kind: 'custom', formatter: createHeartbeatInboxFormatter({ systemFs, audit: audit as any }) },
     });
@@ -353,7 +354,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   it('phase 1259 Step B + phase 1265 Step A: claw_outbox_summary 真实 typed binding + 合法 v1 wire → guidance append（真实 limit）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registry.register({ type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [clawOutboxSummaryGuidanceBinding]);
     const runtime = build({
@@ -386,7 +387,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
-    registry.register({ type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [clawOutboxSummaryGuidanceBinding]);
     const runtime = build({
@@ -419,7 +420,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   it('phase 1261 Step B + phase 1266 Step A: contract_events 真实 typed binding + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [contractEventsGuidanceBinding]);
     const runtime = build({
@@ -446,7 +447,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   it('phase 1261 Step B + phase 1266 Step A: contract_events v1 空 refs → 仅投递正文、不追加 guidance、无 audit（合法 owner state）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [contractEventsGuidanceBinding]);
     const runtime = build({
@@ -472,7 +473,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
-    registry.register({ type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [contractEventsGuidanceBinding]);
     const runtime = build({
@@ -504,7 +505,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   it('phase 1262 Step B + phase 1267 Step A: contract_cancelled 真实 typed binding + 合法 v1 wire → guidance append（真实 CLI block）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({
@@ -531,7 +532,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   it('phase 1262 Step B + phase 1267 Step A: contract_cancelled 合法 legacy batch → guidance append（历史消息仍可渲染）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({
@@ -558,7 +559,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
-    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({
@@ -597,7 +598,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   it('phase 1262 Step B + phase 1267 Step A: contract_cancelled malformed v1 wire（空 refs）→ GUIDANCE_COMPOSER_FAILED audit、仅投递原 body', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registry.register({ type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
+    registry.register({ owner: 'runtime-test', type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } });
     const guidanceRegistry = createMotionGuidanceRegistry();
     registerCliGuidance(guidanceRegistry, [contractCancelledGuidanceBinding]);
     const runtime = build({

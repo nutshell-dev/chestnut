@@ -18,12 +18,12 @@
 import type { InboxMessageTypeDeclaration } from '../../foundation/messaging/index.js';
 
 export const CONTRACT_INBOX_MESSAGE_TYPES = [
-  { type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'verification_result', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'verification_rejection', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'verification_error', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'contract_created', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'contract_resume', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'contract_audit_feedback', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'contract_events', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'verification_result', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'verification_rejection', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'verification_error', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'contract_created', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'contract_resume', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'contract_audit_feedback', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'contract-system', type: 'contract_cancelled', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

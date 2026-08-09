@@ -9,5 +9,5 @@
 import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';
 
 export const DAEMON_INBOX_MESSAGE_TYPES = [
-  { type: 'startup_check', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'daemon', type: 'startup_check', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

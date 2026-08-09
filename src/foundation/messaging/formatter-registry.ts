@@ -26,14 +26,16 @@ export type InboxMessageRendering =
   | { readonly kind: 'custom'; readonly formatter: MessageFormatter };
 
 export interface InboxMessageTypeDeclaration {
+  /** 声明该 type 业务语义的稳定模块标识，用于装配冲突诊断。 */
+  readonly owner: string;
   readonly type: string;
   readonly rendering: InboxMessageRendering;
 }
 
 export interface InboxMessageTypeRegistry {
   /**
-   * 注册某 message type 的 rendering declaration。重复注册按 last-win（业主多次注册
-   * 仍 idempotent / 防多个装配路径误重）。装配期一次性调用、运行期不再改。
+   * 注册某 message type 的 rendering declaration。同一 owner 的完全相同声明可重复
+   * 注册；跨 owner 或 rendering 不同的重复声明 fail loud，禁止装配顺序改变语义。
    */
   register(declaration: InboxMessageTypeDeclaration): void;
 
@@ -46,15 +48,36 @@ export interface InboxMessageTypeRegistry {
 
 
 export function createInboxMessageTypeRegistry(): InboxMessageTypeRegistry {
-  const map = new Map<string, InboxMessageRendering>();
+  const map = new Map<string, InboxMessageTypeDeclaration>();
   return {
     register(declaration) {
-      map.set(declaration.type, declaration.rendering);
+      const existing = map.get(declaration.type);
+      if (existing === undefined) {
+        map.set(declaration.type, declaration);
+        return;
+      }
+      if (
+        existing.owner === declaration.owner
+        && inboxMessageRenderingEqual(existing.rendering, declaration.rendering)
+      ) {
+        return;
+      }
+      throw new Error(
+        `Inbox message type declaration conflict: type=${JSON.stringify(declaration.type)}`
+        + ` existingOwner=${JSON.stringify(existing.owner)}`
+        + ` incomingOwner=${JSON.stringify(declaration.owner)}`,
+      );
     },
     resolve(type) {
-      return map.get(type);
+      return map.get(type)?.rendering;
     },
   };
+}
+
+function inboxMessageRenderingEqual(a: InboxMessageRendering, b: InboxMessageRendering): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'standard' && b.kind === 'standard') return a.presentation === b.presentation;
+  return a.kind === 'custom' && b.kind === 'custom' && a.formatter === b.formatter;
 }
 
 

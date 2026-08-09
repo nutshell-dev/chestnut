@@ -10,6 +10,7 @@ import type { InboxMessageTypeDeclaration } from '../../foundation/messaging/ind
 
 export const GATEWAY_INBOX_MESSAGE_TYPES = [
   {
+    owner: 'gateway',
     type: 'user_chat',
     rendering: { kind: 'standard', presentation: 'user_chat' },
   },

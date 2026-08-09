@@ -9,6 +9,6 @@
 import type { InboxMessageTypeDeclaration } from '../../foundation/messaging/index.js';
 
 export const ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES = [
-  { type: 'task_queue_overflow', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'task_result', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'async-task-system', type: 'task_queue_overflow', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'async-task-system', type: 'task_result', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

@@ -90,6 +90,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   registerInboxMessageTypes(formatterRegistry, GATEWAY_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, WATCHDOG_INBOX_MESSAGE_TYPES);
   formatterRegistry.register({
+    owner: 'motion-heartbeat-test',
     type: 'heartbeat',
     rendering: {
       kind: 'custom',

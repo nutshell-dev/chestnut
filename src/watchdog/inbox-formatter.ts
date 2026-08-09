@@ -10,6 +10,6 @@
 import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';
 
 export const WATCHDOG_INBOX_MESSAGE_TYPES = [
-  { type: 'claw_crashed', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'claw_inactivity', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'watchdog', type: 'claw_crashed', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'watchdog', type: 'claw_inactivity', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

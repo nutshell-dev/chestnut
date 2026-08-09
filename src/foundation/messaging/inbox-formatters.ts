@@ -9,6 +9,7 @@ import type { InboxMessageTypeDeclaration } from './formatter-registry.js';
 
 export const MESSAGING_INBOX_MESSAGE_TYPES = [
   {
+    owner: 'messaging',
     type: 'user_inbox_message',
     rendering: { kind: 'standard', presentation: 'user_inbox' },
   },

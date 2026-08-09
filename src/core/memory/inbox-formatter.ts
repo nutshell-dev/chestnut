@@ -13,7 +13,7 @@
 import type { InboxMessageTypeDeclaration } from '../../foundation/messaging/index.js';
 
 export const MEMORY_INBOX_MESSAGE_TYPES = [
-  { type: 'random_dream', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'random_dream_completed', rendering: { kind: 'standard', presentation: 'system' } },
-  { type: 'deep_dream', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'memory-system', type: 'random_dream', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'memory-system', type: 'random_dream_completed', rendering: { kind: 'standard', presentation: 'system' } },
+  { owner: 'memory-system', type: 'deep_dream', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];
