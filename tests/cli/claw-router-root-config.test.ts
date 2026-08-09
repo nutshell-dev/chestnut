@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   loadGlobal: vi.fn(),
   loadClaw: vi.fn(),
+  saveClaw: vi.fn(),
   createCommand: vi.fn(),
   chatCommand: vi.fn(),
   stopCommand: vi.fn(),
@@ -71,7 +72,7 @@ import { CliError } from '../../src/cli/errors.js';
 
 const deps: RouterDeps = {
   fsFactory: (() => ({})) as unknown as RouterDeps['fsFactory'],
-  rootConfig: { loadGlobal: h.loadGlobal, loadClaw: h.loadClaw },
+  rootConfig: { loadGlobal: h.loadGlobal, loadClaw: h.loadClaw, saveClaw: h.saveClaw },
 };
 
 describe('claw-router RootConfig 窄 DI', () => {
@@ -108,7 +109,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     stdoutSpy.mockRestore();
   });
 
-  it.each(['create', 'outbox'] as const)(
+  it.each(['outbox'] as const)(
     'claw alice %s 恰好一次 loadGlobal',
     async (verb) => {
       await dispatchClawSubcommand('alice', [verb], deps);
@@ -181,6 +182,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     ['stream', ['stream'], h.runStreamFromArgs],
     ['watch', ['watch'], h.watchCommand],
     ['chat', ['chat'], h.chatCommand],
+    ['create', ['create'], h.createCommand],
   ] as const)(
     'claw alice %s：Router 透传同一 deps 对象给 handler，自身零 loadGlobal/loadClaw',
     async (_verb, args, handler) => {
