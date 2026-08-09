@@ -8,6 +8,7 @@ import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/core/c
 import { routeNotifyClawAsync } from '../../../src/core/claw-topology/index.js';
 import { formatClawStatusHint } from '../../../src/cli-protocol/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
+import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../../src/core/claw-topology/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -326,6 +327,11 @@ const defaultDeps = {
 
       expect(result.success).toBe(false);
       expect(result.content).toBe('notify_claw is motion-only');
+      expect(audit.events).toContainEqual([
+        CLAW_TOPOLOGY_AUDIT_EVENTS.NOTIFY_CLAW_MOTION_ONLY_VIOLATION,
+        'callerClawId=unknown',
+        'reason=not_motion_chain',
+      ]);
     });
   });
 

@@ -16,6 +16,7 @@ import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/index.js';
+import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
 export interface NotifyClawDeps {
@@ -76,6 +77,11 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       // Phase 807: authorization via DI flag (replaces ctx.callerLabel + isCallerAuthorized predicate).
       // 默认 true 保持主 registry 兼容；shadow registry 注入 authorized=false。
       if (this.authorized === false) {
+        deps.audit.write(
+          CLAW_TOPOLOGY_AUDIT_EVENTS.NOTIFY_CLAW_MOTION_ONLY_VIOLATION,
+          `callerClawId=${ctx.clawId ?? 'unknown'}`,
+          'reason=not_motion_chain',
+        );
         return { success: false, content: 'notify_claw is motion-only' };
       }
       const to = args.to as string;
