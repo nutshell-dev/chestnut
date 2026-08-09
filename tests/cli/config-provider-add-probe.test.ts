@@ -8,8 +8,14 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { createRootConfig, createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const configDeps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
+};
 
 // ── readline mock ──────────────────────────────────────────────────────────────
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
@@ -105,7 +111,7 @@ describe('config provider add — primary probe', () => {
     // preset #1, custom label, api key, model default, role primary, confirm y
     rlAnswers.queue = ['1', 'new-anthropic', 'sk-ant-new', '', '1', 'y'];
 
-    const cmd = createConfigCommand({ fsFactory });
+    const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
@@ -121,7 +127,7 @@ describe('config provider add — primary probe', () => {
     connMock.promptReconfigure.mockResolvedValue(undefined);
     rlAnswers.queue = ['1', 'new-anthropic', 'sk-ant-new', '', '1', 'y'];
 
-    const cmd = createConfigCommand({ fsFactory });
+    const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();
@@ -151,7 +157,7 @@ describe('config provider add — fallback probe', () => {
     // preset #1, custom label, api key, model default, role fallback, position 1
     rlAnswers.queue = ['1', 'new-openai', 'sk-openai', '', '2', '1'];
 
-    const cmd = createConfigCommand({ fsFactory });
+    const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'add']);
 
     expect(connMock.checkLLMConnectionFor).toHaveBeenCalledOnce();

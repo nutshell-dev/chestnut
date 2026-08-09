@@ -94,6 +94,8 @@ const startDeps = () => ({
   rootConfig: {
     isInitialized: () => fs.existsSync(path.join(h.workspaceRoot, '.chestnut', 'config.yaml')),
     loadGlobal: vi.fn(),
+    saveGlobal: vi.fn(),
+    patchPrimary: vi.fn(),
   },
   rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
 });

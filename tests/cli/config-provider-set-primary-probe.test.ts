@@ -8,8 +8,14 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { createRootConfig, createRootConfigLegacyMigration } from '../../src/assembly/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const configDeps = {
+  fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
+  rootConfigLegacy: createRootConfigLegacyMigration({ fsFactory }),
+};
 
 // ── readline mock ──────────────────────────────────────────────────────────────
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
@@ -102,7 +108,7 @@ describe('config provider set-primary — probe', () => {
     connMock.checkLLMConnection.mockResolvedValue({ ok: true, model: 'gpt-4o' });
     rlAnswers.queue = ['y'];
 
-    const cmd = createConfigCommand({ fsFactory });
+    const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'set-primary', 'my-openai']);
 
     expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();
@@ -118,7 +124,7 @@ describe('config provider set-primary — probe', () => {
     connMock.promptReconfigure.mockResolvedValue(undefined);
     rlAnswers.queue = ['y'];
 
-    const cmd = createConfigCommand({ fsFactory });
+    const cmd = createConfigCommand(configDeps);
     await cmd.parseAsync(['node', 'test', 'provider', 'set-primary', 'my-openai']);
 
     expect(connMock.checkLLMConnection).toHaveBeenCalledOnce();

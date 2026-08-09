@@ -8,8 +8,10 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { createRootConfig } from '../../src/assembly/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const commandDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
 
 // ── readline mock ──────────────────────────────────────────────────────────────
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
@@ -111,7 +113,7 @@ describe('initCommand — probe success path', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', '']; // branch 1, pick 1, model=auto
 
-    await initCommand({ fsFactory }, true, { audit: mockAudit });
+    await initCommand(commandDeps, true, { audit: mockAudit });
 
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.preset).toBe('anthropic');
@@ -141,7 +143,7 @@ describe('initCommand — probe failure: auth → reconfigure success', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-bad');
     rlAnswers.queue = ['1', '1', ''];
 
-    await initCommand({ fsFactory }, true, { audit: mockAudit });
+    await initCommand(commandDeps, true, { audit: mockAudit });
 
     expect(connMock.promptReconfigure).toHaveBeenCalledOnce();
     expect(connMock.promptReconfigure).toHaveBeenCalledWith(
@@ -176,7 +178,7 @@ describe('initCommand — probe failure: auth → user exits reconfigure', () =>
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', 'bogus-model'];
 
-    await initCommand({ fsFactory }, true, { audit: mockAudit });
+    await initCommand(commandDeps, true, { audit: mockAudit });
 
     // config still saved (user can fix later)
     const config = loadGlobalConfig({ fsFactory });
@@ -206,7 +208,7 @@ describe('initCommand — probe failure: network → warn but continue', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', ''];
 
-    await initCommand({ fsFactory }, true, { audit: mockAudit });
+    await initCommand(commandDeps, true, { audit: mockAudit });
 
     expect(connMock.promptReconfigure).not.toHaveBeenCalled();
 
@@ -235,7 +237,7 @@ describe('initCommand — probe failure: error message truncation', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-xxx');
     rlAnswers.queue = ['1', '1', ''];
 
-    await initCommand({ fsFactory }, true, { audit: mockAudit });
+    await initCommand(commandDeps, true, { audit: mockAudit });
 
     expect(mockAudit.message).toHaveBeenCalledWith(longMsg);
     const failEntry = auditCalls.entries.find(e => e[0] === 'cli_init_probe_failed');
