@@ -3,7 +3,7 @@ import { TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 import { ToolTaskSchema } from './task-schemas.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { ShortIdIndex } from './types.js';
+import type { TaskIdResolver } from './types.js';
 import { deriveShortIdFromTaskId, makeFullTaskId } from './types.js';
 import type { ShortTaskId } from './types.js';
 
@@ -42,7 +42,7 @@ export function listMigratedExecTasks(
   deps: {
     fsFactory: (baseDir: string) => FileSystem;
     auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void };
-    shortIdIndex?: ShortIdIndex;
+    shortIdIndex?: TaskIdResolver;
   },
   clawDir: string,
 ): MigratedExecListResult {

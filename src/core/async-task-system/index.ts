@@ -13,7 +13,7 @@ export { AsyncTaskSystem, createAsyncTaskSystem } from './system.js';
 export { PersistentShortIdIndex } from './short-id-index.js';
 export { validateTaskShape } from './task-corrupt-helpers.js';
 export { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
-export type { SubAgentTask, PreparedSubagentSchedule, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
+export type { SubAgentTask, PreparedSubagentSchedule, TaskId, FullTaskId, ShortTaskId, TaskIdResolver, ShortIdIndex } from './types.js';
 export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';
 

@@ -56,7 +56,13 @@ export function taskShortId(task: { id: TaskId; shortId?: ShortTaskId | string }
 export type DispatchCallerType = 'shadow_subagent' | 'miner_subagent';
 export type CallerType = 'spawn_subagent' | 'verifier' | 'shadow_subagent' | 'miner_subagent';
 
-export interface ShortIdIndex {
+/** Read-only task identity capability for query consumers. */
+export interface TaskIdResolver {
+  resolve(shortId: string): FullTaskId | undefined;
+}
+
+/** Owner-side task identity index, including persistence and mutation. */
+export interface ShortIdIndex extends TaskIdResolver {
   needsRebuild: boolean;
   load(auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void }): void;
   save(): void;
@@ -68,7 +74,6 @@ export interface ShortIdIndex {
     context?: string,
   ): void;
   delete(shortId: ShortTaskId): void;
-  resolve(shortId: string): FullTaskId | undefined;
   reverseResolve(fullId: FullTaskId): ShortTaskId | undefined;
   deriveShortId(fullId: FullTaskId): ShortTaskId;
   /**
@@ -245,4 +250,3 @@ export interface ToolTask {
   /** Phase 873/874: persisted terminal intent for recovery routing. */
   terminalState?: 'done' | 'failed';
 }
-

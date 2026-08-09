@@ -10,7 +10,7 @@ import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/index.js';
-import { type TaskId, type FullTaskId, type ShortTaskId, type ShortIdIndex, makeShortTaskId } from '../async-task-system/index.js';
+import { type TaskId, type FullTaskId, type ShortTaskId, type TaskIdResolver, makeShortTaskId } from '../async-task-system/index.js';
 import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
 import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../foundation/messaging/index.js';
@@ -72,7 +72,7 @@ export interface RandomDreamOptions {
   /** 读取指定 claw+contract 的 progress（M#3：不走直接文件访问） */
   getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>;
   /** phase 849: shortId ↔ fullId index for dual-key task IDs */
-  shortIdIndex?: ShortIdIndex;
+  shortIdIndex?: TaskIdResolver;
 }
 
 interface WeightedContract {
@@ -423,7 +423,7 @@ async function discoverWeightedContracts(
 // phase 849: resolve shortId → fullId when available; fall back to shortId if no index.
 function resolveFullTaskId(
   shortId: ShortTaskId,
-  index?: ShortIdIndex,
+  index?: TaskIdResolver,
 ): FullTaskId | undefined {
   return index?.resolve(shortId);
 }

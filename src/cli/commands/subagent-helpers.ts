@@ -24,7 +24,7 @@ import {
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { type ContractId, makeContractId } from '../../core/contract/index.js';
 import { AUDIT_FILE, auditFileContains, auditFileGetMtime, auditFirstTimestamp } from '../../foundation/audit/index.js';
-import type { ShortIdIndex } from '../../core/async-task-system/index.js';
+import type { TaskIdResolver } from '../../core/async-task-system/index.js';
 import { deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
 
 
@@ -36,7 +36,7 @@ export const SUBAGENT_STATUS_VALUES = ['completed', 'running', 'failed', 'error'
 export type SubagentStatus = typeof SUBAGENT_STATUS_VALUES[number];
 
 /** Phase 849: resolve a task id (short or full) to the id used for filesystem paths. */
-function resolvePathTaskId(id: string, shortIdIndex?: ShortIdIndex): string {
+function resolvePathTaskId(id: string, shortIdIndex?: TaskIdResolver): string {
   if (id.length === 36) return id;
   const resolved = shortIdIndex?.resolve(id);
   return resolved ?? id;
@@ -62,7 +62,7 @@ export function resolveClawDir(clawId: string): string {
   return clawId === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);
 }
 
-export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex }, id: string, clawDir: string): SubagentKind {
+export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, id: string, clawDir: string): SubagentKind {
   if (id.startsWith('verifier-')) return 'verifier';
 
   const clawFs = deps.fsFactory(clawDir);
@@ -123,7 +123,7 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   return 'running';
 }
 
-export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex }, resultDir: string, id: string, clawDir: string): Date | undefined {
+export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, resultDir: string, id: string, clawDir: string): Date | undefined {
   const clawFs = deps.fsFactory(clawDir);
   // Phase 849: queue files are keyed by fullTaskId; use resolved path id for lookups.
   const pathId = resolvePathTaskId(id, deps.shortIdIndex);
@@ -181,7 +181,7 @@ export interface SubagentEntry {
   contractId?: string;
 }
 
-export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex }, clawDir: string): SubagentEntry[] {
+export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, clawDir: string): SubagentEntry[] {
   const entries: SubagentEntry[] = [];
   const clawFs = deps.fsFactory(clawDir);
 
@@ -227,7 +227,7 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
 }
 
 function scanSyncDir(
-  deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex },
+  deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver },
   clawDir: string,
   syncSubDir: string,
   filterPrefix?: string,
