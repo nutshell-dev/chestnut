@@ -33,17 +33,6 @@ vi.mock('../../src/foundation/config-store/index.js', async (importOriginal) => 
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
-
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
   createProcessManagerForCLI: vi.fn(() => mockPmState),
 }));
@@ -108,17 +97,27 @@ describe('phase 922: motion stop failed branch exitCode', () => {
     mockPmState.isAlive.mockReturnValue(true);
     mockPmState.stop.mockResolvedValue(false);
 
-    await expect(stopCommand({ fsFactory })).rejects.toThrow(/Failed to stop Motion/);
+    await expect(stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } })).rejects.toThrow(/Failed to stop Motion/);
   });
 
   it('pm.stop returns true → console emits ✓ + process.exitCode 不变', async () => {
     mockPmState.isAlive.mockReturnValue(true);
     mockPmState.stop.mockResolvedValue(true);
 
-    await stopCommand({ fsFactory });
+    await stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } });
 
     expect(consoleSpy).toHaveBeenCalledWith('✓ Stopped Motion daemon');
     expect(process.exitCode).toBe(0);
+  });
+
+  it('RootConfig error propagates before process inspection', async () => {
+    const sentinel = new Error('motion config sentinel');
+    await expect(stopCommand({
+      fsFactory,
+      rootConfig: { loadGlobal: () => { throw sentinel; } },
+    })).rejects.toBe(sentinel);
+    expect(mockPmState.isAlive).not.toHaveBeenCalled();
+    expect(mockPmState.stop).not.toHaveBeenCalled();
   });
 });
 

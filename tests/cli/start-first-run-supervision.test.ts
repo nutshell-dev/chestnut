@@ -88,6 +88,13 @@ vi.mock('readline', () => ({
 }));
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
+const startDeps = () => ({
+  fsFactory,
+  rootConfig: {
+    isInitialized: () => fs.existsSync(path.join(h.workspaceRoot, '.chestnut', 'config.yaml')),
+    loadGlobal: vi.fn(),
+  },
+});
 
 let tmpDir: string;
 let savedRoot: string | undefined;
@@ -125,7 +132,7 @@ describe('start first-run deferred supervision (phase 1280)', () => {
     const { startCommand } = await import('../../src/cli/commands/start.js');
     const ensureSupervision = makeEnsureSupervision();
 
-    await startCommand({ fsFactory }, { ensureSupervision });
+    await startCommand(startDeps(), { ensureSupervision });
 
     expect(ensureSupervision).toHaveBeenCalledTimes(1);
     // 严格顺序：init 完成 < ensure < Motion 后续动作（无 pre-init spawn）
@@ -148,7 +155,7 @@ describe('start first-run deferred supervision (phase 1280)', () => {
     const { startCommand } = await import('../../src/cli/commands/start.js');
     const ensureSupervision = makeEnsureSupervision();
 
-    await startCommand({ fsFactory }, { ensureSupervision });
+    await startCommand(startDeps(), { ensureSupervision });
 
     expect(ensureSupervision).toHaveBeenCalledTimes(1);
     // 严格顺序：ensure < Motion 后续动作；零 init
@@ -168,7 +175,7 @@ describe('start first-run deferred supervision (phase 1280)', () => {
     const { startCommand } = await import('../../src/cli/commands/start.js');
     const ensureSupervision = makeEnsureSupervision();
 
-    await expect(startCommand({ fsFactory }, { ensureSupervision }))
+    await expect(startCommand(startDeps(), { ensureSupervision }))
       .rejects.toThrow(/chestnut start failed/);
 
     expect(ensureSupervision).not.toHaveBeenCalled();
@@ -179,7 +186,7 @@ describe('start first-run deferred supervision (phase 1280)', () => {
     const { startCommand } = await import('../../src/cli/commands/start.js');
     const ensureSupervision = makeEnsureSupervision(true);
 
-    await expect(startCommand({ fsFactory }, { ensureSupervision }))
+    await expect(startCommand(startDeps(), { ensureSupervision }))
       .rejects.toThrow(/chestnut start failed.*watchdog spawn failed/);
 
     expect(h.order).toEqual(['init', 'ensure']);

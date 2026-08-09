@@ -98,6 +98,13 @@ vi.mock('readline', () => ({
 }));
 
 const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
+const startDeps = () => ({
+  fsFactory,
+  rootConfig: {
+    isInitialized: () => fs.existsSync(path.join(tmpDir, '.chestnut', 'config.yaml')),
+    loadGlobal: vi.fn(),
+  },
+});
 
 let tmpDir: string;
 let savedRoot: string | undefined;
@@ -173,7 +180,7 @@ describe('start watchdog winner spawn race (phase 1282)', () => {
 
     // --- CLI 侧：真实 PM；winner 尚未 ready，ensureRunning 必走 conflict → join ---
     const ensureSupervision = vi.fn(async () => {});
-    const startPromise = startCommand({ fsFactory }, { ensureSupervision });
+    const startPromise = startCommand(startDeps(), { ensureSupervision });
 
     // CLI PM system audit 同步落盘；commit_lost 出现 = CLI 已 conflict 并进入 join 轮询
     const auditFile = path.join(tmpDir, '.chestnut', 'audit.tsv');
