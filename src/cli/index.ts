@@ -41,7 +41,7 @@ import { createDirContext } from '../foundation/audit/index.js';
 import { getChestnutRoot, getClawDir } from '../core/claw-topology/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
-import { createRootConfig } from '../assembly/index.js';
+import { createRootConfig, createRootConfigLegacyMigration } from '../assembly/index.js';
 import { createSummonVerifyPolicy } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { resolveChestnutRoot } from '../core/claw-topology/index.js';
@@ -72,6 +72,7 @@ function deferredRequiredAction<TArgs extends unknown[]>(
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 // phase 1301 Step A：composition root 唯一构造点（无 IO）；后续 command 族迁移沿用同一实例。
 const rootConfig = createRootConfig({ fsFactory });
+const rootConfigLegacy = createRootConfigLegacyMigration({ fsFactory });
 
 program
   .name('chestnut')
@@ -98,7 +99,7 @@ program
 }
 
 // config command
-program.addCommand(createConfigCommand({ fsFactory }));
+program.addCommand(createConfigCommand({ fsFactory, rootConfig, rootConfigLegacy }));
 
 // stop command
 program
@@ -124,7 +125,7 @@ program
   .action(deferredRequiredAction(async (ensureSupervision) => {
     const { startCommand } = await import('./commands/start.js');
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
-    await startCommand({ fsFactory, rootConfig }, { audit, ensureSupervision });
+    await startCommand({ fsFactory, rootConfig, rootConfigLegacy }, { audit, ensureSupervision });
   }));
 
 // init command

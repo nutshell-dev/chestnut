@@ -14,6 +14,12 @@ import {
   saveGlobalConfig,
   saveClawConfig,
   patchGlobalConfigPrimary,
+  readLegacyAuditConfigSection,
+  removeLegacyAuditConfigSection,
+  readLegacyWatchdogConfigSection,
+  removeLegacyWatchdogConfigSection,
+  type LegacyAuditConfigSection,
+  type LegacyWatchdogConfigSection,
 } from './config-load.js';
 import type {
   ClawGlobalConfig,
@@ -44,6 +50,14 @@ export interface RootConfigDeps {
   fsFactory(baseDir: string): FileSystem;
 }
 
+/** 兼容期专用迁移面；与日常Reader/Admin隔离。 */
+export interface RootConfigLegacyMigration {
+  readAuditSection(): LegacyAuditConfigSection | undefined;
+  removeAuditSection(): void;
+  readWatchdogSection(): LegacyWatchdogConfigSection | undefined;
+  removeWatchdogSection(): void;
+}
+
 /**
  * 建立 RootConfig capability。闭包只持有 deps，每次调用仍从磁盘读取；
  * 不缓存配置、不保存配置结果。
@@ -56,5 +70,14 @@ export function createRootConfig(deps: RootConfigDeps): RootConfigAdmin {
     saveGlobal: (config) => saveGlobalConfig(deps, config),
     saveClaw: (configPath, config) => saveClawConfig(deps, configPath, config),
     patchPrimary: (patch) => patchGlobalConfigPrimary(deps, { ...patch }),
+  };
+}
+
+export function createRootConfigLegacyMigration(deps: RootConfigDeps): RootConfigLegacyMigration {
+  return {
+    readAuditSection: () => readLegacyAuditConfigSection(deps),
+    removeAuditSection: () => removeLegacyAuditConfigSection(deps),
+    readWatchdogSection: () => readLegacyWatchdogConfigSection(deps),
+    removeWatchdogSection: () => removeLegacyWatchdogConfigSection(deps),
   };
 }

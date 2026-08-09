@@ -20,6 +20,7 @@ import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
+import type { RootConfigLegacyMigration, RootConfigReader } from '../../assembly/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../core/claw-topology/index.js';
@@ -423,7 +424,11 @@ async function providerMove(deps: { fsFactory: (baseDir: string) => FileSystem }
 }
 
 // Build the config command
-export function createConfigCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Command {
+export function createConfigCommand(deps: {
+  fsFactory: (baseDir: string) => FileSystem;
+  rootConfig: Pick<RootConfigReader, 'isInitialized'>;
+  rootConfigLegacy: RootConfigLegacyMigration;
+}): Command {
   const configCommand = new Command('config')
     .description('Manage chestnut configuration');
 
