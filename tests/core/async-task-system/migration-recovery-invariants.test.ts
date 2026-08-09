@@ -107,7 +107,6 @@ describe('phase 886', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
@@ -151,7 +150,6 @@ describe('phase 886', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
@@ -225,7 +223,6 @@ describe('phase 886', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
       sendFallbackError: mockSendFallbackError,
@@ -266,7 +263,6 @@ describe('phase 886', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
@@ -392,7 +388,6 @@ describe('phase 887', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
       sendFallbackError: mockSendFallbackError,
@@ -434,7 +429,6 @@ describe('phase 887', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
       sendFallbackError: mockSendFallbackError,
@@ -478,7 +472,6 @@ describe('phase 887', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
@@ -548,7 +541,6 @@ describe('phase 887', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
       sendFallbackError: mockSendFallbackError,
@@ -1341,5 +1333,4 @@ describe('phase 1119', () => {
     });
   });
 });
-
 

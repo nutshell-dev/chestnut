@@ -81,7 +81,6 @@ describe('pending queue overflow motion notify', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       selfInbox: mockInbox,
       pendingQueueMax: 3,
@@ -120,7 +119,6 @@ describe('pending queue overflow motion notify', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       pendingQueueMax: 3,
       // 不传 selfInbox
@@ -172,7 +170,6 @@ describe('pending queue overflow motion notify', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: {} as any,
       selfInbox: mockInbox,
       pendingQueueMax: 3,
@@ -259,7 +256,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     const system = new AsyncTaskSystem(baseDir, realFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
-      outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
+      registry: {} as any, selfInbox: mockInbox,
       pendingQueueMax: 3,
     });
 
@@ -292,7 +289,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     const system = new AsyncTaskSystem(baseDir, realFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
-      outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
+      registry: {} as any, selfInbox: mockInbox,
       pendingQueueMax: 3,
     });
 
@@ -324,7 +321,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     const system = new AsyncTaskSystem(baseDir, realFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
-      outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
+      registry: {} as any, selfInbox: mockInbox,
       pendingQueueMax: 3,
     });
 
@@ -359,7 +356,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     const system = new AsyncTaskSystem(baseDir, realFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
-      outboxWriter: {} as any, registry: {} as any,
+      registry: {} as any,
     });
     expect((system as any).pendingQueueMax).toBe(PENDING_QUEUE_MAX);
   });

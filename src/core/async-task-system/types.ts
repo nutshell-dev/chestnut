@@ -6,7 +6,7 @@
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { OutboxWriter, InboxWriter } from '../../foundation/messaging/index.js';
+import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
@@ -100,7 +100,6 @@ export interface AsyncTaskSystemOptions {
   parentStreamLog?: StreamLog;
 
   llm: LLMOrchestrator;
-  outboxWriter: OutboxWriter;
   /**
    * Self inbox for overflow notification (本 daemon 自家 inbox).
    * phase 37: rename from `motionInbox` 命名 hygiene (实际是本 daemon 自家、

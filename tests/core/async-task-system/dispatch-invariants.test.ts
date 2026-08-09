@@ -468,7 +468,6 @@ describe('shortIdIndexAuditWriter JSON serialization (phase 858)', () => {
       auditWriter: audit,
       llm: {} as any,
       contractManager: {} as any,
-      outboxWriter: {} as any,
       registry: { getAll: vi.fn(() => []) } as any,
       fsFactory: () => fs,
       askMotionToolFactory: () => ({} as any),

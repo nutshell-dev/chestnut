@@ -142,7 +142,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       maxConcurrent,
       auditWriter,
       llm,
-      outboxWriter,
       registry: toolRegistry,
       toolTimeoutMs,
       permissionChecker,

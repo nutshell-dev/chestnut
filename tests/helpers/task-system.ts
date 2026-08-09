@@ -2,7 +2,6 @@ import { vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ContractSystem } from '../../src/core/contract/manager.js';
-import type { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { AsyncTaskSystem, type AsyncTaskSystemOptions } from '../../src/core/async-task-system/system.js';
@@ -19,7 +18,7 @@ export function makeTestRegistry(): ToolRegistryImpl {
 
 export function makeTaskSystemDeps(
   llm?: LLMOrchestrator,
-): Pick<AsyncTaskSystemOptions, 'llm' | 'contractManager' | 'outboxWriter' | 'registry' | 'askMotionToolFactory'> {
+): Pick<AsyncTaskSystemOptions, 'llm' | 'contractManager' | 'registry' | 'askMotionToolFactory'> {
   return {
     llm: llm ?? ({} as unknown as LLMOrchestrator),
     contractManager: {
@@ -27,9 +26,6 @@ export function makeTaskSystemDeps(
       resume: vi.fn(),
       setOnNotify: vi.fn(),
     } as unknown as ContractSystem,
-    outboxWriter: {
-      write: vi.fn().mockResolvedValue(undefined),
-    } as unknown as OutboxWriter,
     registry: makeTestRegistry(),
     askMotionToolFactory: () => ({ name: 'ask_motion', description: '', readonly: false, idempotent: false, schema: { type: 'object' }, execute: vi.fn(async () => ({ ok: true, content: '' })) } as unknown as import('../../src/foundation/tools/index.js').Tool),
   };
@@ -40,7 +36,7 @@ export function createTestTaskSystem(
   fs: FileSystem,
   auditWriter: AuditWriter,
   llm?: LLMOrchestrator,
-  overrides?: Partial<Omit<AsyncTaskSystemOptions, 'llm' | 'contractManager' | 'outboxWriter' | 'registry'>>,
+  overrides?: Partial<Omit<AsyncTaskSystemOptions, 'llm' | 'contractManager' | 'registry'>>,
 ): AsyncTaskSystem {
   const deps = makeTaskSystemDeps(llm);
   return new AsyncTaskSystem(clawDir, fs, {
