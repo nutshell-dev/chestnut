@@ -1,11 +1,10 @@
 import { NodeFileSystem } from '../foundation/fs/index.js';
 import { constructShimAudit, registerShimHandlers } from './daemon-handlers.js';
 import { createDaemonCommand } from './index.js';
-import { assemble, disassemble } from '../assembly/index.js';
+import { assemble, createRootConfig, disassemble } from '../assembly/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from '../assembly/index.js';
 import { DAEMON_FILE_ROUTING, DAEMON_INBOX_MESSAGE_TYPES } from './index.js';
-import type { AssembleConfig } from '../assembly/types.js';
-import type { Instances } from '../assembly/types.js';
+import type { AssembleConfig, Instances } from '../assembly/index.js';
 
 // shim 早期注册（在 daemon command 调用之前；ESM imports hoist 与代码执行解耦）
 const shimAudit = constructShimAudit(process.argv[2]);
@@ -25,6 +24,7 @@ async function assembleWithDaemonContributions(config: AssembleConfig): Promise<
 
 const daemonCommand = createDaemonCommand({
   fsFactory,
+  rootConfig: createRootConfig({ fsFactory }),
   assemble: assembleWithDaemonContributions,
   disassemble,
   auditEvents: {

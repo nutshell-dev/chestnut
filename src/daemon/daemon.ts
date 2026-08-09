@@ -11,7 +11,7 @@
 import * as path from 'path';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
-import { loadGlobalConfig, loadClawConfig } from '../assembly/config/config-load.js';
+import type { RootConfigReader } from '../assembly/index.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../core/claw-topology/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
@@ -29,7 +29,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
-import type { AssembleConfig } from '../assembly/types.js';
+import type { AssembleConfig } from '../assembly/index.js';
 import type { DaemonDir } from '../foundation/process-manager/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
 import type { ProcessGenerationRecord } from '../foundation/process-manager/index.js';
@@ -58,6 +58,7 @@ export function _resetDaemonSignalHandlers(): void {
 
 export interface DaemonCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
+  rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'>;
   // phase 386: inline anonymous type 替为 AssembleConfig (assembly/types.ts) —
   // ML#9 显式表达（不可消除耦合优先编译器检查）+ ML#1 单源真理（消 inline `any` 类型逃逸 + 类型字段重复）
   assemble: (config: AssembleConfig) => Promise<DaemonInstances>;
@@ -72,7 +73,7 @@ export interface DaemonCommandDeps {
 export function createDaemonCommand(deps: DaemonCommandDeps) {
   return async function daemonCommand(name: string): Promise<void> {
     const clawId = name;
-    const globalConfig = loadGlobalConfig({ fsFactory: deps.fsFactory });
+    const globalConfig = deps.rootConfig.loadGlobal();
     const isMotion = name === MOTION_CLAW_ID;
 
     // 配置
@@ -89,10 +90,10 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     // phase 521 (review-round4 CLI M): loadClawConfig 包入 try 显式归类 module=claw_config
     // YAML parse error 改前 escape 到 shim 无 ASSEMBLE_FAILED granularity
-    let clawConfig: ReturnType<typeof loadClawConfig> | null = null;
+    let clawConfig: ReturnType<DaemonCommandDeps['rootConfig']['loadClaw']> | null = null;
     if (!isMotion) {
       try {
-        clawConfig = loadClawConfig({ fsFactory: deps.fsFactory }, getClawConfigPath(name));
+        clawConfig = deps.rootConfig.loadClaw(getClawConfigPath(name));
       } catch (e) {
         const reason = formatErr(e);
         preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=claw_config', 'phase=preconstruct', `reason=${reason}`);

@@ -31,3 +31,6 @@ export { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 export { createRootConfig, createRootConfigLegacyMigration } from './config/root-config.js';
 export type { RootConfigReader, RootConfigAdmin, RootConfigDeps, RootConfigLegacyMigration } from './config/root-config.js';
 export { resolveLLMConfig } from './config/config-load.js';
+export { initializeClawLayout } from './claw-subdirs.js';
+export { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';
+export type { ClawGlobalConfig } from './config/compose-config.js';

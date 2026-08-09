@@ -3,7 +3,7 @@
  */
 
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
-import { CLAW_SUBDIRS } from '../../assembly/claw-subdirs.js';
+import { initializeClawLayout } from '../../assembly/index.js';
 // path module intentionally not used in this file after refactor
 import { CliError } from '../errors.js';
 import { buildAgentsMdTemplate } from '../../templates/prompts/index.js';
@@ -26,10 +26,7 @@ export async function createCommand(deps: ClawCreateCommandDeps, name: string, o
   const clawDir = getClawDir(name);
   const fileSystem = deps.fsFactory(clawDir);
   
-  // Create directory structure (using shared constants)
-  for (const dir of CLAW_SUBDIRS) {
-    fileSystem.ensureDirSync(dir);
-  }
+  initializeClawLayout(fileSystem);
   
   // Create claw config (inherits from global)
   const config = {

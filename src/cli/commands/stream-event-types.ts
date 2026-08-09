@@ -11,7 +11,7 @@
 import { STREAM_EVENT_NAMES, type StreamEventMap } from '../../foundation/stream/index.js';
 import { STREAM_AGENT_EVENTS } from '../../core/agent-executor/index.js';
 import { STREAM_TASK_EVENTS } from '../../core/async-task-system/index.js';
-import { ASSEMBLY_STREAM_EVENTS } from '../../assembly/stream-events.js';
+import { ASSEMBLY_STREAM_EVENTS } from '../../assembly/index.js';
 
 /** 全量 type 值联合（协议层 40 + 上层 10 = 50） */
 export type CliStreamEventType =

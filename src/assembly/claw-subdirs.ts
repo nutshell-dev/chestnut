@@ -32,6 +32,7 @@ import { TASKS_SYNC_SPAWN_DIR } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { MEMORY_DIR } from '../core/memory/index.js';
 import { CLAWSPACE_DIR } from '../foundation/claw-identity/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 
 export const CLAW_SUBDIRS = [
   // L2b DialogStore
@@ -76,3 +77,8 @@ export const CLAW_SUBDIRS = [
   // L5 StatusService (own const = process-manager STATUS_SUBDIR)
   STATUS_SUBDIR,
 ] as const;
+
+/** Assembly-owned claw layout action; callers do not observe the directory set. */
+export function initializeClawLayout(fs: Pick<FileSystem, 'ensureDirSync'>): void {
+  for (const dir of CLAW_SUBDIRS) fs.ensureDirSync(dir);
+}

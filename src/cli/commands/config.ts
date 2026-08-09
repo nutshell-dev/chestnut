@@ -7,7 +7,7 @@ import * as readline from 'readline';
 import { Command } from 'commander';
 import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
 import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
-import type { ClawGlobalConfig } from '../../assembly/config/compose-config.js';
+import type { ClawGlobalConfig } from '../../assembly/index.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
