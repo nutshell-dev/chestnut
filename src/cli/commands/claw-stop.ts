@@ -3,7 +3,6 @@
  * Stop the Claw daemon process
  */
 
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop, clearCleanStop } from '../../foundation/process-manager/index.js';
@@ -11,16 +10,16 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { getChestnutRoot } from '../../core/claw-topology/index.js';
 import { makeChestnutRoot } from '../../core/claw-topology/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
-export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
 
   const configPath = getClawConfigPath(name);
-  if (!clawExists(deps, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
 

@@ -247,7 +247,6 @@ async function runStop(deps: RouterDeps, name: string, args: string[]): Promise<
   if (args.length > 0) {
     throw new CliError(`'stop' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  deps.rootConfig.loadGlobal();
   const { audit } = createDirContext(deps, getClawDir(name));
   await stopCommand(deps, name, { audit });
 }
@@ -451,4 +450,3 @@ async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<vo
     args,
   );
 }
-

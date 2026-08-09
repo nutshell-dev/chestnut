@@ -10,22 +10,20 @@
 import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
 import { resolveDaemonEntry } from '../../daemon/entry-resolver.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export type DaemonPM = Pick<ProcessManager, 'isAlive' | 'spawn'>;
 
-export interface ClawDaemonDeps {
-  fsFactory: (baseDir: string) => FileSystem;
+export interface ClawDaemonDeps extends ClawCommandDeps {
   /** Test seam — when provided, skips real ProcessManager construction. */
   processManager?: DaemonPM;
 }
@@ -34,9 +32,9 @@ export async function clawDaemonCommand(
   deps: ClawDaemonDeps,
   name: string,
 ): Promise<void> {
-  loadGlobalConfig({ fsFactory: deps.fsFactory });
+  deps.rootConfig.loadGlobal();
   const configPath = getClawConfigPath(name);
-  if (!clawExists({ fsFactory: deps.fsFactory }, configPath)) {
+  if (deps.rootConfig.loadClaw(configPath) === undefined) {
     throw new CliError(`Claw "${name}" does not exist. Try \`chestnut claw list\` to see existing claws.`);
   }
   const clawDir = getClawDir(name);
