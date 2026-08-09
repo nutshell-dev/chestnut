@@ -175,4 +175,13 @@ describe('SubAgent', () => {
       abortSpy.mockRestore();
     });
   });
+
+  it('is one-shot and rejects a second run without reusing accumulated messages', async () => {
+    const { agent, runReact } = makeSubAgent();
+    runReact.mockResolvedValue({ finalText: 'done', stopReason: 'end_turn' });
+
+    await expect(agent.run()).resolves.toBe('done');
+    await expect(agent.run()).rejects.toThrow(/one-shot/);
+    expect(runReact).toHaveBeenCalledTimes(1);
+  });
 });

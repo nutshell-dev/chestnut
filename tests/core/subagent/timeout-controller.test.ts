@@ -46,4 +46,22 @@ describe('subagent timeout controller audit semantics', () => {
     );
     handle.cleanup();
   });
+
+  it('pre-aborted external signal rejects immediately with its reason', async () => {
+    const external = new AbortController();
+    external.abort({ type: 'external', original: 'already stopped' });
+    const handle = createTimeoutController({
+      timeoutMs: 1_000,
+      externalSignal: external.signal,
+      auditWriter: { write: vi.fn() } as any,
+      agentId: 'agent-pre-abort',
+    });
+
+    await expect(handle.timeoutPromise).rejects.toMatchObject({
+      name: 'AbortError',
+      abortReason: { type: 'external', original: 'already stopped' },
+    });
+    expect(handle.signal.aborted).toBe(true);
+    handle.cleanup();
+  });
 });

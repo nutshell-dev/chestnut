@@ -17,6 +17,7 @@ export {
   withCombinedAbortSignal,
   type AbortReason,
   makeExternalAbortError,
+  ExternalAbortError,
 } from './abort-helper.js';
 export { PRESETS, resolvePreset } from './presets.js';
 

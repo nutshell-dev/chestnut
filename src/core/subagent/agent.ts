@@ -10,7 +10,13 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import {
+  ExternalAbortError,
+  isAbortError,
+  makeExternalAbortError,
+  type AbortReason,
+  type ToolDefinition,
+} from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -84,7 +90,7 @@ export class SubAgent {
   private systemPrompt?: string;
   private toolProfile?: ToolProfile;
   private messages?: Message[];
-  private _running = false;  // phase 464 (review N3-L): re-entry guard
+  private _hasRun = false;
   isShadow?: boolean;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
@@ -132,10 +138,10 @@ export class SubAgent {
   async run(): Promise<string> {
     // phase 464 (review N3-L): re-entry guard — this.messages 在 run() 内
     // 通过 push 累计 mutate、第二次 run() 会复用累积状态导致历史错乱。
-    if (this._running) {
-      throw new Error(`SubAgent.run() re-entered for agentId=${this.agentId} while already running`);
+    if (this._hasRun) {
+      throw new Error(`SubAgent.run() is one-shot for agentId=${this.agentId}`);
     }
-    this._running = true;
+    this._hasRun = true;
     const startTime = Date.now();
 
     const timeout = createTimeoutController({
@@ -341,11 +347,20 @@ export class SubAgent {
       // Extract final text result
       return result.finalText ?? '[No output produced]';
     } catch (error) {
-      const errMsg = formatErr(error);
+      // Provider adapters may surface a native DOMException/API AbortError when
+      // our owned timeout signal wins. Normalize that boundary representation
+      // before domain classification; the classifier itself only accepts the
+      // typed external-abort protocol.
+      const classifiedError = timeout.signal.aborted
+        && isAbortError(error)
+        && !(error instanceof ExternalAbortError)
+        ? makeExternalAbortError(timeout.signal.reason as AbortReason | undefined)
+        : error;
+      const errMsg = formatErr(classifiedError);
       await this.appendToLog(`=== Error: ${errMsg} ===\n`);
 
       classifyAndAuditError({
-        error,
+        error: classifiedError,
         safeSwWrite: stream.safeSwWrite,
         auditWriter: this.auditWriter,
         timeoutMs: this.timeoutMs,
@@ -353,7 +368,7 @@ export class SubAgent {
       stream.markTurnEnded();
       stream.closeSw();
 
-      throw error;
+      throw classifiedError;
     } finally {
       // 清理 timer + external signal listener（idempotent）
       timeout.cleanup();
@@ -388,8 +403,6 @@ export class SubAgent {
         { fs: this.fs, messageStore: this.messageStore },
         this.auditWriter,
       ).catch(() => { /* silent: self-defensive、不阻 finally */ });
-      // phase 464 (review N3-L): re-entry guard 释放、允许独立的下一次 run
-      this._running = false;
     }
   }
 

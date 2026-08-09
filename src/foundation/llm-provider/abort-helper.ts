@@ -112,17 +112,20 @@ export type AbortReason =
  * Optional `reason` propagates abort context to consumers (e.g. SubAgent
  * catch block can classify turn_interrupted cause).
  */
-export function makeExternalAbortError(reason?: AbortReason): Error {
-  const validReason = reason && typeof reason === 'object' && 'type' in reason && typeof (reason as { type: unknown }).type === 'string' ? reason : undefined;
-  const tail = validReason
-    ? (validReason.type === 'idle_timeout' || validReason.type === 'turn_timeout'
-        ? ` (cause=${validReason.type}, ms=${validReason.ms})`
-        : ` (cause=${validReason.type})`)
-    : '';
-  const err = new Error(`Execution aborted${tail}`);
-  err.name = 'AbortError';
-  if (validReason !== undefined) {
-    (err as Error & { cause: AbortReason }).cause = validReason;
+export class ExternalAbortError extends Error {
+  constructor(readonly abortReason?: AbortReason) {
+    const tail = abortReason
+      ? (abortReason.type === 'idle_timeout' || abortReason.type === 'turn_timeout'
+          ? ` (cause=${abortReason.type}, ms=${abortReason.ms})`
+          : ` (cause=${abortReason.type})`)
+      : '';
+    super(`Execution aborted${tail}`);
+    this.name = 'AbortError';
+    if (abortReason !== undefined) this.cause = abortReason;
   }
-  return err;
+}
+
+export function makeExternalAbortError(reason?: AbortReason): ExternalAbortError {
+  const validReason = reason && typeof reason === 'object' && 'type' in reason && typeof (reason as { type: unknown }).type === 'string' ? reason : undefined;
+  return new ExternalAbortError(validReason);
 }

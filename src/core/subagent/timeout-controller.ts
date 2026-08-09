@@ -56,11 +56,12 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
     controller.abort(opts.externalSignal!.reason);
   };
   if (opts.externalSignal) {
-    opts.externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    if (opts.externalSignal.aborted) onExternalAbort();
+    else opts.externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
   const timeoutPromise = new Promise<never>((_, reject) => {
-    controller.signal.addEventListener('abort', () => {
+    const rejectForAbort = () => {
       const r = controller.signal.reason as AbortReason | undefined;
       if (r?.type === 'turn_timeout') {
         reject(new ToolTimeoutError('subagent_run', r.ms));
@@ -73,7 +74,9 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
       } else {
         reject(makeExternalAbortError(r));
       }
-    }, { once: true });
+    };
+    if (controller.signal.aborted) rejectForAbort();
+    else controller.signal.addEventListener('abort', rejectForAbort, { once: true });
   });
   timeoutPromise.catch((e) => {
     const reason = controller.signal.reason as AbortReason | undefined;

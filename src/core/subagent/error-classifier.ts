@@ -18,7 +18,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
-import type { AbortReason } from '../../foundation/llm-provider/index.js';
+import { ExternalAbortError } from '../../foundation/llm-provider/index.js';
 import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import { REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
 
@@ -46,8 +46,8 @@ export function classifyAndAuditError(opts: ClassifyErrorOptions): void {
   } else if (error instanceof PriorityInboxInterrupt) {
     safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause: 'priority_inbox', message: 'Priority inbox' });
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');
-  } else if ((error as Error)?.name === 'AbortError') {
-    const cause = (error as Error & { cause?: AbortReason }).cause;
+  } else if (error instanceof ExternalAbortError) {
+    const cause = error.abortReason;
     safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause: 'external', message: errMsg });
     auditWriter.write(
       REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED,
