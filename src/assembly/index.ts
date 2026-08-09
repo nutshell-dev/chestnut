@@ -6,7 +6,6 @@
 export type { Identity, AssembleConfig, Instances, AssemblyContributions, AssembleOverrides } from './types.js';
 
 export { assemble } from './assemble.js';
-export { disassemble } from './disassemble.js';
 
 // phase 1413+1448: Assembly 对外表面显式暴露通道（pre-assemble shared const + events + patterns）。
 // CONFIG_DEFAULTS / ASSEMBLY_AUDIT_EVENTS 二 const 跨 L3 core/* + L5

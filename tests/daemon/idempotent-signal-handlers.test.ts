@@ -87,7 +87,7 @@ const TEST_GENERATION_ID = 'test-generation-id';
 const ownStartTime = getProcessStartTime(process.pid);
 
 const mockAuditWriter = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
-const mockDisassemble = vi.fn().mockResolvedValue(undefined);
+const mockDispose = vi.fn().mockResolvedValue(undefined);
 const mockProcessManager = {
   inspectSpawning: vi.fn(() => ({ status: 'ok', record: { generation_id: TEST_GENERATION_ID } })),
   inspectSpawningPid: vi.fn(() => ({
@@ -106,13 +106,13 @@ const mockAssemble = vi.fn().mockResolvedValue({
   auditWriter: mockAuditWriter,
   heartbeat: null,
   processManager: mockProcessManager,
+  dispose: mockDispose,
 });
 
 const daemonCommand = createDaemonCommand({
   fsFactory: () => mockFs as any,
   rootConfig: { loadGlobal: () => ({} as any), loadClaw: () => ({} as any) },
   assemble: mockAssemble,
-  disassemble: mockDisassemble,
   auditEvents: {
     assembleFailed: 'assemble_failed',
     daemonStart: 'daemon_start',
@@ -231,7 +231,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
     await p2.catch(() => { /* silent: shutdown */ });
   });
 
-  it('case 4: concurrent SIGTERM during graceful shutdown → second disassemble suppressed + audit', async () => {
+  it('case 4: concurrent SIGTERM during graceful shutdown → second session dispose suppressed + audit', async () => {
     const p = daemonCommand('test-claw-reentry');
     await flushMicrotasks(10);
 
@@ -243,7 +243,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
 
     await flushMicrotasks(10);
 
-    expect(mockDisassemble).toHaveBeenCalledTimes(1);
+    expect(mockDispose).toHaveBeenCalledTimes(1);
     expect(mockAuditWriter.write).toHaveBeenCalledWith(
       'daemon_shutdown_reentry_suppressed',
       expect.stringMatching(/cause=SIGTERM/),
@@ -271,7 +271,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
 
     await flushMicrotasks(10);
 
-    expect(mockDisassemble).toHaveBeenCalledTimes(1);
+    expect(mockDispose).toHaveBeenCalledTimes(1);
     expect(mockAuditWriter.write).toHaveBeenCalledWith(
       'daemon_shutdown_reentry_suppressed',
       expect.stringMatching(/cause=SIGTERM/),

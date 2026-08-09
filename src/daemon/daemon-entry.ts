@@ -1,7 +1,7 @@
 import { NodeFileSystem } from '../foundation/fs/index.js';
 import { constructShimAudit, registerShimHandlers } from './daemon-handlers.js';
 import { createDaemonCommand } from './daemon.js';
-import { assemble, createRootConfig, disassemble } from '../assembly/index.js';
+import { assemble, createRootConfig } from '../assembly/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from '../assembly/index.js';
 import { DAEMON_FILE_ROUTING, DAEMON_INBOX_MESSAGE_TYPES } from './index.js';
 import type { AssembleConfig, Instances } from '../assembly/index.js';
@@ -26,7 +26,6 @@ const daemonCommand = createDaemonCommand({
   fsFactory,
   rootConfig: createRootConfig({ fsFactory }),
   assemble: assembleWithDaemonContributions,
-  disassemble,
   auditEvents: {
     assembleFailed: ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
     daemonStart: ASSEMBLY_AUDIT_EVENTS.DAEMON_START,

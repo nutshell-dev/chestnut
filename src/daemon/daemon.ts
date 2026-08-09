@@ -27,9 +27,8 @@ import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
-import type { DaemonInstances } from './types.js';
 import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
-import type { AssembleConfig } from '../assembly/index.js';
+import type { AssembleConfig, Instances } from '../assembly/index.js';
 import type { DaemonDir } from '../foundation/process-manager/index.js';
 import { PROCESS_GENERATION_ENV } from '../foundation/process-manager/index.js';
 import type { ProcessGenerationRecord } from '../foundation/process-manager/index.js';
@@ -61,8 +60,7 @@ export interface DaemonCommandDeps {
   rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'>;
   // phase 386: inline anonymous type 替为 AssembleConfig (assembly/types.ts) —
   // ML#9 显式表达（不可消除耦合优先编译器检查）+ ML#1 单源真理（消 inline `any` 类型逃逸 + 类型字段重复）
-  assemble: (config: AssembleConfig) => Promise<DaemonInstances>;
-  disassemble: (instances: DaemonInstances, signal: string) => Promise<void>;
+  assemble: (config: AssembleConfig) => Promise<Instances>;
   auditEvents: {
     assembleFailed: string;
     daemonStart: string;
@@ -104,7 +102,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     // Assembly 装配（Phase 1204 Step C：lifecycle lock 已删除，child 凭显式
     // generation identity 在 Assembly 成功后激活 generation。）
-    let instances: DaemonInstances;
+    let instances: Instances;
     try {
       instances = await deps.assemble({
         identity: isMotion ? 'motion' : 'claw', // identity='motion' literal
@@ -240,13 +238,13 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     /**
      * phase 517 B2: shared graceful shutdown between SIGTERM/SIGINT and uncaught/unhandledRejection.
      * normal: 30s timeout / crash: 5s timeout (avoid hang on dispose 内死锁).
-     * 原 uncaught/unhandledRejection 仅 flush audit、不调 disassemble → runtime/task/cron/contract
+     * 原 uncaught/unhandledRejection 仅 flush audit、不调 session dispose → runtime/task/cron/contract
      * 资源强杀（verifier LLM stream 泄漏、cron handler 强杀、pid 残留等）。
      */
     const gracefulShutdown = async (reason: string, timeoutMs: number): Promise<void> => {
       stop();
       const dispose = (async () => {
-        await deps.disassemble(instances, reason);
+        await instances.dispose(reason);
         // Phase 1204 Step C：shutdown 时将本 generation 从 active retire（late retire
         // 由 identity match 保证不动 fresh generation）。
         if (generationRecord !== undefined) {

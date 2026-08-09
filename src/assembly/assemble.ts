@@ -30,6 +30,7 @@ import { createCoreInfrastructure } from './core-infrastructure.js';
 import { createBusinessSystems } from './business-systems.js';
 import { createRuntimeAssembly } from './runtime-assembly.js';
 import { createMotionAddons } from './motion-addons.js';
+import { disassemble } from './disassemble.js';
 
 
 
@@ -106,9 +107,6 @@ export async function assemble(
     // §A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
     // 详 src/assembly/business-systems.ts (phase 37 rename motionInbox{Dir} → selfInbox{Dir} 命名 hygiene)
     const business = await createBusinessSystems({ core, contributions });
-    const {
-      evolutionSystem,
-    } = business;
 
     const { snapshot, streamWriter: sw, runtime } = await createRuntimeAssembly({ core, business, config });
     streamWriter = sw;
@@ -137,17 +135,20 @@ export async function assemble(
     streamWriter!.write({ ts: Date.now(), type: ASSEMBLY_STREAM_EVENTS.DAEMON_STARTED, clawId, pid: process.pid });
 
     return {
-      clawId: config.clawId,
       runtime,
       streamWriter: streamWriter!,
       snapshot,
       processManager,
       auditWriter,
-      cronRunner,
       heartbeat,
-      gateway,
-      evolutionSystem,
-      disposeContractSystems,
+      dispose: (signal: string) => disassemble({
+        gateway,
+        runtime,
+        streamWriter: streamWriter!,
+        auditWriter,
+        cronRunner,
+        disposeContractSystems,
+      }, signal),
     };
   } catch (e) {
     // Best-effort cleanup of already-constructed resources
@@ -158,5 +159,3 @@ export async function assemble(
     throw e;
   }
 }
-
-

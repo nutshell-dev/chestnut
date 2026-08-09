@@ -1,8 +1,22 @@
-import type { Instances } from './types.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
+import type { AuditLog } from '../foundation/audit/index.js';
+import type { StreamWriter } from '../foundation/stream/index.js';
+import type { Runtime } from '../core/runtime/index.js';
+import type { CronRunner } from '../foundation/cron/index.js';
+import type { Gateway } from '../core/gateway/index.js';
 
-export async function disassemble(instances: Instances, signal: string): Promise<void> {
+/** Assembly-private teardown handles. This type is deliberately absent from the barrel. */
+interface DisassemblyResources {
+  readonly gateway?: Gateway;
+  readonly runtime: Runtime;
+  readonly streamWriter: StreamWriter;
+  readonly auditWriter: AuditLog;
+  readonly cronRunner?: CronRunner;
+  readonly disposeContractSystems?: () => Promise<void>;
+}
+
+export async function disassemble(instances: DisassemblyResources, signal: string): Promise<void> {
   const { gateway, runtime, streamWriter, auditWriter, cronRunner, disposeContractSystems } = instances;
 
   // Step 0: dispose contractSystemCache (motion lifecycle end-of-life, phase 1200)

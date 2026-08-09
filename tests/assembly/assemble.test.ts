@@ -333,18 +333,21 @@ describe('assemble', () => {
   // --------------------------------------------------------------------------
   // 分支穷尽
   // --------------------------------------------------------------------------
-  it('motion + cron.enabled + heartbeat>0 → 含 cronRunner / heartbeat / gateway (offline)', async () => {
+  it('motion + cron.enabled + heartbeat>0 → 只公开 heartbeat，私有资源由 session dispose', async () => {
     const result = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
-    expect(result.cronRunner).toBe(mockCronRunner);
     expect(result.heartbeat).toBe(mockHeartbeat);
-    expect(result.clawId).toBe('motion');
-    expect(result.gateway).toBeDefined();
-    expect(result.gateway!.isOnline()).toBe(false);
+    expect(result).not.toHaveProperty('cronRunner');
+    expect(result).not.toHaveProperty('gateway');
+    expect(result).not.toHaveProperty('clawId');
     expect(mockCronRunner.start).toHaveBeenCalled();
+    await result.dispose('SIGTERM');
+    expect(mockCronRunner.stop).toHaveBeenCalled();
+    expect(mockRuntime.stop).toHaveBeenCalled();
+    expect(mockStreamWriter.close).toHaveBeenCalled();
   });
 
-  it('motion + cron.enabled=false → 无 cronRunner', async () => {
+  it('motion + cron.enabled=false → 不构造 cronRunner、仍公开 heartbeat', async () => {
     const config = {
       ...baseConfig,
       globalConfig: {
@@ -354,8 +357,9 @@ describe('assemble', () => {
     };
     const result = await assemble(config, undefined, { createSkillSystem: mockSkillFactory });
 
-    expect(result.cronRunner).toBeUndefined();
+    expect(result).not.toHaveProperty('cronRunner');
     expect(result.heartbeat).toBe(mockHeartbeat);
+    expect(mockCronRunner.start).not.toHaveBeenCalled();
   });
 
   it('motion + heartbeat_interval_ms=0 → 无 heartbeat', async () => {
@@ -369,10 +373,11 @@ describe('assemble', () => {
     const result = await assemble(config, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(result.heartbeat).toBeUndefined();
-    expect(result.cronRunner).toBe(mockCronRunner);
+    expect(result).not.toHaveProperty('cronRunner');
+    expect(mockCronRunner.start).toHaveBeenCalled();
   });
 
-  it('claw identity → 无 cronRunner / heartbeat / gateway', async () => {
+  it('claw identity → 无 motion extension，返回稳定 session shape', async () => {
     const config = {
       ...baseConfig,
       identity: 'claw' as const,
@@ -386,10 +391,11 @@ describe('assemble', () => {
     };
     const result = await assemble(config, undefined, { createSkillSystem: mockSkillFactory });
 
-    expect(result.cronRunner).toBeUndefined();
     expect(result.heartbeat).toBeUndefined();
-    expect(result.clawId).toBe('test-claw');
-    expect(result.gateway).toBeUndefined();
+    expect(result).not.toHaveProperty('cronRunner');
+    expect(result).not.toHaveProperty('gateway');
+    expect(result).not.toHaveProperty('clawId');
+    expect(result.dispose).toEqual(expect.any(Function));
   });
 
   // --------------------------------------------------------------------------

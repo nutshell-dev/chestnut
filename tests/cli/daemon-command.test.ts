@@ -29,7 +29,7 @@ const mockState = vi.hoisted(() => {
   const mockStreamWriter = { open: vi.fn(), write: vi.fn(), close: vi.fn() };
   const mockHeartbeat = { isDue: vi.fn(() => false), fire: vi.fn() };
   const mockAssemble = vi.fn();
-  const mockDisassemble = vi.fn().mockResolvedValue(undefined);
+  const mockDispose = vi.fn().mockResolvedValue(undefined);
 
   let stopFn: (() => void) | null = null;
   const mockStartDaemonLoop = vi.fn(() => {
@@ -48,7 +48,7 @@ const mockState = vi.hoisted(() => {
     mockStreamWriter,
     mockHeartbeat,
     mockAssemble,
-    mockDisassemble,
+    mockDispose,
     mockStartDaemonLoop,
     get stopFn() { return stopFn; },
     set stopFn(v) { stopFn = v; },
@@ -197,8 +197,7 @@ function makeMockInstances(overrides?: Partial<any>) {
       retireGeneration: vi.fn().mockReturnValue({ kind: 'retired' }),
       hasStopIntentForGeneration: vi.fn(() => false),
     },
-    cronRunner: undefined,
-    gateway: undefined,
+    dispose: mockState.mockDispose,
     ...overrides,
   };
 }
@@ -264,7 +263,6 @@ const daemonCommand = createDaemonCommand({
   fsFactory,
   rootConfig: { loadGlobal: () => ({} as any), loadClaw: () => ({} as any) },
   assemble: mockState.mockAssemble,
-  disassemble: mockState.mockDisassemble,
   auditEvents: {
     assembleFailed: 'assemble_failed',
     daemonStart: 'daemon_start',
@@ -458,14 +456,16 @@ describe('daemonCommand - A4d shutdown signal', () => {
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
-    mockState.mockDisassemble.mockResolvedValue(undefined);
+    mockState.mockDispose.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('it #8: SIGTERM → shutdown → disassemble + retire generation + exit 0', async () => {
+  it('it #8: SIGTERM → shutdown → session dispose + retire generation + exit 0', async () => {
+    const instances = makeMockInstances({ clawId: 'test-claw' });
+    mockState.mockAssemble.mockResolvedValue(instances);
     const cmdPromise = daemonCommand('test-claw');
     const sigtermHandler = await waitForProcessOn('SIGTERM');
 
@@ -473,11 +473,7 @@ describe('daemonCommand - A4d shutdown signal', () => {
       await sigtermHandler!();
     }).rejects.toThrow('process.exit(0)');
 
-    expect(mockState.mockDisassemble).toHaveBeenCalledWith(
-      expect.objectContaining({ runtime: mockState.mockRuntime }),
-      'SIGTERM',
-    );
-    const instances = mockState.mockDisassemble.mock.calls[0][0];
+    expect(mockState.mockDispose).toHaveBeenCalledWith('SIGTERM');
     expect(instances.processManager.retireGeneration).toHaveBeenCalledWith(
       expect.stringContaining('test-claw'),
       { generationId: TEST_GENERATION_ID },
@@ -488,7 +484,7 @@ describe('daemonCommand - A4d shutdown signal', () => {
     await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
 
-  it('it #9: SIGINT → shutdown → disassemble + exit 0', async () => {
+  it('it #9: SIGINT → shutdown → session dispose + exit 0', async () => {
     const cmdPromise = daemonCommand('test-claw');
     const sigintHandler = await waitForProcessOn('SIGINT');
 
@@ -496,10 +492,7 @@ describe('daemonCommand - A4d shutdown signal', () => {
       await sigintHandler!();
     }).rejects.toThrow('process.exit(0)');
 
-    expect(mockState.mockDisassemble).toHaveBeenCalledWith(
-      expect.objectContaining({ runtime: mockState.mockRuntime }),
-      'SIGINT',
-    );
+    expect(mockState.mockDispose).toHaveBeenCalledWith('SIGINT');
 
     await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
