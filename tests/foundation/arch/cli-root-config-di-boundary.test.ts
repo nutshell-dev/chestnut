@@ -7,7 +7,7 @@
  * 2. cli/index.ts 与 commands/claw-router.ts 零 `assembly/config/**` import；
  * 3. ClawCommandDeps 含 required 窄 Pick（不得 optional / 不得 Admin 宽面），
  *    RouterDeps 为同形状 type alias（phase 1324 Step A 收敛）；
- * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 18 文件
+ * 4. CLI production 下 `assembly/config/config-load.js` importer 精确为 16 文件
  *    migration baseline——只防新增与意外删除，不批准永久存在；后续每个命令族
  *    治理 phase 必须同步递减本清单；
  * 5. clawExists 不得回到 router；
@@ -27,6 +27,7 @@ import {
   CLAWSPACE_COMMANDS,
   CLAW_INSPECTION_COMMANDS,
   CLAW_DAEMON_LIFECYCLE_COMMANDS,
+  CLAW_INPUT_COMMANDS,
   importSpecifiers,
   configLoadImporters,
   REMAINING_BASELINE,
@@ -88,7 +89,7 @@ describe('phase 1301/1324: 共享窄 Pick + RouterDeps required alias', () => {
 });
 
 describe('phase 1301: remaining deep-caller migration baseline', () => {
-  it('config-load.js importer 精确为 18 文件路径集合（phase 1326 迁出 daemon/stop）', () => {
+  it('config-load.js importer 精确为 16 文件路径集合（phase 1327 迁出 send/import）', () => {
     expect(configLoadImporters()).toEqual(REMAINING_BASELINE);
   });
 
@@ -124,7 +125,7 @@ describe('phase 1323: Audit command family RootConfig DI boundary', () => {
 
 describe('phase 1324-1326: claw leaf 共享窄 deps 边界', () => {
   it('已迁leaf零config-load、type-import共享deps、参数为共享/扩展ClawCommandDeps', () => {
-    for (const file of [...CLAWSPACE_COMMANDS, ...CLAW_INSPECTION_COMMANDS, ...CLAW_DAEMON_LIFECYCLE_COMMANDS]) {
+    for (const file of [...CLAWSPACE_COMMANDS, ...CLAW_INSPECTION_COMMANDS, ...CLAW_DAEMON_LIFECYCLE_COMMANDS, ...CLAW_INPUT_COMMANDS]) {
       const text = read(path.join(CLI_ROOT, 'commands', file));
       expect(importSpecifiers(text).filter((s) => s.endsWith('assembly/config/config-load.js'))).toEqual([]);
       expect(importSpecifiers(text)).toContain('./claw-command-deps.js');
