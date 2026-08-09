@@ -14,6 +14,7 @@ import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import type { TraceId } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, emitPartialAssistantDiscarded } from './audit-events.js';
 import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
@@ -55,6 +56,8 @@ export interface SubAgentOptions {
   isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
+  traceId: TraceId;
+  currentContractId?: string;
   permissionChecker?: PermissionChecker;                      // phase 1072: subagent file tool permission check
   /** phase 1031: ReAct loop factory DI seam — tests inject mock runReact, production defaults to real loop */
   runReact?: (options: ReactOptions) => Promise<ReactResult>;
@@ -85,6 +88,8 @@ export class SubAgent {
   isShadow?: boolean;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
+  private traceId: TraceId;
+  private currentContractId?: string;
   private permissionChecker?: PermissionChecker;
   private runReact: (options: ReactOptions) => Promise<ReactResult>;
 
@@ -115,6 +120,8 @@ export class SubAgent {
     this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
+    this.traceId = options.traceId;
+    this.currentContractId = options.currentContractId;
     this.permissionChecker = options.permissionChecker;
     this.runReact = options.runReact ?? runReact;
   }
@@ -145,6 +152,8 @@ export class SubAgent {
       streamWriter: this.taskStreamWriter,
       auditWriter: this.auditWriter,
       agentId: this.agentId,
+      traceId: this.traceId,
+      currentContractId: this.currentContractId,
     });
 
     // Turn start: written before any potentially-throwing init so catch always pairs it
@@ -226,6 +235,7 @@ export class SubAgent {
             signal: timeout.signal,
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,
+            trace_id: this.traceId,
           }),
           maxSteps: this.maxSteps,
           maxConsecutiveParseErrors: this.maxConsecutiveParseErrors,

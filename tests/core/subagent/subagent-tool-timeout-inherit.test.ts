@@ -35,6 +35,7 @@ vi.mock('../../../src/foundation/tools/executor.js', () => ({
 
 vi.mock('../../../src/foundation/audit/index.js', () => ({
   createAuditWriter: vi.fn().mockReturnValue({ write: vi.fn() }),
+  makeTraceId: vi.fn((value: string) => value),
 }));
 
 vi.mock('../../../src/foundation/dialog-store/index.js', () => ({

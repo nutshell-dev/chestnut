@@ -10,6 +10,8 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createAuditWriter } from '../../foundation/audit/index.js';
+import { makeTraceId, type TraceId } from '../../foundation/audit/index.js';
+import { randomHex } from '../../foundation/node-utils/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js';
@@ -79,6 +81,10 @@ export interface RunSubagentOptions {
   // NEW (phase 1029 / F-2)：tool-level timeout inheritance from caller ExecContext
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
+  /** Parent trace when available; otherwise runSubagent creates a durable run trace. */
+  traceId?: TraceId;
+  /** Business contract correlation when this subagent verifies a contract. */
+  currentContractId?: string;
 
 }
 
@@ -93,6 +99,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // audit 自治创建（caller 不传基础设施 writer、M#8 接口最小）
   // stream 走 L2 createPerResourceStreamWriter（M#3 stream 物理格式归 L2、phase 1116）
   const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
+  const traceId = opts.traceId ?? makeTraceId(randomHex(8));
   const streamPath = `${opts.resultDir}/${STREAM_FILE}`;
   const baseStreamWriter = createPerResourceStreamWriter(opts.fs, streamPath, auditWriter);
   const taskStreamWriter = {
@@ -144,6 +151,8 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     onIdleTimeout: opts.onIdleTimeout,
     taskStreamWriter,
     auditWriter,
+    traceId,
+    currentContractId: opts.currentContractId,
     messages: opts.messages,
     isShadow: opts.isShadow,
     permissionChecker: opts.permissionChecker,

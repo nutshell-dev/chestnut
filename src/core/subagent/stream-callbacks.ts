@@ -13,6 +13,7 @@
 
 import type { StreamEvent, StreamLog } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import type { TraceId } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
@@ -25,6 +26,8 @@ export interface StreamCallbacksOptions {
   streamWriter: StreamLog;
   auditWriter: AuditLog;
   agentId: string;
+  traceId: TraceId;
+  currentContractId?: string;
 }
 
 export interface PrimitiveStreamCallbacks {
@@ -33,7 +36,7 @@ export interface PrimitiveStreamCallbacks {
   onThinkingDelta: (delta: string) => void;
   onTextEnd: () => void;
   onToolCall: (name: string, toolUseId: ToolUseId) => void;
-  onToolCallInput: (name: string, toolUseId: ToolUseId, args: Record<string, unknown>) => void;
+  onToolCallInput: (name: string, toolUseId: ToolUseId, args: Record<string, unknown>, step: number) => void;
   /** phase 688: stream.jsonl 落 args body（catch 路径 drain 时也走此回调、API 输入不静默丢） */
   onToolUseInput: (name: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
   /** phase 1180: raw partial JSON input on each tool_use_delta */
@@ -93,11 +96,19 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       if (name === 'send') sendTracker = createSendContentTracker();
       safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TOOL_CALL, name, tool_use_id: toolUseId });
     },
-    onToolCallInput: (name, toolUseId, args) => {
-      // phase 1411 (reframe of phase 1409): typed emit `tool_call_input` index row.
+    onToolCallInput: (name, toolUseId, args, step) => {
+      // phase 1411 (reframe of phase 1409): typed emit `tool_call_input` index row；
+      // step/contract/trace 均由 run boundary 提供真实值。
       // args body 0 入 audit / dialog/current.json 是全文权威源 / CLI 凭 tool_use_id join.
       const argsSize = JSON.stringify(args).length;
-      emitToolCallInput(opts.auditWriter, { name, toolUseId, argsSize, step: 0 });
+      emitToolCallInput(opts.auditWriter, {
+        name,
+        toolUseId,
+        argsSize,
+        step,
+        contractId: opts.currentContractId,
+        traceId: opts.traceId,
+      });
     },
     onToolUseInput: (name, toolUseId, input) => {
       // phase 688: args body 落 stream.jsonl（流式产物全文契约）。
@@ -123,8 +134,8 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
         name,
         `tool_use_id=${String(toolUseId)}`,
         `step=${step}`,
-        `contract_id=`,
-        `trace_id=`,
+        `contract_id=${opts.currentContractId ?? ''}`,
+        `trace_id=${opts.traceId}`,
         `status=${result.success ? 'ok' : 'err'}`,
         `content_size=${Buffer.byteLength(content, 'utf-8')}`,
         `summary=${preview}`,

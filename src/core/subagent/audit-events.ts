@@ -6,6 +6,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
+import type { TraceId } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
 export const SUBAGENT_AUDIT_EVENTS = {
@@ -19,7 +20,7 @@ export const SUBAGENT_AUDIT_EVENTS = {
   // STREAM_AUDIT_EVENTS.APPEND_FAILED with full path context; caller-side duplicate emit eliminated.
   TIMEOUT_REJECTION: 'subagent_timeout_rejection',
   // phase 1411 (reframe of phase 1409): generic tool_call index row.
-  // 仅 name + tool_use_id + args_size — args body 0 入 audit.
+  // name + tool_use_id + step + contract_id + trace_id + args_size；args body 0 入 audit.
   // dialog/current.json 是 tool_use args 全文权威源、CLI 凭 tool_use_id 跨源 join。
   // 详 design/modules/l3_subagent.md §A.phase1409-on-tool-call-args-emit
   // (amended-by phase 1411)。
@@ -65,15 +66,17 @@ export function emitToolCallInput(audit: AuditLog, opts: {
   name: string;
   toolUseId: ToolUseId;
   argsSize: number;
-  step?: number;
+  step: number;
+  contractId?: string;
+  traceId: TraceId;
 }): void {
   audit.write(
     SUBAGENT_AUDIT_EVENTS.TOOL_CALL_INPUT,
     opts.name,
     `tool_use_id=${String(opts.toolUseId)}`,
-    `step=${opts.step ?? 0}`,
-    `contract_id=`,
-    `trace_id=`,
+    `step=${opts.step}`,
+    `contract_id=${opts.contractId ?? ''}`,
+    `trace_id=${opts.traceId}`,
     `args_size=${opts.argsSize}`,
   );
 }

@@ -130,6 +130,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       resultTool: DONE_TOOL_NAME,
       signal: config.signal,   // phase 993 D.1: cancel chain propagation
       toolTimeoutMs: config.toolTimeoutMs, // phase 1029 / F-2
+      currentContractId: config.contractId,
     });
 
     // 结果解析（既有 fallback 逻辑保留）

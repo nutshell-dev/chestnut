@@ -481,7 +481,7 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: string; signal?: AbortSignal; permissionChecker?: PermissionChecker; subagentTaskId?: string }
+    options: { clawId: string; signal?: AbortSignal; permissionChecker?: PermissionChecker; subagentTaskId?: string; trace_id?: import('../audit/index.js').TraceId }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
@@ -498,6 +498,7 @@ export class ToolExecutor extends ToolExecutorImpl {
       registry: this.registry,
       baseRegistry: this.baseRegistry,
       subagentTaskId: options.subagentTaskId,
+      trace_id: options.trace_id,
     });
   }
 }

@@ -37,7 +37,7 @@ export interface ReactOptions {
   wallTimeDeadlineMs?: number;
   onToolCall?: (toolName: string, toolUseId: ToolUseId) => void | Promise<void>;
   /** phase 1411: fires when tool args fully parsed (post-stream, pre-execute). See StepCallbacks.onToolCallInput. */
-  onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>) => void;
+  onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>, step: number) => void;
   /** phase 688: fires inside flushToolUse (stream + catch drain). See StepCallbacks.onToolUseInput. */
   onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
   /** phase 1180: fires on each tool_use_delta with raw partial JSON input. */
@@ -124,7 +124,9 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onTextEnd,
     onThinkingDelta,
     onToolCall,
-    onToolCallInput,
+    onToolCallInput: onToolCallInput
+      ? (name, toolUseId, args) => onToolCallInput(name, toolUseId, args, stepCount)
+      : undefined,
     onToolUseInput,
     onToolUseInputDelta,
     onPartialAssistantDiscarded,

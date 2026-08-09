@@ -17,6 +17,7 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
+import { makeTraceId } from '../../../src/foundation/audit/index.js';
 
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn(),
@@ -87,6 +88,8 @@ function makeSubAgent() {
     timeoutMs: 1000,
     taskStreamWriter: sw,
     auditWriter: mockAuditWriter,
+    traceId: makeTraceId('trace-test'),
+    currentContractId: 'contract-test',
   });
 
   return { agent, mockAuditWriter };
@@ -102,9 +105,9 @@ describe('Phase 1411 — onToolCallInput audit emit (index row)', () => {
 
     (runReact as ReturnType<typeof vi.fn>).mockImplementation(
       async (opts: {
-        onToolCallInput?: (name: string, toolUseId: string, args: Record<string, unknown>) => void;
+        onToolCallInput?: (name: string, toolUseId: string, args: Record<string, unknown>, step: number) => void;
       }) => {
-        opts.onToolCallInput?.('summon', 'toolu_x1', { goal: 'do the thing', mode: 'shadow' });
+        opts.onToolCallInput?.('summon', 'toolu_x1', { goal: 'do the thing', mode: 'shadow' }, 3);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
@@ -120,6 +123,9 @@ describe('Phase 1411 — onToolCallInput audit emit (index row)', () => {
     expect(cols[0]).toBe('summon');
     // phase 140: named cols for tool_call_input
     expect(cols.some((c: string) => c === 'tool_use_id=toolu_x1')).toBe(true);
+    expect(cols).toContain('step=3');
+    expect(cols).toContain('contract_id=contract-test');
+    expect(cols).toContain('trace_id=trace-test');
 
     const expectedSize = JSON.stringify({ goal: 'do the thing', mode: 'shadow' }).length;
     expect(cols.some((c: string) => c === `args_size=${expectedSize}`)).toBe(true);
@@ -134,9 +140,9 @@ describe('Phase 1411 — onToolCallInput audit emit (index row)', () => {
 
     (runReact as ReturnType<typeof vi.fn>).mockImplementation(
       async (opts: {
-        onToolCallInput?: (name: string, toolUseId: string, args: Record<string, unknown>) => void;
+        onToolCallInput?: (name: string, toolUseId: string, args: Record<string, unknown>, step: number) => void;
       }) => {
-        opts.onToolCallInput?.('noop', 'toolu_x2', {});
+        opts.onToolCallInput?.('noop', 'toolu_x2', {}, 0);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
