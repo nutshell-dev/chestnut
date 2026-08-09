@@ -4,13 +4,21 @@ import { createDialogStore } from '../../../src/foundation/dialog-store/index.js
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import { LLMAuthError, LLMTimeoutError } from '../../../src/foundation/llm-provider/errors.js';
+import { FileNotFoundError } from '../../../src/foundation/fs/index.js';
+
+async function readDialogFixture(filePath: string): Promise<string> {
+  if (filePath.endsWith('turn-transaction.json')) {
+    throw new FileNotFoundError(filePath);
+  }
+  return JSON.stringify({
+    version: 2, clawId: 'c1', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    systemPrompt: 'system prompt', messages: [], toolsForLLM: [],
+  });
+}
 
 function makeMockFs() {
   return {
-    read: async () => JSON.stringify({
-      version: 2, clawId: 'c1', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
-      systemPrompt: 'system prompt', messages: [], toolsForLLM: [],
-    }),
+    read: readDialogFixture,
     writeAtomic: async () => {},
     ensureDir: async () => {},
     list: async () => [],
@@ -46,10 +54,7 @@ async function makeToolWithLLM(llm: LLMOrchestrator): Promise<AskMotionTool> {
 describe('AskMotionTool', () => {
   it('should not be readonly to prevent concurrent cloneHistory mutation', async () => {
     const mockFs = {
-      read: async () => JSON.stringify({
-        version: 2, clawId: 'c1', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
-        systemPrompt: 'system prompt', messages: [], toolsForLLM: [],
-      }),
+      read: readDialogFixture,
       writeAtomic: async () => {},
       ensureDir: async () => {},
       list: async () => [],
@@ -91,10 +96,7 @@ describe('AskMotionTool', () => {
     } as LLMOrchestrator;
 
     const mockFs = {
-      read: async () => JSON.stringify({
-        version: 2, clawId: 'c1', createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
-        systemPrompt: 'system prompt', messages: [], toolsForLLM: [],
-      }),
+      read: readDialogFixture,
       writeAtomic: async () => {},
       ensureDir: async () => {},
       list: async () => [],
