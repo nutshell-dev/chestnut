@@ -8,16 +8,18 @@
 import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
-import { loadGlobalConfig, patchGlobalConfigPrimary } from '../assembly/config/config-load.js';
+import { resolveLLMConfig, type RootConfigAdmin } from '../assembly/index.js';
 import { PRESETS } from '../foundation/llm-provider/index.js';
 import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
-import { buildLLMConfig } from '../assembly/config/config-load.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
-import type { FileSystem } from '../foundation/fs/index.js';
 import type { ProviderConfig } from '../foundation/llm-provider/index.js';
 
 export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'quota' | 'unknown';
+
+export interface LLMConfigDeps {
+  rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary'>;
+}
 
 export function classifyLLMError(err: unknown): LLMErrorType {
   const msg = (formatErr(err)).toLowerCase();
@@ -87,11 +89,11 @@ export function formatLLMError(
  * Test LLM connectivity with a minimal call.
  * Returns { ok: true, model } on success, { ok: false, errorType, message } on failure.
  */
-export async function checkLLMConnection(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<
+export async function checkLLMConnection(deps: LLMConfigDeps): Promise<
   { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
 > {
-  const globalConfig = loadGlobalConfig(deps);
-  const llmConfig = buildLLMConfig(globalConfig);
+  const globalConfig = deps.rootConfig.loadGlobal();
+  const llmConfig = resolveLLMConfig(globalConfig);
   const svc = createLLMOrchestrator({
     primary: llmConfig.primary,
     fallbacks: [],
@@ -143,7 +145,7 @@ export async function checkLLMConnectionFor(provider: ProviderConfig): Promise<
  * After any change, re-tests the connection automatically.
  */
 export async function promptReconfigure(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: LLMConfigDeps,
   rl: readline.Interface,
   _errorType: LLMErrorType,
 ): Promise<boolean> {
@@ -169,13 +171,13 @@ export async function promptReconfigure(
       const raw = await passwordPrompt('New API key');
       if (raw === 'b') continue;
       if (!raw) { console.log('API key is required.'); continue; }
-      patchGlobalConfigPrimary(deps, { api_key: raw });
+      deps.rootConfig.patchPrimary({ api_key: raw });
 
     } else if (choice === '2') {
       const raw = await question('New model (b = back, "auto" = preset default)');
       if (raw === 'b') continue;
       if (!raw) { console.log('Model is required. Type "auto" to use preset default.'); continue; }
-      patchGlobalConfigPrimary(deps, { model: raw });
+      deps.rootConfig.patchPrimary({ model: raw });
 
     } else if (choice === '3') {
       type FmtStep = 'pick' | 'customFormat' | 'baseUrl' | 'done';
@@ -200,7 +202,7 @@ export async function promptReconfigure(
             const p = presetList[idx - 1];
             chosenPreset = p.id;
             chosenBaseUrl = p.defaultBaseUrl ?? '';
-            patchGlobalConfigPrimary(deps, { preset: chosenPreset, base_url: chosenBaseUrl || undefined });
+            deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl || undefined });
             console.log(`✓ Set provider to ${p.displayName}`);
             step = 'done';
           } else if (idx === customIdx) {
@@ -225,7 +227,7 @@ export async function promptReconfigure(
           if (raw === 'b') { step = 'customFormat'; continue; }
           if (!raw) { console.log('Base URL is required.'); continue; }
           chosenBaseUrl = raw;
-          patchGlobalConfigPrimary(deps, { preset: chosenPreset, base_url: chosenBaseUrl });
+          deps.rootConfig.patchPrimary({ preset: chosenPreset, base_url: chosenBaseUrl });
           step = 'done';
         }
       }
