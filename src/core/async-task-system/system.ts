@@ -63,7 +63,7 @@ import {
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
-import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult } from './types.js';
+import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler } from './types.js';
 import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 
 
@@ -74,7 +74,7 @@ interface TaskState {
   promise: Promise<void>;
 }
 
-export class AsyncTaskSystem {
+export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentTaskScheduler {
   // Runtime execution handles only (abort controller + promise). This is NOT a memory view of
   // the running set; the fs running directory remains the authoritative running state.
   private executingTasks: Map<FullTaskId, TaskState> = new Map();

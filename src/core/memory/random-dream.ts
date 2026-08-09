@@ -6,7 +6,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { AsyncTaskSystem } from '../async-task-system/index.js';
+import type { SubAgentTaskScheduler } from '../async-task-system/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/index.js';
@@ -54,7 +54,7 @@ export type RandomDreamNotifyMotionFn = (message: InboxMessageOptionsBase) => Pr
 
 export interface RandomDreamOptions {
   motionDir: string;
-  taskSystem: AsyncTaskSystem;
+  taskSystem: SubAgentTaskScheduler;
   fs: FileSystem;             // baseDir = chestnutRoot
   motionFs: FileSystem;       // baseDir = motionDir / NEW
   audit: AuditLog;

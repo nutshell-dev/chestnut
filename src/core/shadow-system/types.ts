@@ -1,6 +1,6 @@
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
-import type { TaskId } from '../async-task-system/index.js';
+import type { SubAgentTaskScheduler, TaskId } from '../async-task-system/index.js';
 import type { SummonDecisionMetadata } from '../async-task-system/index.js';
 
 
@@ -10,7 +10,7 @@ export interface SpawnShadowSubagentOptions {
   /** caller 已 strip incomplete tool_use 后的 motion dialog */
   mainMessages: Message[];
   ctx: ExecContext;
-  taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  taskSystem?: SubAgentTaskScheduler;
   /** 创建链路的源头 clawId，同 daemon 内恒定 */
   originClawId?: string;
   /** motion 当前 turn 快照 system prompt（shadow KV cache 命中） */

@@ -2,7 +2,7 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { AsyncTaskSystem } from '../async-task-system/index.js';
+import type { PreparedSubAgentTaskScheduler } from '../async-task-system/index.js';
 import { ContractSystem } from '../contract/index.js';
 import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
 import { buildRetroSubagentPayload } from './retro-scheduler.js';
@@ -22,7 +22,7 @@ import {
 export interface EvolutionSystemDeps {
   fs: FileSystem;
   audit: AuditLog;
-  taskSystem: AsyncTaskSystem;
+  taskSystem: PreparedSubAgentTaskScheduler;
   contractManager: ContractSystem;
   retroSubagentTimeoutMs?: number;   // default 600000ms (10 min)
   createSkillSystem?: typeof defaultCreateSkillSystem;

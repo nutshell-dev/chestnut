@@ -16,6 +16,7 @@ import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';
 import { spawnShadowSubagent } from '../spawn-shadow-subagent.js';
 import { stripIncompleteToolUse } from '../_helpers.js';
 import { SHADOW_TOOL_NAME, SHADOW_DEFAULT_TIMEOUT_MS } from '../constants.js';
+import type { SubAgentTaskScheduler } from '../../async-task-system/index.js';
 
 export function createShadowTool(deps: {
   getTurnSnapshot: () => {
@@ -29,7 +30,7 @@ export function createShadowTool(deps: {
   }>;
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
-  taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  taskSystem?: SubAgentTaskScheduler;
   /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
   subagentMaxSteps?: number;
   /** 允许递归调用。主 agent=true（默认），shadow registry=false */
@@ -128,5 +129,4 @@ export function createShadowTool(deps: {
   };
   return tool;
 }
-
 

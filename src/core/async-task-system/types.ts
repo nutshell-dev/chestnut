@@ -184,6 +184,22 @@ export interface PreparedScheduleResult {
   disposition: 'created' | 'existing';
 }
 
+/** Consumer capability for scheduling a typed subagent task. */
+export interface SubAgentTaskScheduler {
+  schedule(
+    taskKind: 'subagent',
+    payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>,
+  ): Promise<string>;
+}
+
+/** Consumer capability for idempotent scheduling with caller-prepared identity. */
+export interface PreparedSubAgentTaskScheduler {
+  schedulePrepared(
+    taskKind: 'subagent',
+    prepared: PreparedSubagentSchedule,
+  ): Promise<PreparedScheduleResult>;
+}
+
 /**
  * Discriminator union of task kinds.
  * Used as Record key for executor strategy table (phase 16 Step B).

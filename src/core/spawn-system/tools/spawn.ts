@@ -7,7 +7,7 @@
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import { makeShortTaskId } from '../../async-task-system/index.js';
+import { makeShortTaskId, type SubAgentTaskScheduler } from '../../async-task-system/index.js';
 import { runSpawnSync, type RunSpawnSyncOptions } from '../system.js';
 import {
   resolveSpawnTemplate,
@@ -32,7 +32,7 @@ export const SPAWN_TOOL_NAME = 'spawn' as const;
 
 export interface SpawnToolDeps {
   runSubagent?: RunSpawnSyncOptions['runSubagent'];
-  taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  taskSystem?: SubAgentTaskScheduler;
   /** 创建链路的源头 clawId，同 daemon 内恒定（motion='motion'，clawA='clawA'） */
   originClawId?: string;
   /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */

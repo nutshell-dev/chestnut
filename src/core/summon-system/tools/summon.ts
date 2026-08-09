@@ -1,6 +1,6 @@
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../../evolution-system/index.js';
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
-import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
+import type { ToolResult, ToolUseId } from '../../../foundation/tool-protocol/index.js';
 
 
 import { createSkillSystem } from '../../../foundation/skill-system/index.js';
@@ -14,7 +14,7 @@ import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
-import { type TaskId, makeShortTaskId } from '../../async-task-system/index.js';
+import { type SubAgentTaskScheduler, type TaskId, makeShortTaskId } from '../../async-task-system/index.js';
 
 /**
  * Summon subagent execution timeout（ms）= 1 hour.
@@ -26,7 +26,7 @@ const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;
 export const SUMMON_TOOL_NAME = 'summon' as const;
 
 export class SummonTool implements Tool {
-  private readonly taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  private readonly taskSystem?: SubAgentTaskScheduler;
   private readonly originClawId?: string;
   private readonly subagentMaxSteps?: number;
   private readonly allowFromShadow?: boolean;
@@ -59,7 +59,7 @@ export class SummonTool implements Tool {
 
   // phase 281 Step B: SummonStateStore 已删；decision 内嵌 SubAgentTask metadata。
   constructor(
-    taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> },
+    taskSystem?: SubAgentTaskScheduler,
     originClawId?: string,
     subagentMaxSteps?: number,
     allowFromShadow: boolean = true,
@@ -199,7 +199,7 @@ export class SummonTool implements Tool {
       verify: boolean;
       targetClaw?: string;
     },
-    taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> },
+    taskSystem?: SubAgentTaskScheduler,
   ): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
     const { userMessage, idleTimeoutMs, ctx, verify, targetClaw } = opts;
     if (!ctx.getCallerSnapshot) {
@@ -243,7 +243,7 @@ export class SummonTool implements Tool {
     userMessage: string;
     idleTimeoutMs: number;
     ctx: ExecContext;
-    mainContextSnapshot: { clawId: string; toolUseId: string } | undefined;
+    mainContextSnapshot: { clawId: string; toolUseId: ToolUseId } | undefined;
     callerType: SummonCallerType;
     motionClawDir: string | undefined;
     maxSteps: number | undefined;
