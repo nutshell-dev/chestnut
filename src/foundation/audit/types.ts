@@ -10,6 +10,29 @@ export interface AuditLog {
   message(s: string): string;
   /** Truncate s to SUMMARY_MAX_CHARS (500) — long content summary, tool_result preview level. */
   summary(s: string): string;
+  /** Encode a typed reference to an owner-persisted authoritative artifact. */
+  artifact(ref: AuditArtifactRef): string[];
+  /** Encode an explicit information-loss policy, optionally linked to an artifact. */
+  loss(record: AuditLossRecord): string[];
+}
+
+export interface AuditArtifactRef {
+  owner: string;
+  ref: string;
+  sha256: string;
+  bytes: number;
+  schemaVersion: number;
+  partial: boolean;
+}
+
+export interface AuditLossRecord {
+  source: string;
+  amount: number;
+  unit: 'bytes' | 'chars' | 'rows' | 'blocks' | 'events';
+  reason: string;
+  policyVersion: number;
+  recoverable: boolean;
+  artifact?: AuditArtifactRef;
 }
 
 /**

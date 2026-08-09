@@ -34,8 +34,11 @@ export type {
   TraceId,
   AuditFileName,
   AuditFileRoutingContribution,
+  AuditArtifactRef,
+  AuditLossRecord,
 } from './types.js';
 export { makeTraceId } from './types.js';
+export { encodeAuditArtifact, encodeAuditLoss } from './artifact.js';
 
 export { AUDIT_FILE, AUDIT_FILE_STEM, reconcileFallbackDumps } from './writer.js';
 

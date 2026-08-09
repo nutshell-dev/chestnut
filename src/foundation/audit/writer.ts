@@ -32,6 +32,8 @@ import * as path from 'node:path';
 import { newShortUuid } from  '../node-utils/index.js';
 import { formatErr } from "../node-utils/index.js";
 import type { TraceId } from './types.js';
+import type { AuditArtifactRef, AuditLossRecord } from './types.js';
+import { encodeAuditArtifact, encodeAuditLoss } from './artifact.js';
 import * as nodeFs from 'node:fs';
 import * as nodeFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -325,6 +327,8 @@ export class AuditWriter implements AuditLog {
   preview(s: string): string { return clipPreview(s); }
   message(s: string): string { return clipMessage(s); }
   summary(s: string): string { return clipSummary(s); }
+  artifact(ref: AuditArtifactRef): string[] { return encodeAuditArtifact(ref); }
+  loss(record: AuditLossRecord): string[] { return encodeAuditLoss(record); }
 
   private rotateIfNeeded(): void {
     try {
@@ -453,4 +457,3 @@ export function _resetFallbackForTest(): void {
     flushMaxLatencyTimer = null;
   }
 }
-

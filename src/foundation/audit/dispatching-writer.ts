@@ -16,9 +16,10 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
-import type { AuditLog } from './types.js';
+import type { AuditArtifactRef, AuditLog, AuditLossRecord } from './types.js';
 import { AuditWriter, TICK_RETENTION_DAYS } from './writer.js';
 import { clipPreview, clipMessage, clipSummary } from './_helpers.js';
+import { encodeAuditArtifact, encodeAuditLoss } from './artifact.js';
 
 export class DispatchingAuditWriter implements AuditLog {
   readonly __brand = 'AuditLog' as const;
@@ -70,6 +71,8 @@ export class DispatchingAuditWriter implements AuditLog {
   preview(s: string): string { return clipPreview(s); }
   message(s: string): string { return clipMessage(s); }
   summary(s: string): string { return clipSummary(s); }
+  artifact(ref: AuditArtifactRef): string[] { return encodeAuditArtifact(ref); }
+  loss(record: AuditLossRecord): string[] { return encodeAuditLoss(record); }
 
   /** Get internal AuditWriter for a specific file (testing / inspection only). */
   _getWriterForFile(fileName: string): AuditWriter | undefined {
