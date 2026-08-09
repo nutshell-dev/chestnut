@@ -198,15 +198,26 @@ describe('dependency-cruiser: CLIProtocol boundary rules (phase 1253 Step D)', (
     expect(rule.to.path).toBe('^src/(?!cli-protocol/)');
   });
 
-  it('no-assembly-to-cli-process present with exact from/to shape (phase 1283 Step B 零边禁令)', () => {
+  it('no-outside-to-cli-process covers every production owner (phase 1346)', () => {
     const rule = config.forbidden.find(
-      (r: { name: string }) => r.name === 'no-assembly-to-cli-process',
+      (r: { name: string }) => r.name === 'no-outside-to-cli-process',
     );
     expect(rule).toBeDefined();
     expect(rule.severity).toBe('error');
-    expect(rule.from.path).toBe('^src/assembly/');
-    // 末尾 / 是区分 CLIProcess（src/cli/）与 CLIProtocol（src/cli-protocol/）的关键
+    expect(rule.from.path).toBe('^src/');
+    expect(rule.from.pathNot).toEqual(['^src/cli/']);
     expect(rule.to.path).toBe('^src/cli/');
+  });
+
+  it('L6 reusable owners have generated barrel-only error rules', () => {
+    for (const owner of ['assembly', 'cli-protocol', 'daemon', 'watchdog']) {
+      const rule = config.forbidden.find(
+        (r: { name: string }) => r.name === `no-deep-into-module-${owner}`,
+      );
+      expect(rule?.severity).toBe('error');
+      expect(rule?.from).toEqual({ path: '^src/', pathNot: [`^src/${owner}/`] });
+      expect(rule?.to.path).toBe(`^src/${owner}/(?!index\\.ts$).+`);
+    }
   });
 
   it('no-assembly-to-cli-command-protocol-internals 已退役（phase 1283 Step B：被零边规则严格覆盖）', () => {
@@ -250,4 +261,3 @@ describe('dependency-cruiser config: phase 1301 tsPreCompilationDeps + no-orphan
   });
 });
 });
-

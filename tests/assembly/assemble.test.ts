@@ -124,7 +124,8 @@ vi.mock('../../src/foundation/process-manager/agent-factory.js', () => ({
   createAgentProcessManager: vi.fn(() => mockProcessManager),
 }));
 
-vi.mock('../../src/core/runtime/index.js', () => ({
+vi.mock('../../src/core/runtime/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/core/runtime/index.js')>()),
   Runtime: vi.fn(() => mockRuntime),
   createRuntime: vi.fn(() => mockRuntime),
   buildMotionSystemPrompt: vi.fn(() => Promise.resolve('')),
@@ -154,7 +155,8 @@ const mockMemorySystem = {
   runRandomDream: vi.fn(),
 };
 
-vi.mock('../../src/core/memory/index.js', () => ({
+vi.mock('../../src/core/memory/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/core/memory/index.js')>()),
   createMemorySystem: vi.fn(() => mockMemorySystem),
   memorySearchTool: { name: 'memory_search' },
   MEMORY_DIR: 'memory',

@@ -53,6 +53,7 @@ function runAll(fs: FileSystem, audit: ReturnType<typeof makeAudit>['audit'], st
     secondaryAuditPath: SECONDARY,
     legacyAuditPath: LEGACY,
     streamLog,
+    streamEventType: 'system_notify',
   });
 }
 
