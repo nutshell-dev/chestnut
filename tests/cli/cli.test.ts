@@ -12,8 +12,10 @@ import { getGlobalConfigPath } from '../../src/assembly/config/global-config-pat
 import { toProviderConfig } from '../../src/foundation/llm-orchestrator/config-adapter.js';
 import { listCommand } from '../../src/cli/commands/claw.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { createRootConfig } from '../../src/assembly/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const listDeps = { fsFactory, rootConfig: createRootConfig({ fsFactory }) };
 
 describe('CLI Config', () => {
   let originalRoot: string | undefined;
@@ -191,7 +193,7 @@ describe('CLI Config', () => {
       fs.writeFileSync(path.join(clawDir2, 'config.yaml'), 'name: claw-beta\n');
 
       // 执行 list 命令（不抛出错误即成功）
-      await expect(listCommand({ fsFactory })).resolves.not.toThrow();
+      await expect(listCommand(listDeps)).resolves.not.toThrow();
     });
 
     it('should handle empty claws directory', async () => {
@@ -214,7 +216,7 @@ describe('CLI Config', () => {
       saveGlobalConfig({ fsFactory }, config);
 
       // 执行 list 命令（应该正常返回，提示没有 claws，不抛出错误）
-      await expect(listCommand({ fsFactory })).resolves.toBeUndefined();
+      await expect(listCommand(listDeps)).resolves.toBeUndefined();
     });
 
     it('should auto-create claws directory if not exists', async () => {
@@ -243,7 +245,7 @@ describe('CLI Config', () => {
       }
 
       // 执行 list 命令应该自动创建目录
-      await expect(listCommand({ fsFactory })).resolves.toBeUndefined();
+      await expect(listCommand(listDeps)).resolves.toBeUndefined();
       expect(fs.existsSync(clawsDir)).toBe(true);
     });
   });

@@ -117,7 +117,7 @@ describe('claw-router RootConfig 窄 DI', () => {
     },
   );
 
-  it.each([['bare claw', undefined, []], ['claw list', 'list', []]] as const)(
+  it.each([['bare claw', undefined, []]] as const)(
     '%s 零 loadGlobal / 零 loadClaw',
     async (_label, subject, args) => {
       await dispatchClawSubcommand(subject, [...args], deps);
@@ -125,6 +125,14 @@ describe('claw-router RootConfig 窄 DI', () => {
       expect(h.loadClaw).not.toHaveBeenCalled();
     },
   );
+
+  it('claw list：Router透传同一deps对象，自身零config call', async () => {
+    await dispatchClawSubcommand('list', [], deps);
+    expect(h.listCommand).toHaveBeenCalledTimes(1);
+    expect(h.listCommand.mock.calls[0][0]).toBe(deps);
+    expect(h.loadGlobal).not.toHaveBeenCalled();
+    expect(h.loadClaw).not.toHaveBeenCalled();
+  });
 
   it('ps missing（loadClaw → undefined）走既有 CliError does-not-exist，不进 psCommand', async () => {
     h.loadClaw.mockReturnValue(undefined);

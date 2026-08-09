@@ -11,13 +11,16 @@ import * as path from 'path';
 import { listCommand } from '../../../src/cli/commands/claw-list.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-// phase 270: hoist 7 dynamic imports of 3 unique modules
-import { loadGlobalConfig } from '../../../src/assembly/config/config-load.js';
 import { getGlobalConfigPath } from '../../../src/assembly/config/global-config-path.js';
 import { createProcessManagerForCLI } from '../../../src/foundation/process-manager/factories.js';
 import { formatRelativeTime, getLastActiveMs } from '../../../src/cli/commands/claw-shared.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+const loadGlobal = vi.fn();
+const commandDeps = {
+  fsFactory,
+  rootConfig: { loadGlobal, loadClaw: vi.fn() },
+};
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
@@ -47,17 +50,6 @@ vi.mock('../../../src/assembly/config/global-config-path.js', async (importOrigi
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config/config-load.js', async () => ({
-  loadGlobalConfig: vi.fn(),
-  isInitialized: vi.fn(),
-  saveGlobalConfig: vi.fn(),
-  loadClawConfig: vi.fn(),
-  patchGlobalConfigPrimary: vi.fn(),
-  saveClawConfig: vi.fn(),
-  clawExists: vi.fn(() => true),
-  buildLLMConfig: vi.fn(),
-}));
-
 vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/foundation/audit/index.js')>()),
   createDirContext: vi.fn((deps: any) => ({ audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} })),
@@ -82,7 +74,7 @@ describe('claw-list', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
+    loadGlobal.mockReset().mockReturnValue({});
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
 
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
@@ -125,7 +117,7 @@ describe('claw-list', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await listCommand({ fsFactory });
+    await listCommand(commandDeps);
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/claw-a.*running/);
@@ -141,17 +133,18 @@ describe('claw-list', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await listCommand({ fsFactory });
+    await listCommand(commandDeps);
 
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('No claws'));
   });
 
-  it('throws when loadGlobalConfig throws (outside try-catch)', async () => {
-    vi.mocked(loadGlobalConfig).mockImplementation(() => {
-      throw new Error('config corrupt');
+  it('propagates RootConfig loadGlobal error outside the list body', async () => {
+    const sentinel = new Error('config corrupt');
+    loadGlobal.mockImplementation(() => {
+      throw sentinel;
     });
 
-    await expect(listCommand()).rejects.toThrow('config corrupt');
+    await expect(listCommand(commandDeps)).rejects.toBe(sentinel);
   });
 
   it('reports contract status and outbox count', async () => {
@@ -192,7 +185,7 @@ describe('claw-list', () => {
       throw new Error(`Unexpected readFileSync: ${sp}`);
     });
 
-    await listCommand({ fsFactory });
+    await listCommand(commandDeps);
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/claw-c/);
@@ -227,7 +220,7 @@ describe('claw-list', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await listCommand({ fsFactory }, { json: true });
+    await listCommand(commandDeps, { json: true });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);
@@ -279,7 +272,7 @@ describe('claw-list', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await expect(listCommand({ fsFactory })).resolves.not.toThrow();
+    await expect(listCommand(commandDeps)).resolves.not.toThrow();
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/claw-a/);
