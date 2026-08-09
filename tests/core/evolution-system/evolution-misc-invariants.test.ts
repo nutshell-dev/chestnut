@@ -340,7 +340,6 @@ describe('retro-scheduler', () => {
       motionFs: {} as unknown as FileSystem,
       motionAudit: { write: vi.fn() } as unknown as AuditLog,
       motionBaseDir: '/tmp/motion',
-      baseMessages: [{ role: 'user', content: 'hi' }],
       audit: { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog,
       taskSystem: { schedule: mockSchedule } as unknown as RetroConfig['taskSystem'],
       createSkillSystem: mockSkillFactory,

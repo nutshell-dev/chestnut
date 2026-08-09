@@ -18,7 +18,6 @@ import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from './dispatch-skills-p
 // phase 1490: 不再传 maxSteps、task.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { Message } from '../../foundation/llm-provider/index.js';
 
 /** Default retro subagent timeout (ms); 10 min by design */
 /**
@@ -40,7 +39,6 @@ export interface RetroConfig {
   motionFs: FileSystem;
   motionAudit: AuditLog;
   motionBaseDir: string;
-  baseMessages: Message[];
   audit: AuditLog;  // claw audit (for skill failure log)
   retroSubagentTimeoutMs?: number;   // default 600000ms
   taskSystem: SubAgentTaskScheduler;
@@ -53,7 +51,6 @@ export interface RetroSubagentPayloadInput {
   contractYaml: string;
   motionFs: FileSystem;
   audit: AuditLog;
-  baseMessages?: Message[];
   retroSubagentTimeoutMs?: number;
   createSkillSystem?: typeof defaultCreateSkillSystem;
 }
@@ -99,7 +96,7 @@ export async function buildRetroSubagentPayload(
 /**
  * scheduleRetro
  *
- * 输入：RetroConfig（targetClaw / contractId / contractYaml / motionFs / motionAudit / motionBaseDir / baseMessages / audit）
+ * 输入：RetroConfig（targetClaw / contractId / contractYaml / motionFs / motionAudit / motionBaseDir / audit）
  * 输出：Promise<void>
  * 边界：1:1 保留原 schedule body / 仅删 port abstraction wrapper
  */
@@ -110,7 +107,6 @@ export async function scheduleRetro(config: RetroConfig): Promise<void> {
     contractYaml: config.contractYaml,
     motionFs: config.motionFs,
     audit: config.audit,
-    baseMessages: config.baseMessages,
     retroSubagentTimeoutMs: config.retroSubagentTimeoutMs,
     createSkillSystem: config.createSkillSystem,
   });

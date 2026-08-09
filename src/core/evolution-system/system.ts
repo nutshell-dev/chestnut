@@ -9,8 +9,6 @@ import { buildRetroSubagentPayload } from './retro-scheduler.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import * as path from 'path';
 
-import type { Message } from '../../foundation/llm-provider/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
 import { type ContractId } from '../contract/index.js';
 import type { RegisterRetrospectiveInput, LegacyPendingRetrospective } from './retrospective-store.js';
 import type { FullTaskId, PreparedSubagentSchedule } from '../async-task-system/index.js';
@@ -264,36 +262,12 @@ export class EvolutionSystem {
       throw e;
     }
 
-    // 2.3 加载 mining task messages（若 mining 模式，best-effort 退化）
-    let baseMessages: Message[] = [];
-    if (item.mode === 'mining' && item.mining_task_id) {
-      const messagesPath = path.join('tasks', 'queues', 'results', item.mining_task_id, 'messages.json');
-      try {
-        const rawMining = await ctx.motionFs.read(messagesPath);
-        const parsed = JSON.parse(rawMining);
-        if (Array.isArray(parsed)) {
-          baseMessages = parsed;
-        }
-      } catch (e) {
-        if (!isFileNotFound(e)) {
-          this.deps.audit.write(
-            RETRO_AUDIT_EVENTS.MINING_FAILED,
-            `contractId=${item.contract_id}`,
-            `miningTaskId=${item.mining_task_id}`,
-            `error=${formatErr(e)}`,
-          );
-        }
-        // best-effort：加载失败退化为空上下文
-      }
-    }
-
     const payload = await buildRetroSubagentPayload({
       targetClaw: item.target_claw,
       contractId: item.contract_id,
       contractYaml,
       motionFs: ctx.motionFs,
       audit: this.deps.audit,
-      baseMessages,
       retroSubagentTimeoutMs: this.deps.retroSubagentTimeoutMs,
       createSkillSystem: this.deps.createSkillSystem,
     });
