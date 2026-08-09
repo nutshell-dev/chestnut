@@ -22,8 +22,6 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
 import type { ContextManagerRuntimeConfig } from '../step-executor/index.js';
-import type { StreamCallbacks } from '../agent-executor/index.js';
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 
 
@@ -137,43 +135,7 @@ export interface TurnResult {
   cause?: string;
 }
 
-/**
- * phase 27 Step E (P2): Runtime API 按消费者拆 3 子接口、I/SP align。
- *
- * 消费者依赖只暴露所需子集：
- * - Assembly: lifecycle (initialize/stop/getters)
- * - Daemon-loop: 消息处理 (processTurn/processWithMessage) + abort
- * - CLI: 交互 (chat/abort)
- *
- * 4 个 diagnostic getter (getCurrentTraceId/SystemPrompt/Tools/Messages) 不入
- * 子接口、跨消费者用、保 Runtime class own。
- */
-
-export interface IRuntimeLifecycle {
-  initialize(opts?: { interruptionMessage?: string }): Promise<void>;
-  stop(): Promise<void>;
-  getStatus(): { initialized: boolean; clawId: string };
-  getTurnCount(): number;
-  getTaskSystem(): AsyncTaskSystem;
-  getAuditWriter(): AuditLog;
-}
-
 export interface PendingTurnFacts {
   addressed: InboxMessage[];
   controls: InboxMessage[];
 }
-
-export interface IRuntimeDaemon {
-  processTurn(
-    messages: Message[],
-    systemPrompt: string,
-    toolsForLLM: ToolDefinition[],
-    callbacks?: StreamCallbacks,
-  ): Promise<TurnResult>;
-  processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult>;
-  abort(): void;
-  peekPendingTurnFacts(): Promise<PendingTurnFacts>;
-  computeTurnRequestFingerprint(): Promise<string>;
-}
-
-

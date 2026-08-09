@@ -44,8 +44,6 @@ import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
   type StreamCallbacks,
-  type IRuntimeLifecycle,
-  type IRuntimeDaemon,
   type TurnResult,
   type PendingTurnFacts,
 } from './types.js';
@@ -95,7 +93,7 @@ function canonicalJson(value: unknown): string {
 /**
  * Runtime - fully assembled Claw runtime instance
  */
-export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
+export class Runtime {
   protected options: RuntimeOptions;
   protected initialized = false;
   /** phase 522 C2: 防 stop 二次调用重 await 120s task timeout / contract close 二度 */
