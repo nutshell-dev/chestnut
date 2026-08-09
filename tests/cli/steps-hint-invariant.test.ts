@@ -306,11 +306,6 @@ describe('clawTraceCommand hint wire', () => {
       JSON.stringify({ ts: Date.now() + 1, type: 'tool_result', name: 'Read', tool_use_id: 'tu1' }) + '\n',
     );
 
-    // claw config.yaml (required by clawExists)
-    fs.writeFileSync(
-      path.join(clawDir, 'config.yaml'),
-      'default_llm:\n  provider: test\n',
-    );
   }
 
   it('trace overview 含 --step hint', async () => {
