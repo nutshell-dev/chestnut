@@ -8,7 +8,6 @@ import {
   enumerateClaws,
   resolveClawDaemonDir,
 } from '../../core/claw-topology/index.js';
-import { loadGlobalConfig } from '../../assembly/config/config-load.js';
 import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -26,6 +25,7 @@ import type { ContractSubtaskStats, LegacyPausedContractRef } from '../../core/c
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { listOutboxPendingSync } from '../../foundation/messaging/index.js';
+import type { ClawCommandDeps } from './claw-command-deps.js';
 
 /** claw-list title console 显示截断 cap（防 list 行过长）*/
 const CLAW_TITLE_DISPLAY_CHARS = 28;
@@ -59,8 +59,8 @@ interface ClawEntry {
   legacyPaused: LegacyPausedContractRef[];
 }
 
-export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, opts?: { json?: boolean; summary?: boolean }): Promise<void> {
-  loadGlobalConfig(deps);
+export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean; summary?: boolean }): Promise<void> {
+  deps.rootConfig.loadGlobal();
 
   const globalConfigPath = getGlobalConfigPath();
   const baseDir = path.dirname(globalConfigPath);
