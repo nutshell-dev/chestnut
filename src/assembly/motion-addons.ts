@@ -106,9 +106,10 @@ export async function createMotionAddons(
       interrupt: () => runtime.abort(),          // offline 不会触发，留接口
       audit: auditWriter,
     });
+    await gateway.start();
   } catch (e) {
-    auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=gateway`, `phase=construct`, `reason=${formatErr(e)}`);
-    throw new Error(`Assembly: Gateway construct failed: ${formatErr(e)}`, { cause: e });
+    auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=gateway`, `phase=start`, `reason=${formatErr(e)}`);
+    throw new Error(`Assembly: Gateway start failed: ${formatErr(e)}`, { cause: e });
   }
   // ask_user 工具：motion 启 / claw 不启（决策 #25：用户 ↔ motion ↔ claw 中介）
   toolRegistry.register(createAskUserTool(gateway));

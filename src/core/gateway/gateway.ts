@@ -160,7 +160,10 @@ export function createGateway(input: GatewayInput): Gateway {
     async start() {
       if (started) throw new Error('Gateway already started');
       started = true;
-      if (!isOnlineMode) return;
+      if (!isOnlineMode) {
+        audit.write(GATEWAY_AUDIT_EVENTS.STARTED, 'isOnline=false');
+        return;
+      }
 
       const t = transport!;
       // G1: cleanup stale listeners + F2: clear stale connections before registering
@@ -245,6 +248,7 @@ export function createGateway(input: GatewayInput): Gateway {
       }
       if (!isOnlineMode) {
         started = false;
+        audit.write(GATEWAY_AUDIT_EVENTS.STOPPED);
         return;
       }
 

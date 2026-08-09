@@ -143,17 +143,21 @@ describe('Gateway', () => {
     };
   }
 
-  it('offline mode: start/stop are no-ops, isOnline() false, no connections', async () => {
-    gateway = createGateway(createOfflineInput());
+  it('offline mode: lifecycle is observable while transport remains inactive', async () => {
+    const input = createOfflineInput();
+    const write = vi.spyOn(input.audit, 'write');
+    gateway = createGateway(input);
     expect(gateway.isOnline()).toBe(false);
 
     await gateway.start();
     expect(transport.listen).not.toHaveBeenCalled();
     expect(streamStub.lastReader).toBeNull();
+    expect(write).toHaveBeenCalledWith('gateway_started', 'isOnline=false');
 
     await gateway.stop();
     expect(transport.close).not.toHaveBeenCalled();
     expect(gateway.getActiveConnections()).toEqual([]);
+    expect(write).toHaveBeenCalledWith('gateway_stopped');
   });
 
   it('online: isOnline() is false before start, true after start, false after stop', async () => {
@@ -379,11 +383,11 @@ describe('Gateway', () => {
     expect(audit.write).toHaveBeenCalledWith('gateway_started', expect.stringContaining('isOnline='));
   });
 
-  it('start (offline): does NOT write GATEWAY_STARTED', async () => {
+  it('start (offline): writes an explicit offline lifecycle audit', async () => {
     const audit = mockAudit();
     gateway = createGateway({ ...createOfflineInput(), audit });
     await gateway.start();
-    expect(audit.write).not.toHaveBeenCalledWith('gateway_started', expect.anything());
+    expect(audit.write).toHaveBeenCalledWith('gateway_started', 'isOnline=false');
   });
 
   it('stop (online): writes GATEWAY_STOPPED', async () => {

@@ -131,8 +131,8 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
       await gateway.start();
       expect(gateway.isOnline()).toBe(false);
       await gateway.stop();
-      // offline mode: start/stop 均为 no-op，audit 0 写入（STOP_NOOP 仅在 stop 先于 start 时触发）
-      expect(audit.write).not.toHaveBeenCalled();
+      expect(audit.write).toHaveBeenNthCalledWith(1, 'gateway_started', 'isOnline=false');
+      expect(audit.write).toHaveBeenNthCalledWith(2, 'gateway_stopped');
     });
   });
 
