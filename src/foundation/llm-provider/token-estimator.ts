@@ -18,6 +18,9 @@ import type { Message, ContentBlock, ToolDefinition } from './types.js';
  * - 用于 budget 规划 / truncation decision OK、cost 精算需 provider 真值
  *
  * **multi-modal by-design 不支持**：image / audio block (UnknownBlock) JSON.stringify fallback 粗略
+ *
+ * **重复估算性能边界**：trim 会在多轮策略中重复估算相同文本。使用有界 LRU
+ * 复用 cl100k 精确结果，避免 CJK encode 热点且不改变 token 决策语义。
  */
 
 /** Per-message overhead tokens (model boilerplate per Anthropic / OpenAI doc) */
@@ -25,6 +28,9 @@ export const PER_MESSAGE_OVERHEAD_TOKENS = 4;
 
 /** Lazy singleton tiktoken encoding (cl100k_base baseline) */
 let encodingCache: Tiktoken | null = null;
+const TEXT_TOKEN_CACHE_MAX_ENTRIES = 128;
+const TEXT_TOKEN_CACHE_MAX_TEXT_CHARS = 50_000;
+const textTokenCache = new Map<string, number>();
 const requireModule = createRequire(
   typeof __filename === 'string' ? __filename : import.meta.url
 );
@@ -34,6 +40,7 @@ export function __resetForTest(): void {
     throw new Error('__resetForTest is for tests only');
   }
   encodingCache = null;
+  textTokenCache.clear();
 }
 function getEnc(): Tiktoken {
   if (encodingCache === null) {
@@ -43,10 +50,25 @@ function getEnc(): Tiktoken {
   return encodingCache;
 }
 
-/** Estimate token count from raw text (js-tiktoken cl100k_base encoding) */
+/** Estimate token count from raw text with bounded exact-result memoization. */
 export function estimateTextTokens(text: string): number {
   if (!text) return 0;
-  return getEnc().encode(text).length;
+  const cached = textTokenCache.get(text);
+  if (cached !== undefined) {
+    textTokenCache.delete(text);
+    textTokenCache.set(text, cached);
+    return cached;
+  }
+
+  const estimate = getEnc().encode(text).length;
+  if (text.length <= TEXT_TOKEN_CACHE_MAX_TEXT_CHARS) {
+    textTokenCache.set(text, estimate);
+    if (textTokenCache.size > TEXT_TOKEN_CACHE_MAX_ENTRIES) {
+      const oldest = textTokenCache.keys().next().value as string | undefined;
+      if (oldest !== undefined) textTokenCache.delete(oldest);
+    }
+  }
+  return estimate;
 }
 
 /** Estimate token count for a single content block */
