@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import * as readline from 'readline';
 
-import { isInitialized } from '../../assembly/config/config-load.js';
+import type { RootConfigReader } from '../../assembly/index.js';
 import { ensureAuditConfigMigrated } from '../audit-config-migration.js';
 import { ensureWatchdogConfigMigrated } from '../watchdog-config-migration.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
@@ -99,12 +99,12 @@ export async function pickLanguage(): Promise<string> {
  * Merges two disk reads into a single synchronous call to eliminate
  * TOCTOU window between isInitialized() and getOnboardingStatus().
  */
-export function getInitializationSnapshot(deps: { fsFactory: (baseDir: string) => FileSystem; audit?: AuditLog }, motionDir: string): {
+export function getInitializationSnapshot(deps: StartCommandDeps & { audit?: AuditLog }, motionDir: string): {
   isInitialized: boolean;
   onboarding: OnboardingStatus;
 } {
   return {
-    isInitialized: isInitialized(deps),
+    isInitialized: deps.rootConfig.isInitialized(),
     onboarding: getOnboardingStatus(motionDir, deps),
   };
 }
@@ -129,7 +129,12 @@ export interface StartCommandRuntime {
   ensureSupervision: EnsureSupervision;
 }
 
-export async function startCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, runtime: StartCommandRuntime): Promise<void> {
+export interface StartCommandDeps {
+  fsFactory(baseDir: string): FileSystem;
+  rootConfig: Pick<RootConfigReader, 'isInitialized' | 'loadGlobal'>;
+}
+
+export async function startCommand(deps: StartCommandDeps, runtime: StartCommandRuntime): Promise<void> {
   try {
     await _start(deps, runtime);
   } catch (error) {
@@ -137,7 +142,7 @@ export async function startCommand(deps: { fsFactory: (baseDir: string) => FileS
   }
 }
 
-async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, runtime: StartCommandRuntime): Promise<void> {
+async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Promise<void> {
   const { audit } = runtime;
   // Step 1: workspace init
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);

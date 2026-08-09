@@ -124,7 +124,7 @@ program
   .action(deferredRequiredAction(async (ensureSupervision) => {
     const { startCommand } = await import('./commands/start.js');
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
-    await startCommand({ fsFactory }, { audit, ensureSupervision });
+    await startCommand({ fsFactory, rootConfig }, { audit, ensureSupervision });
   }));
 
 // init command
@@ -184,7 +184,7 @@ motionCmd
   .command('chat')
   .description('Chat with Motion')
   .action(action('required', async () => {
-    await motionChatCommand({ fsFactory });
+    await motionChatCommand({ fsFactory, rootConfig });
   }));
 
 // motion stop
@@ -193,7 +193,7 @@ motionCmd
   .description('Stop Motion daemon')
   .action(action('disabled', async () => {
     const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
-    await motionStopCommand({ fsFactory }, { audit });
+    await motionStopCommand({ fsFactory, rootConfig }, { audit });
   }));
 
 // motion outbox

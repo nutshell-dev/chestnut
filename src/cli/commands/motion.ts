@@ -12,7 +12,7 @@ import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/inde
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
-import { loadGlobalConfig } from '../../assembly/config/config-load.js';
+import type { RootConfigReader } from '../../assembly/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
@@ -47,6 +47,11 @@ const TEMPLATE_FILES = [CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, C
 
 /** motion outbox drain 默认读取条数。 */
 export const DEFAULT_OUTBOX_DRAIN_LIMIT = 1;
+
+export interface MotionRuntimeDeps {
+  fsFactory(baseDir: string): FileSystem;
+  rootConfig: Pick<RootConfigReader, 'loadGlobal'>;
+}
 
 /**
  * Read template file content (falls back from build artifacts to source directory)
@@ -194,8 +199,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
 /**
  * motion chat - start interactive chat session (viewport mode)
  */
-export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
-  const globalConfig = loadGlobalConfig(deps);
+export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
+  const globalConfig = deps.rootConfig.loadGlobal();
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   // phase 1279 Step A: viewport routing 由 Chat Viewport owner 工厂兑现（四高频事件落 viewport.tsv）
   const systemAudit = createViewportAudit(deps.fsFactory(motionDir), motionDir);
@@ -265,9 +270,9 @@ export async function motionOutboxCommand(
 /**
  * motion stop - 停止 Motion 守护进程
  */
-export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
-  loadGlobalConfig(deps);
+  deps.rootConfig.loadGlobal();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
 
   if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
