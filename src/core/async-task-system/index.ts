@@ -18,6 +18,7 @@ export type {
   PreparedSubagentSchedule,
   SubAgentTaskScheduler,
   PreparedSubAgentTaskScheduler,
+  AsyncTaskRuntimeLifecycle,
   TaskId,
   FullTaskId,
   ShortTaskId,

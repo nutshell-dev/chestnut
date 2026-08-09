@@ -194,7 +194,7 @@ export async function createMotionAddons(
           fs: chestnutFs,
           motionFs: systemFs,
           audit: auditWriter,
-          taskSystem: runtime.getTaskSystem(),
+          taskSystem: business.taskSystem,
           llmService: llm,
           llmConfig,
           maxCompressionTokens: globalConfig.cron.jobs.dream_trigger.max_compression_tokens,

@@ -200,6 +200,15 @@ export interface PreparedSubAgentTaskScheduler {
   ): Promise<PreparedScheduleResult>;
 }
 
+/** Runtime-owned lifecycle view of the asynchronous task engine. */
+export interface AsyncTaskRuntimeLifecycle {
+  setParentStreamLog(streamLog: StreamLog): void;
+  initialize(): Promise<void>;
+  startDispatch(): Promise<void>;
+  shutdown(timeoutMs?: number): Promise<boolean>;
+  abort(): void;
+}
+
 /**
  * Discriminator union of task kinds.
  * Used as Record key for executor strategy table (phase 16 Step B).

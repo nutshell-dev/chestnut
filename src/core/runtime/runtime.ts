@@ -40,7 +40,7 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from '../context_manager/index.js';
 import type { ContractSystem } from '../contract/index.js';
-import type { AsyncTaskSystem } from '../async-task-system/index.js';
+import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
   type StreamCallbacks,
@@ -136,7 +136,7 @@ export class Runtime {
    */
   protected contextInjector!: ContextInjector;
   protected toolRegistry!: ToolRegistry;
-  private taskSystem!: AsyncTaskSystem;
+  private taskSystem!: AsyncTaskRuntimeLifecycle;
   private contractManager!: ContractSystem;
   protected execContext!: ExecContext;
   protected toolExecutor!: IToolExecutor;
@@ -1081,13 +1081,6 @@ export class Runtime {
 
   getTurnCount(): number {
     return this.turnCount;
-  }
-
-  /**
-   * Get AsyncTaskSystem instance (for retrospective scheduling)
-   */
-  getTaskSystem(): AsyncTaskSystem {
-    return this.taskSystem;
   }
 
   // ============================================================================

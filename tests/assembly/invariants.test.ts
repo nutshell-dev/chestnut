@@ -37,7 +37,6 @@ const { mockSkillFactory } = vi.hoisted(() => ({
 const mockAuditWrite = vi.fn();
 const mockRuntime = {
   stop: vi.fn().mockResolvedValue(undefined),
-  getTaskSystem: vi.fn(() => ({})),
 };
 const mockStreamWriter = {
   open: vi.fn(),
