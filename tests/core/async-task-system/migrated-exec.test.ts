@@ -503,7 +503,12 @@ describe('createAsyncExecWrapper', () => {
     expect(typeof task.migratedExecution.leaderPid).toBe('number');
     // detached spawn: the leader is its own process-group leader.
     expect(task.migratedExecution.processGroupId).toBe(task.migratedExecution.leaderPid);
-    expect(typeof task.migratedExecution.leaderStartTime).toBe('string');
+    // OS start-time lookup is an optional forensic fact. It must never be
+    // fabricated when `ps` cannot observe a just-spawned leader.
+    if (task.migratedExecution.leaderStartTime !== undefined) {
+      expect(task.migratedExecution.leaderStartTime).toEqual(expect.any(String));
+      expect(task.migratedExecution.leaderStartTime.length).toBeGreaterThan(0);
+    }
 
     await waitUntilGone(runningFile, 5000);
   });
@@ -810,14 +815,20 @@ describe('migrated process hard timeout (Phase 777)', () => {
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.12 && echo quick' }, ctx);
+    const releaseFile = path.join(tmpDir, 'release-quick-exit');
+    const result = await tool.execute({
+      command: 'while [ ! -f release-quick-exit ]; do sleep 0.01; done; echo quick',
+    }, ctx);
 
     expect(result.success).toBe(true);
     const shortId = result.metadata?.taskId as string;
     const fullId = result.metadata?.fullTaskId as string;
+    expect(shortId).toBeTruthy();
+    expect(fullId).toBeTruthy();
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const output = await fs.readFile(resultFile, 'utf-8');
