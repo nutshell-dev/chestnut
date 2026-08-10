@@ -65,6 +65,7 @@ export {
 export { parseFrontmatterFrame } from './frontmatter-frame.js';
 export type {
   MessageFormatter,
+  InboxMessageRenderingResolver,
   InboxMessageTypeRegistry,
   InboxMessageTypeDeclaration,
 } from './formatter-registry.js';

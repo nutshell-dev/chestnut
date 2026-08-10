@@ -32,18 +32,20 @@ export interface InboxMessageTypeDeclaration {
   readonly rendering: InboxMessageRendering;
 }
 
-export interface InboxMessageTypeRegistry {
-  /**
-   * 注册某 message type 的 rendering declaration。同一 owner 的完全相同声明可重复
-   * 注册；跨 owner 或 rendering 不同的重复声明 fail loud，禁止装配顺序改变语义。
-   */
-  register(declaration: InboxMessageTypeDeclaration): void;
-
+export interface InboxMessageRenderingResolver {
   /**
    * 按 message type 查 rendering。未注册返 undefined（caller 负责
    * fallback + DP 不静默 audit）。
    */
   resolve(type: string): InboxMessageRendering | undefined;
+}
+
+export interface InboxMessageTypeRegistry extends InboxMessageRenderingResolver {
+  /**
+   * 注册某 message type 的 rendering declaration。同一 owner 的完全相同声明可重复
+   * 注册；跨 owner 或 rendering 不同的重复声明 fail loud，禁止装配顺序改变语义。
+   */
+  register(declaration: InboxMessageTypeDeclaration): void;
 }
 
 
