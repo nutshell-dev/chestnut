@@ -101,6 +101,7 @@ vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => {
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
   NodeFileSystem: vi.fn(() => ({
     ensureDir: vi.fn().mockResolvedValue(undefined),
+    ensureDirSync: vi.fn(),
     existsSync: vi.fn(() => false),
     statSync: vi.fn(() => ({ size: 0 })),
     readBytesSync: vi.fn(() => Buffer.from('')),
