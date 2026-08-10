@@ -14,7 +14,7 @@ import { type FileSystem } from '../../foundation/fs/index.js';
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
-import type { InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
+import type { InboxMessageRenderingResolver } from '../../foundation/messaging/index.js';
 import { renderStandardInboxMessage } from '../../foundation/messaging/index.js';
 
 import {
@@ -148,7 +148,7 @@ export class Runtime {
   private inboxReader!: InboxDeliverySession;
   private snapshot!: SnapshotCommitter;
   // phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家）
-  private formatterRegistry!: InboxMessageTypeRegistry;
+  private formatterRegistry!: InboxMessageRenderingResolver;
   // phase 27 Step D P5: guidance compose callback hook
   private guidanceCompose?: import('./types.js').GuidanceCompose;
 
@@ -429,7 +429,7 @@ export class Runtime {
   /**
    * phase 1414: Runtime 收窄为纯 dispatch + DP 不静默 fallback。
    * 各业主模块（Messaging / Heartbeat / Watchdog / Gateway）在 Assembly 装配期
-   * 通过 formatterRegistry 自家 register 自家 message type formatter。
+   * 各 owner 的 formatter declaration 由 Assembly 注册，Runtime 只按 type resolve。
    * Runtime 不字面持任何上下游 message type / 措辞 / FS 读 / 业主 audit。
    */
   protected async formatInboxMessage(

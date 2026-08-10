@@ -9,7 +9,7 @@ import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/in
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { DialogSessionLifecycle } from '../../foundation/dialog-store/index.js';
-import type { InboxDeliverySession, InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
+import type { InboxDeliverySession, InboxMessageRenderingResolver } from '../../foundation/messaging/index.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
@@ -75,8 +75,8 @@ export interface RuntimeDependencies {
   /** phase 521: regime 切换协调装配 / Assembly own factory / per L5.G1-G4 closure 2026-05-07 */
   readonly dialogStoreFactory: () => DialogSessionLifecycle;
 
-  /** phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家 formatter）*/
-  readonly formatterRegistry: InboxMessageTypeRegistry;
+  /** phase 1414/1367: Assembly 装配完成的 inbox rendering 只读查询能力。 */
+  readonly formatterRegistry: InboxMessageRenderingResolver;
 
   /** phase 69: L6 Assembly 装配期注入 claw 子目录列表（mkdir on init/regime switch） */
   readonly clawSubdirs: readonly string[];

@@ -63,7 +63,7 @@ function createMockDeps() {
     permissionChecker: {} as unknown as import('../../../src/foundation/tool-protocol/index.js').PermissionChecker,
     fsFactory: (dir: string) => ({} as unknown as import('../../../src/foundation/fs/types.js').FileSystem),
     dialogStoreFactory: () => createMockSessionManager() as unknown as import('../../../src/foundation/dialog-store/index.js').DialogStore,
-    formatterRegistry: { resolve: () => undefined } as unknown as import('../../../src/foundation/messaging/index.js').InboxMessageTypeRegistry,
+    formatterRegistry: { resolve: () => undefined } as unknown as import('../../../src/foundation/messaging/index.js').InboxMessageRenderingResolver,
     clawSubdirs: [],
   };
 }

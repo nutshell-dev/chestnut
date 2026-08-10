@@ -114,7 +114,7 @@ function makeRuntime(mockDialogStore: DialogStore): { runtime: AuthorityTestRunt
       } as any,
       execContext: {} as any,
       dialogStoreFactory: vi.fn().mockReturnValue(mockDialogStore),
-      formatterRegistry: { resolve: vi.fn().mockReturnValue(null), register: vi.fn() } as any,
+      formatterRegistry: { resolve: vi.fn().mockReturnValue(null) } as any,
       clawSubdirs: [],
     },
   });
