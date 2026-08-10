@@ -38,7 +38,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { makeStepNumber } from '../agent-executor/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
-import type { InboxReader, InboxEntry, InboxHandle } from '../../foundation/messaging/index.js';
+import type { InboxDeliverySession, InboxEntry, InboxHandle } from '../../foundation/messaging/index.js';
 import { ExecContextImpl } from '../../foundation/tools/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
@@ -145,7 +145,7 @@ export class Runtime {
   private contractManager!: ContractRuntimeLifecycle;
   protected execContext!: ExecContext;
   protected toolExecutor!: IToolExecutor;
-  private inboxReader!: InboxReader;
+  private inboxReader!: InboxDeliverySession;
   private snapshot!: SnapshotCommitter;
   // phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家）
   private formatterRegistry!: InboxMessageTypeRegistry;

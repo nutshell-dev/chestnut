@@ -9,7 +9,7 @@ import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/in
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { DialogSessionLifecycle } from '../../foundation/dialog-store/index.js';
-import type { InboxReader, InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
+import type { InboxDeliverySession, InboxMessageTypeRegistry } from '../../foundation/messaging/index.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
@@ -54,7 +54,7 @@ export interface RuntimeDependencies {
   readonly auditWriter: AuditLog;
   readonly snapshot: SnapshotCommitter;
   readonly sessionManager: DialogSessionLifecycle;
-  readonly inboxReader: InboxReader;
+  readonly inboxReader: InboxDeliverySession;
 
   // === L3-L5 ===
   readonly llm: LLMOrchestrator;
