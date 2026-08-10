@@ -6,15 +6,16 @@ const root = process.cwd();
 const read = (relative: string): string => fs.readFileSync(path.join(root, relative), 'utf8');
 
 describe('phase 1359: Runtime task lifecycle boundary', () => {
-  it('owner lifecycle contains exactly the five Runtime operations', () => {
+  it('owner lifecycle contains exactly the four Runtime operations', () => {
     const source = read('src/core/async-task-system/types.ts');
     const body = source.match(/export interface AsyncTaskRuntimeLifecycle \{(?<body>[\s\S]*?)\n\}/)?.groups?.body;
 
     expect(body).toBeDefined();
-    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(5);
-    for (const member of ['setParentStreamLog', 'initialize', 'startDispatch', 'shutdown', 'abort']) {
+    expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(4);
+    for (const member of ['initialize', 'startDispatch', 'shutdown', 'abort']) {
       expect(body).toContain(`${member}(`);
     }
+    expect(body).not.toContain('setParentStreamLog(');
     expect(body).not.toContain('schedule(');
   });
 

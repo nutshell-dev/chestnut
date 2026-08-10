@@ -204,7 +204,6 @@ export interface PreparedSubAgentTaskScheduler {
 
 /** Runtime-owned lifecycle view of the asynchronous task engine. */
 export interface AsyncTaskRuntimeLifecycle {
-  setParentStreamLog(streamLog: StreamLog): void;
   initialize(): Promise<void>;
   startDispatch(): Promise<void>;
   shutdown(timeoutMs?: number): Promise<boolean>;
