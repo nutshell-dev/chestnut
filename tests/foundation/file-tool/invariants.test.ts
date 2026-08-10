@@ -100,6 +100,7 @@ describe('search-signal-observance', () => {
       const ctx = new ExecContextImpl({
         clawId: 'claw',
         clawDir,
+        workspaceDir: clawspaceDir,
         syncDir: path.join(clawDir, 'tasks/sync'),
         profile: 'full',
         fs: mockFs,
@@ -128,6 +129,7 @@ describe('search-signal-observance', () => {
       const ctx = new ExecContextImpl({
         clawId: 'claw',
         clawDir,
+        workspaceDir: clawspaceDir,
         syncDir: path.join(clawDir, 'tasks/sync'),
         profile: 'full',
         fs: mockFs,

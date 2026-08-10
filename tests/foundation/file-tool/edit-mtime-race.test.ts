@@ -29,6 +29,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: realFs,
@@ -68,6 +69,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
     const racedCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
@@ -112,6 +114,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
     const racedCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,

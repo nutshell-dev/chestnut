@@ -433,10 +433,9 @@ describe('DialogStore unit tests', () => {
   });
 
   it('save: writes session_save_failed and still throws on writeAtomic failure', async () => {
-    const failingFs = {
-      ...nodeFs,
+    const failingFs = Object.setPrototypeOf({
       writeAtomic: vi.fn(() => Promise.reject(new Error('disk full'))),
-    } as unknown as NodeFileSystem;
+    }, nodeFs) as unknown as NodeFileSystem;
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const smFail = new DialogStore(failingFs, 'dialog', audit, 'current.json', 'test-claw');
     await expect(smFail.save({ systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], toolsForLLM: [] })).rejects.toThrow('disk full');
@@ -477,11 +476,12 @@ describe('DialogStore unit tests', () => {
   });
 
   it('load: writes session_corrupted_isolate_failed when rename after corruption fails', async () => {
-    const failingFs = {
-      ...nodeFs,
-      read: vi.fn(() => Promise.resolve('{ invalid json')),
+    const failingFs = Object.setPrototypeOf({
+      read: vi.fn((target: string) => target.endsWith('turn-transaction.json')
+        ? nodeFs.read(target)
+        : Promise.resolve('{ invalid json')),
       move: vi.fn(() => Promise.reject(new Error('rename failed'))),
-    } as unknown as NodeFileSystem;
+    }, nodeFs) as unknown as NodeFileSystem;
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const smFail = new DialogStore(failingFs, 'dialog', audit, 'current.json', 'test-claw');
     await smFail.load();

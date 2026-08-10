@@ -47,6 +47,7 @@ async function makeCtx(clawDir: string, persist: boolean): Promise<E2eCtx> {
     clawsDir: '/tmp/test/claws',
     clawId: 'test-claw',
     clawDir,
+    workspaceDir: path.join(clawDir, 'clawspace'),
     syncDir: path.join(clawDir, 'tasks', 'sync'),
     profile: 'full',
     fs: nfs,

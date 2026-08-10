@@ -244,9 +244,9 @@ describe('CLI Config', () => {
         fs.rmSync(clawsDir, { recursive: true });
       }
 
-      // 执行 list 命令应该自动创建目录
+      // list 是只读观察：目录不存在等价于空目录，不得产生文件系统状态
       await expect(listCommand(listDeps)).resolves.toBeUndefined();
-      expect(fs.existsSync(clawsDir)).toBe(true);
+      expect(fs.existsSync(clawsDir)).toBe(false);
     });
   });
 

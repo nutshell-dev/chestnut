@@ -32,6 +32,7 @@ describe('edit tool', () => {
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
@@ -195,6 +196,7 @@ describe('edit tool', () => {
     const testCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,

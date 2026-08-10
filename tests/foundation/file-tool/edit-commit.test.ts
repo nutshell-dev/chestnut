@@ -34,6 +34,7 @@ describe('edit-commit coordinator', () => {
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
@@ -98,6 +99,7 @@ describe('edit-commit coordinator', () => {
     const racedCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
@@ -150,6 +152,7 @@ describe('edit-commit coordinator', () => {
     const testCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
@@ -212,6 +215,7 @@ describe('edit-commit coordinator', () => {
     const testCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
@@ -268,6 +272,7 @@ describe('edit-commit coordinator', () => {
     const testCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
@@ -311,6 +316,7 @@ describe('edit-commit coordinator', () => {
     const testCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,

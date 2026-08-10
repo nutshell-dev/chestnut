@@ -329,7 +329,7 @@ const defaultDeps = {
       expect(result.content).toBe('notify_claw is motion-only');
       expect(audit.events).toContainEqual([
         CLAW_TOPOLOGY_AUDIT_EVENTS.NOTIFY_CLAW_MOTION_ONLY_VIOLATION,
-        'callerClawId=unknown',
+        'callerClawId=motion',
         'reason=not_motion_chain',
       ]);
     });

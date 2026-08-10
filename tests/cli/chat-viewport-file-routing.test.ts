@@ -39,6 +39,8 @@ describe('chat-viewport file routing (phase 1279)', () => {
     audit.write('viewport_event_ingest', 'kind=turn');
     audit.write('viewport_spinner_lifecycle', 'state=start');
     audit.write('viewport_scrollback_clear_suppressed', 'reason=active_stream');
+    audit.write('viewport_draft_persisted', 'bytes=12');
+    audit.write('viewport_draft_cleared', 'reason=submitted');
 
     expect(existsSync(join(tmpDir, 'viewport.tsv'))).toBe(true);
     const viewportContent = readFileSync(join(tmpDir, 'viewport.tsv'), 'utf-8');

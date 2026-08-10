@@ -79,7 +79,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       if (this.authorized === false) {
         deps.audit.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.NOTIFY_CLAW_MOTION_ONLY_VIOLATION,
-          `callerClawId=${ctx.clawId ?? 'unknown'}`,
+          `callerClawId=${deps.defaultSource}`,
           'reason=not_motion_chain',
         );
         return { success: false, content: 'notify_claw is motion-only' };

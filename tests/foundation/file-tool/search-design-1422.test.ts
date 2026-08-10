@@ -21,6 +21,7 @@ function makeCtx(clawDir: string) {
   return new ExecContextImpl({
     clawId: 'claw',
     clawDir,
+    workspaceDir: path.join(clawDir, 'clawspace'),
     syncDir: path.join(clawDir, 'tasks/sync'),
     profile: 'full',
     fs: mockFs,

@@ -25,8 +25,9 @@ describe('phase 1362: Runtime snapshot commit boundary', () => {
     expect(runtime).not.toMatch(/import type \{ Snapshot \}/);
   });
 
-  it('Runtime retains both commit boundaries', () => {
+  it('Runtime converges all turn dispositions through one commit boundary', () => {
     const source = read('src/core/runtime/runtime.ts');
-    expect(source.match(/this\.snapshot\.commit\(/g)).toHaveLength(2);
+    expect(source.match(/this\.snapshot\.commit\(/g)).toHaveLength(1);
+    expect(source).toContain('await this._commitTurnSnapshot(outcome)');
   });
 });

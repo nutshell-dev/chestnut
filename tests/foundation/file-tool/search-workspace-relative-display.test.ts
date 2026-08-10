@@ -35,6 +35,7 @@ describe('search tool — workspace-relative display (phase 776 + 1422)', () => 
     const ctx = new ExecContextImpl({
       clawId: 'claw',
       clawDir,
+      workspaceDir: path.join(clawDir, 'clawspace'),
       syncDir: path.join(clawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,
@@ -59,6 +60,7 @@ describe('search tool — workspace-relative display (phase 776 + 1422)', () => 
     const ctx = new ExecContextImpl({
       clawId: 'claw',
       clawDir,
+      workspaceDir: path.join(clawDir, 'clawspace'),
       syncDir: path.join(clawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,
@@ -82,6 +84,7 @@ describe('search tool — workspace-relative display (phase 776 + 1422)', () => 
     const ctx = new ExecContextImpl({
       clawId: 'claw',
       clawDir,
+      workspaceDir: path.join(clawDir, 'clawspace'),
       syncDir: path.join(clawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,

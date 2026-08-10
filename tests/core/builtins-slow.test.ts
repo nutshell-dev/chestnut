@@ -32,6 +32,7 @@ describe('Builtin Tools (slow outliers)', () => {
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      workspaceDir: path.join(tempDir, 'clawspace'),
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'full',
       fs: mockFs,

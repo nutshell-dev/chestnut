@@ -58,7 +58,6 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
       'cli/commands/status.ts',
       'cli/commands/stop.ts',
       'cli/commands/watchdog-cli.ts',
-      'cli/index.ts',
       'cli/supervision-policy.ts',
       'cli/watchdog-config-migration.ts',
     ].sort();
