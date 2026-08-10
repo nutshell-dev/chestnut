@@ -24,7 +24,7 @@ import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/config/snapshot-patterns.js';
 import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/messaging/dirs.js';
-import { CLAW_SUBDIRS } from '../../src/assembly/claw-subdirs.js';
+import { initializeClawLayout } from '../../src/assembly/index.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -33,6 +33,7 @@ afterEach(() => {
 describe('Runtime.initialize() failure audits', () => {
   async function makeDeps(clawDir: string, overrides: { sessionManager?: DialogStore; inboxReader?: InboxReader } = {}) {
     const systemFs = new NodeFileSystem({ baseDir: clawDir });
+    initializeClawLayout(systemFs);
     const clawFs = new NodeFileSystem({ baseDir: clawDir });
     const auditWriter = new AuditWriter(systemFs, 'audit.tsv', null);
 
@@ -42,10 +43,7 @@ describe('Runtime.initialize() failure audits', () => {
 
     const sessionManager = overrides.sessionManager ?? new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', 'test-claw');
     const inboxReader = overrides.inboxReader ?? new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
-    return {
-      systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader,
-      clawSubdirs: CLAW_SUBDIRS,
-    };
+    return { systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader };
   }
 
   function minimalMocks() {

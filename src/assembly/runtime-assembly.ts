@@ -27,7 +27,6 @@ import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createShadowTool } from '../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
-import { CLAW_SUBDIRS } from './claw-subdirs.js';
 import type { AssembleConfig } from './types.js';
 import { createExecWithHandle, EXEC_TOOL_NAME } from '../foundation/command-tool/index.js';
 import { createToolExecutor, createToolRegistry } from '../foundation/tools/index.js';
@@ -167,8 +166,6 @@ export async function createRuntimeAssembly(
       permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造
       // phase 521: regime switch coordination / Assembly own factory / closure capture 5 const
       dialogStoreFactory: makeDialogStore,
-      // phase 69: L6 Assembly 装配期注入 claw 子目录列表
-      clawSubdirs: CLAW_SUBDIRS,
       // Phase 773: plain sync exec registry for subagent spawn paths.
       baseToolRegistry: business.baseToolRegistry,
       ...messagingDeps,

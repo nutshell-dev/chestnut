@@ -159,9 +159,6 @@ export class Runtime {
   private contextManagerConfig?: import('../step-executor/index.js').ContextManagerRuntimeConfig;
   /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
   private lastLLMCallAt: number = 0;
-  /** phase 69: L6 Assembly 装配期注入 claw 子目录列表 */
-  private clawSubdirs!: readonly string[];
-
   constructor(options: RuntimeOptions) {
     // phase 1485: ctor 不再 fallback DEFAULT_MAX_STEPS — assemble 层 undefined 直传、
     // runReact 接口接受 maxSteps?: number 并内部 fallback（运行时不变量 boundary）。
@@ -173,7 +170,6 @@ export class Runtime {
     this.auditWriter = options.dependencies.auditWriter;
     const deps = options.dependencies;
     this.dialogStoreFactory = deps.dialogStoreFactory;
-    this.clawSubdirs = deps.clawSubdirs;                // phase 69: DI 注入 claw 子目录列表
     this.formatterRegistry = deps.formatterRegistry;   // phase 1414: ctor-time bind（formatInboxMessage 可在 initialize 前调）
     this.guidanceCompose = deps.guidanceCompose;        // phase 27 Step D P5: callback hook
     this.contextManagerConfig = options.contextManagerConfig;
@@ -192,16 +188,10 @@ export class Runtime {
   async initialize(opts?: { interruptionMessage?: string }): Promise<void> {
     if (this.initialized) return;
 
-    const { clawDir } = this.options;
     const deps = this.options.dependencies;
 
-    // 1. 基础 deps 提前赋值（ensureDirectories 需要 FileSystem）
+    // 1. 消费 dependencies；claw layout 已由 Assembly 在构造业务模块前初始化。
     this.systemFs = deps.systemFs;
-
-    // 2. 目录结构（业务初始化，Assembly 不管）
-    await this.ensureDirectories(clawDir);
-
-    // 3. 消费剩余 deps
     this.auditWriter = deps.auditWriter;
     this.llm = deps.llm;
     this.snapshot = deps.snapshot;
@@ -1277,12 +1267,6 @@ export class Runtime {
       );
     }
     return outcome;
-  }
-
-  private async ensureDirectories(_clawDir: string): Promise<void> {
-    for (const dir of this.clawSubdirs) {
-      await this.systemFs.ensureDir(dir);
-    }
   }
 
   getAuditWriter(): AuditLog {

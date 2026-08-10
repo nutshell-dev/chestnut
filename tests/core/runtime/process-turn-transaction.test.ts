@@ -64,7 +64,6 @@ function createMockDeps() {
     fsFactory: (dir: string) => ({} as unknown as import('../../../src/foundation/fs/types.js').FileSystem),
     dialogStoreFactory: () => createMockSessionManager() as unknown as import('../../../src/foundation/dialog-store/index.js').DialogStore,
     formatterRegistry: { resolve: () => undefined } as unknown as import('../../../src/foundation/messaging/index.js').InboxMessageRenderingResolver,
-    clawSubdirs: [],
   };
 }
 

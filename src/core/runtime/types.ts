@@ -78,9 +78,6 @@ export interface RuntimeDependencies {
   /** phase 1414/1367: Assembly 装配完成的 inbox rendering 只读查询能力。 */
   readonly formatterRegistry: InboxMessageRenderingResolver;
 
-  /** phase 69: L6 Assembly 装配期注入 claw 子目录列表（mkdir on init/regime switch） */
-  readonly clawSubdirs: readonly string[];
-
   /**
    * phase 27 Step D P5: guidance compose callback hook、替代直接 import L6 type。
    * Assembly 注入实际 composer（基于 MotionGuidanceRegistry）、Runtime 仅调用 callback。

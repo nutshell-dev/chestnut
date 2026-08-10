@@ -19,7 +19,7 @@ import { InboxReader } from '../../../src/foundation/messaging/index.js';
 import { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
-import { CLAW_SUBDIRS } from '../../../src/assembly/claw-subdirs.js';
+import { initializeClawLayout } from '../../../src/assembly/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
@@ -44,6 +44,7 @@ describe('repair-session-load-audit', () => {
 
     async function makeDeps(clawDir: string) {
       const systemFs = new NodeFileSystem({ baseDir: clawDir });
+      initializeClawLayout(systemFs);
       const clawFs = new NodeFileSystem({ baseDir: clawDir });
       const auditWriter = new AuditWriter(systemFs, 'audit.tsv', null);
 
@@ -53,7 +54,7 @@ describe('repair-session-load-audit', () => {
 
       const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', 'test-claw');
       const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
-      return { systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader, clawSubdirs: CLAW_SUBDIRS };
+      return { systemFs, clawFs, auditWriter, snapshot, sessionManager, inboxReader };
     }
 
     function minimalMocks() {

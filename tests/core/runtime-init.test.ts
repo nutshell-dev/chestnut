@@ -6,8 +6,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { Runtime } from '../../src/core/runtime/index.js';
-import { DIALOG_ARCHIVE_DIR } from '../../src/foundation/dialog-store/dirs.js';
-import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../src/foundation/messaging/dirs.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
@@ -38,35 +36,6 @@ describe('Runtime Init', () => {
   });
 
   describe('initialization', () => {
-    it('should create all necessary directories', async () => {
-      const runtime = trackRuntime(await createTestRuntime({
-        clawId: 'test-claw',
-        clawDir,
-        llmConfig: createMockLLMConfig(),
-      }));
-
-      await runtime.initialize();
-
-      // Check directories exist
-      const dirs = [
-        'dialog',
-        DIALOG_ARCHIVE_DIR,
-        INBOX_PENDING_DIR,
-        OUTBOX_PENDING_DIR,
-        'tasks',
-        'memory',
-        'contract',
-        'skills',
-        'clawspace',
-        'logs',
-      ];
-
-      for (const dir of dirs) {
-        const exists = await fs.stat(path.join(clawDir, dir)).then(() => true).catch(() => false);
-        expect(exists).toBe(true);
-      }
-    });
-
     it('should be initialized after initialize()', async () => {
       const runtime = trackRuntime(await createTestRuntime({
         clawId: 'test-claw',

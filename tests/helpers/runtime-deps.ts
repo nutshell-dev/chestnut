@@ -11,7 +11,7 @@ import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orche
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { ToolExecutorImpl } from '../../src/foundation/tools/executor.js';
 import { createSkillSystem } from '../../src/foundation/skill-system/index.js';
-import { CLAW_SUBDIRS } from '../../src/assembly/claw-subdirs.js';
+import { initializeClawLayout } from '../../src/assembly/index.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
@@ -50,6 +50,7 @@ interface MakeRuntimeDepsInput {
 export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<RuntimeDependencies> {
   const { clawDir, clawId = TEST_CLAW_ID } = input;
   const systemFs = new NodeFileSystem({ baseDir: clawDir });
+  initializeClawLayout(systemFs);
   const clawFs = new NodeFileSystem({ baseDir: clawDir });
   const auditWriter = input.auditOverride ?? new AuditWriter(systemFs, 'audit.tsv', null);
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
@@ -106,7 +107,5 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
       return createDialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
     },
     formatterRegistry,
-    // phase 69: DI 注入 claw 子目录列表
-    clawSubdirs: CLAW_SUBDIRS,
   };
 }

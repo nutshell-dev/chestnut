@@ -74,7 +74,6 @@ function build(opts: BuildOpts): TestRuntime {
       fsFactory: () => ({}) as any,
       dialogStoreFactory: vi.fn(),
       formatterRegistry: registry,
-      clawSubdirs: [],
     },
   } as any);
 }
