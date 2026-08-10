@@ -124,6 +124,30 @@ export interface PendingView {
   issues: PendingViewIssue[];
 }
 
+/** Claimed inbox entries and their durable settlement handles. */
+export interface InboxDeliveryBatch {
+  readonly entries: InboxEntry[];
+  readonly handles: InboxHandle[];
+  readonly transientErrors: number;
+  readonly permanentErrors: number;
+}
+
+/**
+ * Minimal session used by an inbox delivery consumer.
+ *
+ * Messaging owns observation, claim, settlement, and quarantine semantics;
+ * consumers do not need the reader's legacy mutation or dedup-query surface.
+ */
+export interface InboxDeliverySession {
+  init(): Promise<void>;
+  drainAndDeliver(): Promise<InboxDeliveryBatch>;
+  ack(handle: InboxHandle): Promise<void>;
+  nack(handle: InboxHandle, reason?: string): Promise<void>;
+  markMisrouted(handle: InboxHandle): Promise<void>;
+  peekMetas(filter?: { priority?: Priority[] }): Promise<InboxMessageMeta[]>;
+  peekPending(): Promise<PendingView>;
+}
+
 export class PendingViewError extends Error {
   constructor(readonly view: PendingView) {
     super(`Pending view incomplete: ${view.issues.length} issue(s)`);
@@ -131,7 +155,7 @@ export class PendingViewError extends Error {
   }
 }
 
-export class InboxReader {
+export class InboxReader implements InboxDeliverySession {
   private readonly inflightDir: string;
   // phase 442: misroutedDir 隔离 to=<other_claw> 误投消息、与 done/failed 同级独立子目录
   private readonly misroutedDir: string;
@@ -654,7 +678,7 @@ export class InboxReader {
    * Returns both decoded entries and handles for subsequent ack/nack.
    * Crash before ack → init() reconcile moves inflight/ back to pending/.
    */
-  async drainAndDeliver(): Promise<{ entries: InboxEntry[]; handles: InboxHandle[]; transientErrors: number; permanentErrors: number }> {
+  async drainAndDeliver(): Promise<InboxDeliveryBatch> {
     const { entries, transientErrors, permanentErrors } = await this.drainInbox();
     const handles: InboxHandle[] = [];
     const deliveredEntries: InboxEntry[] = [];

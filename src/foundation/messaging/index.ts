@@ -18,7 +18,12 @@ export { InboxWriter, makeInboxPath } from './inbox-writer.js';
 export type { InboxMessageOptionsBase } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
-export type { InboxEntry, ScannedInboxLocation } from './inbox-reader.js';
+export type {
+  InboxEntry,
+  ScannedInboxLocation,
+  InboxDeliveryBatch,
+  InboxDeliverySession,
+} from './inbox-reader.js';
 export { PendingViewError } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
 export { PRIORITY_ORDER } from './types.js';
