@@ -177,9 +177,6 @@ export class Runtime {
     this.formatterRegistry = deps.formatterRegistry;   // phase 1414: ctor-time bind（formatInboxMessage 可在 initialize 前调）
     this.guidanceCompose = deps.guidanceCompose;        // phase 27 Step D P5: callback hook
     this.contextManagerConfig = options.contextManagerConfig;
-    if (deps.parentStreamLog) {
-      deps.taskSystem.setParentStreamLog(deps.parentStreamLog);
-    }
   }
 
   /** phase 1343 α-6: set/clear turn-level trace id on audit writer */

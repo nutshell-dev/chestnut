@@ -430,7 +430,6 @@ describe('regime-switch-archive-fail', () => {
             shutdown: vi.fn().mockResolvedValue(undefined),
             initialize: vi.fn().mockResolvedValue(undefined),
             startDispatch: vi.fn(),
-            setParentStreamLog: vi.fn(),
           } as any,
           contextInjector: {
             buildSystemPrompt: vi.fn().mockResolvedValue(''),

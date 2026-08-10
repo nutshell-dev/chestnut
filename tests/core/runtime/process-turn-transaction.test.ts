@@ -58,7 +58,7 @@ function createMockDeps() {
     toolRegistry: {} as unknown as import('../../../src/foundation/tools/index.js').ToolRegistry,
     toolExecutor: {} as unknown as import('../../../src/foundation/tools/index.js').IToolExecutor,
     contractManager: { setOnNotify: vi.fn(), close: vi.fn().mockResolvedValue(undefined) } as unknown as import('../../../src/core/contract/index.js').ContractSystem,
-    taskSystem: { setParentStreamLog: vi.fn(), shutdown: vi.fn().mockResolvedValue(false), abort: vi.fn(), initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn().mockResolvedValue(undefined) } as unknown as import('../../../src/core/async-task-system/index.js').AsyncTaskSystem,
+    taskSystem: { shutdown: vi.fn().mockResolvedValue(false), abort: vi.fn(), initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn().mockResolvedValue(undefined) } as unknown as import('../../../src/core/async-task-system/index.js').AsyncTaskRuntimeLifecycle,
     skillRegistry: {} as unknown as import('../../../src/foundation/skill-system/index.js').SkillSystem,
     permissionChecker: {} as unknown as import('../../../src/foundation/tool-protocol/index.js').PermissionChecker,
     fsFactory: (dir: string) => ({} as unknown as import('../../../src/foundation/fs/types.js').FileSystem),

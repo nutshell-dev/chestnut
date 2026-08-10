@@ -115,7 +115,6 @@ export async function createRuntimeAssembly(
     // === RuntimeDependencies 分组构造（assembly-auditor §六.5 follow-up / 可读性） ===
     const messagingDeps = {
       inboxReader,
-      parentStreamLog: streamWriter,
     };
 
     // Phase 773: build a main-agent registry where exec is replaced by the async wrapper.

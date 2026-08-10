@@ -85,7 +85,6 @@ function build(opts: MinOpts): TestRuntime {
       skillRegistry: {} as any,
       permissionChecker: {} as any,
       fsFactory: () => ({}) as any,
-      parentStreamLog: undefined,
       contractNotifyCallback: undefined,
       dialogStoreFactory: vi.fn(),
       formatterRegistry: opts.formatterRegistry,

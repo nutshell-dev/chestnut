@@ -72,9 +72,6 @@ export interface RuntimeDependencies {
   // phase 1283: fsFactory inject (M#3 file I/O resource unique ownership)
   readonly fsFactory: (baseDir: string) => FileSystem;
 
-  // 构造期注入（phase182 B.p166-5 升档：setter 双阶段消除）
-  readonly parentStreamLog?: import('../../foundation/stream/index.js').StreamLog;
-
   /** phase 521: regime 切换协调装配 / Assembly own factory / per L5.G1-G4 closure 2026-05-07 */
   readonly dialogStoreFactory: () => DialogSessionLifecycle;
 
