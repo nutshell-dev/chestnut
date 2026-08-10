@@ -28,9 +28,9 @@ import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type OutboxWriter } from '../foundation/messaging/index.js';
 import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
-import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { createAggregatedFileRouting } from './file-routing-aggregator.js';
+import { initializeClawLayout } from './claw-subdirs.js';
 import type { AssembleConfig, AssemblyContributions } from './types.js';
 
 export interface CoreInfraInput {
@@ -87,15 +87,14 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
   // missing → null（与旧 root schema default 行为等价、不静默创建）；invalid → throw（fail-loud）。
   const auditMaxSizeMb = readWorkspaceAuditRetentionMaxSizeMb(fsFactory(resolveChestnutRoot(clawDir, isMotion)));
   const systemFs = fsFactory(clawDir);
+  // phase 1368: claw 实例化 layout 是 Assembly-owned action；在任何业务模块构造前
+  // 一次性创建/自愈，Runtime 不观察目录集合。
+  initializeClawLayout(systemFs);
   // clawFs: used by tools via ExecContextImpl.fs
   // phase430: PermissionChecker removed from NodeFileSystem ctor;
   // claw-space boundary is enforced by L4 caller (tools) autonomy.
   const clawFs = fsFactory(clawDir);
   const parentFs = fsFactory(path.join(clawDir, '..'));
-
-  // syncDir = clawDir/tasks/sync (装配-level 共享 dir / 应然 §A.7)
-  const syncDir = path.join(clawDir, TASKS_SYNC_DIR);
-  await clawFs.ensureDir(syncDir);
 
   let processManager: ProcessManager | undefined;
   let auditWriter: AuditLog | undefined;
