@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { throwIfFileToolAborted } from '../../../src/foundation/file-tool/abort.js';
 import { readTool } from '../../../src/foundation/file-tool/read.js';
 import { writeTool } from '../../../src/foundation/file-tool/write.js';
 import { lsTool } from '../../../src/foundation/file-tool/ls.js';
@@ -69,6 +70,27 @@ describe('file-tool signal observance', () => {
         .rejects.toMatchObject({ name: 'AbortError' });
     });
   }
+});
+
+describe('abort-reason-formatting', () => {
+  it('circular abort reason falls back to String and still throws AbortError', () => {
+    const controller = new AbortController();
+    const reason: Record<string, unknown> = {};
+    reason.self = reason;
+    controller.abort(reason);
+
+    let thrown: unknown;
+    try {
+      throwIfFileToolAborted(controller.signal);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).name).toBe('AbortError');
+    expect((thrown as Error).message).toContain('File tool execution aborted:');
+    expect((thrown as Error).message).toContain('[object Object]');
+  });
 });
 
 describe('search-signal-observance', () => {

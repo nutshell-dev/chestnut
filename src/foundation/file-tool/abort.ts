@@ -17,6 +17,7 @@ function formatAbortReason(reason: unknown): string {
   try {
     return JSON.stringify(reason);
   } catch {
+    // silent: reason formatting is diagnostic-only; JSON failure falls back to String(reason)
     return String(reason);
   }
 }
