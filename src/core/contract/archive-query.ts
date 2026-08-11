@@ -1,17 +1,20 @@
 /**
  * @module L4.ContractSystem.ArchiveQuery
  * Phase 1146 Step C: structured cross-claw archive contract query.
- *
- * Enumerates archive locations across all claws, resolves terminal times from
- * per-claw audit, and returns a structured result with conservative filtering.
- * Does not read archive payloads and does not alter the legacy listArchiveContracts
- * API consumed by random-dream.
+ * Phase 1370 Step C: the caller owns the claw universe (enumeration and role
+ * filtering); this query only resolves and scans the caller-specified archive
+ * roots via `Pick<ClawTopology, 'resolve'>`. Resolve failures and remote
+ * locations become structured issues instead of discarding other entries.
  */
 
+import * as path from 'node:path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
-import { CLAWS_DIR } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
+import type { ClawTopology } from '../../core/claw-topology/index.js';
+
+/** ClawTopology.resolve 的返回类型（barrel 未单独 export Location） */
+type Location = ReturnType<ClawTopology['resolve']>;
 import { CONTRACT_ARCHIVE_DIR } from './dirs.js';
 import { listArchiveContractLocationsAsync, type ArchiveListEntry } from './locations.js';
 import { resolveArchiveTime } from './archive-time.js';
@@ -23,14 +26,6 @@ import type {
   ArchiveState,
 } from './types.js';
 import { makeContractId } from './types.js';
-
-function archiveDirForClaw(clawId: string): string {
-  return `${CLAWS_DIR}/${clawId}/${CONTRACT_ARCHIVE_DIR}`;
-}
-
-function auditPathForClaw(clawId: string): string {
-  return `${CLAWS_DIR}/${clawId}/${AUDIT_FILE}`;
-}
 
 function entryState(location: ArchiveListEntry): ArchiveState | 'legacy-unresolved' {
   return location.kind === 'legacy' ? 'legacy-unresolved' : location.state!;
@@ -52,45 +47,54 @@ function sortEntries(a: ArchiveQueryEntry, b: ArchiveQueryEntry): number {
 }
 
 /**
- * Query archived contracts across all claws with structured terminal-time resolution.
+ * Query archived contracts under caller-specified claws with structured
+ * terminal-time resolution.
  *
  * - Known times are filtered inclusively by `[sinceMs, untilMs]`; unknown entries
  *   are always retained and make the result incomplete.
- * - Claw/archive enumeration failures are recorded as issues and do not empty the
- *   result set.
+ * - Per-claw resolve/list failures and remote locations are recorded as issues
+ *   and do not empty the result set.
  * - Output order is stable by `(clawId, state, contractId)` only; it does not
  *   claim a complete historical ordering.
  */
 export async function queryArchiveContracts(opts: {
   fs: FileSystem;
+  clawTopology: Pick<ClawTopology, 'resolve'>;
+  clawIds: readonly ClawId[];
   filter?: ArchiveQueryFilter;
 }): Promise<ArchiveQueryResult> {
-  const { fs, filter } = opts;
+  const { fs, clawTopology, clawIds, filter } = opts;
   const entries: ArchiveQueryEntry[] = [];
   const issues: ArchiveQueryIssue[] = [];
   let incomplete = false;
 
-  if (!(await fs.exists(CLAWS_DIR))) {
-    return { entries, issues, incomplete };
-  }
+  for (const clawId of clawIds) {
+    let location: Location;
+    try {
+      location = clawTopology.resolve(clawId);
+    } catch (err) {
+      issues.push({
+        code: 'claw_resolve_failed',
+        clawId,
+        detail: `resolve failed for claw ${clawId}`,
+        cause: err,
+      });
+      incomplete = true;
+      continue;
+    }
 
-  let clawEntries: { name: string; isDirectory: boolean }[];
-  try {
-    clawEntries = await fs.list(CLAWS_DIR, { includeDirs: true });
-  } catch (err) {
-    // silent: query returns structured issue to caller instead of throwing
-    issues.push({
-      code: 'claw_list_failed',
-      detail: `list claws directory failed: ${CLAWS_DIR}`,
-      cause: err,
-    });
-    return { entries, issues, incomplete: true };
-  }
+    if (location.kind !== 'local') {
+      issues.push({
+        code: 'remote_claw_unsupported',
+        clawId,
+        detail: `claw ${clawId} is remote; archive query is local-only`,
+      });
+      incomplete = true;
+      continue;
+    }
 
-  for (const clawEntry of clawEntries) {
-    if (!clawEntry.isDirectory) continue;
-    const clawId = makeClawId(clawEntry.name);
-    const archiveDir = archiveDirForClaw(clawId);
+    const archiveDir = path.join(location.clawDir, CONTRACT_ARCHIVE_DIR);
+    const auditPath = path.join(location.clawDir, AUDIT_FILE);
 
     let locations: ArchiveListEntry[];
     try {
@@ -106,14 +110,12 @@ export async function queryArchiveContracts(opts: {
       continue;
     }
 
-    const auditPath = auditPathForClaw(clawId);
-
-    for (const location of locations) {
-      const contractId = makeContractId(location.contractId);
+    for (const locationEntry of locations) {
+      const contractId = makeContractId(locationEntry.contractId);
       const { time, issues: timeIssues } = await resolveArchiveTime({
         fs,
         auditPath,
-        location,
+        location: locationEntry,
         contractId,
       });
 
@@ -122,8 +124,8 @@ export async function queryArchiveContracts(opts: {
       entries.push({
         clawId,
         contractId,
-        state: entryState(location),
-        contractDir: location.contractRoot,
+        state: entryState(locationEntry),
+        contractDir: locationEntry.contractRoot,
         archiveTime: time,
       });
 

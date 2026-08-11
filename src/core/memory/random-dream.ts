@@ -11,7 +11,8 @@ import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.j
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/index.js';
 import { type TaskId, type FullTaskId, type ShortTaskId, type TaskIdResolver, makeShortTaskId } from '../async-task-system/index.js';
-import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
+import { queryArchiveContracts, readArchiveProgress } from '../contract/index.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { assertDreamStateShape } from './invariants.js';
 import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../foundation/messaging/index.js';
 
@@ -82,7 +83,6 @@ interface WeightedContract {
   contractDir: string;
   weight: number;
   hint: string;
-  archivedAt?: string;  // NEW phase 280: 用于高水位线更新
 }
 
 interface PendingLateSettleEntry {
@@ -383,9 +383,34 @@ async function discoverWeightedContracts(
   const clawsSeen = new Set<string>();
   const contracts: WeightedContract[] = [];
 
-  // Phase 1335 (r138 F fork): cross-module query API 替代直扫
+  // Phase 1370 Step C: RandomDream own「排除 motion 后跨普通 claw 选样」的 universe；
+  // ClawTopology own enumerate/resolve；ContractSystem only 查询 caller 指定的 archive root。
   // phase 925: 不再使用单一高水位线过滤；改为按 completed/pending contractIds 集合过滤
-  const archiveContracts = await listArchiveContracts({ fs, clawTopology });
+    let clawIds: ClawId[];
+  try {
+    clawIds = clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
+  } catch (err) {
+    // claws/ 不存在 = 首启良性空 universe（test「claws 目录不存在时直接返回」锁定）
+    if (isFileNotFound(err)) return [];
+    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+      `site=archive_query_enumerate`,
+      `reason=${formatErr(err)}`);
+    throw err;
+  }
+
+    const archiveResult = await queryArchiveContracts({ fs, clawTopology, clawIds });
+
+  // 每条 structured issue 逐条 audit；incomplete=true 不丢 entries
+  for (const issue of archiveResult.issues) {
+    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+      `site=archive_query`,
+      `code=${issue.code}`,
+      ...(issue.clawId !== undefined ? [`clawId=${issue.clawId}`] : []),
+      ...(issue.contractId !== undefined ? [`contractId=${issue.contractId}`] : []),
+      ...(issue.detail !== undefined ? [`detail=${issue.detail}`] : []),
+      ...(issue.cause !== undefined ? [`cause=${formatErr(issue.cause)}`] : []),
+    );
+  }
 
   // phase 925: exclude contracts already completed or covered by pending late-settle tasks
   const completedIds = new Set<ContractId>(state.completedContractIds);
@@ -393,14 +418,14 @@ async function discoverWeightedContracts(
     (state.pendingLateSettle ?? [])
       .flatMap(e => e.contractIds)
   );
-  const visibleRefs = archiveContracts.filter(ref =>
+  const visibleRefs = archiveResult.entries.filter(ref =>
     !completedIds.has(ref.contractId) && !pendingIds.has(ref.contractId)
   );
 
   for (const ref of visibleRefs) {
     const { clawId, contractId, contractDir } = ref;
     const { weight, hint } = await computeWeight(fs, contractId, contractDir, clawId, clawsSeen, audit, getContractProgress);
-    contracts.push({ clawId, contractId, contractDir, weight, hint, archivedAt: ref.archivedAt });
+    contracts.push({ clawId, contractId, contractDir, weight, hint });
     clawsSeen.add(clawId);  // NEW phase 585 / 每 claw 首契约获 +30 bonus / 后续不获
   }
 
@@ -760,7 +785,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const subagentTimeoutMs = opts.subagentTimeoutMs ?? DEFAULT_RANDOM_DREAM_TIMEOUT_MS;
   const subagentMaxSteps = opts.subagentMaxSteps ?? DEFAULT_RANDOM_DREAM_MAX_STEPS;
 
-  const taskId = makeShortTaskId(await opts.taskSystem.schedule('subagent', {
+    const taskId = makeShortTaskId(await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
     mode: 'standard',
     intent: buildRandomDreamPrompt(weightedContracts),
@@ -789,7 +814,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   saveRandomDreamState(opts.fs, state, opts.audit);
 
   // 等待完成（最长 1h，每 30s 轮询）
-  const log = await waitForTaskResult(
+    const log = await waitForTaskResult(
     opts.motionFs,
     taskIdForPaths,
     subagentTimeoutMs,

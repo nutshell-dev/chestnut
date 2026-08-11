@@ -15,8 +15,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   OBSERVER_STATE_PARSE_FAILED: 'contract_observer_state_parse_failed',  // ← NEW (phase 1012 / r123 C fork)
   // NEW phase 160: maybeAuditStep loadActive silent catch audit emit (playbook §1)
   AUDITOR_LOAD_ACTIVE_FAILED: 'contract_auditor_load_active_failed',
-  // NEW phase 164: listArchiveContracts progress.json non-ENOENT silent catch audit emit (playbook §1)
-  ARCHIVE_PROGRESS_READ_FAILED: 'contract_archive_progress_read_failed',
   PROGRESS_CORRUPTED: 'contract_progress_corrupted',
   // Phase 1134 / Phase 1193 Step B: archive current-format payload corruption detection.
   LAYOUT_CORRUPTED: 'contract_layout_corrupted',
@@ -201,7 +199,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_yaml_schema_invalid: 'audit',
   contract_observer_state_parse_failed: 'audit',
   contract_auditor_load_active_failed: 'audit',
-  contract_archive_progress_read_failed: 'audit',
   contract_progress_corrupted: 'audit',
   contract_layout_corrupted: 'audit',
   contract_rollback_failed: 'audit',

@@ -117,7 +117,13 @@ describe('random-dream late-settle (phase 170)', () => {
       fsSync.writeFileSync(path.join(taskResultDir, 'daemon.log'), '=== started ===');
 
       const runPromise = runRandomDream({ ...makeOpts(chestnutRoot, motionDir), subagentTimeoutMs: 1000, pulseIntervalMs: 10 });
-      await vi.advanceTimersByTimeAsync(1_001);
+      // discover 现为真实 async I/O（structured archive query）：小步推进 fake clock，
+      // 每步让出真实 event loop，直到 runPromise settle（discover → schedule → poll 越过 deadline）
+      let settled = false;
+      void runPromise.then(() => { settled = true; }, () => { settled = true; });
+      for (let i = 0; i < 300 && !settled; i++) {
+        await vi.advanceTimersByTimeAsync(10);
+      }
       await runPromise;
 
       // state 文件应含 pendingLateSettle entry
@@ -174,7 +180,7 @@ describe('random-dream late-settle (phase 170)', () => {
     await writeTaskCompletion(motionDir, taskId, dreamLog);
 
     // mock discoverWeightedContracts 返 [] (skip pulse、仅触 sweep)
-    // 但 discoverWeightedContracts 依赖 listArchiveContracts，需要无 archive 目录
+    // 但 discoverWeightedContracts 依赖 archive query，需要无 archive 目录
     // 这里直接不创建 claws 目录即可让 discover 返 []
 
     await runRandomDream(makeOpts(chestnutRoot, motionDir));

@@ -258,14 +258,6 @@ export interface VerifierResult {
   structured?: { passed: boolean; reason: string; issues?: string[] };
 }
 
-/** Phase 1335 (r138 F fork): cross-module query API — archive contract reference */
-export interface ArchiveContractRef {
-  clawId: ClawId;
-  contractId: ContractId;
-  contractDir: string;
-  archivedAt?: string;
-}
-
 // ============================================================================
 // phase 1366: SubtaskId branded type (compile-time ID discrimination)
 // ============================================================================
@@ -389,7 +381,11 @@ export type ArchiveTime =
   | { kind: 'known'; recordedAt: string; epochMs: number; source: 'terminal_audit' }
   | { kind: 'unknown'; reason: ArchiveTimeUnknownReason };
 
-export type ArchiveQueryIssueCode = ArchiveTimeUnknownReason | 'claw_list_failed' | 'archive_list_failed';
+export type ArchiveQueryIssueCode =
+  | ArchiveTimeUnknownReason
+  | 'claw_resolve_failed'
+  | 'remote_claw_unsupported'
+  | 'archive_list_failed';
 
 export interface ArchiveQueryIssue {
   code: ArchiveQueryIssueCode;

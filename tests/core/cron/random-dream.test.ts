@@ -69,7 +69,7 @@ function readInboxPending(motionDir: string): string[] {
     .map(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8'));
 }
 
-/** 创建 archive 契约目录并写入 progress.json（使 listArchiveContracts 能 derive archivedAt） */
+/** 创建 archive 契约目录并写入 progress.json（computeWeight 读取 subtask completed_at 加权） */
 async function createArchiveContract(chestnutRoot: string, clawId: string, contractId: string, completedAt = new Date().toISOString()) {
   const dir = path.join(chestnutRoot, 'claws', clawId, 'contract', 'archive', contractId);
   await fs.mkdir(dir, { recursive: true });
@@ -525,8 +525,13 @@ Prompt: ...
 
       const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
 
-      // 推进超过 1 小时（3_600_000 ms）
-      await vi.advanceTimersByTimeAsync(3_600_001);
+      // discover 现为真实 async I/O（structured archive query）：小步推进 fake clock，
+      // 每步让出真实 event loop，直到 runPromise settle（discover → schedule → poll 越过 1h deadline）
+      let settled = false;
+      void runPromise.then(() => { settled = true; }, () => { settled = true; });
+      for (let i = 0; i < 130 && !settled; i++) {
+        await vi.advanceTimersByTimeAsync(30_001);
+      }
       await runPromise;
 
       // 不应写 outbox；pending entry 已持久化
@@ -615,16 +620,28 @@ insight B
         fsSync.writeFileSync(path.join(taskResultDir, 'daemon.log'), '=== started ===');
 
         const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
-        // advance just past schedule but before first poll tick
-        await vi.advanceTimersByTimeAsync(1);
+        // advance just past schedule but before first poll tick（30s pulse）
+        // discover 现为真实 async I/O（structured archive query），需要若干 event-loop turn；
+        // 每次 advance(1ms) 让出 turn，直到 schedule 后的 state 落盘（仍远早于首个 poll tick）
+        const statePath = path.join(chestnutRoot, '.random-dream-state.json');
+        for (let i = 0; i < 100 && !fsSync.existsSync(statePath); i++) {
+          await vi.advanceTimersByTimeAsync(1);
+        }
 
         // state persisted immediately after schedule
-        const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+        const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
         expect(state.pendingLateSettle).toHaveLength(1);
         expect(state.pendingLateSettle[0].taskId).toBe(taskId);
         expect(state.pendingLateSettle[0].contractIds).toEqual(['contract-001', 'contract-002', 'contract-003']);
 
         await vi.advanceTimersByTimeAsync(3_600_001);
+
+        // 再等 runPromise settle（discover 真实 I/O 后 poll 越过 deadline）
+        let settled = false;
+        void runPromise.then(() => { settled = true; }, () => { settled = true; });
+        for (let i = 0; i < 130 && !settled; i++) {
+          await vi.advanceTimersByTimeAsync(30_001);
+        }
         await runPromise;
       } finally {
         vi.useRealTimers();
@@ -707,6 +724,91 @@ insight
       // pending entry persisted but contract not marked completed due to write failure
       expect(state.pendingLateSettle).toHaveLength(1);
       expect(state.completedContractIds).not.toContain('contract-001');
+    });
+  });
+
+  // ── Phase 1370 — structured archive query caller 语义 ─────────────
+
+  describe('Phase 1370 — RandomDream owns motion-excluded archive universe', () => {
+    it('motion archive 即使存在也不进入 dream prompt；普通 local archive 进入', async () => {
+      await createArchiveContract(chestnutRoot, 'claw-1', 'contract-normal');
+      // motion claw 的 archive（topology.resolve(MOTION) 指向 motionDir）
+      const motionArchiveDir = path.join(motionDir, 'contract', 'archive', 'contract-motion');
+      await fs.mkdir(motionArchiveDir, { recursive: true });
+
+      let capturedPrompt = '';
+      mockWritePendingSubAgentTask.mockImplementation(async (_audit: unknown, opts: { intent: string }) => {
+        capturedPrompt = opts.intent;
+        return taskId;
+      });
+      await writeTaskCompletion(motionDir, taskId, '=== started ===');
+
+      await runRandomDream(makeOpts(chestnutRoot, motionDir));
+
+      expect(capturedPrompt).not.toBe('');
+      expect(capturedPrompt).toContain('contract-normal');
+      expect(capturedPrompt).not.toContain('contract-motion');
+    });
+
+    it('单个 claw resolve 失败时成功 claw 契约仍进入 prompt，并逐条 audit structured issue', async () => {
+      await createArchiveContract(chestnutRoot, 'claw-1', 'contract-ok');
+
+      const opts = makeOpts(chestnutRoot, motionDir);
+      const realTopology = opts.clawTopology;
+      opts.clawTopology = {
+        ...realTopology,
+        enumerate: () => ['bad', 'claw-1'] as any,
+        resolve: (clawId: any) => {
+          if (clawId === 'bad') throw new Error('resolve boom');
+          return realTopology.resolve(clawId);
+        },
+      };
+
+      let capturedPrompt = '';
+      mockWritePendingSubAgentTask.mockImplementation(async (_audit: unknown, o: { intent: string }) => {
+        capturedPrompt = o.intent;
+        return taskId;
+      });
+      await writeTaskCompletion(motionDir, taskId, '=== started ===');
+
+      await runRandomDream(opts);
+
+      // 成功 claw 的契约不因其他 claw 失败而丢失
+      expect(capturedPrompt).toContain('contract-ok');
+
+      const issueCall = mockAudit.write.mock.calls.find((c: any[]) =>
+        c[0] === 'cron_random_dream_error' && c.includes('site=archive_query')
+      );
+      expect(issueCall).toBeDefined();
+      expect(issueCall).toContainEqual('code=claw_resolve_failed');
+      expect(issueCall).toContainEqual('clawId=bad');
+      expect(issueCall!.some((col: any) => typeof col === 'string' && col.startsWith('detail='))).toBe(true);
+    });
+
+    it('无 terminal audit 的 archive 契约仍进入 prompt，其 structured issue 被逐条 audit', async () => {
+      // legacy flat 布局 + 无 audit.tsv → archiveTime unknown（legacy_state_unresolved）
+      await createArchiveContract(chestnutRoot, 'claw-1', 'contract-unknown');
+
+      let capturedPrompt = '';
+      mockWritePendingSubAgentTask.mockImplementation(async (_audit: unknown, o: { intent: string }) => {
+        capturedPrompt = o.intent;
+        return taskId;
+      });
+      await writeTaskCompletion(motionDir, taskId, '=== started ===');
+
+      await runRandomDream(makeOpts(chestnutRoot, motionDir));
+
+      // unknown-time entry 不丢失，仍进入 prompt
+      expect(capturedPrompt).toContain('contract-unknown');
+
+      const issueCall = mockAudit.write.mock.calls.find((c: any[]) =>
+        c[0] === 'cron_random_dream_error' &&
+        c.includes('site=archive_query') &&
+        c.includes('code=legacy_state_unresolved')
+      );
+      expect(issueCall).toBeDefined();
+      expect(issueCall).toContainEqual('clawId=claw-1');
+      expect(issueCall).toContainEqual('contractId=contract-unknown');
     });
   });
 });

@@ -1,5 +1,7 @@
 /**
  * Phase 1146 Step C: structured cross-claw archive query tests.
+ * Phase 1370 Step C: caller owns the claw universe; the query only resolves and
+ * scans the caller-specified archive roots via `Pick<ClawTopology, 'resolve'>`.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -10,6 +12,8 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { ArchiveState, ContractId } from '../../../src/core/contract/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
+import type { ClawTopology, Location } from '../../../src/core/claw-topology/types.js';
+import { makeClawId, type ClawId } from '../../../src/foundation/claw-identity/index.js';
 
 let chestnutDir: string;
 
@@ -39,6 +43,20 @@ function legacyArchiveDir(clawId: string, contractId: string): string {
 
 function auditPath(clawId: string): string {
   return path.join(clawDir(clawId), 'audit.tsv');
+}
+
+/** Fixture topology: every caller ID resolves to the local test claw root. */
+function localTopology(ids: readonly string[]): Pick<ClawTopology, 'resolve'> {
+  return {
+    resolve: (clawId: ClawId): Location => {
+      if (!ids.includes(clawId)) throw new Error(`unexpected resolve: ${clawId}`);
+      return { kind: 'local', clawDir: clawDir(clawId) };
+    },
+  };
+}
+
+function ids(...clawIds: string[]): ClawId[] {
+  return clawIds.map(makeClawId);
 }
 
 async function makeClaw(clawId: string): Promise<void> {
@@ -79,8 +97,12 @@ function terminalRow(contractId: string, state: ArchiveState, seq: number, ts: s
 }
 
 describe('queryArchiveContracts', () => {
-  it('returns empty result when claws directory is missing', async () => {
-    const result = await queryArchiveContracts({ fs: fsRoot() });
+  it('returns empty result when caller passes no claw ids', async () => {
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: localTopology([]),
+      clawIds: [],
+    });
 
     expect(result.entries).toHaveLength(0);
     expect(result.issues).toHaveLength(0);
@@ -99,7 +121,11 @@ describe('queryArchiveContracts', () => {
       terminalRow('ct-3', 'corrupted', 2, '2026-07-19T12:00:00.000Z'),
     ]);
 
-    const result = await queryArchiveContracts({ fs: fsRoot() });
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: localTopology(['c1', 'c2']),
+      clawIds: ids('c1', 'c2'),
+    });
 
     expect(result.entries).toHaveLength(3);
     expect(result.incomplete).toBe(false);
@@ -117,7 +143,11 @@ describe('queryArchiveContracts', () => {
     await writeCurrentArchive('c1', 'completed', 'ct-1');
     // no audit file -> audit_file_missing
 
-    const result = await queryArchiveContracts({ fs: fsRoot() });
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: localTopology(['c1']),
+      clawIds: ids('c1'),
+    });
 
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].archiveTime.kind).toBe('unknown');
@@ -141,11 +171,13 @@ describe('queryArchiveContracts', () => {
     const untilMs = new Date('2026-07-19T11:00:00.000Z').getTime();
     const result = await queryArchiveContracts({
       fs: fsRoot(),
+      clawTopology: localTopology(['c1']),
+      clawIds: ids('c1'),
       filter: { sinceMs, untilMs },
     });
 
-    const ids = result.entries.map(e => e.contractId).sort();
-    expect(ids).toEqual(['inside']);
+    const idList = result.entries.map(e => e.contractId).sort();
+    expect(idList).toEqual(['inside']);
     expect(result.incomplete).toBe(false);
   });
 
@@ -158,11 +190,13 @@ describe('queryArchiveContracts', () => {
 
     const result = await queryArchiveContracts({
       fs: fsRoot(),
+      clawTopology: localTopology(['c1']),
+      clawIds: ids('c1'),
       filter: { sinceMs: new Date('2026-07-19T09:00:00.000Z').getTime() },
     });
 
-    const ids = result.entries.map(e => e.contractId).sort();
-    expect(ids).toEqual(['unknown']);
+    const idList = result.entries.map(e => e.contractId).sort();
+    expect(idList).toEqual(['unknown']);
     expect(result.incomplete).toBe(true);
   });
 
@@ -170,7 +204,11 @@ describe('queryArchiveContracts', () => {
     await makeClaw('c1');
     await writeLegacyArchive('c1', 'legacy-1');
 
-    const result = await queryArchiveContracts({ fs: fsRoot() });
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: localTopology(['c1']),
+      clawIds: ids('c1'),
+    });
 
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].state).toBe('legacy-unresolved');
@@ -191,27 +229,68 @@ describe('queryArchiveContracts', () => {
       terminalRow('x', 'cancelled', 2, '2026-07-19T10:00:00.000Z'),
     ]);
 
-    const result = await queryArchiveContracts({ fs: fsRoot() });
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: localTopology(['b', 'a']),
+      clawIds: ids('b', 'a'),
+    });
 
     const keys = result.entries.map(e => `${e.clawId}:${e.state}:${e.contractId}`);
     expect(keys).toEqual(['a:cancelled:x', 'a:completed:y', 'b:corrupted:z']);
   });
 
-  it('records claw_list_failed issue when claws directory cannot be listed', async () => {
-    const err = new Error('EACCES');
-    const failingFs = {
-      __brand: 'FileSystem',
-      exists: async () => true,
-      list: async () => { throw err; },
-    } as unknown as FileSystem;
+  it('records claw_resolve_failed issue and keeps other claws entries', async () => {
+    await makeClaw('good');
+    await writeCurrentArchive('good', 'completed', 'ok');
+    await writeAudit('good', [terminalRow('ok', 'completed', 1, '2026-07-19T10:00:00.000Z')]);
 
-    const result = await queryArchiveContracts({ fs: failingFs });
+    const err = new Error('resolve boom');
+    const topology: Pick<ClawTopology, 'resolve'> = {
+      resolve: (clawId: ClawId): Location => {
+        if (clawId === 'bad') throw err;
+        return { kind: 'local', clawDir: clawDir(clawId) };
+      },
+    };
 
-    expect(result.entries).toHaveLength(0);
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: topology,
+      clawIds: ids('bad', 'good'),
+    });
+
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0].contractId).toBe('ok');
     expect(result.incomplete).toBe(true);
-    expect(result.issues).toHaveLength(1);
-    expect(result.issues[0].code).toBe('claw_list_failed');
-    expect(result.issues[0].cause).toBe(err);
+    const issue = result.issues.find(i => i.code === 'claw_resolve_failed');
+    expect(issue).toBeDefined();
+    expect(issue?.clawId).toBe('bad');
+    expect(issue?.cause).toBe(err);
+  });
+
+  it('records remote_claw_unsupported issue and keeps local entries', async () => {
+    await makeClaw('c1');
+    await writeCurrentArchive('c1', 'completed', 'ok');
+    await writeAudit('c1', [terminalRow('ok', 'completed', 1, '2026-07-19T10:00:00.000Z')]);
+
+    const topology: Pick<ClawTopology, 'resolve'> = {
+      resolve: (clawId: ClawId): Location => {
+        if (clawId === 'r1') return { kind: 'remote', endpoint: 'https://example.invalid' };
+        return { kind: 'local', clawDir: clawDir(clawId) };
+      },
+    };
+
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: topology,
+      clawIds: ids('r1', 'c1'),
+    });
+
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0].contractId).toBe('ok');
+    expect(result.incomplete).toBe(true);
+    const issue = result.issues.find(i => i.code === 'remote_claw_unsupported');
+    expect(issue).toBeDefined();
+    expect(issue?.clawId).toBe('r1');
   });
 
   it('continues other claws when one archive list fails', async () => {
@@ -223,11 +302,12 @@ describe('queryArchiveContracts', () => {
     const err = new Error('EACCES');
     await fs.mkdir(path.join(clawDir('bad'), 'contract', 'archive'), { recursive: true });
     const baseFs = fsRoot();
+    const badArchiveDir = path.join(clawDir('bad'), 'contract', 'archive');
     const partialFs = new Proxy(baseFs, {
       get(target, prop, receiver) {
         if (prop === 'list') {
           return async (listPath: string, opts?: { includeDirs?: boolean }) => {
-            if (listPath === 'claws/bad/contract/archive') {
+            if (listPath === badArchiveDir) {
               throw err;
             }
             return target.list(listPath, opts);
@@ -237,21 +317,16 @@ describe('queryArchiveContracts', () => {
       },
     }) as FileSystem;
 
-    const result = await queryArchiveContracts({ fs: partialFs });
+    const result = await queryArchiveContracts({
+      fs: partialFs,
+      clawTopology: localTopology(['good', 'bad']),
+      clawIds: ids('good', 'bad'),
+    });
 
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].contractId).toBe('ok');
     expect(result.incomplete).toBe(true);
     expect(result.issues.some(i => i.code === 'archive_list_failed' && i.clawId === 'bad')).toBe(true);
-  });
-
-  it('returns no entries for an empty claws directory', async () => {
-    await fs.mkdir(path.join(chestnutDir, 'claws'), { recursive: true });
-    const result = await queryArchiveContracts({ fs: fsRoot() });
-
-    expect(result.entries).toHaveLength(0);
-    expect(result.issues).toHaveLength(0);
-    expect(result.incomplete).toBe(false);
   });
 
   it('does not read payload or progress.json', async () => {
@@ -261,7 +336,11 @@ describe('queryArchiveContracts', () => {
     await fs.writeFile(path.join(dir, 'progress.json'), JSON.stringify({ completed_at: '2024-01-01T00:00:00Z' }), 'utf-8');
     await writeAudit('c1', [terminalRow('ct-1', 'completed', 1, '2026-07-19T10:00:00.000Z')]);
 
-    const result = await queryArchiveContracts({ fs: fsRoot() });
+    const result = await queryArchiveContracts({
+      fs: fsRoot(),
+      clawTopology: localTopology(['c1']),
+      clawIds: ids('c1'),
+    });
 
     expect(result.entries).toHaveLength(1);
     if (result.entries[0].archiveTime.kind !== 'known') return;

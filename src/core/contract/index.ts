@@ -81,8 +81,8 @@ export {
   CONTRACT_YAML_FILE,
 } from './dirs.js';
 
-// Phase 1335 (r138 F fork): cross-module query API
-export { listArchiveContracts } from './persistence.js';
+// Phase 1146 Step C / Phase 1370 Step C: structured archive query（caller 指定 claw universe）
+export { queryArchiveContracts } from './archive-query.js';
 
 export {
   readOnboardingStatus,

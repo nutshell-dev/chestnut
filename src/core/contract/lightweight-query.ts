@@ -260,9 +260,9 @@ export function readContractYamlLightweight(
 
 /**
  * Read progress.json from an archive contract reference.
- * For consumers of listArchiveContracts() who need progress data.
+ * For consumers of queryArchiveContracts() entries who need progress data.
  *
- * @param ref - from listArchiveContracts() (provides contractDir)
+ * @param ref - archive entry (provides contractDir)
  * @returns null if unreadable
  */
 export function readArchiveProgress(

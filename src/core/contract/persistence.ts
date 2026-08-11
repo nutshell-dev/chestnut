@@ -7,16 +7,14 @@ import * as yaml from 'js-yaml';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { ToolError } from '../../foundation/tools/index.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
-import type { ProgressData, ContractCorruptionEvidence, LifecycleCommitOutcome } from './types.js';
+import type { ProgressData, ContractCorruptionEvidence, LifecycleCommitOutcome, ContractId } from './types.js';
 import { stripProgressDerivedFields, ContractProgressInvariantViolatedError } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
-import { listArchiveContractLocations } from './locations.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -240,85 +238,3 @@ export async function checkAllSubtasksCompleted(
   });
 }
 
-import { CONTRACT_ARCHIVE_DIR } from './dirs.js';
-import * as path from 'node:path';
-import { MOTION_CLAW_ID, type ClawTopology } from '../../core/claw-topology/index.js';
-import type { ArchiveContractRef } from './types.js';
-import { type ContractId, makeContractId } from './types.js';
-
-
-/**
- * Phase 1335 (r138 F fork): cross-module query API — list archived contracts
- * M#3 资源唯一归属：ContractSystem own archive / caller 不直访 fs
- */
-export async function listArchiveContracts(opts: {
-  fs: FileSystem;
-  clawTopology: Pick<ClawTopology, 'enumerate' | 'resolve'>;
-  filter?: { sinceMs?: number; untilMs?: number };
-  audit?: AuditLog;  // NEW phase 164
-}): Promise<ArchiveContractRef[]> {
-  const { fs, filter } = opts;
-  const results: ArchiveContractRef[] = [];
-
-  let clawIds;
-  try {
-    clawIds = opts.clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
-  } catch (err) {
-    if (isFileNotFound(err)) return results;
-    throw err;
-  }
-
-  for (const clawId of clawIds) {
-    const location = opts.clawTopology.resolve(clawId);
-    if (location.kind !== 'local') {
-      throw new ToolError(`Cannot list archive contracts for remote claw "${clawId}"`);
-    }
-    const archiveDir = path.join(location.clawDir, CONTRACT_ARCHIVE_DIR);
-    if (!fs.existsSync(archiveDir)) continue;
-
-    const archiveEntries = listArchiveContractLocations({ fs, archiveDir });
-    for (const entry of archiveEntries) {
-      const contractId = entry.contractId;
-      const contractDir = entry.contractRoot;
-
-      let archivedAt: string | undefined;
-      try {
-        const progressRaw = fs.readSync(`${contractDir}/progress.json`);
-        const progress = JSON.parse(progressRaw) as {
-          completed_at?: string;
-          subtasks?: Record<string, { completed_at?: string }>;
-        };
-        archivedAt = progress.completed_at;
-        // phase 280 fallback: derive archive time from subtask completed_at when top-level field absent
-        if (archivedAt === undefined && progress.subtasks) {
-          const subtaskTimes = Object.values(progress.subtasks)
-            .map((st) => st.completed_at)
-            .filter((t): t is string => typeof t === 'string');
-          if (subtaskTimes.length > 0) {
-            archivedAt = subtaskTimes.sort((a, b) => (a < b ? 1 : -1))[0];
-          }
-        }
-      } catch (err) {
-        if (!isFileNotFound(err)) {
-          opts.audit?.write(
-            CONTRACT_AUDIT_EVENTS.ARCHIVE_PROGRESS_READ_FAILED,
-            `clawId=${clawId}`,
-            `contractId=${contractId}`,
-            `error=${formatErr(err)}`,
-          );
-        }
-        // ENOENT 合法 / 其他错 audit + archivedAt 仍 undefined + 继续列举
-      }
-
-      if (filter?.sinceMs !== undefined || filter?.untilMs !== undefined) {
-        const at = archivedAt ? new Date(archivedAt).getTime() : 0;
-        if (filter.sinceMs !== undefined && at < filter.sinceMs) continue;
-        if (filter.untilMs !== undefined && at > filter.untilMs) continue;
-      }
-
-      results.push({ clawId, contractId: makeContractId(contractId), contractDir, archivedAt });
-    }
-  }
-
-  return results;
-}
