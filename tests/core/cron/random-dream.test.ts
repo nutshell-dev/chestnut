@@ -23,6 +23,7 @@ import { createClawTopology, routeNotifyClawAsync } from '../../../src/core/claw
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
+import { waitForPathExists } from '../../helpers/wait-for-file.js';
 
 // ─── AsyncTaskSystem mock ──────────────────────────────────────────
 
@@ -525,19 +526,17 @@ Prompt: ...
 
       const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
 
-      // discover 现为真实 async I/O（structured archive query）：小步推进 fake clock，
-      // 每步让出真实 event loop，直到 runPromise settle（discover → schedule → poll 越过 1h deadline）
-      let settled = false;
-      void runPromise.then(() => { settled = true; }, () => { settled = true; });
-      for (let i = 0; i < 130 && !settled; i++) {
-        await vi.advanceTimersByTimeAsync(30_001);
-      }
+      // discover 现为真实 async I/O（structured archive query）：fake timer 只控制 timer，
+      // 先用 watcher barrier 等 schedule 后 state 真实落盘，再一次推进 fake clock 验证 1h deadline
+      const statePath = path.join(chestnutRoot, '.random-dream-state.json');
+      await waitForPathExists(statePath);
+      await vi.advanceTimersByTimeAsync(3_600_001);
       await runPromise;
 
       // 不应写 outbox；pending entry 已持久化
       const outboxContents = readOutboxPending(motionDir);
       expect(outboxContents).toHaveLength(0);
-      const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+      const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
       expect(state.pendingLateSettle).toHaveLength(1);
     } finally {
       vi.useRealTimers();
@@ -620,13 +619,10 @@ insight B
         fsSync.writeFileSync(path.join(taskResultDir, 'daemon.log'), '=== started ===');
 
         const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
-        // advance just past schedule but before first poll tick（30s pulse）
-        // discover 现为真实 async I/O（structured archive query），需要若干 event-loop turn；
-        // 每次 advance(1ms) 让出 turn，直到 schedule 后的 state 落盘（仍远早于首个 poll tick）
+        // discover 现为真实 async I/O（structured archive query）：fake timer 只控制 timer，
+        // 先用 watcher barrier 等 schedule 后 state 真实落盘（仍早于 30s 首个 poll tick）
         const statePath = path.join(chestnutRoot, '.random-dream-state.json');
-        for (let i = 0; i < 100 && !fsSync.existsSync(statePath); i++) {
-          await vi.advanceTimersByTimeAsync(1);
-        }
+        await waitForPathExists(statePath);
 
         // state persisted immediately after schedule
         const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
@@ -635,13 +631,6 @@ insight B
         expect(state.pendingLateSettle[0].contractIds).toEqual(['contract-001', 'contract-002', 'contract-003']);
 
         await vi.advanceTimersByTimeAsync(3_600_001);
-
-        // 再等 runPromise settle（discover 真实 I/O 后 poll 越过 deadline）
-        let settled = false;
-        void runPromise.then(() => { settled = true; }, () => { settled = true; });
-        for (let i = 0; i < 130 && !settled; i++) {
-          await vi.advanceTimersByTimeAsync(30_001);
-        }
         await runPromise;
       } finally {
         vi.useRealTimers();
