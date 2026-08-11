@@ -245,6 +245,67 @@ describe('FileWatcher', () => {
     await expect(watcher.close()).resolves.toBeUndefined();
   });
 
+  // === phase 1372: fatal error 后 health 态与 release 态分离 ===
+
+  it('fatal error disables subscription but close releases the underlying watcher exactly once', async () => {
+    const errors: Error[] = [];
+    const watcher = createWatcher('/fake/watch.txt', () => {}, {
+      stability: 'immediate',
+      onError: (err, context) => {
+        if (context === 'watch') errors.push(err);
+      },
+    });
+
+    fakeWatcherInstance.emit('error', new Error('watch failed'));
+    expect(watcher.isActive()).toBe(false);
+
+    const first = watcher.close();
+    const second = watcher.close();
+    await Promise.all([first, second]);
+
+    expect(errors.map(err => err.message)).toContain('watch failed');
+    expect(fakeWatcherInstance.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('fatal error does not skip fallback timer cleanup on close', async () => {
+    const setSpy = vi.spyOn(globalThis, 'setInterval');
+
+    const watcher = createWatcher(
+      path.join(tmpDir, 'watch.txt'),
+      () => {},
+      { stability: 'immediate' },
+    );
+
+    const timerHandle = setSpy.mock.results[0]?.value;
+    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
+
+    fakeWatcherInstance.emit('error', new Error('watch failed'));
+    expect(watcher.isActive()).toBe(false);
+
+    await watcher.close();
+
+    expect(timerHandle).toBeDefined();
+    expect(clearSpy).toHaveBeenCalledWith(timerHandle);
+    expect(fakeWatcherInstance.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('concurrent close callers observe the same underlying rejection', async () => {
+    const closeError = new Error('close failed');
+    const watcher = createWatcher('/fake/watch.txt', () => {});
+    // 必须在 createWatcher 之后配置：mock watch 工厂每次创建新 fakeWatcherInstance
+    fakeWatcherInstance.close.mockRejectedValueOnce(closeError);
+
+    const first = watcher.close();
+    const second = watcher.close();
+
+    // 先挂 rejection 断言、防 RED 态（fix 前 second 不 reject）产生 unhandled rejection
+    const firstRejection = expect(first).rejects.toBe(closeError);
+    const secondRejection = expect(second).rejects.toBe(closeError);
+    expect(first).toBe(second);
+    await Promise.all([firstRejection, secondRejection]);
+    expect(fakeWatcherInstance.close).toHaveBeenCalledTimes(1);
+  });
+
   // === fallback poll（phase 352 / 469 / 760 — cross-platform immediate mode）===
 
   it('macOS immediate mode enables fallback poll with default 500ms', async () => {

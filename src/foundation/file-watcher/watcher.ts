@@ -50,6 +50,12 @@ export const CHOKIDAR_POLL_INTERVAL_MS = 50;
 class ChokidarWatcher implements Watcher {
   private active = true;
   private fallbackTimer: ReturnType<typeof setInterval> | null = null;
+  // phase 1372: release lifecycle state 独立于 health state（active）。fatal watch error
+  // 只翻 active=false（markDisabled）、不替 caller close；caller 首次 close 创建并缓存
+  // 同一释放 promise，后续 sequential/concurrent close 共享同一 promise（once-only 释放 +
+  // rejection 向所有 caller 一致暴露）。先缓存 Promise.resolve().then(...) 再执行底层
+  // close，同步 throw 也被缓存为同一 rejection、不破坏 once-only。
+  private closePromise: Promise<void> | null = null;
 
   constructor(
     private readonly watcher: FSWatcher,
@@ -59,17 +65,16 @@ class ChokidarWatcher implements Watcher {
     this.fallbackTimer = fallbackTimer;
   }
 
-  async close(): Promise<void> {
-    if (!this.active) {
-      return;
-    }
-
+  close(): Promise<void> {
     this.active = false;
-    if (this.fallbackTimer) {
-      clearInterval(this.fallbackTimer);
-      this.fallbackTimer = null;
+    if (this.closePromise === null) {
+      if (this.fallbackTimer !== null) {
+        clearInterval(this.fallbackTimer);
+        this.fallbackTimer = null;
+      }
+      this.closePromise = Promise.resolve().then(() => this.watcher.close());
     }
-    await this.watcher.close();
+    return this.closePromise;
   }
 
   isActive(): boolean {
