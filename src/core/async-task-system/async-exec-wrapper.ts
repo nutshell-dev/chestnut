@@ -274,6 +274,8 @@ export function createAsyncExecWrapper(
             `deadline_ms=${deadlineAtMs}`,
           );
         } catch (err) {
+          // silent: deferred to the checkpointError branch immediately after execWithHandle returns;
+          // that branch terminates the execution group, audits termination, and returns structured failure
           checkpointError = err;
         }
       };
