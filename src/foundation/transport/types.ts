@@ -16,19 +16,6 @@ export interface Connection {
 }
 
 /**
- * Options for starting a transport listener.
- */
-export interface TransportOptions {
-  /**
-   * Path for local IPC (Unix socket / named pipe).
-   * Caller should place this within a claw-owned directory
-   * (e.g., `~/.chestnut/<clawId>/transport.sock`); Transport serves
-   * same-claw local processes only.
-   */
-  socketPath?: string;
-}
-
-/**
  * Structured failure entry for a single connection during broadcast.
  */
 export interface BroadcastFailure {
@@ -62,8 +49,11 @@ export interface Transport {
   /**
    * Start listening for client connections.
    * Resolves when the listener is ready.
+   *
+   * Protocol-neutral: the endpoint is owned by the concrete adapter
+   * (bound at construction), not passed here.
    */
-  listen(options?: TransportOptions): Promise<void>;
+  listen(): Promise<void>;
 
   /**
    * Stop listening and close all active connections.

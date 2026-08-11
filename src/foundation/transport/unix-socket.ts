@@ -16,8 +16,14 @@ import { formatErr } from "../node-utils/index.js";
 import { newUuid } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import type { Transport, TransportOptions, BroadcastFailure, TransportErrorEvent } from './types.js';
+import type { Transport, BroadcastFailure, TransportErrorEvent } from './types.js';
 import type { Connection } from './types.js';
+
+/** Concrete-only construction deps — endpoint owned by the adapter, not by the public Transport capability (phase 1373). */
+interface UnixDomainSocketTransportDeps {
+  fs: FileSystem;
+  socketPath: string;
+}
 
 interface ConnectionEntry {
   sock: Socket;
@@ -44,13 +50,14 @@ export class UnixDomainSocketTransport implements Transport {
   private messageCbs: ((c: Connection, data: string) => void)[] = [];
   private closed = false;
 
-  constructor(private deps: { fs: FileSystem }) {}
+  constructor(private readonly deps: UnixDomainSocketTransportDeps) {
+    if (!deps.socketPath) throw new Error('socketPath required');
+  }
 
-  async listen(options?: TransportOptions): Promise<void> {
-    if (!options?.socketPath) throw new Error('socketPath required');
+  async listen(): Promise<void> {
     if (this.closed) throw new Error('transport already closed');
     if (this.server || this.socketPath) throw new Error('transport already listening');
-    const socketPath = options.socketPath;
+    const socketPath = this.deps.socketPath;
     await this.tryListen(socketPath, true);
     this.socketPath = socketPath;
   }

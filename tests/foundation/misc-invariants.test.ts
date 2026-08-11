@@ -251,7 +251,6 @@ describe('unix-socket', () => {
     beforeEach(() => {
       vi.clearAllMocks();
       mockDelete.mockResolvedValue(undefined);
-      transport = new UnixDomainSocketTransport({ fs: mockFs as unknown as import('../../src/foundation/fs/index.js').FileSystem });
     });
 
     it('cleans socketPath even when server.close() fails', async () => {
@@ -259,7 +258,9 @@ describe('unix-socket', () => {
       const mockServer = createMockServer({ closeError: new Error('EIO') });
       (createServer as ReturnType<typeof vi.fn>).mockReturnValueOnce(mockServer);
 
-      await transport.listen({ socketPath });
+      // phase 1373: endpoint 构造注入 — 每个 test 以自身 socketPath 构造实例
+      transport = new UnixDomainSocketTransport({ fs: mockFs as unknown as import('../../src/foundation/fs/index.js').FileSystem, socketPath });
+      await transport.listen();
       expect((transport as { socketPath: string | null }).socketPath).toBe(socketPath);
 
       await expect(transport.close()).rejects.toThrow('EIO');
@@ -272,7 +273,8 @@ describe('unix-socket', () => {
       const mockServer = createMockServer({ error: { code: 'EACCES' } });
       (createServer as ReturnType<typeof vi.fn>).mockReturnValueOnce(mockServer);
 
-      await expect(transport.listen({ socketPath })).rejects.toThrow();
+      transport = new UnixDomainSocketTransport({ fs: mockFs as unknown as import('../../src/foundation/fs/index.js').FileSystem, socketPath });
+      await expect(transport.listen()).rejects.toThrow();
       expect((transport as { socketPath: string | null }).socketPath).toBeNull();
     });
   });

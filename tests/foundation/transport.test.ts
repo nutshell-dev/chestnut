@@ -32,8 +32,13 @@ function makeSocketPath(): string {
 // 因 tsconfig exclude tests 漏 type-check，长期潜伏。F4 stale-socket-cleanup test 在
 // Linux (EADDRINUSE → probeAndCleanStale → this.deps.fs.delete) 上撞 TypeError、
 // macOS 上 server.listen 在 regular file 上不返 EADDRINUSE 故走运没暴露。
-function makeTransport(): UnixDomainSocketTransport {
-  return new UnixDomainSocketTransport({ fs: new NodeFileSystem({ baseDir: getHostTmpDir() }) });
+// phase 1373: endpoint 改为构造注入——makeTransport(socketPath) 在构造期绑定 endpoint，
+// listen() 零参数；跨进程 connect/probe 的测试必须显式传入同一 path。
+function makeTransport(socketPath = makeSocketPath()): UnixDomainSocketTransport {
+  return new UnixDomainSocketTransport({
+    fs: new NodeFileSystem({ baseDir: getHostTmpDir() }),
+    socketPath,
+  });
 }
 
 function connectClient(path: string): Promise<Socket> {
@@ -105,7 +110,7 @@ describe('UnixDomainSocketTransport', () => {
 
   it('listen and close idempotently', async () => {
     transport = makeTransport();
-    await transport.listen({ socketPath: makeSocketPath() });
+    await transport.listen();
     await transport.close();
     // second close is no-op (idempotent / 0 throw)
     await expect(transport.close()).resolves.toBeUndefined();
@@ -113,11 +118,11 @@ describe('UnixDomainSocketTransport', () => {
 
   it('accepts a client connection and fires onConnect', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const connSeen = new Promise<Connection>((resolve) => {
       transport!.onConnect((c) => resolve(c));
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     const conn = await waitFor(connSeen, 'onConnect');
@@ -127,11 +132,11 @@ describe('UnixDomainSocketTransport', () => {
 
   it('server.send reaches the client', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const connSeen = new Promise<Connection>((resolve) => {
       transport!.onConnect((c) => resolve(c));
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     const conn = await waitFor(connSeen, 'onConnect');
@@ -143,7 +148,7 @@ describe('UnixDomainSocketTransport', () => {
 
   it('server.broadcast reaches all clients', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     let connects = 0;
     const twoConnected = new Promise<void>((resolve) => {
       transport!.onConnect(() => {
@@ -151,7 +156,7 @@ describe('UnixDomainSocketTransport', () => {
         if (connects === 2) resolve();
       });
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c1 = await connectClient(path);
     const c2 = await connectClient(path);
     clients.push(c1, c2);
@@ -167,14 +172,14 @@ describe('UnixDomainSocketTransport', () => {
 
   it('client disconnect fires onDisconnect', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const connRegistered = new Promise<void>((resolve) => {
       transport!.onConnect(() => resolve());
     });
     const gone = new Promise<Connection>((resolve) => {
       transport!.onDisconnect((c, _reason) => resolve(c));
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     await connRegistered;
@@ -187,11 +192,11 @@ describe('UnixDomainSocketTransport', () => {
 
   it('client message fires onMessage', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const got = new Promise<{ conn: Connection; data: string }>((resolve) => {
       transport!.onMessage((conn, data) => resolve({ conn, data }));
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     c.write('{"type":"interrupt"}\n');
@@ -201,13 +206,13 @@ describe('UnixDomainSocketTransport', () => {
 
   it('throws on send to unknown connectionId', async () => {
     transport = makeTransport();
-    await transport.listen({ socketPath: makeSocketPath() });
+    await transport.listen();
     expect(() => transport!.send('not-a-real-id', 'x')).toThrow(/unknown connection/);
   });
 
   it('handles many concurrent connections independently', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const conns: Connection[] = [];
     // phase 368: 替 recursive setTimeout polling — onConnect 事件触发 resolve.
     const fiveConnectsP = new Promise<void>((resolve) => {
@@ -222,7 +227,7 @@ describe('UnixDomainSocketTransport', () => {
         if (transport!.getConnections().length === 4) resolve();
       });
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
 
     const cs = await Promise.all([0, 1, 2, 3, 4].map(() => connectClient(path)));
     clients.push(...cs);
@@ -252,9 +257,9 @@ describe('UnixDomainSocketTransport', () => {
     // 行为差大（libuv 内部 unlink+rebind 时机不稳）、不做 stat type 断言。
     const path = makeSocketPath();
     await fs.writeFile(path, '');
-    transport = makeTransport();
+    transport = makeTransport(path);
     // 关键：listen 必须 resolve 而非 hang/reject（修前 Linux hang 15s）
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     // client 能连 = transport 真起来
     const c = await connectClient(path);
     clients.push(c);
@@ -264,10 +269,10 @@ describe('UnixDomainSocketTransport', () => {
 
   it('refuses to steal a socket held by a live listener', async () => {
     const path = makeSocketPath();
-    const t1 = makeTransport();
-    await t1.listen({ socketPath: path });
-    const t2 = makeTransport();
-    await expect(t2.listen({ socketPath: path })).rejects.toThrow(
+    const t1 = makeTransport(path);
+    await t1.listen();
+    const t2 = makeTransport(path);
+    await expect(t2.listen()).rejects.toThrow(
       `socket ${path} is in use by a live process`,
     );
     await t1.close();
@@ -275,7 +280,7 @@ describe('UnixDomainSocketTransport', () => {
 
   it('splits and merges TCP chunks into whole-line messages', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const msgs: string[] = [];
     const fourMsgsP = new Promise<void>((resolve) => {
       transport!.onMessage((_c, d) => {
@@ -286,7 +291,7 @@ describe('UnixDomainSocketTransport', () => {
     const connRegistered = new Promise<void>((resolve) => {
       transport!.onConnect(() => resolve());
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     await connRegistered;
@@ -299,8 +304,8 @@ describe('UnixDomainSocketTransport', () => {
 
   it('rejects new connections after close', async () => {
     const path = makeSocketPath();
-    const t = makeTransport();
-    await t.listen({ socketPath: path });
+    const t = makeTransport(path);
+    await t.listen();
     await t.close();
     await new Promise(r => setTimeout(r, MSG_PROCESS_BUDGET_MS)); // 等 OS 释放 socket
     await expect(connectClient(path)).rejects.toThrow();
@@ -308,23 +313,23 @@ describe('UnixDomainSocketTransport', () => {
 
   it('close during pending listen rejects listen', async () => {
     const path = makeSocketPath();
-    const t = makeTransport();
-    const p = t.listen({ socketPath: path });
+    const t = makeTransport(path);
+    const p = t.listen();
     await t.close();
     await expect(p).rejects.toThrow(/closed during listen/);
   });
 
   it('throws on double listen', async () => {
     transport = makeTransport();
-    await transport.listen({ socketPath: makeSocketPath() });
-    await expect(transport.listen({ socketPath: makeSocketPath() })).rejects.toThrow(
+    await transport.listen();
+    await expect(transport.listen()).rejects.toThrow(
       /already listening/,
     );
   });
 
   it('isolates exceptions thrown in onMessage callbacks and fires onTransportError', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const errors: TransportErrorEvent[] = [];
     const got: string[] = [];
     const twoErrsP = new Promise<void>((resolve) => {
@@ -342,7 +347,7 @@ describe('UnixDomainSocketTransport', () => {
         if (got.length === 2) resolve();
       });
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     c.write('a\nb\n');
@@ -354,14 +359,14 @@ describe('UnixDomainSocketTransport', () => {
 
   it('broadcast returns empty failed list when no connections', async () => {
     transport = makeTransport();
-    await transport.listen({ socketPath: makeSocketPath() });
+    await transport.listen();
     const result = transport.broadcast('hello');
     expect(result.failed).toEqual([]);
   });
 
   it('onDisconnect receives undefined reason on normal close', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     let disconnectReason: Error | undefined = new Error('should-be-overwritten');
     const disconnected = new Promise<void>((resolve) => {
       transport!.onDisconnect((_c, reason) => {
@@ -372,7 +377,7 @@ describe('UnixDomainSocketTransport', () => {
     const connRegistered = new Promise<void>((resolve) => {
       transport!.onConnect(() => resolve());
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     await connRegistered;
@@ -392,7 +397,7 @@ describe('UnixDomainSocketTransport', () => {
         }
       });
     });
-    await transport.listen({ socketPath: makeSocketPath() });
+    await transport.listen();
     // Simulate a server-level error by forcing the internal server to emit 'error'
     const server = (transport as unknown as { server: import('node:net').Server }).server;
     server.emit('error', new Error('simulated server error'));
@@ -404,7 +409,7 @@ describe('UnixDomainSocketTransport', () => {
 
   it('delivers empty messages from consecutive delimiters', async () => {
     const path = makeSocketPath();
-    transport = makeTransport();
+    transport = makeTransport(path);
     const msgs: string[] = [];
     const threeMsgsP = new Promise<void>((resolve) => {
       transport!.onMessage((_c, d) => {
@@ -412,7 +417,7 @@ describe('UnixDomainSocketTransport', () => {
         if (msgs.length === 3) resolve();
       });
     });
-    await transport.listen({ socketPath: path });
+    await transport.listen();
     const c = await connectClient(path);
     clients.push(c);
     c.write('a\n\nb\n');
@@ -422,9 +427,9 @@ describe('UnixDomainSocketTransport', () => {
 
   it('throws when listen is called after close', async () => {
     const t = makeTransport();
-    await t.listen({ socketPath: makeSocketPath() });
+    await t.listen();
     await t.close();
-    await expect(t.listen({ socketPath: makeSocketPath() })).rejects.toThrow(
+    await expect(t.listen()).rejects.toThrow(
       /already closed/,
     );
   });
