@@ -24,6 +24,7 @@ import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-eve
 import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/errors.js';
 import type { Message, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
 import type { InboxHandle, InboxMessage } from '../../src/foundation/messaging/types.js';
+import { makeAudit, waitForNthAuditEvent } from '../helpers/audit.js';
 
 
 
@@ -207,7 +208,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
     });
 
     it('daemon 连续 blocked outer ticks 不会重复 drain/ack/nack/LLM', async () => {
-      const audit = createMockAudit();
+      const { audit, events, emitter } = makeAudit();
       const ctxErr = new LLMContextExceededError('test-provider', 400, 'context length exceeded');
       const processTurn = vi.fn().mockResolvedValue({ status: 'failed', error: ctxErr } as TurnResult);
       const nackHandles = vi.fn().mockResolvedValue(undefined);
@@ -259,6 +260,14 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       });
       const fakeWatcher = createFakeWatcher();
 
+      // 受测事实是第二次 CONTEXT_BLOCKED_GATE 事件，不是经过多少墙钟毫秒；
+      // 订阅必须在 startDaemonLoop 之前建立，避免第二个事件在订阅前发生。
+      const secondBlockedTick = waitForNthAuditEvent(
+        emitter,
+        EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE,
+        2,
+      );
+
       const { promise, stop } = startDaemonLoop({
         fsFactory,
         eventLoop,
@@ -269,19 +278,20 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         createWatcher: () => fakeWatcher,
       });
 
-      // 等 daemon 跑至少 2 个 blocked ticks；250ms 包含 fallback 30ms × 至少 2 ticks
-      // 的调度 overhead，只用于观测窗口，不作为产品行为契约。
-      const BLOCKED_TICK_OBSERVATION_MS = 250;
-      await new Promise(r => setTimeout(r, BLOCKED_TICK_OBSERVATION_MS));
-      stop();
-      await promise;
+      // finally 必要：helper timeout、断言前异常或 daemon 异常都不得遗留运行句柄。
+      try {
+        await secondBlockedTick;
+      } finally {
+        stop();
+        await promise;
+      }
 
       expect(processTurn).toHaveBeenCalledTimes(1);
       expect(runtime.drainInbox).toHaveBeenCalledTimes(1);
       expect(nackHandles).toHaveBeenCalledTimes(1);
       expect(ackHandles).not.toHaveBeenCalled();
       expect(
-        audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length,
+        events.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length,
       ).toBeGreaterThanOrEqual(2);
     });
   });
