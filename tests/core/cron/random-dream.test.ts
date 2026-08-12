@@ -23,7 +23,6 @@ import { createClawTopology, routeNotifyClawAsync } from '../../../src/core/claw
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { waitForPathExists } from '../../helpers/wait-for-file.js';
 
 // ─── AsyncTaskSystem mock ──────────────────────────────────────────
 
@@ -50,6 +49,21 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
     audit: mockAudit as any,
     notifyMotion: (msg) => routeNotifyClawAsync(fs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, mockAudit as any),
   };
+}
+
+/**
+ * Test-local barrier: resolves once RandomDream durably writes its state file
+ * via the provided opts' fs instance. Wraps the existing writeAtomicSync so
+ * the real durable write completes before resolve.
+ */
+function observeRandomDreamStateWrite(opts: RandomDreamOptions): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const originalWriteAtomicSync = opts.fs.writeAtomicSync.bind(opts.fs);
+    vi.spyOn(opts.fs, 'writeAtomicSync').mockImplementation((relativePath, content) => {
+      originalWriteAtomicSync(relativePath, content);
+      if (relativePath === '.random-dream-state.json') resolve();
+    });
+  });
 }
 
 /** 读取 motion claw outbox pending 目录的文件内容 */
@@ -524,18 +538,20 @@ Prompt: ...
         '=== started ==='
       );
 
-      const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
+      const opts = makeOpts(chestnutRoot, motionDir);
+      const statePersisted = observeRandomDreamStateWrite(opts);
+      const runPromise = runRandomDream(opts);
 
       // discover 现为真实 async I/O（structured archive query）：fake timer 只控制 timer，
-      // 先用 watcher barrier 等 schedule 后 state 真实落盘，再一次推进 fake clock 验证 1h deadline
-      const statePath = path.join(chestnutRoot, '.random-dream-state.json');
-      await waitForPathExists(statePath);
+      // 直接等 schedule 后 state 真实落盘（atomic write 返回），再一次推进 fake clock 验证 1h deadline
+      await statePersisted;
       await vi.advanceTimersByTimeAsync(3_600_001);
       await runPromise;
 
       // 不应写 outbox；pending entry 已持久化
       const outboxContents = readOutboxPending(motionDir);
       expect(outboxContents).toHaveLength(0);
+      const statePath = path.join(chestnutRoot, '.random-dream-state.json');
       const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
       expect(state.pendingLateSettle).toHaveLength(1);
     } finally {
@@ -618,13 +634,15 @@ insight B
         await fs.mkdir(taskResultDir, { recursive: true });
         fsSync.writeFileSync(path.join(taskResultDir, 'daemon.log'), '=== started ===');
 
-        const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
+        const opts = makeOpts(chestnutRoot, motionDir);
+        const statePersisted = observeRandomDreamStateWrite(opts);
+        const runPromise = runRandomDream(opts);
         // discover 现为真实 async I/O（structured archive query）：fake timer 只控制 timer，
-        // 先用 watcher barrier 等 schedule 后 state 真实落盘（仍早于 30s 首个 poll tick）
-        const statePath = path.join(chestnutRoot, '.random-dream-state.json');
-        await waitForPathExists(statePath);
+        // 直接等 schedule 后 state 真实落盘（atomic write 返回，仍早于 30s 首个 poll tick）
+        await statePersisted;
 
         // state persisted immediately after schedule
+        const statePath = path.join(chestnutRoot, '.random-dream-state.json');
         const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
         expect(state.pendingLateSettle).toHaveLength(1);
         expect(state.pendingLateSettle[0].taskId).toBe(taskId);
