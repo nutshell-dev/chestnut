@@ -6,6 +6,71 @@ import {
   type Watcher,
   type WatcherFactory,
 } from '../../src/foundation/file-watcher/index.js';
+import type { WatcherErrorContext } from '../../src/foundation/file-watcher/types.js';
+
+interface PathWatcherWaitOptions {
+  watcherFactory?: WatcherFactory;
+}
+
+interface PathWatcherSettler {
+  request(primaryError?: Error): void;
+  setWatcher(watcher: Watcher): void;
+}
+
+function createPathWatcherSettler(
+  resolve: () => void,
+  reject: (err: Error) => void,
+  timer: ReturnType<typeof setTimeout>,
+): PathWatcherSettler {
+  let settleRequested = false;
+  let primaryError: Error | undefined;
+  let watcher: Watcher | undefined;
+
+  const finalize = (): void => {
+    const handle = watcher;
+    if (!handle) {
+      queueMicrotask(finalize);
+      return;
+    }
+    clearTimeout(timer);
+    const capturedPrimary = primaryError;
+    handle
+      .close()
+      .then(
+        () => {
+          if (capturedPrimary) reject(capturedPrimary);
+          else resolve();
+        },
+        (cleanupError: Error) => {
+          if (capturedPrimary) {
+            reject(
+              new AggregateError(
+                [capturedPrimary, cleanupError],
+                'path watcher barrier and cleanup both failed',
+              ),
+            );
+          } else {
+            reject(cleanupError);
+          }
+        },
+      )
+      .catch((unexpected: unknown) => {
+        reject(unexpected instanceof Error ? unexpected : new Error(String(unexpected)));
+      });
+  };
+
+  return {
+    request(err?: Error): void {
+      if (settleRequested) return;
+      settleRequested = true;
+      primaryError = err;
+      queueMicrotask(finalize);
+    },
+    setWatcher(handle: Watcher): void {
+      watcher = handle;
+    },
+  };
+}
 
 /**
  * Wait for a file to match a regex predicate.
@@ -95,6 +160,7 @@ export async function waitForCompleteFile(
 export async function waitForPathExists(
   targetPath: string,
   timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS,
+  opts?: PathWatcherWaitOptions,
 ): Promise<void> {
   // initial check
   try {
@@ -118,34 +184,36 @@ export async function waitForPathExists(
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
   }
 
+  const factory = opts?.watcherFactory ?? createWatcher;
+
   return new Promise<void>((resolve, reject) => {
-    let resolved = false;
-    const onSettle = (err?: Error): void => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      watcher.close().catch(() => { /* silent: cleanup */ });
-      if (err) reject(err); else resolve();
-    };
     const tryAccess = async (): Promise<void> => {
       try {
         await access(targetPath);
-        onSettle();
+        settler.request();
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onSettle(e as Error);
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') settler.request(e as Error);
       }
     };
-    const watcher = createWatcher(
+
+    let settler!: PathWatcherSettler;
+    const timer = setTimeout(
+      () =>
+        settler.request(
+          new Error(`waitForPathExists timeout: ${targetPath} did not appear in ${timeoutMs}ms`),
+        ),
+      timeoutMs,
+    );
+
+    settler = createPathWatcherSettler(resolve, reject, timer);
+
+    const watcher = factory(
       parentDir,
       (event) => {
-        // 'add' (file) / 'addDir' (sub-dir created) / 'change' 都触发 retry
         if (event.type === 'add' || event.type === 'addDir' || event.type === 'change') {
           if (path.basename(event.path) === targetName || event.path === targetPath) {
             void tryAccess();
-          }
-          // Fallback poller event: event.path is parentDir, bypass filename filter
-          // because the whole point of fallback is to catch missed native events.
-          else if (event.type === 'change' && event.path === parentDir) {
+          } else if (event.type === 'change' && event.path === parentDir) {
             void tryAccess();
           }
         }
@@ -154,15 +222,15 @@ export async function waitForPathExists(
         persistent: false,
         stability: 'immediate',
         recursive: false,
-        // phase 368: watcher ready 后再 check 一次闭合 race
-        // (chokidar ignoreInitial: true → 'ready' 前出现的 file 不 fire 'add')
-        onReady: () => { void tryAccess(); },
+        onReady: () => {
+          void tryAccess();
+        },
+        onError: (err: Error, context: WatcherErrorContext) => {
+          if (context === 'watch') settler.request(err);
+        },
       },
     );
-    const timer = setTimeout(
-      () => onSettle(new Error(`waitForPathExists timeout: ${targetPath} did not appear in ${timeoutMs}ms`)),
-      timeoutMs,
-    );
+    settler.setWatcher(watcher);
   });
 }
 
@@ -176,6 +244,7 @@ export async function waitForPathExists(
 export async function waitForPathGone(
   targetPath: string,
   timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS,
+  opts?: PathWatcherWaitOptions,
 ): Promise<void> {
   // initial check
   try {
@@ -187,35 +256,37 @@ export async function waitForPathGone(
 
   const parentDir = path.dirname(targetPath);
   const targetName = path.basename(targetPath);
+  const factory = opts?.watcherFactory ?? createWatcher;
 
   return new Promise<void>((resolve, reject) => {
-    let resolved = false;
-    const onSettle = (err?: Error): void => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      watcher.close().catch(() => { /* silent: cleanup */ });
-      if (err) reject(err); else resolve();
-    };
     const tryCheck = async (): Promise<void> => {
       try {
         await access(targetPath);
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'ENOENT') onSettle();
-        else onSettle(e as Error);
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') settler.request();
+        else settler.request(e as Error);
       }
     };
-    const watcher = createWatcher(
+
+    let settler!: PathWatcherSettler;
+    const timer = setTimeout(
+      () =>
+        settler.request(
+          new Error(`waitForPathGone timeout: ${targetPath} still exists after ${timeoutMs}ms`),
+        ),
+      timeoutMs,
+    );
+
+    settler = createPathWatcherSettler(resolve, reject, timer);
+
+    const watcher = factory(
       parentDir,
       (event) => {
         if (event.type === 'unlink' || event.type === 'unlinkDir') {
           if (path.basename(event.path) === targetName || event.path === targetPath) {
             void tryCheck();
           }
-        }
-        // Fallback poller event: event.path is parentDir, bypass filename filter
-        // because the whole point of fallback is to catch missed native events.
-        else if (event.type === 'change' && event.path === parentDir) {
+        } else if (event.type === 'change' && event.path === parentDir) {
           void tryCheck();
         }
       },
@@ -223,15 +294,15 @@ export async function waitForPathGone(
         persistent: false,
         stability: 'immediate',
         recursive: false,
-        // phase 368: watcher ready 后再 check 一次闭合 race
-        // (chokidar ignoreInitial: true → 'ready' 前已 unlink 的 path 不 fire 'unlink')
-        onReady: () => { void tryCheck(); },
+        onReady: () => {
+          void tryCheck();
+        },
+        onError: (err: Error, context: WatcherErrorContext) => {
+          if (context === 'watch') settler.request(err);
+        },
       },
     );
-    const timer = setTimeout(
-      () => onSettle(new Error(`waitForPathGone timeout: ${targetPath} still exists after ${timeoutMs}ms`)),
-      timeoutMs,
-    );
+    settler.setWatcher(watcher);
   });
 }
 
