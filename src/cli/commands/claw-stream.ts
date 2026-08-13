@@ -15,6 +15,7 @@ import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
+import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -110,18 +111,42 @@ export async function streamCommand(
     throw new CliError(`Failed to start stream reader for "${name}": ${formatErr(err)}`, { cause: err });
   }
 
-  // shutdown 集中入口、防 double-shutdown / 保 reader.stop 顺序
-  let shuttingDown = false;
-  let exitCode = 0;
-  const shutdown = async (reason: 'sigint' | 'sigterm' | 'daemon_dead'): Promise<void> => {
-    if (shuttingDown) return;
-    shuttingDown = true;
+  // shutdown 集中入口：single-flight 缓存 Promise，stop/audit/exit 各执行一次。
+  // phase 1377: signal/daemon-dead shutdown 对 reader.stop() rejection 完整 fail-loud
+  // （typed audit + stderr + exit 1），并以共享 Promise 保证 reason/exit code 由首次调用冻结。
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = (reason: 'sigint' | 'sigterm' | 'daemon_dead'): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    let exitCode = 0;
+    let terminalEvent: { type: 'daemon_stopped' } | undefined;
     if (reason === 'daemon_dead') {
-      process.stdout.write(JSON.stringify({ type: 'daemon_stopped' }) + '\n');
+      terminalEvent = { type: 'daemon_stopped' };
       exitCode = 1;
     }
-    await reader.stop();
-    process.exit(exitCode);
+    shutdownPromise = (async (): Promise<void> => {
+      if (terminalEvent) {
+        process.stdout.write(JSON.stringify(terminalEvent) + '\n');
+      }
+      try {
+        await reader.stop();
+      } catch (err) {
+        exitCode = 1;
+        const errorMsg = formatErr(err);
+        try {
+          audit.write(
+            CLI_AUDIT_EVENTS.STREAM_SHUTDOWN_FAILED,
+            `claw_id=${name}`,
+            `reason=${reason}`,
+            `error=${audit.message(errorMsg)}`,
+          );
+        } catch (auditErr) {
+          process.stderr.write(`[stream] failed to record shutdown audit for "${name}" (${reason}): ${formatErr(auditErr)}\n`);
+        }
+        process.stderr.write(`[stream] shutdown stop failed for "${name}" (${reason}): ${errorMsg}\n`);
+      }
+      process.exit(exitCode);
+    })();
+    return shutdownPromise;
   };
 
   process.on('SIGINT', () => { void shutdown('sigint'); });

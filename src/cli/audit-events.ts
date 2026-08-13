@@ -25,6 +25,7 @@ export const CLI_AUDIT_EVENTS = {
   MOTION_OUTBOX_DRAIN_DONE: 'cli_motion_outbox_drain_done',
   MOTION_STOP: 'cli_motion_stop',
   SKILL_INSTALL: 'cli_skill_install',
+  STREAM_SHUTDOWN_FAILED: 'cli_stream_shutdown_failed',                       // NEW phase 1377: claw stream signal/daemon-dead stop() rejection convergence
   DAEMON_START: 'cli_daemon_start',
   DAEMON_STOP: 'cli_daemon_stop',
   CHAT_CRASH_UNCAUGHT: 'cli_chat_crash_uncaught',

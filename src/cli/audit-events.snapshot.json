@@ -63,7 +63,8 @@
       "cli_motion_outbox_drain_done",
       "cli_motion_outbox_drain_start",
       "cli_motion_stop",
-      "cli_skill_install"
+      "cli_skill_install",
+      "cli_stream_shutdown_failed"
     ],
     "cli_commands_viewport-audit-events": [
       "chat_viewport_history_replay_failed",
