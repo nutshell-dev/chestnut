@@ -88,7 +88,6 @@ export function createAuditReader(
   filePath: string,
 ): AuditReader {
   let closed = false;
-  let watcher: ReturnType<typeof setInterval> | null = null;
 
   async function *read(opts: ReadOptions = {}): AsyncIterableIterator<AuditRecord> {
     if (!fs.existsSync(filePath)) return;
@@ -206,10 +205,6 @@ export function createAuditReader(
 
   function close(): void {
     closed = true;
-    if (watcher) {
-      clearInterval(watcher);
-      watcher = null;
-    }
   }
 
   return {
