@@ -61,7 +61,6 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
     hasStopIntentForGeneration: vi.fn(() => false),
   })),
   PROCESS_GENERATION_ENV: 'CHESTNUT_PROCESS_GENERATION',
-  PROCESS_GENERATION_ENV: 'CHESTNUT_PROCESS_GENERATION',
   makeDaemonDir: (s: string) => s,
   STATUS_SUBDIR: 'status',
 }));
