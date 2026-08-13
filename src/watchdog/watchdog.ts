@@ -71,6 +71,7 @@ import {
 import { WATCHDOG_BACKOFF_MAX_MS, getWatchdogMaxRestart } from './watchdog-utils.js';
 import {
   maybeCronClawCrash,
+  maybeCronClawHeartbeat,
 } from './watchdog-cron.js';
 
 // === Ownership (phase 1203 Step B) ===
@@ -586,8 +587,10 @@ export async function runWatchdogLoop(
     saveWatchdogState(fsFactory);
 
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
-    // phase 1383: inactivity/subscription 退场，仅留 crash 检测（+ Step D 心跳）
+    // phase 1383: inactivity/subscription 退场，仅留 crash 检测 + Step D 心跳过期兜底。
+    // crash 先于 heartbeat：进程死走 crash 路径；进程活但心跳过期走 heartbeat 重启（同状态机）。
     await maybeCronClawCrash(pm, auditWriter, fsFactory);
+    await maybeCronClawHeartbeat(pm, auditWriter, fsFactory);
     saveWatchdogState(fsFactory);   // 持久化 restart 状态（每 tick 一次）
 
     // 3. Sleep with backoff on consecutive failures (max 5 minutes) — or circuit-open idle

@@ -24,6 +24,7 @@ import { clawHasActiveContract, deriveCrashClass, hasCleanStopMarker, WATCHDOG_B
 import {
   decideDaemonRestart, reduceMotionRestartOutcome, type MotionSpawnOutcome,
 } from './motion-restart-state.js';
+import { HEARTBEAT_STALE_TIMEOUT_MS } from './constants.js';
 
 import {
   enumerateClaws,
@@ -130,57 +131,93 @@ export async function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fs
       }
 
       const now = Date.now();
-      const prior = clawRestartStateAPI.get(rawClawId) ?? { status: 'closed', consecutiveAttempts: 0 };
-      const decision = decideDaemonRestart(prior, false, now, maxRestart);
-      // 状态推进与 motion 主 loop 同构：decision.state 统一落盘（attempt 分支随后以 reduce 结果覆盖）
-      clawRestartStateAPI.set(rawClawId, decision.state);
-
-      switch (decision.action) {
-        case 'attempt': {
-          // crash_class 死因审计（DP1）：clean-stop marker 探测照旧
-          const cleanStop = hasCleanStopMarker(clawDir, fsFactory);
-          const crashClass = deriveCrashClass({ hasCleanStopMarker: cleanStop });
-
-          audit.write(
-            WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
-            `claw=${rawClawId}`,
-            `has_contract=true`,
-            `crash_class=${crashClass}`,
-          );
-          log(fsFactory, `[watchdog] Claw ${rawClawId} ${crashClass}${cleanStop ? ' (clean-stop marker present)' : ' (no marker)'}`);
-
-          const outcome = await attemptClawRestart(pm, fsFactory, audit, rawClawId);
-          // 状态推进与 motion 主 loop 同构（phase 324 H3 锚）：
-          //   spawned → retrying(attempts+1, nextAttemptAt=now+min(2^n * interval, BACKOFF_MAX))
-          //   spawn_conflict → closed（另一实例赢了 race、不计失败）
-          //   failed → retrying(attempts+1)；attempts >= max → 状态机下次返回 circuit_open
-          const next = reduceMotionRestartOutcome(
-            prior, outcome, Date.now(), intervalMs, WATCHDOG_BACKOFF_MAX_MS,
-          );
-          clawRestartStateAPI.set(rawClawId, next);
-          break;
-        }
-        case 'defer': break;            // 退避窗口内、本 tick 不尝试
-        case 'circuit_open': {
-          if (decision.justOpened) {
-            audit.write(
-              WATCHDOG_AUDIT_EVENTS.CLAW_RESTART_CIRCUIT_OPENED,
-              `claw=${rawClawId}`,
-              `attempts=${decision.state.consecutiveAttempts}`,
-              `cap=${maxRestart}`,
-            );
-            log(
-              fsFactory,
-              `[watchdog] gave up restarting claw ${rawClawId} after ${decision.state.consecutiveAttempts} consecutive failures (cap=${maxRestart}); entering circuit-open.`,
-            );
-          }
-          break;                        // 已放弃、不再每 tick 尝试；契约收尾不归本模块（P2）
-        }
-        case 'healthy': break;          // 不可达（alive 检测已过滤）
-      }
+      await runClawRestartStateMachine({
+        pm, fsFactory, audit,
+        clawId: rawClawId, clawDir,
+        reason: 'crash_detected',
+        daemonAlive: false,
+        now, maxRestart, intervalMs,
+      });
     }
 
     clawStateAPI.clawPreviouslyAlive.set(clawId, currentlyAlive);
+  }
+}
+
+/**
+ * phase 1380/Step D: 单 claw 重启状态机推进 —— crash 检测（进程死）与
+ * heartbeat-stale（进程活但事件循环全阻塞）共用同一 clawRestartStateAPI 状态机，
+ * 不新起一套 backoff。
+ *
+ * @param daemonAlive 传 false 触发重启决策（crash = 进程死；heartbeat-stale =
+ *   进程活但功能死，强制按 dead 推进重启）。
+ * @param reason 审计/重启触发原因（crash_detected | heartbeat_stale）。
+ */
+async function runClawRestartStateMachine(args: {
+  pm: ProcessManager;
+  fsFactory: (baseDir: string) => FileSystem;
+  audit: AuditLog;
+  clawId: string;
+  clawDir: string;
+  reason: 'crash_detected' | 'heartbeat_stale';
+  daemonAlive: boolean;
+  now: number;
+  maxRestart: number;
+  intervalMs: number;
+}): Promise<void> {
+  const { pm, fsFactory, audit, clawId, clawDir, reason, daemonAlive, now, maxRestart, intervalMs } = args;
+  const prior = clawRestartStateAPI.get(clawId) ?? { status: 'closed', consecutiveAttempts: 0 };
+  const decision = decideDaemonRestart(prior, daemonAlive, now, maxRestart);
+  clawRestartStateAPI.set(clawId, decision.state);
+
+  switch (decision.action) {
+    case 'attempt': {
+      if (reason === 'crash_detected') {
+        // crash_class 死因审计（DP1）：clean-stop marker 探测照旧
+        const cleanStop = hasCleanStopMarker(clawDir, fsFactory);
+        const crashClass = deriveCrashClass({ hasCleanStopMarker: cleanStop });
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
+          `claw=${clawId}`,
+          `has_contract=true`,
+          `crash_class=${crashClass}`,
+        );
+        log(fsFactory, `[watchdog] Claw ${clawId} ${crashClass}${cleanStop ? ' (clean-stop marker present)' : ' (no marker)'}`);
+      } else {
+        const staleMs = readHeartbeatAgeMs(clawDir, fsFactory);
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.CLAW_HEARTBEAT_STALE,
+          `claw=${clawId}`,
+          `process_alive=true`,
+          `stale_ms=${staleMs ?? 'unknown'}`,
+        );
+        log(fsFactory, `[watchdog] Claw ${clawId} heartbeat stale (process alive, event loop blocked); restarting...`);
+      }
+
+      const outcome = await attemptClawRestart(pm, fsFactory, audit, clawId, reason);
+      const next = reduceMotionRestartOutcome(
+        prior, outcome, Date.now(), intervalMs, WATCHDOG_BACKOFF_MAX_MS,
+      );
+      clawRestartStateAPI.set(clawId, next);
+      break;
+    }
+    case 'defer': break;            // 退避窗口内、本 tick 不尝试
+    case 'circuit_open': {
+      if (decision.justOpened) {
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.CLAW_RESTART_CIRCUIT_OPENED,
+          `claw=${clawId}`,
+          `attempts=${decision.state.consecutiveAttempts}`,
+          `cap=${maxRestart}`,
+        );
+        log(
+          fsFactory,
+          `[watchdog] gave up restarting claw ${clawId} after ${decision.state.consecutiveAttempts} consecutive failures (cap=${maxRestart}); entering circuit-open.`,
+        );
+      }
+      break;                        // 已放弃、不再每 tick 尝试；契约收尾不归本模块（P2）
+    }
+    case 'healthy': break;
   }
 }
 
@@ -191,9 +228,11 @@ async function attemptClawRestart(
   fsFactory: (baseDir: string) => FileSystem,
   audit: AuditLog,
   clawId: string,
+  reason: 'crash_detected' | 'heartbeat_stale',
 ): Promise<MotionSpawnOutcome> {
-  log(fsFactory, `[watchdog] claw ${clawId} down, restarting...`);
-  audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, `claw=${clawId}`, `reason=crash_detected`);
+  const reasonText = reason === 'crash_detected' ? 'down, restarting...' : 'event loop blocked (heartbeat stale), restarting...';
+  log(fsFactory, `[watchdog] claw ${clawId} ${reasonText}`);
+  audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, `claw=${clawId}`, `reason=${reason}`);
 
   try {
     // best-effort cleanup before respawn（cleanup 失败不阻塞 respawn、仅 audit）
@@ -223,6 +262,106 @@ async function attemptClawRestart(
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED, `claw=${clawId}`, `error=${formatErr(err)}`);
     log(fsFactory, `[watchdog] FAILED to restart claw ${clawId}: ${err}`);
     return { kind: 'failed', error: err };
+  }
+}
+
+/**
+ * phase 1383 Step D (U4): daemon 心跳文件名（与 src/daemon/constants.ts 同步，
+ * Watchdog 不反向 import daemon 内部常量）。
+ */
+const DAEMON_HEARTBEAT_FILENAME = 'heartbeat';
+
+/**
+ * 读 claw 心跳文件并返回「距今年龄（ms）」。
+ * - 文件缺失 / 内容非法 / 时间戳无法解析 → 返回 undefined（调用方按「读失败」skip + audit）。
+ *   旧版本 daemon 升级后首次心跳前本就无文件，读失败必须 skip，不误重启。
+ */
+function readHeartbeatAgeMs(clawDir: string, fsFactory: (baseDir: string) => FileSystem): number | undefined {
+  const fs = fsFactory(clawDir);
+  let raw: string;
+  try {
+    raw = fs.readSync(DAEMON_HEARTBEAT_FILENAME);
+  } catch (err) {
+    if (isFileNotFound(err)) return undefined;
+    throw err;
+  }
+  const ts = Date.parse(raw.trim());
+  if (!Number.isFinite(ts)) return undefined;
+  return Date.now() - ts;
+}
+
+/**
+ * phase 1383 Step D (U4): 心跳文件过期检测 —— 进程 alive 但事件循环全阻塞时
+ * in-process 自活也无法触发，靠心跳时间戳过期判定「功能死」并复用 crash 重启状态机。
+ *
+ * 边界：
+ * - 进程死 → 不由本函数管（maybeCronClawCrash 负责）；本函数只看 alive claw。
+ * - 无 active contract → skip（与 crash 同：无契约的 claw 不重启）。
+ * - 心跳缺失/非法（存量旧 daemon、刚启动）→ HEARTBEAT_CHECK_FAILED audit + skip，不误重启。
+ * - 心跳新鲜 → no-op。
+ * - 心跳过期 → 复用 clawRestartStateAPI 同一状态机（daemonAlive 强制 false 推进重启）。
+ */
+export async function maybeCronClawHeartbeat(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
+  let clawNames: string[];
+  try {
+    clawNames = enumerateClaws(getChestnutFs(fsFactory), 'claws');
+  } catch (err) {
+    if (isFileNotFound(err)) return;  // no claws dir = no claws
+    audit.write(
+      WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+      `ctx=heartbeat`,
+      `dir=claws`,
+      `error=${formatErr(err)}`,
+    );
+    return;
+  }
+
+  const maxRestart = getWatchdogMaxRestart();
+  const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
+
+  for (const rawClawId of clawNames) {
+    const clawId = rawClawId;
+    const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
+    const daemonDir = resolveClawDaemonDir(makeClawId(clawId));
+    const currentlyAlive = pm.getAliveStatus(daemonDir).alive;
+
+    if (!currentlyAlive) continue;  // 进程死 → crash 检测路径管
+
+    if (!clawHasActiveContract(clawDir, fsFactory, audit)) {
+      continue;  // 无 active contract → 不重启（与 crash 判定一致）
+    }
+
+    let staleMs: number | undefined;
+    try {
+      staleMs = readHeartbeatAgeMs(clawDir, fsFactory);
+    } catch (err) {
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.HEARTBEAT_CHECK_FAILED,
+        `claw=${rawClawId}`,
+        `error=${formatErr(err)}`,
+      );
+      continue;
+    }
+
+    if (staleMs === undefined) {
+      // 文件缺失或非法：存量旧 daemon / 刚启动空窗 → audit + skip（不误重启）
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.HEARTBEAT_CHECK_FAILED,
+        `claw=${rawClawId}`,
+        `reason=missing_or_invalid`,
+      );
+      continue;
+    }
+
+    if (staleMs <= HEARTBEAT_STALE_TIMEOUT_MS) continue;  // 心跳新鲜
+
+    await runClawRestartStateMachine({
+      pm, fsFactory, audit,
+      clawId: rawClawId, clawDir,
+      reason: 'heartbeat_stale',
+      daemonAlive: false,  // 功能死：强制按 dead 推进重启状态机
+      now: Date.now(), maxRestart, intervalMs,
+    });
   }
 }
 

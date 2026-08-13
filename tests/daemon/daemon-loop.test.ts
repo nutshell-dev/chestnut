@@ -209,6 +209,37 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
     });
 
+    it('phase 1383 Step D: 启动即写心跳文件、stop() 删除（Watchdog 进程外兜底）', async () => {
+      const audit = createMockAudit();
+      const fakeWatcher = createFakeWatcher();
+      const run = vi.fn().mockImplementation(async () => {
+        await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
+      });
+      const eventLoop = {
+        run, abort: vi.fn(), setOnTurnActivity: vi.fn(),
+      } as unknown as EventLoop;
+
+      const hbPath = path.join(agentDir, 'heartbeat');
+      expect(fsNative.existsSync(hbPath)).toBe(false);
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory, eventLoop, agentDir, clawId: 'test-claw', label: '[hb]', audit,
+        createWatcher: () => fakeWatcher,
+      });
+
+      // 启动即同步写一次（避免升级后首次 Watchdog tick 前空窗）
+      await new Promise(r => setTimeout(r, EVENTLOOP_STARTUP_MS));
+      expect(fsNative.existsSync(hbPath)).toBe(true);
+      const ts = Date.parse(fsNative.readFileSync(hbPath, 'utf8').trim());
+      expect(Number.isFinite(ts)).toBe(true);
+
+      stop();
+      await promise;
+
+      // 关停清文件：防「已停进程留旧心跳」误判
+      expect(fsNative.existsSync(hbPath)).toBe(false);
+    });
+
     it('daemon 连续 blocked outer ticks 不会重复 drain/ack/nack/LLM', async () => {
       const { audit, events, emitter } = makeAudit();
       const ctxErr = new LLMContextExceededError('test-provider', 400, 'context length exceeded');

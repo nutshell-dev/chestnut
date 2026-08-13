@@ -26,6 +26,8 @@ import {
   INTERRUPT_POLL_MAX_ERRORS,
   INTERRUPT_POLL_RECOVERY_BACKOFF_MS,
   INTERRUPT_POLL_WARN_EVERY,
+  DAEMON_HEARTBEAT_WRITE_INTERVAL_MS,
+  DAEMON_HEARTBEAT_FILENAME,
 } from './constants.js';
 import type { EventLoop } from '../core/event-loop/index.js';
 
@@ -88,6 +90,28 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   }, LIVENESS_HEARTBEAT_MS);
   livenessTimer.unref(); // 不阻 event loop 退出
 
+  // phase 1383 Step D (U4): 心跳文件 —— Watchdog 进程外兜底事件循环全阻塞。
+  // 周期写 ISO 时间戳到 <agentDir>/heartbeat；关停时 unlink 防「死进程留旧心跳」误判。
+  // 注意：写动作本身在事件循环上，全阻塞时它也停写 → 时间戳过期正是 Watchdog 判定信号。
+  const writeHeartbeat = (): void => {
+    try {
+      agentFs.writeAtomicSync(DAEMON_HEARTBEAT_FILENAME, new Date().toISOString());
+    } catch (err) {
+      // silent best-effort：心跳写失败不应崩 daemon；Watchdog 侧读失败有独立 audit。
+      audit.write(DAEMON_AUDIT_EVENTS.LOOP_FATAL, `reason=heartbeat_write_failed`, `error=${formatErr(err)}`);
+    }
+  };
+  const clearHeartbeat = (): void => {
+    try {
+      agentFs.deleteSync(DAEMON_HEARTBEAT_FILENAME);
+    } catch {
+      // silent: 关停清理 best-effort，心跳文件缺失/删除失败不阻塞 stop（下一 tick 进程已不在）。
+    }
+  };
+  writeHeartbeat();  // 启动即写一次（避免升级后首次 tick 前空窗）
+  const heartbeatTimer = setInterval(writeHeartbeat, DAEMON_HEARTBEAT_WRITE_INTERVAL_MS);
+  heartbeatTimer.unref();
+
   // phase 1383 (P2b U3): in-process 自活监测 —— active 契约 + 等待态超长 → 自愈重入轮。
   // 只对 claw daemon 启用（motion 无契约、其停滞归 P3 教学/治理）。
   const isClawDaemon = motion === undefined;
@@ -105,6 +129,8 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
     stopping = true;
     stopped = true;
     waitingStall?.stop();
+    clearInterval(heartbeatTimer);
+    clearHeartbeat();
     if (recoveryTimer) {
       clearTimeout(recoveryTimer);
       recoveryTimer = null;
@@ -226,6 +252,8 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       }
     }
     clearInterval(livenessTimer);
+    clearInterval(heartbeatTimer);
+    clearHeartbeat();
   })();
 
   return { promise, stop };

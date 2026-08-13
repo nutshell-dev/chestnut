@@ -919,6 +919,7 @@
     ],
     "watchdog_audit-events": [
       "claw_crash_detected",
+      "claw_heartbeat_stale",
       "claw_restart_circuit_opened",
       "claw_restart_recovered",
       "watchdog_claw_crash_skipped_no_contract",
@@ -927,6 +928,7 @@
       "watchdog_cleanup_failed",
       "watchdog_check",
       "watchdog_heartbeat_hourly",
+      "watchdog_heartbeat_check_failed",
       "watchdog_circuit_reopened",
       "watchdog_crash",
       "watchdog_gave_up",

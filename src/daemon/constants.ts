@@ -67,3 +67,17 @@ export const WAITING_STALL_MAX_SELF_HEAL_ATTEMPTS = 3;
  */
 export const WAITING_STALL_CHECK_INTERVAL_MS = 60_000;
 
+/**
+ * phase 1383 Step D (U4): daemon 心跳文件写间隔（ms）.
+ * 心跳文件 = Watchdog 进程外兜底：事件循环全阻塞（sync 卡死）时 in-process 定时器
+ * 也不触发，Watchdog 靠心跳时间戳过期判定「功能死」并复用 crash 重启状态机重启.
+ * Derivation: 30_000ms = 30s / 与 watchdog tick（WATCHDOG_INTERVAL_MS=30s）同量级 /
+ * 比 LIVENESS_HEARTBEAT_MS(60s) 密一倍，保证 tick 之间至少有一次新鲜写 /
+ * HEARTBEAT_STALE_TIMEOUT_MS 取 max(3× 写间隔, WAITING_STALL_TIMEOUT_MS)，
+ * 保证 in-process 自愈先于心跳重启（两层不竞争）.
+ */
+export const DAEMON_HEARTBEAT_WRITE_INTERVAL_MS = 30_000;
+
+/** 心跳文件名（落 daemon 自己的 agentDir 根，即 PM daemonDir）. */
+export const DAEMON_HEARTBEAT_FILENAME = 'heartbeat';
+

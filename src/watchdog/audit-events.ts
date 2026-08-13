@@ -55,6 +55,9 @@ export const WATCHDOG_AUDIT_EVENTS = {
   WATCHDOG_UNCLEAN_TERMINATION_DETECTED: 'watchdog_unclean_termination_detected',
   WATCHDOG_TERMINAL_WRITE_FAILED: 'watchdog_terminal_write_failed',
   WATCHDOG_TERMINAL_RECORDED: 'watchdog_terminal_recorded',
+  // phase 1383 Step D (U4): 心跳文件过期 = 进程 alive 但事件循环全阻塞 → 复用重启状态机重启
+  CLAW_HEARTBEAT_STALE: 'claw_heartbeat_stale',
+  HEARTBEAT_CHECK_FAILED: 'watchdog_heartbeat_check_failed',
 } as const;
 
 
@@ -102,4 +105,6 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> =
   watchdog_unclean_termination_detected: 'audit',
   watchdog_terminal_write_failed: 'audit',
   watchdog_terminal_recorded: 'audit',
+  claw_heartbeat_stale: 'audit',
+  watchdog_heartbeat_check_failed: 'audit',
 } as const;
