@@ -39,6 +39,7 @@ import { composer as taskResult } from './task-result.js';
 import { composer as contractCreated } from './contract-created.js';
 import { composer as contractResume } from './contract-resume.js';
 import { composer as contractAuditFeedback } from './contract-audit-feedback.js';
+import { composer as wakeup } from './wakeup.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
   // phase 1263 Step C: claw_crashed 经 CLIProtocol typed binding 注册（首个迁移的 CLI binding）；
@@ -70,4 +71,5 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('contract_created', contractCreated);
   registry.register('contract_resume', contractResume);
   registry.register('contract_audit_feedback', contractAuditFeedback);
+  registry.register('wakeup', wakeup);
 }

@@ -13,4 +13,10 @@ export const MESSAGING_INBOX_MESSAGE_TYPES = [
     type: 'user_inbox_message',
     rendering: { kind: 'standard', presentation: 'user_inbox' },
   },
+  // phase 1386: wakeup-delivery job 投到 claw inbox 的定时消息正文。
+  {
+    owner: 'messaging',
+    type: 'wakeup',
+    rendering: { kind: 'standard', presentation: 'system' },
+  },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

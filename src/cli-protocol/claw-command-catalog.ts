@@ -162,6 +162,23 @@ export const CLAW_COMMAND_CATALOG = [
       'chestnut claw alice stream --include-history > alice.log',
     ],
   },
+  {
+    id: 'wakeup',
+    group: 'messaging',
+    form: 'instance',
+    summary: 'Schedule, list, or cancel a timed wakeup message for the claw',
+    args: [{ name: 'message|list|cancel', required: false, desc: 'Message body (schedule), or list/cancel subaction' }],
+    options: [
+      { flag: '--in <duration>', desc: 'Delay until delivery (e.g. 30s, 5m, 2h, 1d, 1h30m)' },
+      { flag: '--at <iso>', desc: 'Absolute delivery time as an ISO 8601 string' },
+    ],
+    examples: [
+      'chestnut claw alice wakeup --in 24h "check the site update"',
+      'chestnut claw alice wakeup --at 2026-08-14T12:00:00Z "standup"',
+      'chestnut claw alice wakeup list',
+      'chestnut claw alice wakeup cancel <wakeup-id>',
+    ],
+  },
 
   // ── Observation ────────────────────────────────────────────────────────
   {

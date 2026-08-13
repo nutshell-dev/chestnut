@@ -38,6 +38,7 @@ export {
   OUTBOX_PENDING_DIR,
   OUTBOX_DONE_DIR,
   OUTBOX_FAILED_DIR,
+  WAKEUPS_DIR,
 } from './dirs.js';
 
 import { resolveDlqDir } from './dirs.js';
@@ -74,6 +75,19 @@ export { createInboxReader } from './inbox-reader.js';
 export { createOutboxWriter } from './outbox-writer.js';
 
 export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
+
+// phase 1386: 定时消息（wakeup）资源原语
+export {
+  scheduleWakeup,
+  cancelWakeup,
+  listWakeups,
+  consumeDueWakeups,
+  removeWakeup,
+  WAKEUP_SCHEMA_VERSION,
+  WakeupNotFoundError,
+  WakeupDecodeError,
+} from './wakeup-store.js';
+export type { WakeupRecord, ScheduleWakeupResult } from './wakeup-store.js';
 
 export { createSendContentTracker, feedSendContentDelta } from './tools/send-content-extractor.js';
 export { createSendTool } from './tools/send.js';

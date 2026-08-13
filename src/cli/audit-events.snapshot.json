@@ -789,7 +789,12 @@
       "outbox_list_failed",
       "outbox_processing_orphan_cleaned",
       "outbox_send_failed",
-      "outbox_sent"
+      "outbox_sent",
+      "wakeup_cancelled",
+      "wakeup_deliver_failed",
+      "wakeup_deliver_retry",
+      "wakeup_delivered",
+      "wakeup_scheduled"
     ],
     "foundation_process-manager_audit-events": [
       "clean_stop_cleared",
