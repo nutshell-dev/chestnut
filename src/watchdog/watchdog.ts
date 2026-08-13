@@ -12,7 +12,7 @@
  * - watchdog-pid.ts       PID file mgmt（5 function）
  * - watchdog-log.ts       log + audit + inbox message（4 function）
  * - watchdog-state.ts     state 持久化（4 function）
- * - watchdog-cron.ts      maybeCronClawInactivity + maybeCronClawCrash（2 业务）
+ * - watchdog-cron.ts      maybeCronClawCrash（crash 检测；phase 1383 起 inactivity/subscription 退场）
  * - spawn.ts             spawnWatchdogCandidate（spawn + poll 原语，不含 CLI）
  *
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
@@ -70,7 +70,7 @@ import {
 } from './motion-restart-state.js';
 import { WATCHDOG_BACKOFF_MAX_MS, getWatchdogMaxRestart } from './watchdog-utils.js';
 import {
-  maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
+  maybeCronClawCrash,
 } from './watchdog-cron.js';
 
 // === Ownership (phase 1203 Step B) ===
@@ -499,7 +499,7 @@ export async function runWatchdogLoop(
       }
     } catch (err) {
       if (!isFileNotFound(err)) {
-        // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
+        // phase 697: 加 dir col、与 ARCHIVE_DIR_FAILED 对齐
         auditWriter.write(
           WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
           `ctx=watchdog_tick`,
@@ -586,11 +586,9 @@ export async function runWatchdogLoop(
     saveWatchdogState(fsFactory);
 
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
-    await maybeCronClawInactivity(pm, auditWriter, fsFactory);
+    // phase 1383: inactivity/subscription 退场，仅留 crash 检测（+ Step D 心跳）
     await maybeCronClawCrash(pm, auditWriter, fsFactory);
-    // phase 5: process motion-requested subscriptions (file-based dir scan)
-    await maybeCronCheckSubscriptions(pm, auditWriter, fsFactory);
-    saveWatchdogState(fsFactory);   // 持久化通知状态（每 tick 一次）
+    saveWatchdogState(fsFactory);   // 持久化 restart 状态（每 tick 一次）
 
     // 3. Sleep with backoff on consecutive failures (max 5 minutes) — or circuit-open idle
     await setTimeout(nextSleepMs);

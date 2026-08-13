@@ -21,7 +21,7 @@ import { clawStateAPI, clawRestartStateAPI, _resetWatchdogContextForTest } from 
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
-import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
+import { clawHasActiveContract } from '../../src/watchdog/watchdog-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../src/foundation/process-manager/index.js';
@@ -65,9 +65,7 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();
   return {
     ...actual,
-    clawHasContract: vi.fn(),
     clawHasActiveContract: vi.fn().mockReturnValue(true),
-    gatherClawSnapshot: vi.fn(),
   };
 });
 
@@ -94,12 +92,8 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
 
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, disk_warning_mb: 500,
     });
-    vi.mocked(clawHasContract).mockReturnValue(true);
-    vi.mocked(gatherClawSnapshot).mockReturnValue({
-      contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'stopped',
-    } as any);
 
     mockPm = {
       getAliveStatus: vi.fn(),

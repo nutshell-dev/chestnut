@@ -150,7 +150,8 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
       });
       const abort = vi.fn();
-      const eventLoop = { run, abort } as unknown as EventLoop;
+      const setOnTurnActivity = vi.fn();
+      const eventLoop = { run, abort, setOnTurnActivity } as unknown as EventLoop;
 
       const { promise, stop } = startDaemonLoop({
         fsFactory,
@@ -177,7 +178,8 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       let blockResolve: (() => void) | undefined;
       const run = vi.fn().mockImplementation(() => new Promise<void>(r => { blockResolve = r; }));
       const abort = vi.fn();
-      const eventLoop = { run, abort } as unknown as EventLoop;
+      const setOnTurnActivity = vi.fn();
+      const eventLoop = { run, abort, setOnTurnActivity } as unknown as EventLoop;
 
       const { promise, stop } = startDaemonLoop({
         fsFactory,

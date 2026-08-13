@@ -29,17 +29,7 @@ export interface CliGuidanceBindingBoundaryCase {
 }
 
 export const CLI_GUIDANCE_BINDINGS: readonly CliGuidanceBindingBoundaryCase[] = [
-  // phase 1380: claw-crashed binding 退场（claw 崩溃自愈归系统、不再投 motion inbox、audit-only）
-  {
-    file: 'claw-inactivity.ts',
-    type: 'claw_inactivity',
-    ident: 'clawInactivityGuidanceBinding',
-    decoder: 'decodeClawInactivityGuidance',
-    exhaustive: 'failureClass',
-    ownerCodec: '../../../watchdog/index.js',
-    prose: 'To inspect',
-    forbiddenFields: ['inactiveMs', 'sourcePath', 'lastError'],
-  },
+  // phase 1383 (P2b): claw-inactivity binding 退场（停滞自活归 daemon 内化）。
   {
     file: 'claw-outbox-summary.ts',
     type: 'claw_outbox_summary',

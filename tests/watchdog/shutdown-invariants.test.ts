@@ -78,7 +78,7 @@ describe('watchdog-shutdown-guard', () => {
       fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
       vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
       vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-        interval_ms: 100, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+        interval_ms: 100, disk_warning_mb: 500,
       });
 
       const mockPm = {
@@ -149,7 +149,7 @@ describe('handler-idempotent-install', () => {
       fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
       vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
       vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-        interval_ms: 100, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+        interval_ms: 100, disk_warning_mb: 500,
       });
 
       const mockPm = {

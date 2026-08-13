@@ -55,7 +55,6 @@ import {
   MESSAGING_INBOX_MESSAGE_TYPES,
 } from '../foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../core/gateway/index.js';
-import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../watchdog/index.js';
 import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/index.js';
 import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/index.js';
@@ -324,7 +323,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   const formatterRegistry: InboxMessageTypeRegistry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(formatterRegistry, MESSAGING_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, GATEWAY_INBOX_MESSAGE_TYPES);
-  registerInboxMessageTypes(formatterRegistry, WATCHDOG_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, CONTRACT_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, MEMORY_INBOX_MESSAGE_TYPES);

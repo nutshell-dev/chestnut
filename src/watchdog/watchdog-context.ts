@@ -2,8 +2,11 @@
  * @module L6.Watchdog.Context
  * Module-level singleton state for watchdog daemon
  *
- * 5 lazy cache（_motionCtx / _chestnutFs / watchdogConfigCache / _auditWriter）
- * + 3 Map（cron 状态：lastInactivityNotified / clawPreviouslyAlive / inactivityNotifyCount）
+ * 4 lazy cache（_motionCtx / _chestnutFs / watchdogConfigCache / _auditWriter）
+ * + 3 Map/Set（cron 状态：clawPreviouslyAlive / everSpawned / clawPreviouslyNotified）
+ *
+ * phase 1383 (P2b): lastInactivityNotified / inactivityNotifyCount 退场——
+ * claw_inactivity 检测/subscription 移除，Watchdog 不再追踪业务停滞通知。
  *
  * ESM live binding 保跨 sub-file 同实例（const Map reference 跨 file 共享 / let 经 getter/setter）
  */
@@ -19,9 +22,7 @@ import { createDirContext } from '../foundation/audit/index.js';
 
 // === 内部 Map/Set（cron state）—— 通过 clawStateAPI 访问 ===
 
-const _lastInactivityNotified = new Map<string, number>();
 const _clawPreviouslyAlive = new Map<string, boolean>();
-const _inactivityNotifyCount = new Map<string, number>();
 const _everSpawned = new Set<string>();
 const _clawPreviouslyNotified = new Map<string, number>();
 
@@ -68,9 +69,7 @@ function setStore(s: Set<string>): SetStore {
 }
 
 export interface ClawStateSnapshot {
-  lastInactivityNotified: Record<string, number>;
   clawPreviouslyAlive: Record<string, boolean>;
-  inactivityNotifyCount: Record<string, number>;
   everSpawned: string[];
   clawPreviouslyNotified?: Record<string, number>;
 }
@@ -136,36 +135,22 @@ export const clawRestartStateAPI = {
 } as const;
 
 export const clawStateAPI = {
-  lastInactivityNotified: mapStore(_lastInactivityNotified),
   clawPreviouslyAlive: mapStore(_clawPreviouslyAlive),
-  inactivityNotifyCount: mapStore(_inactivityNotifyCount),
   everSpawned: setStore(_everSpawned),
   clawPreviouslyNotified: mapStore(_clawPreviouslyNotified),
 
   snapshot(): ClawStateSnapshot {
     return {
-      lastInactivityNotified: Object.fromEntries(_lastInactivityNotified),
       clawPreviouslyAlive: Object.fromEntries(_clawPreviouslyAlive),
-      inactivityNotifyCount: Object.fromEntries(_inactivityNotifyCount),
       everSpawned: [..._everSpawned],
       clawPreviouslyNotified: Object.fromEntries(_clawPreviouslyNotified),
     };
   },
 
   replaceAll(s: ClawStateSnapshot): void {
-    _lastInactivityNotified.clear();
-    for (const [k, v] of Object.entries(s.lastInactivityNotified ?? {})) {
-      _lastInactivityNotified.set(k, v);
-    }
-
     _clawPreviouslyAlive.clear();
     for (const [k, v] of Object.entries(s.clawPreviouslyAlive ?? {})) {
       _clawPreviouslyAlive.set(k, v);
-    }
-
-    _inactivityNotifyCount.clear();
-    for (const [k, v] of Object.entries(s.inactivityNotifyCount ?? {})) {
-      _inactivityNotifyCount.set(k, v);
     }
 
     _everSpawned.clear();
@@ -277,9 +262,7 @@ export function _resetWatchdogContextForTest(): void {
   watchdogConfigCache = null;
   _auditWriter = null;
   // 5 cron-state Maps/Sets
-  _lastInactivityNotified.clear();
   _clawPreviouslyAlive.clear();
-  _inactivityNotifyCount.clear();
   _everSpawned.clear();
   _clawPreviouslyNotified.clear();
   // motion restart durable state

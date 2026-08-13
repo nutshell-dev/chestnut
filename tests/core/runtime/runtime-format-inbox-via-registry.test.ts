@@ -2,7 +2,7 @@
  * phase 1243: Runtime.formatInboxMessage 收窄到 declaration registry dispatch + DP 不静默 fallback。
  *
  * Covers:
- * - 6 case 等价行为对照（user_chat / user_inbox_message / claw_inactivity / heartbeat / task_result / unknown）
+ * - 5 case 等价行为对照（user_chat / user_inbox_message / heartbeat / task_result / unknown）
  * - unknown type 走默 fallback + emit INBOX_UNKNOWN_TYPE audit
  * - Runtime 不再字面持 case 字符串（grep invariant 在 eslint-rules/no-runtime-knows-upper-layer-messages.test.ts）
  */
@@ -17,12 +17,10 @@ import type { InboxMessageTypeRegistry } from '../../../src/foundation/messaging
 import type { GuidanceCompose } from '../../../src/core/runtime/index.js';
 import { MESSAGING_INBOX_MESSAGE_TYPES } from '../../../src/foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../../src/core/gateway/index.js';
-import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../../../src/watchdog/inbox-formatter.js';
 import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../../../src/core/async-task-system/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../../../src/core/heartbeat/index.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
-import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { contractEventsGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-events.js';
 import { contractCancelledGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-cancelled.js';
@@ -117,18 +115,6 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('claw_inactivity → "[system message<ts>] <body>"（Watchdog declaration / phase 4 drop preamble）', async () => {
-    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createInboxMessageTypeRegistry();
-    registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
-    const runtime = build({ audit, formatterRegistry: registry });
-
-    const result = await runtime.testFormatInboxMessage('claw_inactivity', 'watchdog', 'claw stuck');
-
-    expect(result).toMatch(/^\[system message\d*\] claw stuck$/);
-    expect(audit.write).not.toHaveBeenCalled();
-  });
-
   it('heartbeat → "Heartbeat triggered..."（Heartbeat custom formatter）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const enoent: NodeJS.ErrnoException = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
@@ -178,107 +164,39 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   it('phase 1256 Step A: guidance callback 收到完整 envelope（type/from/meta 保真、不从 meta 猜测 from）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
+    registerInboxMessageTypes(registry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
     const spy = vi.fn().mockReturnValue({ text: 'GUIDANCE-TAIL' });
     const runtime = build({ audit, formatterRegistry: registry, guidanceCompose: spy });
 
     const result = await runtime.testFormatInboxMessage(
-      'claw_inactivity',
-      'watchdog',
-      'claw stuck',
+      'task_result',
+      'sys',
+      'generic body',
       undefined,
-      { failure_class: 'daemon_silent', claw_id: 'clawA' },
+      { task_id: 'taskA', status: 'done' },
     );
 
-    // 同一个调用同时保留 type / from / 指定 meta 字段
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith({
-      type: 'claw_inactivity',
-      from: 'watchdog',
-      meta: { failure_class: 'daemon_silent', claw_id: 'clawA' },
+      type: 'task_result',
+      from: 'sys',
+      meta: { task_id: 'taskA', status: 'done' },
     });
-    // callback 返回 guidance text 时，原 body + append 行为不变
-    expect(result).toMatch(/^\[system message\d*\] claw stuck$/m);
+    expect(result).toMatch(/^\[system message.*\] generic body$/m);
     expect(result).toContain('\n\nGUIDANCE-TAIL');
   });
 
   it('phase 1256 Step A: 无 extraMeta 时 callback 收到空 meta + 真实 from', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
-    registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
+    registerInboxMessageTypes(registry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
     const spy = vi.fn().mockReturnValue(null);
     const runtime = build({ audit, formatterRegistry: registry, guidanceCompose: spy });
 
-    const result = await runtime.testFormatInboxMessage('claw_inactivity', 'watchdog', 'boom');
+    const result = await runtime.testFormatInboxMessage('task_result', 'sys', 'boom');
 
-    expect(spy).toHaveBeenCalledWith({ type: 'claw_inactivity', from: 'watchdog', meta: {} });
-    expect(result).toMatch(/^\[system message\d*\] boom$/);
-  });
-
-  it('phase 1258 Step B + phase 1264 Step A: claw_inactivity 真实 registry + 合法 v1 wire → guidance append、target = meta.claw_id', async () => {
-    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createInboxMessageTypeRegistry();
-    registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
-    const guidanceRegistry = createMotionGuidanceRegistry();
-    registerCliGuidance(guidanceRegistry, [clawInactivityGuidanceBinding]);
-    const runtime = build({
-      audit,
-      formatterRegistry: registry,
-      guidanceCompose: (input) => guidanceRegistry.compose(input),
-    });
-
-    const result = await runtime.testFormatInboxMessage(
-      'claw_inactivity',
-      'watchdog',
-      'Claw claw-real has been inactive',
-      undefined,
-      {
-        guidance_schema_version: '1',
-        claw_id: 'claw-real',
-        failure_class: 'daemon_silent',
-        inactive_ms: '300000',
-        contract: 'active:c1',
-        as_of: '2026-08-01T12:00:00.000Z',
-      },
-    );
-
-    expect(result).toMatch(/^\[system message\d*\] Claw claw-real has been inactive$/m);
-    expect(result).toContain('To inspect what the agent is stuck on: chestnut claw claw-real steps');
-    expect(audit.write).not.toHaveBeenCalled();
-  });
-
-  it('phase 1258 Step B + phase 1264 Step A: claw_inactivity decoder 失败 → GUIDANCE_COMPOSER_FAILED audit、仅投递原 body（无 fallback/placeholder guidance）', async () => {
-    const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const registry = createInboxMessageTypeRegistry();
-    registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
-    // 真实 formatter declaration + 真实 guidance registry + 真实 typed binding（不手写 catch）
-    const guidanceRegistry = createMotionGuidanceRegistry();
-    registerCliGuidance(guidanceRegistry, [clawInactivityGuidanceBinding]);
-    const runtime = build({
-      audit,
-      formatterRegistry: registry,
-      guidanceCompose: (input) => guidanceRegistry.compose(input),
-    });
-
-    const result = await runtime.testFormatInboxMessage(
-      'claw_inactivity',
-      'watchdog',
-      'Claw claw-real has been inactive',
-      undefined,
-      { failure_class: 'mystery' },  // malformed wire：缺 owned fields + 未知 class
-    );
-
-    // malformed wire 不阻断 body 投递
-    expect(result).toMatch(/^\[system message\d*\] Claw claw-real has been inactive$/);
-    // formatted result 不含任何 fallback/placeholder guidance
-    expect(result).not.toContain('To inspect');
-    expect(result).not.toContain('<claw-id>');
-    // audit 含 type 与安全 reason（typed decode error / 不回显 metadata）
-    expect(audit.write).toHaveBeenCalledWith(
-      RUNTIME_AUDIT_EVENTS.GUIDANCE_COMPOSER_FAILED,
-      'type=claw_inactivity',
-      expect.stringContaining('schema_invalid'),
-    );
+    expect(spy).toHaveBeenCalledWith({ type: 'task_result', from: 'sys', meta: {} });
+    expect(result).toMatch(/^\[system message.*\] boom$/);
   });
 
   it('phase 1259 Step B + phase 1265 Step A: claw_outbox_summary 真实 typed binding + 合法 v1 wire → guidance append（真实 limit）', async () => {

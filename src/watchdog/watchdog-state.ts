@@ -1,6 +1,8 @@
 /**
  * @module L6.Watchdog.State
- * Watchdog state persistence — load/save 2 Map + crash log
+ * Watchdog state persistence — load/save crash Map + restart state
+ *
+ * phase 1383 (P2b): inactivity maps (lastInactivityNotified/inactivityNotifyCount) 退场。
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
@@ -14,8 +16,7 @@ const CURRENT_WATCHDOG_SCHEMA_VERSION = 2;
 
 interface WatchdogState {
   schema_version: number;  // phase 311 strict-end: require explicit (no fallback)
-  lastInactivityNotified: Record<string, number>;
-  inactivityNotifyCount: Record<string, number>;
+  // phase 1383: lastInactivityNotified/inactivityNotifyCount 退场
   // NEW — phase 1072: crash-detection state persisted for watchdog self-recovery
   clawPreviouslyAlive: Record<string, boolean>;
   everSpawned: string[];
@@ -121,8 +122,6 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
 
     // corrupt path: Maps reset to empty (mirror ENOENT) / partial populate from broken state must not leak / per phase 636
     clawStateAPI.replaceAll({
-      lastInactivityNotified: {},
-      inactivityNotifyCount: {},
       clawPreviouslyAlive: {},
       everSpawned: [],
       clawPreviouslyNotified: {},

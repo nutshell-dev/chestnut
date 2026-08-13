@@ -94,8 +94,7 @@ function writeOutcome(
 function describeConfig(config: WatchdogConfig): string {
   return (
     `interval_ms=${config.interval_ms}, ` +
-    `disk_warning_mb=${config.disk_warning_mb}, ` +
-    `claw_inactivity_timeout_ms=${config.claw_inactivity_timeout_ms}`
+    `disk_warning_mb=${config.disk_warning_mb}`
   );
 }
 

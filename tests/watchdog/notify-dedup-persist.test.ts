@@ -15,7 +15,6 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
-import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
 
 vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
@@ -55,9 +54,7 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();
   return {
     ...actual,
-    clawHasContract: vi.fn(),
     clawHasActiveContract: vi.fn().mockReturnValue(true),
-    gatherClawSnapshot: vi.fn(),
   };
 });
 
@@ -80,12 +77,8 @@ describe('watchdog claw restart state persist (phase 1380)', () => {
 
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, disk_warning_mb: 500,
     });
-    vi.mocked(clawHasContract).mockReturnValue(true);
-    vi.mocked(gatherClawSnapshot).mockReturnValue({
-      contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'stopped',
-    } as any);
 
     auditWriter = new AuditWriter(
       new NodeFileSystem({ baseDir: chestnutDir }),

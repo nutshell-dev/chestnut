@@ -27,12 +27,10 @@ const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 const LEGACY_DEFAULT: WatchdogConfig = {
   interval_ms: 30000,
   disk_warning_mb: 500,
-  claw_inactivity_timeout_ms: 300000,
 };
 const LEGACY_CUSTOM: WatchdogConfig = {
   interval_ms: 60000,
   disk_warning_mb: 1024,
-  claw_inactivity_timeout_ms: 600000,
 };
 
 describe('phase 1289 Step B: workspace watchdog config store', () => {
@@ -74,12 +72,12 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
       fs.mkdirSync(path.join(chestnutRoot, WATCHDOG_PATHS.root), { recursive: true });
       fs.writeFileSync(
         path.join(chestnutRoot, WATCHDOG_PATHS.config),
-        'schema_version: 2\ninterval_ms: 30000\ndisk_warning_mb: 500\nclaw_inactivity_timeout_ms: 300000\n',
+        'schema_version: 2\ninterval_ms: 30000\ndisk_warning_mb: 500\n',
       );
       expect(loadWorkspaceWatchdogConfig(fsFactory(chestnutRoot)).kind).toBe('invalid');
       fs.writeFileSync(
         path.join(chestnutRoot, WATCHDOG_PATHS.config),
-        'schema_version: 1\ninterval_ms: 100\ndisk_warning_mb: 500\nclaw_inactivity_timeout_ms: 300000\n',
+        'schema_version: 1\ninterval_ms: 100\ndisk_warning_mb: 500\n',
       );
       expect(loadWorkspaceWatchdogConfig(fsFactory(chestnutRoot)).kind).toBe('invalid');
     });
@@ -108,7 +106,7 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
     it('fresh init 创建默认配置、磁盘形态与拍板一致（key 顺序固定）', () => {
       expect(initWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toBe('created');
       expect(readConfigFile()).toBe(
-        'schema_version: 1\ninterval_ms: 30000\ndisk_warning_mb: 500\nclaw_inactivity_timeout_ms: 300000\n',
+        'schema_version: 1\ninterval_ms: 30000\ndisk_warning_mb: 500\n',
       );
     });
 
@@ -130,7 +128,7 @@ describe('phase 1289 Step B: workspace watchdog config store', () => {
     it('不存在 → published，写入 legacy 值并可读回（key 顺序固定）', () => {
       expect(publishMigratedWorkspaceWatchdogConfig(fsFactory(chestnutRoot), LEGACY_CUSTOM, 'deadbeef')).toBe('published');
       expect(readConfigFile()).toBe(
-        'schema_version: 1\ninterval_ms: 60000\ndisk_warning_mb: 1024\nclaw_inactivity_timeout_ms: 600000\n',
+        'schema_version: 1\ninterval_ms: 60000\ndisk_warning_mb: 1024\n',
       );
       expect(loadWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toEqual({ kind: 'ok', config: LEGACY_CUSTOM });
     });

@@ -36,7 +36,6 @@ const ALL_ACTIONS = [
   { kind: 'claw.daemon', target: clawA },
   { kind: 'claw.status', target: clawA },
   { kind: 'claw.steps', target: clawA },
-  { kind: 'claw.watch', target: clawA, inactiveAfter: '5m' },
   { kind: 'claw.outbox', target: clawA, limit: 4 },
   { kind: 'claw.trace', clawId: 'clawA', contractId: 'c1' },
   { kind: 'contract.show', clawId: 'clawA', contractId: 'c1' },
@@ -47,9 +46,7 @@ const ALL_LABELS = [
   'inspect-before-crash',
   'check-current-status',
   'inspect-current-work',
-  'inspect-stuck',
   'inspect',
-  'watch-after-intervention',
   'read-outbox',
   'trace-contract',
   'show-contract',
@@ -78,13 +75,6 @@ describe('phase 1263 Step A: renderCliGuidanceAction', () => {
       .toBe('chestnut claw <claw-id> steps');
   });
 
-  it('claw.watch 追加 --inactive-after（保留 duration 原值）', () => {
-    expect(renderCliGuidanceAction({ kind: 'claw.watch', target: clawA, inactiveAfter: '5m' }))
-      .toBe('chestnut claw clawA watch --inactive-after 5m');
-    expect(renderCliGuidanceAction({ kind: 'claw.watch', target: clawA, inactiveAfter: '30m' }))
-      .toBe('chestnut claw clawA watch --inactive-after 30m');
-  });
-
   it('claw.outbox 追加 --limit（placeholder 唯一渲染 <claw-id>、无双层尖括号）', () => {
     expect(renderCliGuidanceAction({ kind: 'claw.outbox', target: placeholder, limit: 4 }))
       .toBe('chestnut claw <claw-id> outbox --limit 4');
@@ -102,10 +92,8 @@ describe('phase 1263 Step A: renderCliGuidanceAction', () => {
       .toBe('chestnut contract show -c worker --contract c1');
   });
 
-  it('空真实 id / 空 inactiveAfter / 空 contract id → fail-fast throw（不静默默认）', () => {
+  it('空真实 id / 空 contract id → fail-fast throw（不静默默认）', () => {
     expect(() => renderCliGuidanceAction({ kind: 'claw.steps', target: { kind: 'claw', id: '' } }))
-      .toThrowError(CliGuidanceRenderError);
-    expect(() => renderCliGuidanceAction({ kind: 'claw.watch', target: clawA, inactiveAfter: '' }))
       .toThrowError(CliGuidanceRenderError);
     expect(() => renderCliGuidanceAction({ kind: 'claw.trace', clawId: '', contractId: 'c1' }))
       .toThrowError(CliGuidanceRenderError);
@@ -124,29 +112,6 @@ describe('phase 1263 Step A: renderCliGuidanceAction', () => {
 });
 
 describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentation', () => {
-
-  it('inactivity inspect-stuck / inspect + watch-after-intervention exact', () => {
-    const stuck: CliGuidanceDocument = {
-      lines: [
-        { label: 'inspect-stuck', action: { kind: 'claw.steps', target: clawA } },
-        { label: 'watch-after-intervention', action: { kind: 'claw.watch', target: clawA, inactiveAfter: '5m' } },
-      ],
-    };
-    expect(renderCliGuidanceDocument(stuck)).toBe(
-      'To inspect what the agent is stuck on: chestnut claw clawA steps\n' +
-      'To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m',
-    );
-    const errored: CliGuidanceDocument = {
-      lines: [
-        { label: 'inspect', action: { kind: 'claw.steps', target: clawA } },
-        { label: 'watch-after-intervention', action: { kind: 'claw.watch', target: clawA, inactiveAfter: '5m' } },
-      ],
-    };
-    expect(renderCliGuidanceDocument(errored)).toBe(
-      'To inspect: chestnut claw clawA steps\n' +
-      'To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m',
-    );
-  });
 
   it('outbox read-outbox label exact（中文 presentation + placeholder）', () => {
     const doc: CliGuidanceDocument = {

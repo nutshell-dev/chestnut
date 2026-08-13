@@ -30,7 +30,6 @@ const h = vi.hoisted(() => ({
   readCommand: vi.fn(),
   lsCommand: vi.fn(),
   clawStatusCommand: vi.fn(),
-  watchCommand: vi.fn(),
   runStreamFromArgs: vi.fn(),
   clawTraceCommand: vi.fn(),
   psCommand: vi.fn(),
@@ -53,7 +52,6 @@ vi.mock('../../src/cli/commands/claw.js', () => ({
   readCommand: h.readCommand,
   lsCommand: h.lsCommand,
   clawStatusCommand: h.clawStatusCommand,
-  watchCommand: h.watchCommand,
   runStreamFromArgs: h.runStreamFromArgs,
   clawTraceCommand: h.clawTraceCommand,
 }));
@@ -180,7 +178,6 @@ describe('claw-router RootConfig 窄 DI', () => {
     ['import', ['import', 'note.md'], h.importCommand],
     ['trace', ['trace', '--contract', 'C-1'], h.clawTraceCommand],
     ['stream', ['stream'], h.runStreamFromArgs],
-    ['watch', ['watch'], h.watchCommand],
     ['chat', ['chat'], h.chatCommand],
     ['create', ['create'], h.createCommand],
   ] as const)(

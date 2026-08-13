@@ -31,7 +31,7 @@ function makeIntent(id: string): WatchdogMigrationIntent {
     kind: 'watchdog-config-relocation',
     created_at: new Date().toISOString(),
     source: { path: '/ws/.chestnut/config.yaml', section: 'watchdog', sha256: 'a'.repeat(64) },
-    legacy: { interval_ms: 60000, disk_warning_mb: 1024, claw_inactivity_timeout_ms: 600000 },
+    legacy: { interval_ms: 60000, disk_warning_mb: 1024 },
   };
 }
 
@@ -63,7 +63,7 @@ describe('phase 1289 Step B: watchdog migration journal', () => {
     writeWatchdogMigrationOutcome(rootFs, makeOutcome('m1'));
     const journal = readWatchdogMigrationJournal(rootFs, 'm1');
     expect(journal.intent?.migration_id).toBe('m1');
-    expect(journal.intent?.legacy).toEqual({ interval_ms: 60000, disk_warning_mb: 1024, claw_inactivity_timeout_ms: 600000 });
+    expect(journal.intent?.legacy).toEqual({ interval_ms: 60000, disk_warning_mb: 1024 });
     expect(journal.outcome?.status).toBe('completed');
     // 嵌套目录自动创建
     expect(fs.existsSync(path.join(chestnutRoot, WATCHDOG_PATHS.migrations, 'm1', 'intent.json'))).toBe(true);
@@ -104,7 +104,7 @@ describe('phase 1289 Step B: watchdog migration journal', () => {
     writeWatchdogMigrationIntent(rootFs, makeIntent('m1'));
     const pending = findPendingWatchdogMigration(rootFs);
     expect(pending?.migrationId).toBe('m1');
-    expect(pending?.intent.legacy).toEqual({ interval_ms: 60000, disk_warning_mb: 1024, claw_inactivity_timeout_ms: 600000 });
+    expect(pending?.intent.legacy).toEqual({ interval_ms: 60000, disk_warning_mb: 1024 });
     writeWatchdogMigrationOutcome(rootFs, makeOutcome('m1'));
     expect(findPendingWatchdogMigration(rootFs)).toBeUndefined();
   });

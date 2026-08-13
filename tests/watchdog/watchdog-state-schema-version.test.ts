@@ -65,7 +65,7 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
+      interval_ms: 30_000, disk_warning_mb: 500,
     });
   });
 
@@ -78,8 +78,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
     fs.writeFileSync(stateFile, JSON.stringify({
       schema_version: 99,
-      lastInactivityNotified: {},
-      inactivityNotifyCount: {},
       clawPreviouslyAlive: {},
       everSpawned: [],
     }));
@@ -91,8 +89,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     expect(() => loadWatchdogState(fsFactory)).not.toThrow();
 
     // Maps should be reset to empty
-    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
-    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
     expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
     expect(clawStateAPI.everSpawned.size).toBe(0);
 
@@ -121,8 +117,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
     fs.writeFileSync(stateFile, JSON.stringify({
       version: 1,
-      lastInactivityNotified: { claw1: 100 },
-      inactivityNotifyCount: { claw1: 2 },
       clawPreviouslyAlive: { claw1: true },
       everSpawned: ['claw1'],
     }));
@@ -134,8 +128,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     expect(() => loadWatchdogState(fsFactory)).not.toThrow();
 
     // Maps should be reset to empty
-    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
-    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
     expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
     expect(clawStateAPI.everSpawned.size).toBe(0);
 
@@ -158,8 +150,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
     fs.writeFileSync(stateFile, JSON.stringify({
       schema_version: 2,
-      lastInactivityNotified: { claw1: 200 },
-      inactivityNotifyCount: { claw1: 3 },
       clawPreviouslyAlive: { claw1: false },
       everSpawned: ['claw1'],
     }));
@@ -176,8 +166,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     expect(badEvents).toHaveLength(0);
 
     // Maps loaded successfully
-    expect(clawStateAPI.lastInactivityNotified.get('claw1')).toBe(200);
-    expect(clawStateAPI.inactivityNotifyCount.get('claw1')).toBe(3);
     expect(clawStateAPI.clawPreviouslyAlive.get('claw1')).toBe(false);
     expect(clawStateAPI.everSpawned.has('claw1')).toBe(true);
 
@@ -197,8 +185,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
     fs.writeFileSync(stateFile, JSON.stringify({
       schema_version: 2,
-      lastInactivityNotified: {},
-      inactivityNotifyCount: {},
       clawPreviouslyAlive: {},
       everSpawned: [],
     }));
@@ -224,8 +210,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     } as const;
     fs.writeFileSync(stateFile, JSON.stringify({
       schema_version: 2,
-      lastInactivityNotified: {},
-      inactivityNotifyCount: {},
       clawPreviouslyAlive: {},
       everSpawned: [],
       motionRestart: retrying,
@@ -250,8 +234,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     } as const;
     fs.writeFileSync(stateFile, JSON.stringify({
       schema_version: 2,
-      lastInactivityNotified: {},
-      inactivityNotifyCount: {},
       clawPreviouslyAlive: {},
       everSpawned: [],
       motionRestart: open,
@@ -271,8 +253,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
     fs.writeFileSync(stateFile, JSON.stringify({
       schema_version: 2,
-      lastInactivityNotified: {},
-      inactivityNotifyCount: {},
       clawPreviouslyAlive: {},
       everSpawned: [],
       motionRestart: { status: 'retrying', consecutiveAttempts: -1 },
@@ -284,7 +264,6 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
     expect(() => loadWatchdogState(fsFactory)).not.toThrow();
 
     expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
-    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
 
     const failedCall = mockAudit.write.mock.calls.find((c: any[]) => c[0] === WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED);
     expect(failedCall).toBeDefined();

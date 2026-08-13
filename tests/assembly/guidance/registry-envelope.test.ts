@@ -18,13 +18,13 @@ describe('phase 1256 Step B: registry compose envelope fidelity', () => {
   it('composer receives the exact same envelope object (type/from/meta identity)', () => {
     const registry = createMotionGuidanceRegistry();
     const spy = vi.fn().mockReturnValue({ text: 'G' });
-    // phase 1380: fixture 从退场的 claw_crashed 换为既存 type（claw_inactivity）
-    registry.register('claw_inactivity', spy);
+    // phase 1383: fixture 使用既存 type（claw_inactivity 已退场）
+    registry.register('claw_outbox_summary', spy);
 
     const input: GuidanceEnvelope = {
-      type: 'claw_inactivity',
-      from: 'claw-a',
-      meta: { failure_class: 'daemon_silent', claw_id: 'clawA' },
+      type: 'claw_outbox_summary',
+      from: 'system',
+      meta: { 'summary-hash': 'abc' },
     };
     const result = registry.compose(input);
 
@@ -32,7 +32,7 @@ describe('phase 1256 Step B: registry compose envelope fidelity', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     // identity：registry 原样转交、不重建/不丢 from
     expect(spy.mock.calls[0][0]).toBe(input);
-    expect(spy.mock.calls[0][0].from).toBe('claw-a');
+    expect(spy.mock.calls[0][0].from).toBe('system');
     expect(spy.mock.calls[0][0].meta).toBe(input.meta);
   });
 

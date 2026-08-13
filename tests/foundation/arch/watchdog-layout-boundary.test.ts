@@ -129,8 +129,8 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
   });
 
   it('阶段隔离：state/subscription/log 生产 IO 仍在 legacy 位置、未提前引用 target（迁移 Phase 须校准本约束）', () => {
-    const staged = ['watchdog-state.ts', 'subscription-store.ts', 'watchdog-log.ts', 'constants.ts'];
-    const targets = ['watchdog/state.json', 'watchdog/subscriptions', 'watchdog/watchdog.log', 'WATCHDOG_PATHS'];
+    const staged = ['watchdog-state.ts', 'watchdog-log.ts', 'constants.ts'];
+    const targets = ['watchdog/state.json', 'watchdog/watchdog.log', 'WATCHDOG_PATHS'];
     for (const name of staged) {
       const text = fs.readFileSync(path.join(WATCHDOG_DIR, name), 'utf8');
       for (const t of targets) expect(text.includes(t), `${name} must not reference target ${t} yet`).toBe(false);

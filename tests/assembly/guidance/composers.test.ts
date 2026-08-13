@@ -7,12 +7,10 @@ import { describe, it, expect } from 'vitest';
 import { composer as taskQueueOverflowComposer } from '../../../src/assembly/guidance/composers/task-queue-overflow.js';
 import { createMotionGuidanceRegistry } from '../../../src/assembly/guidance/registry.js';
 import { registerAllMotionGuidance } from '../../../src/assembly/guidance/composers/index.js';
-import { clawInactivityGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { contractEventsGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-events.js';
 import { contractCancelledGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-cancelled.js';
 import { registerCliGuidance, type CliGuidanceInput } from '../../../src/cli-protocol/index.js';
-import { ClawInactivityGuidanceDecodeError } from '../../../src/watchdog/claw-inactivity-guidance.js';
 import { OutboxSummaryGuidanceDecodeError } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
 import {
   ContractEventsGuidanceDecodeError,
@@ -173,134 +171,6 @@ describe('claw-outbox-summary typed binding (phase 1265 Step A)', () => {
   });
 });
 
-
-/**
- * phase 1482 + phase 2 reframe + phase 4 重写 + phase 201 + phase 1258 Step B + phase 1264 Step A:
- * claw-inactivity typed binding 测试。daemon_stopped case 已移除（归 claw_crashed binding 覆盖）.
- * phase 4: guidance 字面英文化.
- * phase 1258 Step B: composer 只消费 Watchdog owner codec typed state —
- *   `claw_id` 来自 owner metadata（envelope from 固定 watchdog = 发起模块业务语义）；
- *   unknown class / 缺字段 / 错 from 由 decoder 抛 typed error（不再产 fallback / `<claw-id>` placeholder）。
- * phase 1264 Step A: composer 原子迁为 Assembly typed binding —
- *   Assembly 只穷尽映射 FailureClass → CliGuidanceDocument；CLIProtocol 发起注册并渲染。
- *   最终文本、命令、顺序、固定 `5m`、typed decode failure 与正文保留行为全部不变（逐字锁定）。
- */
-
-
-/** 合法 v1 wire（production shape：from 固定 watchdog，claw_id 在 owner metadata）。 */
-function v1InactivityMeta(failureClass: string): Record<string, string> {
-  return {
-    guidance_schema_version: '1',
-    claw_id: 'clawA',
-    failure_class: failureClass,
-    inactive_ms: '300000',
-    contract: 'active:c1',
-    as_of: '2026-08-01T12:00:00.000Z',
-  };
-}
-
-/** 合法 legacy wire（缺 version 的旧 production shape）。 */
-function legacyInactivityMeta(failureClass: string): Record<string, string> {
-  const meta = v1InactivityMeta(failureClass);
-  delete meta.guidance_schema_version;
-  return meta;
-}
-
-/** 经 CLIProtocol register helper + binding 的真实注册路径 compose。 */
-function composeInactivity(meta: Record<string, string>, from: string): { text: string } | null {
-  const composers = new Map<string, (input: CliGuidanceInput) => { text: string } | null>();
-  registerCliGuidance({ register: (type, composer) => composers.set(type, composer) }, [clawInactivityGuidanceBinding]);
-  const composer = composers.get('claw_inactivity');
-  if (!composer) throw new Error('claw_inactivity binding was not registered');
-  return composer(env('claw_inactivity', meta, from));
-}
-
-const SILENT_EXACT =
-  'To inspect what the agent is stuck on: chestnut claw clawA steps\n' +
-  'To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m';
-const ERRORED_EXACT =
-  'To inspect: chestnut claw clawA steps\n' +
-  'To be notified if it remains stuck after intervention: chestnut claw clawA watch --inactive-after 5m';
-
-describe('claw-inactivity typed binding (phase 1264 Step A)', () => {
-  it('daemon_silent v1 → exact 2-line guidance: inspect-stuck + watch CLI, target = owner claw_id', () => {
-    const r = composeInactivity(v1InactivityMeta('daemon_silent'), 'watchdog');
-    expect(r).toEqual({ text: SILENT_EXACT });
-  });
-
-  it('daemon_silent legacy production shape → 同 v1 exact 输出（version 缺失不影响）', () => {
-    const r = composeInactivity(legacyInactivityMeta('daemon_silent'), 'watchdog');
-    expect(r).toEqual({ text: SILENT_EXACT });
-  });
-
-  it('daemon_errored v1 → exact 2-line guidance: inspect + watch CLI', () => {
-    const r = composeInactivity(v1InactivityMeta('daemon_errored'), 'watchdog');
-    expect(r).toEqual({ text: ERRORED_EXACT });
-  });
-
-  it('subscription production shape（含 source_path + last_error）→ exact 同普通 daemon_errored（binding 不重灌 body 事实）', () => {
-    const r = composeInactivity({
-      ...v1InactivityMeta('daemon_errored'),
-      source_path: 'subscription',
-      last_error: 'LLM timeout',
-    }, 'watchdog');
-    expect(r).toEqual({ text: ERRORED_EXACT });
-  });
-
-  it('binding 只产 typed document：exhaustive FailureClass 映射、不含 prose/CLI literal 或无关 owner facts', () => {
-    expect(clawInactivityGuidanceBinding.type).toBe('claw_inactivity');
-    const state = clawInactivityGuidanceBinding.decode(env('claw_inactivity', v1InactivityMeta('daemon_errored'), 'watchdog'));
-    expect(clawInactivityGuidanceBinding.toDocument(state)).toEqual({
-      lines: [
-        { label: 'inspect', action: { kind: 'claw.steps', target: { kind: 'claw', id: 'clawA' } } },
-        { label: 'watch-after-intervention', action: { kind: 'claw.watch', target: { kind: 'claw', id: 'clawA' }, inactiveAfter: '5m' } },
-      ],
-    });
-    const silentState = clawInactivityGuidanceBinding.decode(env('claw_inactivity', v1InactivityMeta('daemon_silent'), 'watchdog'));
-    expect(clawInactivityGuidanceBinding.toDocument(silentState)).toEqual({
-      lines: [
-        { label: 'inspect-stuck', action: { kind: 'claw.steps', target: { kind: 'claw', id: 'clawA' } } },
-        { label: 'watch-after-intervention', action: { kind: 'claw.watch', target: { kind: 'claw', id: 'clawA' }, inactiveAfter: '5m' } },
-      ],
-    });
-  });
-
-  it('daemon_stopped → decoder typed throw 穿透 register helper（不再产 fallback guidance）', () => {
-    expect(() => composeInactivity(v1InactivityMeta('daemon_stopped'), 'watchdog'))
-      .toThrowError(ClawInactivityGuidanceDecodeError);
-  });
-
-  it('unknown failure_class → decoder typed throw 穿透 register helper（不再产 fallback guidance）', () => {
-    expect(() => composeInactivity(v1InactivityMeta('mystery_class'), 'watchdog'))
-      .toThrowError(ClawInactivityGuidanceDecodeError);
-  });
-
-  it('missing claw_id (daemon_silent) → decoder typed throw（不再产 <claw-id> placeholder）', () => {
-    const meta = v1InactivityMeta('daemon_silent');
-    delete meta.claw_id;
-    expect(() => composeInactivity(meta, 'watchdog'))
-      .toThrowError(ClawInactivityGuidanceDecodeError);
-  });
-
-  it('from 非 watchdog → decoder typed throw（owner provenance 不可伪装）', () => {
-    expect(() => composeInactivity(v1InactivityMeta('daemon_silent'), 'clawA'))
-      .toThrowError(ClawInactivityGuidanceDecodeError);
-  });
-
-  it('真实 registry end-to-end：createMotionGuidanceRegistry + registerAllMotionGuidance + compose 合法 fixture exact 输出', () => {
-    const registry = createMotionGuidanceRegistry();
-    registerAllMotionGuidance(registry);
-    const r = registry.compose(env('claw_inactivity', v1InactivityMeta('daemon_silent'), 'watchdog'));
-    expect(r).toEqual({ text: SILENT_EXACT });
-  });
-
-  it('真实 registry end-to-end：malformed wire typed throw 穿透（Runtime 前错误传播不变）', () => {
-    const registry = createMotionGuidanceRegistry();
-    registerAllMotionGuidance(registry);
-    expect(() => registry.compose(env('claw_inactivity', v1InactivityMeta('mystery_class'), 'watchdog')))
-      .toThrowError(ClawInactivityGuidanceDecodeError);
-  });
-});
 
 /**
  * phase 63 γ NEW: contract_cancelled composer unit test

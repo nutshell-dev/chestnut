@@ -19,7 +19,6 @@ const srcDir = path.resolve(__dirname, '../../../src');
 const DECLARATION_FILES = [
   'foundation/messaging/inbox-formatters.ts',
   'core/gateway/inbox-formatter.ts',
-  'watchdog/inbox-formatter.ts',
   'core/contract/inbox-formatters.ts',
   'daemon/inbox-formatter.ts',
   'core/memory/inbox-formatter.ts',
@@ -124,7 +123,6 @@ describe('phase 1419/1243: inbox message type registry coverage invariant', () =
     const registered = extractRegisteredTypes();
     const expected = [
       'user_inbox_message', 'user_chat',
-      'claw_inactivity',
       'contract_events', 'verification_result', 'verification_rejection', 'verification_error',
       'startup_check',
       'random_dream', 'deep_dream',

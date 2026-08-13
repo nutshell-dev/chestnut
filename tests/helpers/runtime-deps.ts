@@ -29,7 +29,6 @@ import {
   MESSAGING_INBOX_MESSAGE_TYPES,
 } from '../../src/foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../src/core/gateway/index.js';
-import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../../src/watchdog/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../../src/core/heartbeat/index.js';
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 
@@ -87,7 +86,6 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const formatterRegistry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(formatterRegistry, MESSAGING_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, GATEWAY_INBOX_MESSAGE_TYPES);
-  registerInboxMessageTypes(formatterRegistry, WATCHDOG_INBOX_MESSAGE_TYPES);
   formatterRegistry.register({
     owner: 'motion-heartbeat-test',
     type: 'heartbeat',

@@ -18,7 +18,6 @@ export {
   CLAW_COMMAND_CATALOG,
   CLAW_INSTANCE_COMMAND_IDS,
   DEFAULT_OUTBOX_READ_LIMIT,
-  WATCH_INACTIVE_AFTER_DEFAULT,
   getClawCommandSpec,
   type ClawCommandId,
   type ClawInstanceCommandId,

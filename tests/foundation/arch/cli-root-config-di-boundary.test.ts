@@ -27,7 +27,6 @@ import {
   CLAW_DAEMON_LIFECYCLE_COMMANDS,
   CLAW_INPUT_COMMANDS,
   CLAW_OBSERVATION_COMMANDS,
-  CLAW_WATCH_COMMANDS,
   CLAW_CHAT_COMMANDS,
   CLAW_LIST_COMMANDS,
   CLAW_CREATE_COMMANDS,
@@ -126,7 +125,7 @@ describe('phase 1323: Audit command family RootConfig DI boundary', () => {
 
 describe('phase 1324-1326: claw leaf 共享窄 deps 边界', () => {
   it('已迁leaf零config-load、type-import共享deps、参数为共享/扩展ClawCommandDeps', () => {
-    for (const file of [...CLAWSPACE_COMMANDS, ...CLAW_INSPECTION_COMMANDS, ...CLAW_DAEMON_LIFECYCLE_COMMANDS, ...CLAW_INPUT_COMMANDS, ...CLAW_OBSERVATION_COMMANDS, ...CLAW_WATCH_COMMANDS, ...CLAW_CHAT_COMMANDS, ...CLAW_LIST_COMMANDS, ...CLAW_CREATE_COMMANDS]) {
+    for (const file of [...CLAWSPACE_COMMANDS, ...CLAW_INSPECTION_COMMANDS, ...CLAW_DAEMON_LIFECYCLE_COMMANDS, ...CLAW_INPUT_COMMANDS, ...CLAW_OBSERVATION_COMMANDS, ...CLAW_CHAT_COMMANDS, ...CLAW_LIST_COMMANDS, ...CLAW_CREATE_COMMANDS]) {
       const text = read(path.join(CLI_ROOT, 'commands', file));
       expect(importSpecifiers(text).filter((s) => s.endsWith('assembly/config/config-load.js'))).toEqual([]);
       expect(importSpecifiers(text)).toContain('./claw-command-deps.js');

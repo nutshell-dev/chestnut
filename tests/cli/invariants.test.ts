@@ -14,7 +14,6 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as clawSteps from '../../src/cli/commands/claw-steps.js';
 import { skillInstallClawCommand } from '../../src/cli/commands/skill.js';
 import { createTaskStatusBar } from '../../src/cli/commands/chat-viewport-task-status-bar.js';
-import { parseDurationMs, DurationParseError } from '../../src/cli/utils/duration.js';
 import { chatCommand } from '../../src/cli/commands/claw-chat.js';
 import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
 
@@ -333,47 +332,9 @@ describe('phase 1401: task stream reader catch-up from 0', () => {
 });
 
 /**
- * phase 5: duration parser unit tests.
+ * phase 5: duration parser — REMOVED phase 1383 (P2b): claw.watch 退场后
+ * parseDurationMs 无生产使用者，src/cli/utils/duration.ts 一并删除。
  */
-describe('parseDurationMs', () => {
-  it('parses seconds', () => {
-    expect(parseDurationMs('30s')).toBe(30_000);
-  });
-
-  it('parses minutes', () => {
-    expect(parseDurationMs('5m')).toBe(5 * 60_000);
-    expect(parseDurationMs('30m')).toBe(30 * 60_000);
-  });
-
-  it('parses hours', () => {
-    expect(parseDurationMs('1h')).toBe(60 * 60_000);
-    expect(parseDurationMs('24h')).toBe(24 * 60 * 60_000);
-  });
-
-  it('trims whitespace', () => {
-    expect(parseDurationMs(' 5m ')).toBe(5 * 60_000);
-  });
-
-  it('rejects zero', () => {
-    expect(() => parseDurationMs('0s')).toThrow(DurationParseError);
-  });
-
-  it('rejects negative (regex hits)', () => {
-    expect(() => parseDurationMs('-5m')).toThrow(DurationParseError);
-  });
-
-  it('rejects unknown unit', () => {
-    expect(() => parseDurationMs('5d')).toThrow(DurationParseError);
-  });
-
-  it('rejects empty', () => {
-    expect(() => parseDurationMs('')).toThrow(DurationParseError);
-  });
-
-  it('rejects bare number', () => {
-    expect(() => parseDurationMs('5')).toThrow(DurationParseError);
-  });
-});
 
 describe('claw-chat', () => {
   it('error msg contains Try guidance hint when claw does not exist (phase 981 E-α2)', async () => {
