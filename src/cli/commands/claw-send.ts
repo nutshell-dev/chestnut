@@ -47,7 +47,7 @@ export async function sendCommand(
   console.log(`Message sent to "${name}"`);
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
-  const isAlive = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
+  const isAlive = processManager.getAliveStatus(resolveClawDaemonDir(makeClawId(name))).alive;
   const statusHint = formatClawStatusHint(name, isAlive);
   if (statusHint) console.log(statusHint);
 

@@ -41,7 +41,7 @@ describe('ProcessManager', () => {
 
   describe('isAlive', () => {
     it('should return false when no active generation exists', () => {
-      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'nonexistent-claw'));
+      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'nonexistent-claw')).alive;
       expect(result).toBe(false);
     });
 
@@ -51,7 +51,7 @@ describe('ProcessManager', () => {
       fs.mkdirSync(activeDir, { recursive: true });
       fs.writeFileSync(path.join(activeDir, 'generation.json'), 'not-a-number');
 
-      const result = processManager.isAlive(daemonDir);
+      const result = processManager.getAliveStatus(daemonDir).alive;
       expect(result).toBe(false);
     });
 
@@ -64,7 +64,7 @@ describe('ProcessManager', () => {
         JSON.stringify({ schema_version: 1, generation_id: 'gen-1', daemon_dir: daemonDir, parent_pid: process.pid, created_at: new Date().toISOString() }),
       );
 
-      const result = processManager.isAlive(daemonDir);
+      const result = processManager.getAliveStatus(daemonDir).alive;
       expect(result).toBe(false);
     });
   });
@@ -79,7 +79,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: DEAD_PID });
 
-      expect(processManager.isAlive(daemonDir)).toBe(false);
+      expect(processManager.getAliveStatus(daemonDir).alive).toBe(false);
 
       // generation 文件不应被 probe 清理（M#1 probe ≠ delete）
       expect(fs.existsSync(path.join(daemonDir, 'status', 'process', 'active', 'generation.json'))).toBe(true);
@@ -102,7 +102,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: 12345 });
 
-      const result = processManager.isAlive(daemonDir);
+      const result = processManager.getAliveStatus(daemonDir).alive;
       expect(result).toBe(false);
     });
 
@@ -110,7 +110,7 @@ describe('ProcessManager', () => {
       const motionDir = testMotionDaemonDir(tempDir);
       writeActiveGenerationSync(motionDir, { generationId: 'gen-motion', pid: 12345 });
 
-      const result = processManager.isAlive(motionDir);
+      const result = processManager.getAliveStatus(motionDir).alive;
       expect(result).toBe(false);
     });
 
@@ -118,7 +118,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'test-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: 12345 });
 
-      const result = processManager.isAlive(daemonDir);
+      const result = processManager.getAliveStatus(daemonDir).alive;
       expect(result).toBe(false);
     });
   });
@@ -147,7 +147,7 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'live-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-live', pid: process.pid });
 
-      const result = processManager.isAlive(daemonDir);
+      const result = processManager.getAliveStatus(daemonDir).alive;
       expect(result).toBe(true);
     });
   });

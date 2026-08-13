@@ -226,7 +226,7 @@ export interface ClawSnapshot {
 
 /** Duck-typed subset of ProcessManager used by gatherClawSnapshot */
 export interface ProcessLiveness {
-  isAlive(id: string): boolean;
+  getAliveStatus(id: string): { alive: boolean; reason: string; pid?: number };
 }
 
 const AUDIT_TAIL_N = 5;
@@ -238,7 +238,7 @@ export function gatherClawSnapshot(
   clawId: string,
   _audit?: AuditLog,
 ): ClawSnapshot {
-  const status = pm.isAlive(clawId) ? 'running' : 'stopped';
+  const status = pm.getAliveStatus(clawId).alive ? 'running' : 'stopped';
 
   const fs = fsFactory(clawDir);
   let contract = 'none';

@@ -144,7 +144,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
       interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
     });
 
-    mockPm = { isAlive: vi.fn().mockReturnValue(false) } as unknown as ProcessManager;
+    mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }) } as unknown as ProcessManager;
     mockAudit = makeMockAudit() as unknown as AuditWriter;
   });
 
@@ -590,7 +590,6 @@ describe('runWatchdogLoop', () => {
 
     mockPm = {
       getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
-      isAlive: vi.fn().mockReturnValue(false),
       spawn: vi.fn().mockResolvedValue(9999),
       stop: vi.fn().mockResolvedValue(undefined),
     } as unknown as ProcessManager;
@@ -856,7 +855,6 @@ describe('maybeCronClawCrash — crash audit', () => {
     } as any);
 
     mockPm = {
-      isAlive: vi.fn(),
       getAliveStatus: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
       spawn: vi.fn().mockResolvedValue(4242),
@@ -876,11 +874,11 @@ describe('maybeCronClawCrash — crash audit', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // First call: alive=true (no restart state → no audit)
-    vi.mocked(mockPm.isAlive).mockReturnValue(true);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: 'test alive' });
     await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     // Second call: alive=false (crash detected → restart attempt)
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     // phase 2 γ4: detected_by field 移除 / 改 crash_class (active_unexpected when no clean-stop marker)
@@ -898,8 +896,8 @@ describe('maybeCronClawCrash — crash audit', () => {
     const clawId = `claw-scan-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    // Ensure isAlive returns false so crash detection path is not triggered
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    // Ensure getAliveStatus returns false so crash detection path is not triggered
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     vi.mocked(clawHasActiveContract).mockReturnValue(false);
     // Clear previous calls to isolate this test
     vi.mocked(mockAudit.write).mockClear();

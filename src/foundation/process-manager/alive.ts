@@ -56,7 +56,3 @@ export function getAliveStatus(
     return { alive: true, reason: `isAlive probe failed: ${formatErr(err)}`, pid: pid.record.pid };
   }
 }
-
-export function isAliveByPidFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): boolean {
-  return getAliveStatus(ctx, daemonDir).alive;
-}

@@ -34,7 +34,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void>
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
-  if (pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
+  if (pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID)).alive) {
     console.warn('⚠ Motion is already running');
     return;
   }

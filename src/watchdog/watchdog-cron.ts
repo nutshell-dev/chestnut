@@ -146,7 +146,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
 
       // phase 2 γ4: inactivity 仅对 daemon ALIVE 触发 / daemon dead 归 claw_crashed 覆盖（0 dedup 重叠）
-      if (!pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)))) continue;
+      if (!pm.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId))).alive) continue;
 
       // Parse stream.jsonl to get real progress
       const clawFs = fsFactory(clawDir);
@@ -243,7 +243,7 @@ export async function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fs
   for (const rawClawId of clawNames) {
     const clawId = rawClawId;
     const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
-    const currentlyAlive = pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)));
+    const currentlyAlive = pm.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId))).alive;
 
     if (currentlyAlive) {
       clawStateAPI.everSpawned.add(rawClawId);

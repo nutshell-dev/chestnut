@@ -113,7 +113,6 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
   async function runLoopForOneTick(): Promise<void> {
     const mockPm = {
       getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
-      isAlive: vi.fn().mockReturnValue(false),
       spawn: vi.fn().mockResolvedValue(9999),
       stop: vi.fn().mockResolvedValue(undefined),
     } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
@@ -211,7 +210,7 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
 
     beforeEach(() => {
       mockAudit = makeMockAudit();
-      mockPm = { isAlive: vi.fn().mockReturnValue(false) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
+      mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
 
       // Reset Maps
       clawStateAPI.lastInactivityNotified.clear();

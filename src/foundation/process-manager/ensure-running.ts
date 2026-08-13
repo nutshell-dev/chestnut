@@ -3,7 +3,7 @@
  * ProcessManager ready-winner convergence（Phase 1282 Step A）。
  *
  * `ensureRunning` 是「确保 daemon ready」的单一稳定能力，封装
- * precheck / spawn / conflict / join；调用方不得再自行组合 `isAlive + spawn`
+ * precheck / spawn / conflict / join；调用方不得再自行组合 `getAliveStatus + spawn`
  * （TOCTOU：两步之间 Watchdog/另一 CLI 可提交 spawning winner）。
  *
  * 控制流：

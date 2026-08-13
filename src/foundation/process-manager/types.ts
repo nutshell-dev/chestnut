@@ -169,8 +169,6 @@ export interface SpawnOptions {
 export interface ProcessManagerContext {
   fs: FileSystem;
   audit: AuditLog;
-  /** Optional alive override (used by tests spying on ProcessManager.prototype.isAlive) */
-  isAlive?: (daemonDir: DaemonDir) => boolean;
   /** Optional ready override (used by tests spying on ProcessManager.prototype.isReady) */
   isReady?: (daemonDir: DaemonDir) => boolean;
   /** Optional l1IsAlive override (used by tests injecting process-exec level liveness probe) */

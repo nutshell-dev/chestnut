@@ -36,7 +36,6 @@ describe('createProcessManagerForCLI', () => {
   it('返回值实现 ProcessManager 接口', () => {
     const baseDir = freshDir();
     const pm = createProcessManagerForCLI({ fsFactory, baseDir });
-    expect(typeof pm.isAlive).toBe('function');
     expect(typeof pm.getAliveStatus).toBe('function');
   });
 
@@ -53,7 +52,7 @@ describe('createProcessManagerForCLI', () => {
     // 工厂路径
     const factory = createProcessManagerForCLI({ fsFactory, baseDir: dir });
     // 接口等价：同一 clawId 查询同一 PID（均为不存在）
-    expect(manual.isAlive('nonexistent')).toBe(factory.isAlive('nonexistent'));
+    expect(manual.getAliveStatus('nonexistent')).toEqual(factory.getAliveStatus('nonexistent'));
   });
 });
 

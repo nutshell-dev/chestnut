@@ -218,7 +218,7 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
       const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-      if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
+      if (!pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID)).alive) {
         console.log('Starting Motion daemon...');
         const daemonEntryPath = resolveDaemonEntry();
         const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
@@ -275,7 +275,7 @@ export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?:
   deps.rootConfig.loadGlobal();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
 
-  if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
+  if (!pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID)).alive) {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);
     console.log('Motion is not running');
     return;

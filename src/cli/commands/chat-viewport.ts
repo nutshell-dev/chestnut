@@ -517,7 +517,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      if (!pm.isAlive(resolveClawDaemonDir(makeClawId(options.label)))) {
+      if (!pm.getAliveStatus(resolveClawDaemonDir(makeClawId(options.label))).alive) {
         turnTracker.forceReset();
       }
       // spawning / io_error / corrupt → keep tracker (uncertain state)

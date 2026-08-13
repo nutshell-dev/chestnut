@@ -136,7 +136,7 @@ describe('watchdog-utils-snapshot-forensic', () => {
       vi.restoreAllMocks();
     });
 
-    const mockPm = { isAlive: () => false };
+    const mockPm = { getAliveStatus: () => ({ alive: false, reason: 'test stopped' }) };
 
     it('reverse 1: claw audit.tsv has N+ lines → lastAuditEvents contains last 5', () => {
       const lines = [

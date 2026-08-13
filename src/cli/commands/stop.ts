@@ -88,7 +88,7 @@ export async function stopAllCommand(
   // phase 355 C2 (review-2026-06-13): partial-stop failure 在循环末
   // throw CliError、让 wrapper 真退非 0、不再 console.warn 静默 + 后续 return success。
   // 收集 failed 列表后延到 cleanup 之后 throw（保留 marker 写 / orphan cleanup 等业务）。
-  const running = clawNames.filter(name => pm.isAlive(resolveClawDaemonDir(makeClawId(name))));
+  const running = clawNames.filter(name => pm.getAliveStatus(resolveClawDaemonDir(makeClawId(name))).alive);
   let stopFailed: string[] = [];
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);

@@ -124,7 +124,7 @@ export async function createMotionAddons(
     defaultSource: MOTION_CLAW_ID,
     authorized: true,
     audit: auditWriter,
-    isClawAlive: (clawId: string) => core.processManager.isAlive(resolveClawDaemonDir(makeClawId(clawId))), // phase 232
+    isClawAlive: (clawId: string) => core.processManager.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId))).alive, // phase 232
     formatClawStatusHint, // phase 232: M#1 single source
     clawExists: (clawId: string) => parentFs.existsSync(getRelativeClawDir(clawId)), // phase 241
     hasActiveContract: (clawId: string) => { // phase 241

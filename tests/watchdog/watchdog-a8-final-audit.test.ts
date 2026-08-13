@@ -157,7 +157,7 @@ describe('watchdog A.8 final audit emit (phase 155)', () => {
     fsNode.mkdirSync(path.join(clawsDir, clawId, 'contract', 'active', '1740000000000-foo'), { recursive: true });
 
     const mockAudit = makeMockAudit();
-    const mockPm = { isAlive: vi.fn().mockReturnValue(true) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
+    const mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
 
     await expect(maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory)).resolves.not.toThrow();
 
@@ -179,7 +179,7 @@ describe('watchdog A.8 final audit emit (phase 155)', () => {
     );
 
     const mockAudit = makeMockAudit();
-    const mockPm = { isAlive: vi.fn().mockReturnValue(true) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
+    const mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
 
     await expect(maybeCronCheckSubscriptions(mockPm, mockAudit as any, fsFactory)).resolves.not.toThrow();
 

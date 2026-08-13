@@ -39,11 +39,8 @@ describe('ProcessManager - spawn defaults', () => {
     };
     vi.mocked(spawn).mockReturnValue(mockProc as any);
 
-    // Mock isAlive/isReady to skip 3s spawn confirm wait
-    vi.spyOn(ProcessManager.prototype, 'isAlive')
-      .mockReturnValueOnce(false)   // fast-path check: not running
-      .mockReturnValueOnce(false)   // lockfile check
-      .mockReturnValue(true);       // spawn confirm: alive
+    // Mock ready to skip the spawn convergence wait. Liveness uses the
+    // injected/default L1 PID probe inside ProcessManager's spawn owner.
     vi.spyOn(ProcessManager.prototype, 'isReady').mockReturnValue(true);
   });
 

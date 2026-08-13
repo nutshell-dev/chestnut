@@ -187,7 +187,7 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   for (const entry of entries) {
     const clawFs = deps.fsFactory(path.join(clawsDir, entry));
     if (clawFs.existsSync(CONFIG_YAML_FILE)) {
-      const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(entry)));
+      const isRunning = processManager.getAliveStatus(resolveClawDaemonDir(makeClawId(entry))).alive;
 
       const contractField = getContractStatus(clawFs);
       const lastContractField = getLatestContractTitle(clawFs);

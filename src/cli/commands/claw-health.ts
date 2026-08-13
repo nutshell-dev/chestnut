@@ -32,7 +32,7 @@ export async function healthCommand(deps: ClawCommandDeps, name: string, opts?: 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
-  const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
+  const isRunning = processManager.getAliveStatus(resolveClawDaemonDir(makeClawId(name))).alive;
 
   // Read inbox/outbox pending counts in real time
   // phase 858: lightweight query helpers now return Result; -1 marks I/O error

@@ -44,7 +44,7 @@ vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) 
   return {
     ...actual,
     createProcessManagerForCLI: vi.fn(() => ({
-      isAlive: vi.fn(),
+      getAliveStatus: vi.fn(),
     })),
   };
 });
@@ -76,7 +76,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => false,
+      getAliveStatus: () => ({ alive: false, reason: 'test stopped' }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
@@ -92,7 +92,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      getAliveStatus: () => ({ alive: true, reason: 'test alive' }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
@@ -108,7 +108,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      getAliveStatus: () => ({ alive: true, reason: 'test alive' }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'wrapper-msg');
@@ -134,7 +134,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      getAliveStatus: () => ({ alive: true, reason: 'test alive' }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');
@@ -153,7 +153,7 @@ describe('cli claw send status hint (phase 232)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.chestnut', 'config.yaml'));
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: () => true,
+      getAliveStatus: () => ({ alive: true, reason: 'test alive' }),
     } as any);
 
     await sendCommand(commandDeps, 'test-claw', 'hello');

@@ -48,7 +48,6 @@ function defaultCtx(
   return {
     fs: nodeFs,
     audit,
-    isAlive: () => false,
     isReady: () => true,
     l1IsAlive: vi.fn().mockReturnValue(true),
     spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),

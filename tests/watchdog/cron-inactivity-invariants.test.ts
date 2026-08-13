@@ -106,7 +106,7 @@ describe('phase 1258 Step A: claw_inactivity v1 wire — two trigger paths, one 
       contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'running',
     } as any);
 
-    mockPm = { isAlive: vi.fn().mockReturnValue(true) } as unknown as ProcessManager;
+    mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }) } as unknown as ProcessManager;
     mockAudit = {
       write: vi.fn(),
       preview: vi.fn((s: string) => s),

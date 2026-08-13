@@ -83,7 +83,6 @@ describe('watchdog-shutdown-guard', () => {
 
       const mockPm = {
         getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
-        isAlive: vi.fn().mockReturnValue(false),
         spawn: vi.fn().mockResolvedValue(9999),
         stop: vi.fn().mockResolvedValue(undefined),
       } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
@@ -155,7 +154,6 @@ describe('handler-idempotent-install', () => {
 
       const mockPm = {
         getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
-        isAlive: vi.fn().mockReturnValue(false),
         spawn: vi.fn().mockResolvedValue(9999),
         stop: vi.fn().mockResolvedValue(undefined),
       } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;

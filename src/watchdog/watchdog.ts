@@ -495,7 +495,7 @@ export async function runWatchdogLoop(
     try {
       for (const rawClawId of enumerateClaws(fs, 'claws')) {
         presentClawIds.push(rawClawId);
-        if (pm.isAlive(resolveClawDaemonDir(makeClawId(rawClawId)))) aliveIds.push(rawClawId);
+        if (pm.getAliveStatus(resolveClawDaemonDir(makeClawId(rawClawId))).alive) aliveIds.push(rawClawId);
       }
     } catch (err) {
       if (!isFileNotFound(err)) {

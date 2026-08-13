@@ -96,7 +96,7 @@ describe('watchdog claw restart state persist (phase 1380)', () => {
     auditSpy = vi.spyOn(auditWriter, 'write');
 
     mockPm = {
-      isAlive: vi.fn(),
+      getAliveStatus: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
       spawn: vi.fn().mockResolvedValue(4242),
     } as unknown as ProcessManager;
@@ -113,7 +113,7 @@ describe('watchdog claw restart state persist (phase 1380)', () => {
     const clawId = `claw-persist-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
 
     // First crash → attempt → retrying 状态写入
     await maybeCronClawCrash(mockPm, auditWriter, fsFactory);
@@ -136,7 +136,7 @@ describe('watchdog claw restart state persist (phase 1380)', () => {
     expect((reloaded as { status: 'retrying'; consecutiveAttempts: number }).consecutiveAttempts).toBe(1);
 
     // 下 tick：nextAttemptAt 在未来 → defer、不重 spawn
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     vi.mocked(mockPm.spawn).mockClear();
     await maybeCronClawCrash(mockPm, auditWriter, fsFactory);
     expect(mockPm.spawn).not.toHaveBeenCalled();
@@ -155,7 +155,7 @@ describe('watchdog claw restart state persist (phase 1380)', () => {
     });
 
     // alive 恢复 → 状态删除
-    vi.mocked(mockPm.isAlive).mockReturnValue(true);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: 'test alive' });
     await maybeCronClawCrash(mockPm, auditWriter, fsFactory);
     expect(clawRestartStateAPI.get(clawId)).toBeUndefined();
     expect(auditSpy).toHaveBeenCalledWith(

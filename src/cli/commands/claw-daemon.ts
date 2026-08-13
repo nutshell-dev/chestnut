@@ -20,7 +20,7 @@ import { resolveDaemonEntry } from '../../daemon/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
-export type DaemonPM = Pick<ProcessManager, 'isAlive' | 'spawn'>;
+export type DaemonPM = Pick<ProcessManager, 'getAliveStatus' | 'spawn'>;
 
 export interface ClawDaemonDeps extends ClawCommandDeps {
   /** Test seam — when provided, skips real ProcessManager construction. */
@@ -42,7 +42,7 @@ export async function clawDaemonCommand(
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
-  if (pm.isAlive(resolveClawDaemonDir(makeClawId(name)))) {
+  if (pm.getAliveStatus(resolveClawDaemonDir(makeClawId(name))).alive) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }

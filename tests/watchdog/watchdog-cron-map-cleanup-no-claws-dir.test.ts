@@ -102,7 +102,7 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     });
 
     mockPm = {
-      isAlive: vi.fn(),
+      getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
       stop: vi.fn().mockResolvedValue(undefined),
       spawn: vi.fn().mockResolvedValue(4242),
     } as unknown as ProcessManager;
@@ -196,7 +196,7 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     expect(clawStateAPI.everSpawned.has('claw-A')).toBe(false);
     expect(clawStateAPI.clawPreviouslyNotified.has('claw-A')).toBe(false);
     expect(clawRestartStateAPI.get('claw-A')).toBeUndefined();
-    // X 没有被加入（因为 clawHasActiveContract mocked false / pm.isAlive mocked false）
+    // X 没有被加入（因为 clawHasActiveContract mocked false / pm.getAliveStatus mocked false）
   });
 
   it('reverse 3: CLAWS_DIR exists + partial stale → only stale removed', async () => {

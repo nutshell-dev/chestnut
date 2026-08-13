@@ -69,7 +69,7 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
   /** Fake pm that always reports the agent as alive — `spawn` must never be reached. */
   function aliveFakePM(): DaemonPM {
     return {
-      isAlive: () => true,
+      getAliveStatus: () => ({ alive: true, reason: 'test alive' }),
       spawn: () => {
         throw new Error('spawn should not be invoked when isAlive=true');
       },
@@ -96,14 +96,14 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
   it('motionDaemonCommand propagates global config failure before process inspection', async () => {
     const sentinel = new Error('motion daemon config sentinel');
     const processManager = aliveFakePM();
-    const isAliveSpy = vi.spyOn(processManager, 'isAlive');
+    const getAliveStatusSpy = vi.spyOn(processManager, 'getAliveStatus');
 
     await expect(motionDaemonCommand({
       fsFactory,
       rootConfig: { loadGlobal: () => { throw sentinel; } },
       processManager,
     })).rejects.toBe(sentinel);
-    expect(isAliveSpy).not.toHaveBeenCalled();
+    expect(getAliveStatusSpy).not.toHaveBeenCalled();
   });
 
   it('clawDaemonCommand throws CliError when claw does not exist (no static fallthrough)', async () => {
@@ -122,9 +122,9 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
 
   it('DaemonPM shape invariant — fake pm satisfies the structural contract', () => {
     const pm: DaemonPM = aliveFakePM();
-    expect(typeof pm.isAlive).toBe('function');
+    expect(typeof pm.getAliveStatus).toBe('function');
     expect(typeof pm.spawn).toBe('function');
-    expect(pm.isAlive('whatever-id' as any)).toBe(true);
+    expect(pm.getAliveStatus('whatever-id' as any).alive).toBe(true);
   });
 
   it('clawDaemonCommand propagates global config failure before loadClaw', async () => {
@@ -138,6 +138,6 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
     const sentinel = new Error('claw config sentinel');
     const deps = daemonDeps({ loadClaw: () => { throw sentinel; } });
     await expect(clawDaemonCommand(deps, 'running-claw')).rejects.toBe(sentinel);
-    expect(deps.processManager.isAlive).toBeDefined();
+    expect(deps.processManager.getAliveStatus).toBeDefined();
   });
 });

@@ -59,13 +59,13 @@ describe('ProcessManager', () => {
 
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-1', pid: process.pid });
 
-      expect(pm.isAlive(daemonDir)).toBe(true);
+      expect(pm.getAliveStatus(daemonDir).alive).toBe(true);
     });
 
     it('should return false when no active generation exists', () => {
       const { audit } = makeAudit();
       const pm = new ProcessManager(nodeFs, audit);
-      expect(pm.isAlive(testClawDaemonDir(tempDir, 'nonexistent'))).toBe(false);
+      expect(pm.getAliveStatus(testClawDaemonDir(tempDir, 'nonexistent')).alive).toBe(false);
     });
   });
 
@@ -78,18 +78,18 @@ describe('ProcessManager', () => {
       const motionDir = testMotionDaemonDir(tempDir);
       writeActiveGenerationSync(motionDir, { generationId: 'gen-motion', pid: process.pid });
 
-      expect(pm.isAlive(motionDir)).toBe(true);
+      expect(pm.getAliveStatus(motionDir).alive).toBe(true);
     });
   });
 
-  describe('isAlive - 进程检测', () => {
+  describe('getAliveStatus - 进程检测', () => {
     it('should return true for current process PID', async () => {
       const { audit } = makeAudit();
       const pm = new ProcessManager(nodeFs, audit);
       const daemonDir = testClawDaemonDir(tempDir, 'live-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-live', pid: process.pid });
 
-      expect(pm.isAlive(daemonDir)).toBe(true);
+      expect(pm.getAliveStatus(daemonDir).alive).toBe(true);
     });
 
     it('should return false and not clean stale generation for dead process (phase 879 M#1)', async () => {
@@ -98,9 +98,9 @@ describe('ProcessManager', () => {
       const daemonDir = testClawDaemonDir(tempDir, 'dead-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-dead', pid: DEAD_PID });
 
-      expect(pm.isAlive(daemonDir)).toBe(false);
+      expect(pm.getAliveStatus(daemonDir).alive).toBe(false);
 
-      // M#1 probe ≠ delete：isAlive 不清理 stale generation、留到 stop/recovery 显式路径
+      // M#1 probe ≠ delete：getAliveStatus 不清理 stale generation、留到 stop/recovery 显式路径
       expect(fsSync.existsSync(path.join(daemonDir, 'status', 'process', 'active', 'generation.json'))).toBe(true);
     });
 
@@ -112,7 +112,7 @@ describe('ProcessManager', () => {
       await fs.mkdir(activeDir, { recursive: true });
       await fs.writeFile(path.join(activeDir, 'generation.json'), 'not-json', 'utf-8');
 
-      expect(pm.isAlive(daemonDir)).toBe(false);
+      expect(pm.getAliveStatus(daemonDir).alive).toBe(false);
     });
   });
 

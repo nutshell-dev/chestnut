@@ -77,7 +77,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
   let tmpDir: string;
   let clawsDir: string;
   let mockPm: {
-    isAlive: ReturnType<typeof vi.fn>;
+    getAliveStatus: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
     spawn: ReturnType<typeof vi.fn>;
   };
@@ -102,7 +102,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
     } as any);
 
     mockPm = {
-      isAlive: vi.fn(),
+      getAliveStatus: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
       spawn: vi.fn().mockResolvedValue(4242),
     };
@@ -123,7 +123,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
     const clawId = `claw-skip-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     vi.mocked(clawHasActiveContract as any).mockReturnValue(false);
 
     await maybeCronClawCrash(mockPm as unknown as ProcessManager, mockAudit as any, fsFactory);
@@ -140,7 +140,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
     const clawId = `claw-attempt-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     vi.mocked(clawHasActiveContract as any).mockReturnValue(true);
 
     await maybeCronClawCrash(mockPm as unknown as ProcessManager, mockAudit as any, fsFactory);
@@ -175,7 +175,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
     const clawId = `claw-fail-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     vi.mocked(clawHasActiveContract as any).mockReturnValue(true);
     vi.mocked(mockPm.spawn).mockRejectedValue(new Error('spawn boom'));
 
@@ -201,7 +201,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
       nextAttemptAt: Date.now() + 100_000,
       awaitingStability: false,
     });
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     vi.mocked(clawHasActiveContract as any).mockReturnValue(true);
 
     await maybeCronClawCrash(mockPm as unknown as ProcessManager, mockAudit as any, fsFactory);
@@ -225,7 +225,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
       nextAttemptAt: Date.now() - 1_000,
       awaitingStability: false,
     });
-    vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
     vi.mocked(clawHasActiveContract as any).mockReturnValue(true);
 
     await maybeCronClawCrash(mockPm as unknown as ProcessManager, mockAudit as any, fsFactory);
@@ -260,7 +260,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
       nextAttemptAt: Date.now() + 100_000,
       awaitingStability: false,
     });
-    vi.mocked(mockPm.isAlive).mockReturnValue(true);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: 'test alive' });
 
     await maybeCronClawCrash(mockPm as unknown as ProcessManager, mockAudit as any, fsFactory);
 
@@ -276,7 +276,7 @@ describe('watchdog-cron-crash (phase 1380 自动重启状态机)', () => {
     const clawId = `claw-alive-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    vi.mocked(mockPm.isAlive).mockReturnValue(true);
+    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: 'test alive' });
 
     await maybeCronClawCrash(mockPm as unknown as ProcessManager, mockAudit as any, fsFactory);
 

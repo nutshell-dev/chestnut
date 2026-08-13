@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 
 
-const mockPm = { isAlive: vi.fn(() => true) };
+const mockPm = { getAliveStatus: vi.fn(() => ({ alive: true, reason: 'test alive' })) };
 
 function makeFs(opts: {
   contractDirError?: NodeJS.ErrnoException;

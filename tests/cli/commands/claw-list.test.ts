@@ -56,7 +56,7 @@ vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => ({
 }));
 
 vi.mock('../../../src/foundation/process-manager/factories.js', () => ({
-  createProcessManagerForCLI: vi.fn((deps: any) => ({ isAlive: vi.fn(), getAliveStatus: vi.fn(), inspectSpawning: vi.fn() })),
+  createProcessManagerForCLI: vi.fn((deps: any) => ({ getAliveStatus: vi.fn(), inspectSpawning: vi.fn() })),
 }));
 
 vi.mock('../../../src/cli/commands/claw-shared.js', () => ({
@@ -78,7 +78,6 @@ describe('claw-list', () => {
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
 
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn().mockReturnValue(false),
       getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'no active generation' }),
       inspectSpawning: vi.fn().mockReturnValue({ status: 'none' }),
     } as any);
@@ -93,7 +92,6 @@ describe('claw-list', () => {
 
   it('lists all claws with status', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn((dir: string) => dir.includes('claw-a')),
       getAliveStatus: vi.fn((dir: string) =>
         dir.includes('claw-a')
           ? { alive: true, reason: `PID ${FAKE_LIVE_PID}`, pid: FAKE_LIVE_PID }
@@ -150,8 +148,7 @@ describe('claw-list', () => {
 
   it('preserves spawning as a PID state in table and JSON output', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn().mockReturnValue(false),
-      getAliveStatus: vi.fn(),
+      getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'spawning' }),
       inspectSpawning: vi.fn().mockReturnValue({ status: 'ok', generation: 'g1' }),
     } as any);
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
@@ -189,7 +186,6 @@ describe('claw-list', () => {
 
   it('reports contract status and outbox count', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn().mockReturnValue(true),
       getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'PID 9999', pid: 9999 }),
       inspectSpawning: vi.fn().mockReturnValue({ status: 'none' }),
     } as any);
@@ -236,7 +232,6 @@ describe('claw-list', () => {
 
   it('outputs JSON when --json flag is passed', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn((dir: string) => dir.includes('claw-a')),
       getAliveStatus: vi.fn((dir: string) =>
         dir.includes('claw-a')
           ? { alive: true, reason: `PID ${FAKE_LIVE_PID}`, pid: FAKE_LIVE_PID }
@@ -284,8 +279,8 @@ describe('claw-list', () => {
   // phase 1151: claw list must ignore regular files in claws/ container and use topology enumeration
   it('ignores regular files in claws/ and only lists directory claws', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn().mockReturnValue(false),
-      readPid: vi.fn().mockResolvedValue({ status: 'missing' }),
+      getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'no active generation' }),
+      inspectSpawning: vi.fn().mockReturnValue({ status: 'none' }),
     } as any);
 
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {

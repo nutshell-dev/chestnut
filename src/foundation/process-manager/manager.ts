@@ -62,7 +62,6 @@ export class ProcessManager {
     this._ctx = {
       fs,
       audit,
-      isAlive: (daemonDir: DaemonDir) => this.isAlive(daemonDir),
       isReady: (daemonDir: DaemonDir) => this.isReady(daemonDir),
       l1IsAlive,
       spawnDetached,
@@ -75,7 +74,6 @@ export class ProcessManager {
   getAliveStatus(daemonDir: DaemonDir): { alive: boolean; reason: string; pid?: number } {
     return aliveOps.getAliveStatus(this._ctx, daemonDir);
   }
-  isAlive(daemonDir: DaemonDir): boolean { return aliveOps.isAliveByPidFile(this._ctx, daemonDir); }
   isReady(daemonDir: DaemonDir): boolean { return readyOps.isReady(this._ctx, daemonDir); }
 
   // generation (Phase 1204)
@@ -100,7 +98,7 @@ export class ProcessManager {
   }
   /**
    * Phase 1282 Step A: 「确保 daemon ready」单一能力，封装 precheck/spawn/conflict/join。
-   * 调用方不得再组合 isAlive+spawn（TOCTOU）；合法 conflict 自动 join exact winner。
+   * 调用方不得再组合 getAliveStatus+spawn（TOCTOU）；合法 conflict 自动 join exact winner。
    */
   ensureRunning(daemonDir: DaemonDir, options: SpawnOptions): Promise<EnsureRunningOutcome> {
     return ensureRunningOp(this._ctx, daemonDir, options);

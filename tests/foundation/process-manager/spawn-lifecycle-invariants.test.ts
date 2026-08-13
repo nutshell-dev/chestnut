@@ -49,7 +49,6 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     return {
       fs: nodeFs,
       audit: makeAudit().audit,
-      isAlive: () => false,
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
       kill: vi.fn(),

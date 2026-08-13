@@ -270,7 +270,6 @@ describe('runWatchdogLoop ownership 门', () => {
   beforeEach(() => {
     const mockPm = {
       getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
-      isAlive: vi.fn().mockReturnValue(false),
       spawn: vi.fn().mockResolvedValue(9999),
       stop: vi.fn().mockResolvedValue(undefined),
     } as unknown as ProcessManager;

@@ -196,15 +196,15 @@ describe('getClawActivityInfo', () => {
 
 // Phase 18 tests
 
-const fakePm = (alive: boolean) => ({ isAlive: () => alive });
+const fakePm = (alive: boolean) => ({ getAliveStatus: () => ({ alive, reason: 'test' }) });
 
 describe('gatherClawSnapshot', () => {
-  it('status=running when pm.isAlive=true', () => {
+  it('status=running when pm.getAliveStatus().alive=true', () => {
     const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(true), 'c1');
     expect(snap.status).toBe('running');
   });
 
-  it('status=stopped when pm.isAlive=false', () => {
+  it('status=stopped when pm.getAliveStatus().alive=false', () => {
     const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
     expect(snap.status).toBe('stopped');
   });

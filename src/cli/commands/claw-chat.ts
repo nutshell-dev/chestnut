@@ -34,7 +34,7 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
     ensureDaemon: async () => {
       const baseDir = getChestnutRoot();
       const pm = createProcessManagerForCLI({ ...deps, baseDir });
-      if (!pm.isAlive(resolveClawDaemonDir(makeClawId(name)))) {
+      if (!pm.getAliveStatus(resolveClawDaemonDir(makeClawId(name))).alive) {
         console.log(`Starting Claw "${name}" daemon...`);
         const daemonEntryPath = resolveDaemonEntry();
         const pid = await pm.spawn(resolveClawDaemonDir(makeClawId(name)), {
