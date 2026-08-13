@@ -700,6 +700,9 @@
       "daemon_stop_success",
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
+      "daemon_waiting_stall_detected",
+      "daemon_waiting_stall_escalated",
+      "daemon_waiting_stall_self_healed",
       "snapshot_commit_failed",
       "snapshot_commit_uncategorized"
     ],

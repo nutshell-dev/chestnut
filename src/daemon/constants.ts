@@ -45,3 +45,25 @@ export const INTERRUPT_POLL_MAX_ERRORS = 20;
  */
 export const INTERRUPT_POLL_RECOVERY_BACKOFF_MS = 30_000;
 
+/**
+ * phase 1383 (P2b U3): daemon in-process 自活 —— active 契约 + 等待态超长判定阈值（ms）.
+ * Derivation: 300_000ms = 5min / 与 watchdog 旧 claw_inactivity_timeout_ms 同量级（Step C 退场后
+ * 由 daemon 内化该兜底窗口）/ min 60_000ms 防过紧配置在正常长 turn 间隙误判 /
+ * 必须 < Step D heartbeat_stale_timeout_ms，保证 in-process 自愈先于心跳重启（两层不竞争）.
+ */
+export const WAITING_STALL_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * phase 1383: waiting-stall 自愈连续失败上限 —— 达后 audit escalated 留痕（后续由 P2a 判失败兜底）.
+ * Derivation: 3 = 经验值 / 每次自愈强制重入轮，连续 3 轮仍无活动约 15min 视为真停滞 /
+ * 本 phase 不接判失败，仅 escalated 审计留痕.
+ */
+export const WAITING_STALL_MAX_SELF_HEAL_ATTEMPTS = 3;
+
+/**
+ * phase 1383: waiting-stall 检查定时器节拍（ms）.
+ * Derivation: 60_000ms = 60s / 与 LIVENESS_HEARTBEAT_MS 同节拍复用 /
+ * 粒度 = 阈值 1/5，误判/漏判窗口可接受.
+ */
+export const WAITING_STALL_CHECK_INTERVAL_MS = 60_000;
+

@@ -17,6 +17,7 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
+import { startWaitingStallMonitor } from './waiting-stall.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
@@ -87,9 +88,23 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   }, LIVENESS_HEARTBEAT_MS);
   livenessTimer.unref(); // 不阻 event loop 退出
 
+  // phase 1383 (P2b U3): in-process 自活监测 —— active 契约 + 等待态超长 → 自愈重入轮。
+  // 只对 claw daemon 启用（motion 无契约、其停滞归 P3 教学/治理）。
+  const isClawDaemon = motion === undefined;
+  const waitingStall = isClawDaemon
+    ? startWaitingStallMonitor({
+        fsFactory,
+        agentDir,
+        audit,
+        eventLoop,
+      })
+    : null;
+  eventLoop.setOnTurnActivity(waitingStall ? () => waitingStall.noteActivity() : undefined);
+
   const stop = () => {
     stopping = true;
     stopped = true;
+    waitingStall?.stop();
     if (recoveryTimer) {
       clearTimeout(recoveryTimer);
       recoveryTimer = null;

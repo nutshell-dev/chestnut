@@ -10,4 +10,6 @@ import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.
 
 export const DAEMON_INBOX_MESSAGE_TYPES = [
   { owner: 'daemon', type: 'startup_check', rendering: { kind: 'standard', presentation: 'system' } },
+  // phase 1383: in-process waiting-stall 自愈触发的 self-inbox（daemon 自己写、自己消费）
+  { owner: 'daemon', type: 'waiting_stall_self_heal', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

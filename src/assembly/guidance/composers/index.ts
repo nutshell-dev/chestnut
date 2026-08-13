@@ -31,6 +31,7 @@ import { composer as randomDream } from './random-dream.js';
 import { composer as deepDream } from './deep-dream.js';
 import { composer as heartbeat } from './heartbeat.js';
 import { composer as startupCheck } from './startup-check.js';
+import { composer as waitingStallSelfHeal } from './waiting-stall-self-heal.js';
 import { composer as taskQueueOverflow } from './task-queue-overflow.js';
 import { composer as userChat } from './user-chat.js';
 import { composer as userInboxMessage } from './user-inbox-message.js';
@@ -61,6 +62,7 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('deep_dream', deepDream);
   registry.register('heartbeat', heartbeat);
   registry.register('startup_check', startupCheck);
+  registry.register('waiting_stall_self_heal', waitingStallSelfHeal);
   registry.register('task_queue_overflow', taskQueueOverflow);
   registry.register('user_chat', userChat);
   registry.register('user_inbox_message', userInboxMessage);

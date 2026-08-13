@@ -37,6 +37,10 @@ export const DAEMON_AUDIT_EVENTS = {
   LAST_EXIT_SUMMARY_READ_FAILED: 'daemon_last_exit_summary_read_failed',
   // phase 1124: shutdown 重入 guard 留痕
   SHUTDOWN_REENTRY_SUPPRESSED: 'daemon_shutdown_reentry_suppressed',
+  // phase 1383 (P2b U3): in-process waiting-stall 自活
+  WAITING_STALL_DETECTED: 'daemon_waiting_stall_detected',
+  WAITING_STALL_SELF_HEALED: 'daemon_waiting_stall_self_healed',
+  WAITING_STALL_ESCALATED: 'daemon_waiting_stall_escalated',
 } as const;
 
 /**

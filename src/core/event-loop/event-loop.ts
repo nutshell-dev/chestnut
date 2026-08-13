@@ -58,6 +58,7 @@ export class EventLoop {
   private fallbackTimeoutMs: number;
   private streamWriter?: StreamWriter;
   private onBatchComplete?: () => Promise<void>;
+  private onTurnActivity?: () => void;
   private rootFs: FileSystem;
 
   private stopped = false;
@@ -83,6 +84,7 @@ export class EventLoop {
     this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
     this.onBatchComplete = options.onBatchComplete;
+    this.onTurnActivity = options.onTurnActivity;
   }
 
   /**
@@ -168,6 +170,14 @@ export class EventLoop {
     this.stopped = true;
     this.waitAbortController?.abort();
     this.runtime.abort();
+  }
+
+  /**
+   * phase 1383: 绑定 daemon 进程级活动打点（waiting-stall 自活用）。
+   * daemon-loop 构造 EventLoop 后注入，避免 EventLoop 感知 daemon 层 monitor。
+   */
+  setOnTurnActivity(cb: (() => void) | undefined): void {
+    this.onTurnActivity = cb;
   }
 
   private async _handleFailedTurn(
@@ -759,6 +769,7 @@ export class EventLoop {
         turnFingerprint,
         wrappedCallbacks,
       });
+      this.onTurnActivity?.();
       if (action === 'break') break;
 
       if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {

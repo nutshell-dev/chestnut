@@ -158,4 +158,10 @@ export interface EventLoopOptions {
   inbox: { pendingDir: string; fallbackTimeoutMs?: number };
   streamWriter?: StreamWriter;
   onBatchComplete?: () => Promise<void>;
+  /**
+   * phase 1383 (P2b U3): daemon in-process 自活的活动打点。
+   * 每完成一个 turn batch（无论 success/interrupted/failed）即同步触发，
+   * 供 daemon-loop 的 waiting-stall 监测器重置「最后活动」时间。
+   */
+  onTurnActivity?: () => void;
 }
