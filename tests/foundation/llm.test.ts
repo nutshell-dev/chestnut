@@ -12,6 +12,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type {
   LLMResponse,
   Message,
+  ProviderAdapter,
+  ProviderConfig,
   ToolDefinition
 } from '../../src/foundation/llm-provider/types.js';
 
@@ -629,7 +631,7 @@ describe('LLM Service', () => {
 
     it('should yield reset and failover on mid-stream non-timeout error', async () => {
       // mock primary adapter: yield 2 deltas then throw
-      const primaryAdapter = {
+      const primaryAdapter: ProviderAdapter = {
         name: 'primary',
         model: 'test-model',
         async* stream() {
@@ -643,7 +645,7 @@ describe('LLM Service', () => {
       };
 
       // mock fallback adapter: succeeds
-      const fallbackAdapter = {
+      const fallbackAdapter: ProviderAdapter = {
         name: 'fallback',
         model: 'fallback-model',
         async* stream() {
@@ -656,11 +658,13 @@ describe('LLM Service', () => {
       };
 
       const service = new LLMOrchestratorImpl({
-        primary: primaryAdapter as any,
-        fallbacks: [fallbackAdapter as any],
+        primary: primaryConfig,
+        fallbacks: [fallbackConfig],
         maxAttempts: 1,
         retryDelayMs: 10,
-      events: { emit: () => {} },
+        events: { emit: () => {} },
+        createAnthropicAdapter: (config) =>
+          config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
       });
 
       const chunks: StreamChunk[] = [];
@@ -687,7 +691,7 @@ describe('LLM Service', () => {
     });
 
     it('should failover when primary stream yields 0 chunks', async () => {
-      const primaryAdapter = {
+      const primaryAdapter: ProviderAdapter = {
         name: 'primary',
         model: 'test-model',
         async* stream() {
@@ -699,7 +703,7 @@ describe('LLM Service', () => {
         getProviderInfo: () => ({ name: 'primary', model: 'test-model' }),
       };
 
-      const fallbackAdapter = {
+      const fallbackAdapter: ProviderAdapter = {
         name: 'fallback',
         model: 'fallback-model',
         async* stream() {
@@ -713,12 +717,14 @@ describe('LLM Service', () => {
 
       const emittedEvents: any[] = [];
       const service = new LLMOrchestratorImpl({
-        primary: primaryAdapter as any,
-        fallbacks: [fallbackAdapter as any],
+        primary: primaryConfig,
+        fallbacks: [fallbackConfig],
         maxAttempts: 1,
         retryDelayMs: 10,
         circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 30_000 },
         events: { emit: (e) => emittedEvents.push(e) },
+        createAnthropicAdapter: (config) =>
+          config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
       });
 
       const chunks: StreamChunk[] = [];
@@ -738,7 +744,7 @@ describe('LLM Service', () => {
     });
 
     it('should throw LLMAllProvidersFailedError when all providers yield 0 chunks', async () => {
-      const emptyAdapter = {
+      const emptyAdapter: ProviderAdapter = {
         name: 'primary',
         model: 'test-model',
         async* stream() { return; },
@@ -748,11 +754,12 @@ describe('LLM Service', () => {
       };
 
       const service = new LLMOrchestratorImpl({
-        primary: emptyAdapter as any,
+        primary: primaryConfig,
         fallbacks: [],
         maxAttempts: 1,
         retryDelayMs: 10,
-      events: { emit: () => {} },
+        events: { emit: () => {} },
+        createAnthropicAdapter: () => emptyAdapter,
       });
 
       await expect(async () => {
@@ -1527,7 +1534,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
 });
 
 describe('createLLMOrchestrator factory', () => {
-  const mockAdapter = {
+  const mockAdapter: ProviderAdapter = {
     name: 'mock',
     model: 'mock-model',
     call: async () => ({} as any),
@@ -1536,31 +1543,49 @@ describe('createLLMOrchestrator factory', () => {
     getProviderInfo: () => ({ name: 'mock', model: 'mock-model' }),
   };
 
+  const mockConfig: ProviderConfig = {
+    name: 'mock',
+    apiKey: 'test-key',
+    model: 'mock-model',
+    temperature: 0.7,
+    timeoutMs: TEST_LLM_TIMEOUT_MS,
+    apiFormat: 'anthropic',
+  };
+
   it('returns LLMOrchestratorImpl instance', () => {
     const orchestrator = createLLMOrchestrator({
-      primary: mockAdapter as any,
+      primary: mockConfig,
       maxAttempts: 1,
       retryDelayMs: 10,
       events: { emit: () => {} },
+      createAnthropicAdapter: () => mockAdapter,
     });
     expect(orchestrator).toBeInstanceOf(LLMOrchestratorImpl);
   });
 
   it('forwards config through to underlying impl', async () => {
+    const configAdapter: ProviderAdapter = {
+      ...mockAdapter,
+      name: 'config-test',
+      model: 'test-model',
+      call: async () => ({
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+      }),
+    };
     const orchestrator = createLLMOrchestrator({
       primary: {
-        ...mockAdapter,
         name: 'config-test',
+        apiKey: 'test-key',
         model: 'test-model',
-        call: async () => ({
-          content: [{ type: 'text', text: 'ok' }],
-          stop_reason: 'end_turn',
-        } as any),
-        getProviderInfo: () => ({ name: 'config-test', model: 'test-model' }),
-      } as any,
+        temperature: 0.7,
+        timeoutMs: TEST_LLM_TIMEOUT_MS,
+        apiFormat: 'anthropic',
+      },
       maxAttempts: 1,
       retryDelayMs: 10,
       events: { emit: () => {} },
+      createAnthropicAdapter: () => configAdapter,
     });
     await orchestrator.call({ messages: [{ role: 'user', content: 'hi' }] });
     const info = orchestrator.getProviderInfo();

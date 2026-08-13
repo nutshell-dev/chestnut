@@ -35,12 +35,6 @@ function validateProviderConfig(config: ProviderConfig): void {
  * Provider factory — creates appropriate adapter for config
  */
 export function createLLMProvider(config: ProviderConfig): LLMProvider {
-  // Test escape hatch: caller may pass a pre-built LLMProvider via duck typing.
-  // We narrow with 'stream in config' + function typeof, then cast (one-way) to LLMProvider.
-  if ('stream' in config && typeof (config as { stream?: unknown }).stream === 'function') {
-    return config as unknown as LLMProvider;
-  }
-
   // Validate configuration before instantiation
   validateProviderConfig(config);
 

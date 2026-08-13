@@ -1,22 +1,32 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
-import type { LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
+import type {
+  LLMEventSink,
+  ProviderAdapter,
+  ProviderConfig,
+} from '../../../src/foundation/llm-orchestrator/types.js';
 
-function createMockProvider(name: string, apiKey: string) {
+function createMockProvider(name: string): ProviderAdapter {
   return {
     name,
     model: 'test-model',
+    call: vi.fn(),
+    stream: vi.fn(),
+    onStreamParseError: undefined,
+    onToolArgParseError: undefined,
+  };
+}
+
+function createProviderConfig(name: string, apiKey: string): ProviderConfig {
+  return {
+    name,
     apiKey,
-    apiFormat: 'openai',
+    model: 'test-model',
+    apiFormat: 'anthropic',
     maxTokens: 1000,
     temperature: 0.7,
     timeoutMs: 30000,
-    call: vi.fn(),
-    stream: vi.fn(),
-    getProviderInfo: vi.fn().mockReturnValue({ name, model: 'test-model', isFallback: false }),
-    onStreamParseError: undefined,
-    onToolArgParseError: undefined,
   };
 }
 
@@ -27,8 +37,8 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
       emit: (e: Record<string, unknown>) => { events.push(e); },
     };
 
-    const primary = createMockProvider('primary', 'key-p');
-    const fallback = createMockProvider('fallback', 'key-f');
+    const primary = createMockProvider('primary');
+    const fallback = createMockProvider('fallback');
 
     primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted'));
     fallback.call.mockResolvedValue({
@@ -39,11 +49,12 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
     });
 
     const orchestrator = new LLMOrchestratorImpl({
-      primary: primary as unknown as Parameters<typeof LLMOrchestratorImpl.prototype.constructor>[0]['primary'],
-      fallbacks: [fallback as unknown as Parameters<typeof LLMOrchestratorImpl.prototype.constructor>[0]['primary']],
+      primary: createProviderConfig('primary', 'key-p'),
+      fallbacks: [createProviderConfig('fallback', 'key-f')],
       events: eventSink,
       maxAttempts: 1,
       retryDelayMs: 0,
+      createAnthropicAdapter: (config) => config.name === 'fallback' ? fallback : primary,
     });
 
     // Verify fallback provider is distinct from primary
@@ -55,6 +66,8 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
     });
 
     expect(result.content[0]).toEqual({ type: 'text', text: 'fallback response' });
+    expect(primary.call).toHaveBeenCalledOnce();
+    expect(fallback.call).toHaveBeenCalledOnce();
     expect(events.some(e => e.type === 'context_exceeded_failover')).toBe(true);
   });
 
@@ -63,20 +76,22 @@ describe('orchestrator failover on ContextTrimExhaustedError', () => {
       emit: () => {},
     };
 
-    const primary = createMockProvider('primary', 'key-p');
+    const primary = createMockProvider('primary');
 
     primary.call.mockRejectedValue(new ContextTrimExhaustedError('trim exhausted'));
 
     const orchestrator = new LLMOrchestratorImpl({
-      primary: primary as unknown as Parameters<typeof LLMOrchestratorImpl.prototype.constructor>[0]['primary'],
+      primary: createProviderConfig('primary', 'key-p'),
       events: eventSink,
       maxAttempts: 1,
       retryDelayMs: 0,
+      createAnthropicAdapter: () => primary,
     });
 
     await expect(orchestrator.call({
       messages: [{ role: 'user', content: 'hi' }],
       system: 'sys',
     })).rejects.toThrow(/All LLM providers failed/);
+    expect(primary.call).toHaveBeenCalledOnce();
   });
 });
