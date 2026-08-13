@@ -124,7 +124,7 @@ describe('phase 1419/1243: inbox message type registry coverage invariant', () =
     const registered = extractRegisteredTypes();
     const expected = [
       'user_inbox_message', 'user_chat',
-      'claw_crashed', 'claw_inactivity',
+      'claw_inactivity',
       'contract_events', 'verification_result', 'verification_rejection', 'verification_error',
       'startup_check',
       'random_dream', 'deep_dream',

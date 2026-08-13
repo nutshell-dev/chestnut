@@ -18,12 +18,13 @@ describe('phase 1256 Step B: registry compose envelope fidelity', () => {
   it('composer receives the exact same envelope object (type/from/meta identity)', () => {
     const registry = createMotionGuidanceRegistry();
     const spy = vi.fn().mockReturnValue({ text: 'G' });
-    registry.register('claw_crashed', spy);
+    // phase 1380: fixture 从退场的 claw_crashed 换为既存 type（claw_inactivity）
+    registry.register('claw_inactivity', spy);
 
     const input: GuidanceEnvelope = {
-      type: 'claw_crashed',
+      type: 'claw_inactivity',
       from: 'claw-a',
-      meta: { crash_class: 'active_unexpected', claw_id: 'clawA' },
+      meta: { failure_class: 'daemon_silent', claw_id: 'clawA' },
     };
     const result = registry.compose(input);
 

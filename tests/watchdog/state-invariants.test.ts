@@ -162,7 +162,7 @@ describe('watchdog-utils-snapshot-forensic', () => {
       expect(snapshot.lastAuditEvents).toBeUndefined();
     });
 
-    it('reverse 3: claw_crashed body includes last_events segment', () => {
+    it('reverse 3: gatherClawSnapshot lastAuditEvents includes tail segments', () => {
       const auditLines = [
         '2026-01-01T00:00:00Z\tturn_start\t1',
         '2026-01-01T00:01:00Z\tturn_error\ttimeout',

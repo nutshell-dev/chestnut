@@ -124,31 +124,6 @@ describe('phase 1263 Step A: renderCliGuidanceAction', () => {
 });
 
 describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentation', () => {
-  it('crash active_unexpected 两行 exact（restart + inspect-before-crash）', () => {
-    const doc: CliGuidanceDocument = {
-      lines: [
-        { label: 'restart', action: { kind: 'claw.daemon', target: { kind: 'claw', id: 'claw-real' } } },
-        { label: 'inspect-before-crash', action: { kind: 'claw.steps', target: { kind: 'claw', id: 'claw-real' } } },
-      ],
-    };
-    expect(renderCliGuidanceDocument(doc)).toBe(
-      'To restart: chestnut claw claw-real daemon\n' +
-      'To inspect what the claw was doing before crash: chestnut claw claw-real steps',
-    );
-  });
-
-  it('crash active_user_stopped 两行 exact（check-current-status + inspect-current-work）', () => {
-    const doc: CliGuidanceDocument = {
-      lines: [
-        { label: 'check-current-status', action: { kind: 'claw.status', target: { kind: 'claw', id: 'claw-real' } } },
-        { label: 'inspect-current-work', action: { kind: 'claw.steps', target: { kind: 'claw', id: 'claw-real' } } },
-      ],
-    };
-    expect(renderCliGuidanceDocument(doc)).toBe(
-      'To check current status: chestnut claw claw-real status\n' +
-      'To inspect what the claw was doing: chestnut claw claw-real steps',
-    );
-  });
 
   it('inactivity inspect-stuck / inspect + watch-after-intervention exact', () => {
     const stuck: CliGuidanceDocument = {

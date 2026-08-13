@@ -75,7 +75,7 @@ export interface ClawStateSnapshot {
   clawPreviouslyNotified?: Record<string, number>;
 }
 
-export type MotionRestartState =
+export type RestartState =
   | {
       status: 'closed';
       consecutiveAttempts: 0;
@@ -92,22 +92,46 @@ export type MotionRestartState =
       openedAt: number;
     };
 
-const CLOSED_MOTION_RESTART_STATE: MotionRestartState = {
+const CLOSED_RESTART_STATE: RestartState = {
   status: 'closed',
   consecutiveAttempts: 0,
 };
 
-let _motionRestartState: MotionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+let _motionRestartState: RestartState = { ...CLOSED_RESTART_STATE };
 
 export const motionRestartStateAPI = {
-  snapshot(): MotionRestartState {
+  snapshot(): RestartState {
     return { ..._motionRestartState };
   },
-  replace(state: MotionRestartState): void {
+  replace(state: RestartState): void {
     _motionRestartState = { ...state };
   },
   reset(): void {
-    _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+    _motionRestartState = { ...CLOSED_RESTART_STATE };
+  },
+} as const;
+
+// === claw restart state (phase 1380): per-claw RestartState map ===
+
+const _clawRestartState = new Map<string, RestartState>();
+
+export const clawRestartStateAPI = {
+  get(clawId: string): RestartState | undefined {
+    return _clawRestartState.get(clawId);
+  },
+  set(clawId: string, state: RestartState): void {
+    _clawRestartState.set(clawId, state);
+  },
+  delete(clawId: string): boolean {
+    return _clawRestartState.delete(clawId);
+  },
+  entries(): IterableIterator<[string, RestartState]> {
+    return _clawRestartState.entries();
+  },
+  pruneStale(validIds: Set<string>): void {
+    for (const id of _clawRestartState.keys()) {
+      if (!validIds.has(id)) _clawRestartState.delete(id);
+    }
   },
 } as const;
 
@@ -259,5 +283,7 @@ export function _resetWatchdogContextForTest(): void {
   _everSpawned.clear();
   _clawPreviouslyNotified.clear();
   // motion restart durable state
-  _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+  _motionRestartState = { ...CLOSED_RESTART_STATE };
+  // claw restart durable state (phase 1380)
+  _clawRestartState.clear();
 }

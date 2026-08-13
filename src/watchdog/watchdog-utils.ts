@@ -25,6 +25,28 @@ import { hasActiveContract, listActiveContracts } from '../core/contract/index.j
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
+/**
+ * Watchdog daemon restart exponential backoff cap（ms）= 5 minutes.
+ * Derivation: 5 * 60 * 1000 = 300_000ms / 配 WATCHDOG_MAX_RESTART_DEFAULT=10 即最坏总 retry budget
+ * = 10 × 5min = 50min / 与 LLM_RETRY_MAX_DELAY_MS=300s 同值同类 cap exponential backoff /
+ * 防无限退避致 daemon 永挂 unrecoverable. Phase 1380: 从 watchdog.ts 迁入（防 cron→watchdog.ts 循环依赖）。
+ */
+export const WATCHDOG_BACKOFF_MAX_MS = 5 * 60 * 1000;
+
+/**
+ * 连续 daemon restart 失败 cap、触顶进 circuit-open（phase 324 H3 立 / phase 1380 迁入）。
+ * Derivation: 10 次重启失败后表程序态严重问题、继续重启浪费资源 /
+ * 配 WATCHDOG_BACKOFF_MAX_MS=5min 即 10 × 5min = 50min 总 retry budget /
+ * env WATCHDOG_MAX_RESTART 设有效正整数时覆盖.
+ */
+const WATCHDOG_MAX_RESTART_DEFAULT = 10;
+export function getWatchdogMaxRestart(): number {
+  const raw = process.env.WATCHDOG_MAX_RESTART;
+  if (!raw) return WATCHDOG_MAX_RESTART_DEFAULT;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : WATCHDOG_MAX_RESTART_DEFAULT;
+}
+
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
 export interface ClawActivityInfo {
   lastEventMs: number | null;  // most recent ts from any LLM output event

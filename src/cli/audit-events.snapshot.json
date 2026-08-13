@@ -673,7 +673,6 @@
     ],
     "daemon_audit-events": [
       "contract_cancelled",
-      "claw_crashed",
       "daemon_cleanup_heartbeat_failed",
       "daemon_cleanup_pid_failed",
       "daemon_exit_zero",
@@ -920,8 +919,8 @@
     "watchdog_audit-events": [
       "claw_crash_detected",
       "claw_has_contract_check_failed",
-      "watchdog_claw_crash_notify_deduped",
-      "watchdog_claw_crash_notify_reset",
+      "claw_restart_circuit_opened",
+      "claw_restart_recovered",
       "watchdog_claw_crash_skipped_no_contract",
       "watchdog_claw_dir_list_failed",
       "watchdog_claw_inactivity_check_failed",

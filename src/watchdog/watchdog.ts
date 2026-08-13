@@ -46,7 +46,7 @@ import { resolveDaemonEntry } from '../daemon/index.js';
 import {
   getChestnutDir, getChestnutFs, getWatchdogConfig, setAuditWriter, getAuditWriter,
   motionRestartStateAPI,
-  type MotionRestartState,
+  type RestartState,
 } from './watchdog-context.js';
 import {
   removeWatchdogPid, removeWatchdogPidIfOwner,
@@ -64,35 +64,14 @@ import {
   loadWatchdogState, saveWatchdogState,
 } from './watchdog-state.js';
 import {
-  decideMotionRestart,
+  decideDaemonRestart,
   reduceMotionRestartOutcome,
   type MotionSpawnOutcome,
 } from './motion-restart-state.js';
+import { WATCHDOG_BACKOFF_MAX_MS, getWatchdogMaxRestart } from './watchdog-utils.js';
 import {
   maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
 } from './watchdog-cron.js';
-
-/**
- * Watchdog motion restart exponential backoff cap（ms）= 5 minutes.
- * Derivation: 5 * 60 * 1000 = 300_000ms / 配 WATCHDOG_MAX_RESTART_DEFAULT=10 即最坏总 retry budget
- * = 10 × 5min = 50min / 与 LLM_RETRY_MAX_DELAY_MS=300s 同值同类 cap exponential backoff /
- * 防无限退避致 motion 永挂 unrecoverable.
- */
-const WATCHDOG_BACKOFF_MAX_MS = 5 * 60 * 1000;
-
-/**
- * 连续 motion restart 失败 cap、触顶进 circuit-open（phase 324 H3 立）.
- * Derivation: 10 次重启失败后表 motion 程序态严重问题、继续重启浪费资源 /
- * 配 WATCHDOG_BACKOFF_MAX_MS=5min 即 10 × 5min = 50min 总 retry budget /
- * env WATCHDOG_MAX_RESTART 设有效正整数时覆盖.
- */
-const WATCHDOG_MAX_RESTART_DEFAULT = 10;
-function getMaxRestart(): number {
-  const raw = process.env.WATCHDOG_MAX_RESTART;
-  if (!raw) return WATCHDOG_MAX_RESTART_DEFAULT;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : WATCHDOG_MAX_RESTART_DEFAULT;
-}
 
 // === Ownership (phase 1203 Step B) ===
 
@@ -486,7 +465,7 @@ export async function runWatchdogLoop(
   process.on('SIGTERM', sigtermHandler);
   process.on('SIGINT', sigintHandler);
 
-  const maxRestart = getMaxRestart();
+  const maxRestart = getWatchdogMaxRestart();
 
   const hourlyHeartbeat = createHourlyHeartbeatAccumulator({
     onHourly: (tickCount, elapsedMs) => {
@@ -541,7 +520,7 @@ export async function runWatchdogLoop(
 
     const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
     const prior = motionRestartStateAPI.snapshot();
-    const decision = decideMotionRestart(prior, status.alive, now, maxRestart);
+    const decision = decideDaemonRestart(prior, status.alive, now, maxRestart);
     motionRestartStateAPI.replace(decision.state);
 
     let nextSleepMs = intervalMs;
@@ -564,7 +543,7 @@ export async function runWatchdogLoop(
         }
         break;
       case 'defer': {
-        const retryingState = decision.state as Extract<MotionRestartState, { status: 'retrying' }>;
+        const retryingState = decision.state as Extract<RestartState, { status: 'retrying' }>;
         nextSleepMs = Math.max(0, Math.min(decision.waitMs, WATCHDOG_BACKOFF_MAX_MS));
         auditWriter.write(
           WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_DEFERRED,
@@ -608,7 +587,7 @@ export async function runWatchdogLoop(
 
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
     await maybeCronClawInactivity(pm, auditWriter, fsFactory);
-    maybeCronClawCrash(pm, auditWriter, fsFactory);
+    await maybeCronClawCrash(pm, auditWriter, fsFactory);
     // phase 5: process motion-requested subscriptions (file-based dir scan)
     await maybeCronCheckSubscriptions(pm, auditWriter, fsFactory);
     saveWatchdogState(fsFactory);   // 持久化通知状态（每 tick 一次）

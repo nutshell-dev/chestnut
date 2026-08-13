@@ -1,27 +1,28 @@
 /**
- * @module L6.Watchdog.MotionRestartState
- * Pure state machine for durable motion restart backoff/circuit decisions.
+ * @module L6.Watchdog.RestartState
+ * Pure state machine for durable daemon (motion / claw) restart backoff/circuit decisions.
  *
  * Phase 1164: restart/backoff/circuit state is no longer local to runWatchdogLoop;
  * this module owns the transition logic only, with no I/O or audit side effects.
+ * Phase 1380: generalized from motion-only to any daemon (semantic rename, no identity).
  */
 
-import type { MotionRestartState } from './watchdog-context.js';
+import type { RestartState } from './watchdog-context.js';
 import type { ProcessSpawnConflictReason } from '../foundation/process-manager/index.js';
 
 export type MotionRestartDecision =
-  | { action: 'healthy'; state: MotionRestartState; recoveredAttempts: number }
-  | { action: 'defer'; state: MotionRestartState; waitMs: number }
-  | { action: 'circuit_open'; state: MotionRestartState; justOpened: boolean }
-  | { action: 'attempt'; state: MotionRestartState };
+  | { action: 'healthy'; state: RestartState; recoveredAttempts: number }
+  | { action: 'defer'; state: RestartState; waitMs: number }
+  | { action: 'circuit_open'; state: RestartState; justOpened: boolean }
+  | { action: 'attempt'; state: RestartState };
 
-export function decideMotionRestart(
-  state: MotionRestartState,
-  motionAlive: boolean,
+export function decideDaemonRestart(
+  state: RestartState,
+  daemonAlive: boolean,
   now: number,
   maxAttempts: number,
 ): MotionRestartDecision {
-  if (motionAlive) {
+  if (daemonAlive) {
     const recoveredAttempts =
       state.status === 'closed' ? 0 : state.consecutiveAttempts;
     return {
@@ -67,12 +68,12 @@ export type MotionSpawnOutcome =
   | { kind: 'spawn_conflict'; reason: ProcessSpawnConflictReason };
 
 export function reduceMotionRestartOutcome(
-  prior: MotionRestartState,
+  prior: RestartState,
   outcome: MotionSpawnOutcome,
   now: number,
   baseIntervalMs: number,
   maxBackoffMs: number,
-): MotionRestartState {
+): RestartState {
   // Phase 1235: 只有合法 spawn ownership conflict（另一实例是磁盘 winner）可清零
   // backoff；malformed generation state 经 failed 分支累计 attempt。
   if (outcome.kind === 'spawn_conflict') {

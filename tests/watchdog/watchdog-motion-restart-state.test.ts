@@ -3,18 +3,18 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  decideMotionRestart,
+  decideDaemonRestart,
   reduceMotionRestartOutcome,
 } from '../../src/watchdog/motion-restart-state.js';
-import type { MotionRestartState } from '../../src/watchdog/watchdog-context.js';
+import type { RestartState } from '../../src/watchdog/watchdog-context.js';
 
-const CLOSED: MotionRestartState = { status: 'closed', consecutiveAttempts: 0 };
+const CLOSED: RestartState = { status: 'closed', consecutiveAttempts: 0 };
 
 function retrying(
   attempts: number,
   nextAttemptAt: number,
   awaitingStability: boolean,
-): MotionRestartState {
+): RestartState {
   return {
     status: 'retrying',
     consecutiveAttempts: attempts,
@@ -23,7 +23,7 @@ function retrying(
   };
 }
 
-function open(attempts: number, openedAt: number): MotionRestartState {
+function open(attempts: number, openedAt: number): RestartState {
   return {
     status: 'open',
     consecutiveAttempts: attempts,
@@ -31,23 +31,23 @@ function open(attempts: number, openedAt: number): MotionRestartState {
   };
 }
 
-describe('decideMotionRestart', () => {
+describe('decideDaemonRestart', () => {
   it('closed + alive -> closed, recoveredAttempts=0', () => {
-    const decision = decideMotionRestart(CLOSED, true, 1_000, 10);
+    const decision = decideDaemonRestart(CLOSED, true, 1_000, 10);
     expect(decision.action).toBe('healthy');
     expect(decision.state).toEqual(CLOSED);
     expect(decision.recoveredAttempts).toBe(0);
   });
 
   it('closed + down -> attempt', () => {
-    const decision = decideMotionRestart(CLOSED, false, 1_000, 10);
+    const decision = decideDaemonRestart(CLOSED, false, 1_000, 10);
     expect(decision.action).toBe('attempt');
     expect(decision.state).toEqual(CLOSED);
   });
 
   it('retrying awaitingStability + alive -> closed + stability audit', () => {
     const state = retrying(1, 5_000, true);
-    const decision = decideMotionRestart(state, true, 10_000, 10);
+    const decision = decideDaemonRestart(state, true, 10_000, 10);
     expect(decision.action).toBe('healthy');
     expect(decision.state).toEqual(CLOSED);
     expect(decision.recoveredAttempts).toBe(1);
@@ -55,7 +55,7 @@ describe('decideMotionRestart', () => {
 
   it('retrying awaitingStability + down before nextAttemptAt -> defer, awaitingStability=false', () => {
     const state = retrying(1, 5_000, true);
-    const decision = decideMotionRestart(state, false, 3_000, 10);
+    const decision = decideDaemonRestart(state, false, 3_000, 10);
     expect(decision.action).toBe('defer');
     expect(decision.state).toEqual(retrying(1, 5_000, false));
     expect(decision.waitMs).toBe(2_000);
@@ -63,14 +63,14 @@ describe('decideMotionRestart', () => {
 
   it('retrying + down due -> attempt', () => {
     const state = retrying(2, 5_000, false);
-    const decision = decideMotionRestart(state, false, 5_000, 10);
+    const decision = decideDaemonRestart(state, false, 5_000, 10);
     expect(decision.action).toBe('attempt');
     expect(decision.state).toEqual(state);
   });
 
   it('retrying attempts=max + down -> open exactly once', () => {
     const state = retrying(10, 5_000, false);
-    const decision = decideMotionRestart(state, false, 10_000, 10);
+    const decision = decideDaemonRestart(state, false, 10_000, 10);
     expect(decision.action).toBe('circuit_open');
     expect(decision.state).toEqual(open(10, 10_000));
     expect(decision.justOpened).toBe(true);
@@ -78,7 +78,7 @@ describe('decideMotionRestart', () => {
 
   it('open + down -> circuit_open, justOpened=false', () => {
     const state = open(10, 8_000);
-    const decision = decideMotionRestart(state, false, 10_000, 10);
+    const decision = decideDaemonRestart(state, false, 10_000, 10);
     expect(decision.action).toBe('circuit_open');
     expect(decision.state).toEqual(state);
     expect(decision.justOpened).toBe(false);
@@ -86,7 +86,7 @@ describe('decideMotionRestart', () => {
 
   it('open + alive -> closed + recovered attempts', () => {
     const state = open(10, 8_000);
-    const decision = decideMotionRestart(state, true, 10_000, 10);
+    const decision = decideDaemonRestart(state, true, 10_000, 10);
     expect(decision.action).toBe('healthy');
     expect(decision.state).toEqual(CLOSED);
     expect(decision.recoveredAttempts).toBe(10);
@@ -94,7 +94,7 @@ describe('decideMotionRestart', () => {
 
   it('defer waitMs=0 when now >= nextAttemptAt -> attempt', () => {
     const state = retrying(2, 5_000, false);
-    const decision = decideMotionRestart(state, false, 6_000, 10);
+    const decision = decideDaemonRestart(state, false, 6_000, 10);
     expect(decision.action).toBe('attempt');
   });
 });

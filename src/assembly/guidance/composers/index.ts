@@ -6,7 +6,8 @@
  * phase 1121 Step D: 移除 contract_crashed composer（legacy crashed 只走 audit、不生成 motion 决策）。
  *
  * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 inbox type 显式 register 各 composer.
- * 当前结构：13 NO_GUIDANCE sentinel + generic real composer + 5 CLI typed binding。
+ * 当前结构：13 NO_GUIDANCE sentinel + generic real composer + 4 CLI typed binding。
+ * phase 1380: claw_crashed binding 退场（claw 崩溃自愈归系统、不再投 motion inbox、audit-only）。
  * phase 1264 Step A: claw_inactivity 迁入 typed binding（aggregate 注释不再逐个列举 CLI composer）。
  * phase 1265 Step A: claw_outbox_summary 迁入同一次 typed bindings 聚合（第三个迁移的 CLI binding）。
  * phase 1266 Step A: contract_events 迁入同一次 typed bindings 聚合（第四个迁移的 CLI binding）。
@@ -19,7 +20,6 @@
 import type { MotionGuidanceRegistry } from '../types.js';
 
 import { registerCliGuidance } from '../../../cli-protocol/index.js';
-import { clawCrashedGuidanceBinding } from '../bindings/claw-crashed.js';
 import { clawInactivityGuidanceBinding } from '../bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../bindings/claw-outbox-summary.js';
 import { contractEventsGuidanceBinding } from '../bindings/contract-events.js';
@@ -41,13 +41,13 @@ import { composer as contractAuditFeedback } from './contract-audit-feedback.js'
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
   // phase 1263 Step C: claw_crashed 经 CLIProtocol typed binding 注册（首个迁移的 CLI binding）；
+  // phase 1380: claw_crashed binding 退场（claw 崩溃自愈归系统、不再投 motion inbox、audit-only）；
   // phase 1264 Step A: claw_inactivity 加入同一次 registerCliGuidance 聚合调用（第二个迁移的 CLI binding）；
   // phase 1265 Step A: claw_outbox_summary 加入同一聚合（第三个迁移的 CLI binding）；
   // phase 1266 Step A: contract_events 加入同一聚合（第四个迁移的 CLI binding）；
-  // phase 1267 Step A: contract_cancelled 加入同一聚合（第五个、最后一个迁移的 CLI binding，bindings 5/5）。
+  // phase 1267 Step A: contract_cancelled 加入同一聚合（第五个、最后一个迁移的 CLI binding，bindings 4/4）。
   // 数组只是 Assembly contribution 聚合、各 binding 本身独立；duplicate preflight 覆盖全部 CLI binding。
   registerCliGuidance(registry, [
-    clawCrashedGuidanceBinding,
     clawInactivityGuidanceBinding,
     clawOutboxSummaryGuidanceBinding,
     contractEventsGuidanceBinding,

@@ -1,5 +1,7 @@
 /**
- * Motion AGENTS.md crash self-heal guidance smoke test (phase 1207 gap C)
+ * Motion AGENTS.md crash self-heal smoke test — phase 1380 rewrite.
+ *
+ * phase 1380: 崩溃自愈决策树删除、改为「系统自动处理」一句；claw_crashed 通知退场。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -10,23 +12,20 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AGENTS_PATH = path.resolve(__dirname, '../../../src/templates/motion/AGENTS.md');
 
-describe('motion AGENTS.md crash self-heal N≥3 bailout (phase 1207 gap C)', () => {
+describe('motion AGENTS.md crash self-heal (phase 1380: 系统自动重启、不教决策树)', () => {
   const content = fs.readFileSync(AGENTS_PATH, 'utf-8');
 
-  it('contains N<3 immediate restart guidance', () => {
-    expect(content).toContain('同 source claw_crashed < 3 次');
-    expect(content).toContain('立即重启');
+  it('崩溃自愈段 = 系统自动处理一句、无决策树', () => {
+    expect(content).toContain('执行单元的进程崩溃由系统（Watchdog）自动重启恢复，你无需处理。');
+    expect(content).not.toContain('同 source claw_crashed');
+    expect(content).not.toContain('claw_crashed');
   });
 
-  it('contains N≥3 bailout with contract cancel CLI option and no pauseContract', () => {
-    expect(content).toContain('同 source claw_crashed ≥ 3 次');
-    expect(content).toContain('chestnut contract cancel');
-    expect(content).not.toContain('pauseContract');
+  it('管理指令快速参考不再教重启 daemon（claw <id> daemon 行删除）', () => {
+    expect(content).not.toContain('chestnut claw <claw-id> daemon');
   });
 
-  it('references diagnostic CLI and crash_class for diagnosis', () => {
-    expect(content).toContain('crash_class');
-    expect(content).toContain('chestnut claw <claw-id> steps');
-    expect(content).toContain('chestnut claw <claw-id> trace');
+  it('信息来源不再含崩溃通知措辞', () => {
+    expect(content).not.toContain('崩溃通知');
   });
 });

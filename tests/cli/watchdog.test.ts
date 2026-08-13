@@ -855,7 +855,12 @@ describe('maybeCronClawCrash — crash audit', () => {
       contract: 'c1', outboxPending: 0, inboxPending: 0, status: 'alive',
     } as any);
 
-    mockPm = { isAlive: vi.fn(), getAliveStatus: vi.fn() } as unknown as ProcessManager;
+    mockPm = {
+      isAlive: vi.fn(),
+      getAliveStatus: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+      spawn: vi.fn().mockResolvedValue(4242),
+    } as unknown as ProcessManager;
     mockAudit = makeMockAudit();
 
     writeSyncSpy = vi.spyOn(InboxWriter.prototype, 'writeSync').mockImplementation(() => {});
@@ -866,17 +871,17 @@ describe('maybeCronClawCrash — crash audit', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('emits CLAW_CRASH_DETECTED when claw transitions alive→dead with contract', () => {
+  it('emits CLAW_CRASH_DETECTED when claw transitions alive→dead with contract', async () => {
     const clawId = `claw-crash-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    // First call: alive=true (establish baseline)
+    // First call: alive=true (no restart state → no audit)
     vi.mocked(mockPm.isAlive).mockReturnValue(true);
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
-    // Second call: alive=false (crash detected)
+    // Second call: alive=false (crash detected → restart attempt)
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     // phase 2 γ4: detected_by field 移除 / 改 crash_class (active_unexpected when no clean-stop marker)
     expect(mockAudit.write).toHaveBeenCalledWith(
@@ -885,18 +890,21 @@ describe('maybeCronClawCrash — crash audit', () => {
       'has_contract=true',
       'crash_class=active_unexpected',
     );
+    // phase 1380: crash 检测后自动重启（spawn 被调用、无 inbox 通知）
+    expect(mockPm.spawn).toHaveBeenCalledTimes(1);
   });
 
-  it('emits watchdog_claw_scan with ctx=crash after scanning claws dir', () => {
+  it('emits watchdog_claw_scan with ctx=crash after scanning claws dir', async () => {
     const clawId = `claw-scan-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // Ensure isAlive returns false so crash detection path is not triggered
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
+    vi.mocked(clawHasActiveContract).mockReturnValue(false);
     // Clear previous calls to isolate this test
     vi.mocked(mockAudit.write).mockClear();
 
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     const calls = vi.mocked(mockAudit.write).mock.calls;
     const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);

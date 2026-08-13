@@ -13,7 +13,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
-import { clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI, clawRestartStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { clawHasContract, gatherClawSnapshot, clawHasActiveContract } from '../../src/watchdog/watchdog-utils.js';
@@ -101,7 +101,11 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
       interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
     });
 
-    mockPm = { isAlive: vi.fn() } as unknown as ProcessManager;
+    mockPm = {
+      isAlive: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+      spawn: vi.fn().mockResolvedValue(4242),
+    } as unknown as ProcessManager;
     mockAudit = {
       write: vi.fn(),
       preview: vi.fn((s: string) => s),
@@ -115,6 +119,7 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     clawStateAPI.clawPreviouslyAlive.clear();
     clawStateAPI.everSpawned.clear();
     clawStateAPI.clawPreviouslyNotified.clear();
+    clawRestartStateAPI.pruneStale(new Set());
   });
 
   afterEach(() => {
@@ -149,21 +154,22 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     clawStateAPI.inactivityNotifyCount.set('claw-A', 1);
     clawStateAPI.clawPreviouslyAlive.set('claw-C', true);
     clawStateAPI.everSpawned.add('claw-C');
-    clawStateAPI.clawPreviouslyNotified.set('claw-C', Date.now());
+    clawRestartStateAPI.set('claw-C', { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: Date.now(), awaitingStability: false });
 
     // fs reports CLAWS_DIR does NOT exist
     vi.mocked(getChestnutFs).mockReturnValue(makeMockFs(false) as any);
 
     // act: 跑 maybeCronClawInactivity + Crash with CLAWS_DIR missing fs
     await maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory);
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
-    // expect: 5 Maps 全清
+    // expect: 5 Maps 全清（clawPreviouslyNotified 已无消费者、仍随 load/save 对称清理）
     expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
     expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
     expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
     expect(clawStateAPI.everSpawned.size).toBe(0);
     expect(clawStateAPI.clawPreviouslyNotified.size).toBe(0);
+    expect(clawRestartStateAPI.get('claw-C')).toBeUndefined();
   });
 
   it('reverse 2: CLAWS_DIR exists + all stale → existing cleanup still clears all', async () => {
@@ -174,13 +180,13 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     clawStateAPI.inactivityNotifyCount.set('claw-A', 1);
     clawStateAPI.clawPreviouslyAlive.set('claw-A', true);
     clawStateAPI.everSpawned.add('claw-A');
-    clawStateAPI.clawPreviouslyNotified.set('claw-A', Date.now());
+    clawRestartStateAPI.set('claw-A', { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: Date.now(), awaitingStability: false });
 
     vi.mocked(getChestnutFs).mockReturnValue(makeMockFs(true) as any);
 
     // act: 跑 cron
     await maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory);
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     // expect: Maps 不含 A/B、含 X 若有（这里 X 不在 Maps 中，所以全清）
     expect(clawStateAPI.lastInactivityNotified.has('claw-A')).toBe(false);
@@ -189,6 +195,7 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     expect(clawStateAPI.clawPreviouslyAlive.has('claw-A')).toBe(false);
     expect(clawStateAPI.everSpawned.has('claw-A')).toBe(false);
     expect(clawStateAPI.clawPreviouslyNotified.has('claw-A')).toBe(false);
+    expect(clawRestartStateAPI.get('claw-A')).toBeUndefined();
     // X 没有被加入（因为 clawHasActiveContract mocked false / pm.isAlive mocked false）
   });
 
@@ -208,12 +215,14 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     clawStateAPI.everSpawned.add('claw-Z');
     clawStateAPI.clawPreviouslyNotified.set('claw-X', Date.now());
     clawStateAPI.clawPreviouslyNotified.set('claw-Z', Date.now() - 1000);
+    clawRestartStateAPI.set('claw-X', { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: Date.now(), awaitingStability: false });
+    clawRestartStateAPI.set('claw-Z', { status: 'retrying', consecutiveAttempts: 2, nextAttemptAt: Date.now(), awaitingStability: false });
 
     vi.mocked(getChestnutFs).mockReturnValue(makeMockFs(true) as any);
 
     // act: 跑 cron
     await maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory);
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     // expect: X, Y 保留、Z 移除
     expect(clawStateAPI.lastInactivityNotified.has('claw-X')).toBe(true);
@@ -231,5 +240,8 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
 
     expect(clawStateAPI.clawPreviouslyNotified.has('claw-X')).toBe(true);
     expect(clawStateAPI.clawPreviouslyNotified.has('claw-Z')).toBe(false);
+
+    expect(clawRestartStateAPI.get('claw-X')).toBeDefined();
+    expect(clawRestartStateAPI.get('claw-Z')).toBeUndefined();
   });
 });

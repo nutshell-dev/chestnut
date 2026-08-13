@@ -128,7 +128,7 @@ describe('userinterrupt-system-message-no-redrive', () => {
    *
    * 覆盖：
    *   - type=message（contract-new 等通用系统通知）
-   *   - type=claw_crashed（watchdog 投递）
+   *   - type=claw_inactivity（watchdog 投递）
    *   - type=heartbeat（heartbeat 投递）
    *   - 混合批（user_chat + 系统）— 全 ack、0 nack
    *   - 反向：保 UserInterrupt 路径不再产生 nack（捕回归）
@@ -204,7 +204,7 @@ describe('userinterrupt-system-message-no-redrive', () => {
 
     const systemTypedCases: Array<{ type: InboxMessage['type']; from: string; desc: string }> = [
       { type: 'message', from: 'system', desc: 'contract-new (CLI-injected via notifyContractCreated)' },
-      { type: 'claw_crashed', from: 'watchdog', desc: 'watchdog crash notification' },
+      { type: 'claw_inactivity', from: 'watchdog', desc: 'watchdog inactivity notification' },
       { type: 'heartbeat', from: 'heartbeat', desc: 'heartbeat tick' },
     ];
 
@@ -233,7 +233,7 @@ describe('userinterrupt-system-message-no-redrive', () => {
       });
     }
 
-    it('UserInterrupt + mixed batch (3 messages: user_chat + message + claw_crashed): all ack, 0 nack', async () => {
+    it('UserInterrupt + mixed batch (3 messages: user_chat + message + claw_inactivity): all ack, 0 nack', async () => {
       const runtime = await makeInterruptRuntime();
       const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
       const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
@@ -250,7 +250,7 @@ describe('userinterrupt-system-message-no-redrive', () => {
         infos: [
           makeInfo('user_chat', 'u1', 'user'),
           makeInfo('message', 'm2', 'auditor'),
-          makeInfo('claw_crashed', 'c3', 'watchdog'),
+          makeInfo('claw_inactivity', 'c3', 'watchdog'),
         ],
         addressedHandles: [
           { filePath: 'inflight/u1.md', originalFileName: 'u1.md' },

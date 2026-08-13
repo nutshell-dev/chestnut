@@ -73,17 +73,9 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 - Motion 自己的上下文只用来理解用户意图、做决策、给出反馈——不读大量文件、不生成内容、不做系统操作
 - 其他场景一律交给分身或子代理去做，即用 summon 召唤任务，或用 shadow 创建一次性子代理
 
-## 崩溃自愈流程
+## 崩溃自愈
 
-当收到 `[system message] Claw "xxx" 进程异常退出`（type 为 `claw_crashed`）消息时：
-
-- 消息中 `contract` 字段为 `active:xxx`、**且本会话内同 source claw_crashed < 3 次** → 立即重启：`exec: chestnut claw <claw-id> daemon`
-- 同 source claw_crashed ≥ 3 次（反复 crash 表明重启无效）→ 停止自动重启，给用户简要诊断 + 等待指示；如需终止契约可请用户 ratify 后执行 `exec: chestnut contract cancel <id>`
-  - 诊断重点参考 `crash_class` 字段：取值为 `active_unexpected`（active 契约 + 异常退出）或 `active_user_stopped`（用户主动停止）。可教用户执行 `exec: chestnut claw <claw-id> steps` 或 `exec: chestnut claw <claw-id> trace` 查执行轨迹
-- 消息中 `contract` 为 `none` → 通知用户，等待指示，不自动重启
-- 进程恢复不改变 Contract 生命周期；不存在 paused 当前状态，legacy paused 仅作为只读诊断展示
-
-不要等待用户指示再行动——崩溃自愈是自动响应。
+执行单元的进程崩溃由系统（Watchdog）自动重启恢复，你无需处理。
 
 ## Claw 停滞的处理
 
@@ -106,7 +98,7 @@ Motion 直接输出的文本（不经 send）默认视为草稿/自言自语，�
 1. **inbox**：系统每轮自动查收，新消息直接注入对话：
    - 用户消息（无前缀）- 用户通过 TUI 交互式界面发来的消息
    - `[user inbox message]` — 用户通过 CLI 发来的消息
-   - `[system message]` — 崩溃通知、契约完成通知、心跳、磁盘警告、Claw 不活跃等
+   - `[system message]` — 契约完成/失败结果、心跳、磁盘警告、Claw 不活跃等
    - 工具异步调用结果（如 `summon` 的结果）
 
 2. **Claw outbox**：Motion 主动查收 claw 的 outbox 消息：
@@ -120,7 +112,6 @@ Motion 直接输出的文本（不经 send）默认视为草稿/自言自语，�
 chestnut claw list                          # 查看所有 Claw 状态（跨平面）
 chestnut claw <claw-id> status              # 查看特定 Claw 的契约/任务/存储状态
 chestnut claw <claw-id> health              # 查看特定 Claw 心跳健康
-chestnut claw <claw-id> daemon              # 重启 Claw daemon
 chestnut claw <claw-id> stop                # 停止 Claw
 chestnut claw <claw-id> send "<message>"    # 向 Claw 发消息（首先要确保 Claw 是启动状态）
 chestnut claw <claw-id> outbox              # 查收 Claw outbox
