@@ -698,6 +698,8 @@
       "daemon_stop_success",
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
+      "daemon_waiting_stall_contract_fail_failed",
+      "daemon_waiting_stall_contract_failed",
       "daemon_waiting_stall_detected",
       "daemon_waiting_stall_escalated",
       "daemon_waiting_stall_self_healed",

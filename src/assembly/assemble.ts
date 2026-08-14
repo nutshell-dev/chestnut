@@ -111,6 +111,10 @@ export async function assemble(
     const { snapshot, streamWriter: sw, runtime } = await createRuntimeAssembly({ core, business, config });
     streamWriter = sw;
 
+    // phase 1387 Step B: claw daemon waiting-stall escalated → cancel active 契约。
+    // motion 的 contractManager 由 motion-addons 自管（多 claw ContractSystem cache），不在 Instances 暴露。
+    const contractManager = isMotion ? undefined : core.contractManager;
+
     // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）
     await cleanupOrphanedTemp(systemFs, clawDir, startTime).catch((err: unknown) => {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.CLEANUP_TEMP_FILES_FAILED, `reason=${formatErr(err)}`);
@@ -141,6 +145,7 @@ export async function assemble(
       processManager,
       auditWriter,
       heartbeat,
+      contractManager,
       dispose: (signal: string) => disassemble({
         gateway,
         runtime,

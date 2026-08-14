@@ -17,26 +17,47 @@
  * 自愈动作：写一条 high-priority self-inbox 消息（与 startup_check 同机制）+
  * 调 eventLoop.abort() 打断当前 waitForInbox，下一轮 run() 立即 drainInbox 拾取。
  *
+ * phase 1387 Step B 收紧：
+ *   - 三路 skip（fail-open）：LLM waiting/cooldown 在途、LLM request blocked、wakeups/ 有安排——
+ *     系统按既定调度推进时不判停滞。
+ *   - escalated 分支改：调注入的 cancelContract(reason='agent_spontaneous_stall') 取消 active 契约
+ *     判失败；cancel 失败留痕，下轮重试（幂等由 cancel 语义兜）。
+ *
  * 三态 audit：detected（检测到停滞）→ self_healed（自愈后观察到活动、计数归零）
- *           → escalated（连续 N 次自愈仍无活动、留痕待 P2a 判失败兜底，本 phase 不接判失败）。
+ *           → escalated + contract_failed（连续 N 次自愈仍无活动、取消契约判失败）。
  */
 
 import * as path from 'path';
 import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import { notifyInbox } from '../foundation/messaging/index.js';
+import { notifyInbox, listWakeups } from '../foundation/messaging/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import {
   WAITING_STALL_TIMEOUT_MS,
   WAITING_STALL_MAX_SELF_HEAL_ATTEMPTS,
   WAITING_STALL_CHECK_INTERVAL_MS,
+  WAITING_STALL_CONTRACT_FAIL_REASON,
 } from './constants.js';
 
 /** 打断 waitForInbox 以立即重入轮的最小句柄（EventLoop.abort）。 */
 export interface WaitingStallLoopHandle {
   abort(): void;
+  /**
+   * phase 1387 Step B: 只读在途状态查询。
+   * true = LLM retry/cooldown waiting 或 LLM request blocked 任一在途，系统正在按既定调度推进，
+   * waiting-stall 应 skip（fail-open：查询抛错也按在途处理）。
+   */
+  isBusy?(): boolean;
 }
+
+/**
+ * phase 1387 Step B: escalated 后取消当前 active 契约的最小 callback。
+ * 由 daemon-loop 装配时 bind 到 ContractSystem（内部解析 active id + 调 cancel）。
+ * 无 active 契约（状态漂移）应静默 no-op（audit 由 caller 兜底）；cancel 失败 throw 由 caller 留痕重试。
+ */
+export type WaitingStallCancelContract = (reason: string) => Promise<void>;
 
 export interface WaitingStallOptions {
   fsFactory: (baseDir: string) => FileSystem;
@@ -44,6 +65,11 @@ export interface WaitingStallOptions {
   agentDir: string;
   audit: AuditLog;
   eventLoop: WaitingStallLoopHandle;
+  /**
+   * phase 1387 Step B: escalated 后取消 active 契约的 callback。
+   * 未注入（如旧测试 / motion daemon）时退化为仅留痕、保留旧行为。
+   */
+  cancelContract?: WaitingStallCancelContract;
   /** 自检节拍 ms（测试可注入短节拍）。默认 WAITING_STALL_CHECK_INTERVAL_MS。 */
   checkIntervalMs?: number;
   /** 等待态停滞阈值 ms（测试可注入）。默认 WAITING_STALL_TIMEOUT_MS。 */
@@ -75,6 +101,7 @@ export function startWaitingStallMonitor(options: WaitingStallOptions): WaitingS
     agentDir,
     audit,
     eventLoop,
+    cancelContract,
     checkIntervalMs = WAITING_STALL_CHECK_INTERVAL_MS,
     stallTimeoutMs = WAITING_STALL_TIMEOUT_MS,
     setIntervalFn = setInterval,
@@ -103,6 +130,40 @@ export function startWaitingStallMonitor(options: WaitingStallOptions): WaitingS
     if (stopped) return;
     const idleMs = now() - lastActivityMs;
     if (idleMs < stallTimeoutMs) return;
+
+    // phase 1387 Step B: 三路 skip（系统在途、不打扰原则）。
+    // 查询失败 fail-open（当作在途、不判死）。skip 期间不重置 lastActivityMs，
+    // 保证系统状态退出在途后、idle 仍从最后活动起算（连续判定、不吞在途时间）。
+
+    // (1) EventLoop 在途：LLM retry/cooldown waiting 或 LLM request blocked。
+    if (eventLoop.isBusy) {
+      let busy: boolean;
+      try {
+        busy = eventLoop.isBusy();
+      } catch (err) {
+        audit.write(
+          DAEMON_AUDIT_EVENTS.WAITING_STALL_DETECTED,
+          `ctx=is_busy_query_failed`,
+          `idle_ms=${idleMs}`,
+          `error=${formatErr(err)}`,
+        );
+        busy = true;
+      }
+      if (busy) return;
+    }
+
+    // (2) wakeups/ 有安排（1386 定时消息原语）。读失败 fail-open。
+    try {
+      if (listWakeups(agentFs, '.').length > 0) return;
+    } catch (err) {
+      audit.write(
+        DAEMON_AUDIT_EVENTS.WAITING_STALL_DETECTED,
+        `ctx=wakeups_list_failed`,
+        `idle_ms=${idleMs}`,
+        `error=${formatErr(err)}`,
+      );
+      return;
+    }
 
     // 判定只用 daemon 自知识：自己的 active 契约状态（进程内目录读、非跨模块）。
     // 读失败 = fail-open（假定有 active、避免漏检真停滞）。
@@ -139,10 +200,27 @@ export function startWaitingStallMonitor(options: WaitingStallOptions): WaitingS
     );
 
     if (stalled) {
-      // 连续 N 次自愈无效：本 phase 不接判失败（归 P2a），仅留痕。
-      // 重置计数避免每个节拍重复 escalated，下一次真活动仍可 self_healed（计数从 0 计）。
+      // phase 1387 Step B: 连续 N 次自愈无效 → 判失败，取消 active 契约。
+      // cancel 成功 → 契约离开 active → waiting-stall 不再触发（幂等由 cancel 语义兜）。
+      // cancel 失败 / 无注入 callback → 留痕，下轮重试（计数已重置、lastActivity 前推避免每个节拍重复）。
       selfHealAttempts = 0;
       lastActivityMs = now();
+      if (!cancelContract) return;
+      void (async () => {
+        try {
+          await cancelContract(WAITING_STALL_CONTRACT_FAIL_REASON);
+          audit.write(
+            DAEMON_AUDIT_EVENTS.WAITING_STALL_CONTRACT_FAILED,
+            `reason=${WAITING_STALL_CONTRACT_FAIL_REASON}`,
+          );
+        } catch (err) {
+          audit.write(
+            DAEMON_AUDIT_EVENTS.WAITING_STALL_CONTRACT_FAIL_FAILED,
+            `reason=${WAITING_STALL_CONTRACT_FAIL_REASON}`,
+            `error=${formatErr(err)}`,
+          );
+        }
+      })();
       return;
     }
 

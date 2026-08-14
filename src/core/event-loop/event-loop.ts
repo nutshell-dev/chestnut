@@ -180,6 +180,16 @@ export class EventLoop {
     this.onTurnActivity = cb;
   }
 
+  /**
+   * phase 1387 Step B: 只读在途状态查询面（waiting-stall skip 判定用）。
+   * 「系统在途」= LLM retry/cooldown waiting 已决定且未释放、或 LLM request 处于 blocked 态——
+   * 二者任一在途即视为 EventLoop 正按既定调度推进、不应判 spontaneous stall。
+   * 只暴露 boolean，不复制内部状态逻辑（M#8 最小面）。
+   */
+  isBusy(): boolean {
+    return this.llmRetryWaiting !== undefined || this.llmRequestBlocked !== undefined;
+  }
+
   private async _handleFailedTurn(
     result: TurnResult,
     addressedHandles: InboxHandle[],

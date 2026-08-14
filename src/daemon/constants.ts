@@ -81,3 +81,9 @@ export const DAEMON_HEARTBEAT_WRITE_INTERVAL_MS = 30_000;
 /** 心跳文件名（落 daemon 自己的 agentDir 根，即 PM daemonDir）. */
 export const DAEMON_HEARTBEAT_FILENAME = 'heartbeat';
 
+/**
+ * phase 1387 Step B: waiting-stall escalated 后取消 active 契约的失败 reason。
+ * 语义：agent 在持有 active 契约时长时间无活动、自愈无效，由 daemon 判为自发停滞。
+ */
+export const WAITING_STALL_CONTRACT_FAIL_REASON = 'agent_spontaneous_stall';
+

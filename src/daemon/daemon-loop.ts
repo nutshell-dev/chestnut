@@ -30,6 +30,7 @@ import {
   DAEMON_HEARTBEAT_FILENAME,
 } from './constants.js';
 import type { EventLoop } from '../core/event-loop/index.js';
+import { makeContractId, type ContractSystem } from '../core/contract/index.js';
 
 /** motion 专用扩展（claw daemon 整体省略此组） */
 interface DaemonMotionExtensions {
@@ -48,6 +49,12 @@ export interface DaemonLoopOptions {
   // motion 专用扩展（claw 整体省略）
   motion?: DaemonMotionExtensions;
 
+  /**
+   * phase 1387 Step B: claw daemon waiting-stall escalated 后判失败取消 active 契约。
+   * 仅 claw daemon 注入（motion 无 active 契约）；由 daemon.ts 从 Instances 透传。
+   */
+  contractManager?: ContractSystem;
+
   /** watcher factory。测试可注入 fake 避免真实 chokidar。默认 createWatcher。 */
   createWatcher?: WatcherFactory;
 }
@@ -60,7 +67,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   promise: Promise<void>;
   stop: () => void;
 } {
-  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher } = options;
+  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher, contractManager } = options;
   const heartbeat = motion?.heartbeat;
   const agentFs = fsFactory(agentDir);
   let stopped = false;
@@ -115,12 +122,22 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   // phase 1383 (P2b U3): in-process 自活监测 —— active 契约 + 等待态超长 → 自愈重入轮。
   // 只对 claw daemon 启用（motion 无契约、其停滞归 P3 教学/治理）。
   const isClawDaemon = motion === undefined;
+  // phase 1387 Step B: escalated 后取消当前 active 契约判失败。
+  // callback 内部解析 active id——无 active（状态漂移）静默 no-op，cancel 抛错由 waiting-stall 留痕重试。
+  const cancelActiveContract = contractManager
+    ? async (reason: string): Promise<void> => {
+        const active = await contractManager.loadActive();
+        if (!active) return;
+        await contractManager.cancel(makeContractId(active.id), reason);
+      }
+    : undefined;
   const waitingStall = isClawDaemon
     ? startWaitingStallMonitor({
         fsFactory,
         agentDir,
         audit,
         eventLoop,
+        cancelContract: cancelActiveContract,
       })
     : null;
   eventLoop.setOnTurnActivity(waitingStall ? () => waitingStall.noteActivity() : undefined);

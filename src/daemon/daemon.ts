@@ -241,6 +241,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       label: isMotion ? '[motion daemon]' : '[daemon]',
       audit: auditWriter,
       motion: isMotion ? { heartbeat: heartbeat ?? undefined } : undefined,
+      contractManager: instances.contractManager,
     });
 
     /**

@@ -41,6 +41,9 @@ export const DAEMON_AUDIT_EVENTS = {
   WAITING_STALL_DETECTED: 'daemon_waiting_stall_detected',
   WAITING_STALL_SELF_HEALED: 'daemon_waiting_stall_self_healed',
   WAITING_STALL_ESCALATED: 'daemon_waiting_stall_escalated',
+  // phase 1387 Step B: escalated 后取消 active 契约（自发停滞判失败）
+  WAITING_STALL_CONTRACT_FAILED: 'daemon_waiting_stall_contract_failed',
+  WAITING_STALL_CONTRACT_FAIL_FAILED: 'daemon_waiting_stall_contract_fail_failed',
 } as const;
 
 /**
