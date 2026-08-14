@@ -79,10 +79,6 @@ export class SummonTool implements Tool {
         type: 'number',
         description: `LLM 静默超时阈值（ms）。超过此时间无 LLM 输出则终止子代理。默认 ${DEFAULT_LLM_IDLE_TIMEOUT_MS}ms。`,
       },
-      targetClaw: {
-        type: 'string',
-        description: '目标 claw id（kebab-case）。仅当用户明确指定了目标 claw 时填写，否则省略——claw 选择由子代理决定。若用户要求新建特定名称的 claw，请先创建再调用 summon。',
-      },
       verify: {
         type: 'boolean',
         description: "是否要求契约带验证门控（默认 false）：true = 契约子项提交后需走验收流程（LLM 或 script）pass 才标 completed；false = 契约子项提交后即立即 completed（claw 调 submit_subtask 即完成对应子项）",
@@ -156,7 +152,6 @@ export class SummonTool implements Tool {
             motionClawDir: ctx.clawDir,
             maxSteps: args.maxSteps as number | undefined,
             verify,
-            targetClaw: args.targetClaw as string | undefined,
           })
         : await this.executeShadow({
             userMessage,
@@ -164,7 +159,6 @@ export class SummonTool implements Tool {
             ctx,
             mainContextSnapshot,
             verify,
-            targetClaw: args.targetClaw as string | undefined,
           }, this.taskSystem);
 
       if (!('taskId' in result)) return result;
@@ -175,7 +169,6 @@ export class SummonTool implements Tool {
           toolUseId: ctx.currentToolUseId,
           taskId: result.taskId,
           mode,
-          targetClaw: args.targetClaw as string | undefined,
           verify,
         });
       }
@@ -197,11 +190,10 @@ export class SummonTool implements Tool {
       ctx: ExecContext;
       mainContextSnapshot: { clawId: string; toolUseId: string } | undefined;
       verify: boolean;
-      targetClaw?: string;
     },
     taskSystem?: SubAgentTaskScheduler,
   ): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
-    const { userMessage, idleTimeoutMs, ctx, verify, targetClaw } = opts;
+    const { userMessage, idleTimeoutMs, ctx, verify } = opts;
     if (!ctx.getCallerSnapshot) {
       return {
         success: false,
@@ -230,7 +222,6 @@ export class SummonTool implements Tool {
         schema_version: 1,
         mode: 'shadow',
         verify,
-        targetClaw,
         dispatchedAt: new Date().toISOString(),
       },
     });
@@ -248,9 +239,8 @@ export class SummonTool implements Tool {
     motionClawDir: string | undefined;
     maxSteps: number | undefined;
     verify: boolean;
-    targetClaw?: string;
   }): Promise<{ taskId: TaskId } | { success: false; content: string }> {
-    const { userMessage, ctx, mainContextSnapshot, callerType, motionClawDir, maxSteps, verify, targetClaw } = opts;
+    const { userMessage, ctx, mainContextSnapshot, callerType, motionClawDir, maxSteps, verify } = opts;
     const systemPrompt = buildMinerSystemPrompt();
     // toolsForLLM is built for LLM-side miner profile; current schedule signature
     // doesn't pass tools (mining branch reads ctx.registry on subagent boot per phase 1406).
@@ -281,7 +271,6 @@ export class SummonTool implements Tool {
         schema_version: 1,
         mode: 'mining',
         verify,
-        targetClaw,
         dispatchedAt: new Date().toISOString(),
       },
     }));

@@ -33,7 +33,6 @@ export const SUMMON_AUDIT_EVENTS = {
   SUMMON_VERIFY_FALSE_VIOLATION: 'summon_verify_false_violation',
   SUMMON_STATE_READ_FAILED: 'summon_state_read_failed',
   SUMMON_GATE_NO_DECISION: 'summon_gate_no_decision',
-  SUMMON_TARGET_CLAW_VIOLATION: 'summon_target_claw_violation',
   SUMMON_LEGACY_STATE_FILE_DETECTED: 'summon_legacy_state_file_detected',
   /**
    * phase 1129 P1-16: subagent audit.tsv 非 FNF 读失败。

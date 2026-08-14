@@ -80,27 +80,6 @@ export function createSummonVerifyPolicy(
           },
         );
       }
-
-      // phase 119: target_claw 边界校验（verify=false 路径）
-      const clawDir = ctx.clawDir;
-      if (decision.targetClaw && clawDir && decision.targetClaw !== clawDir) {
-        deps.auditWriter.write(
-          SUMMON_AUDIT_EVENTS.SUMMON_TARGET_CLAW_VIOLATION,
-          `subagentTaskId=${subagentTaskId}`,
-          `expectedTargetClaw=${decision.targetClaw}`,
-          `requestedClawId=${clawDir}`,
-        );
-        throw new ContractCreatePolicyViolationError(
-          'summon-verify',
-          'summon_target_claw_violation',
-          {
-            subagentTaskId,
-            expectedTargetClaw: decision.targetClaw,
-            requestedClawId: clawDir,
-            note: 'cross-claw contract creation from a summon subagent is prohibited',
-          },
-        );
-      }
     },
   };
 }
