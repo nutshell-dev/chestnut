@@ -36,6 +36,9 @@ const NON_SENDER_SCAN_TYPES = new Set([
   'claw_outbox_summary',         // src/foundation/cron/jobs/outbox-summary/write.ts via fs.writeAtomic
   'task_result',                 // src/core/async-task-system/result-delivery.ts via const baseMsg
   'contract_audit_feedback',     // src/core/contract/contract-auditor.ts via this.deps.inbox.write
+  // phase 1391: stall-detector 经 const msg decl + writeInboxAsync 投递、type 字面在
+  // decl 内而非 call arg 内、scanner 跳（同 task_result 形态）；已注册 composer + formatter。
+  'task_stage_update',           // src/core/async-task-system/stall-detector.ts via const msg decl
   // phase 19 Step C: verification-notify.ts uses `resolveNotify(ctx)(...)` wrapper for DIP
   // injection point (ctx.notifyClaw ?? defaultNotifyClaw). Scanner regex
   // `\bnotify(?:Claw|Inbox|System)\s*\(` doesn't match the indirected call form.
