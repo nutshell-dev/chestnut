@@ -17,7 +17,7 @@
 
 import * as path from 'path';
 
-import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
+import { getChestnutRoot, getClawConfigPath, getRelativeClawDir, routeNotifyClaw, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {
   scheduleWakeup,
@@ -140,8 +140,17 @@ export async function wakeupCommand(
 
   const result = scheduleWakeup(fileSystem, clawDir, name, deliverAt.toISOString(), message, audit);
   if (result.immediate) {
+    // deliverAt 已过 → 立即投递（与 wakeup-delivery job 同 message 形态）——不落 store、
+    // 必须由本命令直接投递，否则消息静默丢失（DP1）。
+    routeNotifyClaw(fileSystem, baseDir, MOTION_CLAW_ID, name, {
+      type: 'wakeup',
+      source: MOTION_CLAW_ID,
+      priority: 'normal',
+      body: message,
+      metadata: { wakeup_id: result.record.id, scheduled_for: result.record.deliverAt },
+    }, audit);
     console.log(
-      `Wakeup ${result.record.id} is due now (deliverAt ${result.record.deliverAt}); delivery job will pick it up on next tick`,
+      `Wakeup ${result.record.id} delivered now (deliverAt ${result.record.deliverAt} was in the past)`,
     );
   } else {
     console.log(`Wakeup ${result.record.id} scheduled for ${result.record.deliverAt}`);

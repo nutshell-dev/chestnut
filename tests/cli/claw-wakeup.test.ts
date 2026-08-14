@@ -87,7 +87,8 @@ describe('claw wakeup command', () => {
   });
 
   it('schedules with --at ISO time', async () => {
-    const iso = '2026-08-14T12:00:00.000Z';
+    // 相对未来时间（固定字面会随日期推移变成过去时间、触发 immediate 分支）
+    const iso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     await wakeupCommand(deps, 'alice', {
       subcommand: 'schedule',
       message: 'standup',
@@ -98,18 +99,25 @@ describe('claw wakeup command', () => {
     expect(records[0].deliverAt).toBe(iso);
   });
 
-  it('reports immediate when deliverAt is in the past', async () => {
+  it('delivers immediately when deliverAt is in the past', async () => {
     const past = new Date(Date.now() - 1000).toISOString();
     await wakeupCommand(deps, 'alice', {
       subcommand: 'schedule',
       message: 'late',
       atIso: past,
     });
-    // immediate mode does not persist
+    // immediate mode does not persist（经 routeNotifyClaw 直接投递、不写 store）
     const nfs = fsFactory(chestnutRoot);
     expect(listWakeups(nfs, path.join('claws', 'alice'))).toHaveLength(0);
     const logged = logSpy.mock.calls.map(c => String(c[0])).join('\n');
-    expect(logged).toMatch(/due now/);
+    expect(logged).toMatch(/delivered now/);
+    // 消息真实到达目标 claw inbox（与 wakeup-delivery job 同 type）
+    const inboxDir = path.join(chestnutRoot, 'claws', 'alice', 'inbox', 'pending');
+    const inboxFiles = fs.readdirSync(inboxDir);
+    expect(inboxFiles.length).toBeGreaterThan(0);
+    const meta = fs.readFileSync(path.join(inboxDir, inboxFiles[0]), 'utf8');
+    expect(meta).toContain('type: wakeup');
+    expect(meta).toContain('late');
   });
 
   it('rejects empty message', async () => {
