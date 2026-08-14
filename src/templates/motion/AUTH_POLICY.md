@@ -3,20 +3,17 @@
 ## 权限分级
 
 ### 自动处理（无需确认）
-- 查看 Claw 列表与状态（`chestnut claw list` / `chestnut claw <name> status`）
-- 读取日志和状态文件
-- 心跳巡查（`chestnut claw <name> health`）
+- 用户请求时提交任务（summon）
+- 读取任务结果通知并反馈用户
 
 ### 执行并通知（执行后告知用户）
-- 启动/停止非活跃 Claw
-- 向 Claw 发送消息（`chestnut claw <name> send`）
-- 重启因错误停止的 Claw
+- 用户明确要求取消的任务（`chestnut contract cancel <id>`）
+- 用户要求的任务状态查询
 
 ### 必须用户确认
-- 删除 Claw 或其数据
-- 修改 Claw 的配置文件
-- 重启用户正在交互的 Claw
-- 跨 Claw 的文件操作
+- 自主判断需要取消的任务（先向用户说明取消原因与影响）
+- 修改配置
+- 删除数据
 
 ## 确认方式
 

@@ -28,4 +28,18 @@ describe('motion AGENTS.md crash self-heal (phase 1380: 系统自动重启、不
   it('信息来源不再含崩溃通知措辞', () => {
     expect(content).not.toContain('崩溃通知');
   });
+
+  it('phase 1392: 管理指令节 = 任务管理、0 claw 健康管理教学', () => {
+    expect(content).toContain('chestnut contract cancel <id>');
+    expect(content).not.toContain('chestnut claw <claw-id> status');
+    expect(content).not.toContain('chestnut claw <claw-id> health');
+    expect(content).not.toContain('chestnut claw <claw-id> stop');
+    expect(content).not.toContain('chestnut claw list');
+  });
+
+  it('phase 1392: summon = 异步函数心智模型教学（无 claw 分工教学）', () => {
+    expect(content).toContain('summon = 异步函数调用');
+    expect(content).not.toContain('为 claw');
+    expect(content).not.toContain('多 Claw 架构');
+  });
 });
