@@ -37,7 +37,6 @@ import { CONTRACT_AUDIT_EVENTS } from '../core/contract/index.js';
 
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
-import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/index.js';
 import { CLAWS_DIR } from '../core/claw-topology/index.js';
 import { createSendTool } from '../foundation/messaging/index.js';
@@ -261,9 +260,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   // --- 11. 工具注册 + toolExecutor + DialogStore + InboxReader + ContractAuditor + FormatterRegistry + GuidanceRegistry ---
   toolRegistry.register(contractManager.createSubmitSubtaskTool());
   toolRegistry.register(createDoneTool());
-  toolRegistry.register(
-    createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),
-  );
+  toolRegistry.register(createStatusTool(contractManager));
   toolRegistry.register(createSkillTool(skillRegistry, isMotion ? { dispatchSkillsDir: DISPATCH_SKILLS_PATH } : {}));
   toolRegistry.register(createSendTool(outboxWriter, MOTION_CLAW_ID));
 

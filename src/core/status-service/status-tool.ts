@@ -17,8 +17,6 @@ import {
   formatTaskView,
   formatStorageView,
 } from './aggregators.js';
-import { type StatusMotionGuidance, formatMotionGuidance } from './motion-guidance.js';
-import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 
 // merge note (phase 1472 ← main phase 1468)：
 // main side（phase 1468）re-export 3 内联 helper（getContractStatus / getTaskStatus /
@@ -33,17 +31,11 @@ import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 export const STATUS_TOOL_NAME = 'status' as const;
 
 /**
- * createStatusTool —— phase 1472 Step D：可选 motionGuidance 参数。
- *
- * 当 ctx.clawId === MOTION_CLAW_ID 且 motionGuidance 被 Assembly 注入时、
- * execute 输出尾段 append CLI hint 段。其他 claw / 未注入时 0 尾段。
- *
- * 装配方（src/assembly/assemble.ts）按 isMotion 判断是否注入 composer 输出。
+ * createStatusTool —— 单参数；phase 1392 Step B 起 motion guidance 尾段退场
+ * （claw 状态查询 hints 与 summon=异步函数心智模型冲突：任务状态经契约通知
+ * 的 trace/show affordance 查询、不预灌 claw 命令清单）。
  */
-export function createStatusTool(
-  contractSystem: ContractSystem,
-  motionGuidance?: StatusMotionGuidance,
-): Tool {
+export function createStatusTool(contractSystem: ContractSystem): Tool {
   return {
     name: STATUS_TOOL_NAME,
     profiles: ['full', 'readonly'],
@@ -84,11 +76,6 @@ export function createStatusTool(
 
       const storageView = await computeStorageView(ctx.fs);
       lines.push(...formatStorageView(storageView));
-
-      // phase 1472 Step D — motion guidance 尾段（仅 motion + 已注入时）
-      if (motionGuidance && ctx.clawId === MOTION_CLAW_ID) {
-        lines.push(formatMotionGuidance(motionGuidance));
-      }
 
       return {
         success: true,
