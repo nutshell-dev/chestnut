@@ -59,8 +59,10 @@ export interface WaitingStallLoopHandle {
  * phase 1387 Step B: escalated 后取消当前 active 契约的最小 callback。
  * 由 daemon-loop 装配时 bind 到 ContractSystem（内部解析 active id + 调 cancel）。
  * 无 active 契约（状态漂移）应静默 no-op（audit 由 caller 兜底）；cancel 失败 throw 由 caller 留痕重试。
+ * phase 1390 Step B：返回 boolean 表示是否真的发出 cancel（false=无 active、未动作），
+ * 供 onBlockedTerminal 路径按事实留痕；waiting-stall 忽略该返回值。
  */
-export type WaitingStallCancelContract = (reason: string) => Promise<void>;
+export type WaitingStallCancelContract = (reason: string) => Promise<boolean | void>;
 
 export interface WaitingStallOptions {
   fsFactory: (baseDir: string) => FileSystem;

@@ -14,6 +14,7 @@ import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
 import { waitForInbox } from '../../src/core/event-loop/inbox-watcher.js';
 import { EventLoop } from '../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../src/core/event-loop/audit-events.js';
+import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
@@ -22,8 +23,10 @@ import type { Watcher } from '../../src/foundation/file-watcher/index.js';
 import type { WatchEvent } from '../../src/foundation/file-watcher/types.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/errors.js';
+import { LLMInvalidRequestError } from '../../src/foundation/llm-orchestrator/index.js';
 import type { Message, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
 import type { InboxHandle, InboxMessage } from '../../src/foundation/messaging/types.js';
+import type { ContractSystem } from '../../src/core/contract/index.js';
 import { makeAudit, waitForNthAuditEvent } from '../helpers/audit.js';
 
 
@@ -151,7 +154,8 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       });
       const abort = vi.fn();
       const setOnTurnActivity = vi.fn();
-      const eventLoop = { run, abort, setOnTurnActivity } as unknown as EventLoop;
+      const setOnBlockedTerminal = vi.fn();
+      const eventLoop = { run, abort, setOnTurnActivity, setOnBlockedTerminal } as unknown as EventLoop;
 
       const { promise, stop } = startDaemonLoop({
         fsFactory,
@@ -179,7 +183,8 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       const run = vi.fn().mockImplementation(() => new Promise<void>(r => { blockResolve = r; }));
       const abort = vi.fn();
       const setOnTurnActivity = vi.fn();
-      const eventLoop = { run, abort, setOnTurnActivity } as unknown as EventLoop;
+      const setOnBlockedTerminal = vi.fn();
+      const eventLoop = { run, abort, setOnTurnActivity, setOnBlockedTerminal } as unknown as EventLoop;
 
       const { promise, stop } = startDaemonLoop({
         fsFactory,
@@ -216,7 +221,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
       });
       const eventLoop = {
-        run, abort: vi.fn(), setOnTurnActivity: vi.fn(),
+        run, abort: vi.fn(), setOnTurnActivity: vi.fn(), setOnBlockedTerminal: vi.fn(),
       } as unknown as EventLoop;
 
       const hbPath = path.join(agentDir, 'heartbeat');
@@ -326,6 +331,212 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       expect(
         events.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length,
       ).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // phase 1390 Step B: blocked 终局 → active 契约 cancel（fail-fast）
+  // --------------------------------------------------------------------------
+
+  describe('phase 1390: onBlockedTerminal wiring', () => {
+    function makeBlockedRuntime(error: Error, fingerprint: string): Runtime {
+      const processTurn = vi.fn().mockResolvedValue({ status: 'failed', error } as TurnResult);
+      return {
+        drainInbox: vi.fn().mockResolvedValue({
+          injected: [{ role: 'user', content: 'hi' } as Message],
+          sources: [{ text: 'hi', type: 'user_chat' }],
+          count: 1,
+          infos: [] as InboxMessage[],
+          addressedHandles: ['handle-1'],
+        }),
+        getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+        getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+        getMessages: vi.fn().mockResolvedValue([] as Message[]),
+        proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+        processTurn,
+        ackHandles: vi.fn().mockResolvedValue(undefined),
+        nackHandles: vi.fn().mockResolvedValue(undefined),
+        reactiveTrim: vi.fn().mockResolvedValue(undefined),
+        abort: vi.fn(),
+        computeTurnRequestFingerprint: vi.fn().mockResolvedValue(fingerprint),
+        peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      } as unknown as Runtime;
+    }
+
+    function makeFakeWatcher() {
+      return {
+        close: vi.fn(() => Promise.resolve()),
+        isActive: vi.fn(() => true),
+        getPath: vi.fn((p: string) => p),
+      } as unknown as Watcher;
+    }
+
+    function makeContractManager(active: { id: string } | null, cancelImpl?: (id: unknown, reason: string) => Promise<void>): ContractSystem & { cancel: ReturnType<typeof vi.fn>; loadActive: ReturnType<typeof vi.fn> } {
+      const loadActive = vi.fn().mockResolvedValue(active);
+      const cancel = vi.fn().mockImplementation(cancelImpl ?? (async () => undefined));
+      return { loadActive, cancel } as unknown as ContractSystem & { cancel: ReturnType<typeof vi.fn>; loadActive: ReturnType<typeof vi.fn> };
+    }
+
+    it('blocked + active 契约 → cancel 被调、reason=system_llm_blocked_invalid_request + 审计 LLM_BLOCKED_CONTRACT_FAILED', async () => {
+      const audit = createMockAudit();
+      const runtime = makeBlockedRuntime(
+        new LLMInvalidRequestError('openai', 'invalid_unicode'),
+        'fp-blocked',
+      );
+      const eventLoop = new EventLoop({
+        runtime,
+        fsFactory,
+        agentDir,
+        clawId: 'test-claw',
+        audit,
+        inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 30 },
+      });
+      const contractManager = makeContractManager({ id: 'c-123' });
+      const fakeWatcher = makeFakeWatcher();
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test]',
+        audit,
+        contractManager,
+        createWatcher: () => fakeWatcher,
+      });
+
+      // 等一个 tick 完成 blocked + cancel（fire-and-forget，tick 已 return 后需微任务）
+      await new Promise(r => setTimeout(r, 60));
+      stop();
+      await promise;
+
+      expect(contractManager.loadActive).toHaveBeenCalled();
+      expect(contractManager.cancel).toHaveBeenCalledTimes(1);
+      const [idArg, reasonArg] = contractManager.cancel.mock.calls[0];
+      expect(String(idArg)).toBe('c-123');
+      expect(reasonArg).toBe('system_llm_blocked_invalid_request');
+      expect(audit.entries.some(
+        e => e[0] === DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAILED
+          && e.some(c => String(c) === 'reason=system_llm_blocked_invalid_request'),
+      )).toBe(true);
+    });
+
+    it('blocked 但无 active 契约 → cancel 不被调（gate 语义保持）', async () => {
+      const audit = createMockAudit();
+      const runtime = makeBlockedRuntime(
+        new LLMInvalidRequestError('openai', 'invalid_unicode'),
+        'fp-no-active',
+      );
+      const eventLoop = new EventLoop({
+        runtime,
+        fsFactory,
+        agentDir,
+        clawId: 'test-claw',
+        audit,
+        inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 30 },
+      });
+      const contractManager = makeContractManager(null);
+      const fakeWatcher = makeFakeWatcher();
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test]',
+        audit,
+        contractManager,
+        createWatcher: () => fakeWatcher,
+      });
+
+      await new Promise(r => setTimeout(r, 60));
+      stop();
+      await promise;
+
+      expect(contractManager.loadActive).toHaveBeenCalled();
+      expect(contractManager.cancel).not.toHaveBeenCalled();
+      expect(audit.entries.some(e => e[0] === DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAILED)).toBe(false);
+      // gate 仍在
+      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(true);
+    });
+
+    it('cancel 抛错 → LLM_BLOCKED_CONTRACT_FAIL_FAILED 审计、不阻塞 gate/下轮', async () => {
+      const audit = createMockAudit();
+      const runtime = makeBlockedRuntime(
+        new LLMInvalidRequestError('openai', 'invalid_unicode'),
+        'fp-cancel-fail',
+      );
+      const eventLoop = new EventLoop({
+        runtime,
+        fsFactory,
+        agentDir,
+        clawId: 'test-claw',
+        audit,
+        inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 30 },
+      });
+      const contractManager = makeContractManager(
+        { id: 'c-x' },
+        async () => { throw new Error('cancel disk boom'); },
+      );
+      const fakeWatcher = makeFakeWatcher();
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test]',
+        audit,
+        contractManager,
+        createWatcher: () => fakeWatcher,
+      });
+
+      await new Promise(r => setTimeout(r, 60));
+      stop();
+      await promise;
+
+      expect(contractManager.cancel).toHaveBeenCalledTimes(1);
+      expect(audit.entries.some(
+        e => e[0] === DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAIL_FAILED
+          && e.some(c => String(c).includes('cancel disk boom')),
+      )).toBe(true);
+      // EventLoop 侧没有 BLOCKED_TERMINAL_FAILED（callback 内部已 catch）
+      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.BLOCKED_TERMINAL_FAILED)).toBe(false);
+    });
+
+    it('未注入 contractManager（motion daemon）→ onBlockedTerminal 不绑定、blocked 路径不 crash', async () => {
+      const audit = createMockAudit();
+      const runtime = makeBlockedRuntime(
+        new LLMInvalidRequestError('openai', 'invalid_unicode'),
+        'fp-motion',
+      );
+      const eventLoop = new EventLoop({
+        runtime,
+        fsFactory,
+        agentDir,
+        clawId: 'test-claw',
+        audit,
+        inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 30 },
+      });
+      const fakeWatcher = makeFakeWatcher();
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[motion daemon]',
+        audit,
+        motion: {},
+        createWatcher: () => fakeWatcher,
+      });
+
+      await new Promise(r => setTimeout(r, 60));
+      stop();
+      await promise;
+
+      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(true);
+      expect(audit.entries.some(e => e[0] === DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAILED)).toBe(false);
     });
   });
 });

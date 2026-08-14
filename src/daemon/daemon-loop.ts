@@ -29,7 +29,7 @@ import {
   DAEMON_HEARTBEAT_WRITE_INTERVAL_MS,
   DAEMON_HEARTBEAT_FILENAME,
 } from './constants.js';
-import type { EventLoop } from '../core/event-loop/index.js';
+import type { EventLoop, LLMRequestBlockedState } from '../core/event-loop/index.js';
 import { makeContractId, type ContractSystem } from '../core/contract/index.js';
 import type { AsyncTaskSystem } from '../core/async-task-system/index.js';
 
@@ -131,11 +131,13 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const isClawDaemon = motion === undefined;
   // phase 1387 Step B: escalated 后取消当前 active 契约判失败。
   // callback 内部解析 active id——无 active（状态漂移）静默 no-op，cancel 抛错由 waiting-stall 留痕重试。
+  // 返回 true 表示确实发出 cancel、false 表示无 active 契约（无动作），便于 phase 1390 调用方按事实留痕。
   const cancelActiveContract = contractManager
-    ? async (reason: string): Promise<void> => {
+    ? async (reason: string): Promise<boolean> => {
         const active = await contractManager.loadActive();
-        if (!active) return;
+        if (!active) return false;
         await contractManager.cancel(makeContractId(active.id), reason);
+        return true;
       }
     : undefined;
   const waitingStall = isClawDaemon
@@ -155,10 +157,39 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
     : null;
   eventLoop.setOnTurnActivity(waitingStall ? () => waitingStall.noteActivity() : undefined);
 
+  // phase 1390 Step B: blocked 终局 fail-fast——四类 reason 任一进入 blocked + active 契约
+  // → 立即 cancel（reason=system_llm_blocked_<reason>）判失败。无契约 blocked 保持 gate 语义不变。
+  // 与 waiting-stall 同源 cancelActiveContract（内部解析 active + cancel，无 active 静默 no-op）；
+  // cancel 抛错留 LLM_BLOCKED_CONTRACT_FAIL_FAILED，不阻塞 gate（callback 异常由 EventLoop 兜一层）。
+  if (isClawDaemon && cancelActiveContract) {
+    eventLoop.setOnBlockedTerminal(async (state: LLMRequestBlockedState): Promise<void> => {
+      const reason = `system_llm_blocked_${state.reason}`;
+      try {
+        const cancelled = await cancelActiveContract(reason);
+        if (!cancelled) return;  // 无 active 契约：gate/release 语义保持，不留 contract_failed
+        audit.write(
+          DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAILED,
+          `reason=${reason}`,
+          `blocked_reason=${state.reason}`,
+          `fingerprint=${state.requestFingerprint}`,
+        );
+      } catch (err) {
+        audit.write(
+          DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAIL_FAILED,
+          `reason=${reason}`,
+          `blocked_reason=${state.reason}`,
+          `error=${formatErr(err)}`,
+        );
+      }
+    });
+  }
+
   const stop = () => {
     stopping = true;
     stopped = true;
     waitingStall?.stop();
+    eventLoop.setOnTurnActivity(undefined);
+    eventLoop.setOnBlockedTerminal(undefined);
     clearInterval(heartbeatTimer);
     clearHeartbeat();
     if (recoveryTimer) {

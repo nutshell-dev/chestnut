@@ -659,6 +659,7 @@
       "summon_write_by_contract_failed"
     ],
     "core_event-loop_audit-events": [
+      "eventloop_blocked_terminal_failed",
       "eventloop_context_blocked",
       "eventloop_context_blocked_gate",
       "eventloop_context_blocked_peek_failed",
@@ -680,6 +681,8 @@
       "daemon_last_exit_summary_read_failed",
       "daemon_liveness_heartbeat",
       "daemon_liveness_hourly",
+      "daemon_llm_blocked_contract_fail_failed",
+      "daemon_llm_blocked_contract_failed",
       "daemon_llm_retry_state_invariant_violated",
       "daemon_llm_retry_state_load_failed",
       "daemon_loop_fatal",

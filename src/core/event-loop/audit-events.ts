@@ -17,6 +17,8 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   CONTEXT_BLOCKED_RELEASED: 'eventloop_context_blocked_released',
   /** Phase 1158: post-drain pipeline 异常后 nack 恢复并审计 */
   POST_DRAIN_FAILURE_RECOVERED: 'eventloop_post_drain_failure_recovered',
+  /** Phase 1390 Step B: onBlockedTerminal callback 抛错（不阻塞 gate，仅留痕） */
+  BLOCKED_TERMINAL_FAILED: 'eventloop_blocked_terminal_failed',
 } as const;
 
 export const LOOP_ITERATION_TYPES = {

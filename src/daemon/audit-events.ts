@@ -44,6 +44,9 @@ export const DAEMON_AUDIT_EVENTS = {
   // phase 1387 Step B: escalated 后取消 active 契约（自发停滞判失败）
   WAITING_STALL_CONTRACT_FAILED: 'daemon_waiting_stall_contract_failed',
   WAITING_STALL_CONTRACT_FAIL_FAILED: 'daemon_waiting_stall_contract_fail_failed',
+  // phase 1390 Step B: blocked 终局 + active 契约 → cancel 判失败（fail-fast）
+  LLM_BLOCKED_CONTRACT_FAILED: 'daemon_llm_blocked_contract_failed',
+  LLM_BLOCKED_CONTRACT_FAIL_FAILED: 'daemon_llm_blocked_contract_fail_failed',
 } as const;
 
 /**

@@ -59,6 +59,7 @@ export class EventLoop {
   private streamWriter?: StreamWriter;
   private onBatchComplete?: () => Promise<void>;
   private onTurnActivity?: () => void;
+  private onBlockedTerminal?: (state: LLMRequestBlockedState) => Promise<void>;
   private rootFs: FileSystem;
 
   private stopped = false;
@@ -85,6 +86,7 @@ export class EventLoop {
     this.streamWriter = options.streamWriter;
     this.onBatchComplete = options.onBatchComplete;
     this.onTurnActivity = options.onTurnActivity;
+    this.onBlockedTerminal = options.onBlockedTerminal;
   }
 
   /**
@@ -178,6 +180,15 @@ export class EventLoop {
    */
   setOnTurnActivity(cb: (() => void) | undefined): void {
     this.onTurnActivity = cb;
+  }
+
+  /**
+   * phase 1390 Step B: 绑定 blocked 终局 fail-fast callback（daemon-loop 装配时注入）。
+   * 与 setOnTurnActivity 同源——EventLoop 在 daemon.ts 构造、daemon-loop 持有 contractManager，
+   * 故 setter 注入而非构造选项。传 undefined 清除（测试/旧路径）。
+   */
+  setOnBlockedTerminal(cb: ((state: LLMRequestBlockedState) => Promise<void>) | undefined): void {
+    this.onBlockedTerminal = cb;
   }
 
   /**
@@ -1192,6 +1203,24 @@ export class EventLoop {
       `reason=${state.reason}`,
       `fingerprint=${state.requestFingerprint}`,
     );
+    this._notifyBlockedTerminal(state);
+  }
+
+  /**
+   * phase 1390 Step B: blocked 终局进入后 fire-and-forget 通知装配方判失败。
+   * EventLoop 只负责触发 + 留痕 callback 错误；重试 / 是否 cancel 由装配方决定。
+   * 不 await：gate 语义已落盘，不能因 callback 慢/错阻塞 caller 的状态机推进。
+   */
+  private _notifyBlockedTerminal(state: LLMRequestBlockedState): void {
+    if (!this.onBlockedTerminal) return;
+    void this.onBlockedTerminal(state).catch((err: unknown) => {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.BLOCKED_TERMINAL_FAILED,
+        `reason=${state.reason}`,
+        `fingerprint=${state.requestFingerprint}`,
+        `error=${formatErr(err)}`,
+      );
+    });
   }
 
   /**

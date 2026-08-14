@@ -51,7 +51,8 @@ describe('startDaemonLoop - EventLoop delegation', () => {
     });
     const abort = vi.fn();
     const setOnTurnActivity = vi.fn();
-    const eventLoop = { run, abort, setOnTurnActivity } as unknown as EventLoop;
+    const setOnBlockedTerminal = vi.fn();
+    const eventLoop = { run, abort, setOnTurnActivity, setOnBlockedTerminal } as unknown as EventLoop;
 
     const { stop } = startDaemonLoop({
       fsFactory,
