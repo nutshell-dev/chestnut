@@ -129,8 +129,8 @@ export class SummonTool implements Tool {
     const isMining = mode === 'mining';
     const verify = args.verify === true;
     const userMessage = isMining
-      ? buildMiningUserMessage(args.goal as string, skillsSummary, args.targetClaw as string | undefined, { verify })
-      : buildSummonContractTask(args.goal as string, skillsSummary, args.targetClaw as string | undefined, { verify });
+      ? buildMiningUserMessage(args.goal as string, skillsSummary, { verify })
+      : buildSummonContractTask(args.goal as string, skillsSummary, { verify });
     const idleTimeoutMs = typeof args.idleTimeoutMs === 'number' ? args.idleTimeoutMs : DEFAULT_LLM_IDLE_TIMEOUT_MS;
     const mainContextSnapshot = ctx.clawId && ctx.currentToolUseId
       ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
