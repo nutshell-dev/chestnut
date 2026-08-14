@@ -13,9 +13,17 @@ import { tmpdir } from 'os';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 
-import { exec, kill, isAlive, findByPattern } from '../../src/foundation/process-exec/index.js';
+import {
+  exec,
+  execWithHandle,
+  kill,
+  isAlive,
+  findByPattern,
+  ProcessExecError,
+  ProcessListUnavailable,
+  type ExecHandle,
+} from '../../src/foundation/process-exec/index.js';
 import { isProcessGroupAlive } from '../../src/foundation/process-exec/execution-group.js';
-import { ProcessExecError, ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 
 /**
@@ -245,23 +253,25 @@ describe('ProcessExec exec', () => {
   // ── SIGKILL escalation ──────────────────────────────────────────────────
 
   it.concurrent('should escalate to SIGKILL when process traps SIGTERM', async () => {
-    // Node script that ignores SIGTERM, only SIGKILL can stop it
-    const script = `process.on('SIGTERM', () => {}); setTimeout(() => {}, ${SUBPROC_HANG_MS});`;
+    // A fixed parent timeout cannot prove that Node has installed the trap.
+    // Observe READY first, then drive the same typed timeout termination path.
+    const handle = execWithHandle(
+      'node',
+      [
+        '-e',
+        `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, ${SUBPROC_HANG_MS});`,
+      ],
+      { cwd: workDir, __testSigkillGraceMs: 100 },
+    );
+    const result = handle.promise.catch((err: unknown) => err);
+    await waitForProcessOutput(handle, /READY/);
+    const outcome = await handle.terminate('timeout');
+    const error = await result;
 
-    // phase 1394: 短常数 100ms 让 SIGKILL 升级真路径触发但 wall 从 ~2s 降到 ~0.3s
-    try {
-      await exec('node', ['-e', script], {
-        cwd: workDir,
-        timeout: 100,
-        __testMinTimeoutMs: 100,
-        __testSigkillGraceMs: 100,
-      });
-      expect.fail('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProcessExecError);
-      expect((err as ProcessExecError).killed).toBe(true);
-
-    }
+    expect(error).toBeInstanceOf(ProcessExecError);
+    expect((error as ProcessExecError).killed).toBe(true);
+    expect(outcome.killSent).toBe(true);
+    expect(outcome.status).toBe('gone');
   });
 
   // ── env control ─────────────────────────────────────────────────────────
@@ -319,22 +329,18 @@ describe('phase 1269 Step B: exec group descendant cleanup', () => {
     // extra pipes but keeping the shell (and its pipes) alive via `wait`.
     const started = Date.now();
     let sleepPid: number | undefined;
-    try {
-      await exec('sh', ['-c', 'sleep 30 & echo SLEEP_PID:$!; wait'], {
-        cwd: workDir,
-        timeout: 100,
-        __testMinTimeoutMs: 100,
-        __testSigkillGraceMs: 100,
-      });
-      expect.fail('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProcessExecError);
-      const error = err as ProcessExecError;
-      expect(error.killed).toBe(true);
-      const m = error.output.match(/SLEEP_PID:(\d+)/);
-      expect(m).not.toBeNull();
-      sleepPid = Number(m![1]);
-    }
+    const handle = execWithHandle('sh', ['-c', 'sleep 30 & echo SLEEP_PID:$!; wait'], {
+      cwd: workDir,
+      __testSigkillGraceMs: 100,
+    });
+    const result = handle.promise.catch((err: unknown) => err);
+    sleepPid = Number(await waitForProcessOutput(handle, /SLEEP_PID:(\d+)/));
+    const outcome = await handle.terminate('timeout');
+    const error = await result;
+    expect(error).toBeInstanceOf(ProcessExecError);
+    expect((error as ProcessExecError).killed).toBe(true);
+    expect(outcome.trigger).toBe('timeout');
+    expect(outcome.status).toBe('gone');
     const elapsed = Date.now() - started;
     // Promise must settle shortly after timeout+grace+confirm, NOT after the
     // descendant's natural 30s lifetime.
@@ -352,26 +358,26 @@ describe('phase 1269 Step B: exec group descendant cleanup', () => {
       console.log('CHILD:' + c.pid);
       setTimeout(() => {}, ${SUBPROC_HANG_MS});
     `;
-    let leaderPid: number | undefined;
-    let childPid: number | undefined;
-    try {
-      await exec('node', ['-e', script], {
-        cwd: workDir,
-        timeout: 100,
-        __testMinTimeoutMs: 100,
-        __testSigkillGraceMs: 100,
-      });
-      expect.fail('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProcessExecError);
-      const error = err as ProcessExecError;
-      expect(error.killed).toBe(true);
-      leaderPid = Number(error.output.match(/LEADER:(\d+)/)![1]);
-      childPid = Number(error.output.match(/CHILD:(\d+)/)![1]);
-    }
-    expect(isAlive(leaderPid!)).toBe(false);
-    expect(isAlive(childPid!)).toBe(false);
-    expect(isProcessGroupAlive(leaderPid!)).toBe(false);
+    const handle = execWithHandle('node', ['-e', script], {
+      cwd: workDir,
+      __testSigkillGraceMs: 100,
+    });
+    const result = handle.promise.catch((err: unknown) => err);
+    const leaderPid = handle.identity!.leaderPid;
+    const childPid = Number(await waitForProcessOutput(handle, /CHILD:(\d+)/));
+    const outcome = await handle.terminate('timeout');
+    const error = await result;
+
+    expect(error).toBeInstanceOf(ProcessExecError);
+    expect((error as ProcessExecError).killed).toBe(true);
+    expect((error as ProcessExecError).output).toContain(`LEADER:${leaderPid}`);
+    expect(outcome.trigger).toBe('timeout');
+    expect(outcome.termSent).toBe(true);
+    expect(outcome.killSent).toBe(true);
+    expect(outcome.status).toBe('gone');
+    expect(isAlive(leaderPid)).toBe(false);
+    expect(isAlive(childPid)).toBe(false);
+    expect(isProcessGroupAlive(leaderPid)).toBe(false);
   }, 20_000);
 });
 
@@ -426,25 +432,22 @@ describe('phase 1269 Step C: exec abort convergence', () => {
     const started = Date.now();
     let leaderPid: number | undefined;
     let sleepPid: number | undefined;
-    try {
-      const p = exec('sh', ['-c', 'echo LEADER:$$; sleep 30 & echo SLEEP_PID:$!; wait'], {
-        cwd: workDir,
-        signal: controller.signal,
-      });
-      setTimeout(() => controller.abort(), ABORT_AFTER_START_MS);
-      await p;
-      expect.fail('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProcessExecError);
-      const error = err as ProcessExecError;
-      expect(error.termination).toBeDefined();
-      expect(error.termination!.trigger).toBe('abort');
-      expect(error.termination!.status).toBe('gone');
-      expect(error.termination!.termSent).toBe(true);
-      expect(error.termination!.identity).toBeDefined();
-      leaderPid = error.termination!.identity!.leaderPid;
-      sleepPid = Number(error.output.match(/SLEEP_PID:(\d+)/)![1]);
-    }
+    const handle = execWithHandle(
+      'sh',
+      ['-c', 'echo LEADER:$$; sleep 30 & echo SLEEP_PID:$!; wait'],
+      { cwd: workDir, signal: controller.signal },
+    );
+    const result = handle.promise.catch((err: unknown) => err);
+    sleepPid = Number(await waitForProcessOutput(handle, /SLEEP_PID:(\d+)/));
+    controller.abort();
+    const error = await result;
+    expect(error).toBeInstanceOf(ProcessExecError);
+    expect((error as ProcessExecError).termination).toBeDefined();
+    expect((error as ProcessExecError).termination!.trigger).toBe('abort');
+    expect((error as ProcessExecError).termination!.status).toBe('gone');
+    expect((error as ProcessExecError).termination!.termSent).toBe(true);
+    expect((error as ProcessExecError).termination!.identity).toBeDefined();
+    leaderPid = (error as ProcessExecError).termination!.identity!.leaderPid;
     const elapsed = Date.now() - started;
     // Settles after abort + bounded cleanup, never after the natural 30s.
     expect(elapsed).toBeLessThan(15_000);
@@ -455,34 +458,32 @@ describe('phase 1269 Step C: exec abort convergence', () => {
   it.concurrent('abort on SIGTERM-ignoring process must not settle before KILL/liveness conclusion (反向 1)', async () => {
     const controller = new AbortController();
     const GRACE_MS = 300;
-    const started = Date.now();
-    try {
-      const p = exec(
-        'node',
-        ['-e', `process.on('SIGTERM', () => {}); setTimeout(() => {}, ${SUBPROC_HANG_MS})`],
-        {
-          cwd: workDir,
-          signal: controller.signal,
-          __testMinTimeoutMs: 100,
-          __testSigkillGraceMs: GRACE_MS,
-        },
-      );
-      setTimeout(() => controller.abort(), ABORT_AFTER_START_MS);
-      await p;
-      expect.fail('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(ProcessExecError);
-      const error = err as ProcessExecError;
-      // The promise must NOT have settled at abort time with a premature
-      // AbortError: escalation ran its full course and the facts say so.
-      expect(error.termination!.trigger).toBe('abort');
-      expect(error.termination!.killSent).toBe(true);
-      expect(error.termination!.status).toBe('gone');
-    }
-    const elapsed = Date.now() - started;
-    // abort at ~ABORT_AFTER_START_MS + grace GRACE_MS + KILL confirm —
-    // settling earlier than their sum would prove premature settle.
-    expect(elapsed).toBeGreaterThanOrEqual(ABORT_AFTER_START_MS + GRACE_MS);
+    const handle = execWithHandle(
+      'node',
+      [
+        '-e',
+        `process.on('SIGTERM', () => {}); console.log('READY'); setTimeout(() => {}, ${SUBPROC_HANG_MS})`,
+      ],
+      { cwd: workDir, signal: controller.signal, __testSigkillGraceMs: GRACE_MS },
+    );
+    const result = handle.promise.catch((err: unknown) => err);
+    await waitForProcessOutput(handle, /READY/);
+    const terminationStartedAt = Date.now();
+    controller.abort();
+    const error = await result;
+
+    expect(error).toBeInstanceOf(ProcessExecError);
+    // The promise must NOT settle at abort time with a premature AbortError:
+    // escalation ran its full course and the facts say so.
+    expect((error as ProcessExecError).termination!.trigger).toBe('abort');
+    expect((error as ProcessExecError).termination!.killSent).toBe(true);
+    expect((error as ProcessExecError).termination!.status).toBe('gone');
+    expect(isAlive(handle.identity!.leaderPid)).toBe(false);
+
+    const elapsed = Date.now() - terminationStartedAt;
+    // Timing starts only after READY; child startup scheduling is not part of
+    // the TERM grace contract under test.
+    expect(elapsed).toBeGreaterThanOrEqual(GRACE_MS);
   }, 20_000);
 
   it.concurrent('abort and timeout racing do not produce a second TERM sequence nor rewrite the first trigger (反向 2)', async () => {
@@ -518,3 +519,37 @@ describe('phase 1269 Step C: exec abort convergence', () => {
     killSpy.mockRestore();
   }, 20_000);
 });
+
+/**
+ * Observe a real child readiness fact before triggering termination.
+ * Returning capture group 1 keeps PID parsing and readiness as one barrier.
+ */
+function waitForProcessOutput(handle: ExecHandle, pattern: RegExp): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let output = '';
+    const stdout = handle.child.stdout;
+    if (!stdout) {
+      reject(new Error(`child stdout unavailable while waiting for ${String(pattern)}`));
+      return;
+    }
+
+    const cleanup = () => {
+      stdout.off('data', onData);
+      handle.child.off('close', onClose);
+    };
+    const onData = (chunk: Buffer) => {
+      output += chunk.toString('utf8');
+      const match = output.match(pattern);
+      if (!match) return;
+      cleanup();
+      resolve(match[1] ?? match[0]);
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error(`child closed before output matched ${String(pattern)}: ${output}`));
+    };
+
+    stdout.on('data', onData);
+    handle.child.once('close', onClose);
+  });
+}
