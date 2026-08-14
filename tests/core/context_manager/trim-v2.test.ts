@@ -226,13 +226,16 @@ describe('trimV2', () => {
     expect(result.outcome.newMessages[1].systemSubtype).toBe('context_trim_summary');
   });
 
-  it('10. 140 条 system 消息折叠后仍超 target → 选择性 turn 丢弃全部移除', () => {
+  it('10. system 消息折叠后仍超 target → 选择性 turn 丢弃全部移除', () => {
+    // 16 条已足以让折叠结果稳定超过 50 tokens；无需让唯一文本数跨过
+    // token estimator 的 128 项全局缓存边界，把行为测试变成缓存压力测试。
+    const messageCount = 16;
     const messages: Message[] = [];
-    for (let i = 0; i < 140; i++) {
+    for (let i = 0; i < messageCount; i++) {
       messages.push(makeSystemMsg(`summary ${i} ${'x'.repeat(200)}`, 'claw_outbox_summary', NOW - RECENT_WINDOW_MS - i));
     }
     const result = trimV2(withAnchor(messages), baseOpts({ policy: buildProactiveTrimPolicy(50) }));
-    expect(result.metrics.droppedSystemMessages).toBe(140);
+    expect(result.metrics.droppedSystemMessages).toBe(messageCount);
     expect(result.metrics.summaryMessageInjected).toBe(true);
     // 旧 system turn 被整体丢弃；anchor 保留；摘要注入在 boundaryIndex=0
     expect(result.outcome.newMessages).toHaveLength(2);
