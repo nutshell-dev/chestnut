@@ -36,6 +36,7 @@ import { composer as taskQueueOverflow } from './task-queue-overflow.js';
 import { composer as userChat } from './user-chat.js';
 import { composer as userInboxMessage } from './user-inbox-message.js';
 import { composer as taskResult } from './task-result.js';
+import { composer as taskStageUpdate } from './task-stage-update.js';
 import { composer as contractCreated } from './contract-created.js';
 import { composer as contractResume } from './contract-resume.js';
 import { composer as contractAuditFeedback } from './contract-audit-feedback.js';
@@ -68,6 +69,8 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('user_inbox_message', userInboxMessage);
   // phase 9: 'message' catch-all 拆为 4 typed event
   registry.register('task_result', taskResult);
+  // phase 1391 Step B: SubAgentTask 停滞阶段消息（stall-detector 推送、判失败前的通知）
+  registry.register('task_stage_update', taskStageUpdate);
   registry.register('contract_created', contractCreated);
   registry.register('contract_resume', contractResume);
   registry.register('contract_audit_feedback', contractAuditFeedback);

@@ -244,8 +244,12 @@
       "task_shutdown_pending_cleanups_drained",
       "task_shutdown_timeout",
       "task_shutdown_timeout_hit",
+      "task_stall_failed",
+      "task_stall_scan_failed",
+      "task_stall_stage_pushed",
       "task_start_failed",
       "task_started",
+      "tool_task_retry",
       {
         "type": "tool_async_result",
         "cols": [
@@ -265,8 +269,7 @@
             "required": true
           }
         ]
-      },
-      "tool_task_retry"
+      }
     ],
     "core_context_manager_audit-events": [
       "context_trim_archived",

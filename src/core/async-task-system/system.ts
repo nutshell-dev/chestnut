@@ -17,6 +17,7 @@ import { CANCEL_SETTLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
+import { writeInboxAsync as defaultWriteInboxAsync } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
@@ -38,6 +39,7 @@ import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
 import { createAsyncExecWrapper, type AsyncExecWrapperParams, ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
 import { createPendingWatcher, type PendingWatcherHandle } from './pending-watcher.js';
+import { startStallDetector, type StallDetectorHandle } from './stall-detector.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr } from './_helpers.js';
@@ -90,6 +92,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private auditWriter: AuditLog;
   private parentStreamLog?: StreamLog;
   private pendingWatcherHandle?: PendingWatcherHandle;
+  private stallDetectorHandle?: StallDetectorHandle;
   private mainDialogStore?: DialogStore;
 
   private postProcessors: Map<string, PostProcessor> = new Map();
@@ -437,6 +440,19 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         await this.pendingWatcherHandle.start();
         this._dispatchRunning = true;
         void this._runDispatchLoop();
+        // phase 1391 Step B: 启动 SubAgentTask 停滞检测器（与 pending watcher 同生命周期）。
+        // 扫描 running 目录、检测 stream 无活动 + 无 turn 在飞 → 推送阶段消息 → 仍停滞则判失败。
+        if (!this.stallDetectorHandle) {
+          this.stallDetectorHandle = startStallDetector({
+            fs: this.fs,
+            auditWriter: this.auditWriter,
+            listRunningSubagentTasks: () => this._listRunningSubagentTasksForStall(),
+            sendFallbackError: (task, errorMsg) =>
+              this.sendFallbackError(this.fs, this.auditWriter, task, errorMsg, { writeInboxAsync: this.writeInboxAsync }),
+            moveTaskToFailed: (id) => this.moveTaskToFailed(id),
+            writeInboxAsync: this.writeInboxAsync ?? defaultWriteInboxAsync,
+          });
+        }
         // 首次触发：扫 pending 目录中已有任务
         this._signalWork();
       } catch (e) {
@@ -1411,6 +1427,29 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   /**
+   * phase 1391 Step B: 扫描 running 目录、返回所有 kind==='subagent' 任务（含 runningPath）。
+   * ToolTask 不适用停滞检测；损坏/解析失败的文件由 _loadTaskFromFile 备份并跳过。
+   */
+  private async _listRunningSubagentTasksForStall(): Promise<Array<{ task: SubAgentTask; runningPath: string }>> {
+    let entries: Awaited<ReturnType<FileSystem['list']>>;
+    try {
+      entries = await this.fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return [];
+      throw err;
+    }
+    const result: Array<{ task: SubAgentTask; runningPath: string }> = [];
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.json')) continue;
+      const task = await this._loadTaskFromFile(entry.path);
+      if (!task) continue;
+      if (task.kind !== 'subagent') continue;
+      result.push({ task, runningPath: entry.path });
+    }
+    return result;
+  }
+
+  /**
    * List running task IDs (active executions).
    */
   listRunning(): ShortTaskId[] {
@@ -1687,6 +1726,13 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       );
     }
     this.pendingWatcherHandle = undefined;
+
+    // phase 1391 Step B: 关停 stall 检测器（与 pending watcher 同生命周期）。
+    try {
+      this.stallDetectorHandle?.stop();
+    } finally {
+      this.stallDetectorHandle = undefined;
+    }
 
     // Signal all running tasks to stop
     this.abort();

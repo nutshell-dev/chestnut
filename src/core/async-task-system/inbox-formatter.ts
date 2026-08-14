@@ -11,4 +11,6 @@ import type { InboxMessageTypeDeclaration } from '../../foundation/messaging/ind
 export const ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES = [
   { owner: 'async-task-system', type: 'task_queue_overflow', rendering: { kind: 'standard', presentation: 'system' } },
   { owner: 'async-task-system', type: 'task_result', rendering: { kind: 'standard', presentation: 'system' } },
+  // phase 1391 Step B: SubAgentTask 停滞阶段消息（running + stream 无活动 + 无 turn 在飞 → 推父 inbox）
+  { owner: 'async-task-system', type: 'task_stage_update', rendering: { kind: 'standard', presentation: 'system' } },
 ] as const satisfies readonly InboxMessageTypeDeclaration[];

@@ -42,3 +42,21 @@ export const PENDING_QUEUE_MAX = 1000;
  */
 export const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
 
+/**
+ * phase 1391 Step B: SubAgentTask task-level stall threshold (ms).
+ * Running + task stream 无活动 + 无 turn 在飞，超过此窗口视为任务级等待态停滞，
+ * 推送 task_stage_update 阶段消息给父 claw（同 waiting-stall 5min 同量级）。
+ */
+export const SUBAGENT_TASK_STALL_THRESHOLD_MS = 5 * 60 * 1000;
+
+/**
+ * phase 1391 Step B: 推送阶段消息后仍停滞的判失败窗口（ms）。
+ * 推送 → 子代理仍未恢复 → moveTaskToFailed + is_error task_result 叫醒父 claw。
+ */
+export const SUBAGENT_TASK_STALL_FAIL_AFTER_MS = 5 * 60 * 1000;
+
+/**
+ * phase 1391 Step B: stall 检测器扫描节拍（ms）。与 waiting-stall 60s 节拍同量级。
+ */
+export const SUBAGENT_TASK_STALL_CHECK_INTERVAL_MS = 60_000;
+
