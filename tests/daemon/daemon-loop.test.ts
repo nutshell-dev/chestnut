@@ -11,6 +11,11 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
+
+// 等待 blocked → cancel 判失败链（fire-and-forget）完成的轮询间隔：
+// 60ms = 远小于测试超时、足够跨一次微任务队列排空（无真实时间语义）。
+const BLOCKED_CANCEL_POLL_MS = 60;
+
 import { waitForInbox } from '../../src/core/event-loop/inbox-watcher.js';
 import { EventLoop } from '../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../src/core/event-loop/audit-events.js';
@@ -406,7 +411,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       });
 
       // 等一个 tick 完成 blocked + cancel（fire-and-forget，tick 已 return 后需微任务）
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, BLOCKED_CANCEL_POLL_MS));
       stop();
       await promise;
 
@@ -449,7 +454,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         createWatcher: () => fakeWatcher,
       });
 
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, BLOCKED_CANCEL_POLL_MS));
       stop();
       await promise;
 
@@ -491,7 +496,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         createWatcher: () => fakeWatcher,
       });
 
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, BLOCKED_CANCEL_POLL_MS));
       stop();
       await promise;
 
@@ -531,7 +536,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         createWatcher: () => fakeWatcher,
       });
 
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, BLOCKED_CANCEL_POLL_MS));
       stop();
       await promise;
 
