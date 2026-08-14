@@ -114,6 +114,8 @@ export async function assemble(
     // phase 1387 Step B: claw daemon waiting-stall escalated → cancel active 契约。
     // motion 的 contractManager 由 motion-addons 自管（多 claw ContractSystem cache），不在 Instances 暴露。
     const contractManager = isMotion ? undefined : core.contractManager;
+    // phase 1388 Step B: claw daemon waiting-stall 第四路 skip——AsyncTaskSystem 在途查询。
+    const taskSystem = isMotion ? undefined : business.taskSystem;
 
     // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）
     await cleanupOrphanedTemp(systemFs, clawDir, startTime).catch((err: unknown) => {
@@ -146,6 +148,7 @@ export async function assemble(
       auditWriter,
       heartbeat,
       contractManager,
+      taskSystem,
       dispose: (signal: string) => disassemble({
         gateway,
         runtime,

@@ -31,6 +31,7 @@ import {
 } from './constants.js';
 import type { EventLoop } from '../core/event-loop/index.js';
 import { makeContractId, type ContractSystem } from '../core/contract/index.js';
+import type { AsyncTaskSystem } from '../core/async-task-system/index.js';
 
 /** motion 专用扩展（claw daemon 整体省略此组） */
 interface DaemonMotionExtensions {
@@ -55,6 +56,12 @@ export interface DaemonLoopOptions {
    */
   contractManager?: ContractSystem;
 
+  /**
+   * phase 1388 Step B: claw daemon waiting-stall 第四路 skip——AsyncTaskSystem 在途查询。
+   * 仅 claw daemon 注入（motion 无 async task）；由 daemon.ts 从 Instances 透传。
+   */
+  taskSystem?: AsyncTaskSystem;
+
   /** watcher factory。测试可注入 fake 避免真实 chokidar。默认 createWatcher。 */
   createWatcher?: WatcherFactory;
 }
@@ -67,7 +74,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   promise: Promise<void>;
   stop: () => void;
 } {
-  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher, contractManager } = options;
+  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher, contractManager, taskSystem } = options;
   const heartbeat = motion?.heartbeat;
   const agentFs = fsFactory(agentDir);
   let stopped = false;
@@ -138,6 +145,12 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         audit,
         eventLoop,
         cancelContract: cancelActiveContract,
+        asyncTasksQuery: taskSystem
+          ? {
+              hasInFlight: async () =>
+                taskSystem.getRunningCount() > 0 || (await taskSystem.listPending()).length > 0,
+            }
+          : undefined,
       })
     : null;
   eventLoop.setOnTurnActivity(waitingStall ? () => waitingStall.noteActivity() : undefined);

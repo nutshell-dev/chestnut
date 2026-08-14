@@ -242,6 +242,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       audit: auditWriter,
       motion: isMotion ? { heartbeat: heartbeat ?? undefined } : undefined,
       contractManager: instances.contractManager,
+      taskSystem: instances.taskSystem,
     });
 
     /**

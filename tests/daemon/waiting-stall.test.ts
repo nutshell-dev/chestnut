@@ -2,6 +2,7 @@
  * phase 1383 (P2b U3): waiting-stall in-process 自活监测单元测试。
  * phase 1387 Step B: 增加三路 skip（LLM waiting/cooldown、blocked、wakeups 有安排）
  *                    + escalated → cancelContract 判失败（reason=agent_spontaneous_stall）。
+ * phase 1388 Step B: 增加第四路 skip——AsyncTaskSystem 在途（running/pending）+ fail-open。
  *
  * 覆盖：
  *   - active 契约 + 等待超时 → WAITING_STALL_DETECTED + self-inbox 写入 + eventLoop.abort 调用
@@ -12,6 +13,7 @@
  *   - stop() 清理定时器、不再触发
  *   - 三路 skip：isBusy=true / isBusy 抛错 / wakeups 有安排 / wakeups 列目录抛错
  *   - cancel 失败 → CONTRACT_FAIL_FAILED audit，不抛
+ *   - phase 1388: asyncTasksQuery.hasInFlight()=true → skip；false → 继续判定；抛错 → fail-open skip
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fsNative from 'fs';
@@ -359,5 +361,88 @@ describe('waiting-stall self-heal monitor (phase 1383)', () => {
     vi.advanceTimersByTime(STALL_MS * 3);
     expect(abort).not.toHaveBeenCalled();
     expect(listInboxFiles().length).toBe(0);
+  });
+
+  it('phase 1388: asyncTasksQuery.hasInFlight()=true → skip 不判停滞', async () => {
+    makeActiveContract();
+    const audit = createMockAudit();
+    const abort = vi.fn();
+    const hasInFlight = vi.fn().mockResolvedValue(true);
+    const CHECK_MS = 1000;
+    const STALL_MS = 5000;
+
+    startWaitingStallMonitor({
+      fsFactory,
+      agentDir,
+      audit,
+      eventLoop: { abort },
+      asyncTasksQuery: { hasInFlight },
+      checkIntervalMs: CHECK_MS,
+      stallTimeoutMs: STALL_MS,
+    });
+
+    vi.advanceTimersByTime(STALL_MS * 3);
+    await vi.waitFor(() => {
+      expect(hasInFlight).toHaveBeenCalled();
+    });
+    expect(abort).not.toHaveBeenCalled();
+    expect(audit.entries.some(e => e[0] === DAEMON_AUDIT_EVENTS.WAITING_STALL_DETECTED)).toBe(false);
+    expect(listInboxFiles().length).toBe(0);
+  });
+
+  it('phase 1388: asyncTasksQuery.hasInFlight()=false → 继续既有判定链（触发自愈）', async () => {
+    makeActiveContract();
+    const audit = createMockAudit();
+    const abort = vi.fn();
+    const hasInFlight = vi.fn().mockResolvedValue(false);
+    const CHECK_MS = 1000;
+    const STALL_MS = 5000;
+
+    startWaitingStallMonitor({
+      fsFactory,
+      agentDir,
+      audit,
+      eventLoop: { abort },
+      asyncTasksQuery: { hasInFlight },
+      checkIntervalMs: CHECK_MS,
+      stallTimeoutMs: STALL_MS,
+    });
+
+    vi.advanceTimersByTime(STALL_MS);
+    await vi.waitFor(() => {
+      expect(abort).toHaveBeenCalledTimes(1);
+    });
+    expect(audit.entries.some(e => e[0] === DAEMON_AUDIT_EVENTS.WAITING_STALL_DETECTED)).toBe(true);
+    expect(listInboxFiles().length).toBe(1);
+  });
+
+  it('phase 1388: asyncTasksQuery.hasInFlight() 抛错 → fail-open skip 不判死', async () => {
+    makeActiveContract();
+    const audit = createMockAudit();
+    const abort = vi.fn();
+    const hasInFlight = vi.fn().mockRejectedValue(new Error('task query boom'));
+    const CHECK_MS = 1000;
+    const STALL_MS = 5000;
+
+    startWaitingStallMonitor({
+      fsFactory,
+      agentDir,
+      audit,
+      eventLoop: { abort },
+      asyncTasksQuery: { hasInFlight },
+      checkIntervalMs: CHECK_MS,
+      stallTimeoutMs: STALL_MS,
+    });
+
+    vi.advanceTimersByTime(STALL_MS * 3);
+    await vi.waitFor(() => {
+      expect(hasInFlight).toHaveBeenCalled();
+    });
+    expect(abort).not.toHaveBeenCalled();
+    // 查询失败留痕（ctx=async_tasks_query_failed），但不判 dead
+    expect(audit.entries.some(
+      e => e[0] === DAEMON_AUDIT_EVENTS.WAITING_STALL_DETECTED
+        && e.some(c => String(c).includes('async_tasks_query_failed')),
+    )).toBe(true);
   });
 });

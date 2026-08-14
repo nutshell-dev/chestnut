@@ -5,6 +5,7 @@ import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import type { ContractSystem } from '../core/contract/index.js';
+import type { AsyncTaskSystem } from '../core/async-task-system/index.js';
 import type { ClawGlobalConfig, ClawConfig } from './config/compose-config.js';
 import type { createSkillSystem as defaultCreateSkillSystem } from '../foundation/skill-system/index.js';
 import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';
@@ -48,6 +49,11 @@ export interface Instances {
    * 该字段仅 claw assembly 返回，daemon-loop 仅 claw 路径消费（motion 无 active 契约）。
    */
   readonly contractManager?: ContractSystem;
+  /**
+   * phase 1388 Step B: claw daemon waiting-stall 第四路 skip——AsyncTaskSystem 在途查询。
+   * motion identity 下不暴露（motion 无 async task）；该字段仅 claw assembly 返回。
+   */
+  readonly taskSystem?: AsyncTaskSystem;
   /** Dispose exactly the private resources constructed for this assembly session. */
   readonly dispose: (signal: string) => Promise<void>;
 }
