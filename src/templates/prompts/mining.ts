@@ -48,7 +48,8 @@ exec: chestnut claw list --summary
   exec: chestnut claw <name> daemon
   exec: chestnut claw list --summary   ← 确认 daemon 已运行再继续
   \`\`\`
-- 选择 claw 时执行 \`claw list --summary\` 确认存在且 running（执行单元由你自主选择）
+- targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId
+- 若上游已指定 targetClaw，执行 \`claw list --summary\` 确认存在且 running
 
 ### 第二步：安装 dispatch-skills（如需要）
 
@@ -122,12 +123,16 @@ CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次�
 export function buildMiningUserMessage(
   goal: string,
   skillsSummary?: string,
+  targetClaw?: string,
   opts: { verify?: boolean } = {},
 ): string {
   const verify = opts.verify === true;
   void verify; // mining user message does not vary by verify flag (schema lives in system prompt)
   let msg = `## 本次目标\n${goal}`;
 
+  if (targetClaw) {
+    msg += `\n\n**目标 claw 已由用户指定：${targetClaw}**（确认存在且 running 后使用）`;
+  }
 
   if (skillsSummary) {
     msg += `\n\n${skillsSummary}`;

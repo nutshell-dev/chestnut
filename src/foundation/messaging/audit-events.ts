@@ -48,12 +48,6 @@ export const MESSAGING_AUDIT_EVENTS = {
   UNKNOWN_DESTINATION_DLQ: 'messaging_unknown_destination_dlq',
   UNKNOWN_DESTINATION_REJECTED: 'messaging_unknown_destination_rejected',
   MESSAGING_MESSAGE_INVARIANT_VIOLATED: 'messaging_message_invariant_violated',
-  // phase 1386: 定时消息（wakeup）资源事件族
-  WAKEUP_SCHEDULED: 'wakeup_scheduled',
-  WAKEUP_CANCELLED: 'wakeup_cancelled',
-  WAKEUP_DELIVERED: 'wakeup_delivered',
-  WAKEUP_DELIVER_FAILED: 'wakeup_deliver_failed',
-  WAKEUP_DELIVER_RETRY: 'wakeup_deliver_retry',
 } as const;
 
 
@@ -97,9 +91,4 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   messaging_unknown_destination_dlq: 'audit',
   messaging_unknown_destination_rejected: 'audit',
   messaging_message_invariant_violated: 'audit',
-  wakeup_scheduled: 'audit',
-  wakeup_cancelled: 'audit',
-  wakeup_delivered: 'audit',
-  wakeup_deliver_failed: 'audit',
-  wakeup_deliver_retry: 'audit',
 } as const;

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { composeStatusMotionGuidance } from '../../../src/assembly/motion-guidance-composer.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { ContractSystem } from '../../../src/core/contract/index.js';
 import { STATUS_AUDIT_EVENTS } from '../../../src/core/status-service/audit-events.js';
@@ -186,4 +187,43 @@ function mkCtx(clawId: string) {
 
 const mockContractSystem = { loadActive: vi.fn().mockResolvedValue(null) } as any;
 
+describe('status-tool motion guidance injection (phase 1472 Step D)', () => {
+  it('motion claw + composer 注入 → 尾段含 CLI hints', async () => {
+    const tool = createStatusTool(mockContractSystem, composeStatusMotionGuidance());
+    const result = await tool.execute({}, mkCtx(MOTION_CLAW_ID));
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('[CLI hints for motion]');
+    expect(result.content).toContain('chestnut claw <name> status');
+    expect(result.content).toContain('chestnut claw list');
+  });
+
+  it('non-motion claw + composer 注入 → 0 尾段（guard 过滤）', async () => {
+    const tool = createStatusTool(mockContractSystem, composeStatusMotionGuidance());
+    const result = await tool.execute({}, mkCtx('worker-claw'));
+    expect(result.success).toBe(true);
+    expect(result.content).not.toContain('[CLI hints for motion]');
+  });
+
+  it('motion claw + 0 composer → 0 尾段（无 crash）', async () => {
+    const tool = createStatusTool(mockContractSystem /* no guidance */);
+    const result = await tool.execute({}, mkCtx(MOTION_CLAW_ID));
+    expect(result.success).toBe(true);
+    expect(result.content).not.toContain('[CLI hints for motion]');
+  });
+
+  it('reverse: composer 物理拼 binary `chestnut`', () => {
+    const g = composeStatusMotionGuidance();
+    expect(g.commands.length).toBeGreaterThan(0);
+    for (const c of g.commands) {
+      expect(c.invocation.startsWith('chestnut ')).toBe(true);
+    }
+  });
+
+  it('reverse: composer 含 `claw <name> status` verb fragment', () => {
+    const g = composeStatusMotionGuidance();
+    const statusCmd = g.commands.find((c) => c.invocation.includes('claw <name> status'));
+    expect(statusCmd).toBeDefined();
+    expect(statusCmd!.purpose).toContain('contract');
+  });
+});
 

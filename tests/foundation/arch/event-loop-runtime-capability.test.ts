@@ -26,6 +26,6 @@ describe('phase 1351: EventLoop consumer-owned Runtime capability', () => {
 
   it('the public EventLoop barrel exposes capability types without runtime values', () => {
     const source = fs.readFileSync('src/core/event-loop/index.ts', 'utf8');
-    expect(source).toContain('export type { EventLoopRuntime, EventLoopTraceSource, LLMRequestBlockedState }');
+    expect(source).toContain('export type { EventLoopRuntime, EventLoopTraceSource }');
   });
 });

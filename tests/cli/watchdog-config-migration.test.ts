@@ -43,6 +43,7 @@ const deps = {
 const LEGACY_CUSTOM: WatchdogConfig = {
   interval_ms: 60000,
   disk_warning_mb: 1024,
+  claw_inactivity_timeout_ms: 600000,
 };
 
 function rootYamlWithWatchdog(opts: { includeRetired?: boolean } = {}): string {
@@ -55,6 +56,7 @@ llm:
 watchdog:
   interval_ms: 60000
   disk_warning_mb: 1024
+  claw_inactivity_timeout_ms: 600000
 ${opts.includeRetired ? '  log_archive_days: 30\n' : ''}`;
 }
 
@@ -101,7 +103,7 @@ describe('phase 1289 Step B: watchdog config migration orchestration', () => {
     // 新配置就位（typed 回读 + 拍板磁盘形态）
     expect(loadWorkspaceWatchdogConfig(fsFactory(chestnutRoot))).toEqual({ kind: 'ok', config: LEGACY_CUSTOM });
     expect(watchdogConfigOnDisk()).toBe(
-      'schema_version: 1\ninterval_ms: 60000\ndisk_warning_mb: 1024\n',
+      'schema_version: 1\ninterval_ms: 60000\ndisk_warning_mb: 1024\nclaw_inactivity_timeout_ms: 600000\n',
     );
 
     // legacy 段移除 + root YAML 其余字段逐字节语义保持、无 default 注入
@@ -165,7 +167,7 @@ describe('phase 1289 Step B: watchdog config migration orchestration', () => {
     fs.writeFileSync(configPath, rootYamlWithWatchdog());
     publishMigratedWorkspaceWatchdogConfig(
       fsFactory(chestnutRoot),
-      { interval_ms: 60000, disk_warning_mb: 2048 },
+      { interval_ms: 60000, disk_warning_mb: 2048, claw_inactivity_timeout_ms: 600000 },
       'x'.repeat(64),
     );
     const configBefore = watchdogConfigOnDisk();

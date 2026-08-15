@@ -185,7 +185,54 @@ describe('SummonVerifyPolicy (phase 240 rewrite of phase 230 follow-up, phase 28
     });
   });
 
-  
+  describe('target_claw boundary (phase 119 contract)', () => {
+    it('verify=false + clawDir match → pass', async () => {
+      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'my-claw' }));
+      const { audit, writes } = makeAudit();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit });
+      await expect(
+        policy.check({ subagentTaskId: 't1', clawDir: 'my-claw' }, makeContract()),
+      ).resolves.toBeUndefined();
+      expect(writes).toEqual([]);  // no violation, no audit
+    });
+
+    it('verify=false + clawDir mismatch → throw ContractCreatePolicyViolationError', async () => {
+      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'statsvc-auditor' }));
+      const { audit } = makeAudit();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit });
+      const err = await policy
+        .check({ subagentTaskId: 't1', clawDir: 'gateway-auditor' }, makeContract())
+        .catch(e => e);
+      expect(err).toBeDefined();
+      expect(err).toMatchObject({
+        name: 'ContractCreatePolicyViolationError',
+        policyName: 'summon-verify',
+        cause: 'summon_target_claw_violation',
+        details: expect.objectContaining({
+          subagentTaskId: 't1',
+          expectedTargetClaw: 'statsvc-auditor',
+          requestedClawId: 'gateway-auditor',
+        }),
+      });
+      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
+    });
+
+    it('audit SUMMON_TARGET_CLAW_VIOLATION 载荷正确', async () => {
+      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'statsvc-auditor' }));
+      const { audit, writes } = makeAudit();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit });
+      await policy
+        .check({ subagentTaskId: 't1', clawDir: 'gateway-auditor' }, makeContract())
+        .catch(() => { /* swallow: 本 case 验 audit 载荷、不断言抛出（独立 case 已覆盖） */ });
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_TARGET_CLAW_VIOLATION,
+        'subagentTaskId=t1',
+        'expectedTargetClaw=statsvc-auditor',
+        'requestedClawId=gateway-auditor',
+      ]);
+    });
+  });
+
   describe('verify=false verification violation', () => {
     it('task.summonDecision undefined → audit SUMMON_GATE_NO_DECISION + pass-through', async () => {
       const loadTask = makeLoadTask();  // no decision

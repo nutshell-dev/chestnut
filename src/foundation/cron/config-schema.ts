@@ -35,11 +35,6 @@ export const cronJobsConfigSchema = z.object({
     enabled: z.boolean().default(true),
     schedule: cronJobScheduleField.default('interval:1s'),
   }).default({}),
-  // phase 1386: 定时消息到期投递（扫各 claw wakeups/ → 投 claw inbox）。
-  wakeup_delivery: z.object({
-    enabled: z.boolean().default(true),
-    schedule: cronJobScheduleField.default('interval:30s'),
-  }).default({}),
 });
 
 export const cronConfigSchema = z.object({

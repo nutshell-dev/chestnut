@@ -15,12 +15,6 @@ export const OUTBOX_FAILED_DIR = 'outbox/failed';
 export const OUTBOX_PROCESSING_DIR = 'outbox/processing';
 
 /**
- * phase 1386: 定时消息（wakeup）资源目录。
- * 每个安排落盘为 `<clawDir>/wakeups/<id>.json`，到期由 motion cron job 投递到 claw inbox。
- */
-export const WAKEUPS_DIR = 'wakeups';
-
-/**
  * Resolve dead-letter queue directory path from an inbox base directory.
  * Encapsulates the 'dead-letter' leaf name — callers don't know the subdirectory name.
  *

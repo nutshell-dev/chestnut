@@ -29,9 +29,3 @@ export {
 } from './agent-tools.js';
 export { decodeOutboxSummaryGuidance } from './jobs/outbox-summary/guidance-state.js';
 export { createOutboxSummaryJob } from './jobs/outbox-summary/index.js';
-// phase 1386: 定时消息到期投递 job
-export { createWakeupDeliveryJob, runWakeupDeliveryTick } from './jobs/wakeup-delivery/index.js';
-export type {
-  WakeupDeliveryJobDeps,
-  WakeupDeliveryTickResult,
-} from './jobs/wakeup-delivery/index.js';

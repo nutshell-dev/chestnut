@@ -1,10 +1,6 @@
 /**
  * @module L6.Watchdog.Cron
- * Watchdog cron jobs — claw crash detection + auto-restart
- *
- * phase 1383 (P2b): claw_inactivity 超时检测/subscription/通知退场——
- * 停滞自活归 daemon 内化（in-process waiting-stall + Step D 心跳文件兜底），
- * Watchdog 只留进程死活 + 崩溃自愈（心跳过期重启在 Step D 加）。
+ * Watchdog cron jobs — claw inactivity timeout + crash detection
  */
 
 
@@ -13,28 +9,28 @@ import { formatErr } from "../foundation/node-utils/index.js";
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
-import { ProcessSpawnConflictError, PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import {
-  getChestnutDir, getChestnutFs, getWatchdogConfig,
-  clawStateAPI, clawRestartStateAPI,
+  getChestnutDir, getChestnutFs, getWatchdogConfig, getMotionContext,
+  clawStateAPI,
 } from './watchdog-context.js';
-import { log, logWithAudit } from './watchdog-log.js';
-import { clawHasActiveContract, deriveCrashClass, hasCleanStopMarker, WATCHDOG_BACKOFF_MAX_MS, getWatchdogMaxRestart } from './watchdog-utils.js';
-import {
-  decideDaemonRestart, reduceMotionRestartOutcome, type MotionSpawnOutcome,
-} from './motion-restart-state.js';
-import { HEARTBEAT_STALE_TIMEOUT_MS } from './constants.js';
+import { log, writeClawInactivityInbox } from './watchdog-log.js';
+import { encodeClawCrashedGuidance } from './claw-crashed-guidance.js';
+import type { FailureClass } from './claw-failure-classes.js';
+import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
+import { listSubscriptions, consumeSubscription } from './subscription-store.js';
+import { getActiveContractTimestamp } from '../core/contract/index.js';
 
 import {
+  routeNotifyClaw,
   enumerateClaws,
   getRelativeClawDir,
-  getWorkspaceRoot,
-  resolveClawDaemonDir,
+  makeChestnutRoot,
+  getNamedSubrootDir,
 } from '../core/claw-topology/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { resolveDaemonEntry, DAEMON_LOG } from '../daemon/index.js';
 
 
 /**
@@ -54,13 +50,155 @@ function pruneStaleMapEntries(
   }
 }
 
-// Detect claw process crashes (dead daemon with active contract) and restart it.
-// phase 1380: 检测 → decideDaemonRestart 状态机 → attemptClawRestart（backoff + 熔断）。
-//   - 触发条件 = dead + activeContract（不再要求 !notified —— dedup 机制被状态机替换）
-//   - legacy paused contract 永不处理（与 phase 1482 inactivity-legacy-paused-skip 一致）
-//   - crash_class 保留为纯审计事实（DP1 死因记录）、不进任何决策
-//   - 熔断（连续失败达上限）= circuit-open 持久化 + audit；契约收尾不归本模块（P2 同根机制治理）
-export async function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
+interface FireInactivityOpts {
+  rawClawId: string;
+  clawId: string;
+  clawDir: string;
+  fsFactory: (baseDir: string) => FileSystem;
+  pm: ProcessManager;
+  inactiveMin: number;
+  inactiveMs: number;
+  lastError: string | null;
+  /** 仅 subscription 触发路径传入 typed literal；普通 timeout 缺失。 */
+  sourcePath?: 'subscription';
+  audit?: AuditLog;
+}
+
+function fireInactivityNotification(opts: FireInactivityOpts): { failureClass: FailureClass } {
+  const { rawClawId, clawId, clawDir, fsFactory, pm, inactiveMin, inactiveMs, lastError, sourcePath, audit } = opts;
+  const snapshot = gatherClawSnapshot(clawDir, fsFactory, pm, clawId, audit);
+  const failureClass = deriveFailureClass({
+    daemonAlive: snapshot.status === 'running',
+    lastError,
+  });
+  const body = formatInactivityBody({
+    clawId,
+    inactiveMin,
+    failureClass,
+    contract: snapshot.contract,
+    lastError,
+  });
+
+  // phase 1258 Step A: 不再声明 wire key — 传 typed facts 给 writer，
+  // extraFields 只经 owner codec (claw-inactivity-guidance.ts) 产出（v1 wire）。
+  // asOf 此处单次生成、writer 内不再取时间（body/audit/wire 观察点不漂移）。
+  writeClawInactivityInbox(fsFactory, {
+    body,
+    guidance: {
+      clawId: rawClawId,
+      failureClass,
+      inactiveMs,
+      contract: snapshot.contract,
+      asOf: new Date().toISOString(),
+      ...(sourcePath ? { sourcePath } : {}),
+      ...(lastError ? { lastError } : {}),
+    },
+  });
+
+  return { failureClass };
+}
+
+// Check for claws with an active contract but no progress for a long time, and send a reminder
+/** 1:1 保 watchdog.ts:271-349 / 78 行 / inactivity timeout + backoff */
+export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
+  const timeoutMs = getWatchdogConfig(fsFactory).claw_inactivity_timeout_ms;
+  const fs = getChestnutFs(fsFactory);
+  // 枚举 claws 并清理已不存在的 claw 的 Map 条目
+  let clawNames: string[];
+  try {
+    clawNames = enumerateClaws(fs, 'claws');
+  } catch (err) {
+    if (isFileNotFound(err)) {
+      // phase 138: claws dir 不存在 = no claws present、cleanup 全部 stale entries（audit.P1.wd-1 真治）
+      const emptyExisting = new Set<string>();
+      pruneStaleMapEntries(clawStateAPI.lastInactivityNotified, emptyExisting);
+      pruneStaleMapEntries(clawStateAPI.inactivityNotifyCount, emptyExisting);
+      return;
+    }
+    // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
+    audit.write(
+      WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+      `ctx=inactivity`,
+      `dir=claws`,
+      `error=${formatErr(err)}`,
+    );
+    return;  // 其他错 = treat as no claws、下 tick 重试
+  }
+  const existingClawIds = new Set(clawNames);
+  // phase 691: 拆 ctx + present 为两独立 col、与 phase 690 WATCHDOG_CHECK 同模式修正
+  audit.write(
+    WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
+    `ctx=inactivity`,
+    `present=${[...existingClawIds].join(',')}`,
+  );
+  pruneStaleMapEntries(clawStateAPI.lastInactivityNotified, existingClawIds);
+  pruneStaleMapEntries(clawStateAPI.inactivityNotifyCount, existingClawIds);
+
+  const now = Date.now();
+  for (const rawClawId of clawNames) {
+    const clawId = rawClawId;
+    try {
+      const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
+
+      // phase 1482: inactivity 仅对 ACTIVE contract 触发 / legacy paused 不参与当前 lifecycle（不算 inactivity / D 类 root cause fix）
+      if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
+
+      // phase 2 γ4: inactivity 仅对 daemon ALIVE 触发 / daemon dead 归 claw_crashed 覆盖（0 dedup 重叠）
+      if (!pm.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId))).alive) continue;
+
+      // Parse stream.jsonl to get real progress
+      const clawFs = fsFactory(clawDir);
+      const { lastEventMs, lastError } = await getClawActivityInfo(clawFs, audit);
+
+      // Merge with contract creation time to handle contract recreation scenario
+      const contractCreatedMs = getActiveContractTimestamp(clawFs, clawDir);
+      const referenceMs = Math.max(lastEventMs ?? 0, contractCreatedMs ?? 0) || null;
+      if (referenceMs === null) continue;
+
+      // Not yet timed out
+      if (now - referenceMs < timeoutMs) continue;
+
+      // phase 4 续: 1-shot per stuck period (取代 phase 1482 multi-notif backoff)
+      //   - 已通知过 + claw 无新 stream 活动 → skip (user 关切「占用 motion 上下文」)
+      //   - shouldResetNotifyCount (referenceMs > lastNotified) = 真有 progress → 允许重新通知
+      //   - motion 干预后 claw 完全冻死无 stream → 无 reset → 走 restart 路径 (claw_crashed) 让 motion 知
+      const lastNotified = clawStateAPI.lastInactivityNotified.get(rawClawId) ?? 0;
+      if (lastNotified > 0 && !shouldResetNotifyCount(referenceMs, lastNotified)) {
+        continue;  // 已通知 + 无 progress → 不重发
+      }
+
+      const inactiveMin = Math.round((now - referenceMs) / 60000);
+      const { failureClass } = fireInactivityNotification({
+        rawClawId,
+        clawId,
+        clawDir,
+        fsFactory,
+        pm,
+        inactiveMin,
+        inactiveMs: now - referenceMs,
+        lastError,
+        audit,
+      });
+      log(fsFactory, `[watchdog] Claw ${rawClawId} ${failureClass} ${inactiveMin}m${lastError ? ` (last error: ${lastError})` : ''}`);
+      clawStateAPI.lastInactivityNotified.set(rawClawId, now);
+    } catch (err) {
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.CLAW_INACTIVITY_CHECK_FAILED,
+        `claw=${rawClawId}`,
+        `error=${formatErr(err)}`,
+      );
+      log(fsFactory, `[watchdog] Error checking claw ${rawClawId}: ${formatErr(err)}`);  // 保留 dev-debug
+    }
+  }
+}
+
+// Detect claw process crashes (dead daemon with active contract) and notify motion.
+// phase 2 γ4 reframe:
+//   - Trigger 条件改：dead + activeContract + !notified（原 `(wasAlive‖everSpawned)` requirement 移除 / 覆盖 S7 从未 spawn）
+//   - legacy paused contract 永不通知（与 phase 1482 inactivity-legacy-paused-skip 一致 / DP「不打扰」）
+//   - 业主 own CrashClass enum (active_unexpected / active_user_stopped) by clean-stop marker
+//   - extraFields 只经 owner codec (claw-crashed-guidance.ts) 产出（v1 wire / phase 1257）
+export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): void {
   const fs = getChestnutFs(fsFactory);
   // 枚举 claws 并清理已不存在的 claw 的 Map 条目
   let clawNames: string[];
@@ -72,7 +210,7 @@ export async function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fs
       const emptyExisting = new Set<string>();
       pruneStaleMapEntries(clawStateAPI.clawPreviouslyAlive, emptyExisting);
       pruneStaleMapEntries(clawStateAPI.everSpawned, emptyExisting);
-      clawRestartStateAPI.pruneStale(emptyExisting);
+      pruneStaleMapEntries(clawStateAPI.clawPreviouslyNotified, emptyExisting);
       return;
     }
     // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
@@ -93,12 +231,7 @@ export async function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fs
   );
   pruneStaleMapEntries(clawStateAPI.clawPreviouslyAlive, existingClawIds);
   pruneStaleMapEntries(clawStateAPI.everSpawned, existingClawIds);
-  // legacy dedup 字段（phase 1380 起无决策消费者）仍随 state.json 持久化、同步清理防 stale 累积
   pruneStaleMapEntries(clawStateAPI.clawPreviouslyNotified, existingClawIds);
-  clawRestartStateAPI.pruneStale(existingClawIds);
-
-  const maxRestart = getWatchdogMaxRestart();
-  const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
 
   for (const rawClawId of clawNames) {
     const clawId = rawClawId;
@@ -107,18 +240,11 @@ export async function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fs
 
     if (currentlyAlive) {
       clawStateAPI.everSpawned.add(rawClawId);
-      // phase 1380: alive 恢复 → 清 restart 状态（跨 episode 计数归零、与 motion 恢复同语义）
-      if (clawRestartStateAPI.get(rawClawId) !== undefined) {
-        clawRestartStateAPI.delete(rawClawId);
-        audit.write(
-          WATCHDOG_AUDIT_EVENTS.CLAW_RESTART_RECOVERED,
-          `claw=${rawClawId}`,
-        );
-      }
     }
 
     if (!currentlyAlive) {
-      // legacy paused contract 永不处理 (clawHasActiveContract 内部已 active-only)
+      // phase 2 γ4: 触发条件 = dead + activeContract + !notified（不再要求 transition / 覆盖 S7）
+      // legacy paused contract 永不通知 (clawHasActiveContract 内部已 active-only)
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) {
         // phase 133: B1 silent skip 加 audit emit（DP「不丢弃静默」+ 三分判定每分支必 audit）
         audit.write(
@@ -130,238 +256,152 @@ export async function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fs
         continue;
       }
 
-      const now = Date.now();
-      await runClawRestartStateMachine({
-        pm, fsFactory, audit,
-        clawId: rawClawId, clawDir,
-        reason: 'crash_detected',
-        daemonAlive: false,
-        now, maxRestart, intervalMs,
+      if (clawStateAPI.clawPreviouslyNotified.has(rawClawId)) {
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DEDUPED,
+          `claw=${rawClawId}`,
+          `reason=already_notified`,
+        );
+        clawStateAPI.clawPreviouslyAlive.set(rawClawId, currentlyAlive);
+        continue;
+      }
+
+      // phase 2 γ4: 业主 own CrashClass + clean-stop marker 探测
+      const cleanStop = hasCleanStopMarker(clawDir, fsFactory);
+      const crashClass = deriveCrashClass({ hasCleanStopMarker: cleanStop });
+
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
+        `claw=${rawClawId}`,
+        `has_contract=true`,
+        `crash_class=${crashClass}`,
+      );
+      log(fsFactory, `[watchdog] Claw ${rawClawId} ${crashClass}${cleanStop ? ' (clean-stop marker present)' : ' (no marker)'}`);
+
+      const snapshot = gatherClawSnapshot(clawDir, fsFactory, pm, clawId, audit);
+      const body = formatCrashBody({
+        clawId: rawClawId,
+        crashClass,
+        contract: snapshot.contract,
       });
+
+      const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
+      const chestnutRoot = makeChestnutRoot(path.dirname(getNamedSubrootDir('motion')));
+      // phase 1257 Step A: owned wire 只在 owner codec 中定义（producer 不再 inline 手写 metadata key）
+      const guidance = encodeClawCrashedGuidance({
+        clawId: rawClawId,
+        crashClass,
+        cleanStopMarker: cleanStop,
+        contract: snapshot.contract,
+        outboxPending: snapshot.outboxPending,
+        asOf: new Date().toISOString(),
+      });
+      routeNotifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
+        type: 'claw_crashed',
+        source: guidance.source,
+        priority: 'normal',
+        body,
+        extraFields: guidance.extraFields,
+      }, motionAudit);
+
+      clawStateAPI.clawPreviouslyNotified.set(rawClawId, Date.now());
+    }
+
+    // Alive recovery transition: allow next crash to re-notify (option a — simple 1 notif per event)
+    if (currentlyAlive && clawStateAPI.clawPreviouslyNotified.has(clawId)) {
+      clawStateAPI.clawPreviouslyNotified.delete(clawId);
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_RESET,
+        `claw=${clawId}`,
+        `reason=recovered_alive`,
+      );
     }
 
     clawStateAPI.clawPreviouslyAlive.set(clawId, currentlyAlive);
   }
 }
 
-/**
- * phase 1380/Step D: 单 claw 重启状态机推进 —— crash 检测（进程死）与
- * heartbeat-stale（进程活但事件循环全阻塞）共用同一 clawRestartStateAPI 状态机，
- * 不新起一套 backoff。
- *
- * @param daemonAlive 传 false 触发重启决策（crash = 进程死；heartbeat-stale =
- *   进程活但功能死，强制按 dead 推进重启）。
- * @param reason 审计/重启触发原因（crash_detected | heartbeat_stale）。
- */
-async function runClawRestartStateMachine(args: {
-  pm: ProcessManager;
-  fsFactory: (baseDir: string) => FileSystem;
-  audit: AuditLog;
-  clawId: string;
-  clawDir: string;
-  reason: 'crash_detected' | 'heartbeat_stale';
-  daemonAlive: boolean;
-  now: number;
-  maxRestart: number;
-  intervalMs: number;
-}): Promise<void> {
-  const { pm, fsFactory, audit, clawId, clawDir, reason, daemonAlive, now, maxRestart, intervalMs } = args;
-  const prior = clawRestartStateAPI.get(clawId) ?? { status: 'closed', consecutiveAttempts: 0 };
-  const decision = decideDaemonRestart(prior, daemonAlive, now, maxRestart);
-  clawRestartStateAPI.set(clawId, decision.state);
+// phase 5: motion-requested inactivity subscriptions tick handler.
+// 每 tick 扫 watchdog-subscriptions/ dir、判定 fire-or-consume 各订阅 (一次性).
+//
+// Conditions per subscription (claw_id, subscribed_at, threshold_ms):
+//   (a) claw dir 消失 OR 无 active contract → consume silent (CONSUMED_NO_CONTRACT audit)
+//   (b) claw 自 subscribed_at 以来有 stream event → consume silent / claw 已恢复 (CONSUMED_RECOVERED audit)
+//   (c) now < subscribed_at + threshold_ms → 等下次 tick
+//   (d) now >= subscribed_at + threshold_ms + 仍 stuck → fire claw_inactivity (与 1-shot path 同 type / 同 body shape) + consume
+export async function maybeCronCheckSubscriptions(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
+  const fs = getChestnutFs(fsFactory);
+  const subs = listSubscriptions(fs, audit);
+  if (subs.length === 0) return;
 
-  switch (decision.action) {
-    case 'attempt': {
-      if (reason === 'crash_detected') {
-        // crash_class 死因审计（DP1）：clean-stop marker 探测照旧
-        const cleanStop = hasCleanStopMarker(clawDir, fsFactory);
-        const crashClass = deriveCrashClass({ hasCleanStopMarker: cleanStop });
-        audit.write(
-          WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
-          `claw=${clawId}`,
-          `has_contract=true`,
-          `crash_class=${crashClass}`,
-        );
-        log(fsFactory, `[watchdog] Claw ${clawId} ${crashClass}${cleanStop ? ' (clean-stop marker present)' : ' (no marker)'}`);
-      } else {
-        const staleMs = readHeartbeatAgeMs(clawDir, fsFactory);
-        audit.write(
-          WATCHDOG_AUDIT_EVENTS.CLAW_HEARTBEAT_STALE,
-          `claw=${clawId}`,
-          `process_alive=true`,
-          `stale_ms=${staleMs ?? 'unknown'}`,
-        );
-        log(fsFactory, `[watchdog] Claw ${clawId} heartbeat stale (process alive, event loop blocked); restarting...`);
-      }
-
-      const outcome = await attemptClawRestart(pm, fsFactory, audit, clawId, reason);
-      const next = reduceMotionRestartOutcome(
-        prior, outcome, Date.now(), intervalMs, WATCHDOG_BACKOFF_MAX_MS,
-      );
-      clawRestartStateAPI.set(clawId, next);
-      break;
-    }
-    case 'defer': break;            // 退避窗口内、本 tick 不尝试
-    case 'circuit_open': {
-      if (decision.justOpened) {
-        audit.write(
-          WATCHDOG_AUDIT_EVENTS.CLAW_RESTART_CIRCUIT_OPENED,
-          `claw=${clawId}`,
-          `attempts=${decision.state.consecutiveAttempts}`,
-          `cap=${maxRestart}`,
-        );
-        log(
-          fsFactory,
-          `[watchdog] gave up restarting claw ${clawId} after ${decision.state.consecutiveAttempts} consecutive failures (cap=${maxRestart}); entering circuit-open.`,
-        );
-      }
-      break;                        // 已放弃、不再每 tick 尝试；契约收尾不归本模块（P2）
-    }
-    case 'healthy': break;
-  }
-}
-
-// === Claw restart helper（phase 1380、镜像 attemptMotionRestart / watchdog.ts） ===
-
-async function attemptClawRestart(
-  pm: ProcessManager,
-  fsFactory: (baseDir: string) => FileSystem,
-  audit: AuditLog,
-  clawId: string,
-  reason: 'crash_detected' | 'heartbeat_stale',
-): Promise<MotionSpawnOutcome> {
-  const reasonText = reason === 'crash_detected' ? 'down, restarting...' : 'event loop blocked (heartbeat stale), restarting...';
-  log(fsFactory, `[watchdog] claw ${clawId} ${reasonText}`);
-  audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, `claw=${clawId}`, `reason=${reason}`);
-
-  try {
-    // best-effort cleanup before respawn（cleanup 失败不阻塞 respawn、仅 audit）
-    await pm.stop(resolveClawDaemonDir(makeClawId(clawId))).catch((e) => {
-      const msg = `[watchdog] Failed to clean up claw ${clawId} before restart: ${formatErr(e)}`;
-      logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, `message=${audit.message(msg)}`);
-    });
-    const daemonEntryPath = resolveDaemonEntry();
-    const clawDir = path.join(getChestnutDir(), getRelativeClawDir(clawId));
-    const pid = await pm.spawn(resolveClawDaemonDir(makeClawId(clawId)), {
-      command: 'node',
-      args: [daemonEntryPath, clawId],
-      // logFile 照 claw daemon CLI 启动惯例（claw-daemon.ts:53）
-      logFile: path.join(clawDir, DAEMON_LOG),
-      env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-      cwd: getWorkspaceRoot(),
-    });
-    log(fsFactory, `[watchdog] claw ${clawId} restarted (PID=${pid})`);
-    audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, `claw=${clawId}`, `pid=${pid}`);
-    return { kind: 'spawned', pid };
-  } catch (err) {
-    if (err instanceof ProcessSpawnConflictError) {
-      // 合法 spawn ownership conflict → 另一实例赢了 race、不计失败
-      log(fsFactory, `[watchdog] claw ${clawId} already started by another instance`);
-      return { kind: 'spawn_conflict', reason: err.reason };
-    }
-    audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED, `claw=${clawId}`, `error=${formatErr(err)}`);
-    log(fsFactory, `[watchdog] FAILED to restart claw ${clawId}: ${err}`);
-    return { kind: 'failed', error: err };
-  }
-}
-
-/**
- * phase 1383 Step D (U4): daemon 心跳文件名（与 src/daemon/constants.ts 同步，
- * Watchdog 不反向 import daemon 内部常量）。
- */
-const DAEMON_HEARTBEAT_FILENAME = 'heartbeat';
-
-/**
- * 读 claw 心跳文件并返回「距今年龄（ms）」。
- * - 文件缺失 / 内容非法 / 时间戳无法解析 → 返回 undefined（调用方按「读失败」skip + audit）。
- *   旧版本 daemon 升级后首次心跳前本就无文件，读失败必须 skip，不误重启。
- */
-function readHeartbeatAgeMs(clawDir: string, fsFactory: (baseDir: string) => FileSystem): number | undefined {
-  const fs = fsFactory(clawDir);
-  let raw: string;
-  try {
-    raw = fs.readSync(DAEMON_HEARTBEAT_FILENAME);
-  } catch (err) {
-    if (isFileNotFound(err)) return undefined;
-    throw err;
-  }
-  const ts = Date.parse(raw.trim());
-  if (!Number.isFinite(ts)) return undefined;
-  return Date.now() - ts;
-}
-
-/**
- * phase 1383 Step D (U4): 心跳文件过期检测 —— 进程 alive 但事件循环全阻塞时
- * in-process 自活也无法触发，靠心跳时间戳过期判定「功能死」并复用 crash 重启状态机。
- *
- * 边界：
- * - 进程死 → 不由本函数管（maybeCronClawCrash 负责）；本函数只看 alive claw。
- * - 无 active contract → skip（与 crash 同：无契约的 claw 不重启）。
- * - 心跳缺失/非法（存量旧 daemon、刚启动）→ HEARTBEAT_CHECK_FAILED audit + skip，不误重启。
- * - 心跳新鲜 → no-op。
- * - 心跳过期 → 复用 clawRestartStateAPI 同一状态机（daemonAlive 强制 false 推进重启）。
- */
-export async function maybeCronClawHeartbeat(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
-  let clawNames: string[];
-  try {
-    clawNames = enumerateClaws(getChestnutFs(fsFactory), 'claws');
-  } catch (err) {
-    if (isFileNotFound(err)) return;  // no claws dir = no claws
-    audit.write(
-      WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-      `ctx=heartbeat`,
-      `dir=claws`,
-      `error=${formatErr(err)}`,
-    );
-    return;
-  }
-
-  const maxRestart = getWatchdogMaxRestart();
-  const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
-
-  for (const rawClawId of clawNames) {
+  const now = Date.now();
+  for (const sub of subs) {
+    const rawClawId = sub.clawId;
     const clawId = rawClawId;
     const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
-    const daemonDir = resolveClawDaemonDir(makeClawId(clawId));
-    const currentlyAlive = pm.getAliveStatus(daemonDir).alive;
 
-    if (!currentlyAlive) continue;  // 进程死 → crash 检测路径管
-
-    if (!clawHasActiveContract(clawDir, fsFactory, audit)) {
-      continue;  // 无 active contract → 不重启（与 crash 判定一致）
-    }
-
-    let staleMs: number | undefined;
     try {
-      staleMs = readHeartbeatAgeMs(clawDir, fsFactory);
+      // (a) claw missing or no active contract → consume
+      if (!clawHasActiveContract(clawDir, fsFactory, audit)) {
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_CONSUMED_NO_CONTRACT,
+          `claw=${rawClawId}`,
+          `reason=no_active_contract`,
+        );
+        consumeSubscription(fs, rawClawId);
+        continue;
+      }
+
+      // (b) claw recovered (stream advanced past subscription time) → consume silent
+      const clawFs = fsFactory(clawDir);
+      const { lastEventMs, lastError } = await getClawActivityInfo(clawFs, audit);
+      if (lastEventMs !== null && lastEventMs > sub.subscribed_at) {
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_CONSUMED_RECOVERED,
+          `claw=${rawClawId}`,
+          `last_event_ms=${lastEventMs}`,
+        );
+        consumeSubscription(fs, rawClawId);
+        continue;
+      }
+
+      // (c) threshold not yet reached → wait
+      const fireAt = sub.subscribed_at + sub.threshold_ms;
+      if (now < fireAt) continue;
+
+      // (d) still stuck after threshold → fire + consume
+      const inactiveMs = lastEventMs !== null ? (now - lastEventMs) : (now - sub.subscribed_at);
+      const inactiveMin = Math.round(inactiveMs / 60000);
+      const { failureClass } = fireInactivityNotification({
+        rawClawId,
+        clawId,
+        clawDir,
+        fsFactory,
+        pm,
+        inactiveMin,
+        inactiveMs,
+        lastError,
+        sourcePath: 'subscription',
+        audit,
+      });
+      log(fsFactory, `[watchdog] Claw ${rawClawId} subscription fired ${failureClass} ${inactiveMin}m${lastError ? ` (last error: ${lastError})` : ''}`);
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_FIRED,
+        `claw=${rawClawId}`,
+        `threshold_ms=${sub.threshold_ms}`,
+        `failure_class=${failureClass}`,
+      );
+      // 同 1-shot path: 更新 lastInactivityNotified 防止 maybeCronClawInactivity 立即重发
+      clawStateAPI.lastInactivityNotified.set(rawClawId, now);
+      consumeSubscription(fs, rawClawId);
     } catch (err) {
       audit.write(
-        WATCHDOG_AUDIT_EVENTS.HEARTBEAT_CHECK_FAILED,
+        WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_PROCESS_FAILED,
         `claw=${rawClawId}`,
         `error=${formatErr(err)}`,
       );
-      continue;
+      log(fsFactory, `[watchdog] Error processing subscription for ${rawClawId}: ${formatErr(err)}`);
+      // 不 consume / 下次 tick 重试
     }
-
-    if (staleMs === undefined) {
-      // 文件缺失或非法：存量旧 daemon / 刚启动空窗 → audit + skip（不误重启）
-      audit.write(
-        WATCHDOG_AUDIT_EVENTS.HEARTBEAT_CHECK_FAILED,
-        `claw=${rawClawId}`,
-        `reason=missing_or_invalid`,
-      );
-      continue;
-    }
-
-    if (staleMs <= HEARTBEAT_STALE_TIMEOUT_MS) continue;  // 心跳新鲜
-
-    await runClawRestartStateMachine({
-      pm, fsFactory, audit,
-      clawId: rawClawId, clawDir,
-      reason: 'heartbeat_stale',
-      daemonAlive: false,  // 功能死：强制按 dead 推进重启状态机
-      now: Date.now(), maxRestart, intervalMs,
-    });
   }
 }
-

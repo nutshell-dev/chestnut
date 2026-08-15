@@ -169,7 +169,7 @@ describe('summon-dispatched-audit', () => {
     it('reverse 1 — shadow mode dispatch emits summon_dispatched with typed cols', async () => {
       const { ctx, tool } = makeCtx([{ role: 'user', content: 'test' }]);
       const result = await tool.execute(
-        { goal: 'test goal text', verify: false },
+        { goal: 'test goal text', targetClaw: 'my-claw', verify: false },
         ctx,
       );
 
@@ -183,8 +183,7 @@ describe('summon-dispatched-audit', () => {
       const cols = dispatchedCalls[0].slice(1);
       expect(cols).toContain('tool_use_id=toolu_test_abc');
       expect(cols).toContain('mode=shadow');
-      // phase 1393: targetClaw 退场——dispatch audit 不再含 target_claw col
-      expect(cols.some((c: string) => c.startsWith('target_claw='))).toBe(false);
+      expect(cols).toContain('target_claw=my-claw');
       expect(cols).toContain('verify=false');
       expect(cols.some((c: string) => c.startsWith('task_id='))).toBe(true);
 
@@ -625,7 +624,7 @@ describe('summon-decision-metadata', () => {
 
     it('shadow summon schedule → task file含 summonDecision metadata', async () => {
       const { ctx, tool } = makeCtx('claw');
-      const result = await tool.execute({ goal: 'shadow task', verify: true }, ctx);
+      const result = await tool.execute({ goal: 'shadow task', verify: true, targetClaw: 'target-claw' }, ctx);
 
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
@@ -634,15 +633,14 @@ describe('summon-decision-metadata', () => {
         schema_version: 1,
         mode: 'shadow',
         verify: true,
+        targetClaw: 'target-claw',
       });
-      // phase 1393: targetClaw 退场——新写不再产生该字段
-      expect(tasks[0].summonDecision).not.toHaveProperty('targetClaw');
       expect(typeof (tasks[0].summonDecision as Record<string, unknown>).dispatchedAt).toBe('string');
     });
 
     it('mining summon schedule → task file含 summonDecision metadata', async () => {
       const { ctx, tool } = makeCtx('claw');
-      const result = await tool.execute({ goal: 'mining task', mode: 'mining', verify: false }, ctx);
+      const result = await tool.execute({ goal: 'mining task', mode: 'mining', verify: false, targetClaw: 'miner-claw' }, ctx);
 
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
@@ -651,9 +649,8 @@ describe('summon-decision-metadata', () => {
         schema_version: 1,
         mode: 'mining',
         verify: false,
+        targetClaw: 'miner-claw',
       });
-      // phase 1393: targetClaw 退场——新写不再产生该字段
-      expect(tasks[0].summonDecision).not.toHaveProperty('targetClaw');
       expect(typeof (tasks[0].summonDecision as Record<string, unknown>).dispatchedAt).toBe('string');
     });
 

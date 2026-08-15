@@ -1,7 +1,7 @@
 /**
  * Phase 1263 Step C + Phase 1264 Step A/B + Phase 1265/1266/1267 Step A: CLI guidance typed boundary ratchet.
  *
- * 锁定已迁 3 typed binding 纵向切片（claw_outbox_summary / contract_events / contract_cancelled；phase 1380 claw_crashed 退场、phase 1383 claw_inactivity 退场）的边界（总览反向验收 2/3/4）：
+ * 锁定已迁 5/5 typed binding 纵向切片（claw_crashed / claw_inactivity / claw_outbox_summary / contract_events / contract_cancelled）的边界（总览反向验收 2/3/4）：
  *  - Assembly typed binding 纯 typed：factory + owner decoder；exhaustive never 仅业务 union
  *    case（optional，无 union 不伪造）；无自由 text/CLI literal/prose/renderer/无关 owner state；
  *  - composers aggregate 不 direct register 已迁 type，全部 binding 同一次 helper 注册；
@@ -94,19 +94,27 @@ describe('phase 1263 Step C + phase 1264 Step A + phase 1265/1266/1267 Step A: c
       expect(m[0][1].startsWith('.')).toBe(true);
     }
     // binding forbidden scanner：违反形态（text/CLI literal/prose/renderer/无关 owner state）均检出
-    const outboxRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[0]), eventsRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[1]), cancelledRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[2]);
-    expect(outboxRe.test("'查看具体内容' + cmd")).toBe(true);
-    expect(outboxRe.test('renderCliGuidanceDocument(doc)')).toBe(true);
-    expect(outboxRe.test('state.hash > 0')).toBe(true);
+    const crashRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[0]), inactivityRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[1]);
+    expect(crashRe.test("return { text: 'x' };")).toBe(true);
+    expect(crashRe.test('`chestnut claw ${id} daemon`')).toBe(true);
+    expect(crashRe.test("'To restart: ' + cmd")).toBe(true);
+    expect(inactivityRe.test("'To inspect: ' + cmd")).toBe(true);
+    expect(crashRe.test('renderCliGuidanceDocument(doc)')).toBe(true);
+    expect(crashRe.test('renderClawInvocation(id, cmd)')).toBe(true);
+    expect(inactivityRe.test('state.inactiveMs > 0')).toBe(true);
+    expect(inactivityRe.test('state.sourcePath')).toBe(true);
+    expect(inactivityRe.test('state.lastError')).toBe(true);
+    const outboxRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[2]), eventsRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[3]), cancelledRe = bindingForbiddenRe(CLI_GUIDANCE_BINDINGS[4]);
     expect(outboxRe.test('state.counts')).toBe(true);
     expect(outboxRe.test('state.totalClaws')).toBe(true);
     expect(outboxRe.test("import { decodeOutboxSummaryGuidance } from '../../../core/claw-topology/jobs/outbox-summary/guidance-state.js';")).toBe(false);
     expect(eventsRe.test('(12 contract events、显示前 10)')).toBe(true);
     expect(cancelledRe.test('(12 cancellations、显示前 10)')).toBe(true);
     expect(eventsRe.test("import { decodeContractEventsGuidance } from '../../../core/contract/index.js';")).toBe(false);
-    // 合法 typed binding 形态不误报（含 typed action value、label/discriminant 字面）
-    expect(outboxRe.test("defineCliGuidanceBinding({ type: 'claw_outbox_summary', decode, toDocument })")).toBe(false);
-    expect(outboxRe.test("return { lines: [{ label: 'read-outbox', action }] };")).toBe(false);
+    // 合法 typed binding 形态不误报（含 typed action value '5m'、label/discriminant 字面）
+    expect(crashRe.test("defineCliGuidanceBinding({ type: 'claw_crashed', decode, toDocument })")).toBe(false);
+    expect(crashRe.test("return { lines: [{ label: 'restart', action }] };")).toBe(false);
+    expect(inactivityRe.test("return { lines: [{ label: 'watch-after-intervention', action: { kind: 'claw.watch', target, inactiveAfter: '5m' } }] };")).toBe(false);
 
     // direct registration scanner
     for (const binding of CLI_GUIDANCE_BINDINGS) {

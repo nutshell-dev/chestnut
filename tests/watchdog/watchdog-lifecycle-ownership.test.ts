@@ -136,7 +136,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(chestnutDir, 'logs'), { recursive: true });
   vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
   vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-    interval_ms: 5_000, disk_warning_mb: 500,
+    interval_ms: 5_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
   });
   process.env.CHESTNUT_ROOT = tmpDir;
   auditWriter = new AuditWriter(new NodeFileSystem({ baseDir: chestnutDir }), 'audit.tsv', null);

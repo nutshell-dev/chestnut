@@ -36,11 +36,12 @@ export type CliGuidanceTarget =
   | { readonly kind: 'claw'; readonly id: string }
   | { readonly kind: 'placeholder'; readonly name: 'claw-id' };
 
-/** 冻结的 CLI guidance action vocabulary（Phase 1255 冻结 / phase 1383 去 claw.watch）。 */
+/** 冻结的 CLI guidance action vocabulary（Phase 1255 冻结七种 variant）。 */
 export type CliGuidanceAction =
   | { readonly kind: 'claw.daemon'; readonly target: CliGuidanceTarget }
   | { readonly kind: 'claw.status'; readonly target: CliGuidanceTarget }
   | { readonly kind: 'claw.steps'; readonly target: CliGuidanceTarget }
+  | { readonly kind: 'claw.watch'; readonly target: CliGuidanceTarget; readonly inactiveAfter: string }
   | { readonly kind: 'claw.outbox'; readonly target: CliGuidanceTarget; readonly limit: number }
   | { readonly kind: 'claw.trace'; readonly clawId: string; readonly contractId: string }
   | { readonly kind: 'contract.show'; readonly clawId: string; readonly contractId: string };
@@ -54,7 +55,9 @@ export type CliGuidanceLabel =
   | 'inspect-before-crash'
   | 'check-current-status'
   | 'inspect-current-work'
+  | 'inspect-stuck'
   | 'inspect'
+  | 'watch-after-intervention'
   | 'read-outbox'
   | 'trace-contract'
   | 'show-contract';
@@ -92,7 +95,9 @@ const LABEL_PREFIX: Record<CliGuidanceLabel, string> = {
   'inspect-before-crash': 'To inspect what the claw was doing before crash: ',
   'check-current-status': 'To check current status: ',
   'inspect-current-work': 'To inspect what the claw was doing: ',
+  'inspect-stuck': 'To inspect what the agent is stuck on: ',
   inspect: 'To inspect: ',
+  'watch-after-intervention': 'To be notified if it remains stuck after intervention: ',
   'read-outbox': '查看具体内容： ',
   'trace-contract': '',
   'show-contract': '',
@@ -152,6 +157,8 @@ export function renderCliGuidanceAction(action: CliGuidanceAction): string {
       return renderClawInvocation(renderCliGuidanceTarget(action.target), 'status');
     case 'claw.steps':
       return renderClawInvocation(renderCliGuidanceTarget(action.target), 'steps');
+    case 'claw.watch':
+      return `${renderClawInvocation(renderCliGuidanceTarget(action.target), 'watch')} --inactive-after ${requireNonEmptyId(action.inactiveAfter, 'watch inactiveAfter')}`;
     case 'claw.outbox':
       return `${renderClawInvocation(renderCliGuidanceTarget(action.target), 'outbox')} --limit ${requirePositiveInteger(action.limit, 'outbox limit')}`;
     case 'claw.trace':

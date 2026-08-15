@@ -8,15 +8,20 @@
  *
  * phase 552: extracted from watchdog/watchdog-utils to break assembly → watchdog reverse import.
  * Same pattern as phase 540 (formatClawStatusHint → cli/utils).
- *
- * phase 1383 (P2b): FailureClass (daemon_silent/daemon_errored) 退场——
- * claw_inactivity 通知/subscription 移除、停滞自活归 daemon 内化。仅留 CrashClass。
  */
+
+/**
+ * Failure class for `claw_inactivity` watchdog notification.
+ *
+ * - `daemon_silent`: daemon alive but no events for inactiveMin → 提示主动 ping / 重发 prompt
+ * - `daemon_errored`: daemon alive but encountered an error → motion 看 lastError 决定
+ */
+export type FailureClass = 'daemon_silent' | 'daemon_errored';
 
 /**
  * Crash class for `claw_crashed` watchdog notification.
  *
  * - `active_unexpected`: active contract + daemon dead + 无 clean-stop marker → 重启 daemon
- * - `active_user_stopped`: active contract + daemon dead + 有 clean-stop marker (user/system 主动 stop) → motion 知情即可
+ * - `active_user_stopped`: active contract + daemon dead + 有 clean-stop marker → motion 知情即可
  */
 export type CrashClass = 'active_unexpected' | 'active_user_stopped';

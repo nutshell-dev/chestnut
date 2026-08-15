@@ -14,7 +14,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { runWatchdogLoop, _resetShutdownGuard } from '../../src/watchdog/watchdog.js';
-import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
+import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -92,7 +92,7 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     // Phase 1289 Step C: watchdog runtime 消费自家 workspace config store（此处经 context mock）
     vi.mocked(getWatchdogConfig).mockReturnValue({
-      interval_ms: 5_000, disk_warning_mb: 500,
+      interval_ms: 5_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
     });
     vi.mocked(getChestnutFs).mockImplementation((factory: (baseDir: string) => FileSystem) => factory(chestnutDir));
 
@@ -213,6 +213,8 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
       mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
 
       // Reset Maps
+      clawStateAPI.lastInactivityNotified.clear();
+      clawStateAPI.inactivityNotifyCount.clear();
       clawStateAPI.clawPreviouslyAlive.clear();
       clawStateAPI.everSpawned.clear();
       clawStateAPI.clawPreviouslyNotified.clear();
@@ -232,6 +234,26 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
       };
     }
 
+    it('maybeCronClawInactivity listSync EACCES → emit + early return', async () => {
+      const eaccesErr = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
+      vi.mocked(getChestnutFs).mockReturnValue(makeMockFs({ exists: true, listSyncThrow: eaccesErr }) as any);
+
+      await expect(maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory)).resolves.not.toThrow();
+
+      expect(mockAudit.write).toHaveBeenCalledWith(
+        WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+        'ctx=inactivity',
+        // phase 697: src 加 dir col
+        expect.stringContaining('dir='),
+        expect.stringContaining('Permission denied'),
+      );
+      // early return: CLAW_SCAN 不该被 emit（listSync 在 scan 之前失败）
+      const scanCalls = vi.mocked(mockAudit.write).mock.calls.filter(
+        ([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
+      );
+      expect(scanCalls).toHaveLength(0);
+    });
+
     it('maybeCronClawCrash listSync EACCES → emit + early return', () => {
       const eaccesErr = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
       vi.mocked(getChestnutFs).mockReturnValue(makeMockFs({ exists: true, listSyncThrow: eaccesErr }) as any);
@@ -249,6 +271,18 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
         ([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
       );
       expect(scanCalls).toHaveLength(0);
+    });
+
+    it('maybeCronClawInactivity listSync ENOENT (race) → 0 audit + early return', async () => {
+      const enoentErr = Object.assign(new Error('no such file'), { code: 'ENOENT' });
+      vi.mocked(getChestnutFs).mockReturnValue(makeMockFs({ exists: true, listSyncThrow: enoentErr }) as any);
+
+      await expect(maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory)).resolves.not.toThrow();
+
+      const clawsDirListCalls = vi.mocked(mockAudit.write).mock.calls.filter(
+        ([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+      );
+      expect(clawsDirListCalls).toHaveLength(0);
     });
 
     it('maybeCronClawCrash listSync ENOENT (race) → 0 audit + early return', () => {

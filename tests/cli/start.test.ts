@@ -83,11 +83,10 @@ describe('buildOnboardingSubtasks', () => {
     expect(lang.description).not.toMatch(/\bauto\b/);
   });
 
-  it('返回 6 个 subtask，首个 id 为 "language"（phase 1394：first-claw/first-contract 合并为 first-task）', () => {
+  it('返回 7 个 subtask，首个 id 为 "language"', () => {
     const subtasks = buildOnboardingSubtasks('auto');
-    expect(subtasks).toHaveLength(6);
+    expect(subtasks).toHaveLength(7);
     expect(subtasks[0].id).toBe('language');
-    expect(subtasks.map(s => s.id)).toEqual(['language', 'identity', 'user', 'soul', 'first-task', 'ready']);
   });
 });
 

@@ -26,6 +26,7 @@ export const DAEMON_AUDIT_EVENTS = {
   // other
   IDLE_TIMEOUT: 'daemon_idle_timeout',
   CONTRACT_CANCELLED: 'contract_cancelled',
+  CLAW_CRASHED: 'claw_crashed',
   DAEMON_EXIT_ZERO: 'daemon_exit_zero',
   LLM_RETRY_STATE_INVARIANT_VIOLATED: 'daemon_llm_retry_state_invariant_violated',
   LLM_RETRY_STATE_LOAD_FAILED: 'daemon_llm_retry_state_load_failed',
@@ -37,16 +38,6 @@ export const DAEMON_AUDIT_EVENTS = {
   LAST_EXIT_SUMMARY_READ_FAILED: 'daemon_last_exit_summary_read_failed',
   // phase 1124: shutdown 重入 guard 留痕
   SHUTDOWN_REENTRY_SUPPRESSED: 'daemon_shutdown_reentry_suppressed',
-  // phase 1383 (P2b U3): in-process waiting-stall 自活
-  WAITING_STALL_DETECTED: 'daemon_waiting_stall_detected',
-  WAITING_STALL_SELF_HEALED: 'daemon_waiting_stall_self_healed',
-  WAITING_STALL_ESCALATED: 'daemon_waiting_stall_escalated',
-  // phase 1387 Step B: escalated 后取消 active 契约（自发停滞判失败）
-  WAITING_STALL_CONTRACT_FAILED: 'daemon_waiting_stall_contract_failed',
-  WAITING_STALL_CONTRACT_FAIL_FAILED: 'daemon_waiting_stall_contract_fail_failed',
-  // phase 1390 Step B: blocked 终局 + active 契约 → cancel 判失败（fail-fast）
-  LLM_BLOCKED_CONTRACT_FAILED: 'daemon_llm_blocked_contract_failed',
-  LLM_BLOCKED_CONTRACT_FAIL_FAILED: 'daemon_llm_blocked_contract_fail_failed',
 } as const;
 
 /**

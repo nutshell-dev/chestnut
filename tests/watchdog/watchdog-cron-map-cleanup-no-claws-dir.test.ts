@@ -1,7 +1,7 @@
 /**
  * Phase 138: watchdog-cron Map cleanup 全路径覆盖（audit.P1.wd-1 真治）
  *
- * phase 1383 (P2b): inactivity maps 退场，仅测 crash 路径 cleanup：
+ * 反向测试：
  * 1. CLAWS_DIR 不存在 + Map 有 stale entries → cleanup 全清 + early return
  * 2. CLAWS_DIR exists + 全是 stale → 既有 cleanup 正常工作（不退化）
  * 3. CLAWS_DIR exists + 部分 stale → 部分清（不退化）
@@ -12,10 +12,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
-import { clawStateAPI, clawRestartStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
+import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
+import { clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
+import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { clawHasActiveContract } from '../../src/watchdog/watchdog-utils.js';
+import { clawHasContract, gatherClawSnapshot, clawHasActiveContract } from '../../src/watchdog/watchdog-utils.js';
+import { notifyClaw } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
 
@@ -49,15 +51,17 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();
   return {
     ...actual,
+    clawHasContract: vi.fn(),
     clawHasActiveContract: vi.fn().mockReturnValue(false),
+    gatherClawSnapshot: vi.fn(),
   };
 });
 
-vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/watchdog/workspace-config.js')>();
+vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/messaging/index.js')>();
   return {
     ...actual,
-    readWorkspaceWatchdogConfig: vi.fn().mockReturnValue({ interval_ms: 30_000, disk_warning_mb: 500 }),
+    notifyClaw: vi.fn(),
   };
 });
 
@@ -88,16 +92,16 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     fs.mkdirSync(clawsDir, { recursive: true });
 
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
+    vi.mocked(clawHasContract).mockReturnValue(true);
+    vi.mocked(gatherClawSnapshot).mockReturnValue({
+      contract: 'active:c1', outboxPending: 0, inboxPending: 0, status: 'stopped',
+    } as any);
     vi.mocked(getChestnutDir).mockReturnValue(chestnutDir);
     vi.mocked(getWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500,
+      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
     });
 
-    mockPm = {
-      getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
-      stop: vi.fn().mockResolvedValue(undefined),
-      spawn: vi.fn().mockResolvedValue(4242),
-    } as unknown as ProcessManager;
+    mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }) } as unknown as ProcessManager;
     mockAudit = {
       write: vi.fn(),
       preview: vi.fn((s: string) => s),
@@ -105,10 +109,12 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
       summary: vi.fn((s: string) => s),
     };
 
+    // Reset all Maps
+    clawStateAPI.lastInactivityNotified.clear();
+    clawStateAPI.inactivityNotifyCount.clear();
     clawStateAPI.clawPreviouslyAlive.clear();
     clawStateAPI.everSpawned.clear();
     clawStateAPI.clawPreviouslyNotified.clear();
-    clawRestartStateAPI.pruneStale(new Set());
   });
 
   afterEach(() => {
@@ -116,6 +122,7 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
     vi.clearAllMocks();
   });
 
+  // Helper to build a mock fs that reports CLAWS_DIR exists or not
   function makeMockFs(exists: boolean) {
     return {
       existsSync: vi.fn().mockImplementation((p: string) => {
@@ -136,60 +143,93 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
   }
 
   it('reverse 1: CLAWS_DIR missing → cleanup all stale Map entries', async () => {
+    // setup: clawStateAPI 多 Map 加 stale entries
+    clawStateAPI.lastInactivityNotified.set('claw-A', 100);
+    clawStateAPI.lastInactivityNotified.set('claw-B', 200);
+    clawStateAPI.inactivityNotifyCount.set('claw-A', 1);
     clawStateAPI.clawPreviouslyAlive.set('claw-C', true);
     clawStateAPI.everSpawned.add('claw-C');
-    clawRestartStateAPI.set('claw-C', { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: Date.now(), awaitingStability: false });
+    clawStateAPI.clawPreviouslyNotified.set('claw-C', Date.now());
 
+    // fs reports CLAWS_DIR does NOT exist
     vi.mocked(getChestnutFs).mockReturnValue(makeMockFs(false) as any);
 
-    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    // act: 跑 maybeCronClawInactivity + Crash with CLAWS_DIR missing fs
+    await maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
+    // expect: 5 Maps 全清
+    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
+    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
     expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
     expect(clawStateAPI.everSpawned.size).toBe(0);
-    expect(clawRestartStateAPI.get('claw-C')).toBeUndefined();
+    expect(clawStateAPI.clawPreviouslyNotified.size).toBe(0);
   });
 
   it('reverse 2: CLAWS_DIR exists + all stale → existing cleanup still clears all', async () => {
+    // setup: 1 claw dir 'claw-X' + Maps 含 claw-A/B（非 X）
     fs.mkdirSync(path.join(clawsDir, 'claw-X'), { recursive: true });
+    clawStateAPI.lastInactivityNotified.set('claw-A', 100);
+    clawStateAPI.lastInactivityNotified.set('claw-B', 200);
+    clawStateAPI.inactivityNotifyCount.set('claw-A', 1);
     clawStateAPI.clawPreviouslyAlive.set('claw-A', true);
     clawStateAPI.everSpawned.add('claw-A');
-    clawRestartStateAPI.set('claw-A', { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: Date.now(), awaitingStability: false });
+    clawStateAPI.clawPreviouslyNotified.set('claw-A', Date.now());
 
     vi.mocked(getChestnutFs).mockReturnValue(makeMockFs(true) as any);
 
-    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    // act: 跑 cron
+    await maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
+    // expect: Maps 不含 A/B、含 X 若有（这里 X 不在 Maps 中，所以全清）
+    expect(clawStateAPI.lastInactivityNotified.has('claw-A')).toBe(false);
+    expect(clawStateAPI.lastInactivityNotified.has('claw-B')).toBe(false);
+    expect(clawStateAPI.inactivityNotifyCount.has('claw-A')).toBe(false);
     expect(clawStateAPI.clawPreviouslyAlive.has('claw-A')).toBe(false);
     expect(clawStateAPI.everSpawned.has('claw-A')).toBe(false);
     expect(clawStateAPI.clawPreviouslyNotified.has('claw-A')).toBe(false);
-    expect(clawRestartStateAPI.get('claw-A')).toBeUndefined();
+    // X 没有被加入（因为 clawHasActiveContract mocked false / pm.getAliveStatus mocked false）
   });
 
   it('reverse 3: CLAWS_DIR exists + partial stale → only stale removed', async () => {
+    // setup: 2 claw dirs (X, Y) + Maps 含 X, Y, Z（Z stale）
     fs.mkdirSync(path.join(clawsDir, 'claw-X'), { recursive: true });
     fs.mkdirSync(path.join(clawsDir, 'claw-Y'), { recursive: true });
 
+    clawStateAPI.lastInactivityNotified.set('claw-X', 100);
+    clawStateAPI.lastInactivityNotified.set('claw-Y', 200);
+    clawStateAPI.lastInactivityNotified.set('claw-Z', 300);
+    clawStateAPI.inactivityNotifyCount.set('claw-X', 1);
+    clawStateAPI.inactivityNotifyCount.set('claw-Z', 2);
     clawStateAPI.clawPreviouslyAlive.set('claw-X', true);
     clawStateAPI.clawPreviouslyAlive.set('claw-Z', false);
     clawStateAPI.everSpawned.add('claw-X');
+    clawStateAPI.everSpawned.add('claw-Z');
     clawStateAPI.clawPreviouslyNotified.set('claw-X', Date.now());
     clawStateAPI.clawPreviouslyNotified.set('claw-Z', Date.now() - 1000);
-    clawRestartStateAPI.set('claw-X', { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: Date.now(), awaitingStability: false });
-    clawRestartStateAPI.set('claw-Z', { status: 'retrying', consecutiveAttempts: 2, nextAttemptAt: Date.now(), awaitingStability: false });
 
     vi.mocked(getChestnutFs).mockReturnValue(makeMockFs(true) as any);
 
-    await maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+    // act: 跑 cron
+    await maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
+
+    // expect: X, Y 保留、Z 移除
+    expect(clawStateAPI.lastInactivityNotified.has('claw-X')).toBe(true);
+    expect(clawStateAPI.lastInactivityNotified.has('claw-Y')).toBe(true);
+    expect(clawStateAPI.lastInactivityNotified.has('claw-Z')).toBe(false);
+
+    expect(clawStateAPI.inactivityNotifyCount.has('claw-X')).toBe(true);
+    expect(clawStateAPI.inactivityNotifyCount.has('claw-Z')).toBe(false);
 
     expect(clawStateAPI.clawPreviouslyAlive.has('claw-X')).toBe(true);
     expect(clawStateAPI.clawPreviouslyAlive.has('claw-Z')).toBe(false);
 
     expect(clawStateAPI.everSpawned.has('claw-X')).toBe(true);
+    expect(clawStateAPI.everSpawned.has('claw-Z')).toBe(false);
 
     expect(clawStateAPI.clawPreviouslyNotified.has('claw-X')).toBe(true);
     expect(clawStateAPI.clawPreviouslyNotified.has('claw-Z')).toBe(false);
-
-    expect(clawRestartStateAPI.get('claw-X')).toBeDefined();
-    expect(clawRestartStateAPI.get('claw-Z')).toBeUndefined();
   });
 });

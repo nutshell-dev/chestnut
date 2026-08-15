@@ -58,8 +58,6 @@ export class EventLoop {
   private fallbackTimeoutMs: number;
   private streamWriter?: StreamWriter;
   private onBatchComplete?: () => Promise<void>;
-  private onTurnActivity?: () => void;
-  private onBlockedTerminal?: (state: LLMRequestBlockedState) => Promise<void>;
   private rootFs: FileSystem;
 
   private stopped = false;
@@ -85,8 +83,6 @@ export class EventLoop {
     this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
     this.onBatchComplete = options.onBatchComplete;
-    this.onTurnActivity = options.onTurnActivity;
-    this.onBlockedTerminal = options.onBlockedTerminal;
   }
 
   /**
@@ -172,33 +168,6 @@ export class EventLoop {
     this.stopped = true;
     this.waitAbortController?.abort();
     this.runtime.abort();
-  }
-
-  /**
-   * phase 1383: 绑定 daemon 进程级活动打点（waiting-stall 自活用）。
-   * daemon-loop 构造 EventLoop 后注入，避免 EventLoop 感知 daemon 层 monitor。
-   */
-  setOnTurnActivity(cb: (() => void) | undefined): void {
-    this.onTurnActivity = cb;
-  }
-
-  /**
-   * phase 1390 Step B: 绑定 blocked 终局 fail-fast callback（daemon-loop 装配时注入）。
-   * 与 setOnTurnActivity 同源——EventLoop 在 daemon.ts 构造、daemon-loop 持有 contractManager，
-   * 故 setter 注入而非构造选项。传 undefined 清除（测试/旧路径）。
-   */
-  setOnBlockedTerminal(cb: ((state: LLMRequestBlockedState) => Promise<void>) | undefined): void {
-    this.onBlockedTerminal = cb;
-  }
-
-  /**
-   * phase 1387 Step B: 只读在途状态查询面（waiting-stall skip 判定用）。
-   * 「系统在途」= LLM retry/cooldown waiting 已决定且未释放、或 LLM request 处于 blocked 态——
-   * 二者任一在途即视为 EventLoop 正按既定调度推进、不应判 spontaneous stall。
-   * 只暴露 boolean，不复制内部状态逻辑（M#8 最小面）。
-   */
-  isBusy(): boolean {
-    return this.llmRetryWaiting !== undefined || this.llmRequestBlocked !== undefined;
   }
 
   private async _handleFailedTurn(
@@ -790,7 +759,6 @@ export class EventLoop {
         turnFingerprint,
         wrappedCallbacks,
       });
-      this.onTurnActivity?.();
       if (action === 'break') break;
 
       if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {
@@ -1203,24 +1171,6 @@ export class EventLoop {
       `reason=${state.reason}`,
       `fingerprint=${state.requestFingerprint}`,
     );
-    this._notifyBlockedTerminal(state);
-  }
-
-  /**
-   * phase 1390 Step B: blocked 终局进入后 fire-and-forget 通知装配方判失败。
-   * EventLoop 只负责触发 + 留痕 callback 错误；重试 / 是否 cancel 由装配方决定。
-   * 不 await：gate 语义已落盘，不能因 callback 慢/错阻塞 caller 的状态机推进。
-   */
-  private _notifyBlockedTerminal(state: LLMRequestBlockedState): void {
-    if (!this.onBlockedTerminal) return;
-    void this.onBlockedTerminal(state).catch((err: unknown) => {
-      this.audit.write(
-        EVENTLOOP_AUDIT_EVENTS.BLOCKED_TERMINAL_FAILED,
-        `reason=${state.reason}`,
-        `fingerprint=${state.requestFingerprint}`,
-        `error=${formatErr(err)}`,
-      );
-    });
   }
 
   /**

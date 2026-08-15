@@ -10,6 +10,7 @@
 export function buildSummonContractTask(
   goal: string,
   skillsSummary?: string,
+  targetClaw?: string,
   opts: { verify?: boolean } = {},
 ): string {
   const verify = opts.verify === true;
@@ -43,16 +44,31 @@ export function buildSummonContractTask(
 
 提交后、target claw 由 dispatcher 派活、收 contract、跑 subtask、完成后通过 contract_completed 事件触 retro。整个执行链你不参与。
 
-**关键边界**：
+**关键边界（phase 119）**：
 
-执行单元由你自主选择（\`chestnut claw list --summary\` 看存在与运行状态）——选择后
-只为本次任务创建契约，不要为别的执行单元补缺：你不知道别的任务的意图、不要越界。
+你**只能**为本次 summon 指定的 target_claw 创建契约。即使你跑 \`chestnut claw list --summary\`
+看到别的 claw 缺契约、跑 daemon 没起、或任何"系统状态不完整"
+的信号——**也不要补**。
+
+补别人的缺 = **越界违规**：
+- 用户没让你做、motion 没派你做、你不知道补的契约是不是用户要的
+- 系统 gate 会校验 \`--claw <X>\` 必须等于 SummonDecision.targetClaw、不等 throw SUMMON_TARGET_CLAW_VIOLATION
+- 若 sibling 子代理在做别的 claw、各 sibling 各自负责自己的、不需要你帮忙
+
+只关注 target_claw、不补缺=合规。
 
 ## 执行步骤
 
 ### 1. 确定目标 claw`;
 
-  {
+  if (targetClaw) {
+    task += `
+目标 claw 已由用户指定：**${targetClaw}**。
+执行 \`chestnut claw list --summary\` 确认它存在且 daemon 已运行。
+如未运行，执行：
+  exec: chestnut claw ${targetClaw} daemon
+  exec: chestnut claw list --summary   ← 再次确认 daemon 状态`;
+  } else {
     task += `
 用 \`chestnut claw list --summary\` 查现有 claw，判断复用还是新建：
 - 判断依据：上下文效率，不根据 claw 名称推断能力
@@ -61,7 +77,7 @@ export function buildSummonContractTask(
   exec: chestnut claw <name> create
   exec: chestnut claw <name> daemon
   exec: chestnut claw list --summary   ← 确认 daemon 已运行再继续
-`;
+- targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId`;
   }
 
   task += `

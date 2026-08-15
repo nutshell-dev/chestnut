@@ -31,6 +31,7 @@ import {
   readCommand,
   lsCommand,
   clawStatusCommand,
+  watchCommand,
   runStreamFromArgs,
 } from './claw.js';
 import { CliError } from '../errors.js';
@@ -46,10 +47,10 @@ import { PRIORITY_ORDER, type Priority } from '../../foundation/messaging/index.
 import { makeContractId } from '../../core/contract/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import { psCommand } from './claw-ps.js';
-import { wakeupCommand } from './claw-wakeup.js';
 import {
   CLAW_INSTANCE_COMMAND_IDS,
   DEFAULT_OUTBOX_READ_LIMIT,
+  WATCH_INACTIVE_AFTER_DEFAULT,
   renderClawHelp,
   renderClawCommandHelp,
   type ClawInstanceCommandId,
@@ -213,9 +214,9 @@ export async function dispatchClawSubcommand(
     case 'daemon': return verbAction('internal', () => runDaemon(deps, name, verbArgs), deps)();
     case 'trace': return verbAction('observe_only', () => runTrace(deps, name, verbArgs), deps)();
     case 'status': return verbAction('observe_only', () => runStatus(deps, name, verbArgs), deps)();
+    case 'watch': return verbAction('required', () => runWatch(deps, name, verbArgs), deps)();
     case 'ps': return verbAction('observe_only', () => runPs(deps, name, verbArgs), deps)();
     case 'stream': return verbAction('required', () => runStreamFromArgs(deps, name, verbArgs), deps)();
-    case 'wakeup': return verbAction('required', () => runWakeup(deps, name, verbArgs), deps)();
   }
   // Exhaustiveness guard (phase 1253)：函数返回类型 Promise<void> 下 noImplicitReturns
   // 不约束 switch 覆盖；catalog 新增 instance command 而 router 未加 case 时，
@@ -402,66 +403,25 @@ async function runStatus(deps: RouterDeps, name: string, args: string[]): Promis
   await clawStatusCommand(deps, name, parser.opts());
 }
 
-// phase 5: claw <name> watch — REMOVED phase 1383 (P2b): inactivity subscription
-// 退场，停滞自活归 daemon 内化。
-
-// phase 1386: claw <name> wakeup —— schedule / list / cancel 定时消息。
-async function runWakeup(deps: RouterDeps, name: string, args: string[]): Promise<void> {
-  const parser = makeVerbParser('wakeup');
-  parser.argument('[message-or-subaction]', 'message body to schedule, or "list"/"cancel"');
-  parser.argument('[wakeup-id]', 'wakeup id (required for cancel)');
-  parser.option('--in <duration>', 'Delay until delivery (e.g. 30s, 5m, 2h, 1d, 1h30m)');
-  parser.option('--at <iso>', 'Absolute delivery time as an ISO 8601 string');
-  parser.option('--json', 'Output list as JSON (machine-readable)');
+// phase 5: claw <name> watch [--inactive-after <duration>]
+async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise<void> {
+  const parser = makeVerbParser('watch');
+  parser.option('--inactive-after <duration>', 'Notify if Claw remains inactive after this duration (e.g. 5m / 30m / 1h, max 24h)', WATCH_INACTIVE_AFTER_DEFAULT);
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> wakeup' args: ${(err as Error).message}`, { cause: err });
+    throw new CliError(`invalid 'claw <name> watch' options: ${(err as Error).message}`, { cause: err });
   }
-  const [first, second] = parser.processedArgs as [string | undefined, string | undefined];
-  const opts = parser.opts() as { in?: string; at?: string; json?: boolean };
-
-  if (first === undefined) {
-    throw new CliError(
-      "missing action. usage: 'claw <name> wakeup (--in <duration> | --at <iso>) \"<message>\"' | list | cancel <id>",
-    );
+  if (parser.args.length > 0) {
+    throw new CliError(`'watch' takes no positional arguments (got: ${parser.args.join(' ')})`);
   }
-
-  if (first === 'list') {
-    if (second !== undefined) {
-      throw new CliError(`'wakeup list' takes no extra arguments (got: ${second})`);
-    }
-    if (opts.in !== undefined || opts.at !== undefined) {
-      throw new CliError("'wakeup list' does not accept --in/--at");
-    }
-    await wakeupCommand(deps, name, { subcommand: 'list', json: opts.json === true });
-    return;
-  }
-
-  if (first === 'cancel') {
-    if (second === undefined) {
-      throw new CliError("'wakeup cancel' requires a <wakeup-id> argument");
-    }
-    if (opts.in !== undefined || opts.at !== undefined) {
-      throw new CliError("'wakeup cancel' does not accept --in/--at");
-    }
-    await wakeupCommand(deps, name, { subcommand: 'cancel', wakeupId: second });
-    return;
-  }
-
-  // schedule: first positional is the message body.
-  if (opts.in !== undefined && opts.at !== undefined) {
-    throw new CliError("options '--in' and '--at' are mutually exclusive");
-  }
-  await wakeupCommand(deps, name, {
-    subcommand: 'schedule',
-    message: first,
-    inDuration: opts.in,
-    atIso: opts.at,
-  });
+  const { audit } = createDirContext(deps, getClawDir(name));
+  const opts = parser.opts<{ inactiveAfter?: string }>();
+  await watchCommand(deps, name, { inactiveAfter: opts.inactiveAfter }, { audit });
 }
 
-async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<void> {  if (args.length > 0) {
+async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<void> {
+  if (args.length > 0) {
     throw new CliError(`'ps' takes no extra arguments (got: ${args.join(' ')})`);
   }
   // phase 1301 Step B：ps existence guard 由「只看文件存在」改为 loadClaw typed load

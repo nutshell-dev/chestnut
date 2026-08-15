@@ -62,7 +62,7 @@ describe('watchdog-pid corrupt path', () => {
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500,
+      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
     });
     process.env.CHESTNUT_ROOT = '/test/root';
 

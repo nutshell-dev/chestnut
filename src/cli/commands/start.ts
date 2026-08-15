@@ -56,7 +56,7 @@ export function buildOnboardingSubtasks(language: string): Array<{ id: string; d
     },
     {
       id: 'identity',
-      description: 'You talk with the user and hand tasks to the system for execution — "Motion" is your system role, not your name. Ask the user what they want to call you, and what kind of vibe or presence they want from you. Write the result to IDENTITY.md (not inside clawspace/).',
+      description: 'You are the coordinator of Claws — "Motion" is your system role, not your name. Ask the user what they want to call you, and what kind of vibe or presence they want from you. Write the result to IDENTITY.md (not inside clawspace/).',
     },
     {
       id: 'user',
@@ -67,12 +67,16 @@ export function buildOnboardingSubtasks(language: string): Array<{ id: string; d
       description: 'Open SOUL.md together. Talk about what matters to them and how they want you to behave. Update SOUL.md (not inside clawspace/) with what you learn.',
     },
     {
-      id: 'first-task',
-      description: 'Help the user hand off their first task. Ask what task or project they want to work on, then submit it via summon: { "goal": "<task description>" }. The system picks the execution unit and keeps the task running — you do not need to tell the user anything about execution units.',
+      id: 'first-claw',
+      description: 'Help the user create their first Claw. Ask what task or project they want to work on. A Claw is a separate context window for a specific ongoing task — all Claws have identical capabilities, they just handle different work. Run both commands: exec: chestnut claw <name> create, then exec: chestnut claw <name> daemon',
+    },
+    {
+      id: 'first-contract',
+      description: 'Help the user assign the first contract to their new Claw. Ask what they want to get done, then create the contract via summon: { "goal": "为 <claw-name> 创建契约：<task description>" }',
     },
     {
       id: 'ready',
-      description: 'Onboarding is complete. Let them know everything is set up and their first task has been submitted — the result will come back automatically.',
+      description: 'Onboarding is complete. Let them know everything is set up and the Claw is working on their first task.',
     },
   ];
 }

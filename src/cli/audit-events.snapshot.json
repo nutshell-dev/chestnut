@@ -46,6 +46,8 @@
       "cli_claw_outbox_drain_race_lost",
       "cli_claw_outbox_drain_start",
       "cli_claw_stop",
+      "cli_claw_watch",
+      "cli_claw_watch_rejected",
       "cli_contract_cancel",
       "cli_contract_create",
       "cli_daemon_spawn_race_failed",
@@ -244,12 +246,8 @@
       "task_shutdown_pending_cleanups_drained",
       "task_shutdown_timeout",
       "task_shutdown_timeout_hit",
-      "task_stall_failed",
-      "task_stall_scan_failed",
-      "task_stall_stage_pushed",
       "task_start_failed",
       "task_started",
-      "tool_task_retry",
       {
         "type": "tool_async_result",
         "cols": [
@@ -269,7 +267,8 @@
             "required": true
           }
         ]
-      }
+      },
+      "tool_task_retry"
     ],
     "core_context_manager_audit-events": [
       "context_trim_archived",
@@ -656,12 +655,12 @@
       "summon_rejected_shadow",
       "summon_state_read_failed",
       "summon_sub_audit_read_failed",
+      "summon_target_claw_violation",
       "summon_verify_false_violation",
       "summon_retrospective_registration_failed",
       "summon_write_by_contract_failed"
     ],
     "core_event-loop_audit-events": [
-      "eventloop_blocked_terminal_failed",
       "eventloop_context_blocked",
       "eventloop_context_blocked_gate",
       "eventloop_context_blocked_peek_failed",
@@ -674,6 +673,7 @@
     ],
     "daemon_audit-events": [
       "contract_cancelled",
+      "claw_crashed",
       "daemon_cleanup_heartbeat_failed",
       "daemon_cleanup_pid_failed",
       "daemon_exit_zero",
@@ -683,8 +683,6 @@
       "daemon_last_exit_summary_read_failed",
       "daemon_liveness_heartbeat",
       "daemon_liveness_hourly",
-      "daemon_llm_blocked_contract_fail_failed",
-      "daemon_llm_blocked_contract_failed",
       "daemon_llm_retry_state_invariant_violated",
       "daemon_llm_retry_state_load_failed",
       "daemon_loop_fatal",
@@ -703,11 +701,6 @@
       "daemon_stop_success",
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
-      "daemon_waiting_stall_contract_fail_failed",
-      "daemon_waiting_stall_contract_failed",
-      "daemon_waiting_stall_detected",
-      "daemon_waiting_stall_escalated",
-      "daemon_waiting_stall_self_healed",
       "snapshot_commit_failed",
       "snapshot_commit_uncategorized"
     ],
@@ -796,12 +789,7 @@
       "outbox_list_failed",
       "outbox_processing_orphan_cleaned",
       "outbox_send_failed",
-      "outbox_sent",
-      "wakeup_cancelled",
-      "wakeup_deliver_failed",
-      "wakeup_deliver_retry",
-      "wakeup_delivered",
-      "wakeup_scheduled"
+      "outbox_sent"
     ],
     "foundation_process-manager_audit-events": [
       "clean_stop_cleared",
@@ -931,17 +919,19 @@
     ],
     "watchdog_audit-events": [
       "claw_crash_detected",
-      "claw_heartbeat_stale",
-      "claw_restart_circuit_opened",
-      "claw_restart_recovered",
+      "claw_has_contract_check_failed",
+      "watchdog_claw_crash_notify_deduped",
+      "watchdog_claw_crash_notify_reset",
       "watchdog_claw_crash_skipped_no_contract",
+      "watchdog_claw_dir_list_failed",
+      "watchdog_claw_inactivity_check_failed",
       "watchdog_claw_scan",
       "watchdog_claws_dir_list_failed",
       "watchdog_cleanup_failed",
       "watchdog_check",
       "watchdog_heartbeat_hourly",
-      "watchdog_heartbeat_check_failed",
       "watchdog_circuit_reopened",
+      "watchdog_contract_dir_scan_failed",
       "watchdog_crash",
       "watchdog_gave_up",
       "watchdog_motion_stability_confirmed",
@@ -961,6 +951,13 @@
       "watchdog_stop",
       "watchdog_stop_sigkill_failed",
       "watchdog_stop_sigterm_failed",
+      "watchdog_stream_read_failed",
+      "watchdog_subscription_consumed_no_contract",
+      "watchdog_subscription_consumed_recovered",
+      "watchdog_subscription_corrupt",
+      "watchdog_subscription_dir_list_failed",
+      "watchdog_subscription_fired",
+      "watchdog_subscription_process_failed",
       "watchdog_ownership_attempted",
       "watchdog_ownership_committed",
       "watchdog_ownership_lost",

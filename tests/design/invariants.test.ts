@@ -431,8 +431,8 @@ describe('inbox-write-side-encap-invariant', () => {
         { encoding: 'utf8', cwd: REPO_CWD },
       );
       expect(outNotify).toContain('heartbeat.ts');
-      // phase 1380: claw 崩溃通知退场；phase 1383 (P2b): claw_inactivity 写侧退场
-      // （停滞自活归 daemon 内化）——watchdog 不再投 motion inbox。
+      expect(outNotify).toContain('watchdog-cron.ts');
+      expect(outNotify).toContain('watchdog-log.ts');
       expect(outNotify).toContain('random-dream.ts');
       expect(outNotify).toContain('deep-dream.ts');
       expect(outNotify).toContain('result-delivery.ts');

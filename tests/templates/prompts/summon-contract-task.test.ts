@@ -3,7 +3,7 @@ import { buildSummonContractTask } from '../../../src/templates/prompts/summon-c
 
 describe('buildSummonContractTask', () => {
   it('verify=false omits all verification scaffolding', () => {
-    const text = buildSummonContractTask('goal', '', { verify: false });
+    const text = buildSummonContractTask('goal', '', 'claw', { verify: false });
     expect(text).not.toContain('verification/');
     expect(text).not.toContain('prompt_file');
     expect(text).not.toContain('{{evidence}}');
@@ -17,7 +17,7 @@ describe('buildSummonContractTask', () => {
   });
 
   it('verify=true preserves full verification scaffolding', () => {
-    const text = buildSummonContractTask('goal', '', { verify: true });
+    const text = buildSummonContractTask('goal', '', 'claw', { verify: true });
     expect(text).toContain('verification/');
     expect(text).toContain('verification:');
     expect(text).toContain('prompt_file');
@@ -27,36 +27,36 @@ describe('buildSummonContractTask', () => {
   });
 
   it('verify default is false (no flag = no verification scaffolding)', () => {
-    const text = buildSummonContractTask('goal', '');
+    const text = buildSummonContractTask('goal', '', 'claw');
     expect(text).not.toContain('verification/');
     expect(text).not.toContain('subtask_id:');
   });
 
   it('phase 119: omits two-phase scaffolding (verify=false)', () => {
-    const text = buildSummonContractTask('goal', '', { verify: false });
+    const text = buildSummonContractTask('goal', '', 'claw', { verify: false });
     expect(text).not.toContain('第一阶段');
     expect(text).not.toContain('第二阶段');
     expect(text).not.toContain('字段来自第一阶段推理');
   });
 
   it('phase 119: omits two-phase scaffolding (verify=true)', () => {
-    const text = buildSummonContractTask('goal', '', { verify: true });
+    const text = buildSummonContractTask('goal', '', 'claw', { verify: true });
     expect(text).not.toContain('第一阶段');
     expect(text).not.toContain('第二阶段');
     expect(text).not.toContain('字段来自第一阶段推理');
   });
 
-  it('phase 1393: 无上游指定 target_claw 教学（执行单元自主选择）', () => {
-    const text = buildSummonContractTask('goal', '', { verify: false });
-    expect(text).not.toContain('SUMMON_TARGET_CLAW_VIOLATION');
-    expect(text).not.toContain('已由用户指定');
-    expect(text).toContain('执行单元由你自主选择');
-    expect(text).toContain('claw list --summary');
+  it('phase 119: target_claw boundary hard constraint present', () => {
+    const text = buildSummonContractTask('goal', '', 'my-claw', { verify: false });
+    expect(text).toContain('SUMMON_TARGET_CLAW_VIOLATION');
+    expect(text).toContain('只能');
+    expect(text).toContain('不补');
+    expect(text).toContain('target_claw');
   });
 
   it('phase 119: yaml field names preserved despite phase 1 deletion', () => {
     for (const verify of [false, true]) {
-      const text = buildSummonContractTask('goal', '', { verify });
+      const text = buildSummonContractTask('goal', '', 'claw', { verify });
       expect(text).toContain('background');
       expect(text).toContain('expectations');
       expect(text).toContain('subtasks');

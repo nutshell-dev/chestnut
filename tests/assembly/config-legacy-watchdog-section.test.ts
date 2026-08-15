@@ -34,6 +34,7 @@ watchdog:
   interval_ms: 60000
   disk_warning_mb: 1024
   log_archive_days: 30
+  claw_inactivity_timeout_ms: 600000
 motion:
   heartbeat_interval_ms: 0
 `;
@@ -74,6 +75,7 @@ describe('phase 1289 Step B: Assembly legacy watchdog section primitives', () =>
       expect(first?.config).toEqual({
         interval_ms: 60000,
         disk_warning_mb: 1024,
+        claw_inactivity_timeout_ms: 600000,
       });
       expect(first?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
       expect(readLegacyWatchdogConfigSection(deps)?.sourceHash).toBe(first?.sourceHash);
@@ -102,6 +104,7 @@ describe('phase 1289 Step B: Assembly legacy watchdog section primitives', () =>
       expect(readLegacyWatchdogConfigSection(deps)?.config).toEqual({
         interval_ms: 30000,
         disk_warning_mb: 500,
+        claw_inactivity_timeout_ms: 300000,
       });
     });
 

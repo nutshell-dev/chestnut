@@ -8,20 +8,19 @@
  *   2. 迁移期 legacy root YAML `watchdog:` 段的 typed 读取（Assembly 代为 raw 读取后 parse；
  *      legacy 段可能含 log_archive_days 等退役字段，parse 时由 zod 静默剥离、
  *      由 Assembly 原语显式捕获进迁移 journal，见 config-load.ts）
- *
- * phase 1383 (P2b): claw_inactivity_timeout_ms 退场——停滞自活归 daemon 内化，
- * Watchdog 不再观察 claw 业务停滞。
  */
 import { z } from 'zod';
 import { WATCHDOG_LAYOUT_SCHEMA_VERSION } from './layout.js';
 import {
   WATCHDOG_INTERVAL_MS,
   DEFAULT_DISK_WARNING_MB,
+  CLAW_INACTIVITY_TIMEOUT_MS,
 } from './constants.js';
 
 export const watchdogConfigSchema = z.object({
   interval_ms: z.number().min(5000).default(WATCHDOG_INTERVAL_MS),
   disk_warning_mb: z.number().min(10).default(DEFAULT_DISK_WARNING_MB),
+  claw_inactivity_timeout_ms: z.number().min(60000).default(CLAW_INACTIVITY_TIMEOUT_MS),
 });
 
 export type WatchdogConfig = z.infer<typeof watchdogConfigSchema>;
@@ -32,6 +31,7 @@ export type WatchdogConfig = z.infer<typeof watchdogConfigSchema>;
  *   schema_version: 1
  *   interval_ms: 30000
  *   disk_warning_mb: 500
+ *   claw_inactivity_timeout_ms: 300000
  * 未知未来 schema_version → invalid（fail-closed，z.literal 校验天然满足）。
  */
 export const watchdogWorkspaceConfigFileSchema = watchdogConfigSchema.extend({
@@ -46,5 +46,6 @@ export function createDefaultWatchdogWorkspaceConfig(): WatchdogWorkspaceConfigF
     schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
     interval_ms: WATCHDOG_INTERVAL_MS,
     disk_warning_mb: DEFAULT_DISK_WARNING_MB,
+    claw_inactivity_timeout_ms: CLAW_INACTIVITY_TIMEOUT_MS,
   };
 }

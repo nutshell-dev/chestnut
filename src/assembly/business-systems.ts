@@ -37,6 +37,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../core/contract/index.js';
 
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
+import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/index.js';
 import { CLAWS_DIR } from '../core/claw-topology/index.js';
 import { createSendTool } from '../foundation/messaging/index.js';
@@ -54,6 +55,7 @@ import {
   MESSAGING_INBOX_MESSAGE_TYPES,
 } from '../foundation/messaging/index.js';
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../core/gateway/index.js';
+import { WATCHDOG_INBOX_MESSAGE_TYPES } from '../watchdog/index.js';
 import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../core/contract/index.js';
 import { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from '../core/async-task-system/index.js';
@@ -260,7 +262,9 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   // --- 11. 工具注册 + toolExecutor + DialogStore + InboxReader + ContractAuditor + FormatterRegistry + GuidanceRegistry ---
   toolRegistry.register(contractManager.createSubmitSubtaskTool());
   toolRegistry.register(createDoneTool());
-  toolRegistry.register(createStatusTool(contractManager));
+  toolRegistry.register(
+    createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),
+  );
   toolRegistry.register(createSkillTool(skillRegistry, isMotion ? { dispatchSkillsDir: DISPATCH_SKILLS_PATH } : {}));
   toolRegistry.register(createSendTool(outboxWriter, MOTION_CLAW_ID));
 
@@ -320,6 +324,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   const formatterRegistry: InboxMessageTypeRegistry = createInboxMessageTypeRegistry();
   registerInboxMessageTypes(formatterRegistry, MESSAGING_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, GATEWAY_INBOX_MESSAGE_TYPES);
+  registerInboxMessageTypes(formatterRegistry, WATCHDOG_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, CONTRACT_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES);
   registerInboxMessageTypes(formatterRegistry, MEMORY_INBOX_MESSAGE_TYPES);

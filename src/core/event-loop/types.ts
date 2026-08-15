@@ -158,17 +158,4 @@ export interface EventLoopOptions {
   inbox: { pendingDir: string; fallbackTimeoutMs?: number };
   streamWriter?: StreamWriter;
   onBatchComplete?: () => Promise<void>;
-  /**
-   * phase 1383 (P2b U3): daemon in-process 自活的活动打点。
-   * 每完成一个 turn batch（无论 success/interrupted/failed）即同步触发，
-   * 供 daemon-loop 的 waiting-stall 监测器重置「最后活动」时间。
-   */
-  onTurnActivity?: () => void;
-  /**
-   * phase 1390 Step B: blocked 终局（四类 reason 任一）进入后的 fail-fast 通知。
-   * EventLoop 在 `_enterLlmRequestBlocked` 持久化 gate 后 fire-and-forget 触发——
-   * 装配方（daemon-loop）持有 active 契约时可立即 cancel 判失败，避免契约悬挂等人。
-   * callback 抛错由 EventLoop 留痕（eventloop_blocked_terminal_failed），不阻塞 gate。
-   */
-  onBlockedTerminal?: (state: LLMRequestBlockedState) => Promise<void>;
 }

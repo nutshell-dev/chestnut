@@ -50,9 +50,7 @@ describe('startDaemonLoop - EventLoop delegation', () => {
       await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
     });
     const abort = vi.fn();
-    const setOnTurnActivity = vi.fn();
-    const setOnBlockedTerminal = vi.fn();
-    const eventLoop = { run, abort, setOnTurnActivity, setOnBlockedTerminal } as unknown as EventLoop;
+    const eventLoop = { run, abort } as unknown as EventLoop;
 
     const { stop } = startDaemonLoop({
       fsFactory,

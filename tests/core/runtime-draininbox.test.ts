@@ -429,14 +429,14 @@ Test message`;
     });
 
     it('inbox_inject audit 日志对 watchdog 消息显示原始 type（B.p257-1）', async () => {
-      // watchdog 发来的消息：type 为 watchdog_unknown_event（白名单外）
-      // decodeInbox 后 type='message', extraMeta.__original_type='watchdog_unknown_event'
+      // watchdog 发来的消息：type 为 watchdog_claw_inactivity（白名单外）
+      // decodeInbox 后 type='message', extraMeta.__original_type='watchdog_claw_inactivity'
       await writePendingMsg(
         'watchdog-msg.md',
         [
           '---',
           'id: wd-001',
-          'type: watchdog_unknown_event',  // 白名单外，decode 后变 message
+          'type: watchdog_claw_inactivity',  // 白名单外，decode 后变 message
           'from: watchdog',
           `to: test-claw`,
           'priority: high',
@@ -456,7 +456,7 @@ Test message`;
       const injectEntry = mockAuditWrite.mock.calls.find(c => c[0] === 'inbox_inject');
       expect(injectEntry).toBeDefined();
       // 原始 type 应在 audit 日志中可见，不应是 'message'
-      expect(injectEntry!.some((col: unknown) => col === 'type=watchdog_unknown_event')).toBe(true);
+      expect(injectEntry!.some((col: unknown) => col === 'type=watchdog_claw_inactivity')).toBe(true);
     });
   });
 });

@@ -188,7 +188,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/misc-invariants.test.ts',
   'tests/watchdog/cron-crash-invariants.test.ts',
-  'tests/watchdog/cron-heartbeat-invariants.test.ts',  // phase 1383 Step D: vi.mock claw-instance-paths/config-load/watchdog-utils factories
+  'tests/watchdog/cron-inactivity-invariants.test.ts',  // phase 1258 Step A: vi.mock claw-instance-paths/config-load/watchdog-utils factories
   'tests/watchdog/shutdown-invariants.test.ts',
   'tests/watchdog/state-invariants.test.ts',
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
@@ -217,6 +217,7 @@ const VI_MOCK_FILES = [
   'tests/watchdog/foreign-workspace-fail-loud.test.ts',
   'tests/watchdog/notify-dedup-persist.test.ts',
   'tests/watchdog/orphan-sweep.test.ts',
+  'tests/watchdog/watchdog-a8-final-audit.test.ts',
   'tests/watchdog/watchdog-claws-dir-list-failed-audit.test.ts',
   'tests/watchdog/watchdog-cron-map-cleanup-no-claws-dir.test.ts',
   'tests/watchdog/watchdog-cli-stop-pid-missing.test.ts',

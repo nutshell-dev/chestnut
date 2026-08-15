@@ -29,6 +29,9 @@ const PRIORITY_ORDER = ['critical', 'high', 'normal', 'low'] as const;
 /** claw outbox read 默认读取条数。 */
 export const DEFAULT_OUTBOX_READ_LIMIT = 1;
 
+/** claw watch 默认 inactive-after 时长。 */
+export const WATCH_INACTIVE_AFTER_DEFAULT = '5m';
+
 export const CLAW_COMMAND_CATALOG = [
   // ── Lifecycle ──────────────────────────────────────────────────────────
   {
@@ -67,6 +70,14 @@ export const CLAW_COMMAND_CATALOG = [
     summary: 'Show current runtime status of the claw',
     options: [{ flag: '--json', desc: 'Output as JSON (machine-readable)' }],
     examples: ['chestnut claw alice status'],
+  },
+  {
+    id: 'watch',
+    group: 'lifecycle',
+    form: 'instance',
+    summary: 'Subscribe to a one-shot notification if the claw remains inactive after a duration',
+    options: [{ flag: '--inactive-after <duration>', desc: `Duration (e.g. 5m / 30m / 1h, max 24h). Default ${WATCH_INACTIVE_AFTER_DEFAULT}.` }],
+    examples: ['chestnut claw alice watch', 'chestnut claw alice watch --inactive-after 30m'],
   },
 
   // ── Messaging ──────────────────────────────────────────────────────────
@@ -160,23 +171,6 @@ export const CLAW_COMMAND_CATALOG = [
       'chestnut claw motion stream',
       'chestnut claw motion stream --from-now',
       'chestnut claw alice stream --include-history > alice.log',
-    ],
-  },
-  {
-    id: 'wakeup',
-    group: 'messaging',
-    form: 'instance',
-    summary: 'Schedule, list, or cancel a timed wakeup message for the claw',
-    args: [{ name: 'message|list|cancel', required: false, desc: 'Message body (schedule), or list/cancel subaction' }],
-    options: [
-      { flag: '--in <duration>', desc: 'Delay until delivery (e.g. 30s, 5m, 2h, 1d, 1h30m)' },
-      { flag: '--at <iso>', desc: 'Absolute delivery time as an ISO 8601 string' },
-    ],
-    examples: [
-      'chestnut claw alice wakeup --in 24h "check the site update"',
-      'chestnut claw alice wakeup --at 2026-08-14T12:00:00Z "standup"',
-      'chestnut claw alice wakeup list',
-      'chestnut claw alice wakeup cancel <wakeup-id>',
     ],
   },
 

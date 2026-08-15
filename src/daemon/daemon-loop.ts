@@ -17,7 +17,6 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
-import { startWaitingStallMonitor } from './waiting-stall.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
@@ -26,12 +25,8 @@ import {
   INTERRUPT_POLL_MAX_ERRORS,
   INTERRUPT_POLL_RECOVERY_BACKOFF_MS,
   INTERRUPT_POLL_WARN_EVERY,
-  DAEMON_HEARTBEAT_WRITE_INTERVAL_MS,
-  DAEMON_HEARTBEAT_FILENAME,
 } from './constants.js';
-import type { EventLoop, LLMRequestBlockedState } from '../core/event-loop/index.js';
-import { makeContractId, type ContractSystem } from '../core/contract/index.js';
-import type { AsyncTaskSystem } from '../core/async-task-system/index.js';
+import type { EventLoop } from '../core/event-loop/index.js';
 
 /** motion 专用扩展（claw daemon 整体省略此组） */
 interface DaemonMotionExtensions {
@@ -50,18 +45,6 @@ export interface DaemonLoopOptions {
   // motion 专用扩展（claw 整体省略）
   motion?: DaemonMotionExtensions;
 
-  /**
-   * phase 1387 Step B: claw daemon waiting-stall escalated 后判失败取消 active 契约。
-   * 仅 claw daemon 注入（motion 无 active 契约）；由 daemon.ts 从 Instances 透传。
-   */
-  contractManager?: ContractSystem;
-
-  /**
-   * phase 1388 Step B: claw daemon waiting-stall 第四路 skip——AsyncTaskSystem 在途查询。
-   * 仅 claw daemon 注入（motion 无 async task）；由 daemon.ts 从 Instances 透传。
-   */
-  taskSystem?: AsyncTaskSystem;
-
   /** watcher factory。测试可注入 fake 避免真实 chokidar。默认 createWatcher。 */
   createWatcher?: WatcherFactory;
 }
@@ -74,7 +57,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   promise: Promise<void>;
   stop: () => void;
 } {
-  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher, contractManager, taskSystem } = options;
+  const { fsFactory, eventLoop, agentDir, audit, motion, createWatcher } = options;
   const heartbeat = motion?.heartbeat;
   const agentFs = fsFactory(agentDir);
   let stopped = false;
@@ -104,94 +87,9 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   }, LIVENESS_HEARTBEAT_MS);
   livenessTimer.unref(); // 不阻 event loop 退出
 
-  // phase 1383 Step D (U4): 心跳文件 —— Watchdog 进程外兜底事件循环全阻塞。
-  // 周期写 ISO 时间戳到 <agentDir>/heartbeat；关停时 unlink 防「死进程留旧心跳」误判。
-  // 注意：写动作本身在事件循环上，全阻塞时它也停写 → 时间戳过期正是 Watchdog 判定信号。
-  const writeHeartbeat = (): void => {
-    try {
-      agentFs.writeAtomicSync(DAEMON_HEARTBEAT_FILENAME, new Date().toISOString());
-    } catch (err) {
-      // silent best-effort：心跳写失败不应崩 daemon；Watchdog 侧读失败有独立 audit。
-      audit.write(DAEMON_AUDIT_EVENTS.LOOP_FATAL, `reason=heartbeat_write_failed`, `error=${formatErr(err)}`);
-    }
-  };
-  const clearHeartbeat = (): void => {
-    try {
-      agentFs.deleteSync(DAEMON_HEARTBEAT_FILENAME);
-    } catch {
-      // silent: 关停清理 best-effort，心跳文件缺失/删除失败不阻塞 stop（下一 tick 进程已不在）。
-    }
-  };
-  writeHeartbeat();  // 启动即写一次（避免升级后首次 tick 前空窗）
-  const heartbeatTimer = setInterval(writeHeartbeat, DAEMON_HEARTBEAT_WRITE_INTERVAL_MS);
-  heartbeatTimer.unref();
-
-  // phase 1383 (P2b U3): in-process 自活监测 —— active 契约 + 等待态超长 → 自愈重入轮。
-  // 只对 claw daemon 启用（motion 无契约、其停滞归 P3 教学/治理）。
-  const isClawDaemon = motion === undefined;
-  // phase 1387 Step B: escalated 后取消当前 active 契约判失败。
-  // callback 内部解析 active id——无 active（状态漂移）静默 no-op，cancel 抛错由 waiting-stall 留痕重试。
-  // 返回 true 表示确实发出 cancel、false 表示无 active 契约（无动作），便于 phase 1390 调用方按事实留痕。
-  const cancelActiveContract = contractManager
-    ? async (reason: string): Promise<boolean> => {
-        const active = await contractManager.loadActive();
-        if (!active) return false;
-        await contractManager.cancel(makeContractId(active.id), reason);
-        return true;
-      }
-    : undefined;
-  const waitingStall = isClawDaemon
-    ? startWaitingStallMonitor({
-        fsFactory,
-        agentDir,
-        audit,
-        eventLoop,
-        cancelContract: cancelActiveContract,
-        asyncTasksQuery: taskSystem
-          ? {
-              hasInFlight: async () =>
-                taskSystem.getRunningCount() > 0 || (await taskSystem.listPending()).length > 0,
-            }
-          : undefined,
-      })
-    : null;
-  eventLoop.setOnTurnActivity(waitingStall ? () => waitingStall.noteActivity() : undefined);
-
-  // phase 1390 Step B: blocked 终局 fail-fast——四类 reason 任一进入 blocked + active 契约
-  // → 立即 cancel（reason=system_llm_blocked_<reason>）判失败。无契约 blocked 保持 gate 语义不变。
-  // 与 waiting-stall 同源 cancelActiveContract（内部解析 active + cancel，无 active 静默 no-op）；
-  // cancel 抛错留 LLM_BLOCKED_CONTRACT_FAIL_FAILED，不阻塞 gate（callback 异常由 EventLoop 兜一层）。
-  if (isClawDaemon && cancelActiveContract) {
-    eventLoop.setOnBlockedTerminal(async (state: LLMRequestBlockedState): Promise<void> => {
-      const reason = `system_llm_blocked_${state.reason}`;
-      try {
-        const cancelled = await cancelActiveContract(reason);
-        if (!cancelled) return;  // 无 active 契约：gate/release 语义保持，不留 contract_failed
-        audit.write(
-          DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAILED,
-          `reason=${reason}`,
-          `blocked_reason=${state.reason}`,
-          `fingerprint=${state.requestFingerprint}`,
-        );
-      } catch (err) {
-        audit.write(
-          DAEMON_AUDIT_EVENTS.LLM_BLOCKED_CONTRACT_FAIL_FAILED,
-          `reason=${reason}`,
-          `blocked_reason=${state.reason}`,
-          `error=${formatErr(err)}`,
-        );
-      }
-    });
-  }
-
   const stop = () => {
     stopping = true;
     stopped = true;
-    waitingStall?.stop();
-    eventLoop.setOnTurnActivity(undefined);
-    eventLoop.setOnBlockedTerminal(undefined);
-    clearInterval(heartbeatTimer);
-    clearHeartbeat();
     if (recoveryTimer) {
       clearTimeout(recoveryTimer);
       recoveryTimer = null;
@@ -313,8 +211,6 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       }
     }
     clearInterval(livenessTimer);
-    clearInterval(heartbeatTimer);
-    clearHeartbeat();
   })();
 
   return { promise, stop };

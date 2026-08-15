@@ -27,6 +27,12 @@ export {
 } from './aggregators.js';
 
 export {
+  STATUS_MOTION_GUIDANCE_FACTS,
+} from './motion-guidance.js';
+export type {
+  StatusMotionGuidance,
+} from './motion-guidance.js';
+export {
   computeForumStatusView,
 } from './forum-aggregators.js';
 export { formatForumStatusView } from './forum-formatter.js';

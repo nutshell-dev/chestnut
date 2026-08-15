@@ -23,7 +23,6 @@ import type { MemorySystem } from '../core/memory/index.js';
 import { createClawContractBridge } from '../core/memory/index.js';
 import { createContractObserverJob } from '../core/contract/index.js';
 import { createOutboxSummaryJob } from '../core/claw-topology/index.js';
-import { createWakeupDeliveryJob } from '../core/claw-topology/index.js';
 import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
@@ -265,15 +264,6 @@ export async function createMotionAddons(
           inboxReader,
           inboxWriter: business.selfInbox,
           outboxReader: new OutboxReader(chestnutFs, auditWriter),
-        }, globalConfig),
-        // phase 1386: 定时消息到期投递 job（扫各 claw wakeups/ → 投 claw inbox）。
-        createWakeupDeliveryJob({
-          clawTopology: core.topology,  // phase 259
-          fs: chestnutFs,
-          audit: auditWriter,
-          sourceClawId: MOTION_CLAW_ID,
-          notifyClaw: (targetClawId, message) =>
-            routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
         }, globalConfig),
       ];
       cronRunner = createCronRunner(cronJobs, auditWriter);
