@@ -53,6 +53,49 @@ describe('source-scan-invariants', () => {
   });
 
   /**
+   * phase 1396 Step G: AsyncTaskSystem must not reach up into contract
+   * lifecycle/manager or claw-topology routing. Result delivery is owned by
+   * the direct caller (task.parentClawId); escalation to motion/contract is
+   * intentionally out of scope for this layer.
+   */
+  describe('async-task-system contract/claw-topology isolation (phase 1396 Step G)', () => {
+    const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
+    const targetDir = path.join(srcRoot, 'core', 'async-task-system');
+
+    function findForbiddenImports(): string[] {
+      const offenders: string[] = [];
+      const patterns = [
+        {
+          name: 'contract lifecycle/manager import',
+          regex: "from [\\\"']\\.\\./contract(/[^\\\"']*)?[\\\"']",
+        },
+        {
+          name: 'claw-topology routing import',
+          regex: "from [\\\"'][^\\\"']*claw-topology[^\\\"']*[\\\"']",
+        },
+      ];
+      for (const p of patterns) {
+        const cmd = `grep -rE "${p.regex}" ${targetDir} --include='*.ts' || true`;
+        const out = execSync(cmd, { encoding: 'utf8' });
+        if (out.trim()) {
+          offenders.push(
+            ...out
+              .trim()
+              .split('\n')
+              .filter(Boolean)
+              .map(line => `${p.name}: ${line}`),
+          );
+        }
+      }
+      return offenders;
+    }
+
+    it('no async-task-system file imports contract lifecycle/manager or claw-topology routing', () => {
+      expect(findForbiddenImports()).toEqual([]);
+    });
+  });
+
+  /**
    * phase 676: ratchet test that every arch invariant test file
    * tests/foundation/arch/*.test.ts has line count ≤ 150.
    *
