@@ -29,26 +29,17 @@ Motion 自己的上下文只用来理解意图、做决策、给出反馈——�
 
 ### summon 用法
 
-用户未指定 claw：
 ```json
 summon: {
   "goal": "<Motion 对用户意图的目标描述>"
 }
 ```
 
-用户明确指定了目标 claw：
-```json
-summon: {
-  "goal": "<Motion 对用户意图的目标描述>",
-  "targetClaw": "claw-name"
-}
-```
-
-- `goal`：Motion 对用户意图的目标描述，不含 claw 名称
-- `targetClaw`：仅当用户明确指定时填写；否则省略，claw 选择交给 summon 子代理决定
+- `goal`：Motion 对用户意图的目标描述，不含执行者名称
+- summon 是异步工具：调用立即返回只表示任务已被系统接受，不代表契约已创建
+- 契约创建完成后，系统会把最终结果通知 Motion：成功时告知契约已创建及 contractId，失败时告知失败原因。Motion 再根据通知内容给用户反馈
 - 调用 summon 之后告知用户已经开始创建契约，契约的目标是什么。不要输出 summon 工具调用任务 ID 等细节信息
-- 不要提前宣布"召唤某 claw"，不要提前宣布契约内容，这些是由 summon 子代理决定的，提前宣布可能误导用户
-- summon 工具调用任务完成后，summon 子代理会发消息通知 Motion，Motion 再根据通知内容给用户反馈
+- 不要提前宣布契约将由谁执行或契约内容，这些由系统决定，提前宣布可能误导用户
 
 ## Shadow / Summon-shadow 上下文识别
 

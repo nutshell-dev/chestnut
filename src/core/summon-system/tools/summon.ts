@@ -1,20 +1,19 @@
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../../evolution-system/index.js';
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
-import type { ToolResult, ToolUseId } from '../../../foundation/tool-protocol/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 
 
 import { createSkillSystem } from '../../../foundation/skill-system/index.js';
 
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../../foundation/llm-orchestrator/index.js';
-import { buildSummonContractTask, buildMinerSystemPrompt, buildMiningUserMessage } from '../../../templates/prompts/index.js';
+import { buildSummonContractTask } from '../../../templates/prompts/index.js';
 
 
 import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from '../audit-events.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
-import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
-import { type SubAgentTaskScheduler, type TaskId, makeShortTaskId } from '../../async-task-system/index.js';
+import { type SubAgentTaskScheduler, type TaskId } from '../../async-task-system/index.js';
 
 /**
  * Summon subagent execution timeout（ms）= 1 hour.
@@ -25,21 +24,24 @@ const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;
 
 export const SUMMON_TOOL_NAME = 'summon' as const;
 
+/**
+ * Phase 1396 Step C: summon 公开契约收缩为普通异步工具调用 ——
+ * agent-facing 入参只有 `goal`；内部固定 shadow 执行路径（实现细节不外露）；
+ * maxSteps / idle timeout / verify 取系统内部默认，不读 agent args。
+ * 成功只表示 contract 创建完成；立即返回只表示 async accepted。
+ */
 export class SummonTool implements Tool {
   private readonly taskSystem?: SubAgentTaskScheduler;
   private readonly originClawId?: string;
-  private readonly subagentMaxSteps?: number;
   private readonly allowFromShadow?: boolean;
 
   readonly name = SUMMON_TOOL_NAME;
-  readonly description = `创建子代理来给 claw 创建契约。支持两种模式（**按场景选**）：
+  readonly description = `异步创建契约（contract）来完成用户目标。
 
-**shadow（默认、推荐）**：子代理继承 Motion 完整上下文（对话历史 + 系统提示 + 完整工具集），无需问答即可继续推理 + 决策 + 执行。适用于 Motion 已与 user 充分对话、上下文足够的场景。
+这是一个异步工具：调用立即返回仅表示任务已被系统可靠接受（不代表契约已创建）。契约创建完成后，最终结果会异步送达：成功时告知契约已创建及 contractId，失败时告知失败原因。
 
-**mining（实验中、未完整实现）**：子代理空白起步，通过 ask_motion 工具与 Motion 多轮问答构建上下文，再完成任务。当前不建议使用。
-
-优先用 summon 的场景：
-- 任务需要给 claw 创建契约
+适用场景：
+- 任务需要通过创建契约来完成
 - 任务可能匹配已有 dispatch-skills
 `;
 
@@ -49,8 +51,7 @@ export class SummonTool implements Tool {
   readonly group = 'spawn';
   /**
    * phase 1406: shadow mode reads caller's deep context (systemPrompt + tools +
-   * messages) via ctx.getCallerSnapshot(). Mining mode does not need caller
-   * snapshot (uses buildMinerSystemPrompt + ctx.registry for miner profile).
+   * messages) via ctx.getCallerSnapshot().
    *
    * Declared true to allow shadow's snapshot() call. ToolExecutor enforces.
    */
@@ -61,39 +62,21 @@ export class SummonTool implements Tool {
   constructor(
     taskSystem?: SubAgentTaskScheduler,
     originClawId?: string,
-    subagentMaxSteps?: number,
+    _subagentMaxSteps?: number,
     allowFromShadow: boolean = true,
   ) {
     this.taskSystem = taskSystem;
     this.originClawId = originClawId;
-    this.subagentMaxSteps = subagentMaxSteps;
     this.allowFromShadow = allowFromShadow;
   }
 
   schema = {
     type: 'object',
     properties: {
-      goal:     { type: 'string', description: '本次目标：用户这次想完成什么（Motion 对用户意图的目标描述，不含 claw 名称）' },
-      maxSteps: { type: 'number', description: '子代理最大步数（默认继承主循环 max_steps）' },
-      idleTimeoutMs: {
-        type: 'number',
-        description: `LLM 静默超时阈值（ms）。超过此时间无 LLM 输出则终止子代理。默认 ${DEFAULT_LLM_IDLE_TIMEOUT_MS}ms。`,
-      },
-      targetClaw: {
-        type: 'string',
-        description: '目标 claw id（kebab-case）。仅当用户明确指定了目标 claw 时填写，否则省略——claw 选择由子代理决定。若用户要求新建特定名称的 claw，请先创建再调用 summon。',
-      },
-      verify: {
-        type: 'boolean',
-        description: "是否要求契约带验证门控（默认 false）：true = 契约子项提交后需走验收流程（LLM 或 script）pass 才标 completed；false = 契约子项提交后即立即 completed（claw 调 submit_subtask 即完成对应子项）",
-      },
-      mode: {
-        type: 'string',
-        enum: ['shadow', 'mining'],
-        description: "执行模式（可选、默认 'shadow'）：'shadow' = 子代理继承 Motion 完整上下文（推荐）；'mining' = 子代理通过 ask_motion 多轮问答构建上下文（实验中、未完整实现、不建议使用）。",
-      },
+      goal: { type: 'string', minLength: 1, description: '本次目标：用户这次想完成什么（对用户意图的目标描述）' },
     },
     required: ['goal'],
+    additionalProperties: false,
   };
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
@@ -128,66 +111,34 @@ export class SummonTool implements Tool {
       }
     }
 
-    // 模式 + 参数
-    const mode = (args.mode as 'mining' | 'shadow') ?? 'shadow';
-    const isMining = mode === 'mining';
-    const verify = args.verify === true;
-    const userMessage = isMining
-      ? buildMiningUserMessage(args.goal as string, skillsSummary, args.targetClaw as string | undefined, { verify })
-      : buildSummonContractTask(args.goal as string, skillsSummary, args.targetClaw as string | undefined, { verify });
-    const idleTimeoutMs = typeof args.idleTimeoutMs === 'number' ? args.idleTimeoutMs : DEFAULT_LLM_IDLE_TIMEOUT_MS;
+    // Phase 1396 Step C: 内部固定 shadow 路径 + 系统内部默认（verify=false、
+    // 默认 idle timeout）；agent 只提供 goal。
+    const userMessage = buildSummonContractTask(args.goal as string, skillsSummary, undefined, { verify: false });
     const mainContextSnapshot = ctx.clawId && ctx.currentToolUseId
       ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
       : undefined;
 
-    if (isMining && !ctx.llm) {
-      return { success: false, content: 'Mining mode requires LLM service, but none is available.' };
+    const result = await this.executeShadow({
+      userMessage,
+      idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
+      ctx,
+      mainContextSnapshot,
+    }, this.taskSystem);
+    if (!('taskId' in result)) return result;
+
+    // audit + accepted return（只表示 async accepted，不宣称创建成功）
+    if (ctx.auditWriter && ctx.currentToolUseId) {
+      emitSummonDispatched(ctx.auditWriter, {
+        toolUseId: ctx.currentToolUseId,
+        taskId: result.taskId,
+      });
     }
 
-    // dispatch
-    try {
-      const result = isMining
-        ? await this.executeMining({
-            userMessage,
-            idleTimeoutMs,
-            ctx,
-            mainContextSnapshot,
-            callerType: SUMMON_CALLER_TYPES.MINER,
-            motionClawDir: ctx.clawDir,
-            maxSteps: args.maxSteps as number | undefined,
-            verify,
-            targetClaw: args.targetClaw as string | undefined,
-          })
-        : await this.executeShadow({
-            userMessage,
-            idleTimeoutMs,
-            ctx,
-            mainContextSnapshot,
-            verify,
-            targetClaw: args.targetClaw as string | undefined,
-          }, this.taskSystem);
-
-      if (!('taskId' in result)) return result;
-
-      // audit + success return
-      if (ctx.auditWriter && ctx.currentToolUseId) {
-        emitSummonDispatched(ctx.auditWriter, {
-          toolUseId: ctx.currentToolUseId,
-          taskId: result.taskId,
-          mode,
-          targetClaw: args.targetClaw as string | undefined,
-          verify,
-        });
-      }
-
-      return {
-        success: true,
-        content: `Summon subagent dispatched (${mode} mode) to create contract. Task ID: ${result.taskId}. You'll get an inbox notification once the contract is created.`,
-        metadata: { taskId: result.taskId },
-      };
-    } catch (e) {
-      throw e;
-    }
+    return {
+      success: true,
+      content: `Summon accepted. Task ID: ${result.taskId}. Contract creation runs asynchronously; the final result will be delivered when creation finishes.`,
+      metadata: { taskId: result.taskId },
+    };
   }
 
   private async executeShadow(
@@ -196,12 +147,10 @@ export class SummonTool implements Tool {
       idleTimeoutMs: number;
       ctx: ExecContext;
       mainContextSnapshot: { clawId: string; toolUseId: string } | undefined;
-      verify: boolean;
-      targetClaw?: string;
     },
     taskSystem?: SubAgentTaskScheduler,
   ): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
-    const { userMessage, idleTimeoutMs, ctx, verify, targetClaw } = opts;
+    const { userMessage, idleTimeoutMs, ctx } = opts;
     if (!ctx.getCallerSnapshot) {
       return {
         success: false,
@@ -229,63 +178,12 @@ export class SummonTool implements Tool {
       summonDecision: {
         schema_version: 1,
         mode: 'shadow',
-        verify,
-        targetClaw,
+        verify: false,
         dispatchedAt: new Date().toISOString(),
       },
     });
     if (!('taskId' in result)) return result;
 
     return { taskId: result.taskId };
-  }
-
-  private async executeMining(opts: {
-    userMessage: string;
-    idleTimeoutMs: number;
-    ctx: ExecContext;
-    mainContextSnapshot: { clawId: string; toolUseId: ToolUseId } | undefined;
-    callerType: SummonCallerType;
-    motionClawDir: string | undefined;
-    maxSteps: number | undefined;
-    verify: boolean;
-    targetClaw?: string;
-  }): Promise<{ taskId: TaskId } | { success: false; content: string }> {
-    const { userMessage, ctx, mainContextSnapshot, callerType, motionClawDir, maxSteps, verify, targetClaw } = opts;
-    const systemPrompt = buildMinerSystemPrompt();
-    // toolsForLLM is built for LLM-side miner profile; current schedule signature
-    // doesn't pass tools (mining branch reads ctx.registry on subagent boot per phase 1406).
-    // Kept as documentation of intent; if AsyncTask schedule grows tools param later, plumb through.
-
-    if (!this.taskSystem) {
-      return {
-        success: false,
-        content: '[summon mining] task_system not available in execution context — async path requires AsyncTaskSystem injection',
-      };
-    }
-
-    const taskId = makeShortTaskId(await this.taskSystem.schedule('subagent', {
-      kind: 'subagent',
-      mode: 'standard',
-      intent: userMessage,
-      timeoutMs: SUMMON_SUBAGENT_TIMEOUT_MS,
-      maxSteps: maxSteps ?? this.subagentMaxSteps,
-      parentClawId: ctx.clawId,
-      originClawId: this.originClawId ?? ctx.clawId,
-      callerType,
-      toolProfile: 'miner',
-      motionClawDir,
-      postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
-      mainContextSnapshot,
-      systemPrompt,
-      summonDecision: {
-        schema_version: 1,
-        mode: 'mining',
-        verify,
-        targetClaw,
-        dispatchedAt: new Date().toISOString(),
-      },
-    }));
-
-    return { taskId };
   }
 }

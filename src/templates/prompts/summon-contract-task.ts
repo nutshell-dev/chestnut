@@ -23,7 +23,7 @@ export function buildSummonContractTask(
   task += `\n\n**重要协议约束**：
 1. 你**绝不能**绕过 Step 4 的 \`chestnut contract create\` 自跑任务实际工作。
    唯一成功证据 = \`chestnut contract create\` CLI 返 \`Contract created: <id> for claw <name>\` 行。
-   post-processor 扫子代理 audit 找这一行、找不到判 SUMMON_SHADOW_FAILED。
+   系统持久化本次创建的权威记录并核实 contract 真实提交；核实不到即判本次创建失败。
 
 ## 角色边界
 
@@ -106,9 +106,9 @@ exec: chestnut skill install --claw <id> --skill <name>
 ### 4. 提交契约
 exec: chestnut contract create --claw <targetClawId> --dir ./contract-drafts/<contract-slug>
 
-CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次任务完成、可直接 \`done(result="<给 Motion 的简报>")\` 退出。系统按 subagent audit 真相自动登记 retro、无需在 result 内附加任何特殊标记。
+CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次任务完成、可直接 \`done(result="<给 Motion 的简报>")\` 退出。系统按创建记录自动登记 retro、无需在 result 内附加任何特殊标记。
 
-**任何其他执行路径**（包括跳过 Step 4 自己跑 grep/write/exec 完成任务的实际工作）**都不算成功完成**，会被 post-processor 判 SUMMON_SHADOW_FAILED。
+**任何其他执行路径**（包括跳过 Step 4 自己跑 grep/write/exec 完成任务的实际工作）**都不算成功完成**，系统核实不到契约提交记录即判失败。
 
 ---
 

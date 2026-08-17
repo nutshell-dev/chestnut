@@ -110,13 +110,14 @@ describe('SummonTool', () => {
     expect(auditEvents.find(e => e.type === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toBeDefined();
   });
 
-  it('phase 124: success content includes "dispatched to create contract"', async () => {
+  it('phase 1396 Step C: accepted content 只表示 async accepted，不宣称创建成功', async () => {
     const { ctx, tool } = makeCtx('claw');
     const result = await tool.execute({ goal: 'do something' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toContain('dispatched');
-    expect(result.content).toContain('to create contract');
+    expect(result.content).toContain('Summon accepted. Task ID:');
+    expect(result.content).not.toContain('dispatched');
+    expect(result.content).not.toContain('to create contract');
     expect(result.content).not.toContain('Summon subagent started');
   });
 
@@ -178,7 +179,7 @@ Content.
       const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
       const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
-      await customTool.execute({ goal: 'audit L1 FileSystem', mode: 'shadow' }, ctx);
+      await customTool.execute({ goal: 'audit L1 FileSystem' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
@@ -207,7 +208,7 @@ Content.
       const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
       const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
-      await customTool.execute({ goal: 'create foo contract', mode: 'shadow' }, ctx);
+      await customTool.execute({ goal: 'create foo contract' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
@@ -228,7 +229,7 @@ Content.
       const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
       const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
-      await customTool.execute({ goal: 'follow up', mode: 'shadow' }, ctx);
+      await customTool.execute({ goal: 'follow up' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
@@ -243,7 +244,7 @@ Content.
     it('shadow mode: dialogMessages 为空时 shadowMessages = [SHADOW INSTRUCTION]', async () => {
       const { ctx, tool } = makeCtx('claw');
 
-      await tool.execute({ goal: 'empty dialog', mode: 'shadow' }, ctx);
+      await tool.execute({ goal: 'empty dialog' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
@@ -252,15 +253,17 @@ Content.
       expect(tasks[0].shadowMessages[0].content).toContain('SHADOW INSTRUCTION');
     });
 
-    it('mining mode: shadowMessages = undefined（保 mining 不动 + AskMotionTool 主导 context）', async () => {
+    it('phase 1396 Step C: mining 模式不再是公开路径，execute 始终走 shadow', async () => {
       const { ctx, tool } = makeCtx('claw');
 
-      await tool.execute({ goal: 'mine intent', mode: 'mining' }, ctx);
+      // 即使传入 legacy mode 参数也被忽略（schema additionalProperties=false 由 LLM 侧拦截）
+      await tool.execute({ goal: 'mine intent' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].shadowMessages).toBeUndefined();
-      expect(tasks[0].motionClawDir).toBeDefined();
+      expect(tasks[0].shadowMessages).toBeDefined();
+      expect(tasks[0].callerType).toBe('shadow_subagent');
+      expect(tasks[0].motionClawDir).toBeUndefined();
     });
 
     it('design contract: shadow mode summon 子代理 ≡ shadow tool 子代理（继承 motion 快照 systemPrompt+tools+dialog）', async () => {
@@ -271,7 +274,7 @@ Content.
       const { ctx, tool } = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt, messages: motionDialog } });
       const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
-      await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
+      await customTool.execute({ goal: 'describe intent' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
@@ -282,20 +285,11 @@ Content.
   });
 
   describe('Phase 546 — summon systemPrompt 透传', () => {
-    it('mining mode passes buildMinerSystemPrompt output to writePending', async () => {
-      const { ctx, tool } = makeCtx('claw');
-      await tool.execute({ goal: 'mine intent', mode: 'mining' }, ctx);
-
-      const tasks = await readPendingTasks(tempDir);
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0].systemPrompt).toContain('意图挖掘');
-    });
-
     it('shadow mode passes Motion getSystemPrompt output', async () => {
       const mockMotionPrompt = 'MOTION_SYSTEM_PROMPT_FIXTURE';
       const { ctx, tool } = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt } });
       const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
-      await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
+      await customTool.execute({ goal: 'describe intent' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
@@ -428,10 +422,10 @@ Content.
       );
       await expect(fs.access(byContractPath)).rejects.toThrow();
 
-      expect(summary).toContain('wj，已派出 filetool-auditor');
-      expect(summary).toContain('[CONTRACTS_CREATED]');
-      expect(summary).toContain('1780122465165-bcf86856 (claw=filetool-auditor)');
-      expect(summary).not.toContain('[SUMMON_SHADOW_FAILED');
+      // Phase 1396 Step C: 成功结果精确返回 contractId，不含 executor/raw 输出
+      expect(summary).toBe('Contract created: 1780122465165-bcf86856');
+      expect(summary).not.toContain('filetool-auditor');
+      expect(summary).not.toContain('wj，已派出');
 
       const failCalls = auditWriter.write.mock.calls.filter(
         (c: any) => typeof c[0] === 'string' && c[0].startsWith('summon_'),
@@ -457,8 +451,7 @@ Content.
         auditWriter as any,
       );
 
-      expect(summary).toContain('[CONTRACTS_CREATED]');
-      expect(summary).toContain('c-recovered (claw=claw-a)');
+      expect(summary).toBe('Contract created: c-recovered');
       expect(registered).toEqual([{
         contractId: 'c-recovered',
         targetClaw: 'claw-a',
@@ -486,7 +479,7 @@ Content.
         auditWriter as any,
       );
 
-      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
+      expect(result).toContain('summon_contract_creation_failed');
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_claim_contract_missing',
         'taskId=task-missing',
@@ -535,7 +528,7 @@ Content.
         'summon_no_contract_created',
         'taskId=task-no-audit',
       );
-      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
+      expect(result).toContain('summon_contract_creation_failed');
     });
 
     it('无 claim + error envelope → 透传不变、无 audit', async () => {
@@ -574,7 +567,7 @@ Content.
         auditWriter as any,
       );
 
-      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
+      expect(result).toContain('summon_contract_creation_failed');
       expect(registered).toHaveLength(0);
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
@@ -603,8 +596,7 @@ Content.
       );
 
       // claim 是唯一 authority：summary 只含 claim 指向的 contract
-      expect(summary).toContain('c1-aaa (claw=claw-alpha)');
-      expect(summary).not.toContain('c2-bbb');
+      expect(summary).toBe('Contract created: c1-aaa');
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
         'taskId=task-multi',
@@ -630,7 +622,7 @@ Content.
         auditWriter as any,
       );
 
-      expect(summary).toContain('c-claimed (claw=claw-a)');
+      expect(summary).toBe('Contract created: c-claimed');
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
         'taskId=task-mismatch',
@@ -667,8 +659,7 @@ Content.
         'targetClaw=my-claw',
         'error=store conflict',
       );
-      expect(summary).toContain('[CONTRACTS_CREATED]');
-      expect(summary).toContain('c-failreg');
+      expect(summary).toBe('Contract created: c-failreg');
     });
 
     it('subAudit 非 FNF 读失败 → SUB_AUDIT_READ_FAILED audit，claim authority 判定不变', async () => {
@@ -694,8 +685,7 @@ Content.
         expect.stringContaining('error=[EACCES]'),
       );
       // evidence 不再是 authority：claim + 已提交 → 成功
-      expect(summary).toContain('[CONTRACTS_CREATED]');
-      expect(summary).toContain('c-io (claw=claw-a)');
+      expect(summary).toBe('Contract created: c-io');
 
       readSpy.mockRestore();
     });

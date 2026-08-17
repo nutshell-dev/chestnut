@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
 import * as path from 'path';
-import { promises as fs } from 'fs';
+import { promises as fs, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
@@ -130,7 +130,7 @@ describe('summon-dispatched-audit', () => {
     return d;
   }
 
-  describe('Phase 1411 — summon_dispatched audit emit', () => {
+  describe('Phase 1411 — summon_dispatched audit emit（phase 1396 Step C 收缩）', () => {
     let tempDir: string;
     let mockFs: NodeFileSystem;
     let auditWrite: ReturnType<typeof vi.fn>;
@@ -167,12 +167,9 @@ describe('summon-dispatched-audit', () => {
       return { ctx, tool };
     }
 
-    it('reverse 1 — shadow mode dispatch emits summon_dispatched with typed cols', async () => {
+    it('reverse 1 — accepted dispatch emits summon_dispatched with typed cols（仅 tool_use_id + task_id）', async () => {
       const { ctx, tool } = makeCtx([{ role: 'user', content: 'test' }]);
-      const result = await tool.execute(
-        { goal: 'test goal text', targetClaw: 'my-claw', verify: false },
-        ctx,
-      );
+      const result = await tool.execute({ goal: 'test goal text' }, ctx);
 
       expect(result.success).toBe(true);
 
@@ -183,50 +180,19 @@ describe('summon-dispatched-audit', () => {
 
       const cols = dispatchedCalls[0].slice(1);
       expect(cols).toContain('tool_use_id=toolu_test_abc');
-      expect(cols).toContain('mode=shadow');
-      expect(cols).toContain('target_claw=my-claw');
-      expect(cols).toContain('verify=false');
       expect(cols.some((c: string) => c.startsWith('task_id='))).toBe(true);
+
+      // phase 1396 Step C: mode/targetClaw/verify 不再是 agent 决策，0 入 audit
+      expect(cols.some((c: string) => c.startsWith('mode='))).toBe(false);
+      expect(cols.some((c: string) => c.startsWith('target_claw='))).toBe(false);
+      expect(cols.some((c: string) => c.startsWith('verify='))).toBe(false);
 
       // reframe (phase 1411): goal body 0 入 audit
       expect(cols.some((c: string) => c.startsWith('goal_preview='))).toBe(false);
       expect(cols.some((c: string) => c.includes('test goal text'))).toBe(false);
     });
-
-    it('reverse 2 — mining mode dispatch emits summon_dispatched mode=mining', async () => {
-      const { ctx, tool } = makeCtx();
-      const result = await tool.execute(
-        { goal: 'mining goal', mode: 'mining', verify: true },
-        ctx,
-      );
-
-      expect(result.success).toBe(true);
-
-      const dispatchedCalls = auditWrite.mock.calls.filter(
-        (c) => c[0] === SUMMON_AUDIT_EVENTS.DISPATCHED,
-      );
-      expect(dispatchedCalls).toHaveLength(1);
-
-      const cols = dispatchedCalls[0].slice(1);
-      expect(cols).toContain('mode=mining');
-      expect(cols).toContain('verify=true');
-    });
-
-    it('reverse 3 — targetClaw absent → no target_claw= col', async () => {
-      const { ctx, tool } = makeCtx([{ role: 'user', content: 'test' }]);
-      const result = await tool.execute({ goal: 'test', verify: false }, ctx);
-
-      expect(result.success).toBe(true);
-
-      const dispatchedCalls = auditWrite.mock.calls.filter(
-        (c) => c[0] === SUMMON_AUDIT_EVENTS.DISPATCHED,
-      );
-      expect(dispatchedCalls).toHaveLength(1);
-
-      const cols = dispatchedCalls[0].slice(1);
-      expect(cols.some((c: string) => c.startsWith('target_claw='))).toBe(false);
-    });
   });
+
 });
 
 describe('summon-verify-param', () => {
@@ -264,7 +230,7 @@ describe('summon-verify-param', () => {
     return '';
   }
 
-  describe('SummonTool verify parameter', () => {
+  describe('SummonTool 公开 schema 收缩（phase 1396 Step C）', () => {
     let tempDir: string;
     let mockFs: NodeFileSystem;
 
@@ -293,7 +259,6 @@ describe('summon-verify-param', () => {
         fs: mockFs,
         llm: {} as unknown as LLMOrchestrator,
         auditWriter,
-        // phase 1406: caller snapshot fixture (shadow path).
         getCallerSnapshot: async () => ({
           systemPrompt: 'mock system prompt',
           tools: [
@@ -306,7 +271,15 @@ describe('summon-verify-param', () => {
       return { ctx, tool };
     }
 
-    it('default verify=false: prompt does NOT contain verification section', async () => {
+    it('schema exact-key：只有必填 goal，additionalProperties=false', () => {
+      const { tool } = makeCtx();
+      expect(Object.keys(tool.schema.properties)).toEqual(['goal']);
+      expect(tool.schema.required).toEqual(['goal']);
+      expect((tool.schema as any).additionalProperties).toBe(false);
+      expect((tool.schema.properties.goal as any).minLength).toBe(1);
+    });
+
+    it('内部固定 verify=false 默认：prompt 不含 verification 模板段', async () => {
       const { ctx, tool } = makeCtx();
       const result = await tool.execute({ goal: 'test' }, ctx);
 
@@ -323,37 +296,29 @@ describe('summon-verify-param', () => {
       expect(escalationMatches?.length ?? 0).toBe(1);
     });
 
-    it('explicit verify=true: prompt contains verification section', async () => {
+    it('legacy verify/mode/targetClaw 入参被忽略（不再读 agent args）', async () => {
       const { ctx, tool } = makeCtx();
-      const result = await tool.execute({ goal: 'test', verify: true }, ctx);
+      const result = await tool.execute(
+        { goal: 'test', verify: true, mode: 'mining', targetClaw: 'x-claw' } as any,
+        ctx,
+      );
 
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-
-      const content = getTaskContent(tasks[0]);
-      expect(content).toContain('verification:');
-      expect(content).toContain('escalation:');
-      expect(content).toContain('prompt_file: verification/');
-    });
-
-    it('explicit verify=false behaves same as default', async () => {
-      const { ctx, tool } = makeCtx();
-      const result = await tool.execute({ goal: 'test', verify: false }, ctx);
-
-      expect(result.success).toBe(true);
-      const tasks = await readPendingTasks(tempDir);
-      expect(tasks).toHaveLength(1);
-
+      // 内部固定 shadow 路径 + verify=false
+      expect(tasks[0].callerType).toBe('shadow_subagent');
+      expect(tasks[0].summonDecision).toMatchObject({
+        schema_version: 1,
+        mode: 'shadow',
+        verify: false,
+      });
+      expect((tasks[0].summonDecision as Record<string, unknown>).targetClaw).toBeUndefined();
       const content = getTaskContent(tasks[0]);
       expect(content).not.toContain('prompt_file:');
-      // verification: / escalation: 仅在禁令行出现（不出现 yaml 模板或 verification/.prompt.txt 格式段）
-      const verificationMatches = content.match(/verification:/g);
-      expect(verificationMatches?.length ?? 0).toBe(1);
-      const escalationMatches = content.match(/escalation:/g);
-      expect(escalationMatches?.length ?? 0).toBe(1);
     });
   });
+
 });
 
 describe('read-pending-retrospective', () => {
@@ -446,7 +411,7 @@ describe('summon-default-mode-shadow', () => {
     }
   }
 
-  describe('Phase 1166 — default mode shadow', () => {
+  describe('Phase 1166/1396C — 固定 shadow 路径（mode 不再是公开参数）', () => {
     let tempDir: string;
     let mockFs: NodeFileSystem;
     let tool: SummonTool;
@@ -481,7 +446,7 @@ describe('summon-default-mode-shadow', () => {
         getCallerSnapshot: async () => ({
           systemPrompt: 'mock system prompt',
           tools: [
-            { name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } as any },
+            { name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } },
           ],
           messages: snapshotMessages,
         }),
@@ -490,7 +455,7 @@ describe('summon-default-mode-shadow', () => {
       return { ctx, tool };
     }
 
-    it('reverse 1 — 默认 mode 不传 mode 走 shadow 路径', async () => {
+    it('reverse 1 — 不传任何可选参数走 shadow 路径', async () => {
       const { ctx } = makeCtx([{ role: 'user', content: 'test' }]);
       const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
       const result = await customTool.execute({ goal: 'test goal' }, ctx);
@@ -504,38 +469,16 @@ describe('summon-default-mode-shadow', () => {
       expect(tasks[0].motionClawDir).toBeUndefined();
     });
 
-    it('reverse 2 — 显式 mode: mining 仍走 mining 路径', async () => {
-      const { ctx, tool: testTool } = makeCtx();
-      const result = await testTool.execute({ goal: 'test goal', mode: 'mining' }, ctx);
-
-      expect(result.success).toBe(true);
-      const tasks = await readPendingTasks(tempDir);
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0].callerType).toBe('miner_subagent');
-      expect(tasks[0].shadowMessages).toBeUndefined();
-      expect(tasks[0].motionClawDir).toBeDefined();
-    });
-
-    it('reverse 3 — 显式 mode: shadow 仍走 shadow 路径', async () => {
-      const { ctx } = makeCtx([{ role: 'user', content: 'test' }]);
-      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
-      const result = await customTool.execute({ goal: 'test goal', mode: 'shadow' }, ctx);
-
-      expect(result.success).toBe(true);
-      const tasks = await readPendingTasks(tempDir);
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0].callerType).toBe('shadow_subagent');
-      expect(tasks[0].shadowMessages).toBeDefined();
-      expect(tasks[0].systemPrompt).toBe('mock system prompt');
-    });
-
-    it('reverse 4 — description 含 shadow 默认字样、不含旧错误描述', () => {
-      expect(tool.description).toContain('shadow（默认');
-      expect(tool.schema.properties.mode.description).toContain("默认 'shadow'");
-      expect(tool.description).not.toContain('mining（默认）');
-      expect(tool.description).not.toContain('直接进入契约创建');
+    it('reverse 2 — agent-facing description 不含 mode/claw/内部实现教学', () => {
+      for (const banned of ['targetClaw', 'mining', 'mode']) {
+        expect(tool.description).not.toContain(banned);
+      }
+      expect(tool.description).toContain('异步');
+      // schema 不含 mode 描述
+      expect((tool.schema.properties as Record<string, unknown>).mode).toBeUndefined();
     });
   });
+
 });
 
 describe('summon-decision-metadata', () => {
@@ -623,9 +566,9 @@ describe('summon-decision-metadata', () => {
       return { ctx, tool };
     }
 
-    it('shadow summon schedule → task file含 summonDecision metadata', async () => {
+    it('summon schedule → task file含 summonDecision metadata（phase 1396C：固定 shadow + verify=false）', async () => {
       const { ctx, tool } = makeCtx('claw');
-      const result = await tool.execute({ goal: 'shadow task', verify: true, targetClaw: 'target-claw' }, ctx);
+      const result = await tool.execute({ goal: 'shadow task' }, ctx);
 
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
@@ -633,25 +576,9 @@ describe('summon-decision-metadata', () => {
       expect(tasks[0].summonDecision).toMatchObject({
         schema_version: 1,
         mode: 'shadow',
-        verify: true,
-        targetClaw: 'target-claw',
-      });
-      expect(typeof (tasks[0].summonDecision as Record<string, unknown>).dispatchedAt).toBe('string');
-    });
-
-    it('mining summon schedule → task file含 summonDecision metadata', async () => {
-      const { ctx, tool } = makeCtx('claw');
-      const result = await tool.execute({ goal: 'mining task', mode: 'mining', verify: false, targetClaw: 'miner-claw' }, ctx);
-
-      expect(result.success).toBe(true);
-      const tasks = await readPendingTasks(tempDir);
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0].summonDecision).toMatchObject({
-        schema_version: 1,
-        mode: 'mining',
         verify: false,
-        targetClaw: 'miner-claw',
       });
+      expect((tasks[0].summonDecision as Record<string, unknown>).targetClaw).toBeUndefined();
       expect(typeof (tasks[0].summonDecision as Record<string, unknown>).dispatchedAt).toBe('string');
     });
 
@@ -757,4 +684,61 @@ describe('phase1396-creation-claim-boundary', () => {
       expect(hits.trim()).not.toBe('');
     }
   });
+});
+
+
+describe('phase1396-summon-public-contract', () => {
+  /**
+   * Phase 1396 Step C: summon 公开契约 source-scan ratchet。
+   * agent-facing schema/description/立即返回文案、motion 模板不得再出现
+   * targetClaw/mode/mining/subagent 教学或"dispatched 即成功"语义。
+   */
+  const ROOT = path.resolve(process.cwd());
+
+  it('summon 工具 agent-facing schema/description 不含 targetClaw/mode/mining 参数教学', () => {
+    const src = fsRead('src/core/summon-system/tools/summon.ts');
+    // schema 段（agent-facing）
+    const schemaMatch = src.match(/schema = \{[\s\S]*?\n  \};/);
+    expect(schemaMatch).not.toBeNull();
+    const schema = schemaMatch![0];
+    for (const banned of ['targetClaw', 'mining', 'mode', 'maxSteps', 'idleTimeoutMs', 'verify']) {
+      expect(schema).not.toContain(banned);
+    }
+    // description 段（agent-facing）
+    const descMatch = src.match(/readonly description = `([\s\S]*?)`;/);
+    expect(descMatch).not.toBeNull();
+    const desc = descMatch![1];
+    for (const banned of ['targetClaw', 'shadow', 'mining', 'subagent', 'claw']) {
+      expect(desc.toLowerCase()).not.toContain(banned.toLowerCase());
+    }
+  });
+
+  it('summon 立即返回文案只表示 async accepted，不宣称创建成功', () => {
+    const src = fsRead('src/core/summon-system/tools/summon.ts');
+    expect(src).toContain('Summon accepted. Task ID:');
+    expect(src).not.toContain('dispatched to create contract');
+  });
+
+  it('summon 最终结果来自 claim authority：成功 Contract created，失败统一 envelope', () => {
+    const src = fsRead('src/core/summon-system/post-processors/contract-extract.ts');
+    expect(src).toContain('Contract created: ');
+    expect(src).toContain('summon_contract_creation_failed');
+    // 不再含 motion 恢复处方教学（mining 重试）；内部 legacy callerType 字面允许保留
+    expect(src).not.toContain('mining` 模式重试');
+    expect(src).not.toContain('SUMMON_SHADOW_FAILED');
+  });
+
+  it('motion AGENTS.md summon 段只示例 goal，不教 targetClaw', () => {
+    const src = fsRead('src/templates/motion/AGENTS.md');
+    const section = src.match(/### summon 用法([\s\S]*?)(\n## |\n### [^s]|$)/);
+    expect(section).not.toBeNull();
+    expect(section![1]).not.toContain('targetClaw');
+    expect(section![1]).toContain('"goal"');
+    // 明确异步最终结果语义
+    expect(section![1]).toContain('异步');
+  });
+
+  function fsRead(rel: string): string {
+    return readFileSync(path.join(ROOT, rel), 'utf-8');
+  }
 });

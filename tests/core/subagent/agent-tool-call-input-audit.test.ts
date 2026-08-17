@@ -107,7 +107,7 @@ describe('Phase 1411 — onToolCallInput audit emit (index row)', () => {
       async (opts: {
         onToolCallInput?: (name: string, toolUseId: string, args: Record<string, unknown>, step: number) => void;
       }) => {
-        opts.onToolCallInput?.('summon', 'toolu_x1', { goal: 'do the thing', mode: 'shadow' }, 3);
+        opts.onToolCallInput?.('summon', 'toolu_x1', { goal: 'do the thing' }, 3);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
@@ -127,7 +127,7 @@ describe('Phase 1411 — onToolCallInput audit emit (index row)', () => {
     expect(cols).toContain('contract_id=contract-test');
     expect(cols).toContain('trace_id=trace-test');
 
-    const expectedSize = JSON.stringify({ goal: 'do the thing', mode: 'shadow' }).length;
+    const expectedSize = JSON.stringify({ goal: 'do the thing' }).length;
     expect(cols.some((c: string) => c === `args_size=${expectedSize}`)).toBe(true);
 
     // reframe (phase 1411): args body 0 入 audit

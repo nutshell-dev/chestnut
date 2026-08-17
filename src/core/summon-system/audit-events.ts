@@ -64,17 +64,13 @@ export const SUMMON_AUDIT_EVENTS = {
 export function emitSummonDispatched(audit: AuditLog, opts: {
   toolUseId: string;
   taskId: string;
-  mode: 'shadow' | 'mining';
-  targetClaw?: string;
-  verify: boolean;
 }): void {
+  // Phase 1396 Step C: 公开契约收缩后 mode/targetClaw/verify 不再是 agent 决策，
+  // audit 只记录 accepted 事实（tool_use_id + task_id）。
   audit.write(
     SUMMON_AUDIT_EVENTS.DISPATCHED,
     `tool_use_id=${opts.toolUseId}`,
     `task_id=${opts.taskId}`,
-    `mode=${opts.mode}`,
-    ...(opts.targetClaw ? [`target_claw=${opts.targetClaw}`] : []),
-    `verify=${opts.verify}`,
   );
 }
 

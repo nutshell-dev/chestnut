@@ -76,35 +76,25 @@ export async function scanSubAuditForContracts(
   return evidence;
 }
 
-function wrapFailureForMotion(rawResult: string): string {
-  const RAW_OUTPUT_DIAGNOSTIC_MAX = 2000;
-  const truncated = rawResult.length > RAW_OUTPUT_DIAGNOSTIC_MAX
-    ? rawResult.slice(0, RAW_OUTPUT_DIAGNOSTIC_MAX) + '\n... [truncated; 完整输出见 result.txt]'
-    : rawResult;
+/**
+ * Phase 1396 Step C: 统一失败 envelope 标记。
+ * summon 失败 = contract 创建未完成（reason 一行、不含内部恢复处方）。
+ */
+export const SUMMON_CONTRACT_CREATION_FAILED_ERROR = 'summon_contract_creation_failed' as const;
+
+function buildFailureResult(reason: string): string {
   return [
-    `[SUMMON_SHADOW_FAILED:no_contract_created]`,
-    ``,
-    `子代理违反 shadow 协议：完成但 0 次 contract create。`,
-    ``,
-    `**Motion 必须立即执行**：`,
-    `用 \`summon\` 工具的 \`mining\` 模式重试本次任务。不要把下方 raw output 转发给用户、不要从中提取信息当结果。`,
-    ``,
-    `**为什么 raw output 不可信**：`,
-    `它来自一个违反协议的子代理（应当委派给 target claw、实然自跑了任务）。即使内容看似合理、它没有经过 target claw 验证、不是有效完成证据。post-processor 已判失败、本次任务的真实状态 = 未完成。`,
-    ``,
-    `--- raw subagent output（diagnostic only、不是完成信号、不要转发） ---`,
-    truncated,
+    `Summon failed (${SUMMON_CONTRACT_CREATION_FAILED_ERROR}): ${reason}`,
+    `如用户仍需要该目标，可重新发起一次 summon 调用。`,
   ].join('\n');
 }
 
-function buildSuccessSummary(rawResult: string, evidence: ContractCreatedEvidence[]): string {
-  const trimmed = rawResult.trim() || '(empty subagent output)';
-  const footer = [
-    ``,
-    `[CONTRACTS_CREATED]`,
-    ...evidence.map(e => `- ${e.contractId} (claw=${e.targetClaw})`),
-  ].join('\n');
-  return trimmed + footer;
+/**
+ * Phase 1396 Step C: 成功结果精确返回一个 contractId ——
+ * 不含 executor、不含内部 mode、不含 raw 执行输出（可能夹带内部实体名）。
+ */
+function buildSuccessResult(contractId: string): string {
+  return `Contract created: ${contractId}`;
 }
 
 /**
@@ -142,6 +132,8 @@ export interface SummonContractExtractDeps {
  * - phase 1466 user reframe 重写 source / 判 source 改系统真相、保 wrap framing 复用
  * - phase 1206 Step D 改由 factory 注入 registerRetrospective、消除 legacy by-contract 写
  * - phase 1396 Step B 判定 authority 改 creation claim + ContractSystem 核实（0/1 不变量）
+ * - phase 1396 Step C 最终结果收缩：成功 = `Contract created: <id>`，失败 = 统一
+ *   `summon_contract_creation_failed` envelope；不含 executor/mode/raw 输出
  */
 export function createSummonContractExtractPostProcessor(
   registerRetrospective: (input: RegisterRetrospectiveInput) => Promise<void>,
@@ -191,7 +183,7 @@ export function createSummonContractExtractPostProcessor(
     if (!claim) {
       if (isError) return result;  // 上游 error envelope 已 explicit、不再二次 wrap
       audit.write(SUMMON_AUDIT_EVENTS.NO_CONTRACT_CREATED, `taskId=${task.id}`);
-      return wrapFailureForMotion(result);
+      return buildFailureResult('creation task completed without a committed contract');
     }
 
     // 5. 有 claim：经 ContractSystem query capability 核实创建事实
@@ -205,7 +197,7 @@ export function createSummonContractExtractPostProcessor(
         `targetExecutorId=${claim.targetExecutorId}`,
       );
       if (isError) return result;  // 保持 task failure
-      return wrapFailureForMotion(result);
+      return buildFailureResult('claimed contract was not committed');
     }
 
     // 6. contract 已提交 → 成功事实成立（error envelope 恢复为成功、重建回执）
@@ -237,8 +229,6 @@ export function createSummonContractExtractPostProcessor(
       // 契约已真创建：保留成功判定
     }
 
-    return buildSuccessSummary(result, [
-      { contractId: claim.contractId, targetClaw: claim.targetExecutorId },
-    ]);
+    return buildSuccessResult(claim.contractId);
   };
 }
