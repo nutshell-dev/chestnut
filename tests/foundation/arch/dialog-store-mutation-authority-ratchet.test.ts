@@ -78,6 +78,7 @@ describe('Phase 1218 Step B: DialogStore mutation authority ratchet', () => {
       path.join(srcRoot, 'core', 'runtime', 'runtime.ts'),
       path.join(srcRoot, 'core', 'context_manager', 'trim-and-persist.ts'),
       path.join(srcRoot, 'core', 'subagent', 'agent.ts'),
+      path.join(srcRoot, 'core', 'event-loop', 'execution-recovery.ts'),
       path.join(srcRoot, 'foundation', 'dialog-store', 'regime-switch.ts'),
       path.join(srcRoot, 'foundation', 'dialog-store', 'store.ts'),
       selfFile,

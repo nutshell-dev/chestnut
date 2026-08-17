@@ -17,6 +17,7 @@
  */
 
 import type { MotionGuidanceRegistry } from '../types.js';
+import { NO_GUIDANCE } from '../types.js';
 
 import { registerCliGuidance } from '../../../cli-protocol/index.js';
 import { clawOutboxSummaryGuidanceBinding } from '../bindings/claw-outbox-summary.js';
@@ -64,4 +65,9 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('contract_created', contractCreated);
   registry.register('contract_resume', contractResume);
   registry.register('contract_audit_feedback', contractAuditFeedback);
+  // Phase 1396 Step F: claw_crashed / claw_inactivity guidance 已退役，但旧 inbox 消息
+  // 仍可能由 watchdog cron 写入；以 NO_GUIDANCE sentinel 显式覆盖，避免 guidance registry
+  // coverage invariant 漏注。
+  registry.register('claw_crashed', NO_GUIDANCE);
+  registry.register('claw_inactivity', NO_GUIDANCE);
 }

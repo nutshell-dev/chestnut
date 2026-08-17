@@ -61,6 +61,7 @@ const EXPECTED_CONSUMERS = [
   'src/cli/commands/start.ts',
   'src/cli/commands/status.ts',
   'src/cli/commands/stop.ts',
+  'src/watchdog/executor-recovery.ts',
   'src/watchdog/watchdog.ts',
 ];
 

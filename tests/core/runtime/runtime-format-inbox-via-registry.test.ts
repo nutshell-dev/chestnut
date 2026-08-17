@@ -116,7 +116,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('claw_crashed → 通用 fallback + INBOX_UNKNOWN_TYPE audit（Phase 1396 Step F guidance 已退役）', async () => {
+  it('claw_crashed → standard system rendering（Phase 1396 Step F guidance 已退役，rendering declaration 仍注册）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);
@@ -125,11 +125,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const result = await runtime.testFormatInboxMessage('claw_crashed', 'claw-a', 'exit code 1');
 
     expect(result).toMatch(/^\[system message.*\] exit code 1$/);
-    expect(audit.write).toHaveBeenCalledWith(
-      RUNTIME_AUDIT_EVENTS.INBOX_UNKNOWN_TYPE,
-      'type=claw_crashed',
-      'from=claw-a',
-    );
+    expect(audit.write).not.toHaveBeenCalled();
   });
 
   it('heartbeat → "Heartbeat triggered..."（Heartbeat custom formatter）', async () => {

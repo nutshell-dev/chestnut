@@ -66,6 +66,9 @@ export interface ExecutorRecoveryEvidence {
 /** 默认最大重启尝试次数，与 motion restart 同值（复用 WATCHDOG_MAX_RESTART_DEFAULT）。 */
 const EXECUTOR_MAX_RESTART_DEFAULT = 10;
 
+/** 默认检查间隔（30s），与 motion restart 同值。 */
+const EXECUTOR_BASE_INTERVAL_MS = 30_000;
+
 /** 指数退避 cap，与 motion restart 同值。 */
 const EXECUTOR_BACKOFF_MAX_MS = 5 * 60 * 1000;
 
@@ -180,7 +183,7 @@ export async function maybeCronExecutorRecovery(
   } = deps;
   const now = deps.now ?? (() => Date.now());
   const maxAttempts = deps.maxAttempts ?? getExecutorMaxRestart();
-  const baseIntervalMs = deps.baseIntervalMs ?? 30_000;
+  const baseIntervalMs = deps.baseIntervalMs ?? EXECUTOR_BASE_INTERVAL_MS;
   const maxBackoffMs = deps.maxBackoffMs ?? EXECUTOR_BACKOFF_MAX_MS;
   const rootFs = getChestnutFs(fsFactory);
 
