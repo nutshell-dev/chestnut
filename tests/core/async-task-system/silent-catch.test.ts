@@ -20,6 +20,20 @@ import { waitFor } from '../../helpers/wait-for.js';
 // ─── S1 helpers ───────────────────────────────────────────────────────────────
 
 function makeMockFsForS1(opts: { moveReject?: boolean; deleteReject?: boolean } = {}): FileSystem {
+  const taskJson = JSON.stringify({
+    kind: 'subagent',
+    mode: 'standard',
+    id: '11111111-1111-4111-9111-111111111111',
+    shortId: '11111111',
+    intent: 'test',
+    timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
+    maxSteps: 1,
+    parentClawId: 'parent',
+    createdAt: new Date().toISOString(),
+  });
+  // Phase 1396 Step L: the alreadySent terminal move is driven by the committed
+  // envelope (is_error=false → done).
+  const envelopeJson = JSON.stringify({ schema_version: 1, content: 'ok', is_error: false });
   return {
     list: vi.fn().mockImplementation((dir: string) => {
       if (dir === 'tasks/queues/running') {
@@ -27,17 +41,11 @@ function makeMockFsForS1(opts: { moveReject?: boolean; deleteReject?: boolean } 
       }
       return Promise.resolve([]);
     }),
-    read: vi.fn().mockResolvedValue(JSON.stringify({
-      kind: 'subagent',
-      mode: 'standard',
-      id: '11111111-1111-4111-9111-111111111111',
-      shortId: '11111111',
-      intent: 'test',
-      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
-      maxSteps: 1,
-      parentClawId: 'parent',
-      createdAt: new Date().toISOString(),
-    })),
+    read: vi.fn().mockImplementation((path: string) => {
+      if (path === 'tasks/queues/running/task-1.json') return Promise.resolve(taskJson);
+      if (path.endsWith('/result-envelope.json')) return Promise.resolve(envelopeJson);
+      return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    }),
     exists: vi.fn().mockImplementation((path: string) => {
       if (path.includes('.sent')) return Promise.resolve(true);
       return Promise.resolve(false);
@@ -91,20 +99,20 @@ const capturedWatcherCallback = mockWatcherFactory.getCallback;
 describe('phase 541: silent catch fixes', () => {
   // ─── S1 ─────────────────────────────────────────────────────────────────────
   describe('S1 task-recovery alreadySent move/delete failure', () => {
-    it('move failure writes RECOVERY_FAILED audit (context=alreadysent_move_failed)', async () => {
+    it('move failure writes RECOVERY_FAILED audit (context=envelope_terminal_move_failed)', async () => {
       const mockFs = makeMockFsForS1({ moveReject: true, deleteReject: false });
       const { audit, events } = makeMockAudit();
       await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
 
       const moveFailedEvents = events.filter(
-        (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=alreadysent_move_failed')),
+        (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=envelope_terminal_move_failed')),
       );
       expect(moveFailedEvents.length).toBe(1);
       expect(moveFailedEvents[0]).toEqual(
         expect.arrayContaining([
           TASK_AUDIT_EVENTS.RECOVERY_FAILED,
           expect.stringContaining('taskId='),
-          'context=alreadysent_move_failed',
+          'context=envelope_terminal_move_failed',
           expect.stringContaining('error='),
         ]),
       );
@@ -124,7 +132,7 @@ describe('phase 541: silent catch fixes', () => {
         expect.arrayContaining([
           TASK_AUDIT_EVENTS.RECOVERY_FAILED,
           expect.stringContaining('taskId='),
-          'context=alreadysent_move_failed',
+          'context=envelope_terminal_move_failed',
           expect.stringContaining('error='),
         ]),
       );

@@ -16,7 +16,10 @@ export const TASKS_SYNC_DIR = 'tasks/sync' as const;
 
 // Phase 1396 Step J: durable post-process input + authoritative outcome envelope
 export const POST_PROCESS_INPUT_FILE = 'post-process-input.json' as const;
+// Phase 1396 Step L: legacy Step J read-only (recovery migration); new writer is RESULT_ENVELOPE_FILE
 export const RESULT_META_FILE = 'result-meta.json' as const;
+// Phase 1396 Step L: single-file authoritative final outcome (processed-result-store owner)
+export const RESULT_ENVELOPE_FILE = 'result-envelope.json' as const;
 // phase 691 Step C: 改走 subagent barrel（cycle 已治、L3 SubAgent 不再反向 import L4 AsyncTaskSystem）
 export { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 

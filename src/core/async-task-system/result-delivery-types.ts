@@ -37,15 +37,12 @@ export type SendResult<TTask> = (
   deps?: ResultDeliveryDeps,
 ) => Promise<void>;
 
-/** phase 1042 / Phase 1396 Step J: function shape for sending a fallback result message. */
-export type SendFallbackError<TTask> = (
-  fs: FileSystem,
-  auditWriter: AuditLog,
-  task: TTask,
-  result: string,
-  isError: boolean,
-  deps?: ResultDeliveryDeps,
-) => Promise<void>;
+/**
+ * Phase 1396 Step L: fallback delivery takes the full ProcessedTaskResult
+ * envelope (content + isError + metadata) — the split (content, isError)
+ * signature is retired. Same function shape as SendResult.
+ */
+export type SendFallbackResult<TTask> = SendResult<TTask>;
 
 /** phase 1042: function shape for sending a tool task result. */
 export type SendToolResult<TTask> = (

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { sendResult, sendFallbackError, SENT_MARKER } from '../../../src/core/async-task-system/result-delivery.js';
+import { sendResult, sendFallbackResult, SENT_MARKER } from '../../../src/core/async-task-system/result-delivery.js';
 import type { writeInboxAsync } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -62,7 +62,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
     expect(sentMarkerWrites[0][1]).toBe('1');
   });
 
-  it('sendFallbackError on SubAgentTask writes SENT_MARKER (P0.20 fix)', async () => {
+  it('sendFallbackResult on SubAgentTask writes SENT_MARKER (P0.20 fix)', async () => {
     const task = {
       id: 'task-2',
       shortId: 'task2',
@@ -74,14 +74,14 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       maxSteps: 5,
       createdAt: new Date().toISOString(),
     };
-    await sendFallbackError(mockFs, audit, task, 'fail msg', true, { writeInboxAsync: mockWriteInboxAsync });
+    await sendFallbackResult(mockFs, audit, task, { schema_version: 1, content: 'fail msg', isError: true }, { writeInboxAsync: mockWriteInboxAsync });
 
     const sentMarkerWrites = writeAtomicCalls.filter((c) => c[0].endsWith('.sent'));
     expect(sentMarkerWrites.length).toBe(1);
     expect(sentMarkerWrites[0][0]).toBe(SENT_MARKER('task-2'));
   });
 
-  it('sendFallbackError on ToolTask does NOT write SENT_MARKER', async () => {
+  it('sendFallbackResult on ToolTask does NOT write SENT_MARKER', async () => {
     const task = {
       id: 'task-3',
       shortId: 'task3',
@@ -95,7 +95,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       maxRetries: 2,
       retryCount: 0,
     };
-    await sendFallbackError(mockFs, audit, task, 'fail msg', true, { writeInboxAsync: mockWriteInboxAsync });
+    await sendFallbackResult(mockFs, audit, task, { schema_version: 1, content: 'fail msg', isError: true }, { writeInboxAsync: mockWriteInboxAsync });
 
     const sentMarkerWrites = writeAtomicCalls.filter((c) => c[0].endsWith('.sent'));
     expect(sentMarkerWrites.length).toBe(0);
@@ -119,7 +119,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
 
     // We test via sendResult directly: with a mock InboxWriter that fails on main write
     // but we can't easily swap InboxWriter here because it's module-mocked.
-    // Instead, test the scenario via sendFallbackError writing SENT_MARKER
+    // Instead, test the scenario via sendFallbackResult writing SENT_MARKER
     // and verify that sendResult also writes it.
     const task = {
       id: 'task-4',
@@ -136,8 +136,8 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
     // sendResult success writes SENT_MARKER
     await sendResult(mockFsWithInboxFail, audit, task, { schema_version: 1, content: 'result data', isError: false }, { writeInboxAsync: mockWriteInboxAsync });
 
-    // sendFallbackError on same task also writes SENT_MARKER (if called)
-    await sendFallbackError(mockFsWithInboxFail, audit, task, 'fallback msg', true, { writeInboxAsync: mockWriteInboxAsync });
+    // sendFallbackResult on same task also writes SENT_MARKER (if called)
+    await sendFallbackResult(mockFsWithInboxFail, audit, task, { schema_version: 1, content: 'fallback msg', isError: true }, { writeInboxAsync: mockWriteInboxAsync });
 
     // Each function writes independently; in real recovery only one path executes.
     // Here we verify both functions write the correct marker path.

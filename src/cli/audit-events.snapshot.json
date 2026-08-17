@@ -202,6 +202,7 @@
       "async_task_invariant_violation",
       "async_task_queue_cross_source_mismatch",
       "async_task_queue_cross_source_skipped",
+      "legacy_result_classification_unknown",
       "pending_ingest_failed",
       "prepared_task_identity_conflict",
       "prepared_task_replay_confirmed",

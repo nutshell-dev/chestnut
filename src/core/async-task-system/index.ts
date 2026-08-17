@@ -29,6 +29,16 @@ export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } 
 export type { PostProcessor } from './post-processors/types.js';
 export type { ProcessedTaskResult } from './result-delivery-types.js';
 
+// Phase 1396 Step L: single authoritative processed-result envelope store
+export {
+  createProcessedResultStore,
+  ProcessedTaskResultSchema,
+  ProcessedResultReadError,
+  ProcessedResultCorruptError,
+  ProcessedResultUnsupportedVersionError,
+} from './processed-result-store.js';
+export type { ProcessedResultStore } from './processed-result-store.js';
+
 export {
   TASKS_SYNC_DIR,
   TASKS_QUEUES_PENDING_DIR,
@@ -40,6 +50,7 @@ export {
   TASK_SNAPSHOT_IGNORE,  // phase 693 Step B
   POST_PROCESS_INPUT_FILE,
   RESULT_META_FILE,
+  RESULT_ENVELOPE_FILE,
 } from './dirs.js';
 
 export { classifyTaskError } from './_helpers.js';

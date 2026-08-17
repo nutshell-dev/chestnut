@@ -20,7 +20,7 @@ function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDep
     fs,
     auditWriter,
     sendResult: vi.fn().mockRejectedValue(new Error('send fail')),
-    sendFallbackError: vi.fn().mockRejectedValue(new Error('fallback fail')),
+    sendFallbackResult: vi.fn().mockRejectedValue(new Error('fallback fail')),
     sendToolResult: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -87,7 +87,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
       }),
       read: vi.fn().mockImplementation((filePath: string) => {
         const content = fileMap.get(filePath);
-        if (content === undefined) return Promise.reject(new Error('ENOENT'));
+        if (content === undefined) return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
         return Promise.resolve(content);
       }),
       move: vi.fn().mockImplementation((from: string, to: string) => {
@@ -123,14 +123,20 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
   it('recovery keeps running file when move to done fails', async () => {
     const task = makeValidTask();
     const taskFile = 'tasks/queues/running/task-1.json';
-    const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
+    const resultDir = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000';
 
     const mockFs = makeMockFsForPhase872({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
       moveShouldFail: true,
     });
 
-    await mockFs.writeAtomic(sentMarker, '1');
+    // Step L: the terminal move is driven by the committed success envelope.
+    await mockFs.writeAtomic(`${resultDir}/result.txt.sent`, '1');
+    await mockFs.writeAtomic(`${resultDir}/result-envelope.json`, JSON.stringify({
+      schema_version: 1,
+      content: 'ok',
+      is_error: false,
+    }));
 
     const { audit, events } = makeMockAudit();
     await recoverTasks(makeRecoverDeps(mockFs, audit));
@@ -143,7 +149,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
 
     // recovery failure must be audited
     const moveFailedEvents = events.filter(
-      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e[2] === 'context=alreadysent_move_failed',
+      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e[2] === 'context=envelope_terminal_move_failed',
     );
     expect(moveFailedEvents.length).toBe(1);
   });
@@ -205,7 +211,10 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     );
   });
 
-  it('recovery routes to done when task has no terminalState (backward compat)', async () => {
+  it('recovery does not default to done when sent marker exists but no envelope/terminalState evidence (Step L)', async () => {
+    // Phase 1396 Step L: terminal classification comes from the committed
+    // envelope; a bare sent marker without any reliable evidence must stay in
+    // running and be audited — never silently defaulted to success.
     const task = makeValidTask();
     const taskFile = 'tasks/queues/running/task-1.json';
     const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
@@ -219,31 +228,59 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     const { audit, events } = makeMockAudit();
     await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-    // task should end up in done/
-    expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
+    // task must stay in running/ — classification is indeterminate
+    expect(await mockFs.exists(taskFile)).toBe(true);
+    expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(false);
     expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(false);
+
+    const unknownEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.LEGACY_RESULT_CLASSIFICATION_UNKNOWN);
+    expect(unknownEvents.length).toBe(1);
+  });
+
+  it('recovery classifies from the committed envelope when sent marker exists but terminalState is unwritten (Step L)', async () => {
+    const task = makeValidTask();
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const resultDir = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000';
+
+    const mockFs = makeMockFsForPhase872({
+      runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
+    });
+
+    await mockFs.writeAtomic(`${resultDir}/result.txt.sent`, '1');
+    await mockFs.writeAtomic(`${resultDir}/result-envelope.json`, JSON.stringify({
+      schema_version: 1,
+      content: 'failed outcome',
+      is_error: true,
+    }));
+
+    const { audit, events } = makeMockAudit();
+    await recoverTasks(makeRecoverDeps(mockFs, audit));
+
+    // envelope is_error=true → failed, even without terminalState
+    expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
+    expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(false);
 
     const recoveredEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERED);
     expect(recoveredEvents.length).toBe(1);
-    expect(recoveredEvents[0]).toEqual(
-      expect.arrayContaining([
-        TASK_AUDIT_EVENTS.RECOVERED,
-        expect.stringContaining('reason=already_sent'),
-      ]),
-    );
   });
 
   it('does not emit RECOVERED when move fails', async () => {
     const task = makeValidTask();
     const taskFile = 'tasks/queues/running/task-1.json';
-    const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
+    const resultDir = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000';
 
     const mockFs = makeMockFsForPhase872({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
       moveShouldFail: true,
     });
 
-    await mockFs.writeAtomic(sentMarker, '1');
+    // Step L: the terminal move is driven by the committed success envelope.
+    await mockFs.writeAtomic(`${resultDir}/result.txt.sent`, '1');
+    await mockFs.writeAtomic(`${resultDir}/result-envelope.json`, JSON.stringify({
+      schema_version: 1,
+      content: 'ok',
+      is_error: false,
+    }));
 
     const { audit, events } = makeMockAudit();
     await recoverTasks(makeRecoverDeps(mockFs, audit));
@@ -257,7 +294,7 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
 
     // RECOVERY_FAILED must be emitted
     const moveFailedEvents = events.filter(
-      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e[2] === 'context=alreadysent_move_failed',
+      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e[2] === 'context=envelope_terminal_move_failed',
     );
     expect(moveFailedEvents.length).toBe(1);
   });
@@ -415,14 +452,15 @@ describe('phase 874: ToolTask terminalState + dead-letter retry counter', () => 
   it('keeps retry counter when dead-letter move fails', async () => {
     const task = makeSubAgentTask();
     const taskFile = 'tasks/queues/running/task-1.json';
-    const resultPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt';
+    // Phase 1396 Step L: retry/dead-letter delivery applies to a committed envelope.
+    const envelopePath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result-envelope.json';
     const retryPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.retry-count';
 
     const mockFs = makeMockFs({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
       deadLetterMoveShouldFail: true,
     });
-    await mockFs.writeAtomic(resultPath, 'result content');
+    await mockFs.writeAtomic(envelopePath, JSON.stringify({ schema_version: 1, content: 'result content', is_error: false }));
     await mockFs.writeAtomic(retryPath, '2');
 
     const { audit, events } = makeMockAudit();
@@ -608,14 +646,15 @@ describe('phase 875: migrated ToolTask terminalState + RECOVERED/DEAD_LETTER aud
   it('does not emit RECOVERY_DEAD_LETTER when dead-letter move fails', async () => {
     const task = makeSubAgentTask();
     const taskFile = 'tasks/queues/running/task-1.json';
-    const resultPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt';
+    // Phase 1396 Step L: retry/dead-letter delivery applies to a committed envelope.
+    const envelopePath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result-envelope.json';
     const retryPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.retry-count';
 
     const mockFs = makeMockFs({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
       deadLetterMoveShouldFail: true,
     });
-    await mockFs.writeAtomic(resultPath, 'result content');
+    await mockFs.writeAtomic(envelopePath, JSON.stringify({ schema_version: 1, content: 'result content', is_error: false }));
     await mockFs.writeAtomic(retryPath, '2');
 
     const { audit, events } = makeMockAudit();
@@ -749,7 +788,7 @@ describe('phase 904: migrated recovery radical fix', () => {
     expect(termEvents[0]).toContain('status=gone');
   });
 
-  it('keeps task in running when sendFallbackError fails', async () => {
+  it('keeps task in running when sendFallbackResult fails', async () => {
     const { probeLegacyProcess, terminateLegacyProcess } = await import('../../../src/foundation/process-exec/index.js');
     vi.mocked(probeLegacyProcess).mockReturnValue({ kind: 'gone' });
 
@@ -871,14 +910,15 @@ describe('phase 989 task-recovery sub-fixes', () => {
     const task = makeValidTask('subagent');
     const taskFile = 'tasks/queues/running/task-1.json';
     const retryPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.retry-count';
-    const resultPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt';
+    // Phase 1396 Step L: retry/dead-letter delivery applies to a committed envelope.
+    const envelopePath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result-envelope.json';
 
     const mockFs = makeMockFsForPhase989({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
     });
 
-    // Pre-seed files so recovery takes the _recoverWithResult path
-    await mockFs.writeAtomic(resultPath, 'result-content');
+    // Pre-seed files so recovery takes the committed-envelope resend path
+    await mockFs.writeAtomic(envelopePath, JSON.stringify({ schema_version: 1, content: 'result-content', is_error: false }));
     await mockFs.writeAtomic(retryPath, 'abc');
 
     const { audit, events } = makeMockAudit();
@@ -905,15 +945,22 @@ describe('phase 989 task-recovery sub-fixes', () => {
   it('_recoverAlreadySent deletes retryPath after move (phase 989 C.3)', async () => {
     const task = makeValidTask('subagent');
     const taskFile = 'tasks/queues/running/task-1.json';
-    const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
-    const retryPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.retry-count';
+    const resultDir = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000';
+    const sentMarker = `${resultDir}/result.txt.sent`;
+    const retryPath = `${resultDir}/result.txt.retry-count`;
 
     const mockFs = makeMockFsForPhase989({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
     });
 
-    // Pre-seed sentMarker (triggers alreadySent path) and retryPath (leftover)
+    // Pre-seed sentMarker (triggers alreadySent path), a committed success
+    // envelope (Step L classification authority), and retryPath (leftover)
     await mockFs.writeAtomic(sentMarker, '1');
+    await mockFs.writeAtomic(`${resultDir}/result-envelope.json`, JSON.stringify({
+      schema_version: 1,
+      content: 'ok',
+      is_error: false,
+    }));
     await mockFs.writeAtomic(retryPath, '2');
 
     const { audit, events } = makeMockAudit();
@@ -1072,7 +1119,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError: vi.fn(),
+      sendFallbackResult: vi.fn(),
       sendToolResult,
     });
 
@@ -1116,7 +1163,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError: vi.fn(),
+      sendFallbackResult: vi.fn(),
       sendToolResult,
     });
 
@@ -1138,7 +1185,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     const mocks = await importProcessExecMocks();
     mocks.probeExecutionGroup.mockReturnValue({ kind: 'indeterminate', reason: 'leader_gone_group_alive' });
 
-    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const task = makeV1MigratedTask(); // migratedDeadlineMs: 1 → already past
     const taskFile = 'tasks/queues/running/task-1.json';
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
@@ -1148,13 +1195,13 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError,
+      sendFallbackResult,
       sendToolResult: vi.fn(),
     });
 
     expect(mocks.terminateExecutionGroup).not.toHaveBeenCalled(); // never signal indeterminate
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
-    expect(String(sendFallbackError.mock.calls[0][3])).toContain('Manual intervention required');
+    expect(sendFallbackResult).toHaveBeenCalledTimes(1);
+    expect(String((sendFallbackResult.mock.calls[0][3] as { content: string }).content)).toContain('Manual intervention required');
     expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual-intervention`)).toBe(true);
     expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
 
@@ -1166,10 +1213,10 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError,
+      sendFallbackResult,
       sendToolResult: vi.fn(),
     });
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
+    expect(sendFallbackResult).toHaveBeenCalledTimes(1);
   });
 
   it('gone probe falls through to result delivery without signalling', async () => {
@@ -1190,7 +1237,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError: vi.fn(),
+      sendFallbackResult: vi.fn(),
       sendToolResult,
     });
 
@@ -1242,7 +1289,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError: vi.fn(),
+      sendFallbackResult: vi.fn(),
       sendToolResult,
     });
 
@@ -1315,7 +1362,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     const mocks = await importProcessExecMocks();
     mocks.probeLegacyProcess.mockReturnValue({ kind: 'indeterminate', reason: 'start_time_unreadable' });
 
-    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const task = makeLegacyMigratedTask(); // migratedDeadlineMs: 1 → already past
     const taskFile = 'tasks/queues/running/task-1.json';
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
@@ -1325,13 +1372,13 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError,
+      sendFallbackResult,
       sendToolResult: vi.fn(),
     });
 
     expect(mocks.terminateLegacyProcess).not.toHaveBeenCalled(); // never signal indeterminate
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
-    expect(String(sendFallbackError.mock.calls[0][3])).toContain('Manual intervention required');
+    expect(sendFallbackResult).toHaveBeenCalledTimes(1);
+    expect(String((sendFallbackResult.mock.calls[0][3] as { content: string }).content)).toContain('Manual intervention required');
     expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual-intervention`)).toBe(true);
     expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
   });
@@ -1340,20 +1387,20 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
     const mocks = await importProcessExecMocks();
     mocks.probeExecutionGroup.mockReturnValue({ kind: 'gone' });
 
-    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const task = makeV1MigratedTask();
     const taskFile = 'tasks/queues/running/task-1.json';
     const mockFs = makeMockFs([{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }]);
     mockFs.move = vi.fn().mockRejectedValue(new Error('move failed'));
 
     const { audit } = makeMockAudit();
-    const deps = { fs: mockFs, auditWriter: audit, sendResult: vi.fn(), sendFallbackError, sendToolResult: vi.fn() };
+    const deps = { fs: mockFs, auditWriter: audit, sendResult: vi.fn(), sendFallbackResult, sendToolResult: vi.fn() };
     await recoverTasks(deps);
     await recoverTasks(deps);
 
     // Two recovery passes, both move attempts fail — the notification is
     // delivered exactly once thanks to the fallback marker.
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
+    expect(sendFallbackResult).toHaveBeenCalledTimes(1);
     expect(await mockFs.exists(`tasks/queues/results/${VALID_TASK_ID}/result.txt.manual`)).toBe(true);
   });
 
@@ -1375,7 +1422,7 @@ describe('phase 1269 Step E: migrated execution-group recovery', () => {
       fs: mockFs,
       auditWriter: audit,
       sendResult: vi.fn(),
-      sendFallbackError: vi.fn(),
+      sendFallbackResult: vi.fn(),
       sendToolResult,
     });
 

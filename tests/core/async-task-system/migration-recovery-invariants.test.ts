@@ -29,7 +29,7 @@ import * as fs from 'node:fs';
  * Phase 886: overflow parent notification + move propagation + corrupt cancel + cap boundary.
  */
 const mockSendResult = vi.fn().mockResolvedValue(undefined);
-const mockSendFallbackError = vi.fn().mockResolvedValue(undefined);
+const mockSendFallbackResult = vi.fn().mockResolvedValue(undefined);
 const mockSendToolResult = vi.fn().mockResolvedValue(undefined);
 
 const mockWatcherFactory = vi.fn((_path: string, _callback: unknown) => ({
@@ -39,7 +39,7 @@ const mockWatcherFactory = vi.fn((_path: string, _callback: unknown) => ({
 }));
 
 function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
-  return { fs, auditWriter, sendResult: mockSendResult, sendFallbackError: mockSendFallbackError, sendToolResult: mockSendToolResult };
+  return { fs, auditWriter, sendResult: mockSendResult, sendFallbackResult: mockSendFallbackResult, sendToolResult: mockSendToolResult };
 }
 
 describe('phase 886', () => {
@@ -110,7 +110,7 @@ describe('phase 886', () => {
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -129,10 +129,10 @@ describe('phase 886', () => {
       parentClawId: 'parent-claw',
     } as any);
 
-    expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
-    const callArgs = (mockSendFallbackError as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(mockSendFallbackResult).toHaveBeenCalledTimes(1);
+    const callArgs = (mockSendFallbackResult as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(callArgs[2]).toMatchObject({ id: 'overflow-task' });
-    expect(callArgs[3]).toContain('pending queue overflow');
+    expect((callArgs[3] as { content: string }).content).toContain('pending queue overflow');
 
     const failedFile = path.join(baseDir, TASKS_QUEUES_FAILED_DIR, 'overflow-task.json');
     expect(fs.existsSync(failedFile)).toBe(true);
@@ -153,7 +153,7 @@ describe('phase 886', () => {
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -225,7 +225,7 @@ describe('phase 886', () => {
       contractManager: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -266,7 +266,7 @@ describe('phase 886', () => {
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -390,7 +390,7 @@ describe('phase 887', () => {
       contractManager: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -410,7 +410,7 @@ describe('phase 887', () => {
     expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${taskId}.json`))).toBe(false);
 
     // No fallback notification retry because marker exists
-    expect(mockSendFallbackError).not.toHaveBeenCalled();
+    expect(mockSendFallbackResult).not.toHaveBeenCalled();
 
     const moveFailedEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED && e.some(c => typeof c === 'string' && c.includes('context=retry_overflow_move')),
@@ -431,7 +431,7 @@ describe('phase 887', () => {
       contractManager: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -443,10 +443,10 @@ describe('phase 887', () => {
     expect(pendingTasks.some((t: { id: string }) => t.id === taskId)).toBe(false);
 
     // Notification retried
-    expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
-    const callArgs = (mockSendFallbackError as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(mockSendFallbackResult).toHaveBeenCalledTimes(1);
+    const callArgs = (mockSendFallbackResult as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(callArgs[2]).toMatchObject({ id: taskId });
-    expect(callArgs[3]).toContain('pending queue overflow');
+    expect((callArgs[3] as { content: string }).content).toContain('pending queue overflow');
 
     // Notified marker written
     expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt.notified'))).toBe(true);
@@ -475,7 +475,7 @@ describe('phase 887', () => {
       registry: {} as any,
       pendingQueueMax: 3,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -489,7 +489,7 @@ describe('phase 887', () => {
     expect(fs.readdirSync(path.join(baseDir, TASKS_QUEUES_PENDING_DIR)).length).toBe(4);
 
     let callCount = 0;
-    (mockSendFallbackError as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    (mockSendFallbackResult as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       callCount++;
       if (callCount === 1) {
         throw new Error('notify-down');
@@ -543,7 +543,7 @@ describe('phase 887', () => {
       contractManager: {} as any,
       registry: {} as any,
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -796,7 +796,8 @@ describe('phase889.test.ts', () => {
     it('stops recovery when retry counter read fails with non-ENOENT error', async () => {
       const task = makeSubAgentTask();
       const taskFile = 'tasks/queues/running/task-1.json';
-      const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
+      // Phase 1396 Step L: retry counter guards committed-envelope resend.
+      const envelopePath = `tasks/queues/results/${VALID_TASK_ID}/result-envelope.json`;
       const retryPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt.retry-count`;
 
       const mockFs = makeMockFs(
@@ -818,7 +819,7 @@ describe('phase889.test.ts', () => {
           }),
         },
       );
-      await mockFs.writeAtomic(resultPath, 'result content');
+      await mockFs.writeAtomic(envelopePath, JSON.stringify({ schema_version: 1, content: 'result content', is_error: false }));
 
       const { audit, events } = makeMockAudit();
       await recoverTasks(makeRecoverDeps(mockFs, audit));
@@ -837,11 +838,12 @@ describe('phase889.test.ts', () => {
     it('stops recovery when retry counter write fails', async () => {
       const task = makeSubAgentTask();
       const taskFile = 'tasks/queues/running/task-1.json';
-      const resultPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt`;
+      // Phase 1396 Step L: retry counter guards committed-envelope resend.
+      const envelopePath = `tasks/queues/results/${VALID_TASK_ID}/result-envelope.json`;
       const retryPath = `tasks/queues/results/${VALID_TASK_ID}/result.txt.retry-count`;
 
       mockSendResult.mockRejectedValueOnce(new Error('delivery failed'));
-      mockSendFallbackError.mockRejectedValueOnce(new Error('fallback fail'));
+      mockSendFallbackResult.mockRejectedValueOnce(new Error('fallback fail'));
 
       const mockFs = makeMockFs(
         [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
@@ -857,7 +859,7 @@ describe('phase889.test.ts', () => {
           }),
         },
       );
-      await mockFs.writeAtomic(resultPath, 'result content');
+      await mockFs.writeAtomic(envelopePath, JSON.stringify({ schema_version: 1, content: 'result content', is_error: false }));
 
       const { audit, events } = makeMockAudit();
       await recoverTasks(makeRecoverDeps(mockFs, audit));
@@ -970,7 +972,7 @@ describe('phase 902', () => {
       pendingQueueMax: 3,
       ...makeTaskSystemDeps(),
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -993,7 +995,7 @@ describe('phase 902', () => {
     expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_FAILED_DIR, `${taskId}.json`))).toBe(false);
 
     // Notification must not be attempted once terminalState fails.
-    expect(mockSendFallbackError).not.toHaveBeenCalled();
+    expect(mockSendFallbackResult).not.toHaveBeenCalled();
 
     const terminalStateFailedEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED && e.some(c => typeof c === 'string' && c.includes('context=cap_overflow_terminal_state_failed')),
@@ -1026,7 +1028,7 @@ describe('phase 902', () => {
       auditWriter: audit,
       ...makeTaskSystemDeps(),
       sendResult: mockSendResult,
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
       sendToolResult: mockSendToolResult,
       createWatcher: mockWatcherFactory,
     });
@@ -1035,7 +1037,7 @@ describe('phase 902', () => {
     expect(pendingTasks.some((t: { id: string }) => t.id === taskId)).toBe(false);
 
     // Must NOT retry notification when marker state is unknown.
-    expect(mockSendFallbackError).not.toHaveBeenCalled();
+    expect(mockSendFallbackResult).not.toHaveBeenCalled();
 
     // Task must stay in pending for next cycle retry.
     expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${taskId}.json`))).toBe(true);
@@ -1196,13 +1198,13 @@ describe('phase 1119', () => {
   }
 
   function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
-    return { fs, auditWriter, sendResult: mockSendResult, sendFallbackError: mockSendFallbackError, sendToolResult: mockSendToolResult };
+    return { fs, auditWriter, sendResult: mockSendResult, sendFallbackResult: mockSendFallbackResult, sendToolResult: mockSendToolResult };
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockSendResult.mockResolvedValue(undefined);
-    mockSendFallbackError.mockResolvedValue(undefined);
+    mockSendFallbackResult.mockResolvedValue(undefined);
     mockSendToolResult.mockResolvedValue(undefined);
   });
 
@@ -1297,7 +1299,7 @@ describe('phase 1119', () => {
       await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       expect(mockSendResult).not.toHaveBeenCalled();
-      expect(mockSendFallbackError).not.toHaveBeenCalled();
+      expect(mockSendFallbackResult).not.toHaveBeenCalled();
       expect(await mockFs.exists(`tasks/queues/failed/${VALID_TASK_ID}.json`)).toBe(true);
       expect(await mockFs.exists(`tasks/queues/pending/${VALID_TASK_ID}.json`)).toBe(false);
       expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.RECOVERED && e.some(c => typeof c === 'string' && c.includes('reason=terminal_state_failed')))).toBe(true);
@@ -1312,7 +1314,7 @@ describe('phase 1119', () => {
       await recoverTasks(makeRecoverDeps(mockFs, audit));
 
       expect(mockSendResult).not.toHaveBeenCalled();
-      expect(mockSendFallbackError).not.toHaveBeenCalled();
+      expect(mockSendFallbackResult).not.toHaveBeenCalled();
       expect(await mockFs.exists(`tasks/queues/done/${VALID_TASK_ID}.json`)).toBe(true);
       expect(await mockFs.exists(`tasks/queues/pending/${VALID_TASK_ID}.json`)).toBe(false);
       expect(events.some(e => e[0] === TASK_AUDIT_EVENTS.RECOVERED && e.some(c => typeof c === 'string' && c.includes('reason=terminal_state_done')))).toBe(true);

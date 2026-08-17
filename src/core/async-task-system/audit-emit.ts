@@ -538,3 +538,20 @@ export function emitMigratedLegacyIdentity(
 // ─── Legacy helper: format error and emit ─────────────────────────────────────
 // Re-export formatErr for callers that need to format errors before typed emit.
 export { formatErr };
+
+// ─── LEGACY_RESULT_CLASSIFICATION_UNKNOWN (Phase 1396 Step L) ────────────────
+/**
+ * A legacy (pre-envelope) result cannot be reliably classified as done/failed
+ * from the committed envelope, terminalState, or typed task_completed audit
+ * evidence. The task stays in running/ for manual recovery — never guessed.
+ */
+export function emitLegacyResultClassificationUnknown(
+  audit: AuditLog,
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.LEGACY_RESULT_CLASSIFICATION_UNKNOWN,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  );
+}

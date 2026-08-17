@@ -32,7 +32,7 @@ vi.mock('../../../src/core/async-task-system/result-delivery.js', async (importO
   const actual = await importOriginal<typeof import('../../../src/core/async-task-system/result-delivery.js')>();
   return {
     ...actual,
-    sendFallbackError: vi.fn().mockResolvedValue(undefined),
+    sendFallbackResult: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -50,7 +50,7 @@ vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOr
 });
 
 import { recoverMigratedToolTask } from '../../../src/core/async-task-system/task-recovery.js';
-import { sendFallbackError } from '../../../src/core/async-task-system/result-delivery.js';
+import { sendFallbackResult } from '../../../src/core/async-task-system/result-delivery.js';
 import { recoverTasks } from '../../../src/core/async-task-system/task-recovery.js';
 
 const VALID_TASK_ID = '550e8400-e29b-41d4-a716-446655440906';
@@ -266,8 +266,8 @@ describe('phase 906: cancel notification failure keeps task in pending', () => {
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
-  it('leaves pending task in place when sendFallbackError rejects', async () => {
-    vi.mocked(sendFallbackError).mockRejectedValue(new Error('notify failed'));
+  it('leaves pending task in place when sendFallbackResult rejects', async () => {
+    vi.mocked(sendFallbackResult).mockRejectedValue(new Error('notify failed'));
 
     const fullId = '550e8400-e29b-41d4-a716-446655440906';
     const shortId = fullId.slice(0, 8);
@@ -294,7 +294,7 @@ describe('phase 906: cancel notification failure keeps task in pending', () => {
     await system.cancel(shortId);
 
     // Notification attempted but failed.
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
+    expect(sendFallbackResult).toHaveBeenCalledTimes(1);
 
     // Pending file must NOT have been moved to failed.
     expect(fs.move).not.toHaveBeenCalled();

@@ -16,8 +16,8 @@ import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/index.js';
 import { executeToolTask } from './tool-executor.js';
-import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
-import type { SendToolResult, SendFallbackError, WriteInboxAsync } from './result-delivery-types.js';
+import { sendToolResult as defaultSendToolResult, sendFallbackResult as defaultSendFallbackResult } from './result-delivery.js';
+import type { SendToolResult, SendFallbackResult, WriteInboxAsync } from './result-delivery-types.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
@@ -42,7 +42,7 @@ interface AsyncExecWrapperDeps {
   parentStreamLog?: { write(entry: Record<string, unknown>): void };
   shortIdIndex: ShortIdIndex;
   sendToolResult?: SendToolResult<ToolTask>;
-  sendFallbackError?: SendFallbackError<ToolTask>;
+  sendFallbackResult?: SendFallbackResult<ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
 }
 
@@ -149,7 +149,7 @@ export function createAsyncExecWrapper(
   const migratedHardTimeoutMs = params.migratedHardTimeoutMs ?? ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, parentStreamLog, shortIdIndex } = deps;
   const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
 
   const tool: Tool = {
     name: EXEC_TOOL_NAME,
@@ -505,7 +505,7 @@ export function createAsyncExecWrapper(
             task,
             () => Promise.resolve({ success: true, content: '' }),
             new AbortController().signal,
-            { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackError, writeInboxAsync: deps.writeInboxAsync },
+            { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackResult, writeInboxAsync: deps.writeInboxAsync },
           );
         } catch (monitorErr) {
           // Deadline race classification must not trust a single closure
@@ -583,7 +583,7 @@ export function createAsyncExecWrapper(
               task,
               () => Promise.resolve({ success: true, content: '' }),
               new AbortController().signal,
-              { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackError, writeInboxAsync: deps.writeInboxAsync },
+              { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, sendToolResult, sendFallbackResult, writeInboxAsync: deps.writeInboxAsync },
             );
           } catch (execErr) {
             emitHandlerFailed(auditWriter, {

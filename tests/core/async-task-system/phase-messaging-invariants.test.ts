@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sendToolResult, sendFallbackError, sendResult } from '../../../src/core/async-task-system/result-delivery.js';
+import { sendToolResult, sendFallbackResult, sendResult } from '../../../src/core/async-task-system/result-delivery.js';
 import { executeToolTask } from '../../../src/core/async-task-system/tool-executor.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
@@ -150,7 +150,7 @@ describe('phase879.test.ts', () => {
       vi.clearAllMocks();
     });
 
-    it('sendFallbackError uses shortId for taskId and full UUID for fullTaskId', async () => {
+    it('sendFallbackResult uses shortId for taskId and full UUID for fullTaskId', async () => {
       const inboxMessages: Array<{ content: string }> = [];
       mockWriteInboxAsync.mockImplementation(async (_fs, _dir, message) => {
         inboxMessages.push({ content: message.content });
@@ -161,7 +161,7 @@ describe('phase879.test.ts', () => {
       const { audit } = makeMockAudit();
       const task = makeToolTask();
 
-      await sendFallbackError(mockFs, audit, task, 'fallback reason', true, { writeInboxAsync: mockWriteInboxAsync });
+      await sendFallbackResult(mockFs, audit, task, { schema_version: 1, content: 'fallback reason', isError: true }, { writeInboxAsync: mockWriteInboxAsync });
 
       expect(inboxMessages.length).toBe(1);
       const parsed = JSON.parse(inboxMessages[0]!.content);
@@ -609,7 +609,7 @@ describe('phase882.test.ts', () => {
       vi.clearAllMocks();
     });
 
-    it('keeps task in running when sendFallbackError fails', async () => {
+    it('keeps task in running when sendFallbackResult fails', async () => {
       const task: ToolTask = {
         kind: 'tool',
         id: '550e8400-e29b-41d4-a716-446655440002',

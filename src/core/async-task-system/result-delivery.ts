@@ -252,15 +252,17 @@ export async function sendResult(
 }
 
 /**
- * Send fallback error message directly to inbox (bypassing results file)
- * Used when sendResult fails to ensure parent is not left hanging
+ * Send a fallback result message directly to inbox (bypassing the results
+ * file). Used when sendResult fails to ensure the parent is not left hanging.
+ * Phase 1396 Step L: takes the full ProcessedTaskResult envelope so metadata
+ * and classification survive the fallback path; priority derives from
+ * envelope.isError only.
  */
-export async function sendFallbackError(
+export async function sendFallbackResult(
   fs: FileSystem,
   auditWriter: AuditLog,
   task: SubAgentTask | ToolTask,
-  result: string,
-  isError: boolean,
+  result: ProcessedTaskResult,
   deps?: ResultDeliveryDeps,
 ): Promise<void> {
   const writeInbox = deps?.writeInboxAsync ?? writeInboxAsync;
@@ -270,13 +272,8 @@ export async function sendFallbackError(
     type: 'task_result',
     from: 'system',
     to: task.parentClawId,
-    content: JSON.stringify({
-      taskId: taskShortId(task),
-      fullTaskId: task.id,
-      is_error: isError,
-      result,
-    }),
-    priority: isError ? 'high' : 'normal',
+    content: envelopeToJson(result, taskShortId(task), task.id as FullTaskId),
+    priority: result.isError ? 'high' : 'normal',
     timestamp: new Date().toISOString(),
   };
   await writeInbox(fs, INBOX_PENDING_DIR, msg, auditWriter);

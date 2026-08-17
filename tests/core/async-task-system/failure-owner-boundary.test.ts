@@ -79,7 +79,7 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
   it('executeToolTask failure sends exactly one is_error=true result to parentClawId', async () => {
     const task = makeToolTask();
     const sendToolResult = vi.fn().mockResolvedValue(undefined);
-    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const writeInboxAsync = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
@@ -95,7 +95,7 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
         moveTaskToDone,
         moveTaskToFailed,
         sendToolResult,
-        sendFallbackError,
+        sendFallbackResult,
         writeInboxAsync,
       },
     );
@@ -111,14 +111,14 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
     expect(typeof sentResult === 'string' ? sentResult : sentResult.content).toContain('tool blew up');
     expect(isError).toBe(true);
 
-    expect(sendFallbackError).not.toHaveBeenCalled();
+    expect(sendFallbackResult).not.toHaveBeenCalled();
     expect(writeInboxAsync).not.toHaveBeenCalled();
   });
 
   it('executeSubAgentTask failure sends exactly one is_error=true result to parentClawId', async () => {
     const task = makeSubAgentTask();
     const sendResult = vi.fn().mockResolvedValue(undefined);
-    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const writeInboxAsync = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
@@ -136,7 +136,7 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
       askMotionToolFactory: vi.fn().mockReturnValue({} as Tool),
       runSubagent: vi.fn().mockRejectedValue(new Error('subagent died')),
       sendResult,
-      sendFallbackError,
+      sendFallbackResult,
       writeInboxAsync,
     });
 
@@ -151,14 +151,14 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
     expect(sentEnvelope.content).toContain('subagent died');
     expect(sentEnvelope.isError).toBe(true);
 
-    expect(sendFallbackError).not.toHaveBeenCalled();
+    expect(sendFallbackResult).not.toHaveBeenCalled();
     expect(writeInboxAsync).not.toHaveBeenCalled();
   });
 
   it('executeSubAgentTask leaves task in running when sendResult itself throws', async () => {
     const task = makeSubAgentTask();
     const sendResult = vi.fn().mockRejectedValue(new Error('inbox full'));
-    const sendFallbackError = vi.fn().mockResolvedValue(undefined);
+    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
     const writeInboxAsync = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
@@ -176,14 +176,14 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
       askMotionToolFactory: vi.fn().mockReturnValue({} as Tool),
       runSubagent: vi.fn().mockRejectedValue(new Error('subagent died')),
       sendResult,
-      sendFallbackError,
+      sendFallbackResult,
       writeInboxAsync,
     });
 
     // Phase 1396 Step J: delivery failure does not fallback or move; the committed
     // envelope stays on disk and startup recovery will resend it.
     expect(sendResult).toHaveBeenCalledTimes(1);
-    expect(sendFallbackError).not.toHaveBeenCalled();
+    expect(sendFallbackResult).not.toHaveBeenCalled();
     expect(moveTaskToDone).not.toHaveBeenCalled();
     expect(moveTaskToFailed).not.toHaveBeenCalled();
     expect(writeInboxAsync).not.toHaveBeenCalled();

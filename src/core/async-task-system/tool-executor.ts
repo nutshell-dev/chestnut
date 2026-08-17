@@ -3,8 +3,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
-import { sendToolResult as defaultSendToolResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
-import type { SendToolResult, SendFallbackError, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
+import { sendToolResult as defaultSendToolResult, sendFallbackResult as defaultSendFallbackResult } from './result-delivery.js';
+import type { SendToolResult, SendFallbackResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { getProcessStartTime } from '../../foundation/process-exec/index.js';
@@ -26,7 +26,7 @@ interface ExecuteToolTaskDeps {
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   sendToolResult?: SendToolResult<ToolTask>;
-  sendFallbackError?: SendFallbackError<ToolTask>;
+  sendFallbackResult?: SendFallbackResult<ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
 }
 
@@ -57,7 +57,7 @@ async function executeMigratedToolTask(
 ): Promise<void> {
   const { fs, auditWriter, moveTaskToDone, moveTaskToFailed } = deps;
   const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const taskStartTime = Date.now();
 
@@ -83,7 +83,7 @@ async function executeMigratedToolTask(
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
           shortTaskId: taskShortId(task),
-          context: 'sendFallbackError_migrated_pid_reused',
+          context: 'sendFallbackResult_migrated_pid_reused',
           error: formatErr(sendErr),
         });
       });
@@ -109,11 +109,11 @@ async function executeMigratedToolTask(
   try {
     await sendToolResult(fs, auditWriter, task, result, false, resultDeliveryDeps);
   } catch (sendErr) {
-    await sendFallbackError(fs, auditWriter, task, 'Failed to send migrated result', true, resultDeliveryDeps).catch((e) => {
+    await sendFallbackResult(fs, auditWriter, task, { schema_version: 1, content: 'Failed to send migrated result', isError: true }, resultDeliveryDeps).catch((e) => {
       emitHandlerFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
-        context: 'sendFallbackError_migrated_result',
+        context: 'sendFallbackResult_migrated_result',
         error: formatErr(e),
       });
     });
@@ -164,7 +164,7 @@ export async function executeToolTask(
 
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed } = deps;
   const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const taskStartTime = Date.now();
   let lastError: string | undefined;
@@ -185,11 +185,11 @@ export async function executeToolTask(
         await sendToolResult(fs, auditWriter, task, result, false, resultDeliveryDeps);
       } catch (sendErr) {
         // sendToolResult 本身失败：降级写最小通知，不进入重试（执行已成功）
-        await sendFallbackError(fs, auditWriter, task, 'Failed to send result', true, resultDeliveryDeps).catch((e) => {
+        await sendFallbackResult(fs, auditWriter, task, { schema_version: 1, content: 'Failed to send result', isError: true }, resultDeliveryDeps).catch((e) => {
           emitHandlerFailed(auditWriter, {
             fullTaskId: task.id as FullTaskId,
             shortTaskId: taskShortId(task),
-            context: 'sendFallbackError_error_path',
+            context: 'sendFallbackResult_error_path',
             error: formatErr(e),
           });
         });
@@ -278,11 +278,11 @@ export async function executeToolTask(
       );
     } catch (sendErr) {
       // sendToolResult 失败：降级写最小通知
-      await sendFallbackError(fs, auditWriter, task, finalError, true, resultDeliveryDeps).catch((e) => {
+      await sendFallbackResult(fs, auditWriter, task, { schema_version: 1, content: finalError, isError: true }, resultDeliveryDeps).catch((e) => {
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
           shortTaskId: taskShortId(task),
-          context: 'sendFallbackError_retry',
+          context: 'sendFallbackResult_retry',
           error: formatErr(e),
         });
       });

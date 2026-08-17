@@ -30,7 +30,7 @@ function makeMockWatcherFactory(): WatcherFactory {
 
 const mockWatcherFactory = makeMockWatcherFactory();
 
-const mockSendFallbackError = vi.fn().mockResolvedValue(undefined);
+const mockSendFallbackResult = vi.fn().mockResolvedValue(undefined);
 
 async function shutdownWithVirtualGrace(system: AsyncTaskSystem): Promise<boolean> {
   vi.useFakeTimers();
@@ -48,7 +48,7 @@ function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDep
     fs,
     auditWriter,
     sendResult: vi.fn().mockResolvedValue(undefined),
-    sendFallbackError: mockSendFallbackError,
+    sendFallbackResult: mockSendFallbackResult,
     sendToolResult: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -104,7 +104,7 @@ describe('phase883.test.ts', () => {
         auditWriter: audit,
         ...makeTaskSystemDeps(),
         createWatcher: mockWatcherFactory,
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
       });
       await system.initialize();
 
@@ -172,7 +172,7 @@ describe('phase883.test.ts', () => {
         auditWriter: audit,
         ...makeTaskSystemDeps(),
         createWatcher: mockWatcherFactory,
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
       });
       await system.initialize();
 
@@ -243,8 +243,8 @@ describe('phase883.test.ts', () => {
 
       await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      // sendFallbackError must NOT be called because marker exists.
-      expect(mockSendFallbackError).not.toHaveBeenCalled();
+      // sendFallbackResult must NOT be called because marker exists.
+      expect(mockSendFallbackResult).not.toHaveBeenCalled();
 
       // Task must be moved to failed directory.
       const failedPath = 'tasks/queues/failed/550e8400-e29b-41d4-a716-446655440003.json';
@@ -311,7 +311,7 @@ describe('phase 884: startDispatch + dispatch loop resilience', () => {
       auditWriter: audit,
       createWatcher: makeMockWatcherFactory(),
       ...makeTaskSystemDeps(),
-      sendFallbackError: mockSendFallbackError,
+      sendFallbackResult: mockSendFallbackResult,
     });
   });
 
@@ -482,7 +482,7 @@ describe('phase885.test.ts', () => {
 
       await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
+      expect(mockSendFallbackResult).toHaveBeenCalledTimes(1);
       expect(fileMap.has(taskFile)).toBe(true);
       expect(fileMap.has(failedPath)).toBe(false);
 
@@ -546,7 +546,7 @@ describe('phase885.test.ts', () => {
 
       await recoverTasks(makeRecoverDeps(mockFs, audit));
 
-      expect(mockSendFallbackError).not.toHaveBeenCalled();
+      expect(mockSendFallbackResult).not.toHaveBeenCalled();
       expect(fileMap.has(taskFile)).toBe(true);
       expect(fileMap.has(failedPath)).toBe(false);
 
@@ -599,7 +599,7 @@ describe('phase885.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
       });
       await system.initialize();
 
@@ -643,7 +643,7 @@ describe('phase885.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
       });
     });
 
@@ -746,7 +746,7 @@ describe('phase905.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
       });
     });
 
@@ -796,7 +796,7 @@ describe('phase905.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
       });
     });
 
@@ -841,7 +841,7 @@ describe('phase905.test.ts', () => {
         auditWriter: audit,
         createWatcher: makeBaseMockWatcherFactory(),
         ...makeTaskSystemDeps(),
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
       });
     });
 
@@ -883,8 +883,8 @@ describe('phase905.test.ts', () => {
       await system.initialize();
       await system.cancel(shortId);
 
-      expect(mockSendFallbackError).toHaveBeenCalledTimes(1);
-      const calledTask = mockSendFallbackError.mock.calls[0][2];
+      expect(mockSendFallbackResult).toHaveBeenCalledTimes(1);
+      const calledTask = mockSendFallbackResult.mock.calls[0][2];
       expect(calledTask.id).toBe(fullId);
       expect(calledTask.kind).toBe('subagent');
 

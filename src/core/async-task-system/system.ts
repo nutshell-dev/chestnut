@@ -30,8 +30,8 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { Tool } from '../../foundation/tools/index.js';
-import { sendResult, sendFallbackError, sendToolResult } from './result-delivery.js';
-import type { SendResult, SendFallbackError, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
+import { sendResult, sendFallbackResult, sendToolResult } from './result-delivery.js';
+import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
 import { recoverTasks, recoverMigratedToolTask } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { executeSubAgentTask } from './subagent-executor.js';
@@ -101,7 +101,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private readonly shortIdIndex: ShortIdIndex;
   private readonly pendingQueueMax: number;
   private readonly sendResult: SendResult<SubAgentTask>;
-  private readonly sendFallbackError: SendFallbackError<SubAgentTask | ToolTask>;
+  private readonly sendFallbackResult: SendFallbackResult<SubAgentTask | ToolTask>;
   private readonly sendToolResult: SendToolResult<ToolTask>;
   private readonly writeInboxAsync?: WriteInboxAsync;
   private _shuttingDown = false;
@@ -150,7 +150,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       parentStreamLog: this.parentStreamLog,
       shortIdIndex: this.shortIdIndex,
       sendToolResult: this.sendToolResult,
-      sendFallbackError: this.sendFallbackError,
+      sendFallbackResult: this.sendFallbackResult,
       writeInboxAsync: this.writeInboxAsync,
     });
   }
@@ -178,7 +178,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     this.shortIdIndex = options.shortIdIndex;
     this.pendingQueueMax = options.pendingQueueMax ?? PENDING_QUEUE_MAX;
     this.sendResult = options.sendResult ?? sendResult;
-    this.sendFallbackError = options.sendFallbackError ?? sendFallbackError;
+    this.sendFallbackResult = options.sendFallbackResult ?? sendFallbackResult;
     this.sendToolResult = options.sendToolResult ?? sendToolResult;
     this.writeInboxAsync = options.writeInboxAsync;
 
@@ -230,7 +230,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           moveTaskToDone: (id: TaskId) => this.moveTaskToDone(id),
           moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
           sendToolResult: this.sendToolResult,
-          sendFallbackError: this.sendFallbackError,
+          sendFallbackResult: this.sendFallbackResult,
           writeInboxAsync: this.writeInboxAsync,
         });
       },
@@ -252,7 +252,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           permissionChecker: this.permissionChecker,
           askMotionToolFactory: this.askMotionToolFactory,
           sendResult: this.sendResult,
-          sendFallbackError: this.sendFallbackError,
+          sendFallbackResult: this.sendFallbackResult,
           writeInboxAsync: this.writeInboxAsync,
         });
       },
@@ -298,7 +298,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       fs: this.fs,
       auditWriter: this.auditWriter,
       sendResult: this.sendResult,
-      sendFallbackError: this.sendFallbackError,
+      sendFallbackResult: this.sendFallbackResult,
       sendToolResult: this.sendToolResult,
       writeInboxAsync: this.writeInboxAsync,
       postProcessors: this.postProcessors,
@@ -831,8 +831,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       // Notification not yet sent (or marker missing) — retry
       let notifyOk = false;
       try {
-        await this.sendFallbackError(this.fs, this.auditWriter, task,
-          'Task rejected: pending queue overflow.', true, { writeInboxAsync: this.writeInboxAsync });
+        await this.sendFallbackResult(this.fs, this.auditWriter, task,
+          { schema_version: 1, content: 'Task rejected: pending queue overflow.', isError: true }, { writeInboxAsync: this.writeInboxAsync });
         try {
           await this.fs.writeAtomic(notifiedPath, '');
           notifyOk = true;
@@ -918,8 +918,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       // pending so _getPendingTasks can retry on the next dispatch cycle.
       let notified = false;
       try {
-        await this.sendFallbackError(this.fs, this.auditWriter, task,
-          `Task rejected: pending queue overflow (${pendingCount} > ${this.pendingQueueMax}).`, true, { writeInboxAsync: this.writeInboxAsync });
+        await this.sendFallbackResult(this.fs, this.auditWriter, task,
+          { schema_version: 1, content: `Task rejected: pending queue overflow (${pendingCount} > ${this.pendingQueueMax}).`, isError: true }, { writeInboxAsync: this.writeInboxAsync });
         try {
           await this.fs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, '');
           notified = true;
@@ -1088,7 +1088,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           fs: this.fs,
           auditWriter: this.auditWriter,
           sendResult: this.sendResult,
-          sendFallbackError: this.sendFallbackError,
+          sendFallbackResult: this.sendFallbackResult,
           sendToolResult: this.sendToolResult,
           writeInboxAsync: this.writeInboxAsync,
         },
@@ -1181,11 +1181,11 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         error: formatErr(error),
       });
       // 通知 parent，避免永久挂起
-      await this.sendFallbackError(this.fs, this.auditWriter, task, `Task failed to start: ${errorMsg}`, true, { writeInboxAsync: this.writeInboxAsync }).catch((e) => {
+      await this.sendFallbackResult(this.fs, this.auditWriter, task, { schema_version: 1, content: `Task failed to start: ${errorMsg}`, isError: true }, { writeInboxAsync: this.writeInboxAsync }).catch((e) => {
         emitStartFailed(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
-          context: 'sendFallbackError',
+          context: 'sendFallbackResult',
           error: formatErr(e),
         });
       });
@@ -1537,7 +1537,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         throw new Error(`[INVARIANT VIOLATION] async-task-system: ${violationMsg}`);
       }
 
-      // 从盘读出以决定是否 sendFallbackError
+      // 从盘读出以决定是否 sendFallbackResult
       let task: SubAgentTask | ToolTask | undefined;
       const filePath = pendingPath;
       let content: string | undefined;
@@ -1576,7 +1576,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       let notified = false;
       if (task) {
         try {
-          await this.sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution', true, { writeInboxAsync: this.writeInboxAsync });
+          await this.sendFallbackResult(this.fs, this.auditWriter, task, { schema_version: 1, content: 'Task cancelled before execution', isError: true }, { writeInboxAsync: this.writeInboxAsync });
           notified = true;
           await this.fs.writeAtomic(
             `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, ''

@@ -18,6 +18,7 @@ import {
   emitRecoveryDeadLetter,
   emitMigratedExecTermination,
   emitMigratedLegacyIdentity,
+  emitLegacyResultClassificationUnknown,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 
@@ -33,36 +34,20 @@ import type { ExecutionIdentity } from '../../foundation/process-exec/index.js';
 import {
   SENT_MARKER,
   sendResult as defaultSendResult,
-  sendFallbackError as defaultSendFallbackError,
+  sendFallbackResult as defaultSendFallbackResult,
   sendToolResult as defaultSendToolResult,
 } from './result-delivery.js';
-import type { SendResult, SendFallbackError, SendToolResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
+import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
 import type { ProcessedTaskResult } from './result-delivery-types.js';
-import { POST_PROCESS_INPUT_FILE, RESULT_META_FILE } from './dirs.js';
-import { applyPostProcessor, commitFinalEnvelope } from './subagent-executor.js';
+import { POST_PROCESS_INPUT_FILE } from './dirs.js';
+import { applyPostProcessor } from './subagent-executor.js';
+import { createProcessedResultStore, type ProcessedResultStore } from './processed-result-store.js';
+import { AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../../foundation/audit/index.js';
 import type { TaskId } from './types.js';
 
 
 const RETRY_COUNT_PATH = (taskId: TaskId) =>
   `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt.retry-count`;
-
-async function loadCommittedEnvelope(
-  fs: FileSystem,
-  taskId: TaskId,
-  resultContent: string,
-): Promise<ProcessedTaskResult> {
-  const metaPath = `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/${RESULT_META_FILE}`;
-  try {
-    const raw = await fs.read(metaPath);
-    const meta = JSON.parse(raw) as { schema_version: number; is_error: boolean; metadata?: Record<string, string> };
-    if (meta.schema_version === 1) {
-      return { schema_version: 1, content: resultContent, isError: meta.is_error, metadata: meta.metadata };
-    }
-  } catch {
-    // silent: missing or unreadable meta is expected; fall back to legacy classification.
-  }
-  return { schema_version: 1, content: resultContent, isError: false };
-}
 /**
  * Task recovery 最大重试次数 — 防 startup recovery 路径无限循环.
  * Derivation: 3 = 1 initial + 2 retry / 平衡 fast-fail vs transient fs error 容忍;
@@ -76,7 +61,7 @@ export interface RecoverTasksDeps {
   fs: FileSystem;
   auditWriter: AuditLog;
   sendResult?: SendResult<SubAgentTask>;
-  sendFallbackError?: SendFallbackError<SubAgentTask | ToolTask>;
+  sendFallbackResult?: SendFallbackResult<SubAgentTask | ToolTask>;
   sendToolResult?: SendToolResult<ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
   postProcessors?: Map<string, import('./post-processors/types.js').PostProcessor>;
@@ -122,7 +107,7 @@ async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
 async function _recoverToolTask(
   deps: RecoverTasksDeps, filePath: string, task: ToolTask,
 ): Promise<number> {
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   // Phase 875: terminalState outranks mode; a migrated task may already be done/failed.
   const ts = (task as unknown as Record<string, unknown>).terminalState as string | undefined;
@@ -226,8 +211,8 @@ async function _recoverToolTask(
   }
 
   // First time — send notification, then marker, then move
-  await sendFallbackError(deps.fs, deps.auditWriter, task,
-    'Non-idempotent tool task cannot be retried after crash. Manual intervention required.', true, resultDeliveryDeps)
+  await sendFallbackResult(deps.fs, deps.auditWriter, task,
+    { schema_version: 1, content: 'Non-idempotent tool task cannot be retried after crash. Manual intervention required.', isError: true }, resultDeliveryDeps)
     .then(async () => {
       // Persist notification-sent marker BEFORE moving to failed.
       // If crash occurs between marker and move, next recovery skips re-notification.
@@ -285,7 +270,7 @@ async function notifyManualIntervention(
   reason: string,
 ): Promise<boolean> {
   const { fs, auditWriter } = deps;
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const manualPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt.manual-intervention`;
   let alreadyNotified = false;
@@ -300,12 +285,11 @@ async function notifyManualIntervention(
     return false;
   }
   if (alreadyNotified) return true;
-  const sent = await sendFallbackError(
+  const sent = await sendFallbackResult(
     fs,
     auditWriter,
     task,
-    `Migrated process ownership cannot be verified (${reason}) after the hard deadline. Manual intervention required.`,
-    true,
+    { schema_version: 1, content: `Migrated process ownership cannot be verified (${reason}) after the hard deadline. Manual intervention required.`, isError: true },
     resultDeliveryDeps,
   )
     .then(() => true)
@@ -365,7 +349,7 @@ export async function recoverMigratedToolTask(
 ): Promise<number> {
   const { fs, auditWriter } = deps;
   const sendToolResult = deps.sendToolResult ?? defaultSendToolResult;
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   let killedByRecovery = false;
@@ -662,7 +646,7 @@ export async function recoverMigratedToolTask(
   }
 
   if (!fallbackAlreadyNotified) {
-    const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output', true, resultDeliveryDeps)
+    const fallbackSent = await sendFallbackResult(fs, auditWriter, task, { schema_version: 1, content: 'Migrated process exited without producing output', isError: true }, resultDeliveryDeps)
       .then(() => true)
       .catch((e) => {
         emitRecoveryFailed(auditWriter, {
@@ -711,34 +695,73 @@ export async function recoverMigratedToolTask(
   return 0;
 }
 
+/**
+ * Phase 1396 Step L: recovery decision order is fixed —
+ *   sent marker → committed envelope → durable input → Step J intermediate →
+ *   pre-Step-J legacy result.txt → no result.
+ * Terminal classification always comes from the committed envelope (or, for
+ * legacy formats, from reliable evidence only). Indeterminate state keeps the
+ * task in running/ and is audited — never silently defaulted to success.
+ */
 async function _recoverSubAgentTask(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
 ): Promise<number> {
+  const store = createProcessedResultStore(deps.fs);
   const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
-  const resultPath = `${resultDir}/result.txt`;
   const inputPath = `${resultDir}/${POST_PROCESS_INPUT_FILE}`;
-  const sentMarker = SENT_MARKER(task.id);
-  const alreadySent = await deps.fs.exists(sentMarker);
-  const resultExists = !alreadySent && await deps.fs.exists(resultPath);
-  const inputExists = !alreadySent && await deps.fs.exists(inputPath);
+  const resultPath = `${resultDir}/result.txt`;
+  const alreadySent = await deps.fs.exists(SENT_MARKER(task.id));
 
   if (alreadySent) {
-    await _recoverAlreadySent(deps, filePath, task);
+    await _recoverAlreadySent(deps, filePath, task, store);
     return 0;
-  } else if (resultExists) {
-    // Phase 1396 Step J: committed result.txt (with optional result-meta.json).
-    return await _recoverWithResult(deps, filePath, task, resultPath);
-  } else if (inputExists) {
-    // Phase 1396 Step J: durable input present but final envelope not committed;
-    // replay the processor after registry is ready.
-    return await _recoverWithInput(deps, filePath, task, inputPath);
-  } else {
-    return await _recoverWithoutResult(deps, filePath, task);
   }
+
+  // Committed envelope: resend exactly it; the processor is never re-run.
+  let envelope: ProcessedTaskResult | undefined;
+  try {
+    envelope = await store.read(task.id);
+  } catch (err) {
+    // corrupt/future/IO — fail-observable, never default to success
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'envelope_read_failed',
+      error: formatErr(err),
+    });
+    return 0;
+  }
+  if (envelope) {
+    return await _recoverWithEnvelope(deps, filePath, task, envelope);
+  }
+
+  if (await deps.fs.exists(inputPath)) {
+    // Durable input present but envelope not committed; replay the processor once.
+    return await _recoverWithInput(deps, filePath, task, inputPath, store);
+  }
+
+  // Step J intermediate (result.txt + result-meta.json): migrate once into an envelope.
+  const migration = await _migrateStepJIntermediate(deps, task, store);
+  if (migration === 'migrated') {
+    const migrated = await store.read(task.id);
+    if (migrated) {
+      return await _recoverWithEnvelope(deps, filePath, task, migrated);
+    }
+    return 0;
+  }
+  if (migration === 'indeterminate') {
+    return 0; // audited in _migrateStepJIntermediate; keep running
+  }
+
+  if (await deps.fs.exists(resultPath)) {
+    // Pre-Step-J legacy bare result.txt.
+    return await _recoverLegacyResult(deps, filePath, task, resultPath, store);
+  }
+
+  return await _recoverWithoutResult(deps, filePath, task);
 }
 
 async function _recoverWithInput(
-  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, inputPath: string,
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, inputPath: string, store: ProcessedResultStore,
 ): Promise<number> {
   const sendResult = deps.sendResult ?? defaultSendResult;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
@@ -767,17 +790,15 @@ async function _recoverWithInput(
     return 0;
   }
 
+  let envelope: ProcessedTaskResult;
   try {
-    const envelope = await applyPostProcessor(
+    envelope = await applyPostProcessor(
       { content: input.content, sourceIsError: input.source_is_error },
       task,
       deps.postProcessors ?? new Map(),
       deps.fs,
       deps.auditWriter,
     );
-    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
-    await commitFinalEnvelope(deps.fs, resultDir, envelope);
-    await sendResult(deps.fs, deps.auditWriter, task, envelope, resultDeliveryDeps);
   } catch (err) {
     emitRecoveryFailed(deps.auditWriter, {
       taskId: task.id,
@@ -788,21 +809,40 @@ async function _recoverWithInput(
     return 0;
   }
 
-  await deps.fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
-    .then(() => {
-      emitRecovered(deps.auditWriter, {
-        fullTaskId: task.id as FullTaskId,
-        shortTaskId: taskShortId(task),
-        reason: 'post_process_input_replayed',
-      });
-    })
-    .catch(async (moveErr) => {
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'replay_done_move_failed',
-        error: formatErr(moveErr),
-      });
+  try {
+    await store.commit(task.id, envelope);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'post_process_replay_commit_failed',
+      error: formatErr(err),
     });
+    return 0;
+  }
+  try {
+    await store.projectText(task.id, envelope);
+  } catch (err) {
+    // Non-authoritative projection — observable but blocks neither delivery nor move.
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'post_process_replay_projection_failed',
+      error: formatErr(err),
+    });
+  }
+
+  try {
+    await sendResult(deps.fs, deps.auditWriter, task, envelope, resultDeliveryDeps);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'post_process_replay_delivery_failed',
+      error: formatErr(err),
+    });
+    // Envelope is committed — next recovery resends it without re-running the processor.
+    return 0;
+  }
+
+  await _moveToEnvelopeTerminal(deps, filePath, task, envelope, 'post_process_input_replayed');
   return 0;
 }
 
@@ -812,7 +852,7 @@ async function _recoverToDone(
 ): Promise<void> {
   await deps.fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
     .then(async () => {
-      // C.3 (phase 989): mirror _recoverWithResult line 166 cleanup / D5 hygiene / retry-count file 不 accumulate
+      // C.3 (phase 989): mirror _recoverWithEnvelope cleanup / D5 hygiene / retry-count file 不 accumulate
       // phase 18: narrow ENOENT silent + 其他 IO error audit emit (Design Principle 不可预期失败暴露而非吞没)
       await deps.fs.delete(RETRY_COUNT_PATH(task.id)).catch((err) => {
         if (!isFileNotFound(err)) {
@@ -846,7 +886,7 @@ async function _recoverToFailed(
 ): Promise<void> {
   await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
     .then(async () => {
-      // C.3 (phase 989): mirror _recoverWithResult line 166 cleanup / D5 hygiene / retry-count file 不 accumulate
+      // C.3 (phase 989): mirror _recoverWithEnvelope cleanup / D5 hygiene / retry-count file 不 accumulate
       await deps.fs.delete(RETRY_COUNT_PATH(task.id)).catch((err) => {
         if (!isFileNotFound(err)) {
           emitRecoveryFailed(deps.auditWriter, {
@@ -874,23 +914,194 @@ async function _recoverToFailed(
 }
 
 async function _recoverAlreadySent(
-  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, store: ProcessedResultStore,
 ): Promise<void> {
-  const terminalState = ((task as unknown) as Record<string, unknown>).terminalState as string | undefined;
+  // The committed envelope is the terminal classification authority — even when
+  // terminalState was never persisted (crash between sent marker and move).
+  let envelope: ProcessedTaskResult | undefined;
+  try {
+    envelope = await store.read(task.id);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'sent_envelope_read_failed',
+      error: formatErr(err),
+    });
+    return; // corrupt/future/IO — keep running; never default to done
+  }
+  if (envelope) {
+    await _moveToEnvelopeTerminal(deps, filePath, task, envelope, 'sent_envelope');
+    return;
+  }
+
+  // Legacy fallbacks (envelope absent): reliable evidence only, never a guess.
+  const terminalState = _terminalStateOf(task);
   if (terminalState === 'failed') {
     await _recoverToFailed(deps, filePath, task, 'terminal_state_failed', 'terminal_state_failed_move_failed');
+    return;
+  }
+  if (terminalState === 'done') {
+    await _recoverToDone(deps, filePath, task, 'terminal_state_done', 'alreadysent_move_failed');
+    return;
+  }
+  const migration = await _migrateStepJIntermediate(deps, task, store);
+  if (migration === 'migrated') {
+    const migrated = await store.read(task.id);
+    if (migrated) {
+      await _moveToEnvelopeTerminal(deps, filePath, task, migrated, 'sent_stepj_migrated');
+    }
+    return;
+  }
+  if (migration === 'indeterminate') {
+    return; // audited; keep running
+  }
+  const legacy = await _classifyFromCompletedAudit(deps, task);
+  if (legacy === 'failed') {
+    await _recoverToFailed(deps, filePath, task, 'legacy_audit_status_err', 'alreadysent_move_failed');
+    return;
+  }
+  if (legacy === 'done') {
+    await _recoverToDone(deps, filePath, task, 'legacy_audit_status_ok', 'alreadysent_move_failed');
+    return;
+  }
+  emitLegacyResultClassificationUnknown(deps.auditWriter, {
+    fullTaskId: task.id as FullTaskId,
+    shortTaskId: taskShortId(task),
+  });
+}
+
+/** terminalState persisted by moveTaskToDone/Failed before the terminal move. */
+function _terminalStateOf(task: SubAgentTask): 'done' | 'failed' | undefined {
+  const ts = ((task as unknown) as Record<string, unknown>).terminalState as string | undefined;
+  if (ts === 'done' || ts === 'failed') return ts;
+  return undefined;
+}
+
+/**
+ * Legacy classification evidence: the typed task_completed audit row for this
+ * task (status=ok → done, status=err → failed). Returns undefined when no
+ * reliable evidence exists — callers audit and keep the task in running/.
+ */
+async function _classifyFromCompletedAudit(
+  deps: RecoverTasksDeps, task: SubAgentTask,
+): Promise<'done' | 'failed' | undefined> {
+  for (const auditPath of [AUDIT_PATHS.audit, AUDIT_LEGACY_PATHS.audit]) {
+    let content: string;
+    try {
+      content = await deps.fs.read(auditPath);
+    } catch (err) {
+      if (isFileNotFound(err)) continue;
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'legacy_audit_read_failed',
+        error: formatErr(err),
+      });
+      return undefined;
+    }
+    const lines = content.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const cols = lines[i].split('\t');
+      if (cols[2] !== TASK_AUDIT_EVENTS.TASK_COMPLETED) continue;
+      if (!cols.includes(`fullTaskId=${task.id}`)) continue;
+      if (cols.includes('status=err')) return 'failed';
+      if (cols.includes('status=ok')) return 'done';
+    }
+  }
+  return undefined;
+}
+
+/** Step J intermediate migration with audit; commit failure is fail-observable. */
+async function _migrateStepJIntermediate(
+  deps: RecoverTasksDeps, task: SubAgentTask, store: ProcessedResultStore,
+): Promise<'migrated' | 'absent' | 'indeterminate'> {
+  let result: 'migrated' | 'absent' | 'indeterminate';
+  try {
+    result = await store.migrateIntermediate(task);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'stepj_intermediate_migrate_failed',
+      error: formatErr(err),
+    });
+    return 'indeterminate';
+  }
+  if (result === 'indeterminate') {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'stepj_intermediate_indeterminate',
+    });
+  }
+  return result;
+}
+
+/** Terminal move routed by the envelope: is_error=true → failed, false → done. */
+async function _moveToEnvelopeTerminal(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
+  envelope: ProcessedTaskResult, reason: string,
+): Promise<void> {
+  if (envelope.isError) {
+    await _recoverToFailed(deps, filePath, task, reason, 'envelope_terminal_move_failed');
   } else {
-    // 'done', undefined (backward compat), or any other value → done
-    await _recoverToDone(deps, filePath, task, terminalState === 'done' ? 'terminal_state_done' : 'already_sent', 'alreadysent_move_failed');
+    await _recoverToDone(deps, filePath, task, reason, 'envelope_terminal_move_failed');
   }
 }
 
-async function _recoverWithResult(
-  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, resultPath: string,
+/**
+ * Pre-Step-J legacy bare result.txt (no envelope, no meta): classify from
+ * reliable evidence (terminalState, then typed task_completed audit), rebuild
+ * and commit the envelope once, then deliver. Indeterminate → audit + keep
+ * running/manual-recoverable; never guessed as success.
+ */
+async function _recoverLegacyResult(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, resultPath: string, store: ProcessedResultStore,
+): Promise<number> {
+  const classification = _terminalStateOf(task) ?? await _classifyFromCompletedAudit(deps, task);
+  if (classification === undefined) {
+    emitLegacyResultClassificationUnknown(deps.auditWriter, {
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: taskShortId(task),
+    });
+    return 0;
+  }
+  let content: string;
+  try {
+    content = await deps.fs.read(resultPath);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'legacy_result_read_failed',
+      error: formatErr(err),
+    });
+    return 0;
+  }
+  const envelope: ProcessedTaskResult = {
+    schema_version: 1,
+    content,
+    isError: classification === 'failed',
+  };
+  try {
+    await store.commit(task.id, envelope);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'legacy_envelope_commit_failed',
+      error: formatErr(err),
+    });
+    return 0;
+  }
+  return await _recoverWithEnvelope(deps, filePath, task, envelope);
+}
+
+/**
+ * Resend a committed envelope (unchanged bytes, no processor re-run) with the
+ * retry-counter / dead-letter guard. Terminal classification is envelope.isError.
+ */
+async function _recoverWithEnvelope(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, envelope: ProcessedTaskResult,
 ): Promise<number> {
   const { fs, auditWriter } = deps;
   const sendResult = deps.sendResult ?? defaultSendResult;
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
+  const sendFallbackResult = deps.sendFallbackResult ?? defaultSendFallbackResult;
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
   const retryPath = RETRY_COUNT_PATH(task.id);
 
@@ -928,8 +1139,6 @@ async function _recoverWithResult(
     retryCount = MAX_RECOVERY_RETRIES;
   }
 
-  const resultContent = await fs.read(resultPath);
-  const envelope = await loadCommittedEnvelope(fs, task.id, resultContent);
   const resultSent = await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps)
     .then(() => true)
     .catch(async (e) => {
@@ -938,11 +1147,12 @@ async function _recoverWithResult(
         context: 'resend_result_failed',
         error: formatErr(e),
       });
-      // phase 789 (audit-2026-05-14 P0.20): await sendFallbackError + 视作 sent
+      // phase 789 (audit-2026-05-14 P0.20): await sendFallbackResult + 视作 sent
       // 防止 fallback 成功后 next startup 重试 sendResult 导致父 inbox 双投递
-      // sendFallbackError 内会写 SENT_MARKER（phase 789 invariant）
+      // sendFallbackResult 内会写 SENT_MARKER（phase 789 invariant）
+      // Phase 1396 Step L: fallback 接收完整 envelope —— metadata 不丢失。
       try {
-        await sendFallbackError(fs, auditWriter, task, envelope.content, envelope.isError, resultDeliveryDeps);
+        await sendFallbackResult(fs, auditWriter, task, envelope, resultDeliveryDeps);
         return true;  // fallback delivered = inbox-written 视作 sent
       } catch (fallbackErr) {
         emitRecoveryFailed(auditWriter, {
@@ -992,9 +1202,8 @@ async function _recoverWithResult(
       await _moveToDeadLetter(deps, filePath, task, retryCount, retryPath);
       return 0;
     }
-    // P1.8 fix (phase 612): retryCount<MAX 时不 move DONE / 保 running/ /
-    // 下次启动 recovery 再 trigger _recoverWithResult / counter 持久化 / 累至 MAX → dead-letter
-    // 之前 fall-through 到 line 130 move DONE 是 silent drop bug（resultSent=false 但移 DONE / parent 永不收 / 下次启动 0 retry）
+    // P1.8 fix (phase 612): retryCount<MAX 时不 move terminal / 保 running/ /
+    // 下次启动 recovery 再 trigger _recoverWithEnvelope / counter 持久化 / 累至 MAX → dead-letter
     emitRecoveryFailed(auditWriter, {
       taskId: task.id,
       context: 'retry_pending',
@@ -1004,23 +1213,8 @@ async function _recoverWithResult(
     return 0;
   }
 
-  // 仅 success path 走这里 (resultSent=true)
-  await fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
-    .then(() => {
-      emitRecovered(auditWriter, {
-        fullTaskId: task.id as FullTaskId,
-        shortTaskId: taskShortId(task),
-        reason: 'result_file_exists',
-      });
-    })
-    .catch(async (moveErr) => {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'done_move_failed',
-        error: formatErr(moveErr),
-      });
-      // Keep running file — result.txt.sent marker ensures idempotency on next recovery.
-    });
+  // resultSent=true: terminal classification comes from the committed envelope
+  await _moveToEnvelopeTerminal(deps, filePath, task, envelope, 'result_envelope_resent');
   return 0;
 }
 

@@ -13,6 +13,7 @@ import { formatErr, classifyTaskError } from './_helpers.js';
 import {
   emitTaskCompleted,
   emitHandlerFailed,
+  emitResultWriteFailed,
   emitResultDeliveryFailed,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
@@ -21,13 +22,13 @@ import {
   TASKS_SUBAGENTS_DIR,
   TASKS_SYNC_DIR,
   POST_PROCESS_INPUT_FILE,
-  RESULT_META_FILE,
 } from './dirs.js';
+import { createProcessedResultStore } from './processed-result-store.js';
 import * as nodePath from 'path';
 
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import { sendResult as defaultSendResult } from './result-delivery.js';
-import type { SendResult, SendFallbackError, WriteInboxAsync, ResultDeliveryDeps, ProcessedTaskResult } from './result-delivery-types.js';
+import type { SendResult, SendFallbackResult, WriteInboxAsync, ResultDeliveryDeps, ProcessedTaskResult } from './result-delivery-types.js';
 
 import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
@@ -82,7 +83,7 @@ interface ExecuteSubAgentTaskDeps {
   askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   runSubagent?: typeof defaultRunSubagent;
   sendResult?: SendResult<SubAgentTask>;
-  sendFallbackError?: SendFallbackError<SubAgentTask | ToolTask>;
+  sendFallbackResult?: SendFallbackResult<SubAgentTask | ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
 }
 
@@ -109,26 +110,6 @@ export async function writePostProcessInput(
     content,
     source_is_error: sourceIsError,
   }));
-}
-
-export async function commitFinalEnvelope(
-  fs: FileSystem,
-  taskResultDir: string,
-  envelope: ProcessedTaskResult,
-): Promise<void> {
-  await fs.ensureDir(taskResultDir);
-  const metaPath = `${taskResultDir}/${RESULT_META_FILE}`;
-  const textPath = `${taskResultDir}/result.txt`;
-  // Phase 1396 Step J: meta is the classification authority; write it first so
-  // a crash between the two files never leaves a new text with an old/legacy
-  // classification. Recovery treats (meta + text) as committed; missing text
-  // with present meta falls back to replaying the durable input.
-  await fs.writeAtomic(metaPath, JSON.stringify({
-    schema_version: 1,
-    is_error: envelope.isError,
-    metadata: envelope.metadata,
-  }));
-  await fs.writeAtomic(textPath, envelope.content);
 }
 
 export async function applyPostProcessor(
@@ -200,16 +181,13 @@ export async function executeSubAgentTask(
     taskId: task.id,
   });
 
-  async function finalizeEnvelope(content: string, sourceIsError: boolean): Promise<void> {
-    await writePostProcessInput(fs, taskResultDir, content, sourceIsError);
-    const envelope = await applyPostProcessor({ content, sourceIsError }, task, postProcessors, fs, auditWriter);
-    await commitFinalEnvelope(fs, taskResultDir, envelope);
-    await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps);
-    outcome = envelope.isError ? 'failed' : 'done';
-  }
-
   try {
-    // LLM is guaranteed by constructor (readonly non-null field)
+    // Phase 1 — execution: produce {content, sourceIsError}; execution failure
+    // is recorded in audit here and becomes processor input, never delivered
+    // directly and never reclassified by a later phase's failure.
+    let source: { content: string; sourceIsError: boolean };
+    let execErrorCategory: string | undefined;
+    try {
 
     // Build per-task registry filtered by caller profile + motionClawDir 重建
     const isShadow = task.isShadow === true;
@@ -273,73 +251,111 @@ export async function executeSubAgentTask(
       resultTool: isShadow ? DONE_TOOL_NAME : undefined,
     });
 
-    const displayResult = getDisplayResult(text, capturedResult);
-    await finalizeEnvelope(displayResult, false);
-
-    emitTaskCompleted(auditWriter, {
-      fullTaskId: task.id as FullTaskId,
-      shortTaskId: taskShortId(task),
-      status: 'ok',
-      kind: 'subagent',
-      parent: task.parentClawId,
-      callerType: task.callerType ?? 'spawn_subagent',
-      intent: auditWriter.preview(task.intent),  // phase 218: union 简化后两 mode 均有 intent
-      elapsedMs: Date.now() - taskStartTime,
-      len: displayResult.length,
-      subAuditPath: `tasks/queues/results/${task.id}/audit.tsv`,
-    });
-  } catch (error) {
-    if (error instanceof PostProcessorDeferredError) {
-      // Processor unavailable or threw: durable input is persisted; leave task
-      // in running so startup recovery can replay after registry is ready.
-      auditWriter.write(
-        TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED,
-        `taskId=${task.id}`,
-        `reason=${auditWriter.message(error.message)}`,
-      );
-      return;
-    }
-
-    const errorMsg = formatErr(error);
-
-    try {
-      await finalizeEnvelope(errorMsg, true);
-    } catch (finalizeErr) {
-      if (finalizeErr instanceof PostProcessorDeferredError) {
-        auditWriter.write(
-          TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED,
-          `taskId=${task.id}`,
-          `reason=${auditWriter.message(finalizeErr.message)}`,
-        );
-        return;
-      }
-      // commit/send failed after the envelope was decided: leave in running;
-      // recovery will resend the committed envelope or replay input.
-      emitResultDeliveryFailed(auditWriter, {
+      const displayResult = getDisplayResult(text, capturedResult);
+      source = { content: displayResult, sourceIsError: false };
+    } catch (error) {
+      const errorMsg = formatErr(error);
+      execErrorCategory = classifyTaskError(error);
+      // The original execution error is preserved in audit even when the
+      // business outcome is later recovered by a post-processor.
+      emitHandlerFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
-        reason: 'finalize_failed',
-        error: formatErr(finalizeErr),
+        parent: task.parentClawId,
+        error: errorMsg,
+      });
+      source = { content: errorMsg, sourceIsError: true };
+    }
+
+    // Phase 2 — persist durable post-process input. Failure leaves the task in
+    // running; nothing has been committed yet, so recovery re-executes.
+    try {
+      await writePostProcessInput(fs, taskResultDir, source.content, source.sourceIsError);
+    } catch (inputErr) {
+      emitResultWriteFailed(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        context: 'post_process_input_persist',
+        error: formatErr(inputErr),
       });
       return;
     }
 
-    emitHandlerFailed(auditWriter, {
-      fullTaskId: task.id as FullTaskId,
-      shortTaskId: taskShortId(task),
-      parent: task.parentClawId,
-      error: errorMsg,
-    });
+    // Phase 3 — post-processor: decide the business outcome. Deferred keeps the
+    // task in running with the durable input for startup recovery replay.
+    let envelope: ProcessedTaskResult;
+    try {
+      envelope = await applyPostProcessor(source, task, postProcessors, fs, auditWriter);
+    } catch (processorErr) {
+      if (processorErr instanceof PostProcessorDeferredError) {
+        auditWriter.write(
+          TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED,
+          `taskId=${task.id}`,
+          `reason=${auditWriter.message(processorErr.message)}`,
+        );
+        return;
+      }
+      throw processorErr;
+    }
+
+    // Phase 4 — commit the final envelope (single atomic write; the only
+    // business commit point). After this succeeds the processor is never
+    // re-run for this task. The result.txt projection is non-authoritative:
+    // its failure is audited but blocks neither delivery nor the terminal move.
+    const resultStore = createProcessedResultStore(fs);
+    try {
+      await resultStore.commit(task.id, envelope);
+    } catch (commitErr) {
+      emitResultWriteFailed(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        context: 'envelope_commit_failed',
+        error: formatErr(commitErr),
+      });
+      return; // leave in running; recovery replays the durable input
+    }
+    try {
+      await resultStore.projectText(task.id, envelope);
+    } catch (projectErr) {
+      emitResultWriteFailed(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        context: 'result_text_projection_failed',
+        error: formatErr(projectErr),
+      });
+    }
+
+    // Phase 5 — deliver. A delivery failure only affects delivery status: the
+    // committed envelope/content/isError stay untouched, the task stays in
+    // running, and startup recovery resends the committed envelope.
+    try {
+      await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps);
+    } catch (deliveryErr) {
+      emitResultDeliveryFailed(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        reason: 'delivery_failed',
+        error: formatErr(deliveryErr),
+      });
+      return;
+    }
+
+    outcome = envelope.isError ? 'failed' : 'done';
+
+    // task_completed records the SOURCE execution outcome (status=ok|err) after
+    // successful delivery — it is the post-inbox-write causal signal. The
+    // processed terminal outcome (done/failed) is derived from envelope.isError.
     emitTaskCompleted(auditWriter, {
       fullTaskId: task.id as FullTaskId,
       shortTaskId: taskShortId(task),
-      status: 'err',
+      status: source.sourceIsError ? 'err' : 'ok',
       kind: 'subagent',
       parent: task.parentClawId,
       callerType: task.callerType ?? 'spawn_subagent',
       intent: auditWriter.preview(task.intent),  // phase 218: union 简化后两 mode 均有 intent
-      errorCategory: classifyTaskError(error),
+      ...(execErrorCategory !== undefined ? { errorCategory: execErrorCategory } : {}),
       elapsedMs: Date.now() - taskStartTime,
+      len: source.content.length,
       subAuditPath: `tasks/queues/results/${task.id}/audit.tsv`,
     });
   } finally {

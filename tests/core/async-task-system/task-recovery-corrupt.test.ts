@@ -80,7 +80,7 @@ function makeMockFsForRecovery(opts: {
     }),
     read: vi.fn().mockImplementation((filePath: string) => {
       const content = fileMap.get(filePath);
-      if (content === undefined) return Promise.reject(new Error('ENOENT'));
+      if (content === undefined) return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
       return Promise.resolve(content);
     }),
     move: vi.fn().mockImplementation((from: string, to: string) => {

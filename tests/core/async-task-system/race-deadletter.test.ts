@@ -16,7 +16,7 @@ import { waitFor } from '../../helpers/wait-for.js';
 
 
 const mockSendResult = vi.fn();
-const mockSendFallbackError = vi.fn().mockRejectedValue(new Error('fallback failed'));
+const mockSendFallbackResult = vi.fn().mockRejectedValue(new Error('fallback failed'));
 
 const mockWatcherFactory = vi.fn((_path: string, _callback: unknown) => ({
   close: vi.fn().mockResolvedValue(undefined),
@@ -25,7 +25,7 @@ const mockWatcherFactory = vi.fn((_path: string, _callback: unknown) => ({
 }));
 
 function makeRecoverDeps(fs: FileSystem, auditWriter: AuditLog): RecoverTasksDeps {
-  return { fs, auditWriter, sendResult: mockSendResult, sendFallbackError: mockSendFallbackError, sendToolResult: vi.fn().mockResolvedValue(undefined) };
+  return { fs, auditWriter, sendResult: mockSendResult, sendFallbackResult: mockSendFallbackResult, sendToolResult: vi.fn().mockResolvedValue(undefined) };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     beforeEach(async () => {
       vi.restoreAllMocks();
 
-      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackResult.mockRejectedValue(new Error('fallback failed'));
 
       mockFs = {
         ensureDir: vi.fn().mockResolvedValue(undefined),
@@ -78,7 +78,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         auditWriter: audit,
         ...makeTaskSystemDeps(),
         sendResult: mockSendResult,
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
         sendToolResult: vi.fn().mockResolvedValue(undefined),
         createWatcher: mockWatcherFactory,
       });
@@ -166,7 +166,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
   // ─── C2: dead-letter cluster ───────────────────────────────────────────────
   describe('C2: dead-letter cluster', () => {
     beforeEach(async () => {
-      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackResult.mockRejectedValue(new Error('fallback failed'));
     });
 
     const taskJson = JSON.stringify({
@@ -194,13 +194,12 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-dead.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result-envelope.json') return Promise.resolve(JSON.stringify({ schema_version: 1, content: 'result data', is_error: false }));
           if (path === retryPath) return Promise.resolve('3');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),
@@ -239,13 +238,12 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-dead.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result-envelope.json') return Promise.resolve(JSON.stringify({ schema_version: 1, content: 'result data', is_error: false }));
           if (path === retryPath) return Promise.resolve('3');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve(true);
           return Promise.resolve(false);
         }),
         move: vi.fn().mockImplementation((_src: string, dest: string) => {
@@ -287,7 +285,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     beforeEach(async () => {
       vi.restoreAllMocks();
 
-      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackResult.mockRejectedValue(new Error('fallback failed'));
 
       mockFs = {
         ensureDir: vi.fn().mockResolvedValue(undefined),
@@ -310,7 +308,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         auditWriter: audit,
         ...makeTaskSystemDeps(),
         sendResult: mockSendResult,
-        sendFallbackError: mockSendFallbackError,
+        sendFallbackResult: mockSendFallbackResult,
         sendToolResult: vi.fn().mockResolvedValue(undefined),
         createWatcher: mockWatcherFactory,
       });
@@ -441,7 +439,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
   // ─── P1.8: retryCount<MAX retry pending (phase 612) ──────────────────────────
   describe('P1.8 retryCount<MAX retry pending (phase 612)', () => {
     beforeEach(async () => {
-      mockSendFallbackError.mockRejectedValue(new Error('fallback failed'));
+      mockSendFallbackResult.mockRejectedValue(new Error('fallback failed'));
     });
 
     const taskJson = JSON.stringify({
@@ -469,13 +467,12 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-retry.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result-envelope.json') return Promise.resolve(JSON.stringify({ schema_version: 1, content: 'result data', is_error: false }));
           if (path === retryPath) return Promise.resolve('1');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),
@@ -533,13 +530,12 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-retry.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result-envelope.json') return Promise.resolve(JSON.stringify({ schema_version: 1, content: 'result data', is_error: false }));
           if (path === retryPath) return Promise.resolve('2');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),
@@ -578,13 +574,12 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-retry.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result-envelope.json') return Promise.resolve(JSON.stringify({ schema_version: 1, content: 'result data', is_error: false }));
           if (path === retryPath) return Promise.resolve('1');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),
