@@ -26,14 +26,16 @@ import {
   SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
   AskMotionTool,
   createSummonVerifyPolicy,
+  createSummonCreationClaimStore,
   SummonTool,
   listPendingRetrospectives,
   ackPendingRetrospective,
 } from '../core/summon-system/index.js';
+import type { SummonContractQuery } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem, MotionReviewContext } from '../core/evolution-system/index.js';
 import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/index.js';
-import { CONTRACT_AUDIT_EVENTS } from '../core/contract/index.js';
+import { CONTRACT_AUDIT_EVENTS, makeContractId } from '../core/contract/index.js';
 
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
@@ -174,8 +176,13 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
 
   // Phase 230 / phase 281 Step B: wire SummonVerifyPolicy into ContractSystem
   // 必须在 AsyncTaskSystem 构造完成后注册，以便 policy 通过 taskSystem 加载 task metadata。
+  // Phase 1396 Step B: SummonSystem 独占的 0/1 创建 claim store（workspace 级
+  // `.chestnut/summons/<summonId>/creation-claim.json`），daemon 与 CLI 经同一 factory 注入。
+  const chestnutRoot = resolveChestnutRoot(clawDir, isMotion);
+  const summonClaimStore = createSummonCreationClaimStore({ fs: fsFactory(chestnutRoot) });
   const summonVerifyPolicy = createSummonVerifyPolicy({
     auditWriter,
+    claimStore: summonClaimStore,
     loadTask: async (taskId: TaskId): Promise<SubAgentTask | undefined> => {
       for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
         try {
@@ -195,10 +202,32 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   contractManager.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 
   if (isMotion && evolutionSystem) {
+    // Phase 1396 Step B: summon 创建事实查询 capability —— 按 executor 构造
+    // ContractSystem 并核实 claim 指向的 contract 是否已提交（active 或 archive）。
+    const summonContractQuery: SummonContractQuery = {
+      async exists(targetExecutorId: string, contractId: string): Promise<boolean> {
+        const execDir = path.join(chestnutRoot, CLAWS_DIR, targetExecutorId);
+        const execFs = fsFactory(execDir);
+        const execAudit = createSystemAudit(execFs, execDir);
+        const execContracts = createContractSystem({
+          clawDir: execDir,
+          clawId: makeClawId(targetExecutorId),
+          fs: execFs,
+          audit: execAudit,
+          toolRegistry,
+          toolTimeoutMs,
+          fsFactory,
+          notifyClaw: (targetClawId, message) =>
+            notifyClawFn(execFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, execAudit),
+        });
+        return execContracts.hasContract(makeContractId(contractId));
+      },
+    };
     // Phase 1206 Step D: wire summon contract-extract post-processor to durable retrospective registration.
     // Motion-only: summon should not run on claw, so the post-processor is only registered here.
     const summonContractExtractPostProcessor = createSummonContractExtractPostProcessor(
       evolutionSystem.registerRetrospective.bind(evolutionSystem),
+      { claimStore: summonClaimStore, contractQuery: summonContractQuery },
     );
     taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
     taskSystem.addPostProcessor('dispatch-contract-extract', summonContractExtractPostProcessor);

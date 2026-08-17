@@ -7,6 +7,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
 
 // 重依赖延迟加载：collect 段不执行 assembly 大图顶层代码
@@ -656,5 +658,34 @@ describe('assemble-evolution-stepE-boundaries', () => {
       'source=contract_observer',
       expect.stringContaining('observer bridge failed'),
     );
+  });
+});
+
+
+describe('phase1396-summon-claim-wiring', () => {
+  /**
+   * Phase 1396 Step B: Assembly wiring invariants.
+   * - motion 装配的 summon post-processor 必须注入 claimStore + contractQuery
+   *   （创建事实核实不再依赖 audit evidence 行）。
+   * - summon-verify policy 必须带 claimStore（0/1 创建 claim）。
+   */
+  const ROOT = path.resolve(process.cwd());
+  const businessSystemsSrc = fs.readFileSync(
+    path.join(ROOT, 'src', 'assembly', 'business-systems.ts'),
+    'utf-8',
+  );
+
+  it('business-systems 为 summon post-processor 注入 claimStore + contractQuery', () => {
+    const idx = businessSystemsSrc.indexOf('createSummonContractExtractPostProcessor(');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    const call = businessSystemsSrc.slice(idx, idx + 500);
+    expect(call).toContain('claimStore');
+    expect(call).toContain('contractQuery');
+  });
+
+  it('business-systems 为 summon-verify policy 注入 claimStore', () => {
+    const call = businessSystemsSrc.match(/createSummonVerifyPolicy\(\{[\s\S]*?\}\)/);
+    expect(call).not.toBeNull();
+    expect(call![0]).toContain('claimStore');
   });
 });

@@ -41,6 +41,24 @@ export const SUMMON_AUDIT_EVENTS = {
    */
   SUB_AUDIT_READ_FAILED: 'summon_sub_audit_read_failed',
   LEGACY_RETRO_ACK_FAILED: 'summon_legacy_retro_ack_failed',
+  /**
+   * Phase 1396 Step B: 0/1 创建 claim 事件。
+   * CONTRACT_ALREADY_CLAIMED: 同一 summonId 的第二候选被 policy 拒绝。
+   * CLAIM_SKIPPED: summon task 缺少 executor 上下文（clawDir 与 decision.targetClaw 均缺失）、
+   *   无法构造 claim —— 实然路径不可达（CLI contract create 必传 --claw），保留作防御审计。
+   */
+  SUMMON_CONTRACT_ALREADY_CLAIMED: 'summon_contract_already_claimed',
+  SUMMON_CLAIM_SKIPPED: 'summon_claim_skipped',
+  /**
+   * Phase 1396 Step B: post-processor 创建事实核实事件。
+   * CREATION_RECOVERED: task error envelope 但 claim 指向的 contract 已提交 → 恢复为成功。
+   * CLAIM_CONTRACT_MISSING: claim 存在但 ContractSystem 核实无此 contract → 保持失败。
+   * CREATION_EVIDENCE_MISMATCH: audit evidence 与 claim 不一致 / 出现第二个不同 contract
+   *   evidence → invariant violation（evidence 只作审计交叉验证，不再是 authority）。
+   */
+  SUMMON_CREATION_RECOVERED: 'summon_creation_recovered',
+  SUMMON_CLAIM_CONTRACT_MISSING: 'summon_claim_contract_missing',
+  SUMMON_CREATION_EVIDENCE_MISMATCH: 'summon_creation_evidence_mismatch',
 } as const;
 
 export function emitSummonDispatched(audit: AuditLog, opts: {

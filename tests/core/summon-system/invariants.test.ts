@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'child_process';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
@@ -705,5 +706,55 @@ describe('summon-decision-metadata', () => {
       expect(invalidParsed.success).toBe(false);
     });
 
+  });
+});
+
+
+describe('phase1396-creation-claim-boundary', () => {
+  /**
+   * Phase 1396 Step B: 0/1 创建 claim 归 SummonSystem 独占。
+   *
+   * 反向验收：
+   * - ContractSystem 出现 summon-specific type/path → 失败
+   * - CLI 仍有 `loadTask: async () => undefined` 的 summon 子进程路径 → 失败
+   */
+  const ROOT = path.resolve(process.cwd());
+
+  function grepRecurse(args: string[]): string {
+    try {
+      return execFileSync('grep', ['-R', '-n', '--include=*.ts', ...args], {
+        cwd: ROOT,
+        encoding: 'utf-8',
+      });
+    } catch (e) {
+      // grep exits 1 when no matches — treat as empty
+      if ((e as any)?.status === 1) return '';
+      throw e;
+    }
+  }
+
+  it('ContractSystem 不出现 summon 创建 claim 资源/类型（0/1 correlation 归 SummonSystem）', () => {
+    const hits = grepRecurse([
+      '-E',
+      '(SummonCreationClaim|creation-claim|summons/)',
+      'src/core/contract',
+    ]);
+    expect(hits.trim()).toBe('');
+  });
+
+  it('CLI 不再注入恒 undefined 的 summon loadTask loader', () => {
+    const hits = grepRecurse([
+      '-F',
+      'loadTask: async () => undefined',
+      'src/cli',
+    ]);
+    expect(hits.trim()).toBe('');
+  });
+
+  it('CLI 与 Assembly 经同一 factory 注入 claim store（不直接拼路径）', () => {
+    for (const file of ['src/cli/index.ts', 'src/assembly/business-systems.ts']) {
+      const hits = grepRecurse(['-F', 'createSummonCreationClaimStore', file]);
+      expect(hits.trim()).not.toBe('');
+    }
   });
 });

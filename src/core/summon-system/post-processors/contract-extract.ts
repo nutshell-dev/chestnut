@@ -6,13 +6,7 @@ import type { FileSystem } from '../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
 import type { RegisterRetrospectiveInput } from '../../evolution-system/index.js';
 import { makeContractId } from '../../contract/index.js';
-
-/**
- * post-processor 失败 audit 时附带的 raw output 最大字符数（diagnostic 截断 cap）.
- * Derivation: 2000 char ≈ 1-2 page LLM raw response / 足够诊断 contract 提取失败原因
- * 但不致 audit.tsv 单行膨胀过大（audit.tsv 单行 ≈ 80 col × 25 line / 单 col 不超此）.
- */
-const RAW_OUTPUT_DIAGNOSTIC_MAX = 2000;
+import type { SummonCreationClaimStore } from '../creation-claim-store.js';
 
 /**
  * PostProcessor 注册名 — Assembly 装配期 addPostProcessor 用、
@@ -37,7 +31,8 @@ export interface ContractCreatedEvidence {
 
 /**
  * phase 1129 P1-16: scanSubAuditForContracts 非 FNF 读失败时抛出的 typed error。
- * 与 wrapFailureForMotion 的 0-evidence 语义区分：audit 可读性故障 ≠ 0 契约创建。
+ * Phase 1396 Step B 起 evidence 只作审计交叉验证（不再是创建 authority），
+ * 读失败只产生 audit，不再改变判定。
  */
 export class SubAuditReadError extends Error {
   constructor(
@@ -51,6 +46,7 @@ export class SubAuditReadError extends Error {
 /**
  * 扫子代理 audit.tsv 提取所有 `Contract created: <id> for claw <name>` 凭证。
  * 系统真相驱动 / 不依赖 LLM 自报告。
+ * Phase 1396 Step B: 只作审计交叉验证 —— 0/1 authority 是 creation claim + ContractSystem 核实。
  */
 export async function scanSubAuditForContracts(
   fs: FileSystem,
@@ -61,7 +57,6 @@ export async function scanSubAuditForContracts(
     content = await fs.read(subAuditPath);
   } catch (err) {
     if (isFileNotFound(err)) return [];  // audit 不存在 = 良性 0 evidence
-    // phase 1129 P1-16: 非 FNF 读失败 ≠「0 契约创建」——caller 需走 audit 读失败分支
     throw new SubAuditReadError(subAuditPath, err);
   }
 
@@ -81,26 +76,8 @@ export async function scanSubAuditForContracts(
   return evidence;
 }
 
-function wrapAuditReadFailureForMotion(rawResult: string, subAuditPath: string): string {
-  const truncated = rawResult.length > RAW_OUTPUT_DIAGNOSTIC_MAX
-    ? rawResult.slice(0, RAW_OUTPUT_DIAGNOSTIC_MAX) + '\n... [truncated; 完整输出见 result.txt]'
-    : rawResult;
-  return [
-    `[SUMMON_SHADOW_UNCERTAIN:audit_read_failed]`,
-    ``,
-    `子代理 audit 读取失败（非「0 契约创建」）：契约状态不确定。`,
-    ``,
-    `**Motion 必须立即执行**：先核实契约是否已创建（contract 查询确认）；`,
-    `未创建才可用 summon mining 模式重试。**不要直接用 mining 重试——契约可能已建、重试会重复创建。**`,
-    ``,
-    `失败路径：${subAuditPath}`,
-    ``,
-    `--- raw subagent output（diagnostic only、不是完成信号、不要转发） ---`,
-    truncated,
-  ].join('\n');
-}
-
 function wrapFailureForMotion(rawResult: string): string {
+  const RAW_OUTPUT_DIAGNOSTIC_MAX = 2000;
   const truncated = rawResult.length > RAW_OUTPUT_DIAGNOSTIC_MAX
     ? rawResult.slice(0, RAW_OUTPUT_DIAGNOSTIC_MAX) + '\n... [truncated; 完整输出见 result.txt]'
     : rawResult;
@@ -131,39 +108,53 @@ function buildSuccessSummary(rawResult: string, evidence: ContractCreatedEvidenc
 }
 
 /**
+ * Phase 1396 Step B: 装配期注入的 ContractSystem 创建事实查询 capability。
+ * 实现方按 executor 构造/复用 ContractSystem 并回答 contract 是否已提交
+ * （active 或 archive）；SummonSystem 不直接读 contract 目录。
+ */
+export interface SummonContractQuery {
+  exists(targetExecutorId: string, contractId: string): Promise<boolean>;
+}
+
+export interface SummonContractExtractDeps {
+  /** SummonSystem 独占的 0/1 创建 claim store（读侧：恢复核实锚点） */
+  claimStore: SummonCreationClaimStore;
+  /** ContractSystem 创建事实查询 capability（装配期注入） */
+  contractQuery: SummonContractQuery;
+}
+
+/**
  * summon-contract-extract PostProcessor factory.
  *
- * phase 1466 重写：判定 source 从 LLM marker（`[CONTRACT_DONE]{...}`）改 subagent audit
- * `tool_exec exec ok summary=Contract created: <id> for claw <name>` 系统真相凭证。
- *
- * phase 1206 Step D: 不再写 legacy `clawspace/pending-retrospective/by-contract`；
- * 改为调用 EvolutionSystem 提供的 `registerRetrospective` 注册 durable retrospective。
- *
- * 应然原则：
- * - 不采用 LLM 自我声明（user 2026-05-30 ratify）
- * - 至少 1 次 contract create 成功 = 成功；0 次 = 失败（A1 ratify）
- * - 每条 evidence 独立 retro trigger（多契约独立 ratify）
- * - shadow 主动放弃 ≡ 失败（二态 ratify、reason 经 raw output 透传）
- *
- * 判定 / 注册 / summary 构造：
- * - subAudit 读 `tasks/queues/results/<task.id>/audit.tsv`、grep `Contract created:` 行提 evidence
- * - 0 evidence → wrap framing + spawn 建议 + raw output diagnostic
- * - ≥1 evidence → 每条 evidence 调用 registerRetrospective + clean summary 附 [CONTRACTS_CREATED] 段
+ * Phase 1396 Step B 重写判定 authority：
+ * - success/error 两条路径都先读 creation claim，再经 ContractSystem query capability
+ *   核实 {targetExecutorId, contractId} 是否已提交；
+ * - claim + contract 已提交 → 成功（error envelope 同样恢复为成功，重建回执继续交付）；
+ * - claim 存在但 contract 不存在 → 保持/判定失败（0/1 不变量：failed <=> 零个 contract）；
+ * - 无 claim + success envelope → 失败（无创建事实记录）；
+ * - 无 claim + error envelope → 透传上游 error；
+ * - audit evidence scan 降级为审计交叉验证：发现第二个不同 contract evidence 或
+ *   evidence 与 claim 不一致 → emit invariant violation（SUMMON_CREATION_EVIDENCE_MISMATCH）。
  *
  * 历史：
  * - phase 438 初立 marker 解析路径（寄生 LLM 文本）
  * - phase 1464 加 failure wrap framing（判 source 仍 LLM marker、根因未除）
  * - phase 1466 user reframe 重写 source / 判 source 改系统真相、保 wrap framing 复用
  * - phase 1206 Step D 改由 factory 注入 registerRetrospective、消除 legacy by-contract 写
+ * - phase 1396 Step B 判定 authority 改 creation claim + ContractSystem 核实（0/1 不变量）
  */
 export function createSummonContractExtractPostProcessor(
   registerRetrospective: (input: RegisterRetrospectiveInput) => Promise<void>,
+  deps: SummonContractExtractDeps,
 ): PostProcessor {
   return async (result, task, isError, _fs, audit) => {
-    if (isError) return result;  // 上游 error envelope 已 explicit、不再二次 wrap
-
     const subAuditPath = `tasks/queues/results/${task.id}/audit.tsv`;
-    let evidence: ContractCreatedEvidence[];
+
+    // 1. claim 是创建事实的恢复锚点（success/error 两条路径都先读）
+    const claim = await deps.claimStore.read(task.id);
+
+    // 2. evidence scan 降级为审计交叉验证（读失败只 audit，不改判定）
+    let evidence: ContractCreatedEvidence[] = [];
     try {
       evidence = await scanSubAuditForContracts(_fs, subAuditPath);
     } catch (err) {
@@ -174,38 +165,80 @@ export function createSummonContractExtractPostProcessor(
           `path=${subAuditPath}`,
           `error=${formatErr(err.cause)}`,
         );
-        return wrapAuditReadFailureForMotion(result, subAuditPath);
+      } else {
+        throw err;
       }
-      throw err;
     }
-    const mode: 'mining' | 'shadow' = task.callerType === SUMMON_CALLER_TYPES.MINER ? 'mining' : 'shadow';
 
-    if (evidence.length === 0) {
+    // 3. 交叉验证 invariant：至多一个 contract，且必须与 claim 一致
+    const distinctEvidenceIds = [...new Set(evidence.map(e => e.contractId))];
+    const mismatch =
+      distinctEvidenceIds.length > 1 ||
+      (!claim && distinctEvidenceIds.length > 0) ||
+      (claim !== undefined && evidence.some(
+        e => e.contractId !== claim.contractId || e.targetClaw !== claim.targetExecutorId,
+      ));
+    if (mismatch) {
+      audit.write(
+        SUMMON_AUDIT_EVENTS.SUMMON_CREATION_EVIDENCE_MISMATCH,
+        `taskId=${task.id}`,
+        `claimContractId=${claim?.contractId ?? '(none)'}`,
+        `evidenceContractIds=${distinctEvidenceIds.join(',') || '(none)'}`,
+      );
+    }
+
+    // 4. 无 claim：无创建事实记录
+    if (!claim) {
+      if (isError) return result;  // 上游 error envelope 已 explicit、不再二次 wrap
       audit.write(SUMMON_AUDIT_EVENTS.NO_CONTRACT_CREATED, `taskId=${task.id}`);
       return wrapFailureForMotion(result);
     }
 
-    // ≥1 evidence: durable registration per evidence（多契约独立）
-    for (const { contractId, targetClaw } of evidence) {
-      try {
-        await registerRetrospective({
-          contractId: makeContractId(contractId),
-          targetClaw,
-          mode,
-          ...(mode === 'shadow' ? { shadowTaskId: task.id } : { miningTaskId: task.id }),
-        });
-      } catch (e) {
-        audit.write(
-          SUMMON_AUDIT_EVENTS.RETROSPECTIVE_REGISTRATION_FAILED,
-          `taskId=${task.id}`,
-          `contractId=${contractId}`,
-          `targetClaw=${targetClaw}`,
-          `error=${formatErr(e)}`,
-        );
-        // 契约已真创建：保留成功判定，继续处理下一条 evidence
-      }
+    // 5. 有 claim：经 ContractSystem query capability 核实创建事实
+    const exists = await deps.contractQuery.exists(claim.targetExecutorId, claim.contractId);
+    if (!exists) {
+      // 创建任务已终止且确认零 contract → summon failed（0/1 不变量失败侧）
+      audit.write(
+        SUMMON_AUDIT_EVENTS.SUMMON_CLAIM_CONTRACT_MISSING,
+        `taskId=${task.id}`,
+        `contractId=${claim.contractId}`,
+        `targetExecutorId=${claim.targetExecutorId}`,
+      );
+      if (isError) return result;  // 保持 task failure
+      return wrapFailureForMotion(result);
     }
 
-    return buildSuccessSummary(result, evidence);
+    // 6. contract 已提交 → 成功事实成立（error envelope 恢复为成功、重建回执）
+    if (isError) {
+      audit.write(
+        SUMMON_AUDIT_EVENTS.SUMMON_CREATION_RECOVERED,
+        `taskId=${task.id}`,
+        `contractId=${claim.contractId}`,
+        `targetExecutorId=${claim.targetExecutorId}`,
+      );
+    }
+
+    const mode: 'mining' | 'shadow' = task.callerType === SUMMON_CALLER_TYPES.MINER ? 'mining' : 'shadow';
+    try {
+      await registerRetrospective({
+        contractId: makeContractId(claim.contractId),
+        targetClaw: claim.targetExecutorId,
+        mode,
+        ...(mode === 'shadow' ? { shadowTaskId: task.id } : { miningTaskId: task.id }),
+      });
+    } catch (e) {
+      audit.write(
+        SUMMON_AUDIT_EVENTS.RETROSPECTIVE_REGISTRATION_FAILED,
+        `taskId=${task.id}`,
+        `contractId=${claim.contractId}`,
+        `targetClaw=${claim.targetExecutorId}`,
+        `error=${formatErr(e)}`,
+      );
+      // 契约已真创建：保留成功判定
+    }
+
+    return buildSuccessSummary(result, [
+      { contractId: claim.contractId, targetClaw: claim.targetExecutorId },
+    ]);
   };
 }

@@ -40,9 +40,19 @@ import { getChestnutRoot, getClawDir } from '../core/claw-topology/index.js';
 // phase 1301 Step A：CLI composition root 只从 Assembly barrel 取 factory，
 // 在 fsFactory 定义后集中创建一次 RootConfig，index 自身 guard 与 router 共用同一实例。
 import { createRootConfig, createRootConfigLegacyMigration } from '../assembly/index.js';
-import { createSummonVerifyPolicy } from '../core/summon-system/index.js';
+import { createSummonVerifyPolicy, createSummonCreationClaimStore } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { resolveChestnutRoot } from '../core/claw-topology/index.js';
+import * as path from 'path';
+import { isFileNotFound } from '../foundation/fs/index.js';
+import {
+  TASKS_QUEUES_PENDING_DIR,
+  TASKS_QUEUES_RUNNING_DIR,
+  TASKS_QUEUES_DONE_DIR,
+  TASKS_QUEUES_FAILED_DIR,
+  validateTaskShape,
+} from '../core/async-task-system/index.js';
+import type { SubAgentTask, TaskId } from '../core/async-task-system/index.js';
 // CLAWS_DIR removed: phase 263
 import { AUDIT_FILE_STEM, createSystemAudit } from '../foundation/audit/index.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
@@ -266,8 +276,29 @@ contractCmd
       const clawFs = fsFactory(clawDir);
       const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
       const clawAudit = createSystemAudit(clawFs, clawDir);
-      // phase 281 Step B: CLI manual contract create 无 subagentTaskId，loadTask 不被调用。
-      const summonVerifyPolicy = createSummonVerifyPolicy({ loadTask: async () => undefined, auditWriter: clawAudit });
+      // Phase 1396 Step B: CLI 不得再注入恒 undefined loader —— summon task 实然由
+      // motion AsyncTaskSystem 持有，从 motion 磁盘队列扫 pending/running/done/failed
+      // 四目录并用 Task schema 校验；claim store 与 daemon 经同一 factory 注入。
+      const motionFs = fsFactory(path.join(chestnutRoot, MOTION_CLAW_ID));
+      const summonVerifyPolicy = createSummonVerifyPolicy({
+        auditWriter: clawAudit,
+        claimStore: createSummonCreationClaimStore({ fs: fsFactory(chestnutRoot) }),
+        loadTask: async (taskId: TaskId): Promise<SubAgentTask | undefined> => {
+          for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+            try {
+              const content = await motionFs.read(`${dir}/${taskId}.json`);
+              const parsed = JSON.parse(content) as unknown;
+              if (validateTaskShape(parsed) && (parsed as SubAgentTask).kind === 'subagent') {
+                return parsed as SubAgentTask;
+              }
+            } catch (err) {
+              if (isFileNotFound(err)) continue;
+              throw err;
+            }
+          }
+          return undefined;
+        },
+      });
 
       // phase 257: wire ClawTopology 到 ContractSystem 的 ToolRegistry
       const toolRegistry = createToolRegistry();

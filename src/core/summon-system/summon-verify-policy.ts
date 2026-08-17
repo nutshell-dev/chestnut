@@ -5,17 +5,26 @@ import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 import type { SubAgentTask } from '../async-task-system/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeTaskId, type TaskId } from '../async-task-system/index.js';
+import {
+  SummonContractAlreadyClaimedError,
+  type SummonCreationClaimStore,
+} from './creation-claim-store.js';
 
 // ============================================================================
 // Phase 230: SummonVerifyPolicy — ContractCreatePolicy implementation
 // Phase 281 Step B: decision 改从 SubAgentTask.summonDecision metadata 读取，
 // 不再依赖 summon-state-store（已删）。pre-phase 281 任务无 metadata → undefined。
+// Phase 1396 Step B: summon 0/1 创建 claim —— 同一 summon task 首个合法候选取得
+// durable claim；同候选重试幂等通过，不同候选由 policy 拒绝。claim store 归
+// SummonSystem 独占；ContractSystem 只运行已注册 policy，不理解 summon。
 // ============================================================================
 
 export interface SummonVerifyPolicyDeps {
   /** 按 taskId 加载 SubAgentTask；找不到或不是 subagent 时返 undefined */
   loadTask: (taskId: TaskId) => Promise<SubAgentTask | undefined>;
   auditWriter: AuditLog;
+  /** Phase 1396 Step B: summon-scoped 创建 claim store（SummonSystem 独占资源） */
+  claimStore: SummonCreationClaimStore;
 }
 
 export function createSummonVerifyPolicy(
@@ -46,7 +55,7 @@ export function createSummonVerifyPolicy(
 
       const decision = task?.summonDecision;
 
-      if (!decision) {
+      if (!decision || !task) {
         // metadata 缺失 = 非 summon 创建路径（如直接 CLI 调用、其他 caller subagent、pre-phase 281 旧任务）
         deps.auditWriter.write(
           SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
@@ -56,50 +65,92 @@ export function createSummonVerifyPolicy(
         return;
       }
 
-      if (decision.verify) {
-        return; // verify=true → 无限制
+      if (!decision.verify) {
+        // verify=false 路径：检查 verification 承诺
+        const verificationArr = contract.verification ?? [];
+        if (verificationArr.length > 0) {
+          deps.auditWriter.write(
+            SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
+            `subagentTaskId=${subagentTaskId}`,
+            `targetClaw=${decision.targetClaw ?? '(unset)'}`,
+            `verificationCount=${verificationArr.length}`,
+          );
+          throw new ContractCreatePolicyViolationError(
+            'summon-verify',
+            'summon_verify_false_violation',
+            {
+              subagentTaskId,
+              targetClaw: decision.targetClaw,
+              verificationCount: verificationArr.length,
+              note: 'summon dispatch with verify=false; contract must not include verification entries',
+            },
+          );
+        }
+
+        // phase 119: target_claw 边界校验（verify=false 路径）
+        const clawDir = ctx.clawDir;
+        if (decision.targetClaw && clawDir && decision.targetClaw !== clawDir) {
+          deps.auditWriter.write(
+            SUMMON_AUDIT_EVENTS.SUMMON_TARGET_CLAW_VIOLATION,
+            `subagentTaskId=${subagentTaskId}`,
+            `expectedTargetClaw=${decision.targetClaw}`,
+            `requestedClawId=${clawDir}`,
+          );
+          throw new ContractCreatePolicyViolationError(
+            'summon-verify',
+            'summon_target_claw_violation',
+            {
+              subagentTaskId,
+              expectedTargetClaw: decision.targetClaw,
+              requestedClawId: clawDir,
+              note: 'cross-claw contract creation from a summon subagent is prohibited',
+            },
+          );
+        }
       }
 
-      // verify=false 路径：检查 verification 承诺
-      const verificationArr = contract.verification ?? [];
-      if (verificationArr.length > 0) {
+      // Phase 1396 Step B: 0/1 创建 claim（在上述 violation 检查全部通过后，
+      // 被拒绝的创建不消耗 claim）。claim 是最后闸门。
+      const targetExecutorId = ctx.clawDir ?? decision.targetClaw;
+      if (!targetExecutorId) {
+        // 实然不可达（CLI contract create 必传 --claw）；防御审计 + pass-through
         deps.auditWriter.write(
-          SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
+          SUMMON_AUDIT_EVENTS.SUMMON_CLAIM_SKIPPED,
           `subagentTaskId=${subagentTaskId}`,
-          `targetClaw=${decision.targetClaw ?? '(unset)'}`,
-          `verificationCount=${verificationArr.length}`,
+          'reason=no_executor_context',
         );
-        throw new ContractCreatePolicyViolationError(
-          'summon-verify',
-          'summon_verify_false_violation',
-          {
-            subagentTaskId,
-            targetClaw: decision.targetClaw,
-            verificationCount: verificationArr.length,
-            note: 'summon dispatch with verify=false; contract must not include verification entries',
-          },
-        );
+        return;
       }
-
-      // phase 119: target_claw 边界校验（verify=false 路径）
-      const clawDir = ctx.clawDir;
-      if (decision.targetClaw && clawDir && decision.targetClaw !== clawDir) {
-        deps.auditWriter.write(
-          SUMMON_AUDIT_EVENTS.SUMMON_TARGET_CLAW_VIOLATION,
-          `subagentTaskId=${subagentTaskId}`,
-          `expectedTargetClaw=${decision.targetClaw}`,
-          `requestedClawId=${clawDir}`,
-        );
-        throw new ContractCreatePolicyViolationError(
-          'summon-verify',
-          'summon_target_claw_violation',
-          {
-            subagentTaskId,
-            expectedTargetClaw: decision.targetClaw,
-            requestedClawId: clawDir,
-            note: 'cross-claw contract creation from a summon subagent is prohibited',
-          },
-        );
+      try {
+        await deps.claimStore.claim({
+          summonId: task.id,
+          targetExecutorId,
+          contractId: ctx.proposedContractId,
+        });
+      } catch (err) {
+        if (err instanceof SummonContractAlreadyClaimedError) {
+          deps.auditWriter.write(
+            SUMMON_AUDIT_EVENTS.SUMMON_CONTRACT_ALREADY_CLAIMED,
+            `subagentTaskId=${subagentTaskId}`,
+            `summonId=${task.id}`,
+            `claimedContractId=${err.existing.contractId}`,
+            `requestedContractId=${err.requested.contractId}`,
+          );
+          throw new ContractCreatePolicyViolationError(
+            'summon-verify',
+            'summon_contract_already_claimed',
+            {
+              subagentTaskId,
+              summonId: task.id,
+              claimedContractId: err.existing.contractId,
+              claimedTargetExecutorId: err.existing.targetExecutorId,
+              requestedContractId: err.requested.contractId,
+              requestedTargetExecutorId: err.requested.targetExecutorId,
+              note: 'one summon may create at most one contract; a different candidate is rejected',
+            },
+          );
+        }
+        throw err;
       }
     },
   };

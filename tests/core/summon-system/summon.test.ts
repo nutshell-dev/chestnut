@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
 import { buildMinerSystemPrompt } from '../../../src/templates/prompts/mining.js';
 import { createSummonContractExtractPostProcessor } from '../../../src/core/summon-system/post-processors/contract-extract.js';
+import { createSummonCreationClaimStore } from '../../../src/core/summon-system/creation-claim-store.js';
 import type { RegisterRetrospectiveInput } from '../../../src/core/evolution-system/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
@@ -348,7 +349,7 @@ Content.
     });
   });
 
-  describe('summon-contract-extract postProcessor', () => {
+  describe('summon-contract-extract postProcessor (phase 1396 Step B: claim authority)', () => {
     function makeAuditWriter() {
       return { write: vi.fn() };
     }
@@ -365,11 +366,41 @@ Content.
       return `2026-05-30T06:00:00.000Z\tseq=${seq}\ttool_exec\texec\tok\telapsed_ms=100\tsummary=${escaped}`;
     }
 
-    it('phase1466/1206D: 1 contract evidence → success summary + registerRetrospective called + no failure audit', async () => {
+    function makeClaimStore() {
+      return createSummonCreationClaimStore({ fs: new NodeFileSystem({ baseDir: tempDir }) });
+    }
+
+    async function seedClaim(summonId: string, targetExecutorId: string, contractId: string) {
+      const store = makeClaimStore();
+      await store.claim({ summonId, targetExecutorId, contractId });
+      return store;
+    }
+
+    function makePostProcessor(opts: {
+      registerRetrospective?: (input: RegisterRetrospectiveInput) => Promise<void>;
+      exists?: boolean;
+      claimStore?: ReturnType<typeof makeClaimStore>;
+    }) {
+      const existsSpy = vi.fn(async () => opts.exists ?? true);
+      const postProcessor = createSummonContractExtractPostProcessor(
+        opts.registerRetrospective ?? vi.fn(async () => {}),
+        {
+          claimStore: opts.claimStore ?? makeClaimStore(),
+          contractQuery: { exists: existsSpy },
+        },
+      );
+      return { postProcessor, existsSpy };
+    }
+
+    it('claim + contract 已提交 + evidence 一致 → success summary + registerRetrospective + 无 failure audit', async () => {
       const auditWriter = makeAuditWriter();
       const registered: RegisterRetrospectiveInput[] = [];
-      const registerRetrospective = vi.fn(async (input: RegisterRetrospectiveInput) => { registered.push(input); });
-      const postProcessor = createSummonContractExtractPostProcessor(registerRetrospective);
+      const claimStore = await seedClaim('task-pp-test', 'filetool-auditor', '1780122465165-bcf86856');
+      const { postProcessor, existsSpy } = makePostProcessor({
+        registerRetrospective: async (input) => { registered.push(input); },
+        exists: true,
+        claimStore,
+      });
 
       await writeSubAudit('task-pp-test', [
         execOkRow(1, 'Contract created: 1780122465165-bcf86856 for claw filetool-auditor'),
@@ -383,13 +414,13 @@ Content.
         auditWriter as any,
       );
 
-      expect(registerRetrospective).toHaveBeenCalledTimes(1);
-      expect(registered[0]).toEqual({
+      expect(existsSpy).toHaveBeenCalledWith('filetool-auditor', '1780122465165-bcf86856');
+      expect(registered).toEqual([{
         contractId: '1780122465165-bcf86856',
         targetClaw: 'filetool-auditor',
         mode: 'mining',
         miningTaskId: 'task-pp-test',
-      });
+      }]);
 
       // legacy by-contract file must NOT be written
       const byContractPath = path.join(
@@ -403,16 +434,160 @@ Content.
       expect(summary).not.toContain('[SUMMON_SHADOW_FAILED');
 
       const failCalls = auditWriter.write.mock.calls.filter(
-        (c: any) => c[0]?.startsWith('summon_'),
+        (c: any) => typeof c[0] === 'string' && c[0].startsWith('summon_'),
       );
       expect(failCalls).toHaveLength(0);
     });
 
-    it('phase1466/1206D: N contracts evidence → N registerRetrospective calls, all independent', async () => {
+    it('error envelope + claim 指向的 contract 已提交 → 恢复为成功（重建回执）', async () => {
       const auditWriter = makeAuditWriter();
       const registered: RegisterRetrospectiveInput[] = [];
-      const registerRetrospective = vi.fn(async (input: RegisterRetrospectiveInput) => { registered.push(input); });
-      const postProcessor = createSummonContractExtractPostProcessor(registerRetrospective);
+      const claimStore = await seedClaim('task-recover', 'claw-a', 'c-recovered');
+      const { postProcessor } = makePostProcessor({
+        registerRetrospective: async (input) => { registered.push(input); },
+        exists: true,
+        claimStore,
+      });
+
+      const summary = await postProcessor(
+        'subagent crashed after create',
+        { id: 'task-recover', callerType: 'shadow_subagent' } as any,
+        true,
+        mockFs,
+        auditWriter as any,
+      );
+
+      expect(summary).toContain('[CONTRACTS_CREATED]');
+      expect(summary).toContain('c-recovered (claw=claw-a)');
+      expect(registered).toEqual([{
+        contractId: 'c-recovered',
+        targetClaw: 'claw-a',
+        mode: 'shadow',
+        shadowTaskId: 'task-recover',
+      }]);
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_creation_recovered',
+        'taskId=task-recover',
+        'contractId=c-recovered',
+        'targetExecutorId=claw-a',
+      );
+    });
+
+    it('claim 存在但 contract 不存在（success envelope）→ 保持失败 wrap', async () => {
+      const auditWriter = makeAuditWriter();
+      const claimStore = await seedClaim('task-missing', 'claw-a', 'c-missing');
+      const { postProcessor } = makePostProcessor({ exists: false, claimStore });
+
+      const result = await postProcessor(
+        'Done.',
+        { id: 'task-missing', callerType: 'shadow_subagent' } as any,
+        false,
+        mockFs,
+        auditWriter as any,
+      );
+
+      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_claim_contract_missing',
+        'taskId=task-missing',
+        'contractId=c-missing',
+        'targetExecutorId=claw-a',
+      );
+    });
+
+    it('claim 存在但 contract 不存在（error envelope）→ 透传 task failure', async () => {
+      const auditWriter = makeAuditWriter();
+      const claimStore = await seedClaim('task-missing-err', 'claw-a', 'c-missing');
+      const { postProcessor } = makePostProcessor({ exists: false, claimStore });
+
+      const result = await postProcessor(
+        'some error result',
+        { id: 'task-missing-err', callerType: 'miner_subagent' } as any,
+        true,
+        mockFs,
+        auditWriter as any,
+      );
+
+      expect(result).toBe('some error result');
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_claim_contract_missing',
+        'taskId=task-missing-err',
+        'contractId=c-missing',
+        'targetExecutorId=claw-a',
+      );
+    });
+
+    it('无 claim + success envelope + 0 evidence → NO_CONTRACT_CREATED + failure wrap', async () => {
+      const auditWriter = makeAuditWriter();
+      const { postProcessor, existsSpy } = makePostProcessor({});
+      // no writeSubAudit call → audit.tsv doesn't exist
+
+      const result = await postProcessor(
+        'Result text.',
+        { id: 'task-no-audit', callerType: 'shadow_subagent' } as any,
+        false,
+        mockFs,
+        auditWriter as any,
+      );
+
+      expect(existsSpy).not.toHaveBeenCalled();
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_no_contract_created',
+        'taskId=task-no-audit',
+      );
+      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
+    });
+
+    it('无 claim + error envelope → 透传不变、无 audit', async () => {
+      const auditWriter = makeAuditWriter();
+      const { postProcessor, existsSpy } = makePostProcessor({});
+      const result = await postProcessor(
+        'some error result',
+        { id: 'task-err', callerType: 'miner_subagent' } as any,
+        true,
+        mockFs,
+        auditWriter as any,
+      );
+
+      expect(result).toBe('some error result');
+      expect(existsSpy).not.toHaveBeenCalled();
+      expect(auditWriter.write).not.toHaveBeenCalled();
+    });
+
+    it('无 claim 但 evidence 存在 → evidence 不再授权：failure wrap + invariant violation audit', async () => {
+      const auditWriter = makeAuditWriter();
+      const registered: RegisterRetrospectiveInput[] = [];
+      const { postProcessor } = makePostProcessor({
+        registerRetrospective: async (input) => { registered.push(input); },
+        exists: true,
+      });
+
+      await writeSubAudit('task-no-claim-evidence', [
+        execOkRow(1, 'Contract created: c-orphan for claw claw-x'),
+      ]);
+
+      const result = await postProcessor(
+        'Done.',
+        { id: 'task-no-claim-evidence', callerType: 'shadow_subagent' } as any,
+        false,
+        mockFs,
+        auditWriter as any,
+      );
+
+      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
+      expect(registered).toHaveLength(0);
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_creation_evidence_mismatch',
+        'taskId=task-no-claim-evidence',
+        'claimContractId=(none)',
+        'evidenceContractIds=c-orphan',
+      );
+    });
+
+    it('第二个不同 contract evidence → invariant violation audit（claim authority 不变）', async () => {
+      const auditWriter = makeAuditWriter();
+      const claimStore = await seedClaim('task-multi', 'claw-alpha', 'c1-aaa');
+      const { postProcessor } = makePostProcessor({ exists: true, claimStore });
 
       await writeSubAudit('task-multi', [
         execOkRow(1, 'Contract created: c1-aaa for claw claw-alpha'),
@@ -427,112 +602,51 @@ Content.
         auditWriter as any,
       );
 
-      expect(registerRetrospective).toHaveBeenCalledTimes(2);
-      expect(registered).toContainEqual({
-        contractId: 'c1-aaa',
-        targetClaw: 'claw-alpha',
-        mode: 'shadow',
-        shadowTaskId: 'task-multi',
-      });
-      expect(registered).toContainEqual({
-        contractId: 'c2-bbb',
-        targetClaw: 'claw-beta',
-        mode: 'shadow',
-        shadowTaskId: 'task-multi',
-      });
-
+      // claim 是唯一 authority：summary 只含 claim 指向的 contract
       expect(summary).toContain('c1-aaa (claw=claw-alpha)');
-      expect(summary).toContain('c2-bbb (claw=claw-beta)');
-    });
-
-    it('phase1466: subAudit file missing → fallthrough to failure wrap', async () => {
-      const auditWriter = makeAuditWriter();
-      const postProcessor = createSummonContractExtractPostProcessor(vi.fn());
-      // no writeSubAudit call → audit.tsv doesn't exist
-
-      const result = await postProcessor(
-        'Result text.',
-        { id: 'task-no-audit', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
-
+      expect(summary).not.toContain('c2-bbb');
       expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_no_contract_created',
-        'taskId=task-no-audit',
+        'summon_creation_evidence_mismatch',
+        'taskId=task-multi',
+        'claimContractId=c1-aaa',
+        'evidenceContractIds=c1-aaa,c2-bbb',
       );
-      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
     });
 
-    it('phase1129 P1-16: subAudit read non-FNF failure → SUB_AUDIT_READ_FAILED + uncertain motion guidance', async () => {
+    it('evidence 与 claim 指向不同 contract → invariant violation audit', async () => {
       const auditWriter = makeAuditWriter();
-      const postProcessor = createSummonContractExtractPostProcessor(vi.fn());
-      const readSpy = vi.spyOn(mockFs, 'read').mockRejectedValue(
-        Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
-      );
+      const claimStore = await seedClaim('task-mismatch', 'claw-a', 'c-claimed');
+      const { postProcessor } = makePostProcessor({ exists: true, claimStore });
 
-      const result = await postProcessor(
-        'Result text.',
-        { id: 'task-io-err', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
-
-      expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_sub_audit_read_failed',
-        'taskId=task-io-err',
-        expect.stringContaining('path=tasks/queues/results/task-io-err/audit.tsv'),
-        expect.stringContaining('error=[EACCES]'),
-      );
-      expect(result).toContain('[SUMMON_SHADOW_UNCERTAIN:audit_read_failed]');
-      expect(result).toContain('不要直接用 mining 重试');
-
-      readSpy.mockRestore();
-    });
-
-    it('phase1466/1206D: malformed audit rows are skipped, valid rows still registered', async () => {
-      const auditWriter = makeAuditWriter();
-      const registered: RegisterRetrospectiveInput[] = [];
-      const registerRetrospective = vi.fn(async (input: RegisterRetrospectiveInput) => { registered.push(input); });
-      const postProcessor = createSummonContractExtractPostProcessor(registerRetrospective);
-
-      await writeSubAudit('task-mixed', [
-        'malformed line with no tabs',
-        '\t\t\t\t\t\t',  // empty cols
-        execOkRow(1, 'Contract created: c-good for claw real-claw'),
-        '2026-05-30T06:00:00.000Z\tseq=2\ttool_exec\texec\terr\telapsed_ms=10\tsummary=Some error',  // err status filtered
-        '2026-05-30T06:00:00.000Z\tseq=3\ttool_exec\twrite\tok\telapsed_ms=5\tsummary=Contract created: fake for claw should-not-match',  // wrong tool name
+      await writeSubAudit('task-mismatch', [
+        execOkRow(1, 'Contract created: c-other for claw claw-a'),
       ]);
 
       const summary = await postProcessor(
         'Done.',
-        { id: 'task-mixed', callerType: 'shadow_subagent' } as any,
+        { id: 'task-mismatch', callerType: 'shadow_subagent' } as any,
         false,
         mockFs,
         auditWriter as any,
       );
 
-      expect(registerRetrospective).toHaveBeenCalledTimes(1);
-      expect(registered[0]).toEqual({
-        contractId: 'c-good',
-        targetClaw: 'real-claw',
-        mode: 'shadow',
-        shadowTaskId: 'task-mixed',
-      });
-
-      const fakePath = path.join(tempDir, 'clawspace', 'pending-retrospective', 'by-contract', 'fake.json');
-      await expect(fs.access(fakePath)).rejects.toThrow();  // not written
-
-      expect(summary).toContain('c-good (claw=real-claw)');
-      expect(summary).not.toContain('fake');
+      expect(summary).toContain('c-claimed (claw=claw-a)');
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_creation_evidence_mismatch',
+        'taskId=task-mismatch',
+        'claimContractId=c-claimed',
+        'evidenceContractIds=c-other',
+      );
     });
 
-    it('phase1206D: registerRetrospective failure → audit RETROSPECTIVE_REGISTRATION_FAILED, evidence still drives success summary', async () => {
+    it('registerRetrospective failure → audit RETROSPECTIVE_REGISTRATION_FAILED，成功判定不变', async () => {
       const auditWriter = makeAuditWriter();
-      const registerRetrospective = vi.fn().mockRejectedValue(new Error('store conflict'));
-      const postProcessor = createSummonContractExtractPostProcessor(registerRetrospective);
+      const claimStore = await seedClaim('task-reg-fail', 'my-claw', 'c-failreg');
+      const { postProcessor } = makePostProcessor({
+        registerRetrospective: vi.fn().mockRejectedValue(new Error('store conflict')),
+        exists: true,
+        claimStore,
+      });
 
       await writeSubAudit('task-reg-fail', [
         execOkRow(1, 'Contract created: c-failreg for claw my-claw'),
@@ -553,64 +667,37 @@ Content.
         'targetClaw=my-claw',
         'error=store conflict',
       );
-      // evidence existed → still success summary (retro 注册失败不改判定 / 契约已真创建)
       expect(summary).toContain('[CONTRACTS_CREATED]');
       expect(summary).toContain('c-failreg');
     });
 
-    it('phase1206D: one registration failure does not block remaining evidence', async () => {
+    it('subAudit 非 FNF 读失败 → SUB_AUDIT_READ_FAILED audit，claim authority 判定不变', async () => {
       const auditWriter = makeAuditWriter();
-      const registered: RegisterRetrospectiveInput[] = [];
-      const registerRetrospective = vi.fn(async (input: RegisterRetrospectiveInput) => {
-        if (input.contractId === 'c-bad') throw new Error('store full');
-        registered.push(input);
-      });
-      const postProcessor = createSummonContractExtractPostProcessor(registerRetrospective);
-
-      await writeSubAudit('task-partial', [
-        execOkRow(1, 'Contract created: c-bad for claw bad-claw'),
-        execOkRow(2, 'Contract created: c-good for claw good-claw'),
-      ]);
+      const claimStore = await seedClaim('task-io-err', 'claw-a', 'c-io');
+      const { postProcessor } = makePostProcessor({ exists: true, claimStore });
+      const readSpy = vi.spyOn(mockFs, 'read').mockRejectedValue(
+        Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+      );
 
       const summary = await postProcessor(
-        'Done.',
-        { id: 'task-partial', callerType: 'shadow_subagent' } as any,
+        'Result text.',
+        { id: 'task-io-err', callerType: 'shadow_subagent' } as any,
         false,
         mockFs,
         auditWriter as any,
       );
 
-      expect(registerRetrospective).toHaveBeenCalledTimes(2);
-      expect(registered).toContainEqual({
-        contractId: 'c-good',
-        targetClaw: 'good-claw',
-        mode: 'shadow',
-        shadowTaskId: 'task-partial',
-      });
       expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_retrospective_registration_failed',
-        'taskId=task-partial',
-        'contractId=c-bad',
-        'targetClaw=bad-claw',
-        'error=store full',
+        'summon_sub_audit_read_failed',
+        'taskId=task-io-err',
+        expect.stringContaining('path=tasks/queues/results/task-io-err/audit.tsv'),
+        expect.stringContaining('error=[EACCES]'),
       );
-      expect(summary).toContain('c-bad (claw=bad-claw)');
-      expect(summary).toContain('c-good (claw=good-claw)');
-    });
+      // evidence 不再是 authority：claim + 已提交 → 成功
+      expect(summary).toContain('[CONTRACTS_CREATED]');
+      expect(summary).toContain('c-io (claw=claw-a)');
 
-    it('should return result unchanged on error path (isError=true)', async () => {
-      const auditWriter = makeAuditWriter();
-      const postProcessor = createSummonContractExtractPostProcessor(vi.fn());
-      const result = await postProcessor(
-        'some error result',
-        { id: 'task-err', callerType: 'miner_subagent' } as any,
-        true,
-        mockFs,
-        auditWriter as any,
-      );
-
-      expect(result).toBe('some error result');
-      expect(auditWriter.write).not.toHaveBeenCalled();
+      readSpy.mockRestore();
     });
   });
 

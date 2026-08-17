@@ -496,6 +496,22 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     return loc !== null;
   }
 
+  /**
+   * Phase 1396 Step B: 创建事实核实 —— contract 是否已在本 claw 提交
+   * （active 或任一 archive 位置）。供 SummonSystem 等 caller 在回执丢失后
+   * 核实 claim 指向的 contract 是否真实存在；只读，不产生副作用。
+   */
+  async hasContract(contractId: ContractId): Promise<boolean> {
+    const loc = await resolveContractLocation({
+      fs: this.fs,
+      activeDir: this.activeDir,
+      archiveDir: this.archiveDir,
+      contractId,
+      audit: this.audit,
+    });
+    return loc !== null;
+  }
+
   async getContractRoot(contractId: ContractId): Promise<string> {
     const activeLoc = await resolveActiveContractLocation({
       fs: this.fs,
@@ -1209,25 +1225,6 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   async create(arg: ContractYaml | CreateContractOptions): Promise<string> {
     const opts = 'contract' in arg ? arg : { contract: arg };
     const contractYaml = opts.contract;
-    // Phase 230: policy iteration（在 schema 校验后、持久化前）
-    const ctx: CreatePolicyContext = {
-      subagentTaskId: opts.subagentTaskId,
-      clawDir: opts.clawDir,
-    };
-    for (const policy of this.createPolicies.values()) {
-      try {
-        await policy.check(ctx, contractYaml);
-      } catch (err) {
-        if (err instanceof ContractCreatePolicyViolationError) {
-          emitContractCreatePolicyRejected(this.audit, {
-            policyName: err.policyName,
-            cause: err.cause,
-            details: err.details,
-          });
-        }
-        throw err; // 上抛、契约不创建
-      }
-    }
 
     if (contractYaml.id !== undefined && contractYaml.id.trim() === '') {
       throw new ContractValidationError('id', 'empty',
@@ -1279,6 +1276,30 @@ export class ContractSystem implements ContractRuntimeLifecycle {
           { subtaskId: a.subtask_id });
       }
       seenSubtaskIds.add(a.subtask_id);
+    }
+
+    // Phase 230 / phase 1396 Step B: policy iteration 移到 schema/ID 规范化之后、
+    // creation claim publish 之前 —— policy 拿到的是规范化 proposedContractId，
+    // 无效 YAML 不会污染 policy 的 durable caller correlation（如 summon 0/1 claim）。
+    // policy 仍只返回 void：通过 = void、拒 = throw ContractCreatePolicyViolationError。
+    const ctx: CreatePolicyContext = {
+      subagentTaskId: opts.subagentTaskId,
+      clawDir: opts.clawDir,
+      proposedContractId: contractId,
+    };
+    for (const policy of this.createPolicies.values()) {
+      try {
+        await policy.check(ctx, contractYaml);
+      } catch (err) {
+        if (err instanceof ContractCreatePolicyViolationError) {
+          emitContractCreatePolicyRejected(this.audit, {
+            policyName: err.policyName,
+            cause: err.cause,
+            details: err.details,
+          });
+        }
+        throw err; // 上抛、契约不创建
+      }
     }
 
     const startedAt = new Date().toISOString();

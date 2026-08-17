@@ -284,6 +284,13 @@ export interface CreatePolicyContext {
   subagentTaskId?: string;
   /** 创建 contract 的 claw 目录、policy 可基于此做 claw-scoped 校验 */
   clawDir?: string;
+  /**
+   * Phase 1396 Step B: ContractSystem 规范化后的候选 contract ID。
+   * policy iteration 已移到 schema/ID 规范化之后、creation claim publish 之前，
+   * policy 可基于此做 durable caller correlation（如 summon 0/1 创建 claim）。
+   * ContractSystem 只提供候选 ID，不保存或解释 caller correlation。
+   */
+  proposedContractId: string;
 }
 
 export interface ContractCreatePolicy {
