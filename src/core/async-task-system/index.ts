@@ -27,6 +27,7 @@ export type {
 } from './types.js';
 export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';
+export type { ProcessedTaskResult } from './result-delivery-types.js';
 
 export {
   TASKS_SYNC_DIR,
@@ -37,6 +38,8 @@ export {
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SUBAGENTS_DIR,
   TASK_SNAPSHOT_IGNORE,  // phase 693 Step B
+  POST_PROCESS_INPUT_FILE,
+  RESULT_META_FILE,
 } from './dirs.js';
 
 export { classifyTaskError } from './_helpers.js';

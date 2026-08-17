@@ -1,4 +1,4 @@
-import type { PostProcessor } from '../../async-task-system/index.js';
+import type { PostProcessor, ProcessedTaskResult } from '../../async-task-system/index.js';
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';
@@ -82,19 +82,26 @@ export async function scanSubAuditForContracts(
  */
 export const SUMMON_CONTRACT_CREATION_FAILED_ERROR = 'summon_contract_creation_failed' as const;
 
-function buildFailureResult(reason: string): string {
-  return [
-    `Summon failed (${SUMMON_CONTRACT_CREATION_FAILED_ERROR}): ${reason}`,
-    `如用户仍需要该目标，可重新发起一次 summon 调用。`,
-  ].join('\n');
+function buildFailureResult(reason: string): ProcessedTaskResult {
+  return {
+    schema_version: 1,
+    content: `Summon failed (${SUMMON_CONTRACT_CREATION_FAILED_ERROR}): ${reason}`,
+    isError: true,
+    metadata: { reason },
+  };
 }
 
 /**
- * Phase 1396 Step C: 成功结果精确返回一个 contractId ——
+ * Phase 1396 Step C/J: 成功结果精确返回一个 contractId ——
  * 不含 executor、不含内部 mode、不含 raw 执行输出（可能夹带内部实体名）。
  */
-function buildSuccessResult(contractId: string): string {
-  return `Contract created: ${contractId}`;
+function buildSuccessResult(contractId: string): ProcessedTaskResult {
+  return {
+    schema_version: 1,
+    content: `Contract created: ${contractId}`,
+    isError: false,
+    metadata: { contractId },
+  };
 }
 
 /**
@@ -139,7 +146,7 @@ export function createSummonContractExtractPostProcessor(
   registerRetrospective: (input: RegisterRetrospectiveInput) => Promise<void>,
   deps: SummonContractExtractDeps,
 ): PostProcessor {
-  return async (result, task, isError, _fs, audit) => {
+  return async ({ content: _content, sourceIsError }, task, _fs, audit) => {
     const subAuditPath = `tasks/queues/results/${task.id}/audit.tsv`;
 
     // 1. claim 是创建事实的恢复锚点（success/error 两条路径都先读）
@@ -181,9 +188,8 @@ export function createSummonContractExtractPostProcessor(
 
     // 4. 无 claim：无创建事实记录
     if (!claim) {
-      if (isError) return result;  // 上游 error envelope 已 explicit、不再二次 wrap
       audit.write(SUMMON_AUDIT_EVENTS.NO_CONTRACT_CREATED, `taskId=${task.id}`);
-      return buildFailureResult('creation task completed without a committed contract');
+      return buildFailureResult('no_contract_created');
     }
 
     // 5. 有 claim：经 ContractSystem query capability 核实创建事实
@@ -196,12 +202,11 @@ export function createSummonContractExtractPostProcessor(
         `contractId=${claim.contractId}`,
         `targetExecutorId=${claim.targetExecutorId}`,
       );
-      if (isError) return result;  // 保持 task failure
-      return buildFailureResult('claimed contract was not committed');
+      return buildFailureResult('contract_not_committed');
     }
 
     // 6. contract 已提交 → 成功事实成立（error envelope 恢复为成功、重建回执）
-    if (isError) {
+    if (sourceIsError) {
       audit.write(
         SUMMON_AUDIT_EVENTS.SUMMON_CREATION_RECOVERED,
         `taskId=${task.id}`,

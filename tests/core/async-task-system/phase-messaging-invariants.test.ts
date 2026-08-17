@@ -161,7 +161,7 @@ describe('phase879.test.ts', () => {
       const { audit } = makeMockAudit();
       const task = makeToolTask();
 
-      await sendFallbackError(mockFs, audit, task, 'fallback reason', { writeInboxAsync: mockWriteInboxAsync });
+      await sendFallbackError(mockFs, audit, task, 'fallback reason', true, { writeInboxAsync: mockWriteInboxAsync });
 
       expect(inboxMessages.length).toBe(1);
       const parsed = JSON.parse(inboxMessages[0]!.content);
@@ -440,7 +440,7 @@ describe('phase881.test.ts', () => {
         createdAt: new Date().toISOString(),
       };
 
-      await sendResult(mockFs, audit, task, 'x'.repeat(2000), false, { writeInboxAsync: mockWriteInboxAsync });
+      await sendResult(mockFs, audit, task, { schema_version: 1, content: 'x'.repeat(2000), isError: false }, { writeInboxAsync: mockWriteInboxAsync });
 
       const markerIndex = operationLog.findIndex(o => o.op === 'writeAtomic' && o.path.endsWith('.sent'));
       const deleteIndex = operationLog.findIndex(o => o.op === 'delete' && o.path.endsWith('result.txt'));
@@ -517,7 +517,7 @@ describe('phase882.test.ts', () => {
         createdAt: new Date().toISOString(),
       };
 
-      await sendResult(mockFs, audit, task, 'x'.repeat(2000), false, { writeInboxAsync: mockWriteInboxAsync });
+      await sendResult(mockFs, audit, task, { schema_version: 1, content: 'x'.repeat(2000), isError: false }, { writeInboxAsync: mockWriteInboxAsync });
 
       // Marker write failure should be audited.
       const markerFailedEvents = events.filter(

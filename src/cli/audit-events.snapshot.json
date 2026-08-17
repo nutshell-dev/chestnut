@@ -231,6 +231,7 @@
       "task_pending_queue_overflow_notified",
       "task_pending_watcher_callback_failed",
       "task_pending_watcher_failed",
+      "task_post_processor_deferred",
       "task_query_file_corrupt",
       "task_query_result_io_error",
       "task_recovered",

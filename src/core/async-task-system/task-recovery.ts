@@ -37,11 +37,32 @@ import {
   sendToolResult as defaultSendToolResult,
 } from './result-delivery.js';
 import type { SendResult, SendFallbackError, SendToolResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
+import type { ProcessedTaskResult } from './result-delivery-types.js';
+import { POST_PROCESS_INPUT_FILE, RESULT_META_FILE } from './dirs.js';
+import { applyPostProcessor, commitFinalEnvelope } from './subagent-executor.js';
 import type { TaskId } from './types.js';
 
 
 const RETRY_COUNT_PATH = (taskId: TaskId) =>
   `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt.retry-count`;
+
+async function loadCommittedEnvelope(
+  fs: FileSystem,
+  taskId: TaskId,
+  resultContent: string,
+): Promise<ProcessedTaskResult> {
+  const metaPath = `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/${RESULT_META_FILE}`;
+  try {
+    const raw = await fs.read(metaPath);
+    const meta = JSON.parse(raw) as { schema_version: number; is_error: boolean; metadata?: Record<string, string> };
+    if (meta.schema_version === 1) {
+      return { schema_version: 1, content: resultContent, isError: meta.is_error, metadata: meta.metadata };
+    }
+  } catch {
+    // silent: missing or unreadable meta is expected; fall back to legacy classification.
+  }
+  return { schema_version: 1, content: resultContent, isError: false };
+}
 /**
  * Task recovery 最大重试次数 — 防 startup recovery 路径无限循环.
  * Derivation: 3 = 1 initial + 2 retry / 平衡 fast-fail vs transient fs error 容忍;
@@ -58,6 +79,7 @@ export interface RecoverTasksDeps {
   sendFallbackError?: SendFallbackError<SubAgentTask | ToolTask>;
   sendToolResult?: SendToolResult<ToolTask>;
   writeInboxAsync?: WriteInboxAsync;
+  postProcessors?: Map<string, import('./post-processors/types.js').PostProcessor>;
 }
 
 async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
@@ -205,7 +227,7 @@ async function _recoverToolTask(
 
   // First time — send notification, then marker, then move
   await sendFallbackError(deps.fs, deps.auditWriter, task,
-    'Non-idempotent tool task cannot be retried after crash. Manual intervention required.', resultDeliveryDeps)
+    'Non-idempotent tool task cannot be retried after crash. Manual intervention required.', true, resultDeliveryDeps)
     .then(async () => {
       // Persist notification-sent marker BEFORE moving to failed.
       // If crash occurs between marker and move, next recovery skips re-notification.
@@ -283,6 +305,7 @@ async function notifyManualIntervention(
     auditWriter,
     task,
     `Migrated process ownership cannot be verified (${reason}) after the hard deadline. Manual intervention required.`,
+    true,
     resultDeliveryDeps,
   )
     .then(() => true)
@@ -639,7 +662,7 @@ export async function recoverMigratedToolTask(
   }
 
   if (!fallbackAlreadyNotified) {
-    const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output', resultDeliveryDeps)
+    const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output', true, resultDeliveryDeps)
       .then(() => true)
       .catch((e) => {
         emitRecoveryFailed(auditWriter, {
@@ -691,19 +714,96 @@ export async function recoverMigratedToolTask(
 async function _recoverSubAgentTask(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
 ): Promise<number> {
-  const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt`;
+  const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+  const resultPath = `${resultDir}/result.txt`;
+  const inputPath = `${resultDir}/${POST_PROCESS_INPUT_FILE}`;
   const sentMarker = SENT_MARKER(task.id);
   const alreadySent = await deps.fs.exists(sentMarker);
   const resultExists = !alreadySent && await deps.fs.exists(resultPath);
+  const inputExists = !alreadySent && await deps.fs.exists(inputPath);
 
   if (alreadySent) {
     await _recoverAlreadySent(deps, filePath, task);
     return 0;
   } else if (resultExists) {
+    // Phase 1396 Step J: committed result.txt (with optional result-meta.json).
     return await _recoverWithResult(deps, filePath, task, resultPath);
+  } else if (inputExists) {
+    // Phase 1396 Step J: durable input present but final envelope not committed;
+    // replay the processor after registry is ready.
+    return await _recoverWithInput(deps, filePath, task, inputPath);
   } else {
     return await _recoverWithoutResult(deps, filePath, task);
   }
+}
+
+async function _recoverWithInput(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, inputPath: string,
+): Promise<number> {
+  const sendResult = deps.sendResult ?? defaultSendResult;
+  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
+
+  let raw: string;
+  try {
+    raw = await deps.fs.read(inputPath);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'post_process_input_read_failed',
+      error: formatErr(err),
+    });
+    return 0;
+  }
+
+  let input: { content: string; source_is_error: boolean };
+  try {
+    input = JSON.parse(raw) as { content: string; source_is_error: boolean };
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'post_process_input_corrupt',
+      error: formatErr(err),
+    });
+    return 0;
+  }
+
+  try {
+    const envelope = await applyPostProcessor(
+      { content: input.content, sourceIsError: input.source_is_error },
+      task,
+      deps.postProcessors ?? new Map(),
+      deps.fs,
+      deps.auditWriter,
+    );
+    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+    await commitFinalEnvelope(deps.fs, resultDir, envelope);
+    await sendResult(deps.fs, deps.auditWriter, task, envelope, resultDeliveryDeps);
+  } catch (err) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'post_process_replay_failed',
+      error: formatErr(err),
+    });
+    // Leave in running; next recovery will retry after the processor registry is ready.
+    return 0;
+  }
+
+  await deps.fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
+    .then(() => {
+      emitRecovered(deps.auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        reason: 'post_process_input_replayed',
+      });
+    })
+    .catch(async (moveErr) => {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'replay_done_move_failed',
+        error: formatErr(moveErr),
+      });
+    });
+  return 0;
 }
 
 async function _recoverToDone(
@@ -829,7 +929,8 @@ async function _recoverWithResult(
   }
 
   const resultContent = await fs.read(resultPath);
-  const resultSent = await sendResult(fs, auditWriter, task, resultContent, false, resultDeliveryDeps)
+  const envelope = await loadCommittedEnvelope(fs, task.id, resultContent);
+  const resultSent = await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps)
     .then(() => true)
     .catch(async (e) => {
       emitRecoveryFailed(auditWriter, {
@@ -841,7 +942,7 @@ async function _recoverWithResult(
       // 防止 fallback 成功后 next startup 重试 sendResult 导致父 inbox 双投递
       // sendFallbackError 内会写 SENT_MARKER（phase 789 invariant）
       try {
-        await sendFallbackError(fs, auditWriter, task, 'Result resend failed after recovery', resultDeliveryDeps);
+        await sendFallbackError(fs, auditWriter, task, envelope.content, envelope.isError, resultDeliveryDeps);
         return true;  // fallback delivered = inbox-written 视作 sent
       } catch (fallbackErr) {
         emitRecoveryFailed(auditWriter, {

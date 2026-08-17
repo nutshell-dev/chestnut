@@ -16,7 +16,7 @@ import type { SubAgentTask, ToolTask, FullTaskId, ShortTaskId } from './types.js
 import { deriveShortIdFromTaskId, taskShortId } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { TaskId } from './types.js';
-import type { ResultDeliveryDeps } from './result-delivery-types.js';
+import type { ResultDeliveryDeps, ProcessedTaskResult } from './result-delivery-types.js';
 
 
 
@@ -210,6 +210,18 @@ export async function sendToolResult(
   });
 }
 
+function envelopeToJson(envelope: ProcessedTaskResult, taskId: ShortTaskId, fullTaskId: FullTaskId, resultRef?: string, summary?: string): string {
+  return JSON.stringify({
+    taskId,
+    fullTaskId,
+    result: envelope.content,
+    summary,
+    resultRef,
+    is_error: envelope.isError,
+    metadata: envelope.metadata,
+  });
+}
+
 /**
  * Send subagent task result to parent claw's inbox.
  * Large outputs are offloaded to TASKS_QUEUES_RESULTS_DIR/{taskId}.txt.
@@ -219,8 +231,7 @@ export async function sendResult(
   fs: FileSystem,
   auditWriter: AuditLog,
   task: SubAgentTask,
-  result: string,
-  isError: boolean,
+  result: ProcessedTaskResult,
   deps?: ResultDeliveryDeps,
 ): Promise<void> {
   const shortId = taskShortId(task);
@@ -230,21 +241,10 @@ export async function sendResult(
     taskId: task.id,
     shortId,
     parentClawId: task.parentClawId,
-    fullContent: result,
-    buildInlineJson: () => JSON.stringify({
-      taskId: shortId,
-      fullTaskId: task.id as FullTaskId,
-      result,
-      is_error: isError,
-    }),
-    buildRefJson: (resultRef, summary) => JSON.stringify({
-      taskId: shortId,
-      fullTaskId: task.id as FullTaskId,
-      summary,
-      resultRef,
-      is_error: isError,
-    }),
-    isError,
+    fullContent: result.content,
+    buildInlineJson: () => envelopeToJson(result, shortId, task.id as FullTaskId),
+    buildRefJson: (resultRef, summary) => envelopeToJson(result, shortId, task.id as FullTaskId, resultRef, summary),
+    isError: result.isError,
     writeMarkerOnSuccess: true,
     auditContexts: { initialWrite: 'send_result_write', orphanDelete: 'orphan_delete_send' },
     deps,
@@ -259,7 +259,8 @@ export async function sendFallbackError(
   fs: FileSystem,
   auditWriter: AuditLog,
   task: SubAgentTask | ToolTask,
-  errorMsg: string,
+  result: string,
+  isError: boolean,
   deps?: ResultDeliveryDeps,
 ): Promise<void> {
   const writeInbox = deps?.writeInboxAsync ?? writeInboxAsync;
@@ -272,10 +273,10 @@ export async function sendFallbackError(
     content: JSON.stringify({
       taskId: taskShortId(task),
       fullTaskId: task.id,
-      is_error: true,
-      result: `Task failed: ${errorMsg}`,
+      is_error: isError,
+      result,
     }),
-    priority: 'high',
+    priority: isError ? 'high' : 'normal',
     timestamp: new Date().toISOString(),
   };
   await writeInbox(fs, INBOX_PENDING_DIR, msg, auditWriter);

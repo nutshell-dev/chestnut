@@ -580,7 +580,7 @@ describe('Task System + SubAgent', () => {
       test('should call postProcessor on success path', async ({ ctx }) => {
         await ctx.taskSystem.shutdown(1);
         const { audit, events, emitter } = makeAudit();
-        const mockProcessor = vi.fn().mockResolvedValue('transformed-result');
+        const mockProcessor = vi.fn().mockResolvedValue({ schema_version: 1, content: 'transformed-result', isError: false });
         ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
           content: [{ type: 'text', text: 'raw result' }],
           stop_reason: 'end_turn',
@@ -606,10 +606,10 @@ describe('Task System + SubAgent', () => {
 
         expect(mockProcessor).toHaveBeenCalledTimes(1);
         const callArgs = mockProcessor.mock.calls[0];
-        expect(callArgs[0]).toBe('raw result');
-        expect(callArgs[2]).toBe(false); // isError
-        expect(callArgs[3]).toBe(ctx.mockFs); // fs
-        expect(callArgs[4]).toBe(audit); // audit
+        expect(callArgs[0]).toEqual({ content: 'raw result', sourceIsError: false });
+        expect(callArgs[1]).toMatchObject({ id: expect.any(String), kind: 'subagent' });
+        expect(callArgs[2]).toBe(ctx.mockFs); // fs
+        expect(callArgs[3]).toBe(audit); // audit
 
         // Inbox should contain transformed result
         const inboxFiles = await fs.readdir(inboxDir).catch(() => [] as string[]);
@@ -621,7 +621,7 @@ describe('Task System + SubAgent', () => {
       test('should call postProcessor on error path with isError=true', async ({ ctx }) => {
         await ctx.taskSystem.shutdown(1);
         const { audit, events } = makeAudit();
-        const mockProcessor = vi.fn().mockResolvedValue('error-transformed');
+        const mockProcessor = vi.fn().mockResolvedValue({ schema_version: 1, content: 'error-transformed', isError: true });
 
         // Deferred Promise for postProcessor invocation (replaces polling waitFor)
         let resolvePostProcessor!: (isError: boolean) => void;
@@ -629,7 +629,7 @@ describe('Task System + SubAgent', () => {
           resolvePostProcessor = resolve;
         });
         const capturingProcessor = vi.fn().mockImplementation((...args: any[]) => {
-          resolvePostProcessor(args[2]); // isError is the 3rd argument
+          resolvePostProcessor(args[0].sourceIsError); // sourceIsError is on the input object
           return mockProcessor(...args);
         });
 
@@ -655,7 +655,7 @@ describe('Task System + SubAgent', () => {
 
         expect(mockProcessor).toHaveBeenCalledTimes(1);
         const callArgs = mockProcessor.mock.calls[0];
-        expect(callArgs[2]).toBe(true); // isError
+        expect(callArgs[0].sourceIsError).toBe(true); // isError
       });
 
       test('should audit when postProcessor name not found in registry', async ({ ctx }) => {

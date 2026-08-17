@@ -16,12 +16,18 @@ import {
   emitResultDeliveryFailed,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from './dirs.js';
+import {
+  TASKS_QUEUES_RESULTS_DIR,
+  TASKS_SUBAGENTS_DIR,
+  TASKS_SYNC_DIR,
+  POST_PROCESS_INPUT_FILE,
+  RESULT_META_FILE,
+} from './dirs.js';
 import * as nodePath from 'path';
 
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
-import { sendResult as defaultSendResult, sendFallbackError as defaultSendFallbackError } from './result-delivery.js';
-import type { SendResult, SendFallbackError, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
+import { sendResult as defaultSendResult } from './result-delivery.js';
+import type { SendResult, SendFallbackError, WriteInboxAsync, ResultDeliveryDeps, ProcessedTaskResult } from './result-delivery-types.js';
 
 import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
@@ -77,15 +83,59 @@ interface ExecuteSubAgentTaskDeps {
   writeInboxAsync?: WriteInboxAsync;
 }
 
-async function applyPostProcessor(
-  input: string,
+class PostProcessorDeferredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PostProcessorDeferredError';
+  }
+}
+
+function makeIdentityResult(content: string, isError: boolean): ProcessedTaskResult {
+  return { schema_version: 1, content, isError };
+}
+
+export async function writePostProcessInput(
+  fs: FileSystem,
+  taskResultDir: string,
+  content: string,
+  sourceIsError: boolean,
+): Promise<void> {
+  const inputPath = `${taskResultDir}/${POST_PROCESS_INPUT_FILE}`;
+  await fs.writeAtomic(inputPath, JSON.stringify({
+    schema_version: 1,
+    content,
+    source_is_error: sourceIsError,
+  }));
+}
+
+export async function commitFinalEnvelope(
+  fs: FileSystem,
+  taskResultDir: string,
+  envelope: ProcessedTaskResult,
+): Promise<void> {
+  await fs.ensureDir(taskResultDir);
+  const metaPath = `${taskResultDir}/${RESULT_META_FILE}`;
+  const textPath = `${taskResultDir}/result.txt`;
+  // Phase 1396 Step J: meta is the classification authority; write it first so
+  // a crash between the two files never leaves a new text with an old/legacy
+  // classification. Recovery treats (meta + text) as committed; missing text
+  // with present meta falls back to replaying the durable input.
+  await fs.writeAtomic(metaPath, JSON.stringify({
+    schema_version: 1,
+    is_error: envelope.isError,
+    metadata: envelope.metadata,
+  }));
+  await fs.writeAtomic(textPath, envelope.content);
+}
+
+export async function applyPostProcessor(
+  input: { content: string; sourceIsError: boolean },
   task: SubAgentTask,
-  isError: boolean,
   postProcessors: Map<string, PostProcessor>,
   fs: FileSystem,
   auditWriter: AuditLog,
-): Promise<string> {
-  if (!task.postProcessor) return input;
+): Promise<ProcessedTaskResult> {
+  if (!task.postProcessor) return makeIdentityResult(input.content, input.sourceIsError);
   const handler = postProcessors.get(task.postProcessor);
   if (!handler) {
     emitHandlerFailed(auditWriter, {
@@ -94,19 +144,20 @@ async function applyPostProcessor(
       context: 'postProcessor_not_found',
       name: task.postProcessor,
     });
-    return input;
+    throw new PostProcessorDeferredError(`postProcessor "${task.postProcessor}" not registered`);
   }
   try {
-    return await handler(input, task, isError, fs, auditWriter);
+    return await handler(input, task, fs, auditWriter);
   } catch (handlerErr) {
-    const ctx = isError ? 'postProcessor_threw_error_path' : 'postProcessor_threw';
+    if (handlerErr instanceof PostProcessorDeferredError) throw handlerErr;
+    const ctx = input.sourceIsError ? 'postProcessor_threw_error_path' : 'postProcessor_threw';
     emitHandlerFailed(auditWriter, {
       fullTaskId: task.id as FullTaskId,
       shortTaskId: taskShortId(task),
       context: ctx,
       error: formatErr(handlerErr),
     });
-    return input;
+    throw new PostProcessorDeferredError(formatErr(handlerErr));
   }
 }
 
@@ -120,12 +171,14 @@ export async function executeSubAgentTask(
 ): Promise<void> {
   const { fs, fsFactory, auditWriter, llm, registry, clawDir, parentStreamLog, postProcessors, moveTaskToDone, moveTaskToFailed } = deps;
   const sendResult = deps.sendResult ?? defaultSendResult;
-  const sendFallbackError = deps.sendFallbackError ?? defaultSendFallbackError;
   const taskStartTime = Date.now();
   const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
-  let taskFailed = false;
 
-  // Per-task result dir + TASK_ATTEMPT_START stream marker（async 特有 lifecycle）
+  // outcome: 'done'|'failed' = terminal move performed; undefined = leave in
+  // running for recovery (delivery or processor deferral).
+  let outcome: 'done' | 'failed' | undefined = undefined;
+
+  // Per-task result dir + TASK_ATTEMPT_START stream marker（async 特有生命周期）
   const taskResultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   fs.ensureDirSync(taskResultDir);
   // task_started emitted here (after dir exists) so viewport per-task reader won't ENOENT
@@ -143,6 +196,14 @@ export async function executeSubAgentTask(
     type: STREAM_TASK_EVENTS.TASK_ATTEMPT_START,
     taskId: task.id,
   });
+
+  async function finalizeEnvelope(content: string, sourceIsError: boolean): Promise<void> {
+    await writePostProcessInput(fs, taskResultDir, content, sourceIsError);
+    const envelope = await applyPostProcessor({ content, sourceIsError }, task, postProcessors, fs, auditWriter);
+    await commitFinalEnvelope(fs, taskResultDir, envelope);
+    await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps);
+    outcome = envelope.isError ? 'failed' : 'done';
+  }
 
   try {
     // LLM is guaranteed by constructor (readonly non-null field)
@@ -210,8 +271,7 @@ export async function executeSubAgentTask(
     });
 
     const displayResult = getDisplayResult(text, capturedResult);
-    const inboxResult = await applyPostProcessor(displayResult, task, false, postProcessors, fs, auditWriter);
-    await sendResult(fs, auditWriter, task, inboxResult, false, resultDeliveryDeps);
+    await finalizeEnvelope(displayResult, false);
 
     emitTaskCompleted(auditWriter, {
       fullTaskId: task.id as FullTaskId,
@@ -226,27 +286,39 @@ export async function executeSubAgentTask(
       subAuditPath: `tasks/queues/results/${task.id}/audit.tsv`,
     });
   } catch (error) {
-    taskFailed = true;
+    if (error instanceof PostProcessorDeferredError) {
+      // Processor unavailable or threw: durable input is persisted; leave task
+      // in running so startup recovery can replay after registry is ready.
+      auditWriter.write(
+        TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED,
+        `taskId=${task.id}`,
+        `reason=${auditWriter.message(error.message)}`,
+      );
+      return;
+    }
+
     const errorMsg = formatErr(error);
 
-    const inboxResult = await applyPostProcessor(errorMsg, task, true, postProcessors, fs, auditWriter);
-
-    // Send error result to parent inbox
     try {
-      await sendResult(fs, auditWriter, task, inboxResult, true, resultDeliveryDeps);
-    } catch (sendErr) {
-      // sendResult 本身失败：降级写最小通知，确保 parent 不被永远挂起
-      try {
-        await sendFallbackError(fs, auditWriter, task, errorMsg, resultDeliveryDeps);
-      } catch (fallbackErr) {
-        emitResultDeliveryFailed(auditWriter, {
-          fullTaskId: task.id as FullTaskId,
-          shortTaskId: taskShortId(task),
-          reason: 'both sendResult and sendFallbackError failed',
-          error: formatErr(fallbackErr),
-        });
-        // task stays in failed/ for manual recovery (finally will move it)
+      await finalizeEnvelope(errorMsg, true);
+    } catch (finalizeErr) {
+      if (finalizeErr instanceof PostProcessorDeferredError) {
+        auditWriter.write(
+          TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED,
+          `taskId=${task.id}`,
+          `reason=${auditWriter.message(finalizeErr.message)}`,
+        );
+        return;
       }
+      // commit/send failed after the envelope was decided: leave in running;
+      // recovery will resend the committed envelope or replay input.
+      emitResultDeliveryFailed(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        reason: 'finalize_failed',
+        error: formatErr(finalizeErr),
+      });
+      return;
     }
 
     emitHandlerFailed(auditWriter, {
@@ -269,12 +341,12 @@ export async function executeSubAgentTask(
     });
   } finally {
     try {
-      // Move from running to done/failed based on success
-      if (taskFailed) {
-        await moveTaskToFailed(task.id);
-      } else {
+      if (outcome === 'done') {
         await moveTaskToDone(task.id);
+      } else if (outcome === 'failed') {
+        await moveTaskToFailed(task.id);
       }
+      // undefined => leave in running for recovery
     } finally {
       // Parent stream owns viewport watcher lifecycle. Emit on every terminal
       // path, including crashes before the per-task stream can write turn_end.

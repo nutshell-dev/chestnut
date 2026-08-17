@@ -109,7 +109,7 @@ async function executeMigratedToolTask(
   try {
     await sendToolResult(fs, auditWriter, task, result, false, resultDeliveryDeps);
   } catch (sendErr) {
-    await sendFallbackError(fs, auditWriter, task, 'Failed to send migrated result', resultDeliveryDeps).catch((e) => {
+    await sendFallbackError(fs, auditWriter, task, 'Failed to send migrated result', true, resultDeliveryDeps).catch((e) => {
       emitHandlerFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
@@ -185,7 +185,7 @@ export async function executeToolTask(
         await sendToolResult(fs, auditWriter, task, result, false, resultDeliveryDeps);
       } catch (sendErr) {
         // sendToolResult 本身失败：降级写最小通知，不进入重试（执行已成功）
-        await sendFallbackError(fs, auditWriter, task, 'Failed to send result', resultDeliveryDeps).catch((e) => {
+        await sendFallbackError(fs, auditWriter, task, 'Failed to send result', true, resultDeliveryDeps).catch((e) => {
           emitHandlerFailed(auditWriter, {
             fullTaskId: task.id as FullTaskId,
             shortTaskId: taskShortId(task),
@@ -278,7 +278,7 @@ export async function executeToolTask(
       );
     } catch (sendErr) {
       // sendToolResult 失败：降级写最小通知
-      await sendFallbackError(fs, auditWriter, task, finalError, resultDeliveryDeps).catch((e) => {
+      await sendFallbackError(fs, auditWriter, task, finalError, true, resultDeliveryDeps).catch((e) => {
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
           shortTaskId: taskShortId(task),

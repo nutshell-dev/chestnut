@@ -400,13 +400,10 @@ Content.
         execOkRow(1, 'Contract created: 1780122465165-bcf86856 for claw filetool-auditor'),
       ]);
       const resultText = 'wj，已派出 filetool-auditor 去审查 L2c FileTool 模块！';
-      const summary = await postProcessor(
-        resultText,
-        { id: 'task-pp-test', callerType: 'miner_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const summary = await postProcessor({
+        content: resultText,
+        sourceIsError: false,
+      }, { id: 'task-pp-test', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
       expect(existsSpy).toHaveBeenCalledWith('filetool-auditor', '1780122465165-bcf86856');
       expect(registered).toEqual([{
@@ -423,9 +420,9 @@ Content.
       await expect(fs.access(byContractPath)).rejects.toThrow();
 
       // Phase 1396 Step C: 成功结果精确返回 contractId，不含 executor/raw 输出
-      expect(summary).toBe('Contract created: 1780122465165-bcf86856');
-      expect(summary).not.toContain('filetool-auditor');
-      expect(summary).not.toContain('wj，已派出');
+      expect(summary.content).toBe('Contract created: 1780122465165-bcf86856');
+      expect(summary.content).not.toContain('filetool-auditor');
+      expect(summary.content).not.toContain('wj，已派出');
 
       const failCalls = auditWriter.write.mock.calls.filter(
         (c: any) => typeof c[0] === 'string' && c[0].startsWith('summon_'),
@@ -443,15 +440,12 @@ Content.
         claimStore,
       });
 
-      const summary = await postProcessor(
-        'subagent crashed after create',
-        { id: 'task-recover', callerType: 'shadow_subagent' } as any,
-        true,
-        mockFs,
-        auditWriter as any,
-      );
+      const summary = await postProcessor({
+        content: 'subagent crashed after create',
+        sourceIsError: true,
+      }, { id: 'task-recover', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(summary).toBe('Contract created: c-recovered');
+      expect(summary.content).toBe('Contract created: c-recovered');
       expect(registered).toEqual([{
         contractId: 'c-recovered',
         targetClaw: 'claw-a',
@@ -471,15 +465,12 @@ Content.
       const claimStore = await seedClaim('task-missing', 'claw-a', 'c-missing');
       const { postProcessor } = makePostProcessor({ exists: false, claimStore });
 
-      const result = await postProcessor(
-        'Done.',
-        { id: 'task-missing', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const result = await postProcessor({
+        content: 'Done.',
+        sourceIsError: false,
+      }, { id: 'task-missing', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(result).toContain('summon_contract_creation_failed');
+      expect(result.content).toContain('summon_contract_creation_failed');
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_claim_contract_missing',
         'taskId=task-missing',
@@ -488,20 +479,18 @@ Content.
       );
     });
 
-    it('claim 存在但 contract 不存在（error envelope）→ 透传 task failure', async () => {
+    it('claim 存在但 contract 不存在 → 稳定失败 envelope', async () => {
       const auditWriter = makeAuditWriter();
       const claimStore = await seedClaim('task-missing-err', 'claw-a', 'c-missing');
       const { postProcessor } = makePostProcessor({ exists: false, claimStore });
 
-      const result = await postProcessor(
-        'some error result',
-        { id: 'task-missing-err', callerType: 'miner_subagent' } as any,
-        true,
-        mockFs,
-        auditWriter as any,
-      );
+      const result = await postProcessor({
+        content: 'some error result',
+        sourceIsError: true,
+      }, { id: 'task-missing-err', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(result).toBe('some error result');
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('summon_contract_creation_failed');
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_claim_contract_missing',
         'taskId=task-missing-err',
@@ -515,36 +504,35 @@ Content.
       const { postProcessor, existsSpy } = makePostProcessor({});
       // no writeSubAudit call → audit.tsv doesn't exist
 
-      const result = await postProcessor(
-        'Result text.',
-        { id: 'task-no-audit', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const result = await postProcessor({
+        content: 'Result text.',
+        sourceIsError: false,
+      }, { id: 'task-no-audit', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
       expect(existsSpy).not.toHaveBeenCalled();
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_no_contract_created',
         'taskId=task-no-audit',
       );
-      expect(result).toContain('summon_contract_creation_failed');
+      expect(result.content).toContain('summon_contract_creation_failed');
     });
 
-    it('无 claim + error envelope → 透传不变、无 audit', async () => {
+    it('无 claim + error envelope → 稳定失败 envelope（不返回 raw）', async () => {
       const auditWriter = makeAuditWriter();
       const { postProcessor, existsSpy } = makePostProcessor({});
-      const result = await postProcessor(
-        'some error result',
-        { id: 'task-err', callerType: 'miner_subagent' } as any,
-        true,
-        mockFs,
-        auditWriter as any,
-      );
+      const result = await postProcessor({
+        content: 'some error result',
+        sourceIsError: true,
+      }, { id: 'task-err', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(result).toBe('some error result');
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('summon_contract_creation_failed');
+      expect(result.content).not.toContain('some error result');
       expect(existsSpy).not.toHaveBeenCalled();
-      expect(auditWriter.write).not.toHaveBeenCalled();
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'summon_no_contract_created',
+        'taskId=task-err',
+      );
     });
 
     it('无 claim 但 evidence 存在 → evidence 不再授权：failure wrap + invariant violation audit', async () => {
@@ -559,15 +547,12 @@ Content.
         execOkRow(1, 'Contract created: c-orphan for claw claw-x'),
       ]);
 
-      const result = await postProcessor(
-        'Done.',
-        { id: 'task-no-claim-evidence', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const result = await postProcessor({
+        content: 'Done.',
+        sourceIsError: false,
+      }, { id: 'task-no-claim-evidence', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(result).toContain('summon_contract_creation_failed');
+      expect(result.content).toContain('summon_contract_creation_failed');
       expect(registered).toHaveLength(0);
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
@@ -587,16 +572,13 @@ Content.
         execOkRow(5, 'Contract created: c2-bbb for claw claw-beta'),
       ]);
 
-      const summary = await postProcessor(
-        'Done.',
-        { id: 'task-multi', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const summary = await postProcessor({
+        content: 'Done.',
+        sourceIsError: false,
+      }, { id: 'task-multi', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
       // claim 是唯一 authority：summary 只含 claim 指向的 contract
-      expect(summary).toBe('Contract created: c1-aaa');
+      expect(summary.content).toBe('Contract created: c1-aaa');
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
         'taskId=task-multi',
@@ -614,15 +596,12 @@ Content.
         execOkRow(1, 'Contract created: c-other for claw claw-a'),
       ]);
 
-      const summary = await postProcessor(
-        'Done.',
-        { id: 'task-mismatch', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const summary = await postProcessor({
+        content: 'Done.',
+        sourceIsError: false,
+      }, { id: 'task-mismatch', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(summary).toBe('Contract created: c-claimed');
+      expect(summary.content).toBe('Contract created: c-claimed');
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
         'taskId=task-mismatch',
@@ -644,13 +623,10 @@ Content.
         execOkRow(1, 'Contract created: c-failreg for claw my-claw'),
       ]);
 
-      const summary = await postProcessor(
-        'Done.',
-        { id: 'task-reg-fail', callerType: 'miner_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const summary = await postProcessor({
+        content: 'Done.',
+        sourceIsError: false,
+      }, { id: 'task-reg-fail', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_retrospective_registration_failed',
@@ -659,7 +635,7 @@ Content.
         'targetClaw=my-claw',
         'error=store conflict',
       );
-      expect(summary).toBe('Contract created: c-failreg');
+      expect(summary.content).toBe('Contract created: c-failreg');
     });
 
     it('subAudit 非 FNF 读失败 → SUB_AUDIT_READ_FAILED audit，claim authority 判定不变', async () => {
@@ -670,13 +646,10 @@ Content.
         Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
       );
 
-      const summary = await postProcessor(
-        'Result text.',
-        { id: 'task-io-err', callerType: 'shadow_subagent' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
+      const summary = await postProcessor({
+        content: 'Result text.',
+        sourceIsError: false,
+      }, { id: 'task-io-err', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_sub_audit_read_failed',
@@ -685,7 +658,7 @@ Content.
         expect.stringContaining('error=[EACCES]'),
       );
       // evidence 不再是 authority：claim + 已提交 → 成功
-      expect(summary).toBe('Contract created: c-io');
+      expect(summary.content).toBe('Contract created: c-io');
 
       readSpy.mockRestore();
     });

@@ -301,6 +301,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       sendFallbackError: this.sendFallbackError,
       sendToolResult: this.sendToolResult,
       writeInboxAsync: this.writeInboxAsync,
+      postProcessors: this.postProcessors,
     });
   }
 
@@ -831,7 +832,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       let notifyOk = false;
       try {
         await this.sendFallbackError(this.fs, this.auditWriter, task,
-          'Task rejected: pending queue overflow.', { writeInboxAsync: this.writeInboxAsync });
+          'Task rejected: pending queue overflow.', true, { writeInboxAsync: this.writeInboxAsync });
         try {
           await this.fs.writeAtomic(notifiedPath, '');
           notifyOk = true;
@@ -918,7 +919,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       let notified = false;
       try {
         await this.sendFallbackError(this.fs, this.auditWriter, task,
-          `Task rejected: pending queue overflow (${pendingCount} > ${this.pendingQueueMax}).`, { writeInboxAsync: this.writeInboxAsync });
+          `Task rejected: pending queue overflow (${pendingCount} > ${this.pendingQueueMax}).`, true, { writeInboxAsync: this.writeInboxAsync });
         try {
           await this.fs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, '');
           notified = true;
@@ -1180,7 +1181,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         error: formatErr(error),
       });
       // 通知 parent，避免永久挂起
-      await this.sendFallbackError(this.fs, this.auditWriter, task, `Task failed to start: ${errorMsg}`, { writeInboxAsync: this.writeInboxAsync }).catch((e) => {
+      await this.sendFallbackError(this.fs, this.auditWriter, task, `Task failed to start: ${errorMsg}`, true, { writeInboxAsync: this.writeInboxAsync }).catch((e) => {
         emitStartFailed(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
@@ -1575,7 +1576,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       let notified = false;
       if (task) {
         try {
-          await this.sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution', { writeInboxAsync: this.writeInboxAsync });
+          await this.sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution', true, { writeInboxAsync: this.writeInboxAsync });
           notified = true;
           await this.fs.writeAtomic(
             `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, ''

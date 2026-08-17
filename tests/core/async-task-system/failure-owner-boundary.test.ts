@@ -145,17 +145,17 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
     expect(moveTaskToDone).not.toHaveBeenCalled();
 
     expect(sendResult).toHaveBeenCalledTimes(1);
-    const [, , sentTask, sentResult, isError] = sendResult.mock.calls[0];
+    const [, , sentTask, sentEnvelope] = sendResult.mock.calls[0];
     expect(sentTask).toBe(task);
     expect(sentTask.parentClawId).toBe('caller-claw');
-    expect(sentResult).toContain('subagent died');
-    expect(isError).toBe(true);
+    expect(sentEnvelope.content).toContain('subagent died');
+    expect(sentEnvelope.isError).toBe(true);
 
     expect(sendFallbackError).not.toHaveBeenCalled();
     expect(writeInboxAsync).not.toHaveBeenCalled();
   });
 
-  it('executeSubAgentTask falls back to parentClawId when sendResult itself throws', async () => {
+  it('executeSubAgentTask leaves task in running when sendResult itself throws', async () => {
     const task = makeSubAgentTask();
     const sendResult = vi.fn().mockRejectedValue(new Error('inbox full'));
     const sendFallbackError = vi.fn().mockResolvedValue(undefined);
@@ -180,13 +180,12 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
       writeInboxAsync,
     });
 
+    // Phase 1396 Step J: delivery failure does not fallback or move; the committed
+    // envelope stays on disk and startup recovery will resend it.
     expect(sendResult).toHaveBeenCalledTimes(1);
-    expect(sendFallbackError).toHaveBeenCalledTimes(1);
-    const [, , fallbackTask, fallbackMsg] = sendFallbackError.mock.calls[0];
-    expect(fallbackTask).toBe(task);
-    expect(fallbackTask.parentClawId).toBe('caller-claw');
-    expect(fallbackMsg).toContain('subagent died');
-
+    expect(sendFallbackError).not.toHaveBeenCalled();
+    expect(moveTaskToDone).not.toHaveBeenCalled();
+    expect(moveTaskToFailed).not.toHaveBeenCalled();
     expect(writeInboxAsync).not.toHaveBeenCalled();
   });
 });

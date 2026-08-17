@@ -57,4 +57,5 @@ export const TASK_AUDIT_EVENTS = {
   SHORT_ID_COLLISION: 'short_id_collision', // phase 854
   PREPARED_TASK_REPLAY_CONFIRMED: 'prepared_task_replay_confirmed', // phase 1206 Step A
   PREPARED_TASK_IDENTITY_CONFLICT: 'prepared_task_identity_conflict', // phase 1206 Step A
+  POST_PROCESSOR_DEFERRED: 'task_post_processor_deferred', // Phase 1396 Step J
 } as const;

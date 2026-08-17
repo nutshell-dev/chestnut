@@ -1,5 +1,6 @@
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
+import type { ProcessedTaskResult } from '../result-delivery-types.js';
 import type { SubAgentTask } from '../types.js';
 
 /**
@@ -10,9 +11,8 @@ import type { SubAgentTask } from '../types.js';
  * 调用期：subagent-executor 在 sendResult 前按 task.postProcessor 字段 lookup + execute
  */
 export type PostProcessor = (
-  result: string,
+  input: { content: string; sourceIsError: boolean },
   task: SubAgentTask,
-  isError: boolean,
   fs: FileSystem,
   audit: AuditLog,
-) => Promise<string>;
+) => Promise<ProcessedTaskResult>;
