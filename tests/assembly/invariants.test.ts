@@ -189,9 +189,14 @@ vi.mock('../../src/foundation/tools/executor.js', () => ({
 }));
 
 vi.mock('../../src/core/evolution-system/index.js', () => ({
-  EvolutionSystem: vi.fn(() => ({ notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }), init: vi.fn().mockResolvedValue(undefined) })),
+  EvolutionSystem: vi.fn(() => ({
+    notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }),
+    observeContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }),
+    init: vi.fn().mockResolvedValue(undefined),
+  })),
   createEvolutionSystem: vi.fn(() => ({
-    notifyContractCompleted: vi.fn(async (_contractId: string, ctx: any) => {
+    notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }),
+    observeContractCompleted: vi.fn(async (_ref: any, ctx: any) => {
       // Simulate the real path where factory is called (evolution-system/system.ts)
       ctx.clawContractManagerFactory('/tmp/test-claw', 'test-claw', {} as any);
       return { status: 'submitted' };
@@ -346,12 +351,15 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
   it('clawContractManagerFactory passes main toolRegistry to createContractSystem', async () => {
     await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
-    expect(capturedContractCallback).toBeDefined();
-    await capturedContractCallback!('test-contract-id');
+    // Phase 1396 Step M：retrospective 触发入口改为 ContractObserver bridge
+    // （motion manager 的进程内 onContractCompleted 订阅已删除，避免双 producer）
+    expect(capturedContractObserverDeps).toBeDefined();
+    expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();
+    await capturedContractObserverDeps.onCompletedContract('motion', 'test-contract-id');
 
     // There should be at least 2 createContractSystem calls:
     // 1. main contract manager (line 233)
-    // 2. factory call inside notifyContractCompleted
+    // 2. factory call inside observeContractCompleted
     expect(createContractSystemCalls.length).toBeGreaterThanOrEqual(2);
 
     // Find the main call (deps.clawDir === clawDir)
@@ -456,7 +464,7 @@ describe('assemble-evolution-guard', () => {
 // ============================================================================
 // Tests
 // ============================================================================
-describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
+describe('contract observer bridge → evolution guard (phase 620 / phase 1396 Step M)', () => {
   const baseConfig = {
     identity: 'motion' as const,
     clawId: 'motion',
@@ -489,48 +497,56 @@ describe('contractManager onContractCompleted NPE guard (phase 620)', () => {
     await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).resolves.toBeDefined();
   });
 
-  it('still calls notifyContractCompleted when evolutionSystem present (phase 1206 Step D)', async () => {
-    const mockNotify = vi.fn().mockResolvedValue({ status: 'submitted' });
+  it('observer bridge calls observeContractCompleted when evolutionSystem present (phase 1396 Step M)', async () => {
+    const mockObserve = vi.fn().mockResolvedValue({ status: 'submitted' });
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
-      notifyContractCompleted: mockNotify,
+      observeContractCompleted: mockObserve,
+      notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }),
       registerRetrospective: vi.fn().mockResolvedValue(undefined),
       init: vi.fn().mockResolvedValue(undefined),
     });
 
     await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
-    expect(capturedContractCallback).toBeDefined();
-    await capturedContractCallback!('test-contract-id');
+    expect(capturedContractObserverDeps).toBeDefined();
+    expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();
+    await capturedContractObserverDeps.onCompletedContract('claw-a', 'test-contract-id');
 
-    expect(mockNotify).toHaveBeenCalledTimes(1);
-    expect(mockNotify).toHaveBeenCalledWith('test-contract-id', expect.anything());
+    expect(mockObserve).toHaveBeenCalledTimes(1);
+    expect(mockObserve).toHaveBeenCalledWith(
+      { contractId: 'test-contract-id', executorId: 'claw-a' },
+      expect.anything(),
+    );
 
-    // Phase 1206 Step D: contract completion triggers retro_triggered audit
+    // Phase 1396 Step M: observer bridge 完成事实交付触发 retro_triggered audit
     expect(mockAuditWrite).toHaveBeenCalledWith(
       'retro_triggered',
       'contractId=test-contract-id',
-      'source=motion_self',
+      'source=contract_observer',
       'status=submitted',
     );
   });
 
-  it('rethrows the original error after audit when notifyContractCompleted rejects (phase 1206 Step E)', async () => {
-    const mockNotify = vi.fn().mockRejectedValue(new Error('retro dispatch failed'));
+  it('rethrows the original error after audit when observeContractCompleted rejects', async () => {
+    const mockObserve = vi.fn().mockRejectedValue(new Error('retro dispatch failed'));
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
-      notifyContractCompleted: mockNotify,
+      observeContractCompleted: mockObserve,
+      notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }),
       registerRetrospective: vi.fn().mockResolvedValue(undefined),
       init: vi.fn().mockResolvedValue(undefined),
     });
 
     await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
-    expect(capturedContractCallback).toBeDefined();
-    await expect(capturedContractCallback!('test-contract-id')).rejects.toThrow('retro dispatch failed');
+    expect(capturedContractObserverDeps).toBeDefined();
+    expect(capturedContractObserverDeps.onCompletedContract).toBeDefined();
+    await expect(capturedContractObserverDeps.onCompletedContract('claw-a', 'test-contract-id')).rejects.toThrow('retro dispatch failed');
 
-    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockObserve).toHaveBeenCalledTimes(1);
     expect(mockAuditWrite).toHaveBeenCalledWith(
       'contract_completed_handler_failed',
       'contractId=test-contract-id',
+      'source=contract_observer',
       expect.stringContaining('retro dispatch failed'),
     );
 
@@ -592,9 +608,10 @@ describe('assemble-evolution-stepE-boundaries', () => {
     clawConfig: baseClawConfig,
   };
 
-  function makeEvolutionSystemMock(overrides?: { notifyContractCompleted?: any }) {
+  function makeEvolutionSystemMock(overrides?: { observeContractCompleted?: any }) {
     return {
-      notifyContractCompleted: overrides?.notifyContractCompleted ?? vi.fn().mockResolvedValue({ status: 'submitted' }),
+      observeContractCompleted: overrides?.observeContractCompleted ?? vi.fn().mockResolvedValue({ status: 'submitted' }),
+      notifyContractCompleted: vi.fn().mockResolvedValue({ status: 'submitted' }),
       registerRetrospective: vi.fn().mockResolvedValue(undefined),
       init: vi.fn().mockResolvedValue(undefined),
     };
@@ -628,28 +645,10 @@ describe('assemble-evolution-stepE-boundaries', () => {
     expect(retroPostProcessorCalls.length).toBe(0);
   });
 
-  it('motion contractManager.onContractCompleted callback rethrows the original error', async () => {
-    const mockNotify = vi.fn().mockRejectedValue(new Error('motion self callback failed'));
-    (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockImplementation(() =>
-      makeEvolutionSystemMock({ notifyContractCompleted: mockNotify }),
-    );
-
-    await assemble(motionBaseConfig, undefined, { createSkillSystem: mockSkillFactory });
-
-    expect(capturedContractCallback).toBeDefined();
-    await expect(capturedContractCallback!('test-contract-id')).rejects.toThrow('motion self callback failed');
-
-    expect(mockAuditWrite).toHaveBeenCalledWith(
-      'contract_completed_handler_failed',
-      'contractId=test-contract-id',
-      expect.stringContaining('motion self callback failed'),
-    );
-  });
-
   it('contract observer bridge callback rethrows the original error', async () => {
-    const mockNotify = vi.fn().mockRejectedValue(new Error('observer bridge failed'));
+    const mockObserve = vi.fn().mockRejectedValue(new Error('observer bridge failed'));
     (createEvolutionSystem as unknown as ReturnType<typeof vi.fn>).mockImplementation(() =>
-      makeEvolutionSystemMock({ notifyContractCompleted: mockNotify }),
+      makeEvolutionSystemMock({ observeContractCompleted: mockObserve }),
     );
 
     await assemble(motionBaseConfig, undefined, { createSkillSystem: mockSkillFactory });

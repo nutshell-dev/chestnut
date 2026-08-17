@@ -223,11 +223,15 @@ export async function createMotionAddons(
           fs: chestnutFs,
           motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
           notifyMotion: (msg) => routeNotifyClawAsync(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
-          // phase 821 / phase 1206 Step D: 桥接 worker claw 契约完成 → evolutionSystem retro
+          // Phase 1396 Step M：observer at-least-once 完成事实 → EvolutionSystem.observeContractCompleted
+          // （幂等 v2 work item ensure + 自行 dispatch/recover），不再经过 notifyContractCompleted
           onCompletedContract: business.evolutionSystem && business.motionReviewContext
-            ? async (_clawId, contractId) => {
+            ? async (clawId, contractId) => {
                 try {
-                  const result = await business.evolutionSystem!.notifyContractCompleted(contractId as ContractId, business.motionReviewContext!);
+                  const result = await business.evolutionSystem!.observeContractCompleted(
+                    { contractId: contractId as ContractId, executorId: makeClawId(clawId) },
+                    business.motionReviewContext!,
+                  );
                   auditWriter.write(
                     RETRO_AUDIT_EVENTS.RETRO_TRIGGERED,
                     `contractId=${contractId}`,

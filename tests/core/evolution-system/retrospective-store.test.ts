@@ -6,7 +6,7 @@ import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import {
-  type RegisterRetrospectiveInput,
+  type EnsureRetrospectiveInput,
 } from '../../../src/core/evolution-system/index.js';
 import { RetrospectiveStore, READY_DIR, DISPATCHING_DIR, SUBMITTED_DIR } from '../../../src/core/evolution-system/retrospective-store.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
@@ -27,12 +27,10 @@ function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | num
   return { audit, events };
 }
 
-function makeInput(overrides?: Partial<RegisterRetrospectiveInput>): RegisterRetrospectiveInput {
+function makeInput(overrides?: Partial<EnsureRetrospectiveInput>): EnsureRetrospectiveInput {
   return {
     contractId: makeContractId(`contract-${randomUUID().slice(0, 8)}`),
-    targetClaw: 'claw-a',
-    mode: 'shadow',
-    shadowTaskId: `task-${randomUUID().slice(0, 8)}`,
+    targetExecutorId: 'claw-a',
     ...overrides,
   };
 }
@@ -61,23 +59,70 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
     await cleanupTempDir(baseDir);
   });
 
-  it('register writes a ready row and returns stable task_id', async () => {
+  it('ensure writes a v2 ready row (identity only) and returns stable task_id', async () => {
     const input = makeInput();
-    const result = await store.register(input);
+    const result = await store.ensure(input);
     expect(result.taskId).toBeTruthy();
     expect(result.createdAt).toBeTruthy();
 
     const readyPath = path.join(baseDir, `${READY_DIR}/${input.contractId}.json`);
     expect(existsSync(readyPath)).toBe(true);
 
+    // Phase 1396 Step M: 新 writer 只保存 contract/executor/task identity
+    const onDisk = JSON.parse(await fs.read(`${READY_DIR}/${input.contractId}.json`));
+    expect(onDisk).toMatchObject({
+      schema_version: 2,
+      contract_id: input.contractId,
+      target_executor_id: input.targetExecutorId,
+    });
+    expect(onDisk).not.toHaveProperty('target_claw');
+    expect(onDisk).not.toHaveProperty('mode');
+    expect(onDisk).not.toHaveProperty('mining_task_id');
+    expect(onDisk).not.toHaveProperty('shadow_task_id');
+
     const committedEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_REGISTRATION_COMMITTED);
     expect(committedEvents).toHaveLength(1);
   });
 
-  it('register is idempotent for identical input', async () => {
+  it('v1 legacy row is strictly readable and matches ensure by (contractId, executor)', async () => {
+    // Phase 1396 Step M: v1 只读兼容 —— 不重写、按 (contract_id, target_claw) 幂等匹配。
     const input = makeInput();
-    const first = await store.register(input);
-    const second = await store.register(input);
+    await fs.ensureDir(READY_DIR);
+    const legacyTaskId = '00000000-0000-0000-0000-0000000000aa';
+    await fs.writeAtomic(
+      `${READY_DIR}/${input.contractId}.json`,
+      JSON.stringify({
+        schema_version: 1,
+        contract_id: input.contractId,
+        task_id: legacyTaskId,
+        target_claw: input.targetExecutorId,
+        created_at: '2026-01-01T00:00:00.000Z',
+        mode: 'shadow',
+        shadow_task_id: 'legacy-source-task',
+      }),
+    );
+
+    const ready = await store.listReady();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]).toMatchObject({
+      schema_version: 1,
+      contract_id: input.contractId,
+      target_claw: input.targetExecutorId,
+      mode: 'shadow',
+      shadow_task_id: 'legacy-source-task',
+    });
+
+    const again = await store.ensure(input);
+    expect(again.taskId).toBe(legacyTaskId);
+
+    const conflict = store.ensure({ ...input, targetExecutorId: 'claw-b' });
+    await expect(conflict).rejects.toThrow(/registration conflict/);
+  });
+
+  it('ensure is idempotent for identical input', async () => {
+    const input = makeInput();
+    const first = await store.ensure(input);
+    const second = await store.ensure(input);
     expect(second.taskId).toBe(first.taskId);
     expect(second.createdAt).toBe(first.createdAt);
 
@@ -85,10 +130,10 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
     expect(readyFiles).toHaveLength(1);
   });
 
-  it('register rejects mismatched re-registration', async () => {
+  it('ensure rejects mismatched re-registration', async () => {
     const input = makeInput();
-    await store.register(input);
-    await expect(store.register({ ...input, targetClaw: 'claw-b' })).rejects.toThrow(/registration conflict/);
+    await store.ensure(input);
+    await expect(store.ensure({ ...input, targetExecutorId: 'claw-b' })).rejects.toThrow(/registration conflict/);
 
     const conflictEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT);
     expect(conflictEvents).toHaveLength(1);
@@ -96,7 +141,7 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
 
   it('beginDispatch acquires ready row', async () => {
     const input = makeInput();
-    await store.register(input);
+    await store.ensure(input);
 
     const disposition = await store.beginDispatch(input.contractId);
     expect(disposition).toBe('acquired');
@@ -107,7 +152,7 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
 
   it('beginDispatch returns submitted if row already submitted', async () => {
     const input = makeInput();
-    await store.register(input);
+    await store.ensure(input);
     await store.beginDispatch(input.contractId);
     const row = await store.readDispatching(input.contractId);
     expect(row).toBeTruthy();
@@ -119,7 +164,7 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
 
   it('beginDispatch returns busy if row is dispatching', async () => {
     const input = makeInput();
-    await store.register(input);
+    await store.ensure(input);
     await store.beginDispatch(input.contractId);
 
     const disposition = await store.beginDispatch(input.contractId);
@@ -133,7 +178,7 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
 
   it('markSubmitted moves dispatching to submitted', async () => {
     const input = makeInput();
-    await store.register(input);
+    await store.ensure(input);
     await store.beginDispatch(input.contractId);
     await store.markSubmitted(input.contractId);
 
@@ -147,7 +192,7 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
 
   it('concurrent beginDispatch only one acquires', async () => {
     const input = makeInput();
-    await store.register(input);
+    await store.ensure(input);
 
     const results = await Promise.all([
       store.beginDispatch(input.contractId),
@@ -167,9 +212,9 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
     const inputB = makeInput({ contractId: makeContractId('contract-b') });
     const inputC = makeInput({ contractId: makeContractId('contract-c') });
 
-    await store.register(inputB);
-    await store.register(inputA);
-    await store.register(inputC);
+    await store.ensure(inputB);
+    await store.ensure(inputA);
+    await store.ensure(inputC);
 
     const ready = await store.listReady();
     // Rows are sorted by created_at ascending; contract-b was registered first.
@@ -203,14 +248,14 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
     expect(futureEvents).toHaveLength(1);
   });
 
-  it('multi-state row fails register and beginDispatch', async () => {
+  it('multi-state row fails ensure and beginDispatch', async () => {
     const input = makeInput();
     await fs.ensureDir(READY_DIR);
     await fs.ensureDir(DISPATCHING_DIR);
-    await fs.writeAtomic(`${READY_DIR}/${input.contractId}.json`, JSON.stringify({ schema_version: 1, contract_id: input.contractId, task_id: '00000000-0000-0000-0000-000000000000', target_claw: input.targetClaw, created_at: '2026-01-01' }));
-    await fs.writeAtomic(`${DISPATCHING_DIR}/${input.contractId}.json`, JSON.stringify({ schema_version: 1, contract_id: input.contractId, task_id: '00000000-0000-0000-0000-000000000001', target_claw: input.targetClaw, created_at: '2026-01-01' }));
+    await fs.writeAtomic(`${READY_DIR}/${input.contractId}.json`, JSON.stringify({ schema_version: 1, contract_id: input.contractId, task_id: '00000000-0000-0000-0000-000000000000', target_claw: input.targetExecutorId, created_at: '2026-01-01' }));
+    await fs.writeAtomic(`${DISPATCHING_DIR}/${input.contractId}.json`, JSON.stringify({ schema_version: 1, contract_id: input.contractId, task_id: '00000000-0000-0000-0000-000000000001', target_claw: input.targetExecutorId, created_at: '2026-01-01' }));
 
-    await expect(store.register(input)).rejects.toThrow(/multiple states/);
+    await expect(store.ensure(input)).rejects.toThrow(/multiple states/);
     await expect(store.beginDispatch(input.contractId)).rejects.toThrow(/multiple states/);
 
     const multiStateEvents = audit.events.filter(e => e[0] === RETRO_AUDIT_EVENTS.RETRO_STORE_MULTI_STATE);
@@ -239,7 +284,7 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
 
   it('migration failure preserves legacy row and audits', async () => {
     const input = makeInput();
-    const legacyRows = [{ ...input, createdAt: '2026-01-01' }];
+    const legacyRows = [{ contractId: input.contractId, targetClaw: input.targetExecutorId, createdAt: '2026-01-01' }];
 
     const result = await store.migrateLegacyRows(
       async () => legacyRows,
@@ -255,11 +300,11 @@ describe('RetrospectiveStore (Phase 1206 Step B)', () => {
 
   it('migration skips already-consistent rows and acks them', async () => {
     const input = makeInput();
-    await store.register(input);
+    await store.ensure(input);
 
     const acked = new Set<string>();
     const result = await store.migrateLegacyRows(
-      async () => [{ ...input, createdAt: '2026-01-01' }],
+      async () => [{ contractId: input.contractId, targetClaw: input.targetExecutorId, createdAt: '2026-01-01' }],
       async (contractId) => { acked.add(contractId); },
     );
 

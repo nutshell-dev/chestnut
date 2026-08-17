@@ -34,8 +34,7 @@ import {
 import type { SummonContractQuery } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem, MotionReviewContext } from '../core/evolution-system/index.js';
-import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/index.js';
-import { CONTRACT_AUDIT_EVENTS, makeContractId } from '../core/contract/index.js';
+import { makeContractId } from '../core/contract/index.js';
 
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
@@ -223,10 +222,9 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         return execContracts.hasContract(makeContractId(contractId));
       },
     };
-    // Phase 1206 Step D: wire summon contract-extract post-processor to durable retrospective registration.
-    // Motion-only: summon should not run on claw, so the post-processor is only registered here.
+    // Phase 1396 Step M: summon post-processor 只注入 claimStore + contractQuery；
+    // contract 创建事实确认即 SummonSystem 终点，retrospective 由 ContractObserver→Evolution 链路 own。
     const summonContractExtractPostProcessor = createSummonContractExtractPostProcessor(
-      evolutionSystem.registerRetrospective.bind(evolutionSystem),
       { claimStore: summonClaimStore, contractQuery: summonContractQuery },
     );
     taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
@@ -267,25 +265,9 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=init`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
     }
-    contractManager.onContractCompleted(async (contractId) => {
-      if (!evolutionSystem || !motionReviewContext) return;
-      try {
-        const result = await evolutionSystem.notifyContractCompleted(contractId, motionReviewContext);
-        auditWriter.write(
-          RETRO_AUDIT_EVENTS.RETRO_TRIGGERED,
-          `contractId=${contractId}`,
-          `source=motion_self`,
-          `status=${result.status}`,
-        );
-      } catch (e) {
-        auditWriter.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_COMPLETED_HANDLER_FAILED,
-          `contractId=${contractId}`,
-          `reason=${formatErr(e)}`,
-        );
-        throw e;
-      }
-    });
+    // Phase 1396 Step M：retrospective 完成事实交付统一由 ContractObserver（archive 扫描 +
+    // retrospective 专用水位，at-least-once）→ EvolutionSystem.observeContractCompleted 承担；
+    // 不再订阅 ContractManager 的进程内 onContractCompleted，避免双 producer。
   }
 
   // --- 11. 工具注册 + toolExecutor + DialogStore + InboxReader + ContractAuditor + FormatterRegistry + GuidanceRegistry ---

@@ -7,7 +7,7 @@
  * or technical failure recovery may leak into the summon-specific public surface.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -25,6 +25,41 @@ const FORBIDDEN_MOTION_RECOVERY_PATTERN = /targetClaw|mine|mining|subagent|子�
 
 const FORBIDDEN_ERROR_DETAIL_PATTERN = /shadow|orphan|ExecContext|Assembly|caller snapshot|async-only routing/i;
 
+/**
+ * Phase 1396 Step M: 含 summon 的完整句子/表格行不得与实现实体同句绑定。
+ * 扫描范围 = 三份 Motion 模板全文（不限 `### summon 用法` subsection）。
+ */
+const SUMMON_SENTENCE_FORBIDDEN = /claw|shadow|mining|subagent|子代理|分身|召唤任务|dispatch-skills/i;
+
+function collectSummonLines(text: string): Array<{ heading: string; line: string }> {
+  const out: Array<{ heading: string; line: string }> = [];
+  let heading = '';
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    const h = line.match(/^#+\s+(.*)$/);
+    if (h) heading = h[1];
+    if (/summon/i.test(line)) out.push({ heading, line });
+  }
+  return out;
+}
+
+function collectTsFiles(...roots: string[]): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        walk(p);
+      } else if (entry.name.endsWith('.ts')) {
+        out.push(p);
+      }
+    }
+  };
+  for (const root of roots) walk(root);
+  return out;
+}
+
 function readAllText(filePath: string): string {
   return fs.readFileSync(filePath, 'utf-8');
 }
@@ -39,24 +74,15 @@ function collectReachableReferences(skillMdPath: string): string[] {
   return refs;
 }
 
-function extractSection(text: string, heading: string): string {
-  const lines = text.split('\n');
-  const start = lines.findIndex((l) => l.trim().startsWith(heading));
-  if (start === -1) return '';
-  const depth = lines[start].match(/^(#+)/)?.[1].length ?? 1;
-  const end = lines.slice(start + 1).findIndex((l) => {
-    const m = l.match(/^(#+)/);
-    return m !== null && m[1].length <= depth;
-  });
-  return lines.slice(start + 1, end === -1 ? undefined : start + 1 + end).join('\n');
-}
-
 describe('Phase 1396 Step I: summon public surface inventory', () => {
   describe('Motion templates', () => {
-    it('AGENTS.md summon usage section must not expose implementation or recovery', () => {
-      const agents = readAllText(path.join(MOTION_DIR, 'AGENTS.md'));
-      const summonSection = extractSection(agents, '### summon 用法');
-      expect(summonSection).not.toMatch(FORBIDDEN_SUMMON_PATTERN);
+    it('every summon sentence across the full Motion templates must not bind implementation entities', () => {
+      for (const file of ['AGENTS.md', 'SOUL.md', 'AUTH_POLICY.md']) {
+        const text = readAllText(path.join(MOTION_DIR, file));
+        for (const { heading, line } of collectSummonLines(text)) {
+          expect(line, `${file} [${heading}]: ${line}`).not.toMatch(SUMMON_SENTENCE_FORBIDDEN);
+        }
+      }
     });
 
     it('SOUL.md must not authorize or teach summon/claw recovery', () => {
@@ -84,15 +110,32 @@ describe('Phase 1396 Step I: summon public surface inventory', () => {
     });
 
     it('shadow rejection error must not leak implementation words', async () => {
-      const result = await new SummonTool(undefined, undefined, undefined, false).execute(
+      // Phase 1396 Step M: 三参数构造；注入完整 caller snapshot 并断言未被调用，
+      // 确保拒绝真来自 allowFromShadow=false 分支而非 snapshot 缺失路径。
+      const getCallerSnapshot = vi.fn();
+      const result = await new SummonTool(undefined, undefined, false).execute(
         { goal: 'test' },
         {
           auditWriter: null,
           currentToolUseId: 'tu_test',
+          getCallerSnapshot,
         } as any,
       );
       expect(result).toMatchObject({ success: false, error: 'summon_unavailable' });
       expect(result.content).not.toMatch(FORBIDDEN_ERROR_DETAIL_PATTERN);
+      expect(getCallerSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('SummonTool constructor arity ratchet: retired 4th positional arg must not reappear', () => {
+      expect(SummonTool.length).toBeLessThanOrEqual(3);
+      const files = collectTsFiles(
+        path.join(repoRoot, 'src'),
+        path.join(repoRoot, 'tests'),
+      );
+      const fourArgCall = /new SummonTool\([^()\n]*,[^()\n]*,[^()\n]*,[^()\n]+\)/;
+      for (const f of files) {
+        expect(readAllText(f), f).not.toMatch(fourArgCall);
+      }
     });
   });
 

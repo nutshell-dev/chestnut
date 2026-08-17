@@ -46,7 +46,7 @@ export function buildSummonContractTask(
 - 写到 \`./contract-drafts/<slug>/\`
 - 调 \`chestnut contract create --claw <id> --dir <path>\` 提交契约
 
-提交后、target claw 由 dispatcher 派活、收 contract、跑 subtask、完成后通过 contract_completed 事件触 retro。整个执行链你不参与。
+提交后、target claw 由 dispatcher 派活、收 contract、跑 subtask。整个执行链你不参与。
 
 **关键边界**：你**只能**为本次 summon 自行选定的 target claw 创建契约。即使你跑
 \`chestnut claw list --summary\` 看到别的 claw 缺契约、跑 daemon 没起、或任何“系统状态不完整”
@@ -115,7 +115,7 @@ subtasks:
 ### 4. 提交契约
 exec: chestnut contract create --claw <targetClawId> --dir ./contract-drafts/<contract-slug>
 
-CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次任务完成、可直接 \`done(result="<给 Motion 的简报>"\` 退出。系统按创建记录自动登记 retro、无需在 result 内附加任何特殊标记。
+CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次任务完成、可直接 \`done(result="<给 Motion 的简报>")\` 退出。创建成功即任务结束，无需在 result 内附加任何特殊标记。
 
 **任何其他执行路径**（包括跳过 Step 4 自己跑 grep/write/exec 完成任务的实际工作）**都不算成功完成**，系统核实不到契约提交记录即判失败。
 

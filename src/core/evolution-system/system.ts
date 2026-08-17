@@ -10,11 +10,13 @@ import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import * as path from 'path';
 
 import { type ContractId } from '../contract/index.js';
-import type { RegisterRetrospectiveInput, LegacyPendingRetrospective } from './retrospective-store.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
+import type { LegacyPendingRetrospective } from './retrospective-store.js';
 import type { FullTaskId, PreparedSubagentSchedule } from '../async-task-system/index.js';
 import {
   RetrospectiveStore,
-  type RetrospectiveWorkItemV1,
+  executorIdOf,
+  type RetrospectiveWorkItem,
 } from './retrospective-store.js';
 
 export interface EvolutionSystemDeps {
@@ -36,6 +38,15 @@ export interface RetroResult {
   detail?: string;
   taskId?: string;
   reason?: string;
+}
+
+/**
+ * Phase 1396 Step M: 跨模块传递的已完成契约稳定身份。
+ * completedAt / archive path / observer cursor / summon source 都不跨边界。
+ */
+export interface CompletedContractRef {
+  contractId: ContractId;
+  executorId: ClawId;
 }
 
 /** Motion 侧资源（pending-retrospective 索引读取 + motion audit 路由）。 */
@@ -80,12 +91,68 @@ export class EvolutionSystem {
   }
 
   /**
-   * Phase 1206 Step D: public durable registration surface.
-   * Callers (e.g. summon post-processor) register a retrospective work item
-   * without knowing the disk layout. Success/failure only; the store owns ids.
+   * Phase 1396 Step M: contract completed 事实入口（ContractObserver 经 Assembly 喂入）。
+   * EvolutionSystem 先幂等提交 v2 work item，再 acquire/dispatch；重复观察由
+   * durable row 吸收。注册/派发失败保留 durable 状态，由 recoverRetrospectives 恢复。
    */
-  async registerRetrospective(input: RegisterRetrospectiveInput): Promise<void> {
-    await this.store.register(input);
+  async observeContractCompleted(
+    ref: CompletedContractRef,
+    ctx: MotionReviewContext,
+  ): Promise<RetroResult> {
+    // 1. 先幂等提交 v2 work item —— 只有落盘成功后才允许推进 observer 水位。
+    try {
+      await this.store.ensure({
+        contractId: ref.contractId,
+        targetExecutorId: ref.executorId,
+      });
+    } catch (e) {
+      this.deps.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_RECOVERY_FAILED,
+        `contractId=${ref.contractId}`,
+        `state=observe`,
+        `reason=${formatErr(e)}`,
+      );
+      return { status: 'error', detail: formatErr(e) };
+    }
+
+    // 2. acquire dispatch authority；'busy' = 上次崩于 dispatching（或并发在飞）——
+    //    原地重投同一 durable row（task_id 稳定、幂等），使 observer 重试同 boot 内收敛。
+    const disposition = await this.store.beginDispatch(ref.contractId);
+    if (disposition === 'submitted') return { status: 'already_submitted' };
+    if (disposition === 'missing') {
+      // ensure 刚写成功却读不到：防御分支，audit 可观察。
+      this.deps.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
+        `contractId=${ref.contractId}`,
+        `state=ready`,
+        `reason=row_disappeared_after_ensure`,
+      );
+      return { status: 'error', detail: 'work_item_lost_after_ensure' };
+    }
+
+    const item = await this.store.readDispatching(ref.contractId);
+    if (!item) {
+      this.deps.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
+        `contractId=${ref.contractId}`,
+        `state=dispatching`,
+        `reason=row_disappeared_after_acquire`,
+      );
+      return { status: 'error', detail: 'dispatching_row_lost' };
+    }
+
+    try {
+      return await this.submitDispatching(item, ctx);
+    } catch (e) {
+      // 派发失败：row 保留在 dispatching，由 observer 重试或 boot recovery 恢复。
+      this.deps.audit.write(
+        RETRO_AUDIT_EVENTS.RETRO_RECOVERY_FAILED,
+        `contractId=${ref.contractId}`,
+        `state=dispatching`,
+        `reason=${formatErr(e)}`,
+      );
+      return { status: 'error', detail: formatErr(e) };
+    }
   }
 
   /**
@@ -141,7 +208,7 @@ export class EvolutionSystem {
    * on schedule/markSubmitted failure so recovery can retry.
    */
   private async submitDispatching(
-    item: RetrospectiveWorkItemV1,
+    item: RetrospectiveWorkItem,
     ctx: MotionReviewContext,
   ): Promise<RetroResult> {
     const prepared = await this._buildPreparedRetroTask(item, ctx);
@@ -243,12 +310,15 @@ export class EvolutionSystem {
   }
 
   private async _buildPreparedRetroTask(
-    item: RetrospectiveWorkItemV1,
+    item: RetrospectiveWorkItem,
     ctx: MotionReviewContext,
   ): Promise<PreparedSubagentSchedule> {
-    const clawDir = path.join(ctx.clawsBaseDir, item.target_claw);
+    // Phase 1396 Step M: retro task payload 只用 target executor + contract YAML；
+    // v1 的 mining/shadow source task id 无行为消费者，v2 已不保存。
+    const executorId = executorIdOf(item);
+    const clawDir = path.join(ctx.clawsBaseDir, executorId);
     const clawFs = ctx.clawFsFactory(clawDir);
-    const clawContractManager = ctx.clawContractManagerFactory(clawDir, item.target_claw, clawFs);
+    const clawContractManager = ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
 
     let contractYaml: string;
     try {
@@ -263,7 +333,7 @@ export class EvolutionSystem {
     }
 
     const payload = await buildRetroSubagentPayload({
-      targetClaw: item.target_claw,
+      targetClaw: executorId,
       contractId: item.contract_id,
       contractYaml,
       motionFs: ctx.motionFs,
@@ -280,12 +350,13 @@ export class EvolutionSystem {
   }
 
   private async _isContractCompleted(
-    item: RetrospectiveWorkItemV1,
+    item: RetrospectiveWorkItem,
     ctx: MotionReviewContext,
   ): Promise<boolean> {
-    const clawDir = path.join(ctx.clawsBaseDir, item.target_claw);
+    const executorId = executorIdOf(item);
+    const clawDir = path.join(ctx.clawsBaseDir, executorId);
     const clawFs = ctx.clawFsFactory(clawDir);
-    const clawContractManager = ctx.clawContractManagerFactory(clawDir, item.target_claw, clawFs);
+    const clawContractManager = ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
     try {
       const progress = await clawContractManager.getProgress(item.contract_id);
       return !!progress?.completed_at;

@@ -46,18 +46,43 @@ export function createSummonVerifyPolicy(
         // phase 276 Step A: makeTaskId SoT (M#9 编译器可检) / 替 'subagentTaskId as TaskId' 直 cast
         task = await deps.loadTask(makeTaskId(subagentTaskId));
       } catch (err) {
+        // Phase 1396 Step M: 读失败 = summon 创建状态不可判定（I/O / corrupt / future schema），
+        // fail-closed 抛 typed violation、不放行创建、不写 claim。不得 pass-through。
         deps.auditWriter.write(
           SUMMON_AUDIT_EVENTS.SUMMON_STATE_READ_FAILED,
           `taskId=${subagentTaskId}`,
           `error=${String(err)}`,
         );
-        // 读失败 = 未知状态、pass-through 不误拦（M#1 业务承诺无法判定时不强阻）
-        return;
+        throw new ContractCreatePolicyViolationError(
+          'summon-verify',
+          'summon_state_unavailable',
+          {
+            subagentTaskId,
+            note: 'summon task state unreadable; contract creation blocked (fail-closed)',
+          },
+        );
       }
 
-      const decision = task?.summonDecision;
+      if (!task) {
+        // loader 可靠返回 undefined：task 不存在，同样无法判定 summon 创建状态 → fail-closed。
+        deps.auditWriter.write(
+          SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
+          `subagentTaskId=${subagentTaskId}`,
+          'reason=task_not_found',
+        );
+        throw new ContractCreatePolicyViolationError(
+          'summon-verify',
+          'summon_task_not_found',
+          {
+            subagentTaskId,
+            note: 'subagent task not found; contract creation blocked (fail-closed)',
+          },
+        );
+      }
 
-      if (!decision || !task) {
+      const decision = task.summonDecision;
+
+      if (!decision) {
         // metadata 缺失 = 非 summon 创建路径（如直接 CLI 调用、其他 caller subagent、pre-phase 281 旧任务）
         deps.auditWriter.write(
           SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,

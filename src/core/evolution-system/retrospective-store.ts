@@ -32,16 +32,16 @@ export const READY_DIR = `${RETROSPECTIVES_DIR}/ready`;
 export const DISPATCHING_DIR = `${RETROSPECTIVES_DIR}/dispatching`;
 export const SUBMITTED_DIR = `${RETROSPECTIVES_DIR}/submitted`;
 
-const CURRENT_SCHEMA_VERSION = 1;
-
+/**
+ * Phase 1206  legacy v1 行字段（含 summon mode / source task id）。
+ * Phase 1396 Step M: 只读兼容；新 writer 不再写 v1。
+ */
 export type RetrospectiveMode = 'mining' | 'shadow';
 
-export interface RegisterRetrospectiveInput {
+/** Phase 1396 Step M: active 观察输入 —— 只含已完成契约的稳定身份。 */
+export interface EnsureRetrospectiveInput {
   contractId: ContractId;
-  targetClaw: string;
-  mode?: RetrospectiveMode;
-  miningTaskId?: string;
-  shadowTaskId?: string;
+  targetExecutorId: string;
 }
 
 export interface RegisterRetrospectiveResult {
@@ -49,6 +49,7 @@ export interface RegisterRetrospectiveResult {
   createdAt: string;
 }
 
+/** Legacy v1 row（只读）；新 writer 不再保存 summon 执行模式或 source task id。 */
 export interface RetrospectiveWorkItemV1 {
   schema_version: 1;
   contract_id: ContractId;
@@ -60,7 +61,21 @@ export interface RetrospectiveWorkItemV1 {
   shadow_task_id?: string;
 }
 
-export type RetrospectiveWorkItem = RetrospectiveWorkItemV1;
+/** Phase 1396 Step M: active v2 row —— contract/executor/task identity only。 */
+export interface RetrospectiveWorkItemV2 {
+  schema_version: 2;
+  contract_id: ContractId;
+  task_id: FullTaskId;
+  target_executor_id: string;
+  created_at: string;
+}
+
+export type RetrospectiveWorkItem = RetrospectiveWorkItemV1 | RetrospectiveWorkItemV2;
+
+/** 跨 schema 版本取 executor id（v1: target_claw / v2: target_executor_id）。 */
+export function executorIdOf(item: RetrospectiveWorkItem): string {
+  return item.schema_version === 2 ? item.target_executor_id : item.target_claw;
+}
 
 export type BeginDispatchDisposition = 'acquired' | 'submitted' | 'busy' | 'missing';
 
@@ -107,10 +122,13 @@ export class RetrospectiveStore {
   }
 
   /**
-   * Register a retrospective work item. Returns the stable task_id.
-   * Idempotent on producer input; fail-closed on mismatched re-registration.
+   * Phase 1396 Step M: ensure a v2 retrospective work item for an observed
+   * completed contract. Idempotent on producer input; fail-closed on
+   * mismatched re-registration. New writes only persist contract/executor/task
+   * identity (v2); existing v1 rows are matched read-only by (contractId,
+   * executor) and never rewritten.
    */
-  async register(input: RegisterRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
+  async ensure(input: EnsureRetrospectiveInput): Promise<RegisterRetrospectiveResult> {
     await this.ensureDirs();
 
     const existing = await this._findAnyRow(input.contractId);
@@ -126,7 +144,7 @@ export class RetrospectiveStore {
         );
         throw new Error(`Retrospective row for ${input.contractId} exists but is corrupt`);
       }
-      if (!producerInputsEqual(input, item)) {
+      if (!observedInputMatchesRow(input, item)) {
         this.audit.write(
           RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT,
           `contractId=${input.contractId}`,
@@ -140,15 +158,12 @@ export class RetrospectiveStore {
 
     const createdAt = new Date().toISOString();
     const taskId = this.generateTaskId();
-    const row: RetrospectiveWorkItemV1 = {
-      schema_version: CURRENT_SCHEMA_VERSION,
+    const row: RetrospectiveWorkItemV2 = {
+      schema_version: 2,
       contract_id: input.contractId,
       task_id: taskId,
-      target_claw: input.targetClaw,
+      target_executor_id: input.targetExecutorId,
       created_at: createdAt,
-      mode: input.mode,
-      mining_task_id: input.miningTaskId,
-      shadow_task_id: input.shadowTaskId,
     };
 
     await this.fs.writeAtomic(this.rowPath(input.contractId, 'ready'), JSON.stringify(row, null, 2));
@@ -215,12 +230,12 @@ export class RetrospectiveStore {
     return 'acquired';
   }
 
-  async readDispatching(contractId: ContractId): Promise<RetrospectiveWorkItemV1 | null> {
+  async readDispatching(contractId: ContractId): Promise<RetrospectiveWorkItem | null> {
     const path = this.rowPath(contractId, 'dispatching');
     return this._readRow(path, 'dispatching');
   }
 
-  async readSubmitted(contractId: ContractId): Promise<RetrospectiveWorkItemV1 | null> {
+  async readSubmitted(contractId: ContractId): Promise<RetrospectiveWorkItem | null> {
     const path = this.rowPath(contractId, 'submitted');
     return this._readRow(path, 'submitted');
   }
@@ -256,21 +271,22 @@ export class RetrospectiveStore {
     );
   }
 
-  async listReady(): Promise<RetrospectiveWorkItemV1[]> {
+  async listReady(): Promise<RetrospectiveWorkItem[]> {
     return this._listDir('ready');
   }
 
-  async listDispatching(): Promise<RetrospectiveWorkItemV1[]> {
+  async listDispatching(): Promise<RetrospectiveWorkItem[]> {
     return this._listDir('dispatching');
   }
 
-  async listSubmitted(): Promise<RetrospectiveWorkItemV1[]> {
+  async listSubmitted(): Promise<RetrospectiveWorkItem[]> {
     return this._listDir('submitted');
   }
 
   /**
-   * Migrate legacy pending-retrospective rows into the new ready store.
-   * Each row is registered, re-read to verify, then acked via the legacy owner.
+   * Migrate legacy pending-retrospective rows into the ready store as v2 rows
+   * (Phase 1396 Step M: legacy mode/task-id fields are dropped on migration).
+   * Each row is ensured, re-read to verify, then acked via the legacy owner.
    * Failures preserve the original legacy row and emit audit.
    */
   async migrateLegacyRows(
@@ -295,10 +311,14 @@ export class RetrospectiveStore {
 
     for (const row of legacyRows) {
       try {
+        const ensureInput: EnsureRetrospectiveInput = {
+          contractId: row.contractId,
+          targetExecutorId: row.targetClaw,
+        };
         const existing = await this._findAnyRow(row.contractId);
         if (existing) {
           const item = await this._readRow(existing.path, existing.dir);
-          if (item && producerInputsEqual(legacyToInput(row), item)) {
+          if (item && observedInputMatchesRow(ensureInput, item)) {
             // Already migrated and consistent — ack the legacy row.
             await ackLegacy(row.contractId);
             migrated++;
@@ -306,7 +326,7 @@ export class RetrospectiveStore {
           }
         }
 
-        const { taskId } = await this.register(legacyToInput(row));
+        const { taskId } = await this.ensure(ensureInput);
 
         // Verify readable before acking legacy.
         const written = await this.readReady(row.contractId);
@@ -336,11 +356,11 @@ export class RetrospectiveStore {
     return { migrated, failed, skipped };
   }
 
-  private async readReady(contractId: ContractId): Promise<RetrospectiveWorkItemV1 | null> {
+  private async readReady(contractId: ContractId): Promise<RetrospectiveWorkItem | null> {
     return this._readRow(this.rowPath(contractId, 'ready'), 'ready');
   }
 
-  private async _listDir(dir: RowLocation['dir']): Promise<RetrospectiveWorkItemV1[]> {
+  private async _listDir(dir: RowLocation['dir']): Promise<RetrospectiveWorkItem[]> {
     const base = dir === 'ready' ? READY_DIR : dir === 'dispatching' ? DISPATCHING_DIR : SUBMITTED_DIR;
     let entries: Awaited<ReturnType<FileSystem['list']>>;
     try {
@@ -350,7 +370,7 @@ export class RetrospectiveStore {
       throw err;
     }
 
-    const items: RetrospectiveWorkItemV1[] = [];
+    const items: RetrospectiveWorkItem[] = [];
     for (const e of entries) {
       if (!e.name.endsWith('.json')) continue;
       const contractId = makeContractId(e.name.replace(/\.json$/, ''));
@@ -400,7 +420,7 @@ export class RetrospectiveStore {
     return found[0] ?? null;
   }
 
-  private async _readRow(path: string, dir: RowLocation['dir']): Promise<RetrospectiveWorkItemV1 | null> {
+  private async _readRow(path: string, dir: RowLocation['dir']): Promise<RetrospectiveWorkItem | null> {
     let raw: string;
     try {
       raw = await this.fs.read(path);
@@ -440,7 +460,32 @@ export class RetrospectiveStore {
 
     const r = parsed as Record<string, unknown>;
     const version = r.schema_version;
-    if (version !== CURRENT_SCHEMA_VERSION) {
+
+    if (version === 2) {
+      if (
+        typeof r.contract_id !== 'string' ||
+        typeof r.task_id !== 'string' ||
+        typeof r.target_executor_id !== 'string' ||
+        typeof r.created_at !== 'string'
+      ) {
+        this.audit.write(
+          RETRO_AUDIT_EVENTS.RETRO_STORE_CORRUPT,
+          `path=${path}`,
+          `state=${dir}`,
+          `reason=missing_required_fields`,
+        );
+        return null;
+      }
+      return {
+        schema_version: 2,
+        contract_id: makeContractId(r.contract_id),
+        task_id: makeFullTaskId(r.task_id),
+        target_executor_id: r.target_executor_id,
+        created_at: r.created_at,
+      };
+    }
+
+    if (version !== 1) {
       this.audit.write(
         RETRO_AUDIT_EVENTS.RETRO_STORE_FUTURE_VERSION,
         `path=${path}`,
@@ -450,6 +495,7 @@ export class RetrospectiveStore {
       return null;
     }
 
+    // v1 legacy read-only path
     if (
       typeof r.contract_id !== 'string' ||
       typeof r.task_id !== 'string' ||
@@ -478,23 +524,10 @@ export class RetrospectiveStore {
   }
 }
 
-function producerInputsEqual(input: RegisterRetrospectiveInput, item: RetrospectiveWorkItemV1): boolean {
-  return (
-    input.contractId === item.contract_id &&
-    input.targetClaw === item.target_claw &&
-    input.mode === item.mode &&
-    input.miningTaskId === item.mining_task_id &&
-    input.shadowTaskId === item.shadow_task_id
-  );
-}
-
-function legacyToInput(row: LegacyPendingRetrospective): RegisterRetrospectiveInput {
-  const mode = row.mode === 'mining' || row.mode === 'shadow' ? row.mode : undefined;
-  return {
-    contractId: row.contractId,
-    targetClaw: row.targetClaw,
-    mode,
-    miningTaskId: row.miningTaskId,
-    shadowTaskId: row.shadowTaskId,
-  };
+/**
+ * Phase 1396 Step M: producer input 按各自 schema 比较 ——
+ * v2 行比 (contract_id, target_executor_id)；v1 legacy 行比 (contract_id, target_claw)。
+ */
+function observedInputMatchesRow(input: EnsureRetrospectiveInput, item: RetrospectiveWorkItem): boolean {
+  return input.contractId === item.contract_id && executorIdOf(item) === input.targetExecutorId;
 }

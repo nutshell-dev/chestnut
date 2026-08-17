@@ -10,7 +10,6 @@ import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
 
 import { createSummonContractExtractPostProcessor } from '../../../src/core/summon-system/post-processors/contract-extract.js';
 import { createSummonCreationClaimStore } from '../../../src/core/summon-system/creation-claim-store.js';
-import type { RegisterRetrospectiveInput } from '../../../src/core/evolution-system/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/index.js';
@@ -371,27 +370,23 @@ Content.
     }
 
     function makePostProcessor(opts: {
-      registerRetrospective?: (input: RegisterRetrospectiveInput) => Promise<void>;
       exists?: boolean;
       claimStore?: ReturnType<typeof makeClaimStore>;
     }) {
+      // Phase 1396 Step M: post-processor 只接 claimStore + contractQuery；
+      // 不再接受任何 Evolution 回调 —— contract 创建确认即 SummonSystem 终点。
       const existsSpy = vi.fn(async () => opts.exists ?? true);
-      const postProcessor = createSummonContractExtractPostProcessor(
-        opts.registerRetrospective ?? vi.fn(async () => {}),
-        {
-          claimStore: opts.claimStore ?? makeClaimStore(),
-          contractQuery: { exists: existsSpy },
-        },
-      );
+      const postProcessor = createSummonContractExtractPostProcessor({
+        claimStore: opts.claimStore ?? makeClaimStore(),
+        contractQuery: { exists: existsSpy },
+      });
       return { postProcessor, existsSpy };
     }
 
-    it('claim + contract 已提交 + evidence 一致 → success summary + registerRetrospective + 无 failure audit', async () => {
+    it('claim + contract 已提交 + evidence 一致 → success envelope 立即返回、无 failure audit、无 Evolution 回调', async () => {
       const auditWriter = makeAuditWriter();
-      const registered: RegisterRetrospectiveInput[] = [];
       const claimStore = await seedClaim('task-pp-test', 'filetool-auditor', '1780122465165-bcf86856');
       const { postProcessor, existsSpy } = makePostProcessor({
-        registerRetrospective: async (input) => { registered.push(input); },
         exists: true,
         claimStore,
       });
@@ -406,12 +401,8 @@ Content.
       }, { id: 'task-pp-test', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
       expect(existsSpy).toHaveBeenCalledWith('filetool-auditor', '1780122465165-bcf86856');
-      expect(registered).toEqual([{
-        contractId: '1780122465165-bcf86856',
-        targetClaw: 'filetool-auditor',
-        mode: 'mining',
-        miningTaskId: 'task-pp-test',
-      }]);
+      // Phase 1396 Step M: factory 不再接受 retrospective 回调参数（编译期收缩）。
+      expect(createSummonContractExtractPostProcessor.length).toBe(1);
 
       // legacy by-contract file must NOT be written
       const byContractPath = path.join(
@@ -432,10 +423,8 @@ Content.
 
     it('error envelope + claim 指向的 contract 已提交 → 恢复为成功（重建回执）', async () => {
       const auditWriter = makeAuditWriter();
-      const registered: RegisterRetrospectiveInput[] = [];
       const claimStore = await seedClaim('task-recover', 'claw-a', 'c-recovered');
       const { postProcessor } = makePostProcessor({
-        registerRetrospective: async (input) => { registered.push(input); },
         exists: true,
         claimStore,
       });
@@ -446,12 +435,7 @@ Content.
       }, { id: 'task-recover', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
       expect(summary.content).toBe('Contract created: c-recovered');
-      expect(registered).toEqual([{
-        contractId: 'c-recovered',
-        targetClaw: 'claw-a',
-        mode: 'shadow',
-        shadowTaskId: 'task-recover',
-      }]);
+      expect(summary.isError).toBe(false);
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_recovered',
         'taskId=task-recover',
@@ -537,9 +521,7 @@ Content.
 
     it('无 claim 但 evidence 存在 → evidence 不再授权：failure wrap + invariant violation audit', async () => {
       const auditWriter = makeAuditWriter();
-      const registered: RegisterRetrospectiveInput[] = [];
       const { postProcessor } = makePostProcessor({
-        registerRetrospective: async (input) => { registered.push(input); },
         exists: true,
       });
 
@@ -553,7 +535,6 @@ Content.
       }, { id: 'task-no-claim-evidence', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
       expect(result.content).toContain('summon_contract_creation_failed');
-      expect(registered).toHaveLength(0);
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_creation_evidence_mismatch',
         'taskId=task-no-claim-evidence',
@@ -610,32 +591,35 @@ Content.
       );
     });
 
-    it('registerRetrospective failure → audit RETROSPECTIVE_REGISTRATION_FAILED，成功判定不变', async () => {
+    it('contract query true 后 processor 立即返回 success envelope（无 Evolution 副作用位）', async () => {
+      // Phase 1396 Step M: retrospective 注册已从 summon finalizer 移除；
+      // 创建确认后不得有任何外部调用 —— 此处锁定成功路径 0 额外依赖调用。
       const auditWriter = makeAuditWriter();
-      const claimStore = await seedClaim('task-reg-fail', 'my-claw', 'c-failreg');
-      const { postProcessor } = makePostProcessor({
-        registerRetrospective: vi.fn().mockRejectedValue(new Error('store conflict')),
+      const claimStore = await seedClaim('task-reg-gone', 'my-claw', 'c-noreg');
+      const { postProcessor, existsSpy } = makePostProcessor({
         exists: true,
         claimStore,
       });
 
-      await writeSubAudit('task-reg-fail', [
-        execOkRow(1, 'Contract created: c-failreg for claw my-claw'),
+      await writeSubAudit('task-reg-gone', [
+        execOkRow(1, 'Contract created: c-noreg for claw my-claw'),
       ]);
 
       const summary = await postProcessor({
         content: 'Done.',
         sourceIsError: false,
-      }, { id: 'task-reg-fail', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
+      }, { id: 'task-reg-gone', callerType: 'miner_subagent' } as any, mockFs, auditWriter as any);
 
-      expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_retrospective_registration_failed',
-        'taskId=task-reg-fail',
-        'contractId=c-failreg',
-        'targetClaw=my-claw',
-        'error=store conflict',
+      expect(summary).toMatchObject({
+        content: 'Contract created: c-noreg',
+        isError: false,
+      });
+      expect(existsSpy).toHaveBeenCalledTimes(1);
+      // 成功路径只允许 claim 读 + contract query，无其他 audit 副作用。
+      expect(auditWriter.write).not.toHaveBeenCalledWith(
+        expect.stringContaining('retrospective'),
+        expect.anything(),
       );
-      expect(summary.content).toBe('Contract created: c-failreg');
     });
 
     it('subAudit 非 FNF 读失败 → SUB_AUDIT_READ_FAILED audit，claim authority 判定不变', async () => {

@@ -112,7 +112,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
     fixtures = await setupFixtures();
     const { contractId, ctx, evolutionSystem, store, motionFs } = fixtures;
 
-    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+    await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
     const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
@@ -136,7 +136,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
     fixtures = await setupFixtures();
     const { contractId, ctx, evolutionSystem, store } = fixtures;
 
-    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+    await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
     const first = await evolutionSystem.notifyContractCompleted(contractId, ctx);
     expect(first.status).toBe('submitted');
@@ -152,7 +152,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
       fixtures = await setupFixtures();
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
       const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
       expect(result.status).toBe('submitted');
@@ -163,7 +163,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
       fixtures = await setupFixtures();
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
       await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
       const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
@@ -179,12 +179,94 @@ describe('EvolutionSystem disk-state dispatch', () => {
     });
   });
 
+  describe('Phase 1396 Step M: observeContractCompleted', () => {
+    it('fresh observation → v2 row committed then dispatched; exactly one task id', async () => {
+      fixtures = await setupFixtures();
+      const { contractId, ctx, evolutionSystem, motionFs } = fixtures;
+
+      const result = await evolutionSystem.observeContractCompleted(
+        { contractId, executorId: 'claw-a' as any },
+        ctx,
+      );
+
+      expect(result.status).toBe('submitted');
+      expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
+
+      const onDisk = JSON.parse(await motionFs.read(`${SUBMITTED_DIR}/${contractId}.json`));
+      expect(onDisk).toMatchObject({
+        schema_version: 2,
+        contract_id: contractId,
+        target_executor_id: 'claw-a',
+      });
+      expect(onDisk).not.toHaveProperty('mode');
+      expect(onDisk).not.toHaveProperty('shadow_task_id');
+      // work item task_id 与派发 task 一致（唯一身份）
+      expect(onDisk.task_id).toBe(mockSchedulePrepared.mock.calls[0][1].id);
+    });
+
+    it('duplicate observation is absorbed idempotently (already_submitted, no second dispatch)', async () => {
+      fixtures = await setupFixtures();
+      const { contractId, ctx, evolutionSystem } = fixtures;
+
+      const first = await evolutionSystem.observeContractCompleted({ contractId, executorId: 'claw-a' as any }, ctx);
+      expect(first.status).toBe('submitted');
+
+      const second = await evolutionSystem.observeContractCompleted({ contractId, executorId: 'claw-a' as any }, ctx);
+      expect(second.status).toMatch(/already|busy|submitted/);
+      expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
+    });
+
+    it('conflicting executor on duplicate observation → error + conflict audit, no dispatch', async () => {
+      fixtures = await setupFixtures();
+      const { contractId, ctx, evolutionSystem, mockAudit } = fixtures;
+
+      await evolutionSystem.observeContractCompleted({ contractId, executorId: 'claw-a' as any }, ctx);
+      mockSchedulePrepared.mockClear();
+
+      const conflict = await evolutionSystem.observeContractCompleted({ contractId, executorId: 'claw-b' as any }, ctx);
+      expect(conflict.status).toBe('error');
+      expect(mockSchedulePrepared).not.toHaveBeenCalled();
+      expect(mockAudit.write.mock.calls).toContainEqual(
+        expect.arrayContaining([RETRO_AUDIT_EVENTS.RETRO_STORE_REGISTRATION_CONFLICT]),
+      );
+    });
+
+    it('crash after row commit before dispatch → re-observation dispatches the same durable row', async () => {
+      fixtures = await setupFixtures();
+      const { contractId, ctx, evolutionSystem, store } = fixtures;
+
+      // 模拟崩溃点：row 已提交（ready）、尚未派发 —— 由 store 直写复现。
+      const committed = await store.ensure({ contractId, targetExecutorId: 'claw-a' });
+
+      const result = await evolutionSystem.observeContractCompleted({ contractId, executorId: 'claw-a' as any }, ctx);
+      expect(result.status).toBe('submitted');
+      expect(mockSchedulePrepared).toHaveBeenCalledTimes(1);
+      // 同一 durable row：task id 不变
+      expect(mockSchedulePrepared.mock.calls[0][1].id).toBe(committed.taskId);
+    });
+
+    it('dispatch failure keeps dispatching row + audit; retry resubmits and succeeds once', async () => {
+      fixtures = await setupFixtures();
+      const { contractId, ctx, evolutionSystem, motionFs } = fixtures;
+
+      mockSchedulePrepared.mockRejectedValueOnce(new Error('scheduler down'));
+      const first = await evolutionSystem.observeContractCompleted({ contractId, executorId: 'claw-a' as any }, ctx);
+      expect(first.status).toBe('error');
+      expect(await motionFs.exists(`${DISPATCHING_DIR}/${contractId}.json`)).toBe(true);
+
+      const second = await evolutionSystem.observeContractCompleted({ contractId, executorId: 'claw-a' as any }, ctx);
+      expect(second.status).toBe('submitted');
+      expect(mockSchedulePrepared).toHaveBeenCalledTimes(2);
+      expect(await motionFs.exists(`${SUBMITTED_DIR}/${contractId}.json`)).toBe(true);
+    });
+  });
+
   describe('retroSubagentTimeoutMs payload passthrough', () => {
     it('default 600000ms when undefined', async () => {
       fixtures = await setupFixtures();
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
       await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
       const prepared = mockSchedulePrepared.mock.calls[0][1];
@@ -195,7 +277,7 @@ describe('EvolutionSystem disk-state dispatch', () => {
       fixtures = await setupFixtures({ retroSubagentTimeoutMs: 300000 });
       const { contractId, ctx, evolutionSystem, store } = fixtures;
 
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
       await evolutionSystem.notifyContractCompleted(contractId, ctx);
 
       const prepared = mockSchedulePrepared.mock.calls[0][1];

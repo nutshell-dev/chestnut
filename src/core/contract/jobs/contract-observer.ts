@@ -27,7 +27,6 @@ import type { CronJob } from '../../../foundation/cron/index.js';
 import { parseSchedule } from '../../../foundation/cron/index.js';
 import type { CronJobGlobalConfig } from '../../../foundation/cron/index.js';
 import { makeClawId } from '../../../foundation/claw-identity/index.js';
-import { MOTION_CLAW_ID } from '../../claw-topology/index.js';
 
 
 /**
@@ -70,8 +69,10 @@ const STATE_FILE = 'status/contract-observer-state.json';
  * 3 → 4 在 phase 948 引入 per-claw 水位 + 复合游标 + 逐类投递幂等标记;
  * 4 → 5 在 phase 950 将 per-claw 水位改为复合游标、将 boolean 投递标记改为 per-status watermark。
  * 5 → 6 在 phase 981 引入 per-claw corrupt / active-state contract audit dedup sets，抑制重复 audit spam。
+ * 6 → 7 在 Phase 1396 Step M 引入 retrospectiveWatermarks（与 Motion 通知的 completedWatermarks
+ *   独立）；迁移时以已有 clawWatermarks 初始化，不回放上线前历史。
  */
-const STATE_SCHEMA_VERSION = 6;
+const STATE_SCHEMA_VERSION = 7;
 
 interface ClawWatermarkCursor {
   archivedAt: number;
@@ -122,12 +123,36 @@ interface ObserverStateV6 {
   reportedActiveState: Record<string, string[]>;
 }
 
+/**
+ * Phase 1396 Step M: state schema v7。
+ * 在 v6 基础上新增 retrospectiveWatermarks：每个 claw 已成功交付给 retrospective
+ * 消费者（EvolutionSystem）的最大复合游标。与 completedWatermarks（Motion 通知）
+ * 相互独立，任一方失败只重试该消费者；总 clawWatermarks 必须等两类消费者都越过。
+ */
+interface ObserverStateV7 {
+  version: 7;
+  lastCheckTs: number;
+  /** v3/v4 迁移残留，用于在 claw 尚无 per-claw 水位时回退 */
+  lastArchivedAt?: number;
+  clawWatermarks: Record<string, ClawWatermarkCursor>;
+  bootstrapDone: boolean;
+  completedWatermarks: Record<string, ClawWatermarkCursor>;
+  cancelledWatermarks: Record<string, ClawWatermarkCursor>;
+  crashedWatermarks: Record<string, ClawWatermarkCursor>;
+  /** v6: 每个 claw 已报告 PROGRESS_CORRUPTED 的 contract id 列表 */
+  reportedCorrupted: Record<string, string[]>;
+  /** v6: 每个 claw 已报告 CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED 的 contract id 列表 */
+  reportedActiveState: Record<string, string[]>;
+  /** v7: 每个 claw retrospective 交付水位（独立于 Motion 通知水位） */
+  retrospectiveWatermarks: Record<string, ClawWatermarkCursor>;
+}
+
 type LoadObserverStateResult =
-  | { status: 'ok'; state: ObserverStateV6 }
-  | { status: 'first_run'; state: ObserverStateV6 }
+  | { status: 'ok'; state: ObserverStateV7 }
+  | { status: 'first_run'; state: ObserverStateV7 }
   | { status: 'corrupt'; reason: string };
 
-function defaultObserverState(): ObserverStateV6 {
+function defaultObserverState(): ObserverStateV7 {
   return {
     version: STATE_SCHEMA_VERSION,
     lastCheckTs: 0,
@@ -138,6 +163,7 @@ function defaultObserverState(): ObserverStateV6 {
     crashedWatermarks: {},
     reportedCorrupted: {},
     reportedActiveState: {},
+    retrospectiveWatermarks: {},
   };
 }
 
@@ -179,13 +205,26 @@ function isValidV5State(obj: Record<string, unknown>): obj is Record<string, unk
   );
 }
 
-function isValidV6State(obj: Record<string, unknown>): obj is Record<string, unknown> & ObserverStateV6 {
-  const isCursorRecord = (v: unknown) =>
+function isValidV7State(obj: Record<string, unknown>): obj is Record<string, unknown> & ObserverStateV7 {
+  return (
+    isValidV6StateShape(obj, STATE_SCHEMA_VERSION) &&
+    typeof obj.retrospectiveWatermarks === 'object' &&
+    obj.retrospectiveWatermarks !== null &&
+    isCursorRecord(obj.retrospectiveWatermarks)
+  );
+}
+
+function isCursorRecord(v: unknown): boolean {
+  return (
     typeof v === 'object' &&
     v !== null &&
     !Array.isArray(v) &&
-    Object.values(v as Record<string, unknown>).every(isCompositeCursor);
+    Object.values(v as Record<string, unknown>).every(isCompositeCursor)
+  );
+}
 
+/** v6 共有 shape（version 参数化，供 v6/v7 校验复用） */
+function isValidV6StateShape(obj: Record<string, unknown>, version: number): boolean {
   const isStringArrayRecord = (v: unknown) =>
     typeof v === 'object' &&
     v !== null &&
@@ -195,21 +234,13 @@ function isValidV6State(obj: Record<string, unknown>): obj is Record<string, unk
     );
 
   return (
-    obj.version === STATE_SCHEMA_VERSION &&
+    obj.version === version &&
     typeof obj.lastCheckTs === 'number' &&
     (obj.lastArchivedAt === undefined || typeof obj.lastArchivedAt === 'number') &&
-    typeof obj.clawWatermarks === 'object' &&
-    obj.clawWatermarks !== null &&
     isCursorRecord(obj.clawWatermarks) &&
     typeof obj.bootstrapDone === 'boolean' &&
-    typeof obj.completedWatermarks === 'object' &&
-    obj.completedWatermarks !== null &&
     isCursorRecord(obj.completedWatermarks) &&
-    typeof obj.cancelledWatermarks === 'object' &&
-    obj.cancelledWatermarks !== null &&
     isCursorRecord(obj.cancelledWatermarks) &&
-    typeof obj.crashedWatermarks === 'object' &&
-    obj.crashedWatermarks !== null &&
     isCursorRecord(obj.crashedWatermarks) &&
     typeof obj.reportedCorrupted === 'object' &&
     obj.reportedCorrupted !== null &&
@@ -220,16 +251,34 @@ function isValidV6State(obj: Record<string, unknown>): obj is Record<string, unk
   );
 }
 
-function migrateV5ToV6(obj: Record<string, unknown> & ObserverStateV5): ObserverStateV6 {
+function isValidV6State(obj: Record<string, unknown>): obj is Record<string, unknown> & ObserverStateV6 {
+  return isValidV6StateShape(obj, 6);
+}
+
+/**
+ * Phase 1396 Step M: v6 → v7。
+ * retrospective 水位以已有 clawWatermarks 初始化 —— 上线前已扫过的历史 archive
+ * 不补发 retro（与 bootstrap 语义一致：只观察从现在开始的事实）。
+ */
+function migrateV6ToV7(obj: Record<string, unknown> & ObserverStateV6): ObserverStateV7 {
   return {
     ...obj,
-    version: 6,
-    reportedCorrupted: {},
-    reportedActiveState: {},
+    version: STATE_SCHEMA_VERSION,
+    retrospectiveWatermarks: { ...obj.clawWatermarks },
   };
 }
 
-function migrateV4ToV6(obj: Record<string, unknown>): ObserverStateV6 | null {
+function migrateV5ToV7(obj: Record<string, unknown> & ObserverStateV5): ObserverStateV7 {
+  return {
+    ...obj,
+    version: STATE_SCHEMA_VERSION,
+    reportedCorrupted: {},
+    reportedActiveState: {},
+    retrospectiveWatermarks: { ...obj.clawWatermarks },
+  };
+}
+
+function migrateV4ToV7(obj: Record<string, unknown>): ObserverStateV7 | null {
   if (
     obj.version !== 4 ||
     typeof obj.lastCheckTs !== 'number' ||
@@ -261,10 +310,11 @@ function migrateV4ToV6(obj: Record<string, unknown>): ObserverStateV6 | null {
     crashedWatermarks: {},
     reportedCorrupted: {},
     reportedActiveState: {},
+    retrospectiveWatermarks: { ...clawWatermarks },
   };
 }
 
-function migrateV3ToV6(obj: Record<string, unknown>): ObserverStateV6 | null {
+function migrateV3ToV7(obj: Record<string, unknown>): ObserverStateV7 | null {
   if (
     obj.version !== 3 ||
     typeof obj.lastCheckTs !== 'number' ||
@@ -284,6 +334,7 @@ function migrateV3ToV6(obj: Record<string, unknown>): ObserverStateV6 | null {
     crashedWatermarks: {},
     reportedCorrupted: {},
     reportedActiveState: {},
+    retrospectiveWatermarks: {},
   };
 }
 
@@ -314,29 +365,34 @@ function loadObserverState(fs: FileSystem, stateFile: string, _audit: AuditLog):
 
   const obj = parsed as Record<string, unknown>;
 
-  // v6 schema
-  if (isValidV6State(obj)) {
+  // v7 schema
+  if (isValidV7State(obj)) {
     return { status: 'ok', state: obj };
   }
 
-  // v5 → v6 migration: 新增 dedup sets，默认空。
+  // v6 → v7 migration: retrospective 水位以 clawWatermarks 初始化（不回放历史）。
+  if (isValidV6State(obj)) {
+    return { status: 'ok', state: migrateV6ToV7(obj) };
+  }
+
+  // v5 → v7 migration: 新增 dedup sets（默认空）+ retrospective 水位初始化。
   if (isValidV5State(obj)) {
-    return { status: 'ok', state: migrateV5ToV6(obj) };
+    return { status: 'ok', state: migrateV5ToV7(obj) };
   }
 
-  // v4 → v6 migration: 复合游标 + per-status watermark + 空 dedup sets。
-  const v6FromV4 = migrateV4ToV6(obj);
-  if (v6FromV4) {
-    return { status: 'ok', state: v6FromV4 };
+  // v4 → v7 migration: 复合游标 + per-status watermark + 空 dedup sets。
+  const v7FromV4 = migrateV4ToV7(obj);
+  if (v7FromV4) {
+    return { status: 'ok', state: v7FromV4 };
   }
 
-  // v3 → v6 migration: 全局水位退化为 lastArchivedAt 回退，per-claw 水位在首次 tick 按 claw 建立。
-  const v6FromV3 = migrateV3ToV6(obj);
-  if (v6FromV3) {
-    return { status: 'ok', state: v6FromV3 };
+  // v3 → v7 migration: 全局水位退化为 lastArchivedAt 回退，per-claw 水位在首次 tick 按 claw 建立。
+  const v7FromV3 = migrateV3ToV7(obj);
+  if (v7FromV3) {
+    return { status: 'ok', state: v7FromV3 };
   }
 
-  // v2 → v6 migration: 旧 set 无法可靠转水位线，conservatively 用 lastCheckTs 作全局回退、
+  // v2 → v7 migration: 旧 set 无法可靠转水位线，conservatively 用 lastCheckTs 作全局回退、
   // bootstrap=false 首 tick 不 emit 只更新水位。
   if (obj.version === 2 && typeof obj.lastCheckTs === 'number') {
     return {
@@ -352,11 +408,12 @@ function loadObserverState(fs: FileSystem, stateFile: string, _audit: AuditLog):
         crashedWatermarks: {},
         reportedCorrupted: {},
         reportedActiveState: {},
+        retrospectiveWatermarks: {},
       },
     };
   }
 
-  // v1 → v6 migration: 只有 lastCheckTs
+  // v1 → v7 migration: 只有 lastCheckTs
   if (typeof obj.lastCheckTs === 'number') {
     return {
       status: 'ok',
@@ -371,6 +428,7 @@ function loadObserverState(fs: FileSystem, stateFile: string, _audit: AuditLog):
         crashedWatermarks: {},
         reportedCorrupted: {},
         reportedActiveState: {},
+        retrospectiveWatermarks: {},
       },
     };
   }
@@ -399,9 +457,11 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   const wasBootstrapPending = !state.bootstrapDone;
 
   // 扫描 claws/ 目录
+  // Phase 1396 Step M: 扫描范围纳入 motion —— 所有 completed contract（无论是否
+  // summon 来源）都是同一完成事实，统一走 retrospective 交付。
   let clawIds: string[];
   try {
-    clawIds = clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
+    clawIds = clawTopology.enumerate();
   } catch (err) {
     if (isFileNotFound(err)) return;
     motionAudit.write(
@@ -432,6 +492,15 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   const batchCompletedCursors: Record<string, ClawWatermarkCursor> = {};
   const batchCancelledCursors: Record<string, ClawWatermarkCursor> = {};
 
+  // Phase 1396 Step M: retrospective 交付追踪 ——
+  // batchRetroCursors: 每 claw 本 tick retro 成功前缀的最大游标；
+  // retroBlockedCursor: 该 executor 首条 retro 失败的游标（后续 entry 本 tick 不再 retro）。
+  const batchRetroCursors: Record<string, ClawWatermarkCursor> = {};
+  const retroBlockedCursor: Record<string, ClawWatermarkCursor> = {};
+  // 本 tick 每 claw 实际处理过的 entry（越过了 clawWatermarks），用于投递失败时
+  // 计算总水位允许推进到的最长全消费者成功前缀。
+  const processedEntries: Record<string, Array<{ cursor: ClawWatermarkCursor; status: string }>> = {};
+
   function isCursorGreater(a: ClawWatermarkCursor, b: ClawWatermarkCursor): boolean {
     if (a.archivedAt !== b.archivedAt) return a.archivedAt > b.archivedAt;
     return a.lastContractId.localeCompare(b.lastContractId) > 0;
@@ -443,6 +512,11 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
     if (entry.archivedAt === cursor.archivedAt && entry.contractId <= cursor.lastContractId) return false;
     return true;
   }
+
+  // phase 948/950: 逐类独立 try/catch；部分成功时推进成功类的 watermark，失败类下次重试。
+  // Phase 1396 Step M: retro 交付失败同样计入 deliveryFailures（类型 contract_retro）。
+  interface DeliveryFailure { type: string; error: unknown }
+  const deliveryFailures: DeliveryFailure[] = [];
 
   for (const clawId of clawIds) {
     if (options.signal?.aborted) return;
@@ -498,6 +572,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
       const prevCursor = state.clawWatermarks[clawId] ?? fallbackCursor;
       let nextCursor: ClawWatermarkCursor | undefined = prevCursor;
+      processedEntries[clawId] = [];
 
       for (const entry of sortedEntries) {
         try {
@@ -514,8 +589,10 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
           }
           // phase 950: 复合游标过滤；同 timestamp 按 contractId 严格大于 lastContractId 才处理
           if (!shouldProcessEntry(entry, prevCursor)) continue;
+          const entryCursor: ClawWatermarkCursor = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
           // 更新该 claw 本次 scan 的游标（entries 已排序，最后一个被处理的 entry 即为最大值）
-          nextCursor = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
+          nextCursor = entryCursor;
+          processedEntries[clawId].push({ cursor: entryCursor, status: entry.status });
           // bootstrap 期不 emit、仅更新水位（防首次启动历史 archive 大量重 emit）
           if (state.bootstrapDone) {
             switch (entry.status) {
@@ -530,12 +607,24 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                     });
                   }
                   const current = batchCompletedCursors[clawId];
-                  if (!current || isCursorGreater({ archivedAt: entry.archivedAt, lastContractId: entry.contractId }, current)) {
-                    batchCompletedCursors[clawId] = { archivedAt: entry.archivedAt, lastContractId: entry.contractId };
+                  if (!current || isCursorGreater(entryCursor, current)) {
+                    batchCompletedCursors[clawId] = entryCursor;
                   }
-                  // phase 821: fire-and-forget 触发契约复盘，失败不阻塞 observer
-                  if (options.onCompletedContract) {
-                    options.onCompletedContract(clawId, entry.contractId).catch(err => {
+                }
+                // Phase 1396 Step M: retrospective 交付按 (archivedAt, contractId)
+                // 顺序 await；水位独立于 Motion 通知；首条失败后停止该 executor
+                // 本 tick 后续 retro 交付，保证 retro 水位只表示连续成功前缀。
+                if (options.onCompletedContract && !retroBlockedCursor[clawId]) {
+                  const retroCursor = state.retrospectiveWatermarks[clawId] ?? prevCursor;
+                  if (shouldProcessEntry(entry, retroCursor)) {
+                    try {
+                      await options.onCompletedContract(clawId, entry.contractId);
+                      const cur = batchRetroCursors[clawId];
+                      if (!cur || isCursorGreater(entryCursor, cur)) {
+                        batchRetroCursors[clawId] = entryCursor;
+                      }
+                    } catch (err) {
+                      retroBlockedCursor[clawId] = entryCursor;
                       motionAudit.write(
                         CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
                         `claw=${clawId}`,
@@ -543,7 +632,8 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                         `reason=retro_callback_failed`,
                         `error=${formatErr(err)}`,
                       );
-                    });
+                      deliveryFailures.push({ type: 'contract_retro', error: err });
+                    }
                   }
                 }
                 break;
@@ -616,11 +706,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   // phase 950: per-claw per-status watermark 替代 boolean 标记。
   const nextCompletedWatermarks: Record<string, ClawWatermarkCursor> = { ...state.completedWatermarks };
   const nextCancelledWatermarks: Record<string, ClawWatermarkCursor> = { ...state.cancelledWatermarks };
-
-  // 分流投递 2 个独立 notifyMotion 调用（type 不同）
-  // phase 948/950: 逐类独立 try/catch；部分成功时推进成功类的 watermark，失败类下次重试。
-  interface DeliveryFailure { type: string; error: unknown }
-  const deliveryFailures: DeliveryFailure[] = [];
+  // Phase 1396 Step M: retro 水位独立推进（仅成功前缀）；bootstrap tick 与总水位对齐，
+  // 不为部署前全部历史契约补发 retro。
+  const nextRetrospectiveWatermarks: Record<string, ClawWatermarkCursor> = { ...state.retrospectiveWatermarks };
 
   if (state.bootstrapDone) {
     if (completedEvents.length > 0) {
@@ -675,6 +763,11 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
   }
 
+  // Phase 1396 Step M: retro 成功前缀推进 retrospectiveWatermarks。
+  for (const [clawId, cursor] of Object.entries(batchRetroCursors)) {
+    nextRetrospectiveWatermarks[clawId] = cursor;
+  }
+
   function statusWatermarksAdvanced(
     next: Record<string, ClawWatermarkCursor>,
     prev: Record<string, ClawWatermarkCursor>,
@@ -690,25 +783,61 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
   const completedSuccess = completedEvents.length === 0 || statusWatermarksAdvanced(nextCompletedWatermarks, state.completedWatermarks);
   const cancelledSuccess = cancelledEvents.length === 0 || statusWatermarksAdvanced(nextCancelledWatermarks, state.cancelledWatermarks);
-  const allDeliveriesSucceeded = completedSuccess && cancelledSuccess;
+  const retroSuccess = deliveryFailures.every(f => f.type !== 'contract_retro');
+  const retroAdvanced = Object.entries(batchRetroCursors).some(([clawId, cursor]) => {
+    const prev = state.retrospectiveWatermarks[clawId];
+    return !prev || isCursorGreater(cursor, prev);
+  });
+  const allDeliveriesSucceeded = completedSuccess && cancelledSuccess && retroSuccess;
   const anyDeliverySucceeded =
     (completedEvents.length > 0 && statusWatermarksAdvanced(nextCompletedWatermarks, state.completedWatermarks)) ||
-    (cancelledEvents.length > 0 && statusWatermarksAdvanced(nextCancelledWatermarks, state.cancelledWatermarks));
+    (cancelledEvents.length > 0 && statusWatermarksAdvanced(nextCancelledWatermarks, state.cancelledWatermarks)) ||
+    retroAdvanced;
 
-  // phase 948/950: 只有全部投递成功（或 bootstrap 无投递 / 无事件）才推进 per-claw 水位；
-  // 部分成功时保留旧 per-claw 水位，但已成功类别的 per-claw per-status watermark 会推进；
-  // 全部失败时沿用 phase 946 语义：抛错、不写 state，由 cron 重试。
+  // Phase 1396 Step M: 总 clawWatermarks 必须等 notification 与 retro 消费者都越过对应
+  // entry；按每 claw 已处理 entry 序列计算最长全消费者成功前缀。
+  const completedNotifyFailed = deliveryFailures.some(f => f.type === 'contract_events');
+  const cancelledNotifyFailed = deliveryFailures.some(f => f.type === 'contract_cancelled');
+  const finalClawWatermarks: Record<string, ClawWatermarkCursor> = { ...state.clawWatermarks };
+  for (const clawId of Object.keys(nextClawWatermarks)) {
+    const entries = processedEntries[clawId] ?? [];
+    const prev = state.clawWatermarks[clawId] ?? fallbackCursor;
+    let allowed: ClawWatermarkCursor | undefined;
+    for (const e of entries) {
+      const blockedByNotify =
+        (e.status === 'completed' && completedNotifyFailed) ||
+        (e.status === 'cancelled' && cancelledNotifyFailed);
+      const blockedByRetro =
+        retroBlockedCursor[clawId] !== undefined &&
+        !isCursorGreater(retroBlockedCursor[clawId], e.cursor);
+      if (blockedByNotify || blockedByRetro) break;
+      allowed = e.cursor;
+    }
+    if (allowed && (!prev || isCursorGreater(allowed, prev))) {
+      finalClawWatermarks[clawId] = allowed;
+    }
+  }
+  // bootstrap tick 无投递：retro 水位与总水位对齐，不为部署前历史契约补发 retro。
+  if (wasBootstrapPending) {
+    for (const [clawId, cursor] of Object.entries(nextClawWatermarks)) {
+      nextRetrospectiveWatermarks[clawId] = cursor;
+    }
+  }
+
+  // phase 948/950: 任一投递成功（或 bootstrap 无投递 / 无事件）才写 state；
+  // 总水位只推进到全消费者成功前缀；全部失败时沿用 phase 946 语义：抛错、不写 state，由 cron 重试。
   if (anyDeliverySucceeded || allDeliveriesSucceeded) {
-    const newState: ObserverStateV6 = {
+    const newState: ObserverStateV7 = {
       version: STATE_SCHEMA_VERSION,
       lastCheckTs: tickStart,
-      clawWatermarks: allDeliveriesSucceeded ? nextClawWatermarks : state.clawWatermarks,
+      clawWatermarks: allDeliveriesSucceeded ? nextClawWatermarks : finalClawWatermarks,
       bootstrapDone: true,
       completedWatermarks: nextCompletedWatermarks,
       cancelledWatermarks: nextCancelledWatermarks,
       crashedWatermarks: state.crashedWatermarks,
       reportedCorrupted: state.reportedCorrupted,
       reportedActiveState: state.reportedActiveState,
+      retrospectiveWatermarks: nextRetrospectiveWatermarks,
     };
     fs.ensureDirSync(path.dirname(stateFile));
     fs.writeAtomicSync(stateFile, JSON.stringify(newState));

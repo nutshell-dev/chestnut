@@ -132,7 +132,7 @@ describe('boot-reconcile', () => {
         path.join(motionDir, '.evolution-system-state.json'),
         JSON.stringify({ version: 1, lastProcessedAt: 1717000000000 }),
       );
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
       const ctx = makeCtx(fixtures);
       await evolutionSystem.init(ctx);
@@ -169,7 +169,7 @@ describe('boot-reconcile', () => {
       const { motionDir, evolutionSystem, mockAudit, contractId, store } = fixtures;
 
       await fs.writeFile(path.join(motionDir, '.evolution-system-state.json'), 'not-json');
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
       const ctx = makeCtx(fixtures);
       await evolutionSystem.init(ctx);
@@ -194,7 +194,7 @@ describe('system-contract-factory', () => {
       const fixtures = await setupFixtures();
       const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, targetClaw, evolutionSystem, store, tmpBase } = fixtures;
 
-      await store.register({ contractId, targetClaw, mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: targetClaw });
 
       const factorySpy = vi.fn().mockImplementation((clawDir: string, targetClawName: string, fs: NodeFileSystem) => {
         return new ContractSystem({
@@ -235,7 +235,7 @@ describe('system-contract-factory', () => {
       const fixtures = await setupFixtures();
       const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, evolutionSystem, store, tmpBase } = fixtures;
 
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
       const factorySpy = vi.fn().mockImplementation(() => {
         throw new Error('contract-factory-fail');
@@ -264,7 +264,7 @@ describe('system-clawfs-factory', () => {
       const fixtures = await setupFixtures();
       const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, targetClaw, evolutionSystem, store, tmpBase } = fixtures;
 
-      await store.register({ contractId, targetClaw, mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: targetClaw });
 
       const factory = vi.fn().mockImplementation((clawDir: string) => new NodeFileSystem({ baseDir: clawDir }));
 
@@ -299,7 +299,7 @@ describe('system-clawfs-factory', () => {
       const fixtures = await setupFixtures();
       const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, evolutionSystem, store, tmpBase } = fixtures;
 
-      await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+      await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
       const factory = vi.fn().mockImplementation(() => {
         throw new Error('factory-fail');

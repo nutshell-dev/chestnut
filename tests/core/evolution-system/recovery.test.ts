@@ -162,7 +162,7 @@ describe('EvolutionSystem recovery crash matrix (Phase 1206 Step E)', () => {
     fixtures = await setupFixtures();
     const { contractId, ctx, evolutionSystem, store, motionFs } = fixtures;
 
-    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+    await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
     const result = await evolutionSystem.notifyContractCompleted(contractId, ctx);
 

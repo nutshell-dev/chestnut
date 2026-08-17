@@ -250,13 +250,20 @@ describe('shadow tool (phase 767)', () => {
 
     describe('summon-from-shadow defense (phase 767)', () => {
       it('rejects summon when restricted instance has allowFromShadow=false', async () => {
-        const summonTool = new SummonTool(undefined, undefined, undefined, false);
+        // Phase 1396 Step M: 三参数构造；注入完整 caller snapshot 并断言未被调用，
+        // 确保拒绝真来自 allowFromShadow=false 分支而非 snapshot 缺失路径。
+        const summonTool = new SummonTool(undefined, undefined, false);
+        const getCallerSnapshot = vi.fn();
+        const ctx = Object.create(baseCtx, {
+          getCallerSnapshot: { value: getCallerSnapshot },
+        }) as typeof baseCtx;
 
-        const result = await summonTool.execute({ goal: 'test' }, baseCtx);
+        const result = await summonTool.execute({ goal: 'test' }, ctx);
 
         expect(result.success).toBe(false);
         expect(result.error).toBe('summon_unavailable');
         expect(result.content).toContain('unavailable');
+        expect(getCallerSnapshot).not.toHaveBeenCalled();
       });
     });
 

@@ -16,12 +16,6 @@ export const SUMMON_AUDIT_EVENTS = {
    */
   NO_CONTRACT_CREATED: 'summon_no_contract_created',
   WRITE_BY_CONTRACT_FAILED: 'summon_write_by_contract_failed',
-  /**
-   * Phase 1206 Step D: durable retrospective registration failed.
-   * The contract creation success fact is preserved; the retro will be
-   * recovered by EvolutionSystem.init migration or driven later.
-   */
-  RETROSPECTIVE_REGISTRATION_FAILED: 'summon_retrospective_registration_failed',
   NO_DIALOG_CONTEXT: 'summon_no_dialog_context',
   RETRO_INDEX_PARSE_FAILED: 'retro_index_parse_failed',
   // phase 1411 (reframe of phase 1409): 业务决策事件 typed cols only.

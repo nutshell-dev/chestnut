@@ -1,11 +1,8 @@
 import type { PostProcessor, ProcessedTaskResult } from '../../async-task-system/index.js';
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
-import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
-import type { RegisterRetrospectiveInput } from '../../evolution-system/index.js';
-import { makeContractId } from '../../contract/index.js';
 import type { SummonCreationClaimStore } from '../creation-claim-store.js';
 
 /**
@@ -128,10 +125,13 @@ export interface SummonContractExtractDeps {
  *   核实 {targetExecutorId, contractId} 是否已提交；
  * - claim + contract 已提交 → 成功（error envelope 同样恢复为成功，重建回执继续交付）；
  * - claim 存在但 contract 不存在 → 保持/判定失败（0/1 不变量：failed <=> 零个 contract）；
- * - 无 claim + success envelope → 失败（无创建事实记录）；
- * - 无 claim + error envelope → 透传上游 error；
+ * - 无 claim → 失败（无创建事实记录；error envelope 的失败 reason 同样以创建事实为准）；
  * - audit evidence scan 降级为审计交叉验证：发现第二个不同 contract evidence 或
  *   evidence 与 claim 不一致 → emit invariant violation（SUMMON_CREATION_EVIDENCE_MISMATCH）。
+ *
+ * Phase 1396 Step M: summon 在 contract 创建事实确认后即结束 ——
+ * 不再注册 retrospective、不调 EvolutionSystem；contract completed 后的复盘由
+ * ContractObserver 观察 archive 事实并交给 EvolutionSystem 自行 own。
  *
  * 历史：
  * - phase 438 初立 marker 解析路径（寄生 LLM 文本）
@@ -141,9 +141,9 @@ export interface SummonContractExtractDeps {
  * - phase 1396 Step B 判定 authority 改 creation claim + ContractSystem 核实（0/1 不变量）
  * - phase 1396 Step C 最终结果收缩：成功 = `Contract created: <id>`，失败 = 统一
  *   `summon_contract_creation_failed` envelope；不含 executor/mode/raw 输出
+ * - phase 1396 Step M 移除 retrospective 注册（创建完成即终止）
  */
 export function createSummonContractExtractPostProcessor(
-  registerRetrospective: (input: RegisterRetrospectiveInput) => Promise<void>,
   deps: SummonContractExtractDeps,
 ): PostProcessor {
   return async ({ content: _content, sourceIsError }, task, _fs, audit) => {
@@ -205,7 +205,8 @@ export function createSummonContractExtractPostProcessor(
       return buildFailureResult('contract_not_committed');
     }
 
-    // 6. contract 已提交 → 成功事实成立（error envelope 恢复为成功、重建回执）
+    // 6. contract 已提交 → 成功事实成立（error envelope 恢复为成功、重建回执）。
+    // Phase 1396 Step M: 此分支后不得有任何外部调用 —— 创建完成即 SummonSystem 终点。
     if (sourceIsError) {
       audit.write(
         SUMMON_AUDIT_EVENTS.SUMMON_CREATION_RECOVERED,
@@ -213,25 +214,6 @@ export function createSummonContractExtractPostProcessor(
         `contractId=${claim.contractId}`,
         `targetExecutorId=${claim.targetExecutorId}`,
       );
-    }
-
-    const mode: 'mining' | 'shadow' = task.callerType === SUMMON_CALLER_TYPES.MINER ? 'mining' : 'shadow';
-    try {
-      await registerRetrospective({
-        contractId: makeContractId(claim.contractId),
-        targetClaw: claim.targetExecutorId,
-        mode,
-        ...(mode === 'shadow' ? { shadowTaskId: task.id } : { miningTaskId: task.id }),
-      });
-    } catch (e) {
-      audit.write(
-        SUMMON_AUDIT_EVENTS.RETROSPECTIVE_REGISTRATION_FAILED,
-        `taskId=${task.id}`,
-        `contractId=${claim.contractId}`,
-        `targetClaw=${claim.targetExecutorId}`,
-        `error=${formatErr(e)}`,
-      );
-      // 契约已真创建：保留成功判定
     }
 
     return buildSuccessResult(claim.contractId);

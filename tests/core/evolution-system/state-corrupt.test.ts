@@ -108,7 +108,7 @@ describe('EvolutionSystem legacy state file observed during init', () => {
     );
 
     // Register a ready row in the new store.
-    await store.register({ contractId, targetClaw: 'claw-a', mode: 'shadow' });
+    await store.ensure({ contractId, targetExecutorId: 'claw-a' });
 
     // Boot reconcile observes the legacy file and then drives the ready row.
     await evolutionSystem.init(ctx);

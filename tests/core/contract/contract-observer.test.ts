@@ -602,8 +602,10 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
     const state1 = parseState(writes1);
     expect(state1?.completedWatermarks.clawCompleted).toEqual({ archivedAt: 100, lastContractId: 'completed-1' });
     expect(state1?.cancelledWatermarks.clawCancelled).toBeUndefined();
-    // 部分失败时 per-claw 水位不推进
-    expect(state1?.clawWatermarks.clawCompleted).toBeUndefined();
+    // Phase 1396 Step M: 总水位按“该 claw 的 entry 是否被其全部消费者越过”推进 ——
+    // clawCompleted 的 completed entry 已成功通知（本测试无 retro 消费者），水位推进；
+    // clawCancelled 的 cancelled 通知失败，水位不推进。
+    expect(state1?.clawWatermarks.clawCompleted).toEqual({ archivedAt: 100, lastContractId: 'completed-1' });
     expect(state1?.clawWatermarks.clawCancelled).toBeUndefined();
 
     // 第二次运行：completed 已被标记为已通知，只重试 cancelled
@@ -645,6 +647,136 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
     expect(state2?.cancelledWatermarks.clawCancelled).toEqual({ archivedAt: 100, lastContractId: 'cancelled-1' });
     expect(state2?.clawWatermarks.clawCompleted).toEqual({ archivedAt: 100, lastContractId: 'completed-1' });
     expect(state2?.clawWatermarks.clawCancelled).toEqual({ archivedAt: 100, lastContractId: 'cancelled-1' });
+  });
+});
+
+describe('Phase 1396 Step M — observer retrospective 水位（独立于 Motion 通知）', () => {
+  function makeRunOpts(fs: FileSystem, writes: Map<string, string>, extra?: {
+    notifyMotion?: ReturnType<typeof vi.fn>;
+    onCompletedContract?: (clawId: string, contractId: string) => Promise<void>;
+  }) {
+    return {
+      clawsDir: '/tmp/test/claws',
+      clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      motionDir: '/tmp/test/motion',
+      fs,
+      motionAudit: makeAuditMock(),
+      notifyMotion: extra?.notifyMotion ?? vi.fn().mockResolvedValue(undefined),
+      onCompletedContract: extra?.onCompletedContract,
+    };
+  }
+
+  it('retro 成功 → retrospectiveWatermarks 与总水位同步推进', async () => {
+    const writes = new Map<string, string>();
+    const fs = makeMultiClawFsMock(
+      { clawA: { contracts: [{ contractId: 'c1', status: 'completed', archivedAt: 100 }] } },
+      writes,
+    );
+    const onCompletedContract = vi.fn().mockResolvedValue(undefined);
+
+    await runContractObserver(makeRunOpts(fs, writes, { onCompletedContract }));
+
+    expect(onCompletedContract).toHaveBeenCalledWith('clawA', 'c1');
+    const state = parseState(writes) as any;
+    expect(state?.retrospectiveWatermarks.clawA).toEqual({ archivedAt: 100, lastContractId: 'c1' });
+    expect(state?.clawWatermarks.clawA).toEqual({ archivedAt: 100, lastContractId: 'c1' });
+  });
+
+  it('retro 失败 → retro 水位与总水位停在失败 entry 前，通知水位独立推进；下一 tick 只重试 retro', async () => {
+    const writes1 = new Map<string, string>();
+    const fs1 = makeMultiClawFsMock(
+      { clawA: { contracts: [{ contractId: 'c1', status: 'completed', archivedAt: 100 }] } },
+      writes1,
+    );
+    const notifyMotion1 = vi.fn().mockResolvedValue(undefined);
+    const onCompletedContract1 = vi.fn().mockRejectedValue(new Error('evolution down'));
+
+    await runContractObserver(makeRunOpts(fs1, writes1, { notifyMotion: notifyMotion1, onCompletedContract: onCompletedContract1 }));
+
+    const state1 = parseState(writes1) as any;
+    // 通知成功 → completedWatermarks 推进；retro 失败 → retro 水位不推进、总水位不越过 c1
+    expect(state1?.completedWatermarks.clawA).toEqual({ archivedAt: 100, lastContractId: 'c1' });
+    expect(state1?.retrospectiveWatermarks.clawA).toBeUndefined();
+    expect(state1?.clawWatermarks.clawA).toBeUndefined();
+
+    // 下一 tick：通知被 completedWatermarks 跳过，retro 重试成功
+    const writes2 = new Map<string, string>();
+    const fs2 = makeMultiClawFsMock(
+      { clawA: { contracts: [{ contractId: 'c1', status: 'completed', archivedAt: 100 }] } },
+      writes2,
+      state1,
+    );
+    const notifyMotion2 = vi.fn().mockResolvedValue(undefined);
+    const onCompletedContract2 = vi.fn().mockResolvedValue(undefined);
+
+    await runContractObserver(makeRunOpts(fs2, writes2, { notifyMotion: notifyMotion2, onCompletedContract: onCompletedContract2 }));
+
+    expect(notifyMotion2).not.toHaveBeenCalled();
+    expect(onCompletedContract2).toHaveBeenCalledWith('clawA', 'c1');
+    const state2 = parseState(writes2) as any;
+    expect(state2?.retrospectiveWatermarks.clawA).toEqual({ archivedAt: 100, lastContractId: 'c1' });
+    expect(state2?.clawWatermarks.clawA).toEqual({ archivedAt: 100, lastContractId: 'c1' });
+  });
+
+  it('同 executor 首条 retro 失败 → 本 tick 后续 entry 不再 retro；其他 executor 不受影响', async () => {
+    const writes = new Map<string, string>();
+    const fs = makeMultiClawFsMock(
+      {
+        clawA: {
+          contracts: [
+            { contractId: 'c1', status: 'completed', archivedAt: 100 },
+            { contractId: 'c2', status: 'completed', archivedAt: 200 },
+          ],
+        },
+        clawB: { contracts: [{ contractId: 'b1', status: 'completed', archivedAt: 150 }] },
+      },
+      writes,
+    );
+    const calls: Array<[string, string]> = [];
+    const onCompletedContract = vi.fn(async (clawId: string, contractId: string) => {
+      calls.push([clawId, contractId]);
+      if (contractId === 'c1') throw new Error('boom');
+    });
+
+    await runContractObserver(makeRunOpts(fs, writes, { onCompletedContract }));
+
+    // clawA: c1 失败后 c2 本 tick 不再 retro；clawB: b1 正常交付
+    expect(calls).toEqual([['clawA', 'c1'], ['clawB', 'b1']]);
+    const state = parseState(writes) as any;
+    expect(state?.retrospectiveWatermarks.clawA).toBeUndefined();
+    expect(state?.retrospectiveWatermarks.clawB).toEqual({ archivedAt: 150, lastContractId: 'b1' });
+    // 总水位：clawA 停在失败前（不推进），clawB 推进
+    expect(state?.clawWatermarks.clawA).toBeUndefined();
+    expect(state?.clawWatermarks.clawB).toEqual({ archivedAt: 150, lastContractId: 'b1' });
+  });
+
+  it('v6 state 迁移 → retrospectiveWatermarks 以 clawWatermarks 初始化，不回放历史 retro', async () => {
+    const v6State = {
+      version: 6,
+      lastCheckTs: 50,
+      clawWatermarks: { clawA: { archivedAt: 100, lastContractId: 'c1' } },
+      bootstrapDone: true,
+      completedWatermarks: { clawA: { archivedAt: 100, lastContractId: 'c1' } },
+      cancelledWatermarks: {},
+      crashedWatermarks: {},
+      reportedCorrupted: {},
+      reportedActiveState: {},
+    };
+    const writes = new Map<string, string>();
+    const fs = makeMultiClawFsMock(
+      { clawA: { contracts: [{ contractId: 'c1', status: 'completed', archivedAt: 100 }] } },
+      writes,
+      v6State as any,
+    );
+    const onCompletedContract = vi.fn().mockResolvedValue(undefined);
+
+    await runContractObserver(makeRunOpts(fs, writes, { onCompletedContract }));
+
+    // v6 迁移后 retro 水位 = clawWatermarks → 历史 completed 不补发 retro
+    expect(onCompletedContract).not.toHaveBeenCalled();
+    const state = parseState(writes) as any;
+    expect(state?.version).toBe(7);
+    expect(state?.retrospectiveWatermarks.clawA).toEqual({ archivedAt: 100, lastContractId: 'c1' });
   });
 });
 

@@ -146,7 +146,8 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
     });
 
     it('task.summonDecision undefined → audit SUMMON_GATE_NO_DECISION + pass-through', async () => {
-      const loadTask = makeLoadTask();
+      // Phase 1396 Step M: loader 可靠返回 task 且 metadata 缺失 = 普通 subagent → pass-through。
+      const loadTask = makeLoadTask(undefined, async (id) => makeSubAgentTask(id));
       const { audit, writes } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
@@ -164,8 +165,9 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       ]);
     });
 
-    it('loadTask throws → audit SUMMON_STATE_READ_FAILED + pass-through', async () => {
-      const loadTask = makeLoadTask(undefined, async () => { throw new Error('boom'); });
+    it('loader reliably returns undefined → fail-closed summon_task_not_found, no claim', async () => {
+      // Phase 1396 Step M: task 不存在 = summon 状态不可判定，不得假定非 summon 放行。
+      const loadTask = makeLoadTask(undefined, async () => undefined);
       const { audit, writes } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
@@ -174,14 +176,45 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
           makeCtx({ subagentTaskId: 't1', clawDir: 'any-claw' }),
           makeContract([{ subtask_id: 'a', type: 'llm' }]),
         ),
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({
+        name: 'ContractCreatePolicyViolationError',
+        cause: 'summon_task_not_found',
+      });
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
+        'subagentTaskId=t1',
+        'reason=task_not_found',
+      ]);
+    });
+
+    it.each([
+      ['generic error', new Error('boom')],
+      ['EACCES I/O error', Object.assign(new Error('permission denied'), { code: 'EACCES' })],
+      ['corrupt JSON', new SyntaxError('Unexpected token')],
+      ['future task schema', new Error('unsupported schema_version 99')],
+    ])('loadTask throws (%s) → audit SUMMON_STATE_READ_FAILED + fail-closed summon_state_unavailable', async (_label, thrown) => {
+      // Phase 1396 Step M: 读失败 fail-closed，不得 pass-through；claim 不得写入。
+      const loadTask = makeLoadTask(undefined, async () => { throw thrown; });
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+      await expect(
+        policy.check(
+          makeCtx({ subagentTaskId: 't1', clawDir: 'any-claw' }),
+          makeContract([{ subtask_id: 'a', type: 'llm' }]),
+        ),
+      ).rejects.toMatchObject({
+        name: 'ContractCreatePolicyViolationError',
+        cause: 'summon_state_unavailable',
+      });
       expect(claimSpy).not.toHaveBeenCalled();
       const failedAudit = writes.find(w => w[0] === SUMMON_AUDIT_EVENTS.SUMMON_STATE_READ_FAILED);
       expect(failedAudit).toBeDefined();
       expect(failedAudit).toEqual([
         SUMMON_AUDIT_EVENTS.SUMMON_STATE_READ_FAILED,
         'taskId=t1',
-        expect.stringContaining('boom'),
+        expect.stringContaining(String(thrown.message)),
       ]);
     });
   });

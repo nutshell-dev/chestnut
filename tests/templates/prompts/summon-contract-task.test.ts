@@ -49,4 +49,16 @@ describe('buildSummonContractTask (Phase 1396 Step K)', () => {
     expect(text).toContain('只能');
     expect(text).toContain('不补缺');
   });
+
+  it('teaches a complete done() example and ends at contract creation (Phase 1396 Step M)', () => {
+    const text = buildSummonContractTask('goal');
+
+    // 完整括号示例（修复缺右括号的破损示例）
+    expect(text).toContain('done(result="<给 Motion 的简报>")');
+    expect(text).not.toMatch(/done\(result="<给 Motion 的简报>"\s*`/);
+    // 创建成功即任务结束；不再出现“系统自动登记 retro”旧叙事
+    expect(text).toContain('创建成功即任务结束');
+    expect(text).not.toContain('自动登记 retro');
+    expect(text).not.toContain('retro');
+  });
 });

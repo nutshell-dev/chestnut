@@ -7,10 +7,14 @@ export {
   EvolutionSystem,
 
   type MotionReviewContext,
+  type CompletedContractRef,
 } from './system.js';
 export { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 export {
-  type RegisterRetrospectiveInput,
+  type EnsureRetrospectiveInput,
+  type RetrospectiveWorkItem,
+  type RetrospectiveWorkItemV1,
+  type RetrospectiveWorkItemV2,
 } from './retrospective-store.js';
 
 export { createEvolutionSystem } from './system.js';
