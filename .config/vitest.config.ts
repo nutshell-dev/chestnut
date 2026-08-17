@@ -187,12 +187,9 @@ const VI_MOCK_FILES = [
   // 'tests/core/task.test.ts',
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/misc-invariants.test.ts',
-  'tests/watchdog/cron-crash-invariants.test.ts',
-  'tests/watchdog/cron-inactivity-invariants.test.ts',  // phase 1258 Step A: vi.mock claw-instance-paths/config-load/watchdog-utils factories
   'tests/watchdog/shutdown-invariants.test.ts',
-  'tests/watchdog/state-invariants.test.ts',
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
-  'tests/watchdog/watchdog-state-schema-version.test.ts',
+  'tests/watchdog/watchdog-state-migration.test.ts',  // Phase 1396 Step H: legacy notification state migration uses vi.mock
   // phase 288 Step C sync: 48 entries added per find -name '*.test.ts' -exec grep 'vi.mock(' {} \;
   'tests/assembly/invariants.test.ts',
   'tests/assembly/assemble.test.ts',
@@ -215,11 +212,8 @@ const VI_MOCK_FILES = [
   'tests/watchdog/ensure-directory-authority.test.ts',  // phase 1203 Step C: 原 ensure-singleton-lock 迁为目录 authority
   'tests/watchdog/watchdog-lifecycle-ownership.test.ts',  // phase 1203 Step B: vi.mock claw-instance-paths/config-load/timers/process-manager factories
   'tests/watchdog/foreign-workspace-fail-loud.test.ts',
-  'tests/watchdog/notify-dedup-persist.test.ts',
   'tests/watchdog/orphan-sweep.test.ts',
-  'tests/watchdog/watchdog-a8-final-audit.test.ts',
   'tests/watchdog/watchdog-claws-dir-list-failed-audit.test.ts',
-  'tests/watchdog/watchdog-cron-map-cleanup-no-claws-dir.test.ts',
   'tests/watchdog/watchdog-cli-stop-pid-missing.test.ts',
   'tests/cli/claw-router-root-config.test.ts',  // phase 1301 Step C: vi.mock claw/stop/ps/ensure/pid/audit factories
 ];

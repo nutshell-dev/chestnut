@@ -49,8 +49,7 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
       'assembly/business-systems.ts',
       'assembly/config/config-load.ts',
       'assembly/file-routing-aggregator.ts',
-      // Phase 1396 Step F: claw-crashed / claw-inactivity typed bindings 已退役
-      'cli/commands/claw-watch.ts',
+      // Phase 1396 Step H: claw-watch command retired; motion-facing failure bindings removed.
       'cli/commands/init.ts',
       'cli/commands/status.ts',
       'cli/commands/stop.ts',

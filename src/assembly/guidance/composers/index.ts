@@ -4,20 +4,21 @@
  * phase 1476: 22 → 18 type reframe（移 5 outbox-routed type + 加 1 claw_outbox_summary real composer）.
  * phase 63 γ: 加 contract_cancelled real composer.
  * phase 1121 Step D: 移除 contract_crashed composer（legacy crashed 只走 audit、不生成 motion 决策）。
+ * Phase 1396 Step H: 退役 Watchdog 向 Motion 投递的故障 inbox type 的 guidance binding
+ * 与 NO_GUIDANCE sentinel；历史磁盘消息仅由 Watchdog inbox-formatter 以 standard system
+ * 渲染，不进入 guidance registry。
  *
  * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 inbox type 显式 register 各 composer.
- * 当前结构：13 NO_GUIDANCE sentinel + generic real composer + 5 CLI typed binding。
- * phase 1264 Step A: claw_inactivity 迁入 typed binding（aggregate 注释不再逐个列举 CLI composer）。
- * phase 1265 Step A: claw_outbox_summary 迁入同一次 typed bindings 聚合（第三个迁移的 CLI binding）。
- * phase 1266 Step A: contract_events 迁入同一次 typed bindings 聚合（第四个迁移的 CLI binding）。
- * phase 1267 Step A: contract_cancelled 迁入同一次 typed bindings 聚合（第五个、最后一个迁移的 CLI binding）。
+ * 当前结构：11 NO_GUIDANCE sentinel + generic real composer + 3 CLI typed binding。
+ * phase 1265 Step A: claw_outbox_summary 迁入同一次 typed bindings 聚合；
+ * phase 1266 Step A: contract_events 加入同一聚合；
+ * phase 1267 Step A: contract_cancelled 加入同一聚合。
  *
  * DP「不静默」+ M#9 显式表达：每 sender type 必显式 register / 漏注由
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.
  */
 
 import type { MotionGuidanceRegistry } from '../types.js';
-import { NO_GUIDANCE } from '../types.js';
 
 import { registerCliGuidance } from '../../../cli-protocol/index.js';
 import { clawOutboxSummaryGuidanceBinding } from '../bindings/claw-outbox-summary.js';
@@ -39,11 +40,6 @@ import { composer as contractResume } from './contract-resume.js';
 import { composer as contractAuditFeedback } from './contract-audit-feedback.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
-  // phase 1265 Step A: claw_outbox_summary 经 CLIProtocol typed binding 注册；
-  // phase 1266 Step A: contract_events 加入同一聚合；
-  // phase 1267 Step A: contract_cancelled 加入同一聚合。
-  // Phase 1396 Step F: claw_crashed / claw_inactivity typed bindings 已退役；旧 inbox
-  // 历史消息由 Runtime 通用 fallback 读取，不阻塞 drain。
   registerCliGuidance(registry, [
     clawOutboxSummaryGuidanceBinding,
     contractEventsGuidanceBinding,
@@ -65,9 +61,4 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('contract_created', contractCreated);
   registry.register('contract_resume', contractResume);
   registry.register('contract_audit_feedback', contractAuditFeedback);
-  // Phase 1396 Step F: claw_crashed / claw_inactivity guidance 已退役，但旧 inbox 消息
-  // 仍可能由 watchdog cron 写入；以 NO_GUIDANCE sentinel 显式覆盖，避免 guidance registry
-  // coverage invariant 漏注。
-  registry.register('claw_crashed', NO_GUIDANCE);
-  registry.register('claw_inactivity', NO_GUIDANCE);
 }

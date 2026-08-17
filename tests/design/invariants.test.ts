@@ -431,12 +431,17 @@ describe('inbox-write-side-encap-invariant', () => {
         { encoding: 'utf8', cwd: REPO_CWD },
       );
       expect(outNotify).toContain('heartbeat.ts');
-      expect(outNotify).toContain('watchdog-cron.ts');
-      expect(outNotify).toContain('watchdog-log.ts');
       expect(outNotify).toContain('random-dream.ts');
       expect(outNotify).toContain('deep-dream.ts');
       expect(outNotify).toContain('result-delivery.ts');
       expect(outNotify).toContain('verification-notify.ts');
+      expect(outNotify).toContain('claw-contract-bridge.ts');
+      expect(outNotify).toContain('async-exec-wrapper.ts');
+      expect(outNotify).toContain('task-recovery.ts');
+
+      // Phase 1396 Step H: Watchdog no longer delivers motion-facing claw failure messages.
+      expect(outNotify).not.toContain('watchdog-cron.ts');
+      expect(outNotify).not.toContain('watchdog-log.ts');
 
       // phase 1162 Step E: Deep Dream 不再使用 deprecated notifyInbox 自通知；
       // 正向已由 deep-dream.ts 出现在 notifyClaw 入口集合证明，反向约束无回流。

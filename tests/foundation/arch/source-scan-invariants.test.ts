@@ -96,6 +96,48 @@ describe('source-scan-invariants', () => {
   });
 
   /**
+   * phase 1396 Step H: retired motion-facing claw failure producers ratchet.
+   *
+   * `claw_crashed` / `claw_inactivity` must not be produced, guided, or taught
+   * to Motion anywhere except the explicit legacy inbox formatter reader.
+   */
+  describe('retired motion-facing claw failure producer isolation (phase 1396 Step H)', () => {
+    const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
+
+    function grepInDir(dir: string, regex: string): string[] {
+      const cmd = `grep -rnE "${regex}" ${dir} --include='*.ts' --include='*.md' || true`;
+      const out = execSync(cmd, { encoding: 'utf8' });
+      return out.trim() === '' ? [] : out.trim().split('\n').filter(Boolean);
+    }
+
+    it('no retired inbox type appears in src/watchdog outside inbox-formatter.ts', () => {
+      const targetDir = path.join(srcRoot, 'watchdog');
+      // Exclude the legacy config field `claw_inactivity_timeout_ms` (retired behavior but kept readable).
+      const hits = grepInDir(targetDir, 'claw_crashed|claw_inactivity(?!_timeout_ms)');
+      const allowed = hits.filter(line => line.includes('inbox-formatter.ts'));
+      expect(hits).toEqual(allowed);
+    });
+
+    it('no retired inbox type appears in src/assembly/guidance', () => {
+      const targetDir = path.join(srcRoot, 'assembly', 'guidance');
+      const hits = grepInDir(targetDir, 'claw_crashed|claw_inactivity(?!_timeout_ms)');
+      expect(hits).toEqual([]);
+    });
+
+    it('no retired inbox type appears in src/templates/motion', () => {
+      const targetDir = path.join(srcRoot, 'templates', 'motion');
+      const hits = grepInDir(targetDir, 'claw_crashed|claw_inactivity(?!_timeout_ms)');
+      expect(hits).toEqual([]);
+    });
+
+    it('src/watchdog has no routeNotifyClaw/notifyClaw call sites', () => {
+      const targetDir = path.join(srcRoot, 'watchdog');
+      const hits = grepInDir(targetDir, '\\b(?:routeNotifyClaw|notifyClaw)\\s*\\(');
+      expect(hits).toEqual([]);
+    });
+  });
+
+  /**
    * phase 676: ratchet test that every arch invariant test file
    * tests/foundation/arch/*.test.ts has line count ≤ 150.
    *

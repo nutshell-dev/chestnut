@@ -180,6 +180,12 @@ function extendWithNonSenderScan(types: Set<string>): Set<string> {
 }
 
 describe('phase 1469: motion guidance registry coverage invariant', () => {
+  it('retired watchdog motion-facing types are not registered in guidanceRegistry (Phase 1396 Step H)', () => {
+    const registered = extractRegisteredTypes();
+    expect(registered.has('claw_crashed')).toBe(false);
+    expect(registered.has('claw_inactivity')).toBe(false);
+  });
+
   it('every inbox sender type literal (incl. cron-written) must be registered in guidanceRegistry', () => {
     const sentMap = extractSenderTypes();
     const sentTypes = extendWithNonSenderScan(new Set(sentMap.keys()));

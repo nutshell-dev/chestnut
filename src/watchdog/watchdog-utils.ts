@@ -5,29 +5,17 @@
  * @consumers L6.Watchdog
  * @contract design/modules/l6_watchdog.md
  *
- * Watchdog 工具函数 — 提取以便测试。
- */
-
-/**
- * Watchdog utility functions — extracted for testability
+ * Phase 1396 Step H: crash/inactivity producer 退役后，本模块仅保留 stream
+ * activity reader；contract/active 探测、snapshot、failure/crash taxonomy 均移除。
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
-import { type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import { readAll, STREAM_FILE } from '../foundation/stream/index.js';
 import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
-import { peekPendingCount, listOutboxPendingSync } from '../foundation/messaging/index.js';
-import { hasActiveContract, listActiveContracts } from '../core/contract/index.js';
-// NOTE: turn_start/turn_end/turn_error NOT included — only LLM output counts as activity
-// If new stream event types are added, this set must be evaluated for inclusion
-
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
-
-// Phase 1396 Step F: FailureClass / CrashClass 本地化（claw-failure-classes.ts 退役）
-export type FailureClass = 'daemon_silent' | 'daemon_errored';
-export type CrashClass = 'active_unexpected' | 'active_user_stopped';
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
 export interface ClawActivityInfo {
@@ -74,181 +62,4 @@ export async function getClawActivityInfo(
     }
     return { lastEventMs: null, lastError: null };
   }
-}
-
-// phase 1123 Step D: crash detection considers only ACTIVE contracts.
-// Legacy paused contracts are observed via ContractSystem.findLegacyPausedContracts, not here.
-export function clawHasContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, _audit?: AuditLog): boolean {
-  return clawHasActiveContract(clawDir, fsFactory);
-}
-
-// phase 1482: Check if a claw has an ACTIVE contract only.
-// 用于 inactivity timeout — paused 本就该停、不算 inactivity（root cause D 类 fix）.
-export function clawHasActiveContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, _audit?: AuditLog): boolean {
-  const fs = fsFactory(clawDir);
-  return hasActiveContract(fs, '.');
-}
-
-// ---- phase 1482: claw_inactivity FailureClass taxonomy + phase 2 reframe ----
-
-/**
- * Failure class for `claw_inactivity` watchdog notification.
- * 业主 own enum、由 既有 snapshot 数据派生（不需 NEW state collection）。
- *
- * - `daemon_silent`:  进程跑、无 lastError、stream 静默 → 看 audit events tail
- * - `daemon_errored`: 进程跑、有 lastError → 看 lastError context
- *
- * phase 2 γ4 reframe: `daemon_stopped` class 移除 — dead daemon 归 `claw_crashed` 覆盖
- * (两 type cover 互斥状态、0 dedup 重叠). inactivity 仅在 daemon ALIVE 时触发.
- *
- * Assembly motion guidance composer type-only import 此 enum、按 class switch
- * 1 primary action（DP「相关」derive / 1 primary action per sub-state）.
- */
-
-
-export interface DeriveFailureClassInput {
-  /** Must be true — inactivity 仅在 daemon alive 时调（caller guard 见 maybeCronClawInactivity） */
-  daemonAlive: boolean;
-  lastError: string | null | undefined;
-}
-
-export function deriveFailureClass(input: DeriveFailureClassInput): FailureClass {
-  // phase 2 γ4: daemon_stopped 不再由本函数派生（caller 应已 guard daemonAlive=true）
-  // 防御性 fallback: 若 caller 漏 guard 传入 daemonAlive=false → 按 silent 处理（lastError 仍优先）
-  if (input.lastError) return 'daemon_errored';
-  return 'daemon_silent';
-}
-
-/** Body 字面 (phase 4 重写 / phase 4 续 1-shot): 自含语义、不杂揉 inbox/outbox/status 等无关字段、lastError 单独一行 / 移 "(notification #N)" 1-shot 后无意义.
- * Phase 1396 Step F: FailureClass taxonomy 退役；按 lastError 有无生成两种 body。
- */
-export function formatInactivityBody(opts: {
-  clawId: string;
-  inactiveMin: number;
-  contract: string;
-  lastError?: string | null;
-}): string {
-  if (opts.lastError) {
-    const head = `Claw "${opts.clawId}" daemon is running but encountered an error ${opts.inactiveMin}m ago while in contract ${opts.contract}.`;
-    return `${head}\n\nLast error: ${opts.lastError}`;
-  }
-  return `Claw "${opts.clawId}" daemon is running but has produced no events for ${opts.inactiveMin}m while in contract ${opts.contract}.`;
-}
-
-// ---- phase 2 γ4: claw_crashed CrashClass taxonomy ----
-
-/**
- * Crash class for `claw_crashed` watchdog notification.
- * 业主 own enum、由 clean-stop marker 探测决定。
- *
- * - `active_unexpected`: active contract + daemon dead + 无 clean-stop marker → 重启 daemon
- * - `active_user_stopped`: active contract + daemon dead + 有 clean-stop marker (user/system 主动 stop) → motion 知情即可
- *
- * Legacy paused contracts are not considered crashes (caller must guard with clawHasActiveContract).
- * Assembly motion guidance composer type-only import 此 enum、按 class switch.
- */
-
-
-export interface DeriveCrashClassInput {
-  hasCleanStopMarker: boolean;
-}
-
-export function deriveCrashClass(input: DeriveCrashClassInput): CrashClass {
-  return input.hasCleanStopMarker ? 'active_user_stopped' : 'active_unexpected';
-}
-
-/** 读 `<clawDir>/clean-stop` marker 存在判定 (read-only / 不消费 marker / phase 1373 sub-3 + phase 2 γ4 per-claw 扩). */
-export function hasCleanStopMarker(clawDir: string, fsFactory: (baseDir: string) => FileSystem): boolean {
-  try {
-    const fs = fsFactory(clawDir);
-    return fs.existsSync('clean-stop');
-  } catch {
-    return false;
-  }
-}
-
-/** Body 字面 (phase 4 重写): per-class 自含语义、不附 raw audit events (避免 motion 误以为线索仅此 / 改让 composer 教 diagnostic CLI). */
-export function formatCrashBody(opts: {
-  clawId: string;
-  crashClass: CrashClass;
-  contract: string;
-}): string {
-  switch (opts.crashClass) {
-    case 'active_unexpected':
-      return `Claw "${opts.clawId}" crashed unexpectedly while running contract ${opts.contract}.`;
-    case 'active_user_stopped':
-      return `Claw "${opts.clawId}" was stopped via CLI while running contract ${opts.contract}.`;
-    default: {
-      const _exhaustive: never = opts.crashClass;
-      return _exhaustive;
-    }
-  }
-}
-
-// ---- Phase 18: gatherClawSnapshot ----
-
-export interface ClawSnapshot {
-  status: 'running' | 'stopped';
-  contract: string;       // 'active:<id>' | 'none'
-  inboxPending: number;
-  outboxPending: number;
-  // NEW additive optional forensic context (phase 1207 gap B)
-  lastAuditEvents?: string[];   // last N audit events from claw audit.tsv
-}
-
-/** Duck-typed subset of ProcessManager used by gatherClawSnapshot */
-export interface ProcessLiveness {
-  getAliveStatus(id: string): { alive: boolean; reason: string; pid?: number };
-}
-
-const AUDIT_TAIL_N = 5;
-
-export function gatherClawSnapshot(
-  clawDir: string,
-  fsFactory: (baseDir: string) => FileSystem,
-  pm: ProcessLiveness,
-  clawId: string,
-  _audit?: AuditLog,
-): ClawSnapshot {
-  const status = pm.getAliveStatus(clawId).alive ? 'running' : 'stopped';
-
-  const fs = fsFactory(clawDir);
-  let contract = 'none';
-  const activeContracts = listActiveContracts(fs, '.');
-  if (activeContracts.length > 0) {
-    contract = `active:${activeContracts[0].contractId}`;
-  }
-  // phase 1123 Step D: legacy paused contracts are not surfaced in the watchdog
-  // snapshot; they are observed via ContractSystem.findLegacyPausedContracts.
-
-  // phase 858: lightweight query helpers now return Result; -1 marks I/O error
-  const inboxResult = peekPendingCount(fs, '.');
-  const inboxPending = inboxResult.ok ? inboxResult.value : -1;
-  const outboxResult = listOutboxPendingSync(fs, '.');
-  const outboxPending = outboxResult.ok ? outboxResult.value.length : -1;
-
-  // NEW: read claw audit.tsv tail for forensic context (phase 1207 gap B)
-  let lastAuditEvents: string[] | undefined;
-  try {
-    const raw = fs.readSync(AUDIT_FILE);
-    const lines = raw.split('\n').filter(l => l.trim());
-    lastAuditEvents = lines.slice(-AUDIT_TAIL_N);
-  } catch { /* silent: audit.tsv ENOENT or corrupt: leave undefined optional */ }
-
-  return { status, contract, inboxPending, outboxPending, lastAuditEvents };
-}
-
-// ---- Phase 18: inactivity backoff pure helpers ----
-
-/** Returns effective notification interval (3x after first 2 notifications) */
-export function getEffectiveInterval(notifyCount: number, timeoutMs: number): number {
-  return notifyCount >= 2 ? timeoutMs * 3 : timeoutMs;
-}
-
-/** Returns true if claw made new progress that should reset the notify counter */
-export function shouldResetNotifyCount(
-  lastEventMs: number | null,
-  lastNotified: number,
-): boolean {
-  return lastEventMs !== null && lastEventMs > lastNotified;
 }

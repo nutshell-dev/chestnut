@@ -116,7 +116,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('claw_crashed → standard system rendering（Phase 1396 Step F guidance 已退役，rendering declaration 仍注册）', async () => {
+  it('claw_crashed → standard system rendering（Phase 1396 Step H: legacy historical message, no producer）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, WATCHDOG_INBOX_MESSAGE_TYPES);

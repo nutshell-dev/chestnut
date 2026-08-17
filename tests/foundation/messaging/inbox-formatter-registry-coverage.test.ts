@@ -120,10 +120,11 @@ describe('phase 1419/1243: inbox message type registry coverage invariant', () =
     expect(unregistered).toEqual([]);
   });
 
-  it('registered set must cover expected types after phase 9', () => {
+  it('registered set must cover expected types after phase 9 (including Step H legacy types)', () => {
     const registered = extractRegisteredTypes();
     const expected = [
       'user_inbox_message', 'user_chat',
+      // Phase 1396 Step H: retired watchdog inbox types remain registered only as legacy renderers.
       'claw_crashed', 'claw_inactivity',
       'contract_events', 'verification_result', 'verification_rejection', 'verification_error',
       'startup_check',

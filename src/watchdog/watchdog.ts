@@ -8,11 +8,11 @@
  * Watchdog 守护进程 — 每 30s 检查 motion 存活 / 内建简易 cron。
  *
  * 内部物理拆 sub-file：
- * - watchdog-context.ts   5 module-level state + 3 Map（cron state）+ getter/setter
- * - watchdog-pid.ts       PID file mgmt（5 function）
- * - watchdog-log.ts       log + audit + inbox message（4 function）
- * - watchdog-state.ts     state 持久化（4 function）
- * - watchdog-cron.ts      maybeCronClawInactivity + maybeCronClawCrash（2 业务）
+ * - watchdog-context.ts   module-level durable state + getter/setter
+ * - watchdog-pid.ts       PID file mgmt
+ * - watchdog-log.ts       log + audit helpers
+ * - watchdog-state.ts     state 持久化
+ * - executor-recovery.ts  per-claw daemon availability recovery
  * - spawn.ts             spawnWatchdogCandidate（spawn + poll 原语，不含 CLI）
  *
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
@@ -68,7 +68,6 @@ import {
   reduceMotionRestartOutcome,
   type MotionSpawnOutcome,
 } from './motion-restart-state.js';
-import { maybeCronCheckSubscriptions } from './watchdog-cron.js';
 import { maybeCronExecutorRecovery } from './executor-recovery.js';
 
 /**
@@ -605,16 +604,13 @@ export async function runWatchdogLoop(
     // Persist restart transitions before cron/sleep may fail.
     saveWatchdogState(fsFactory);
 
-    // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
-    // Phase 1396 Step F: own claw daemon availability recovery
+    // 2. Executor availability recovery (Phase 1396 Step F/H)
     const nextExecutorMap = await maybeCronExecutorRecovery(
       executorRestartStateAPI.snapshot(),
       { pm, audit: auditWriter, fsFactory, daemonLogName },
     );
     executorRestartStateAPI.replace(nextExecutorMap);
-    // phase 5: process motion-requested subscriptions (file-based dir scan)
-    await maybeCronCheckSubscriptions(pm, auditWriter, fsFactory);
-    saveWatchdogState(fsFactory);   // 持久化通知状态（每 tick 一次）
+    saveWatchdogState(fsFactory);
 
     // 3. Sleep with backoff on consecutive failures (max 5 minutes) — or circuit-open idle
     await setTimeout(nextSleepMs);

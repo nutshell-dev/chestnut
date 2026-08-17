@@ -1,7 +1,8 @@
 /**
- * watchdog tests — fix 4: per-claw try-catch in maybeCronClawInactivity
+ * Watchdog CLI + main loop tests.
  *
- * When one claw's check throws, the loop should continue and check remaining claws.
+ * Phase 1396 Step H: motion-facing cron paths (claw crash/inactivity/subscription)
+ * retired; remaining coverage: log/audit, shutdown, state load/save, main loop.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -10,7 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
-import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
+
 // Phase 1235: 从 types.js 直导（无 runtime 依赖链），避免与本文件 vi.mock hoist 环冲突
 import {
   ProcessGenerationStateError,
@@ -53,19 +54,7 @@ vi.mock('../../src/watchdog/workspace-config.js', async (importOriginal) => {
   };
 });
 
-// Mock watchdog-utils so we can control clawHasContract / clawHasActiveContract
-vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();
-  return {
-    ...actual,
-    clawHasContract: vi.fn(),
-    clawHasActiveContract: vi.fn(),       // phase 1482: inactivity path now uses this
-    getClawActivityInfo: vi.fn(),
-    gatherClawSnapshot: vi.fn(),
-    shouldResetNotifyCount: vi.fn().mockReturnValue(false),
-    getEffectiveInterval: vi.fn().mockReturnValue(999_999_999),
-  };
-});
+
 
 // spawnDetached runs for real but its internal child_process.spawn is mocked (phase 106 DI hygiene)
 
@@ -99,18 +88,20 @@ import {
   _resetShutdownGuard,
   runWatchdogLoop,
 } from '../../src/watchdog/watchdog.js';
-import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { logWithAudit } from '../../src/watchdog/watchdog-log.js';
-import { setAuditWriter, getWatchdogEntryPath } from '../../src/watchdog/watchdog-context.js';
+import {
+  setAuditWriter,
+  getWatchdogEntryPath,
+  getChestnutFs,
+  _resetWatchdogContextForTest,
+  motionRestartStateAPI,
+  executorRestartStateAPI,
+} from '../../src/watchdog/watchdog-context.js';
 import { writeWatchdogCrash, loadWatchdogState, saveWatchdogState } from '../../src/watchdog/watchdog-state.js';
 import { getWatchdogPid, isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
 import { startCommand, stopCommand } from '../../src/cli/commands/watchdog-cli.js';
-import { motionRestartStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
-import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
-import { clawStateAPI, getChestnutFs, _resetWatchdogContextForTest, motionRestartStateAPI } from '../../src/watchdog/watchdog-context.js';
-import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import { spawn } from 'child_process';
 import { setTimeout as setTimeoutP } from 'timers/promises';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
@@ -119,83 +110,6 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-
-// ─── Step 1: fix-4 existing tests (N1 audit parameter fix) ───────────────────
-
-describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
-  let tmpDir: string;
-  let clawsDir: string;
-  let mockPm: ProcessManager;
-  let mockAudit: AuditWriter;
-
-  beforeEach(() => {
-    _resetWatchdogContextForTest();
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tmpDir = path.join(os.tmpdir(), `wdfix4-${randomUUID()}`);
-    const chestnutDir = path.join(tmpDir, '.chestnut');
-    clawsDir = path.join(chestnutDir, 'claws');
-    fs.mkdirSync(clawsDir, { recursive: true });
-
-    fs.mkdirSync(path.join(clawsDir, 'claw-a'), { recursive: true });
-    fs.mkdirSync(path.join(clawsDir, 'claw-b'), { recursive: true });
-
-    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
-    });
-
-    mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }) } as unknown as ProcessManager;
-    mockAudit = makeMockAudit() as unknown as AuditWriter;
-  });
-
-  afterEach(() => {
-    vi.clearAllMocks();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('continues checking claw-b even when claw-a check throws', async () => {
-    // phase 1482: inactivity 改用 clawHasActiveContract (paused 不算 inactivity)
-    vi.mocked(clawHasActiveContract)
-      .mockImplementationOnce(() => { throw new Error('stat error'); })
-      .mockReturnValueOnce(false);
-
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-    await expect(maybeCronClawInactivity(mockPm, mockAudit, fsFactory)).resolves.not.toThrow();
-
-    expect(clawHasActiveContract).toHaveBeenCalledTimes(2);
-
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Error checking claw'),
-    );
-
-    logSpy.mockRestore();
-  });
-
-  it('does not throw even if all claws error', async () => {
-    vi.mocked(clawHasActiveContract).mockImplementation(() => {
-      throw new Error('all fail');
-    });
-
-    await expect(maybeCronClawInactivity(mockPm, mockAudit, fsFactory)).resolves.not.toThrow();
-    expect(clawHasActiveContract).toHaveBeenCalledTimes(2);
-  });
-
-  it('emits watchdog_claw_scan with ctx=inactivity after scanning claws dir', async () => {
-    const calls = vi.mocked(mockAudit.write).mock.calls;
-    // Clear any calls from previous tests in this describe block
-    calls.length = 0;
-
-    await maybeCronClawInactivity(mockPm, mockAudit, fsFactory);
-
-    const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
-    expect(scanCall).toBeDefined();
-    // phase 691: CLAW_SCAN 拆 ctx + present 为两 col、test 改 cols.some() 子集
-    expect(scanCall!.some(c => typeof c === 'string' && c.includes('ctx=inactivity'))).toBe(true);
-    expect(scanCall!.some(c => typeof c === 'string' && c.includes('claw-a'))).toBe(true);
-    expect(scanCall!.some(c => typeof c === 'string' && c.includes('claw-b'))).toBe(true);
-  });
-});
 
 // ─── Existing: logWithAudit ──────────────────────────────────────────────────
 
@@ -311,8 +225,11 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
 
     expect(fs.existsSync(stateFile)).toBe(true);
     const savedState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-    expect(savedState).toHaveProperty('lastInactivityNotified');
-    expect(savedState).toHaveProperty('inactivityNotifyCount');
+    expect(savedState.schema_version).toBe(3);
+    expect(savedState).not.toHaveProperty('lastInactivityNotified');
+    expect(savedState).not.toHaveProperty('inactivityNotifyCount');
+    expect(savedState).not.toHaveProperty('clawPreviouslyAlive');
+    expect(savedState).not.toHaveProperty('everSpawned');
     expect(savedState).toHaveProperty('motionRestart');
     expect(savedState.motionRestart).toEqual({ status: 'closed', consecutiveAttempts: 0 });
 
@@ -828,84 +745,6 @@ describe('runWatchdogLoop', () => {
   // H3 crash audit tests (from phase269, merged with phase271)
 });
 
-describe('maybeCronClawCrash — crash audit', () => {
-  let tmpDir: string;
-  let clawsDir: string;
-  let mockPm: ProcessManager;
-  let mockAudit: { write: ReturnType<typeof vi.fn>; flush?: () => void };
-  let writeSyncSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    _resetWatchdogContextForTest();
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    tmpDir = path.join(os.tmpdir(), `wdcrash-${randomUUID()}`);
-    const chestnutDir = path.join(tmpDir, '.chestnut');
-    clawsDir = path.join(chestnutDir, 'claws');
-    fs.mkdirSync(clawsDir, { recursive: true });
-    fs.mkdirSync(path.join(chestnutDir, 'motion', 'inbox', 'pending'), { recursive: true });
-
-    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
-      interval_ms: 30_000, disk_warning_mb: 500, claw_inactivity_timeout_ms: 300_000,
-    });
-    vi.mocked(clawHasContract).mockReturnValue(true);
-    vi.mocked(clawHasActiveContract).mockReturnValue(true);  // phase 2 γ4: crash 检测改用此 helper
-    vi.mocked(gatherClawSnapshot).mockReturnValue({
-      contract: 'c1', outboxPending: 0, inboxPending: 0, status: 'alive',
-    } as any);
-
-    mockPm = { getAliveStatus: vi.fn() } as unknown as ProcessManager;
-    mockAudit = makeMockAudit();
-
-    writeSyncSpy = vi.spyOn(InboxWriter.prototype, 'writeSync').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    writeSyncSpy.mockRestore();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('emits CLAW_CRASH_DETECTED when claw transitions alive→dead with contract', () => {
-    const clawId = `claw-crash-${randomUUID().slice(0, 8)}`;
-    fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
-
-    // First call: alive=true (establish baseline)
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: 'test alive' });
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
-
-    // Second call: alive=false (crash detected)
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
-
-    // phase 2 γ4: detected_by field 移除 / 改 crash_class (active_unexpected when no clean-stop marker)
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
-      expect.stringContaining(clawId),
-      'has_contract=true',
-      'crash_class=active_unexpected',
-    );
-  });
-
-  it('emits watchdog_claw_scan with ctx=crash after scanning claws dir', () => {
-    const clawId = `claw-scan-${randomUUID().slice(0, 8)}`;
-    fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
-
-    // Ensure getAliveStatus returns false so crash detection path is not triggered
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'test stopped' });
-    // Clear previous calls to isolate this test
-    vi.mocked(mockAudit.write).mockClear();
-
-    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
-
-    const calls = vi.mocked(mockAudit.write).mock.calls;
-    const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
-    expect(scanCall).toBeDefined();
-    // phase 691: CLAW_SCAN 拆 ctx + present 为两 col、test 改 cols.some() 子集
-    expect(scanCall!.some(c => typeof c === 'string' && c.includes('ctx=crash'))).toBe(true);
-    expect(scanCall!.some(c => typeof c === 'string' && c.includes(clawId))).toBe(true);
-  });
-});
-
 describe('writeWatchdogCrash', () => {
   it('writes WATCHDOG_CRASH audit when _auditWriter is set', () => {
     const mockAudit = makeMockAudit();
@@ -950,7 +789,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('loads legacy state without version field', () => {
+  it('legacy state without schema_version is schema invalid', () => {
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
     fs.writeFileSync(stateFile, JSON.stringify({
       lastInactivityNotified: { 'claw-1': 1000 },
@@ -961,11 +800,9 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     setAuditWriter(mockAudit);
 
     expect(() => loadWatchdogState(fsFactory)).not.toThrow();
-    expect(mockAudit.write).not.toHaveBeenCalledWith(
-      WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
-      expect.any(String),
-    );
-    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+    const schemaCall = mockAudit.write.mock.calls.find((c) => c[0] === WATCHDOG_AUDIT_EVENTS.STATE_SCHEMA_INVALID);
+    expect(schemaCall).toBeDefined();
+    expect(fs.existsSync(stateFile)).toBe(false);
   });
 
   it('writes WATCHDOG_STATE_LOAD_FAILED audit and renames corrupt file', () => {
@@ -988,13 +825,12 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     expect(files.some(f => f.includes('.corrupt-'))).toBe(true);
   });
 
-  it('loadWatchdogState clears Maps on corrupt JSON (no partial leak)', () => {
+  it('loadWatchdogState resets durable state on corrupt JSON (no partial leak)', () => {
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
 
-    // 先 populate Maps with stale data
-    clawStateAPI.lastInactivityNotified.set('stale-claw', 12345);
-    clawStateAPI.inactivityNotifyCount.set('stale-claw', 7);
+    // Seed stale durable state
     motionRestartStateAPI.replace({ status: 'retrying', consecutiveAttempts: 5, nextAttemptAt: 9999, awaitingStability: false });
+    executorRestartStateAPI.replace({ claw1: { status: 'open', consecutiveAttempts: 1, openedAt: 1000 } });
 
     // 写真正 corrupt 的 JSON
     fs.writeFileSync(stateFile, '{ not valid json');
@@ -1004,10 +840,9 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
 
     loadWatchdogState(fsFactory);
 
-    // corrupt 路径 catch 内应清空 Maps，防止 partial populate 泄漏
-    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
-    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
+    // corrupt 路径 catch 内应清空 durable state，防止 partial populate 泄漏
     expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+    expect(executorRestartStateAPI.snapshot()).toEqual({});
   });
 
   it('loadWatchdogState audits move failure separately', () => {

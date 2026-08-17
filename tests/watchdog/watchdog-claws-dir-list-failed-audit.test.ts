@@ -14,7 +14,6 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { runWatchdogLoop, _resetShutdownGuard } from '../../src/watchdog/watchdog.js';
-import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -73,7 +72,7 @@ vi.mock('../../src/watchdog/watchdog-context.js', async (importOriginal) => {
 
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { getChestnutFs, getWatchdogConfig, clawStateAPI } from '../../src/watchdog/watchdog-context.js';
+import { getChestnutFs, getWatchdogConfig } from '../../src/watchdog/watchdog-context.js';
 
 describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
   let tmpDir: string;
@@ -202,99 +201,4 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
     expect(calls.some(([type, ...cols]) => type === 'watchdog_check' && cols.some(c => String(c).includes('claw-B')))).toBe(true);
   });
 
-  // ── Reverse 4: cron fn listSync EACCES ─────────────────────────────────────
-
-  describe('reverse 4: cron fn listSync EACCES → audit + early return', () => {
-    let mockAudit: ReturnType<typeof makeMockAudit>;
-    let mockPm: import('../../src/foundation/process-manager/index.js').ProcessManager;
-
-    beforeEach(() => {
-      mockAudit = makeMockAudit();
-      mockPm = { getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }) } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
-
-      // Reset Maps
-      clawStateAPI.lastInactivityNotified.clear();
-      clawStateAPI.inactivityNotifyCount.clear();
-      clawStateAPI.clawPreviouslyAlive.clear();
-      clawStateAPI.everSpawned.clear();
-      clawStateAPI.clawPreviouslyNotified.clear();
-    });
-
-    afterEach(() => {
-      vi.clearAllMocks();
-    });
-
-    function makeMockFs(opts: { exists: boolean; listSyncThrow?: Error }) {
-      return {
-        existsSync: vi.fn().mockReturnValue(opts.exists),
-        listSync: vi.fn().mockImplementation((p: string, _opts?: unknown) => {
-          if (p === 'claws' && opts.listSyncThrow) throw opts.listSyncThrow;
-          return [];
-        }),
-      };
-    }
-
-    it('maybeCronClawInactivity listSync EACCES → emit + early return', async () => {
-      const eaccesErr = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
-      vi.mocked(getChestnutFs).mockReturnValue(makeMockFs({ exists: true, listSyncThrow: eaccesErr }) as any);
-
-      await expect(maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory)).resolves.not.toThrow();
-
-      expect(mockAudit.write).toHaveBeenCalledWith(
-        WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-        'ctx=inactivity',
-        // phase 697: src 加 dir col
-        expect.stringContaining('dir='),
-        expect.stringContaining('Permission denied'),
-      );
-      // early return: CLAW_SCAN 不该被 emit（listSync 在 scan 之前失败）
-      const scanCalls = vi.mocked(mockAudit.write).mock.calls.filter(
-        ([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
-      );
-      expect(scanCalls).toHaveLength(0);
-    });
-
-    it('maybeCronClawCrash listSync EACCES → emit + early return', () => {
-      const eaccesErr = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
-      vi.mocked(getChestnutFs).mockReturnValue(makeMockFs({ exists: true, listSyncThrow: eaccesErr }) as any);
-
-      expect(() => maybeCronClawCrash(mockPm, mockAudit as any, fsFactory)).not.toThrow();
-
-      expect(mockAudit.write).toHaveBeenCalledWith(
-        WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-        'ctx=crash',
-        // phase 697: src 加 dir col
-        expect.stringContaining('dir='),
-        expect.stringContaining('Permission denied'),
-      );
-      const scanCalls = vi.mocked(mockAudit.write).mock.calls.filter(
-        ([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
-      );
-      expect(scanCalls).toHaveLength(0);
-    });
-
-    it('maybeCronClawInactivity listSync ENOENT (race) → 0 audit + early return', async () => {
-      const enoentErr = Object.assign(new Error('no such file'), { code: 'ENOENT' });
-      vi.mocked(getChestnutFs).mockReturnValue(makeMockFs({ exists: true, listSyncThrow: enoentErr }) as any);
-
-      await expect(maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory)).resolves.not.toThrow();
-
-      const clawsDirListCalls = vi.mocked(mockAudit.write).mock.calls.filter(
-        ([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-      );
-      expect(clawsDirListCalls).toHaveLength(0);
-    });
-
-    it('maybeCronClawCrash listSync ENOENT (race) → 0 audit + early return', () => {
-      const enoentErr = Object.assign(new Error('no such file'), { code: 'ENOENT' });
-      vi.mocked(getChestnutFs).mockReturnValue(makeMockFs({ exists: true, listSyncThrow: enoentErr }) as any);
-
-      expect(() => maybeCronClawCrash(mockPm, mockAudit as any, fsFactory)).not.toThrow();
-
-      const clawsDirListCalls = vi.mocked(mockAudit.write).mock.calls.filter(
-        ([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-      );
-      expect(clawsDirListCalls).toHaveLength(0);
-    });
-  });
 });

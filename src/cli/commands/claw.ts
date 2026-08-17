@@ -21,6 +21,8 @@
  * - claw-import.ts        importCommand  (phase 1472：cp → import 重命名)
  * - claw-read.ts          readCommand
  * - claw-status.ts        clawStatusCommand (phase 1472：新增 motion 用 CLI 查 claw 业务态)
+ *
+ * Phase 1396 Step H: `claw <name> watch` 一次性 inactivity subscription 入口退役。
  */
 
 export { createCommand } from './claw-create.js';
@@ -35,5 +37,4 @@ export { importCommand } from './claw-import.js';
 export { readCommand } from './claw-read.js';
 export { lsCommand } from './claw-ls.js';
 export { clawStatusCommand } from './claw-status.js';
-export { watchCommand } from './claw-watch.js';
 export { streamCommand, runStreamFromArgs } from './claw-stream.js';

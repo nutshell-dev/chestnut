@@ -128,7 +128,7 @@ describe('userinterrupt-system-message-no-redrive', () => {
    *
    * 覆盖：
    *   - type=message（contract-new 等通用系统通知）
-   *   - type=claw_crashed（watchdog 投递）
+   *   - type=claw_crashed（legacy watchdog 历史消息，当前无 producer）
    *   - type=heartbeat（heartbeat 投递）
    *   - 混合批（user_chat + 系统）— 全 ack、0 nack
    *   - 反向：保 UserInterrupt 路径不再产生 nack（捕回归）
@@ -204,7 +204,7 @@ describe('userinterrupt-system-message-no-redrive', () => {
 
     const systemTypedCases: Array<{ type: InboxMessage['type']; from: string; desc: string }> = [
       { type: 'message', from: 'system', desc: 'contract-new (CLI-injected via notifyContractCreated)' },
-      { type: 'claw_crashed', from: 'watchdog', desc: 'watchdog crash notification' },
+      { type: 'claw_crashed', from: 'watchdog', desc: 'legacy watchdog crash notification (no producer)' },
       { type: 'heartbeat', from: 'heartbeat', desc: 'heartbeat tick' },
     ];
 

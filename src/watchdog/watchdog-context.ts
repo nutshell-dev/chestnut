@@ -1,11 +1,9 @@
 /**
  * @module L6.Watchdog.Context
- * Module-level singleton state for watchdog daemon
+ * Module-level singleton state for watchdog daemon.
  *
- * 5 lazy cache（_motionCtx / _chestnutFs / watchdogConfigCache / _auditWriter）
- * + 3 Map（cron 状态：lastInactivityNotified / clawPreviouslyAlive / inactivityNotifyCount）
- *
- * ESM live binding 保跨 sub-file 同实例（const Map reference 跨 file 共享 / let 经 getter/setter）
+ * Phase 1396 Step H: retired crash/inactivity/subscription cron state; only
+ * motion restart and executor restart durable state remain.
  */
 
 import * as path from 'path';
@@ -16,64 +14,6 @@ import type { WatchdogConfig } from './config-schema.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
-
-// === 内部 Map/Set（cron state）—— 通过 clawStateAPI 访问 ===
-
-const _lastInactivityNotified = new Map<string, number>();
-const _clawPreviouslyAlive = new Map<string, boolean>();
-const _inactivityNotifyCount = new Map<string, number>();
-const _everSpawned = new Set<string>();
-const _clawPreviouslyNotified = new Map<string, number>();
-
-interface MapStore<V> {
-  get(k: string): V | undefined;
-  set(k: string, v: V): void;
-  has(k: string): boolean;
-  delete(k: string): boolean;
-  keys(): IterableIterator<string>;
-  clear(): void;
-  readonly size: number;
-}
-
-interface SetStore {
-  add(k: string): void;
-  has(k: string): boolean;
-  delete(k: string): boolean;
-  keys(): IterableIterator<string>;
-  clear(): void;
-  readonly size: number;
-}
-
-function mapStore<V>(m: Map<string, V>): MapStore<V> {
-  return {
-    get: (k) => m.get(k),
-    set: (k, v) => { m.set(k, v); },
-    has: (k) => m.has(k),
-    delete: (k) => m.delete(k),
-    keys: () => m.keys(),
-    clear: () => m.clear(),
-    get size() { return m.size; },
-  };
-}
-
-function setStore(s: Set<string>): SetStore {
-  return {
-    add: (k) => { s.add(k); },
-    has: (k) => s.has(k),
-    delete: (k) => s.delete(k),
-    keys: () => s.keys(),
-    clear: () => s.clear(),
-    get size() { return s.size; },
-  };
-}
-
-export interface ClawStateSnapshot {
-  lastInactivityNotified: Record<string, number>;
-  clawPreviouslyAlive: Record<string, boolean>;
-  inactivityNotifyCount: Record<string, number>;
-  everSpawned: string[];
-  clawPreviouslyNotified?: Record<string, number>;
-}
 
 export type MotionRestartState =
   | {
@@ -132,51 +72,6 @@ export const executorRestartStateAPI = {
   },
   reset(): void {
     _executorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
-  },
-} as const;
-
-export const clawStateAPI = {
-  lastInactivityNotified: mapStore(_lastInactivityNotified),
-  clawPreviouslyAlive: mapStore(_clawPreviouslyAlive),
-  inactivityNotifyCount: mapStore(_inactivityNotifyCount),
-  everSpawned: setStore(_everSpawned),
-  clawPreviouslyNotified: mapStore(_clawPreviouslyNotified),
-
-  snapshot(): ClawStateSnapshot {
-    return {
-      lastInactivityNotified: Object.fromEntries(_lastInactivityNotified),
-      clawPreviouslyAlive: Object.fromEntries(_clawPreviouslyAlive),
-      inactivityNotifyCount: Object.fromEntries(_inactivityNotifyCount),
-      everSpawned: [..._everSpawned],
-      clawPreviouslyNotified: Object.fromEntries(_clawPreviouslyNotified),
-    };
-  },
-
-  replaceAll(s: ClawStateSnapshot): void {
-    _lastInactivityNotified.clear();
-    for (const [k, v] of Object.entries(s.lastInactivityNotified ?? {})) {
-      _lastInactivityNotified.set(k, v);
-    }
-
-    _clawPreviouslyAlive.clear();
-    for (const [k, v] of Object.entries(s.clawPreviouslyAlive ?? {})) {
-      _clawPreviouslyAlive.set(k, v);
-    }
-
-    _inactivityNotifyCount.clear();
-    for (const [k, v] of Object.entries(s.inactivityNotifyCount ?? {})) {
-      _inactivityNotifyCount.set(k, v);
-    }
-
-    _everSpawned.clear();
-    for (const id of s.everSpawned ?? []) {
-      _everSpawned.add(id);
-    }
-
-    _clawPreviouslyNotified.clear();
-    for (const [k, v] of Object.entries(s.clawPreviouslyNotified ?? {})) {
-      _clawPreviouslyNotified.set(k, v);
-    }
   },
 } as const;
 
@@ -245,44 +140,25 @@ export function setAuditWriter(auditWriter: AuditLog | null): void {
   _auditWriter = auditWriter;
 }
 
-/** Reader for sub-file（log / state / cron / cli）*/
+/** Reader for sub-file（log / state / cli）*/
 export function getAuditWriter(): AuditLog | null {
   return _auditWriter;
 }
 
 /**
- * Test-only: reset all module-level state (mirrors `_resetDaemonSignalHandlers` /
- * `_resetShutdownGuard` patterns from daemon.ts / watchdog.ts).
- *
- * Phase 252: 16 watchdog-context-consuming test files previously self-managed
- * partial cleanup via scattered `setAuditWriter(null)` and `clawStateAPI.*.clear()`
- * calls in their afterEach blocks. That style is leak-prone — a single forgotten
- * call (or a new test file added without copying the dance) leaves stale
- * `_motionCtx` / `_chestnutFs` / `watchdogConfigCache` / `_auditWriter` / cron-state
- * Maps for the next test. This helper is a single-call replacement that resets
- * every module-level mutable surface deterministically.
- *
- * Call from beforeEach in every test file that imports any watchdog-context
- * export. The existing partial cleanup in afterEach blocks is intentionally
- * left in place as belt-and-suspenders.
+ * Test-only: reset all module-level state.
  */
 export function _resetWatchdogContextForTest(): void {
   if (process.env.NODE_ENV !== 'test') {
     throw new Error('_resetWatchdogContextForTest is for tests only');
   }
-  // 5 lazy caches
+  // lazy caches
   _motionCtx = null;
   _chestnutFs = null;
   _chestnutFsBaseDir = null;
   watchdogConfigCache = null;
   _auditWriter = null;
-  // 5 cron-state Maps/Sets
-  _lastInactivityNotified.clear();
-  _clawPreviouslyAlive.clear();
-  _inactivityNotifyCount.clear();
-  _everSpawned.clear();
-  _clawPreviouslyNotified.clear();
-  // motion restart durable state
+  // durable state
   _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
   _executorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
 }

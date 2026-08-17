@@ -31,7 +31,6 @@ import {
   readCommand,
   lsCommand,
   clawStatusCommand,
-  watchCommand,
   runStreamFromArgs,
 } from './claw.js';
 import { CliError } from '../errors.js';
@@ -50,7 +49,6 @@ import { psCommand } from './claw-ps.js';
 import {
   CLAW_INSTANCE_COMMAND_IDS,
   DEFAULT_OUTBOX_READ_LIMIT,
-  WATCH_INACTIVE_AFTER_DEFAULT,
   renderClawHelp,
   renderClawCommandHelp,
   type ClawInstanceCommandId,
@@ -214,7 +212,6 @@ export async function dispatchClawSubcommand(
     case 'daemon': return verbAction('internal', () => runDaemon(deps, name, verbArgs), deps)();
     case 'trace': return verbAction('observe_only', () => runTrace(deps, name, verbArgs), deps)();
     case 'status': return verbAction('observe_only', () => runStatus(deps, name, verbArgs), deps)();
-    case 'watch': return verbAction('required', () => runWatch(deps, name, verbArgs), deps)();
     case 'ps': return verbAction('observe_only', () => runPs(deps, name, verbArgs), deps)();
     case 'stream': return verbAction('required', () => runStreamFromArgs(deps, name, verbArgs), deps)();
   }
@@ -401,23 +398,6 @@ async function runStatus(deps: RouterDeps, name: string, args: string[]): Promis
     throw new CliError(`'status' takes no positional arguments (got: ${parser.args.join(' ')})`);
   }
   await clawStatusCommand(deps, name, parser.opts());
-}
-
-// phase 5: claw <name> watch [--inactive-after <duration>]
-async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise<void> {
-  const parser = makeVerbParser('watch');
-  parser.option('--inactive-after <duration>', 'Notify if Claw remains inactive after this duration (e.g. 5m / 30m / 1h, max 24h)', WATCH_INACTIVE_AFTER_DEFAULT);
-  try {
-    parser.parse(args, { from: 'user' });
-  } catch (err) {
-    throw new CliError(`invalid 'claw <name> watch' options: ${(err as Error).message}`, { cause: err });
-  }
-  if (parser.args.length > 0) {
-    throw new CliError(`'watch' takes no positional arguments (got: ${parser.args.join(' ')})`);
-  }
-  const { audit } = createDirContext(deps, getClawDir(name));
-  const opts = parser.opts<{ inactiveAfter?: string }>();
-  await watchCommand(deps, name, { inactiveAfter: opts.inactiveAfter }, { audit });
 }
 
 async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<void> {

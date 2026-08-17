@@ -1,10 +1,12 @@
 /**
  * @module L6.Watchdog
- * phase 1243: Watchdog 自家 inbox 消息 rendering declarations。
+ * phase 1243 / Phase 1396 Step H: legacy compatibility inbox message declarations.
  *
- * Phase 1396 Step F: claw_crashed / claw_inactivity guidance 已退役；旧 inbox 中的历史
- * 消息由 Runtime 通用 fallback 读取，不阻塞 drain。二者仍保留 standard system rendering
- * 声明，以满足 inbox formatter registry coverage invariant。
+ * Watchdog no longer produces `claw_crashed` or `claw_inactivity` messages.
+ * These declarations exist only so that historical messages already on disk are
+ * rendered as plain system messages by the generic Runtime formatter. They must
+ * not be interpreted as current producer registration, guidance triggers, or
+ * Motion prescriptions.
  */
 
 import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';

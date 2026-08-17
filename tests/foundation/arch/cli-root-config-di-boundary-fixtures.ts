@@ -19,7 +19,6 @@ export const CLAW_INSPECTION_COMMANDS = ['claw-health.ts', 'claw-status.ts'];
 export const CLAW_DAEMON_LIFECYCLE_COMMANDS = ['claw-daemon.ts', 'claw-stop.ts'];
 export const CLAW_INPUT_COMMANDS = ['claw-send.ts', 'claw-import.ts'];
 export const CLAW_OBSERVATION_COMMANDS = ['claw-trace.ts', 'claw-stream.ts'];
-export const CLAW_WATCH_COMMANDS = ['claw-watch.ts'];
 export const CLAW_CHAT_COMMANDS = ['claw-chat.ts'];
 export const CLAW_LIST_COMMANDS = ['claw-list.ts'];
 export const CLAW_CREATE_COMMANDS = ['claw-create.ts'];

@@ -1,33 +1,47 @@
 /**
  * @module L6.Watchdog.State
- * Watchdog state persistence — load/save 2 Map + crash log
+ * Watchdog state persistence — load/save durable restart maps.
+ *
+ * Phase 1396 Step H: legacy notification Maps retired. On first load of an old
+ * state containing those fields, the original values are atomically preserved to
+ * `.chestnut/watchdog/migrations/phase1396-retired-notification-state.json`
+ * before the new in-memory state takes over.
  */
 
+import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import {
-  getChestnutFs, getAuditWriter, clawStateAPI, motionRestartStateAPI, executorRestartStateAPI,
+  getChestnutFs, getAuditWriter, motionRestartStateAPI, executorRestartStateAPI,
   type MotionRestartState, type ExecutorRestartMap, type ExecutorRestartState,
 } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 import { isFileNotFound } from '../foundation/fs/index.js';
 
-const CURRENT_WATCHDOG_SCHEMA_VERSION = 2;
+const CURRENT_WATCHDOG_SCHEMA_VERSION = 3;
+const MIGRATION_RECORD_PATH = 'watchdog/migrations/phase1396-retired-notification-state.json';
 
 interface WatchdogState {
-  schema_version: number;  // phase 311 strict-end: require explicit (no fallback)
-  lastInactivityNotified: Record<string, number>;
-  inactivityNotifyCount: Record<string, number>;
-  // NEW — phase 1072: crash-detection state persisted for watchdog self-recovery
-  clawPreviouslyAlive: Record<string, boolean>;
-  everSpawned: string[];
-  // NEW v2 — phase 1269: crash notification dedup persisted
-  clawPreviouslyNotified?: Record<string, number>;
-  // NEW v2 additive — phase 1164: motion restart durable state
+  schema_version: number;
   motionRestart?: MotionRestartState;
-  // NEW v2 additive — phase 1396 Step F: per-claw executor restart durable state
   executorRestart?: ExecutorRestartMap;
+}
+
+interface LegacyNotificationFields {
+  lastInactivityNotified?: Record<string, number>;
+  inactivityNotifyCount?: Record<string, number>;
+  clawPreviouslyAlive?: Record<string, boolean>;
+  everSpawned?: string[];
+  clawPreviouslyNotified?: Record<string, number>;
+}
+
+interface MigrationRecord {
+  schema_version: 1;
+  source_schema_version: number;
+  retired_at: string;
+  fields: LegacyNotificationFields;
 }
 
 function normalizeMotionRestartState(value: unknown): MotionRestartState {
@@ -126,19 +140,96 @@ class WatchdogSchemaError extends Error {
   }
 }
 
-/** 1:1 保 watchdog.ts:208-238 / load 2 Map */
+function hasLegacyNotificationFields(state: Record<string, unknown>): state is Record<string, unknown> & LegacyNotificationFields {
+  return (
+    state.lastInactivityNotified !== undefined
+    || state.inactivityNotifyCount !== undefined
+    || state.clawPreviouslyAlive !== undefined
+    || state.everSpawned !== undefined
+    || state.clawPreviouslyNotified !== undefined
+  );
+}
+
+function fieldsEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function migrateLegacyNotificationState(
+  fs: FileSystem,
+  audit: AuditLog | null,
+  sourceSchemaVersion: number,
+  fields: LegacyNotificationFields,
+): void {
+  const record: MigrationRecord = {
+    schema_version: 1,
+    source_schema_version: sourceSchemaVersion,
+    retired_at: new Date().toISOString(),
+    fields,
+  };
+
+  if (fs.existsSync(MIGRATION_RECORD_PATH)) {
+    let existing: MigrationRecord | undefined;
+    try {
+      existing = JSON.parse(fs.readSync(MIGRATION_RECORD_PATH)) as MigrationRecord;
+    } catch (err) {
+      audit?.write(
+        WATCHDOG_AUDIT_EVENTS.NOTIFICATION_STATE_MIGRATION_CONFLICT,
+        `reason=existing_migration_unreadable`,
+        `path=${MIGRATION_RECORD_PATH}`,
+        `error=${audit?.message(formatErr(err)) ?? formatErr(err)}`,
+      );
+      throw new Error(`Existing migration record at ${MIGRATION_RECORD_PATH} is unreadable; refusing to overwrite.`);
+    }
+    if (
+      existing.source_schema_version === sourceSchemaVersion
+      && fieldsEqual(existing.fields, fields)
+    ) {
+      // Idempotent re-run: same source facts already migrated.
+      return;
+    }
+    audit?.write(
+      WATCHDOG_AUDIT_EVENTS.NOTIFICATION_STATE_MIGRATION_CONFLICT,
+      `reason=field_mismatch`,
+      `path=${MIGRATION_RECORD_PATH}`,
+    );
+    throw new Error(`Migration record at ${MIGRATION_RECORD_PATH} conflicts with current legacy state; refusing to overwrite.`);
+  }
+
+  fs.ensureDirSync(path.dirname(MIGRATION_RECORD_PATH));
+  fs.writeAtomicSync(MIGRATION_RECORD_PATH, JSON.stringify(record, null, 2));
+  audit?.write(
+    WATCHDOG_AUDIT_EVENTS.NOTIFICATION_STATE_MIGRATED,
+    `path=${MIGRATION_RECORD_PATH}`,
+    `source_schema_version=${sourceSchemaVersion}`,
+  );
+}
+
+/** Load durable watchdog state from disk. */
 export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): void {
   try {
     const fs = getChestnutFs(fsFactory);
     const raw = fs.readSync('watchdog-state.json');
-    const state = JSON.parse(raw) as WatchdogState;
-    // phase 311 ML#9 strict: require schema_version explicit、delete legacy version? graceful-read fallback
+    const state = JSON.parse(raw) as Record<string, unknown>;
     const stateVersion = state.schema_version;
-    if (stateVersion === undefined ||
-        typeof stateVersion !== 'number' || stateVersion > CURRENT_WATCHDOG_SCHEMA_VERSION) {
+    if (
+      stateVersion === undefined
+      || typeof stateVersion !== 'number'
+      || stateVersion > CURRENT_WATCHDOG_SCHEMA_VERSION
+    ) {
       throw new WatchdogSchemaError(stateVersion, CURRENT_WATCHDOG_SCHEMA_VERSION);
     }
-    clawStateAPI.replaceAll(state);
+
+    if (hasLegacyNotificationFields(state)) {
+      const audit = getAuditWriter();
+      migrateLegacyNotificationState(fs, audit, stateVersion, {
+        lastInactivityNotified: state.lastInactivityNotified,
+        inactivityNotifyCount: state.inactivityNotifyCount,
+        clawPreviouslyAlive: state.clawPreviouslyAlive,
+        everSpawned: state.everSpawned,
+        clawPreviouslyNotified: state.clawPreviouslyNotified,
+      });
+    }
+
     const motionRestart = normalizeMotionRestartState(state.motionRestart);
     motionRestartStateAPI.replace(motionRestart);
     executorRestartStateAPI.replace(normalizeExecutorRestartMap(state.executorRestart));
@@ -148,14 +239,7 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
       return;
     }
 
-    // corrupt path: Maps reset to empty (mirror ENOENT) / partial populate from broken state must not leak / per phase 636
-    clawStateAPI.replaceAll({
-      lastInactivityNotified: {},
-      inactivityNotifyCount: {},
-      clawPreviouslyAlive: {},
-      everSpawned: [],
-      clawPreviouslyNotified: {},
-    });
+    // corrupt path: reset to empty durable state
     motionRestartStateAPI.reset();
     executorRestartStateAPI.reset();
 
@@ -183,11 +267,10 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
   }
 }
 
-/** 1:1 保 watchdog.ts:240-249 / save 2 Map */
+/** Persist durable watchdog state to disk. */
 export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): void {
   const state: WatchdogState = {
-    schema_version: 2,
-    ...clawStateAPI.snapshot(),
+    schema_version: CURRENT_WATCHDOG_SCHEMA_VERSION,
     motionRestart: motionRestartStateAPI.snapshot(),
     executorRestart: executorRestartStateAPI.snapshot(),
   };
@@ -195,7 +278,7 @@ export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
   fs.writeAtomicSync('watchdog-state.json', JSON.stringify(state, null, 2));
 }
 
-/** 1:1 保 watchdog.ts:264-269 */
+/** Best-effort crash log. */
 export function writeWatchdogCrash(err: Error): void {
   try {
     const auditWriter = getAuditWriter();

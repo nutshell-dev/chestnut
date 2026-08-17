@@ -28,7 +28,7 @@ describe('Phase 86: clean stop 生命周期修复', () => {
     'watchdog-pid.ts',
     'watchdog-log.ts',
     'watchdog-state.ts',
-    'watchdog-cron.ts',
+    'executor-recovery.ts',
     'spawn.ts',
   ];
   const watchdogSource = watchdogFiles
@@ -39,48 +39,44 @@ describe('Phase 86: clean stop 生命周期修复', () => {
   const eventLoopSource = fs.readFileSync(eventLoopPath, 'utf-8');
 
   // ==========================================================================
-  // Step 1: clawPreviouslyAlive + everSpawned 持久化 (phase 1072)
+  // Step 1: Phase 1396 Step H 后 Watchdog 持久化状态
   // ==========================================================================
-  describe('Step 1: clawPreviouslyAlive + everSpawned 持久化', () => {
-    it('WatchdogState 接口应包含 clawPreviouslyAlive 字段', () => {
+  describe('Step 1: durable state after Phase 1396 Step H', () => {
+    it('WatchdogState 接口应包含 motionRestart 与 executorRestart 字段', () => {
       const interfaceMatch = watchdogSource.match(
         /interface WatchdogState \{[\s\S]{0,800}?\}/
       );
       expect(interfaceMatch).toBeTruthy();
-      expect(interfaceMatch![0]).toContain('clawPreviouslyAlive');
+      expect(interfaceMatch![0]).toContain('motionRestart');
+      expect(interfaceMatch![0]).toContain('executorRestart');
     });
 
-    it('WatchdogState 接口应包含 everSpawned 字段', () => {
-      const interfaceMatch = watchdogSource.match(
-        /interface WatchdogState \{[\s\S]{0,800}?\}/
-      );
-      expect(interfaceMatch).toBeTruthy();
-      expect(interfaceMatch![0]).toContain('everSpawned');
-    });
-
-    it('saveWatchdogState 应调用 clawStateAPI.snapshot()', () => {
+    it('saveWatchdogState 应调用两个 durable state API 的 snapshot()', () => {
       const saveMatch = watchdogSource.match(
         /function saveWatchdogState\(fsFactory[\s\S]{0,800}?\}/
       );
       expect(saveMatch).toBeTruthy();
-      expect(saveMatch![0]).toContain('clawStateAPI.snapshot()');
+      expect(saveMatch![0]).toContain('motionRestartStateAPI.snapshot()');
+      expect(saveMatch![0]).toContain('executorRestartStateAPI.snapshot()');
     });
 
-    it('loadWatchdogState 应调用 clawStateAPI.replaceAll()', () => {
+    it('loadWatchdogState 应调用两个 durable state API 的 replace()', () => {
       const startIdx = watchdogSource.indexOf('function loadWatchdogState(fsFactory');
       expect(startIdx).toBeGreaterThan(-1);
       const endIdx = watchdogSource.indexOf('export function saveWatchdogState(fsFactory', startIdx);
       expect(endIdx).toBeGreaterThan(startIdx);
       const loadBlock = watchdogSource.slice(startIdx, endIdx);
-      expect(loadBlock).toContain('clawStateAPI.replaceAll(');
+      expect(loadBlock).toContain('motionRestartStateAPI.replace(');
+      expect(loadBlock).toContain('executorRestartStateAPI.replace(');
     });
 
-    it('clawPreviouslyAlive Map 本身应仍存在（用于 crash 检测）', () => {
-      expect(watchdogSource).toContain('clawPreviouslyAlive');
-    });
-
-    it('everSpawned Set 本身应仍存在（用于 first-tick crash 检测）', () => {
-      expect(watchdogSource).toContain('everSpawned');
+    it('saveWatchdogState 不应再持久化 retired notification Maps', () => {
+      const saveStart = watchdogSource.indexOf('export function saveWatchdogState(fsFactory');
+      expect(saveStart).toBeGreaterThan(-1);
+      const saveBlock = watchdogSource.slice(saveStart);
+      expect(saveBlock).not.toContain('clawPreviouslyAlive');
+      expect(saveBlock).not.toContain('everSpawned');
+      expect(saveBlock).not.toContain('lastInactivityNotified');
     });
   });
 

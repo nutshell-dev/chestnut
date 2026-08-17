@@ -1,5 +1,5 @@
 /**
- * watchdog-utils 测试 — clawHasContract + getClawActivityInfo (Phase 19) + Phase 18
+ * watchdog-utils 测试 — getClawActivityInfo only (Phase 1396 Step H).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -9,15 +9,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import * as streamModule from '../../src/foundation/stream/index.js';
-import {
-  clawHasContract,
-  getClawActivityInfo,
-  gatherClawSnapshot,
-  getEffectiveInterval,
-  shouldResetNotifyCount,
-} from '../../src/watchdog/watchdog-utils.js';
-
-const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+import { getClawActivityInfo } from '../../src/watchdog/watchdog-utils.js';
 
 let testDir: string;
 
@@ -32,35 +24,13 @@ afterEach(() => {
   fs.rmSync(testDir, { recursive: true, force: true });
 });
 
-describe('clawHasContract', () => {
-  it('returns false when no contract dirs exist', () => {
-    expect(clawHasContract(testDir, fsFactory)).toBe(false);
-  });
-
-  it('returns true when contract/active has a subdirectory', () => {
-    fs.mkdirSync(path.join(testDir, 'contract', 'active', 'contract-123'), { recursive: true });
-    expect(clawHasContract(testDir, fsFactory)).toBe(true);
-  });
-
-  it('returns false when only contract/paused has a subdirectory (legacy, not current)', () => {
-    fs.mkdirSync(path.join(testDir, 'contract', 'paused', 'contract-456'), { recursive: true });
-    expect(clawHasContract(testDir, fsFactory)).toBe(false);
-  });
-
-  it('returns false when contract/active exists but has no subdirectories (only files)', () => {
-    fs.mkdirSync(path.join(testDir, 'contract', 'active'), { recursive: true });
-    fs.writeFileSync(path.join(testDir, 'contract', 'active', 'somefile.json'), '{}');
-    expect(clawHasContract(testDir, fsFactory)).toBe(false);
-  });
-});
+function makeFsAudit(dir: string) {
+  const clawFs = new NodeFileSystem({ baseDir: dir });
+  const audit = new AuditWriter(clawFs, 'audit.tsv');
+  return { clawFs, audit };
+}
 
 describe('getClawActivityInfo', () => {
-  function makeFsAudit(dir: string) {
-    const clawFs = new NodeFileSystem({ baseDir: dir });
-    const audit = new AuditWriter(clawFs, 'audit.tsv');
-    return { clawFs, audit };
-  }
-
   it('returns {null, null} when stream.jsonl is missing', async () => {
     const { clawFs, audit } = makeFsAudit(testDir);
     const result = await getClawActivityInfo(clawFs, audit);
@@ -191,92 +161,5 @@ describe('getClawActivityInfo', () => {
     const { clawFs, audit } = makeFsAudit(testDir);
     const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastError).toBe('unknown error');
-  });
-});
-
-// Phase 18 tests
-
-const fakePm = (alive: boolean) => ({ getAliveStatus: () => ({ alive, reason: 'test' }) });
-
-describe('gatherClawSnapshot', () => {
-  it('status=running when pm.getAliveStatus().alive=true', () => {
-    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(true), 'c1');
-    expect(snap.status).toBe('running');
-  });
-
-  it('status=stopped when pm.getAliveStatus().alive=false', () => {
-    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
-    expect(snap.status).toBe('stopped');
-  });
-
-  it('contract=active:<id> when active dir has a subdirectory', () => {
-    fs.mkdirSync(path.join(testDir, 'contract', 'active', 'ctr-abc'), { recursive: true });
-    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
-    expect(snap.contract).toBe('active:ctr-abc');
-  });
-
-  it('contract=none when only paused dir has a subdirectory (legacy, not current)', () => {
-    fs.mkdirSync(path.join(testDir, 'contract', 'paused', 'ctr-def'), { recursive: true });
-    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
-    expect(snap.contract).toBe('none');
-  });
-
-  it('contract=none when no contract dirs exist', () => {
-    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
-    expect(snap.contract).toBe('none');
-  });
-
-  it('inboxPending counts .md files in inbox/pending (ignores other extensions)', () => {
-    const inboxDir = path.join(testDir, 'inbox', 'pending');
-    fs.mkdirSync(inboxDir, { recursive: true });
-    fs.writeFileSync(path.join(inboxDir, 'msg1.md'), '');
-    fs.writeFileSync(path.join(inboxDir, 'msg2.md'), '');
-    fs.writeFileSync(path.join(inboxDir, 'ignore.txt'), '');
-    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
-    expect(snap.inboxPending).toBe(2);
-  });
-
-  it('outboxPending counts .md files in outbox/pending', () => {
-    const outboxDir = path.join(testDir, 'outbox', 'pending');
-    fs.mkdirSync(outboxDir, { recursive: true });
-    fs.writeFileSync(path.join(outboxDir, 'out1.md'), '');
-    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
-    expect(snap.outboxPending).toBe(1);
-  });
-});
-
-describe('getEffectiveInterval', () => {
-  it('returns 1x timeoutMs for notifyCount=0', () => {
-    expect(getEffectiveInterval(0, 300000)).toBe(300000);
-  });
-
-  it('returns 1x timeoutMs for notifyCount=1', () => {
-    expect(getEffectiveInterval(1, 300000)).toBe(300000);
-  });
-
-  it('returns 3x timeoutMs for notifyCount=2 (backoff threshold)', () => {
-    expect(getEffectiveInterval(2, 300000)).toBe(900000);
-  });
-
-  it('returns 3x timeoutMs for notifyCount=5', () => {
-    expect(getEffectiveInterval(5, 300000)).toBe(900000);
-  });
-});
-
-describe('shouldResetNotifyCount', () => {
-  it('returns false when lastEventMs is null', () => {
-    expect(shouldResetNotifyCount(null, 0)).toBe(false);
-  });
-
-  it('returns true when lastEventMs > lastNotified (new activity since notification)', () => {
-    // Event at 1500, last notified at 1000 → 1500 > 1000 → reset
-    expect(shouldResetNotifyCount(1500, 1000)).toBe(true);
-  });
-
-  it('returns false when lastEventMs <= lastNotified (no new activity)', () => {
-    // Event at 1000, last notified at 1000 → 1000 <= 1000 → no reset
-    expect(shouldResetNotifyCount(1000, 1000)).toBe(false);
-    // Event at 500, last notified at 1000 → 500 <= 1000 → no reset
-    expect(shouldResetNotifyCount(500, 1000)).toBe(false);
   });
 });
