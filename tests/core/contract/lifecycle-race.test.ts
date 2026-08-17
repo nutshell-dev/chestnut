@@ -100,7 +100,7 @@ async function resolveFinalArchiveState(
   clawDir: string,
   contractId: string,
 ): Promise<ArchiveState | null> {
-  for (const state of ['completed', 'cancelled', 'corrupted'] as ArchiveState[]) {
+  for (const state of ['completed', 'cancelled', 'corrupted', 'failed'] as ArchiveState[]) {
     const statePath = path.join(clawDir, 'contract', 'archive', state, contractId);
     if (await fileExists(statePath)) return state;
   }
@@ -122,7 +122,7 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     const activePath = path.join(fx.clawDir, 'contract', 'active', contractId);
     await expect(fs.access(activePath)).rejects.toBeTruthy();
 
-    for (const state of ['completed', 'cancelled', 'corrupted'] as ArchiveState[]) {
+    for (const state of ['completed', 'cancelled', 'corrupted', 'failed'] as ArchiveState[]) {
       const statePath = path.join(fx.clawDir, 'contract', 'archive', state, contractId);
       if (state === expectedState) {
         await expect(fs.access(statePath)).resolves.toBeUndefined();
@@ -419,6 +419,86 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
       () => {
         const completedNotifies = [...fx.notifyA, ...fx.notifyB].filter(n => n.type === 'contract_completed');
         expect(completedNotifies).toHaveLength(1);
+      },
+    );
+  });
+
+  const RACE_FAILURE = {
+    reason: 'executor process died',
+    evidenceRef: 'executor/events.jsonl#seq=42',
+    producer: 'event-loop',
+  };
+
+  it('Phase 1396 Step D: fail vs cancel: exactly one archive winner, only winner side effect', async () => {
+    const contractId = await fx.managerA.create(makeContractYaml({
+      title: 'Race Fail Cancel',
+      goal: 'Test',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+
+    const barrier = await makeBarrier(fx.tempDir, 'fail-cancel');
+
+    await runRace(
+      contractId,
+      async () => { await barrier.arrive('a'); return fx.managerA.fail(contractId as any, RACE_FAILURE); },
+      async () => { await barrier.arrive('b'); return fx.managerB.cancel(contractId as any, 'cancel B'); },
+      ['failed', 'cancelled'],
+      (finalState) => {
+        const failedNotifies = [...fx.notifyA, ...fx.notifyB].filter(n => n.type === 'contract_failed');
+        const cancelledNotifies = [...fx.notifyA, ...fx.notifyB].filter(n => n.type === 'contract_cancelled');
+        if (finalState === 'failed') {
+          expect(failedNotifies).toHaveLength(1);
+          expect(cancelledNotifies).toHaveLength(0);
+        } else {
+          expect(failedNotifies).toHaveLength(0);
+          expect(cancelledNotifies).toHaveLength(1);
+        }
+      },
+    );
+  });
+
+  it('Phase 1396 Step D: fail vs completed: winner decides archive state, only winner side effect', async () => {
+    const contractId = await fx.managerA.create(makeContractYaml({
+      title: 'Race Fail Completed',
+      goal: 'Test',
+      subtasks: [
+        { id: 't1', description: 'T1' },
+        { id: 't2', description: 'T2' },
+      ],
+      verification: [],
+    }));
+
+    const progress = await fx.managerA.getProgress(contractId as any);
+    progress!.subtasks.t1.status = 'completed';
+    progress!.subtasks.t1.completed_at = new Date().toISOString();
+    progress!.subtasks.t2.status = 'completed';
+    progress!.subtasks.t2.completed_at = new Date().toISOString();
+    await (fx.managerA as any).saveActiveProgressExisting(contractId as any, progress);
+
+    const barrier = await makeBarrier(fx.tempDir, 'fail-completed');
+
+    await runRace(
+      contractId,
+      async () => { await barrier.arrive('a'); return fx.managerA.fail(contractId as any, RACE_FAILURE); },
+      async () => {
+        await barrier.arrive('b');
+        const ctx = createManagerVerificationContext(fx.managerB);
+        const yaml = await ctx.loadContractYaml(contractId as any);
+        if (!yaml) throw new Error('missing contract yaml');
+        return archiveAndEmit(ctx, contractId as any, yaml, 'race.completed');
+      },
+      ['failed', 'completed'],
+      (finalState) => {
+        const failedNotifies = [...fx.notifyA, ...fx.notifyB].filter(n => n.type === 'contract_failed');
+        const completedNotifies = [...fx.notifyA, ...fx.notifyB].filter(n => n.type === 'contract_completed');
+        if (finalState === 'failed') {
+          expect(failedNotifies).toHaveLength(1);
+          expect(completedNotifies).toHaveLength(0);
+        } else {
+          expect(failedNotifies).toHaveLength(0);
+          expect(completedNotifies).toHaveLength(1);
+        }
       },
     );
   });

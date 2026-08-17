@@ -453,6 +453,28 @@ export function emitContractCancelled(
   audit.write(CONTRACT_AUDIT_EVENTS.CANCELLED, ...cols);
 }
 
+// ─── FAILED (Phase 1396 Step D) ─────────────────────────────────────────────
+export function emitContractFailed(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    reason: string;
+    evidenceRef: string;
+    producer: string;
+    abortVerifierFailed?: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractFailed')) return;
+  const cols: string[] = [
+    `contractId=${opts.contractId}`,
+    `reason=${opts.reason}`,
+    `evidence_ref=${opts.evidenceRef}`,
+    `producer=${opts.producer}`,
+  ];
+  if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.FAILED, ...cols);
+}
+
 // ─── COMPLETED ──────────────────────────────────────────────────────────────
 export function emitContractCompleted(
   audit: AuditLog,

@@ -13,6 +13,7 @@ import { safeNotify } from './verification-notify.js';
 import { ToolError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ContractId, ContractYaml } from './types.js';
+import type { ArchiveState } from './types.js';
 import { newShortUuid } from '../../foundation/node-utils/index.js';
 import {
   commitTerminalLifecycle,
@@ -39,7 +40,7 @@ export async function archiveAndEmit(
   contractId: ContractId,
   contractYaml: ContractYaml,
   contextLabel: string,
-): Promise<{ archived: boolean; state?: 'completed' | 'cancelled' | 'corrupted' }> {
+): Promise<{ archived: boolean; state?: ArchiveState }> {
   // Phase 1198 Step E: persist the immutable intent BEFORE checking the completed precondition.
   // A failed precondition still leaves a request fact for future boot replay.
   const requestId = `completed-${Date.now()}-${newShortUuid()}`;

@@ -75,7 +75,7 @@ import { ContractValidationError, ContractArchiveReadError, ContractLocationAmbi
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
-  cancelContract, markCorrupted,
+  cancelContract, markCorrupted, failContract,
   isContractComplete,
   reconcilePendingLifecycleIntents,
   type LifecycleContext,
@@ -83,6 +83,7 @@ import {
 import type { NotifyClawFn, VerificationGatewayResult, SyncCompletionGatewayResult } from './verification-types.js';
 import type { VerificationAttemptTransition } from './verification-transition-types.js';
 import type { ContractCorruptionEvidence } from './types.js';
+import type { ContractFailure, ContractExecutionFailure } from './types.js';
 import {
   runVerificationPipeline,
   runScriptVerification as runScriptVerificationFn,
@@ -1175,6 +1176,56 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     // phase 398 Step D (review N9): 同 cancel。
     this.auditorState.delete(contractId);
     return outcome;
+  }
+
+  /**
+   * Phase 1396 Step D: ContractSystem-owned execution-failure terminal commit.
+   *
+   * Reporters submit the failure fact only; the intent + rename winner protocol
+   * decides the outcome. cancelled is never used to express execution failure.
+   */
+  async fail(
+    contractId: ContractId,
+    failure: ContractFailure,
+    requestId?: string,
+  ): Promise<LifecycleCommitOutcome> {
+    const outcome = await failContract(this._lifecycleCtx(), contractId, failure, requestId);
+    // 同 cancel / markCorrupted：终态清 auditorState。
+    this.auditorState.delete(contractId);
+    return outcome;
+  }
+
+  /**
+   * Phase 1396 Step D: fail all active contracts owned by this executor.
+   *
+   * ContractSystem 自己枚举/核实 active contract（按 sorted id deterministic
+   * 顺序逐个走 fail() 的 intent + rename winner 协议）；调用者只传 executor
+   * identity + failure fact，不得传 contract 路径或执行 rename。executorId 与
+   * 本 claw 不一致时拒绝并留 audit（下层不得跨边界改写别的 executor 的资源）。
+   */
+  async failActiveForExecutor(
+    input: ContractExecutionFailure,
+  ): Promise<ReadonlyArray<LifecycleCommitOutcome>> {
+    if (input.executorId !== this.clawId) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.FAIL_EXECUTOR_MISMATCH,
+        `executorId=${input.executorId}`,
+        `clawId=${this.clawId}`,
+        `producer=${input.failure.producer}`,
+      );
+      return [];
+    }
+
+    const activeIds = await listPhysicalActiveContractIds({
+      fs: this.fs,
+      activeDir: this.activeDir,
+    });
+
+    const outcomes: LifecycleCommitOutcome[] = [];
+    for (const contractId of activeIds) {
+      outcomes.push(await this.fail(contractId, input.failure));
+    }
+    return outcomes;
   }
 
   async isComplete(contractId: ContractId): Promise<boolean> {

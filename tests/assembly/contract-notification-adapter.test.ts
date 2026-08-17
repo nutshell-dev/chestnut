@@ -217,4 +217,27 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     });
     expect(inboxFiles()).toHaveLength(0);
   });
+
+  it('contract_failed（Phase 1396 Step D）→ stream camel payload（reason/evidenceRef/producer）/ 无 inbox', () => {
+    emit({
+      type: 'contract_failed',
+      contractId: makeContractId('c1'),
+      reason: 'executor died',
+      evidenceRef: 'executor/events.jsonl#seq=42',
+      producer: 'event-loop',
+    });
+
+    expect(streamWrite).toHaveBeenCalledTimes(1);
+    expect(streamWrite).toHaveBeenCalledWith({
+      ts: expect.any(Number),
+      type: 'system_notify',
+      subtype: 'contract_failed',
+      contractId: 'c1',
+      reason: 'executor died',
+      evidenceRef: 'executor/events.jsonl#seq=42',
+      producer: 'event-loop',
+    });
+    // failed 只呈现最终事实；不写 self-inbox、不给 motion 重启/取消处方。
+    expect(inboxFiles()).toHaveLength(0);
+  });
 });

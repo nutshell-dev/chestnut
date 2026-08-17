@@ -23,6 +23,7 @@ const STATE_TO_EVENT: Readonly<Record<ArchiveState, string>> = {
   completed: CONTRACT_AUDIT_EVENTS.COMPLETED,
   cancelled: CONTRACT_AUDIT_EVENTS.CANCELLED,
   corrupted: CONTRACT_AUDIT_EVENTS.CORRUPTED,
+  failed: CONTRACT_AUDIT_EVENTS.FAILED,
 };
 
 function parseExactCol(cols: readonly string[], key: string): string | undefined {

@@ -575,6 +575,11 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
               case 'corrupted':
                 // Step F: corrupted archive state is terminal; no motion delivery.
                 break;
+              case 'failed':
+                // Phase 1396 Step D: failed archive state is terminal; no motion
+                // delivery here (reason/evidenceRef presentation happens via the
+                // notification adapter; recovery decisions belong to later phases).
+                break;
 
               default: {
                 const _exhaustive: never = entry.status;

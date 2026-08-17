@@ -39,6 +39,11 @@ export {
   type ContractCreatePolicy,
   type CreatePolicyContext,
   type ContractRuntimeLifecycle,
+  // Phase 1396 Step D: ContractSystem-owned failed terminal state public intake
+  type ContractFailure,
+  type ContractExecutionFailure,
+  type ExecutionFailureSink,
+  type LifecycleCommitOutcome,
   ContractCreatePolicyViolationError,
   makeContractId,
 } from './types.js';

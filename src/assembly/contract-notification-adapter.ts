@@ -123,6 +123,15 @@ function toLegacyNotifyData(event: ContractNotification): Record<string, unknown
       };
     case 'contract_cancelled':
       return { contractId: event.contractId, reason: event.reason };
+    case 'contract_failed':
+      // Phase 1396 Step D: 只呈现最终事实（reason/evidenceRef/producer）；
+      // 不写 self-inbox、不给 motion 重启/取消处方（恢复决策归后续 phase）。
+      return {
+        contractId: event.contractId,
+        reason: event.reason,
+        evidenceRef: event.evidenceRef,
+        producer: event.producer,
+      };
     case 'subtask_completed':
       return event.forceAccepted === true
         ? { contract_id: event.contractId, subtask_id: event.subtaskId, force_accepted: true }

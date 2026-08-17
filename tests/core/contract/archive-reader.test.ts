@@ -9,8 +9,8 @@ import * as yaml from 'js-yaml';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
-import { readArchivePayload } from '../../../src/core/contract/archive-reader.js';
-import type { PersistedContractYaml, SubtaskRuntimeRecord, ContractLocation } from '../../../src/core/contract/types.js';
+import { readArchivePayload, projectFailedFailure } from '../../../src/core/contract/archive-reader.js';
+import type { PersistedContractYaml, SubtaskRuntimeRecord, ContractLocation, ArchiveState } from '../../../src/core/contract/types.js';
 
 let tmpDir: string;
 let clawDir: string;
@@ -64,7 +64,7 @@ function makeCompletedRecord(subtaskId: string): SubtaskRuntimeRecord {
 }
 
 async function writeCurrentArchive(
-  state: 'completed' | 'cancelled' | 'corrupted',
+  state: ArchiveState,
   contract: PersistedContractYaml,
   records: Record<string, SubtaskRuntimeRecord>,
 ): Promise<string> {
@@ -89,7 +89,7 @@ async function writeLegacyArchive(
   return `contract/archive/${contractId}`;
 }
 
-function currentLocation(state: 'completed' | 'cancelled' | 'corrupted', root: string): Extract<ContractLocation, { kind: 'archived-current' }> {
+function currentLocation(state: ArchiveState, root: string): Extract<ContractLocation, { kind: 'archived-current' }> {
   return {
     kind: 'archived-current',
     state,
@@ -562,5 +562,83 @@ describe('readArchivePayload lifecycle intents (Phase 1198 Step A)', () => {
     expect(result.view.intentIssues).toHaveLength(1);
     expect(result.view.intentIssues[0].reason).toBe('parse_failed');
     expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_READ_ISSUE)).toBe(true);
+  });
+});
+
+describe('readArchivePayload failed state (Phase 1396 Step D)', () => {
+  it('returns verified payload view for failed current archive', async () => {
+    const root = await writeCurrentArchive('failed', makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit, events } = makeAudit();
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: currentLocation('failed', root),
+      contractId,
+    });
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    expect(result.view.layout).toBe('current');
+    expect(result.view.state).toBe('failed');
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PAYLOAD_READ_ISSUE)).toBe(false);
+  });
+
+  it('projects the failure fact from failed intents', async () => {
+    const root = await writeCurrentArchive('failed', makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+    const intentPath = path.join(clawDir, 'contract', 'lifecycle-intents', contractId, 'req-f.json');
+    await fs.mkdir(path.dirname(intentPath), { recursive: true });
+    await fs.writeFile(
+      intentPath,
+      JSON.stringify({
+        schema_version: 1,
+        request_id: 'req-f',
+        contract_id: contractId,
+        requested_state: 'failed',
+        requested_at: new Date().toISOString(),
+        failure: {
+          reason: 'executor died',
+          evidenceRef: 'executor/events.jsonl#seq=42',
+          producer: 'event-loop',
+        },
+      }),
+      'utf-8',
+    );
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: currentLocation('failed', root),
+      contractId,
+      baseDir: clawDir,
+    });
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    const failure = projectFailedFailure(result.view);
+    expect(failure).toEqual({
+      reason: 'executor died',
+      evidenceRef: 'executor/events.jsonl#seq=42',
+      producer: 'event-loop',
+      source: 'intent',
+    });
+  });
+
+  it('returns null failure projection when no failed intent exists', async () => {
+    const root = await writeCurrentArchive('failed', makeContract(), { t1: makeTodoRecord('t1') });
+    const { audit } = makeAudit();
+
+    const result = await readArchivePayload({
+      fs: nodeFs,
+      audit,
+      location: currentLocation('failed', root),
+      contractId,
+      baseDir: clawDir,
+    });
+
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') return;
+    expect(projectFailedFailure(result.view)).toBeNull();
   });
 });

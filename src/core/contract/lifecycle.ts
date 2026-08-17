@@ -11,11 +11,14 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
+import { ToolError } from '../../foundation/tools/index.js';
 import type { ContractCorruptionEvidence } from './types.js';
+import type { ContractFailure } from './types.js';
 
 import {
   emitContractCancelled,
   emitContractCorrupted,
+  emitContractFailed,
   emitContractNotifyFailed,
 } from './audit-emit.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
@@ -28,6 +31,7 @@ import {
   readLifecycleIntentsForContract,
   buildCancelledIntent,
   buildCorruptedIntent,
+  buildFailedIntent,
 } from './lifecycle-intent.js';
 import { newShortUuid } from '../../foundation/node-utils/index.js';
 
@@ -264,6 +268,78 @@ export async function markCorrupted(
   return outcome;
 }
 
+/**
+ * Phase 1396 Step D: ContractSystem-owned execution-failure terminal commit.
+ *
+ * Same immutable intent + rename winner protocol as cancel/corrupted. Only the
+ * committed winner emits `contract_failed` audit + notification; cancelled stays
+ * reserved for explicit business cancellation and is never used for failure.
+ */
+export async function failContract(
+  ctx: LifecycleContext,
+  contractId: ContractId,
+  failure: ContractFailure,
+  requestId?: string,
+): Promise<LifecycleCommitOutcome> {
+  // Caller-driven retry reuses the same requestId. Re-read the persisted intent
+  // so the retry is payload-identical (requested_at included) and the exclusive
+  // persist stays idempotent instead of tripping the collision guard.
+  let intent: LifecycleIntent | undefined;
+  if (requestId !== undefined) {
+    const { intents } = await readLifecycleIntentsForContract(ctx.fs, ctx.audit, ctx.baseDir, contractId);
+    const existing = intents.find(i => i.request_id === requestId);
+    if (existing !== undefined) {
+      if (
+        existing.requested_state !== 'failed' ||
+        existing.failure.reason !== failure.reason ||
+        existing.failure.evidenceRef !== failure.evidenceRef ||
+        existing.failure.producer !== failure.producer
+      ) {
+        throw new ToolError(
+          `Lifecycle intent collision for request "${requestId}" on contract "${contractId}"`,
+        );
+      }
+      intent = existing;
+    }
+  }
+  intent ??= buildFailedIntent(
+    contractId,
+    requestId ?? makeRequestId('fail'),
+    failure,
+  );
+  const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+
+  if (outcome.kind === 'committed') {
+    let abortVerifierFailed: string | undefined;
+    try {
+      ctx.abortContractVerifiers(contractId, failure.reason);
+    } catch (abortErr) {
+      // Abort failure does not undo the terminal commit; record it on the
+      // failed audit so the decision chain stays reconstructible.
+      abortVerifierFailed = formatErr(abortErr);
+    }
+    emitContractFailed(ctx.audit, {
+      contractId,
+      reason: failure.reason,
+      evidenceRef: failure.evidenceRef,
+      producer: failure.producer,
+      abortVerifierFailed,
+    });
+    safeNotify(ctx, {
+      type: 'contract_failed',
+      contractId,
+      reason: failure.reason,
+      evidenceRef: failure.evidenceRef,
+      producer: failure.producer,
+    } satisfies ContractNotification);
+    return outcome;
+  }
+
+  // already_committed / lost_to_state / retryable_failure: no success side
+  // effects; the committed winner (possibly a different terminal state) owns them.
+  return outcome;
+}
+
 export interface ReconcilePendingIntentsResult {
   /** The terminal state that was ultimately committed, if any. */
   committed?: ArchiveState;
@@ -280,8 +356,8 @@ export interface ReconcilePendingIntentsResult {
  * `already_committed` or `lost_to_state` request facts and remain in the store.
  *
  * `completed` intents are only replayed when the active contract currently satisfies
- * the business precondition (all subtasks completed). Cancelled/corrupted intents have
- * no precondition beyond an active directory.
+ * the business precondition (all subtasks completed). Cancelled/corrupted/failed
+ * intents have no precondition beyond an active directory.
  */
 export async function reconcilePendingLifecycleIntents(
   ctx: LifecycleContext,

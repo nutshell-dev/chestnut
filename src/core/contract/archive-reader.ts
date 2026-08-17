@@ -350,6 +350,31 @@ export function projectCorruptedCause(view: ArchivePayloadView): {
 }
 
 /**
+ * Phase 1396 Step D: project the canonical execution-failure fact from an archive
+ * view. `failed` has no legacy layout, so intents are the only source; returns
+ * null when no failed intent is present.
+ */
+export function projectFailedFailure(view: ArchivePayloadView): {
+  reason: string;
+  evidenceRef: string;
+  producer: string;
+  source: 'intent';
+} | null {
+  const failedIntents = view.intents.filter(
+    (i): i is typeof i & { requested_state: 'failed'; failure: { reason: string; evidenceRef: string; producer: string } } =>
+      i.requested_state === 'failed',
+  );
+  if (failedIntents.length === 0) return null;
+  const join = (values: string[]) => (values.length === 1 ? values[0] : `requests: ${values.join('; ')}`);
+  return {
+    reason: join(failedIntents.map(i => i.failure.reason)),
+    evidenceRef: join(failedIntents.map(i => i.failure.evidenceRef)),
+    producer: join(failedIntents.map(i => i.failure.producer)),
+    source: 'intent',
+  };
+}
+
+/**
  * Read a located archive entry and return either a verified payload view or a
  * typed issue. The reader performs no mutation and does not read archive-time
  * provenance.

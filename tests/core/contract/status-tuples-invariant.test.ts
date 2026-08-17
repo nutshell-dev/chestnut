@@ -76,8 +76,8 @@ describe('phase 1132 Step B: status vocabulary boundary invariants', () => {
       expect(ARCHIVE_STATES.size).toBe(ARCHIVE_STATE_DIRS_TUPLE.length);
     });
 
-    it('archive state dirs are completed/cancelled/corrupted', () => {
-      expect(ARCHIVE_STATE_DIRS_TUPLE).toEqual(['completed', 'cancelled', 'corrupted']);
+    it('archive state dirs are completed/cancelled/corrupted/failed (phase 1396 Step D)', () => {
+      expect(ARCHIVE_STATE_DIRS_TUPLE).toEqual(['completed', 'cancelled', 'corrupted', 'failed']);
     });
   });
 

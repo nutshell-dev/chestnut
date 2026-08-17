@@ -18,6 +18,7 @@ import {
   ARCHIVE_STATES,
   type ContractId,
   type ContractCorruptionEvidence,
+  type ContractFailure,
   type LifecycleIntent,
   type LifecycleIntentIssue,
 } from './types.js';
@@ -59,10 +60,23 @@ export const CorruptedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
   evidence: ContractCorruptionEvidenceSchema,
 }).strict();
 
+/** Phase 1396 Step D: typed execution-failure payload for failed intents. */
+export const ContractFailureSchema = z.object({
+  reason: z.string().min(1),
+  evidenceRef: z.string().min(1),
+  producer: z.string().min(1),
+}).strict();
+
+export const FailedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
+  requested_state: z.literal('failed'),
+  failure: ContractFailureSchema,
+}).strict();
+
 export const LifecycleIntentSchema = z.discriminatedUnion('requested_state', [
   CompletedLifecycleIntentSchema,
   CancelledLifecycleIntentSchema,
   CorruptedLifecycleIntentSchema,
+  FailedLifecycleIntentSchema,
 ]);
 
 export interface ReadLifecycleIntentsResult {
@@ -313,5 +327,23 @@ export function buildCorruptedIntent(
     requested_state: 'corrupted',
     requested_at: new Date().toISOString(),
     evidence,
+  };
+}
+
+/**
+ * Phase 1396 Step D: build a failed terminal intent carrying the typed failure fact.
+ */
+export function buildFailedIntent(
+  contractId: ContractId,
+  requestId: string,
+  failure: ContractFailure,
+): LifecycleIntent {
+  return {
+    schema_version: LIFECYCLE_INTENT_SCHEMA_VERSION,
+    request_id: requestId,
+    contract_id: contractId,
+    requested_state: 'failed',
+    requested_at: new Date().toISOString(),
+    failure,
   };
 }

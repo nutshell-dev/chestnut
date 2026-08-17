@@ -16,6 +16,7 @@ import {
   buildCompletedIntent,
   buildCancelledIntent,
   buildCorruptedIntent,
+  buildFailedIntent,
 } from '../../../src/core/contract/lifecycle-intent.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 
@@ -193,5 +194,59 @@ describe('buildCorruptedIntent', () => {
     expect(intents).toHaveLength(1);
     expect(intents[0].requested_state).toBe('corrupted');
     expect((intents[0] as { evidence: { reason: string; relativePath: string } }).evidence.reason).toBe('progress_schema_invalid');
+  });
+});
+
+describe('buildFailedIntent (Phase 1396 Step D)', () => {
+  const failure = { reason: 'executor died', evidenceRef: 'executor/events.jsonl#seq=42', producer: 'event-loop' };
+
+  it('persists and reads back the typed failure payload', async () => {
+    const { audit } = makeAuditCapture();
+    const intent = buildFailedIntent(contractId, 'req-f', failure);
+    expect(intent.requested_state).toBe('failed');
+
+    await persistLifecycleIntent(nodeFs, audit, clawDir, intent);
+
+    const { intents, issues } = await readLifecycleIntentsForContract(nodeFs, audit, clawDir, contractId);
+    expect(issues).toHaveLength(0);
+    expect(intents).toHaveLength(1);
+    expect(intents[0].requested_state).toBe('failed');
+    expect((intents[0] as { failure: typeof failure }).failure).toEqual(failure);
+  });
+
+  it('is idempotent for identical failed payload with the same request id', async () => {
+    const { audit, events } = makeAuditCapture();
+    const intent = buildFailedIntent(contractId, 'req-f', failure);
+
+    await persistLifecycleIntent(nodeFs, audit, clawDir, intent);
+    await persistLifecycleIntent(nodeFs, audit, clawDir, intent);
+
+    const dir = path.join(clawDir, 'contract', 'lifecycle-intents', contractId);
+    const files = (await fs.readdir(dir)).filter(f => f.endsWith('.json'));
+    expect(files).toHaveLength(1);
+    expect(events.filter(e => e.type === CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_PERSISTED)).toHaveLength(2);
+  });
+
+  it('rejects a failed intent without the failure payload as schema_invalid', async () => {
+    const { audit, events } = makeAuditCapture();
+    const intentPath = lifecycleIntentPath(clawDir, contractId, 'req-f-bad');
+    await fs.mkdir(path.dirname(intentPath), { recursive: true });
+    await fs.writeFile(
+      intentPath,
+      JSON.stringify({
+        schema_version: 1,
+        request_id: 'req-f-bad',
+        contract_id: contractId,
+        requested_state: 'failed',
+        requested_at: new Date().toISOString(),
+      }),
+      'utf-8',
+    );
+
+    const { intents, issues } = await readLifecycleIntentsForContract(nodeFs, audit, clawDir, contractId);
+    expect(intents).toHaveLength(0);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].reason).toBe('schema_invalid');
+    expect(events.some(e => e.type === CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_READ_ISSUE)).toBe(true);
   });
 });

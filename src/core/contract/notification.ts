@@ -44,6 +44,18 @@ export interface ContractCancelledNotification {
   readonly reason: string;
 }
 
+/**
+ * Phase 1396 Step D: execution-failure terminal fact. Distinct from
+ * contract_cancelled: cancelled is explicit business cancellation only.
+ */
+export interface ContractFailedNotification {
+  readonly type: 'contract_failed';
+  readonly contractId: ContractId;
+  readonly reason: string;
+  readonly evidenceRef: string;
+  readonly producer: string;
+}
+
 export interface SubtaskCompletedNotification {
   readonly type: 'subtask_completed';
   readonly contractId: ContractId;
@@ -66,6 +78,7 @@ export type ContractNotification =
   | ContractCreatedNotification
   | ContractCompletedNotification
   | ContractCancelledNotification
+  | ContractFailedNotification
   | SubtaskCompletedNotification
   | VerificationFailedNotification;
 

@@ -152,8 +152,11 @@ export const DERIVABLE_STATUSES: ReadonlySet<DerivableStatus> = new Set(DERIVABL
 
 /**
  * phase 1127 Step B: archive state subdirectories (current terminal locations).
+ * Phase 1396 Step D: `failed` is the ContractSystem-owned execution-failure terminal
+ * state; legacy `crashed` remains read-only historical vocabulary (schemas.ts
+ * LEGACY_PROGRESS_STATUSES_TUPLE) and is never mapped to cancelled/failed.
  */
-export const ARCHIVE_STATE_DIRS_TUPLE = ['completed', 'cancelled', 'corrupted'] as const;
+export const ARCHIVE_STATE_DIRS_TUPLE = ['completed', 'cancelled', 'corrupted', 'failed'] as const;
 
 export type ArchiveState = (typeof ARCHIVE_STATE_DIRS_TUPLE)[number];
 
@@ -470,10 +473,26 @@ export interface CorruptedLifecycleIntent extends BaseLifecycleIntent {
   evidence: ContractCorruptionEvidence;
 }
 
+/**
+ * Phase 1396 Step D: typed execution-failure fact. Cross-boundary reporters only
+ * carry reason + evidenceRef + producer; ContractSystem owns the terminal commit.
+ */
+export interface ContractFailure {
+  reason: string;
+  evidenceRef: string;
+  producer: string;
+}
+
+export interface FailedLifecycleIntent extends BaseLifecycleIntent {
+  requested_state: 'failed';
+  failure: ContractFailure;
+}
+
 export type LifecycleIntent =
   | CompletedLifecycleIntent
   | CancelledLifecycleIntent
-  | CorruptedLifecycleIntent;
+  | CorruptedLifecycleIntent
+  | FailedLifecycleIntent;
 
 export interface LifecycleIntentIssue {
   requestId: string;
@@ -507,6 +526,31 @@ export type LifecycleCommitOutcome =
       requestId: string;
       cause: string;
     };
+
+/**
+ * Phase 1396 Step D: executor-scoped failure report. The caller reports the
+ * executor identity plus the failure fact; ContractSystem itself enumerates and
+ * verifies the executor's active contracts — callers never pass contract paths
+ * or perform renames.
+ */
+export interface ContractExecutionFailure {
+  executorId: string;
+  failure: ContractFailure;
+}
+
+/**
+ * Phase 1396 Step D: narrow intake for lower layers (event-loop recovery /
+ * watchdog) to report execution failure. Implemented by ContractSystem; this is
+ * the only path through which execution failure becomes a terminal state.
+ */
+export interface ExecutionFailureSink {
+  report(input: {
+    executorId: string;
+    producer: string;
+    reason: string;
+    evidenceRef: string;
+  }): Promise<ReadonlyArray<LifecycleCommitOutcome>>;
+}
 
 /** Runtime-owned lifecycle view of ContractSystem. */
 export interface ContractRuntimeLifecycle {

@@ -48,6 +48,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   CORRUPTED: 'contract_corrupted',
   CORRUPT_PARTIAL_FAILED: 'contract_corrupt_partial_failed',
   COMPLETED: 'contract_completed',
+  // Phase 1396 Step D: ContractSystem-owned execution-failure terminal lifecycle.
+  FAILED: 'contract_failed',
+  FAIL_EXECUTOR_MISMATCH: 'contract_fail_executor_mismatch',
   // phase 569 const 化（verification.ts 7 处字面量收）
   SUBTASK_COMPLETED: 'subtask_completed',
   SUBTASK_FORCE_ACCEPTED: 'subtask_force_accepted', // ← NEW phase 1399: force-accept 路径审计
@@ -226,6 +229,8 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_corrupted: 'audit',
   contract_corrupt_partial_failed: 'audit',
   contract_completed: 'audit',
+  contract_failed: 'audit',
+  contract_fail_executor_mismatch: 'audit',
   subtask_completed: 'audit',
   subtask_force_accepted: 'audit',
   verification_failed: 'audit',

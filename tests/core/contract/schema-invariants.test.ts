@@ -348,3 +348,45 @@ describe('phase 1267 D.3 + phase 311: acceptance literal 0 hit in src/core/contr
     expect(content).not.toContain('acceptance.ts:75');
   });
 });
+
+/**
+ * Phase 1396 Step D: failed terminal state schema invariants.
+ *
+ * `failed` is a first-class archive state with a typed intent payload; the intent
+ * schema must stay strict so malformed failure facts never silently pass.
+ */
+describe('phase 1396 Step D: failed lifecycle intent schema invariants', () => {
+  it('ARCHIVE_STATE_DIRS_TUPLE contains failed as a current archive state', async () => {
+    const { ARCHIVE_STATE_DIRS_TUPLE, ARCHIVE_STATES } = await import('../../../src/core/contract/types.js');
+    expect(ARCHIVE_STATE_DIRS_TUPLE).toContain('failed');
+    expect(ARCHIVE_STATES.has('failed')).toBe(true);
+  });
+
+  it('FailedLifecycleIntentSchema requires the full failure payload', async () => {
+    const { FailedLifecycleIntentSchema } = await import('../../../src/core/contract/lifecycle-intent.js');
+    const base = {
+      schema_version: 1,
+      request_id: 'req-1',
+      contract_id: 'cid-1',
+      requested_state: 'failed',
+      requested_at: new Date().toISOString(),
+    };
+
+    expect(FailedLifecycleIntentSchema.safeParse({
+      ...base,
+      failure: { reason: 'r', evidenceRef: 'e', producer: 'p' },
+    }).success).toBe(true);
+
+    // missing failure payload
+    expect(FailedLifecycleIntentSchema.safeParse(base).success).toBe(false);
+    // incomplete failure payload (each field required, non-empty)
+    expect(FailedLifecycleIntentSchema.safeParse({ ...base, failure: { reason: 'r', producer: 'p' } }).success).toBe(false);
+    expect(FailedLifecycleIntentSchema.safeParse({ ...base, failure: { reason: '', evidenceRef: 'e', producer: 'p' } }).success).toBe(false);
+    // strict: unknown fields rejected
+    expect(FailedLifecycleIntentSchema.safeParse({
+      ...base,
+      failure: { reason: 'r', evidenceRef: 'e', producer: 'p' },
+      extra: 'nope',
+    }).success).toBe(false);
+  });
+});

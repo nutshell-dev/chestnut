@@ -79,6 +79,25 @@ function formatCorruptedCause(
   return { cause: legacy, notes: '(from legacy checkpoint)' };
 }
 
+// Phase 1396 Step D: failed intent projection (no legacy fallback — failed is a new state).
+function formatFailedReason(
+  intents: LifecycleIntent[],
+): { reason: string; evidenceRef?: string } {
+  const failedIntents = intents.filter(
+    (i): i is LifecycleIntent & { requested_state: 'failed'; failure: { reason: string; evidenceRef: string; producer: string } } =>
+      i.requested_state === 'failed',
+  );
+  if (failedIntents.length > 0) {
+    const reasons = failedIntents.map(i => i.failure.reason);
+    const evidenceRefs = failedIntents.map(i => i.failure.evidenceRef);
+    return {
+      reason: reasons.length === 1 ? reasons[0] : `requests: ${reasons.join('; ')}`,
+      evidenceRef: evidenceRefs.length === 1 ? evidenceRefs[0] : `requests: ${evidenceRefs.join('; ')}`,
+    };
+  }
+  return { reason: '(no reason given)' };
+}
+
 // Step F: current archive state comes from the directory path (SoT).
 async function formatCurrentArchiveEvent(
   fs: FileSystem,
@@ -116,6 +135,26 @@ async function formatCurrentArchiveEvent(
         status: 'corrupted',
         reason: 'archive_corrupted',
         cause: `Contract ${contractDirName} is in corrupted archive state: ${cause}`,
+      };
+    }
+    case 'failed': {
+      // Phase 1396 Step D: execution-failure terminal fact; reason/evidenceRef only,
+      // no restart/cancel prescription (motion decision belongs to later phases).
+      const { intents } = await readLifecycleIntentsForContract(
+        fs,
+        { write: () => {} } as unknown as AuditLog,
+        clawDir,
+        contractDirName as import('../types.js').ContractId,
+      );
+      const { reason, evidenceRef } = formatFailedReason(intents);
+      const lines: string[] = [`[contract_failed] claw=${clawId} contract=${contractDirName}`];
+      lines.push(`  reason: ${reason}`);
+      if (evidenceRef) lines.push(`  evidence_ref: ${evidenceRef}`);
+      return {
+        body: lines.join('\n'),
+        hasFailure: true,
+        status: 'failed',
+        reason,
       };
     }
     default: {
