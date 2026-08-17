@@ -179,9 +179,7 @@ describe('resource-owner-presence', () => {
       { name: 'core/claw-topology/motion-claw-id (phase 520: MOTION_CLAW_ID owner)', rel: 'core/claw-topology/motion-claw-id.ts' },
       { name: 'core/claw-topology/agent-dir-resolver (phase 535: motion-vs-claw dir resolver)', rel: 'core/claw-topology/agent-dir-resolver.ts' },
       { name: 'cli/utils/claw-status-hints (phase 540/708)', rel: 'cli/utils/claw-status-hints.ts' },
-      { name: 'watchdog/claw-failure-classes (phase 552/708)', rel: 'watchdog/claw-failure-classes.ts' },
-      { name: 'watchdog/claw-crashed-guidance (phase 1257: claw_crashed guidance codec owner)', rel: 'watchdog/claw-crashed-guidance.ts' },
-      { name: 'watchdog/claw-inactivity-guidance (phase 1258: claw_inactivity guidance codec owner)', rel: 'watchdog/claw-inactivity-guidance.ts' },
+      // Phase 1396 Step F: claw-crashed / claw-inactivity guidance + failure-classes 已退役
       { name: 'core/claw-topology/jobs/outbox-summary/guidance-state (phase 1259: claw_outbox_summary guidance codec owner)', rel: 'core/claw-topology/jobs/outbox-summary/guidance-state.ts' },
       { name: 'cli-protocol (phase 1253: claw command catalog + invocation owner)', rel: 'cli-protocol/index.ts' },
       { name: 'daemon/entry-resolver (phase 1284: daemon-entry.js path owner)', rel: 'daemon/entry-resolver.ts' },

@@ -49,10 +49,7 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
       'assembly/business-systems.ts',
       'assembly/config/config-load.ts',
       'assembly/file-routing-aggregator.ts',
-      // phase 1263 Step C / phase 1264 Step A: claw_crashed / claw_inactivity composer 原子迁为 typed binding
-      // （仍 protocol-only import owner codec）
-      'assembly/guidance/bindings/claw-crashed.ts',
-      'assembly/guidance/bindings/claw-inactivity.ts',
+      // Phase 1396 Step F: claw-crashed / claw-inactivity typed bindings 已退役
       'cli/commands/claw-watch.ts',
       'cli/commands/init.ts',
       'cli/commands/status.ts',

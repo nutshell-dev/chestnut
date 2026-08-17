@@ -139,28 +139,19 @@ describe('phase 1258 Step A: claw_inactivity v1 wire — two trigger paths, one 
     await maybeCronClawInactivity(mockPm, mockAudit as any, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
-    // 精确 v1 shape（多/少一个 key 即失败）：version + 6 owned required fields、
-    // 无 source_path（普通 timeout）、无 last_error（无错误）
+    // Phase 1396 Step F: guidance codec 退役；消息只保留 type/source/body，无 extraFields。
     expect(inboxWriteMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       'motion',
       'motion',
-      {
+      expect.objectContaining({
         type: 'claw_inactivity',
         source: 'watchdog',
         priority: 'normal',
         body: expect.any(String),
         idPrefix: expect.stringMatching(/_claw_inactivity$/),
-        extraFields: {
-          guidance_schema_version: '1',
-          claw_id: clawId,
-          failure_class: 'daemon_silent',
-          inactive_ms: expect.any(String),
-          contract: 'active:c1',
-          as_of: expect.any(String),
-        },
-      },
+      }),
       expect.anything(),
     );
     logSpy.mockRestore();
@@ -183,36 +174,25 @@ describe('phase 1258 Step A: claw_inactivity v1 wire — two trigger paths, one 
     await maybeCronCheckSubscriptions(mockPm, mockAudit as any, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
-    // 与 timeout 同 v1 schema，差异仅 subscription 触发事实（source_path + last_error）
+    // Phase 1396 Step F: guidance codec 退役；subscription 消息与普通 timeout 同形，无 extraFields。
     expect(inboxWriteMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       'motion',
       'motion',
-      {
+      expect.objectContaining({
         type: 'claw_inactivity',
         source: 'watchdog',
         priority: 'normal',
         body: expect.any(String),
         idPrefix: expect.stringMatching(/_claw_inactivity$/),
-        extraFields: {
-          guidance_schema_version: '1',
-          claw_id: clawId,
-          failure_class: 'daemon_errored',
-          inactive_ms: expect.any(String),
-          contract: 'active:c1',
-          as_of: expect.any(String),
-          source_path: 'subscription',
-          last_error: 'LLM timeout',
-        },
-      },
+      }),
       expect.anything(),
     );
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_FIRED,
       `claw=${clawId}`,
       'threshold_ms=300000',
-      'failure_class=daemon_errored',
     );
     expect(consumeSubscription).toHaveBeenCalledWith(expect.anything(), clawId);
     logSpy.mockRestore();
@@ -241,13 +221,9 @@ describe('phase 1258 Step A: claw_inactivity v1 wire — two trigger paths, one 
     await maybeCronCheckSubscriptions(mockPm, mockAudit as any, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(2);
-    const timeoutKeys = Object.keys((inboxWriteMock.mock.calls[0][4] as any).extraFields).sort();
-    const subKeys = Object.keys((inboxWriteMock.mock.calls[1][4] as any).extraFields).sort();
-    // 两 dialect 共有 required key 集合，subscription 只多 source_path
-    expect(timeoutKeys).toEqual([
-      'as_of', 'claw_id', 'contract', 'failure_class', 'guidance_schema_version', 'inactive_ms',
-    ]);
-    expect(subKeys).toEqual([...timeoutKeys, 'source_path']);
+    // Phase 1396 Step F: 两条路径都不再有 extraFields。
+    expect((inboxWriteMock.mock.calls[0][4] as any).extraFields).toBeUndefined();
+    expect((inboxWriteMock.mock.calls[1][4] as any).extraFields).toBeUndefined();
     logSpy.mockRestore();
   });
 });

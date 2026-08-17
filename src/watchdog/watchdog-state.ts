@@ -5,7 +5,10 @@
 
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
-import { getChestnutFs, getAuditWriter, clawStateAPI, motionRestartStateAPI, type MotionRestartState } from './watchdog-context.js';
+import {
+  getChestnutFs, getAuditWriter, clawStateAPI, motionRestartStateAPI, executorRestartStateAPI,
+  type MotionRestartState, type ExecutorRestartMap, type ExecutorRestartState,
+} from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 import { isFileNotFound } from '../foundation/fs/index.js';
@@ -23,6 +26,8 @@ interface WatchdogState {
   clawPreviouslyNotified?: Record<string, number>;
   // NEW v2 additive — phase 1164: motion restart durable state
   motionRestart?: MotionRestartState;
+  // NEW v2 additive — phase 1396 Step F: per-claw executor restart durable state
+  executorRestart?: ExecutorRestartMap;
 }
 
 function normalizeMotionRestartState(value: unknown): MotionRestartState {
@@ -64,6 +69,56 @@ function normalizeMotionRestartState(value: unknown): MotionRestartState {
   throw new Error('watchdog-state.json invalid motionRestart');
 }
 
+function normalizeExecutorRestartMap(value: unknown): ExecutorRestartMap {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const raw = value as Record<string, unknown>;
+  const out: ExecutorRestartMap = {};
+  for (const [key, rawState] of Object.entries(raw)) {
+    if (typeof rawState !== 'object' || rawState === null) continue;
+    const s = rawState as Record<string, unknown>;
+    if (s.status === 'closed' && s.consecutiveAttempts === 0) {
+      out[key] = { status: 'closed', consecutiveAttempts: 0 };
+      continue;
+    }
+    if (
+      s.status === 'retrying'
+      && Number.isInteger(s.consecutiveAttempts)
+      && (s.consecutiveAttempts as number) > 0
+      && typeof s.nextAttemptAt === 'number'
+      && Number.isFinite(s.nextAttemptAt)
+      && typeof s.awaitingStability === 'boolean'
+    ) {
+      out[key] = {
+        status: 'retrying',
+        consecutiveAttempts: s.consecutiveAttempts as number,
+        nextAttemptAt: s.nextAttemptAt,
+        awaitingStability: s.awaitingStability,
+      };
+      continue;
+    }
+    if (
+      s.status === 'open'
+      && Number.isInteger(s.consecutiveAttempts)
+      && (s.consecutiveAttempts as number) > 0
+      && typeof s.openedAt === 'number'
+      && Number.isFinite(s.openedAt)
+    ) {
+      const open: ExecutorRestartState = {
+        status: 'open',
+        consecutiveAttempts: s.consecutiveAttempts as number,
+        openedAt: s.openedAt,
+      };
+      if (s.sinkDelivered === true) open.sinkDelivered = true;
+      out[key] = open;
+      continue;
+    }
+    // Invalid per-claw state: skip silently rather than failing the whole map.
+  }
+  return out;
+}
+
 class WatchdogSchemaError extends Error {
   constructor(public actualVersion: unknown, public currentVersion: number) {
     super(`watchdog-state.json unknown schema_version ${String(actualVersion)} (current=${currentVersion})`);
@@ -86,6 +141,7 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
     clawStateAPI.replaceAll(state);
     const motionRestart = normalizeMotionRestartState(state.motionRestart);
     motionRestartStateAPI.replace(motionRestart);
+    executorRestartStateAPI.replace(normalizeExecutorRestartMap(state.executorRestart));
   } catch (err) {
     if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
@@ -101,6 +157,7 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
       clawPreviouslyNotified: {},
     });
     motionRestartStateAPI.reset();
+    executorRestartStateAPI.reset();
 
     const fs = getChestnutFs(fsFactory);
     const backupPath = `watchdog-state.json.corrupt-${Date.now()}`;
@@ -132,6 +189,7 @@ export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
     schema_version: 2,
     ...clawStateAPI.snapshot(),
     motionRestart: motionRestartStateAPI.snapshot(),
+    executorRestart: executorRestartStateAPI.snapshot(),
   };
   const fs = getChestnutFs(fsFactory);
   fs.writeAtomicSync('watchdog-state.json', JSON.stringify(state, null, 2));

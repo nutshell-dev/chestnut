@@ -11,7 +11,6 @@ import { getNamedSubrootDir } from '../core/claw-topology/index.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { WATCHDOG_LOG } from './constants.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
-import { encodeClawInactivityGuidance, type EncodeClawInactivityGuidanceInput } from './claw-inactivity-guidance.js';
 
 /** 1:1 保 watchdog.ts:152-164 */
 export function log(fsFactory: (baseDir: string) => FileSystem, message: string): void {
@@ -43,21 +42,12 @@ export function logWithAudit(
 }
 
 // Write the `claw_inactivity` inbox message (YAML frontmatter .md format).
-// phase 1426: 改 type-specific 函数 / 删 helper 内部 `watchdog_${type}` 模板字符串前缀拼接
-// (业主 type 命名由 caller decide / M#2 / phase 1419 formatter 注册 `claw_inactivity` 匹配)
-// phase 1258 Step A: generic content record + Object.entries 自动提取退役 —
-// writer 收窄为明确的 body + typed guidance facts，extraFields 只经 owner codec
-// (claw-inactivity-guidance.ts) 产出（v1 wire / M#7/M#8：未声明字段不再静默落盘）。
-export interface WriteClawInactivityInboxParams {
-  /** 已格式化的人类可读 body（caller own 字面）。 */
-  readonly body: string;
-  /** owner codec typed input（camelCase facts / 不声明 wire key）。 */
-  readonly guidance: EncodeClawInactivityGuidanceInput;
-}
-
+// phase 1426: type-specific 函数 / 删 helper 内部 `watchdog_${type}` 模板字符串前缀拼接
+// Phase 1396 Step F: guidance codec 退役；新消息只保留 body，不再写 extraFields。
+// 旧 inbox 中的历史 `claw_inactivity` 消息由 Runtime 通用 fallback 读取，不阻塞 drain。
 export function writeClawInactivityInbox(
   fsFactory: (baseDir: string) => FileSystem,
-  params: WriteClawInactivityInboxParams,
+  body: string,
 ): void {
   const motionDir = getNamedSubrootDir('motion');
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
@@ -68,9 +58,8 @@ export function writeClawInactivityInbox(
     type: 'claw_inactivity',
     source: 'watchdog',
     priority: 'normal',
-    body: params.body,
+    body,
     idPrefix: `${Date.now()}_claw_inactivity`,
-    extraFields: encodeClawInactivityGuidance(params.guidance),
   }, audit);
 }
 

@@ -45,7 +45,7 @@ import { resolveDaemonEntry } from '../daemon/index.js';
 
 import {
   getChestnutDir, getChestnutFs, getWatchdogConfig, setAuditWriter, getAuditWriter,
-  motionRestartStateAPI,
+  motionRestartStateAPI, executorRestartStateAPI,
   type MotionRestartState,
 } from './watchdog-context.js';
 import {
@@ -68,9 +68,8 @@ import {
   reduceMotionRestartOutcome,
   type MotionSpawnOutcome,
 } from './motion-restart-state.js';
-import {
-  maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
-} from './watchdog-cron.js';
+import { maybeCronCheckSubscriptions } from './watchdog-cron.js';
+import { maybeCronExecutorRecovery } from './executor-recovery.js';
 
 /**
  * Watchdog motion restart exponential backoff cap（ms）= 5 minutes.
@@ -607,8 +606,12 @@ export async function runWatchdogLoop(
     saveWatchdogState(fsFactory);
 
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
-    await maybeCronClawInactivity(pm, auditWriter, fsFactory);
-    maybeCronClawCrash(pm, auditWriter, fsFactory);
+    // Phase 1396 Step F: own claw daemon availability recovery
+    const nextExecutorMap = await maybeCronExecutorRecovery(
+      executorRestartStateAPI.snapshot(),
+      { pm, audit: auditWriter, fsFactory, daemonLogName },
+    );
+    executorRestartStateAPI.replace(nextExecutorMap);
     // phase 5: process motion-requested subscriptions (file-based dir scan)
     await maybeCronCheckSubscriptions(pm, auditWriter, fsFactory);
     saveWatchdogState(fsFactory);   // 持久化通知状态（每 tick 一次）

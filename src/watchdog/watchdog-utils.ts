@@ -25,6 +25,10 @@ import { hasActiveContract, listActiveContracts } from '../core/contract/index.j
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
+// Phase 1396 Step F: FailureClass / CrashClass 本地化（claw-failure-classes.ts 退役）
+export type FailureClass = 'daemon_silent' | 'daemon_errored';
+export type CrashClass = 'active_unexpected' | 'active_user_stopped';
+
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
 export interface ClawActivityInfo {
   lastEventMs: number | null;  // most recent ts from any LLM output event
@@ -100,8 +104,7 @@ export function clawHasActiveContract(clawDir: string, fsFactory: (baseDir: stri
  * Assembly motion guidance composer type-only import 此 enum、按 class switch
  * 1 primary action（DP「相关」derive / 1 primary action per sub-state）.
  */
-export type { FailureClass } from './claw-failure-classes.js';
-import type { FailureClass } from './claw-failure-classes.js';
+
 
 export interface DeriveFailureClassInput {
   /** Must be true — inactivity 仅在 daemon alive 时调（caller guard 见 maybeCronClawInactivity） */
@@ -116,28 +119,20 @@ export function deriveFailureClass(input: DeriveFailureClassInput): FailureClass
   return 'daemon_silent';
 }
 
-/** Body 字面 (phase 4 重写 / phase 4 续 1-shot): per-class 自含语义、不杂揉 inbox/outbox/status 等无关字段、lastError 单独一行 / 移 "(notification #N)" 1-shot 后无意义. */
+/** Body 字面 (phase 4 重写 / phase 4 续 1-shot): 自含语义、不杂揉 inbox/outbox/status 等无关字段、lastError 单独一行 / 移 "(notification #N)" 1-shot 后无意义.
+ * Phase 1396 Step F: FailureClass taxonomy 退役；按 lastError 有无生成两种 body。
+ */
 export function formatInactivityBody(opts: {
   clawId: string;
   inactiveMin: number;
-  failureClass: FailureClass;
   contract: string;
   lastError?: string | null;
 }): string {
-  switch (opts.failureClass) {
-    case 'daemon_silent':
-      return `Claw "${opts.clawId}" daemon is running but has produced no events for ${opts.inactiveMin}m while in contract ${opts.contract}.`;
-    case 'daemon_errored': {
-      const head = `Claw "${opts.clawId}" daemon is running but encountered an error ${opts.inactiveMin}m ago while in contract ${opts.contract}.`;
-      return opts.lastError
-        ? `${head}\n\nLast error: ${opts.lastError}`
-        : head;
-    }
-    default: {
-      const _exhaustive: never = opts.failureClass;
-      return _exhaustive;
-    }
+  if (opts.lastError) {
+    const head = `Claw "${opts.clawId}" daemon is running but encountered an error ${opts.inactiveMin}m ago while in contract ${opts.contract}.`;
+    return `${head}\n\nLast error: ${opts.lastError}`;
   }
+  return `Claw "${opts.clawId}" daemon is running but has produced no events for ${opts.inactiveMin}m while in contract ${opts.contract}.`;
 }
 
 // ---- phase 2 γ4: claw_crashed CrashClass taxonomy ----
@@ -152,8 +147,7 @@ export function formatInactivityBody(opts: {
  * Legacy paused contracts are not considered crashes (caller must guard with clawHasActiveContract).
  * Assembly motion guidance composer type-only import 此 enum、按 class switch.
  */
-export type { CrashClass } from './claw-failure-classes.js';
-import type { CrashClass } from './claw-failure-classes.js';
+
 
 export interface DeriveCrashClassInput {
   hasCleanStopMarker: boolean;

@@ -111,6 +111,30 @@ export const motionRestartStateAPI = {
   },
 } as const;
 
+// Phase 1396 Step F: per-claw executor restart durable state (mirrors motionRestartStateAPI)
+export type ExecutorRestartState =
+  | { status: 'closed'; consecutiveAttempts: 0 }
+  | { status: 'retrying'; consecutiveAttempts: number; nextAttemptAt: number; awaitingStability: boolean }
+  | { status: 'open'; consecutiveAttempts: number; openedAt: number; sinkDelivered?: boolean };
+
+export type ExecutorRestartMap = Record<string, ExecutorRestartState>;
+
+const EMPTY_EXECUTOR_RESTART_MAP: ExecutorRestartMap = {};
+
+let _executorRestartMap: ExecutorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
+
+export const executorRestartStateAPI = {
+  snapshot(): ExecutorRestartMap {
+    return { ..._executorRestartMap };
+  },
+  replace(state: ExecutorRestartMap): void {
+    _executorRestartMap = { ...state };
+  },
+  reset(): void {
+    _executorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
+  },
+} as const;
+
 export const clawStateAPI = {
   lastInactivityNotified: mapStore(_lastInactivityNotified),
   clawPreviouslyAlive: mapStore(_clawPreviouslyAlive),
@@ -260,4 +284,5 @@ export function _resetWatchdogContextForTest(): void {
   _clawPreviouslyNotified.clear();
   // motion restart durable state
   _motionRestartState = { ...CLOSED_MOTION_RESTART_STATE };
+  _executorRestartMap = { ...EMPTY_EXECUTOR_RESTART_MAP };
 }

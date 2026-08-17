@@ -15,9 +15,11 @@ import {
   clawStateAPI,
 } from './watchdog-context.js';
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
-import { encodeClawCrashedGuidance } from './claw-crashed-guidance.js';
-import type { FailureClass } from './claw-failure-classes.js';
-import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
+
+import {
+  clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount,
+  formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker,
+} from './watchdog-utils.js';
 import { listSubscriptions, consumeSubscription } from './subscription-store.js';
 import { getActiveContractTimestamp } from '../core/contract/index.js';
 
@@ -51,51 +53,27 @@ function pruneStaleMapEntries(
 }
 
 interface FireInactivityOpts {
-  rawClawId: string;
   clawId: string;
   clawDir: string;
   fsFactory: (baseDir: string) => FileSystem;
   pm: ProcessManager;
   inactiveMin: number;
-  inactiveMs: number;
   lastError: string | null;
-  /** 仅 subscription 触发路径传入 typed literal；普通 timeout 缺失。 */
-  sourcePath?: 'subscription';
   audit?: AuditLog;
 }
 
-function fireInactivityNotification(opts: FireInactivityOpts): { failureClass: FailureClass } {
-  const { rawClawId, clawId, clawDir, fsFactory, pm, inactiveMin, inactiveMs, lastError, sourcePath, audit } = opts;
+function fireInactivityNotification(opts: FireInactivityOpts): void {
+  const { clawId, clawDir, fsFactory, pm, inactiveMin, lastError, audit } = opts;
   const snapshot = gatherClawSnapshot(clawDir, fsFactory, pm, clawId, audit);
-  const failureClass = deriveFailureClass({
-    daemonAlive: snapshot.status === 'running',
-    lastError,
-  });
   const body = formatInactivityBody({
     clawId,
     inactiveMin,
-    failureClass,
-    contract: snapshot.contract,
     lastError,
+    contract: snapshot.contract,
   });
 
-  // phase 1258 Step A: 不再声明 wire key — 传 typed facts 给 writer，
-  // extraFields 只经 owner codec (claw-inactivity-guidance.ts) 产出（v1 wire）。
-  // asOf 此处单次生成、writer 内不再取时间（body/audit/wire 观察点不漂移）。
-  writeClawInactivityInbox(fsFactory, {
-    body,
-    guidance: {
-      clawId: rawClawId,
-      failureClass,
-      inactiveMs,
-      contract: snapshot.contract,
-      asOf: new Date().toISOString(),
-      ...(sourcePath ? { sourcePath } : {}),
-      ...(lastError ? { lastError } : {}),
-    },
-  });
-
-  return { failureClass };
+  // Phase 1396 Step F: guidance codec 退役；新消息只保留 body，不再写 extraFields。
+  writeClawInactivityInbox(fsFactory, body);
 }
 
 // Check for claws with an active contract but no progress for a long time, and send a reminder
@@ -168,18 +146,16 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       }
 
       const inactiveMin = Math.round((now - referenceMs) / 60000);
-      const { failureClass } = fireInactivityNotification({
-        rawClawId,
+      fireInactivityNotification({
         clawId,
         clawDir,
         fsFactory,
         pm,
         inactiveMin,
-        inactiveMs: now - referenceMs,
         lastError,
         audit,
       });
-      log(fsFactory, `[watchdog] Claw ${rawClawId} ${failureClass} ${inactiveMin}m${lastError ? ` (last error: ${lastError})` : ''}`);
+      log(fsFactory, `[watchdog] Claw ${rawClawId} inactive ${inactiveMin}m${lastError ? ` (last error: ${lastError})` : ''}`);
       clawStateAPI.lastInactivityNotified.set(rawClawId, now);
     } catch (err) {
       audit.write(
@@ -287,21 +263,12 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
       const chestnutRoot = makeChestnutRoot(path.dirname(getNamedSubrootDir('motion')));
-      // phase 1257 Step A: owned wire 只在 owner codec 中定义（producer 不再 inline 手写 metadata key）
-      const guidance = encodeClawCrashedGuidance({
-        clawId: rawClawId,
-        crashClass,
-        cleanStopMarker: cleanStop,
-        contract: snapshot.contract,
-        outboxPending: snapshot.outboxPending,
-        asOf: new Date().toISOString(),
-      });
+      // Phase 1396 Step F: guidance codec 退役；新消息 source 直接放 clawId、不再写 extraFields。
       routeNotifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'claw_crashed',
-        source: guidance.source,
+        source: rawClawId,
         priority: 'normal',
         body,
-        extraFields: guidance.extraFields,
       }, motionAudit);
 
       clawStateAPI.clawPreviouslyNotified.set(rawClawId, Date.now());
@@ -372,24 +339,20 @@ export async function maybeCronCheckSubscriptions(pm: ProcessManager, audit: Aud
       // (d) still stuck after threshold → fire + consume
       const inactiveMs = lastEventMs !== null ? (now - lastEventMs) : (now - sub.subscribed_at);
       const inactiveMin = Math.round(inactiveMs / 60000);
-      const { failureClass } = fireInactivityNotification({
-        rawClawId,
+      fireInactivityNotification({
         clawId,
         clawDir,
         fsFactory,
         pm,
         inactiveMin,
-        inactiveMs,
         lastError,
-        sourcePath: 'subscription',
         audit,
       });
-      log(fsFactory, `[watchdog] Claw ${rawClawId} subscription fired ${failureClass} ${inactiveMin}m${lastError ? ` (last error: ${lastError})` : ''}`);
+      log(fsFactory, `[watchdog] Claw ${rawClawId} subscription fired ${inactiveMin}m${lastError ? ` (last error: ${lastError})` : ''}`);
       audit.write(
         WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_FIRED,
         `claw=${rawClawId}`,
         `threshold_ms=${sub.threshold_ms}`,
-        `failure_class=${failureClass}`,
       );
       // 同 1-shot path: 更新 lastInactivityNotified 防止 maybeCronClawInactivity 立即重发
       clawStateAPI.lastInactivityNotified.set(rawClawId, now);

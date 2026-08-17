@@ -293,27 +293,18 @@ describe('watchdog-cron-dedup', () => {
       maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
       expect(inboxWriteMock).toHaveBeenCalledTimes(1);
-      // phase 1257 Step A: sender 只经 owner codec 产出 wire — 精确 v1 shape
-      // （version + 5 owned fields / 无 claw_id / source=rawClawId 唯一 identity 源）
+      // Phase 1396 Step F: guidance codec 退役；消息只保留 type/source/body，无 extraFields。
       expect(inboxWriteMock).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
         'motion',
         'motion',
-        {
+        expect.objectContaining({
           type: 'claw_crashed',
           source: clawId,
           priority: 'normal',
           body: expect.any(String),
-          extraFields: {
-            guidance_schema_version: '1',
-            crash_class: 'active_unexpected',
-            clean_stop_marker: 'false',
-            contract: 'active:c1',
-            outbox_pending: '0',
-            as_of: expect.any(String),
-          },
-        },
+        }),
         expect.anything(),
       );
       expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
@@ -382,7 +373,12 @@ describe('watchdog-cron-dedup', () => {
         expect.anything(),
         'motion',
         'motion',
-        expect.objectContaining({ type: 'claw_crashed', source: clawId }),
+        expect.objectContaining({
+          type: 'claw_crashed',
+          source: clawId,
+          priority: 'normal',
+          body: expect.any(String),
+        }),
         expect.anything(),
       );
     });

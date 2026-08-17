@@ -19,8 +19,6 @@
 import type { MotionGuidanceRegistry } from '../types.js';
 
 import { registerCliGuidance } from '../../../cli-protocol/index.js';
-import { clawCrashedGuidanceBinding } from '../bindings/claw-crashed.js';
-import { clawInactivityGuidanceBinding } from '../bindings/claw-inactivity.js';
 import { clawOutboxSummaryGuidanceBinding } from '../bindings/claw-outbox-summary.js';
 import { contractEventsGuidanceBinding } from '../bindings/contract-events.js';
 import { contractCancelledGuidanceBinding } from '../bindings/contract-cancelled.js';
@@ -40,15 +38,12 @@ import { composer as contractResume } from './contract-resume.js';
 import { composer as contractAuditFeedback } from './contract-audit-feedback.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
-  // phase 1263 Step C: claw_crashed 经 CLIProtocol typed binding 注册（首个迁移的 CLI binding）；
-  // phase 1264 Step A: claw_inactivity 加入同一次 registerCliGuidance 聚合调用（第二个迁移的 CLI binding）；
-  // phase 1265 Step A: claw_outbox_summary 加入同一聚合（第三个迁移的 CLI binding）；
-  // phase 1266 Step A: contract_events 加入同一聚合（第四个迁移的 CLI binding）；
-  // phase 1267 Step A: contract_cancelled 加入同一聚合（第五个、最后一个迁移的 CLI binding，bindings 5/5）。
-  // 数组只是 Assembly contribution 聚合、各 binding 本身独立；duplicate preflight 覆盖全部 CLI binding。
+  // phase 1265 Step A: claw_outbox_summary 经 CLIProtocol typed binding 注册；
+  // phase 1266 Step A: contract_events 加入同一聚合；
+  // phase 1267 Step A: contract_cancelled 加入同一聚合。
+  // Phase 1396 Step F: claw_crashed / claw_inactivity typed bindings 已退役；旧 inbox
+  // 历史消息由 Runtime 通用 fallback 读取，不阻塞 drain。
   registerCliGuidance(registry, [
-    clawCrashedGuidanceBinding,
-    clawInactivityGuidanceBinding,
     clawOutboxSummaryGuidanceBinding,
     contractEventsGuidanceBinding,
     contractCancelledGuidanceBinding,

@@ -40,24 +40,23 @@ describe('phase 1482: formatInactivityBody', () => {
     contract: 'active:c1',
   };
 
-  it('phase 4 daemon_silent → clean self-contained sentence (no status/inbox/outbox 杂揉)', () => {
-    const body = formatInactivityBody({ ...base, failureClass: 'daemon_silent' });
+  it('phase 4 no lastError → clean self-contained sentence (no status/inbox/outbox 杂揉)', () => {
+    const body = formatInactivityBody({ ...base });
     expect(body).toBe(`Claw "clawA" daemon is running but has produced no events for 30m while in contract active:c1.`);
     expect(body).not.toMatch(/Status:|inbox_pending|outbox_pending/);
   });
 
-  it('phase 4 daemon_errored → main sentence + Last error 单独段', () => {
+  it('phase 4 with lastError → main sentence + Last error 单独段', () => {
     const body = formatInactivityBody({
       ...base,
-      failureClass: 'daemon_errored',
       lastError: 'LLM 503',
     });
     expect(body).toContain('Claw "clawA" daemon is running but encountered an error 30m ago while in contract active:c1.');
     expect(body).toContain('\n\nLast error: LLM 503');
   });
 
-  it('phase 4 daemon_errored without lastError → no "Last error:" section', () => {
-    const body = formatInactivityBody({ ...base, failureClass: 'daemon_errored' });
+  it('phase 4 without lastError → no "Last error:" section', () => {
+    const body = formatInactivityBody({ ...base });
     expect(body).not.toContain('Last error');
   });
 });
