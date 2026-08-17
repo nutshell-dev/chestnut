@@ -23,6 +23,7 @@ import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js'
 import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { InboxHandle, InboxMessage } from '../../../src/foundation/messaging/types.js';
+import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 
 vi.mock('../../../src/core/event-loop/constants.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
@@ -1694,5 +1695,178 @@ describe('EventLoop.run', () => {
 
     expect(processTurn).toHaveBeenCalledTimes(1);
     expect(audit.entries.some(e => e.some(c => String(c) === 'action=gated'))).toBe(false);
+  });
+});
+
+/**
+ * Phase 1396 Step E: EventLoop 执行停滞恢复集成 —— run() tick 起点 observe。
+ * 只经自身 inbox resume / Step D failure sink，EventLoop 不直接改 contract。
+ */
+describe('EventLoop execution recovery (phase 1396 Step E)', () => {
+  let baseDir: string;
+  let agentDir: string;
+  let inboxPendingDir: string;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
+  const CONTRACT_ID = '1700000000000-stall';
+  const RECOVERY_TIMEOUT_MS = 1000;
+
+  beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    baseDir = path.join(os.tmpdir(), `event-loop-recovery-test-${randomUUID()}`);
+    // agentDir 形如 <base>/claws/<clawId>，rootFs 解析到 <base>（record 落盘处）。
+    agentDir = path.join(baseDir, 'claws', 'test-claw');
+    require('fs').mkdirSync(agentDir, { recursive: true });
+    inboxPendingDir = path.join(agentDir, 'inbox', 'pending');
+    require('fs').mkdirSync(inboxPendingDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    require('fs').rmSync(baseDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  function makeIdleRuntime(): Runtime {
+    return {
+      drainInbox: vi.fn().mockResolvedValue({
+        injected: [] as Message[],
+        sources: [],
+        count: 0,
+        infos: [] as InboxMessage[],
+        addressedHandles: [] as InboxHandle[],
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn: vi.fn(),
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles: vi.fn().mockResolvedValue(undefined),
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+  }
+
+  function makeRecoveryEventLoop(
+    runtime: Runtime,
+    audit: AuditLog,
+    recovery: {
+      failureSink: { report: ReturnType<typeof vi.fn> };
+      probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null }>;
+      isAsyncTaskInFlight?: () => Promise<boolean>;
+    },
+  ): EventLoop {
+    return new EventLoop({
+      runtime,
+      fsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      executionRecovery: { ...recovery, timeoutMs: RECOVERY_TIMEOUT_MS },
+    });
+  }
+
+  function recordFilePath(contractId: string): string {
+    return path.join(baseDir, 'event-loop', 'execution-recovery', `${contractId}.json`);
+  }
+
+  function readInboxMessages(): InboxMessage[] {
+    const files = require('fs').readdirSync(inboxPendingDir) as string[];
+    return files.map((f: string) =>
+      decodeInbox(require('fs').readFileSync(path.join(inboxPendingDir, f), 'utf8')),
+    );
+  }
+
+  it('停滞 active contract：run() 向自身 inbox 写高优 resume event（不调 Runtime reentrant API）', async () => {
+    const audit = createMockAudit();
+    const sinkReport = vi.fn().mockResolvedValue([]);
+    const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
+      failureSink: { report: sinkReport },
+      probeActivity: async () => ({
+        activeContractId: CONTRACT_ID,
+        lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+      }),
+    });
+
+    await loop.run();
+
+    const messages = readInboxMessages();
+    expect(messages).toHaveLength(1);
+    expect(messages[0].type).toBe('execution_recovery');
+    expect(messages[0].priority).toBe('high');
+    expect(messages[0].content).toContain(CONTRACT_ID);
+    expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
+    // record 已落盘 attempt=1；sink 未触发
+    expect(JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).attempts).toBe(1);
+    expect(sinkReport).not.toHaveBeenCalled();
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(true);
+  });
+
+  it('attempts 耗尽：run() 经 failureSink 交付 agent_spontaneous_stall（EventLoop 不直接改 contract）', async () => {
+    const audit = createMockAudit();
+    const sinkReport = vi.fn().mockResolvedValue([{ kind: 'committed' }]);
+    const lastActivityAt = Date.now() - 10 * RECOVERY_TIMEOUT_MS;
+    // 预置 attempts=3 的 record（terminal evidence 已持久化）
+    require('fs').mkdirSync(path.dirname(recordFilePath(CONTRACT_ID)), { recursive: true });
+    require('fs').writeFileSync(recordFilePath(CONTRACT_ID), JSON.stringify({
+      schema_version: 1,
+      contractId: CONTRACT_ID,
+      observedActivityAt: lastActivityAt,
+      attempts: 3,
+      lastAttemptAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+    }));
+    const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
+      failureSink: { report: sinkReport },
+      probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt }),
+    });
+
+    await loop.run();
+
+    expect(sinkReport).toHaveBeenCalledTimes(1);
+    expect(sinkReport).toHaveBeenCalledWith({
+      executorId: 'test-claw',
+      producer: 'runtime',
+      reason: 'agent_spontaneous_stall',
+      evidenceRef: `event-loop/execution-recovery/${CONTRACT_ID}.json`,
+    });
+    expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+  });
+
+  it('async task 在途：run() 不判 stall（不写 resume、不建 record）', async () => {
+    const audit = createMockAudit();
+    const sinkReport = vi.fn().mockResolvedValue([]);
+    const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
+      failureSink: { report: sinkReport },
+      probeActivity: async () => ({
+        activeContractId: CONTRACT_ID,
+        lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+      }),
+      isAsyncTaskInFlight: async () => true,
+    });
+
+    await loop.run();
+
+    expect(readInboxMessages()).toHaveLength(0);
+    expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+    expect(sinkReport).not.toHaveBeenCalled();
+  });
+
+  it('无 executionRecovery 注入：run() 行为不变（不触碰 record 目录）', async () => {
+    const audit = createMockAudit();
+    const loop = new EventLoop({
+      runtime: makeIdleRuntime(),
+      fsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    });
+
+    await loop.run();
+
+    expect(require('fs').existsSync(path.join(baseDir, 'event-loop'))).toBe(false);
   });
 });

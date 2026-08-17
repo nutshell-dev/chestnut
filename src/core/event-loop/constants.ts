@@ -51,3 +51,16 @@ export const LEGACY_CONTEXT_BLOCKED_STATE_FILE = 'context-blocked-state.json' as
  * 达 cap 时 emit LOOP_ITERATION_TYPES.CHAIN_LIMITED audit / chain 强制结束本 tick.
  */
 export const REACT_CHAIN_MAX_ITERATIONS = 100;
+
+/**
+ * Phase 1396 Step E: 执行停滞判定超时 (ms)。
+ * Derivation: 沿用既有 watchdog claw_inactivity_timeout_ms 默认 (5min) ——
+ * 同一「自发停滞」语义从 Watchdog 迁移到 EventLoop，阈值不变避免行为跳变。
+ */
+export const EXECUTION_INACTIVITY_TIMEOUT_MS = 300_000;
+
+/** Phase 1396 Step E: recovery record 目录（chestnut root 相对路径）。 */
+export const EXECUTION_RECOVERY_DIR = 'event-loop/execution-recovery';
+
+/** Phase 1396 Step E: 自愈 resume 的自身 inbox 消息类型（EventLoop 正常消费，不走 Runtime reentrant API）。 */
+export const EXECUTION_RECOVERY_MESSAGE_TYPE = 'execution_recovery';

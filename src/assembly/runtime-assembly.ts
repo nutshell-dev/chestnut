@@ -32,6 +32,10 @@ import { createExecWithHandle, EXEC_TOOL_NAME } from '../foundation/command-tool
 import { createToolExecutor, createToolRegistry } from '../foundation/tools/index.js';
 import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
+// Phase 1396 Step E: EventLoop 执行停滞恢复的 probe/sink 组装（事实源 + Step D narrow sink）
+import { listActiveContracts, getActiveContractTimestamp } from '../core/contract/index.js';
+import { readStreamExecutionActivityMs } from '../core/event-loop/index.js';
+import type { EventLoopExecutionRecoveryDeps } from '../core/event-loop/index.js';
 
 interface RuntimeAssemblyInput {
   core: CoreInfraOutput;
@@ -43,6 +47,7 @@ interface RuntimeAssemblyOutput {
   snapshot: Snapshot;
   streamWriter: StreamWriter;
   runtime: Runtime;
+  executionRecovery: EventLoopExecutionRecoveryDeps;
 }
 
 export async function createRuntimeAssembly(
@@ -211,7 +216,31 @@ export async function createRuntimeAssembly(
       subagentMaxSteps: maxSteps,
     }));
 
-    return { snapshot, streamWriter, runtime };
+    // Phase 1396 Step E: EventLoop 执行停滞恢复的 Assembly DI。
+    // probe 只读持久事实（stream LLM output / contract 创建时间 merge），sink 走
+    // Step D narrow intake（ContractSystem 自枚举/核实 active contract）；EventLoop
+    // 不直接持有 ContractSystem、不做 rename/cancel。
+    const executionRecovery: EventLoopExecutionRecoveryDeps = {
+      failureSink: {
+        report: (input) => contractManager.failActiveForExecutor({
+          executorId: input.executorId,
+          failure: { reason: input.reason, evidenceRef: input.evidenceRef, producer: input.producer },
+        }),
+      },
+      probeActivity: async () => {
+        const active = listActiveContracts(systemFs, '.');
+        const activeContractId = active[0]?.contractId;
+        const streamMs = await readStreamExecutionActivityMs(systemFs, auditWriter);
+        const createdMs = getActiveContractTimestamp(systemFs, '.', auditWriter);
+        const lastActivityAt = streamMs !== null && createdMs !== null
+          ? Math.max(streamMs, createdMs)
+          : (streamMs ?? createdMs);
+        return { activeContractId, lastActivityAt };
+      },
+      isAsyncTaskInFlight: async () => taskSystem.getRunningCount() > 0,
+    };
+
+    return { snapshot, streamWriter, runtime, executionRecovery };
   } catch (e) {
     streamWriter.close();
     throw e;

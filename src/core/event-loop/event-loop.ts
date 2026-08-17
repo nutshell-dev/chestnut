@@ -21,6 +21,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import {
   INBOX_FALLBACK_TIMEOUT_MS_DEFAULT,
+  EXECUTION_INACTIVITY_TIMEOUT_MS,
+  EXECUTION_RECOVERY_MESSAGE_TYPE,
   LLM_COOLDOWN_MS,
   LLM_MAX_RETRIES,
   LLM_RETRY_INITIAL_DELAY_MS,
@@ -46,7 +48,14 @@ import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js'
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
-import type { LLMRequestBlockedState, LLMRequestGateDecision, LLMRetryWaitingState, RecoverableLLMErrorClass, EventLoopOptions, EventLoopRuntime } from './types.js';
+import { notifyInbox } from '../../foundation/messaging/index.js';
+import {
+  createExecutionRecoveryController,
+  createExecutionRecoveryStore,
+  type ExecutionRecoveryController,
+  type ExecutionRecoveryRecord,
+} from './execution-recovery.js';
+import type { LLMRequestBlockedState, LLMRequestGateDecision, LLMRetryWaitingState, RecoverableLLMErrorClass, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps } from './types.js';
 
 export class EventLoop {
   private runtime: EventLoopRuntime;
@@ -72,6 +81,12 @@ export class EventLoop {
   private llmRequestBlocked?: LLMRequestBlockedState;
   private waitAbortController?: AbortController;
 
+  // Phase 1396 Step E: 执行停滞恢复（record store / resume enqueue 归 EventLoop 自有）
+  private executionRecovery?: ExecutionRecoveryController;
+  private executionRecoveryDeps?: EventLoopExecutionRecoveryDeps;
+  /** processTurn 执行中为 true（observe 只挂在 idle 路径，此字段为未来挂载点保真） */
+  private turnInFlight = false;
+
   constructor(options: EventLoopOptions) {
     this.runtime = options.runtime;
     this.clawId = options.clawId;
@@ -83,6 +98,16 @@ export class EventLoop {
     this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
     this.onBatchComplete = options.onBatchComplete;
+    if (options.executionRecovery) {
+      this.executionRecoveryDeps = options.executionRecovery;
+      this.executionRecovery = createExecutionRecoveryController({
+        store: createExecutionRecoveryStore({ rootFs: this.rootFs, audit: this.audit }),
+        failureSink: options.executionRecovery.failureSink,
+        audit: this.audit,
+        timeoutMs: options.executionRecovery.timeoutMs ?? EXECUTION_INACTIVITY_TIMEOUT_MS,
+        enqueueResume: (record) => this._enqueueExecutionResume(record),
+      });
+    }
   }
 
   /**
@@ -120,6 +145,9 @@ export class EventLoop {
   async run(): Promise<void> {
     this.stopped = false;
     this.waitAbortController = new AbortController();
+
+    // Phase 1396 Step E: idle tick 起点做停滞观察（resume/retry/task 在途时自愈逻辑内部跳过）。
+    await this._observeExecutionRecovery();
 
     try {
       const gate = await this._checkLlmRequestGate();
@@ -647,7 +675,10 @@ export class EventLoop {
       stage = 'turn_start_callback';
       args.wrappedCallbacks?.onTurnStart?.(args.sources);
       stage = 'process_turn';
-      const result = await this.runtime.processTurn(messages, systemPrompt, tools, args.wrappedCallbacks);
+      this.turnInFlight = true;
+      const result = await this.runtime
+        .processTurn(messages, systemPrompt, tools, args.wrappedCallbacks)
+        .finally(() => { this.turnInFlight = false; });
       stage = 'turn_result';
 
       if (result.status === 'success') {
@@ -798,6 +829,50 @@ export class EventLoop {
       audit: this.audit,
       signal: this.waitAbortController?.signal,
     });
+  }
+
+  /**
+   * Phase 1396 Step E: 每 tick 起点观察执行停滞。observe 失败不阻断主循环
+   * （audit 后继续），恢复失败不能拖垮正常调度。
+   */
+  private async _observeExecutionRecovery(): Promise<void> {
+    if (!this.executionRecovery || !this.executionRecoveryDeps) return;
+    try {
+      const probe = await this.executionRecoveryDeps.probeActivity();
+      // active contract 存在但无持久 activity 事实可判 → 跳过（probe 组装方应以
+      // contract 创建时间兜底；仍 null 说明事实源不可用，不得用内存 timer 代替）。
+      if (probe.activeContractId && probe.lastActivityAt === null) return;
+      await this.executionRecovery.observe({
+        executorId: this.clawId,
+        activeContractId: probe.activeContractId,
+        lastActivityAt: probe.lastActivityAt ?? 0,
+        turnInFlight: this.turnInFlight,
+        retryInFlight: this.llmRetryWaiting !== undefined,
+        asyncTaskInFlight: (await this.executionRecoveryDeps.isAsyncTaskInFlight?.()) ?? false,
+      });
+    } catch (err) {
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=executionRecovery`,
+        `reason=${formatErr(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Phase 1396 Step E: 自恢复 resume 只走自身 inbox（高优消息，正常 drain 消费），
+   * 不直接调 Runtime reentrant API。恢复消息不产生 stream LLM output，
+   * 不会被 probe 误判为业务 progress。
+   */
+  private _enqueueExecutionResume(record: ExecutionRecoveryRecord): void {
+    notifyInbox(this.agentFs, {
+      inboxDir: this.inboxPendingDir,
+      type: EXECUTION_RECOVERY_MESSAGE_TYPE,
+      source: this.clawId,
+      priority: 'high',
+      body: `Execution stalled with no persisted activity; resume work on active contract ${record.contractId} (recovery attempt ${record.attempts}).`,
+      metadata: { contract_id: record.contractId },
+    }, this.audit);
   }
 
   private _resetLlmRetryState(): void {

@@ -4,6 +4,7 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
+import type { EventLoopExecutionRecoveryDeps } from '../core/event-loop/index.js';
 import type { ClawGlobalConfig, ClawConfig } from './config/compose-config.js';
 import type { createSkillSystem as defaultCreateSkillSystem } from '../foundation/skill-system/index.js';
 import type { InboxMessageTypeDeclaration } from '../foundation/messaging/index.js';
@@ -41,6 +42,8 @@ export interface Instances {
   readonly processManager: ProcessManager;
   readonly auditWriter: AuditLog;
   readonly heartbeat?: Heartbeat;     // motion + heartbeat_interval_ms > 0
+  /** Phase 1396 Step E: EventLoop 执行停滞恢复的 probe/sink（daemon 传给 EventLoop）。 */
+  readonly executionRecovery?: EventLoopExecutionRecoveryDeps;
   /** Dispose exactly the private resources constructed for this assembly session. */
   readonly dispose: (signal: string) => Promise<void>;
 }

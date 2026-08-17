@@ -120,7 +120,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       process.exit(1);
     }
 
-    const { runtime, streamWriter, snapshot, auditWriter, heartbeat } = instances;
+    const { runtime, streamWriter, snapshot, auditWriter, heartbeat, executionRecovery } = instances;
 
     // Phase 1204 Step C：child 校验 generation identity，写 ready 事实后激活 generation。
     let generationRecord: ProcessGenerationRecord | undefined;
@@ -162,6 +162,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       audit: auditWriter,
       inbox: { pendingDir: inboxPendingDir },
       streamWriter,
+      // Phase 1396 Step E: 执行停滞恢复（Assembly 注入持久事实 probe + Step D failure sink）
+      executionRecovery,
     });
     await eventLoop.initialize();
 

@@ -64,6 +64,7 @@ const mockMemorySystem = {
 // referenced by module-level vi.mock factories.
 let capturedContractCallback: ((contractId: string) => Promise<void>) | undefined;
 let createContractSystemCalls: any[][] = [];
+const capturedContractSystems: any[] = [];
 
 vi.mock('../../src/foundation/audit/writer.js', () => ({
   AuditWriter: vi.fn(() => ({
@@ -204,19 +205,24 @@ vi.mock('../../src/core/evolution-system/index.js', () => ({
 }));
 
 vi.mock('../../src/core/contract/manager.js', () => {
-  const ContractSystem = vi.fn(() => ({
-    setOnNotify: vi.fn(),
-    loadPaused: vi.fn(),
-    resume: vi.fn(),
-    onContractCompleted: vi.fn((cb: (contractId: string) => Promise<void>) => {
-      capturedContractCallback = cb;
-      return () => {};
-    }),
-    init: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    registerCreatePolicy: vi.fn(),
-    createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })),
-  }));
+  const ContractSystem = vi.fn(() => {
+    const instance = {
+      setOnNotify: vi.fn(),
+      loadPaused: vi.fn(),
+      resume: vi.fn(),
+      onContractCompleted: vi.fn((cb: (contractId: string) => Promise<void>) => {
+        capturedContractCallback = cb;
+        return () => {};
+      }),
+      init: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      registerCreatePolicy: vi.fn(),
+      createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })),
+      failActiveForExecutor: vi.fn().mockResolvedValue([]),
+    };
+    capturedContractSystems.push(instance);
+    return instance;
+  });
   return {
     ContractSystem,
     createContractSystem: vi.fn((deps: any) => new (ContractSystem as any)(deps)),
@@ -225,7 +231,7 @@ vi.mock('../../src/core/contract/manager.js', () => {
 
 vi.mock('../../src/core/async-task-system/system.js', () => {
   const AsyncTaskSystem = vi.fn(() => {
-    const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn() };
+    const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn(), getRunningCount: vi.fn(() => 0) };
     capturedTaskSystems.push(instance);
     return instance;
   });
@@ -687,5 +693,72 @@ describe('phase1396-summon-claim-wiring', () => {
     const call = businessSystemsSrc.match(/createSummonVerifyPolicy\(\{[\s\S]*?\}\)/);
     expect(call).not.toBeNull();
     expect(call![0]).toContain('claimStore');
+  });
+});
+
+
+describe('phase1396-execution-recovery-wiring', () => {
+  /**
+   * Phase 1396 Step E: Assembly 为 EventLoop 注入执行停滞恢复依赖。
+   * - instances.executionRecovery 存在（daemon → EventLoop options）。
+   * - failureSink.report 适配到 ContractSystem.failActiveForExecutor（Step D narrow
+   *   intake），EventLoop 不直接持有 ContractSystem。
+   */
+  const baseConfig = {
+    identity: 'motion' as const,
+    clawId: 'motion',
+    clawDir: '/tmp/motion',
+    globalConfig: buildTestGlobalConfig({
+      cron: { enabled: true, tick_interval_ms: 1000 },
+      watchdog: { disk_warning_mb: 500 },
+      motion: {
+        heartbeat_interval_ms: 5000,
+        max_steps: 30,
+        max_concurrent_tasks: 5,
+      },
+      tool_timeout_ms: 30000,
+    }),
+    clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuditWrite.mockClear();
+    mockSnapshot.init.mockResolvedValue({ ok: true });
+    mockSnapshot.commit.mockResolvedValue({ ok: true });
+    capturedContractSystems.length = 0;
+  });
+
+  it('assemble 输出 executionRecovery，failureSink 适配到 contractManager.failActiveForExecutor', async () => {
+    const instances = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+
+    expect(instances.executionRecovery).toBeDefined();
+    const contractManager = capturedContractSystems[0];
+    expect(contractManager).toBeDefined();
+
+    await instances.executionRecovery!.failureSink.report({
+      executorId: 'motion',
+      producer: 'runtime',
+      reason: 'agent_spontaneous_stall',
+      evidenceRef: 'event-loop/execution-recovery/c-1.json',
+    });
+
+    expect(contractManager.failActiveForExecutor).toHaveBeenCalledTimes(1);
+    expect(contractManager.failActiveForExecutor).toHaveBeenCalledWith({
+      executorId: 'motion',
+      failure: {
+        reason: 'agent_spontaneous_stall',
+        evidenceRef: 'event-loop/execution-recovery/c-1.json',
+        producer: 'runtime',
+      },
+    });
+  });
+
+  it('probeActivity / isAsyncTaskInFlight 已接线（mock fs 无 active contract → undefined）', async () => {
+    const instances = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
+
+    const probe = await instances.executionRecovery!.probeActivity();
+    expect(probe.activeContractId).toBeUndefined();
+    await expect(instances.executionRecovery!.isAsyncTaskInFlight!()).resolves.toBe(false);
   });
 });

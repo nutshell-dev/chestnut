@@ -10,5 +10,20 @@
  */
 
 export { EventLoop } from './event-loop.js';
-export type { EventLoopRuntime, EventLoopTraceSource } from './types.js';
+export type { EventLoopRuntime, EventLoopTraceSource, EventLoopExecutionRecoveryDeps } from './types.js';
 export { EVENTLOOP_FILE_ROUTING } from './audit-events.js';
+// Phase 1396 Step E: 执行停滞恢复（record store / controller / 持久 activity 事实读取）
+export {
+  createExecutionRecoveryController,
+  createExecutionRecoveryStore,
+  readStreamExecutionActivityMs,
+  parseExecutionRecoveryRecord,
+  MAX_EXECUTION_RECOVERY_ATTEMPTS,
+} from './execution-recovery.js';
+export type {
+  ExecutionActivitySnapshot,
+  ExecutionRecoveryController,
+  ExecutionRecoveryFailureSink,
+  ExecutionRecoveryRecord,
+  ExecutionRecoveryStore,
+} from './execution-recovery.js';

@@ -17,6 +17,14 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   CONTEXT_BLOCKED_RELEASED: 'eventloop_context_blocked_released',
   /** Phase 1158: post-drain pipeline 异常后 nack 恢复并审计 */
   POST_DRAIN_FAILURE_RECOVERED: 'eventloop_post_drain_failure_recovered',
+  /** Phase 1396 Step E: 检测到执行停滞，向自身 inbox enqueue 高优 resume（attempt 已落盘） */
+  EXECUTION_RECOVERY_RESUME: 'eventloop_execution_recovery_resume',
+  /** Phase 1396 Step E: activity 前进 / contract 不再 active → recovery record 复位删除 */
+  EXECUTION_RECOVERY_RESET: 'eventloop_execution_recovery_reset',
+  /** Phase 1396 Step E: 恢复耗尽，execution failure 已交付 ExecutionFailureSink */
+  EXECUTION_RECOVERY_FAILURE_DELIVERED: 'eventloop_execution_recovery_failure_delivered',
+  /** Phase 1396 Step E: failure 交付失败，保留 record 下 tick 重试交付 */
+  EXECUTION_RECOVERY_DELIVERY_FAILED: 'eventloop_execution_recovery_delivery_failed',
 } as const;
 
 export const LOOP_ITERATION_TYPES = {
