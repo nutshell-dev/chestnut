@@ -255,8 +255,8 @@ describe('shadow tool (phase 767)', () => {
         const result = await summonTool.execute({ goal: 'test' }, baseCtx);
 
         expect(result.success).toBe(false);
-        expect(result.error).toBe('shadow_summon_rejected');
-        expect(result.content).toContain('not callable from within shadow');
+        expect(result.error).toBe('summon_unavailable');
+        expect(result.content).toContain('unavailable');
       });
     });
 

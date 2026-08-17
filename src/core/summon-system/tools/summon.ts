@@ -42,7 +42,6 @@ export class SummonTool implements Tool {
 
 适用场景：
 - 任务需要通过创建契约来完成
-- 任务可能匹配已有 dispatch-skills
 `;
 
   readonly readonly = false;
@@ -90,8 +89,8 @@ export class SummonTool implements Tool {
       }
       return {
         success: false,
-        content: 'summon is not callable from within shadow (async-only routing would orphan after shadow exits).',
-        error: 'shadow_summon_rejected',
+        content: 'Summon is unavailable in the current execution context.',
+        error: 'summon_unavailable',
       };
     }
 
@@ -152,10 +151,11 @@ export class SummonTool implements Tool {
   ): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
     const { userMessage, idleTimeoutMs, ctx } = opts;
     if (!ctx.getCallerSnapshot) {
+      ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.REJECTED_SHADOW, 'reason=caller_snapshot_unavailable');
       return {
         success: false,
-        content: 'summon shadow mode requires caller snapshot (ExecContext.getCallerSnapshot not bound by Assembly).',
-        error: 'summon_caller_snapshot_unavailable',
+        content: 'Summon is unavailable in the current execution context.',
+        error: 'summon_unavailable',
       };
     }
     const snap = await ctx.getCallerSnapshot();

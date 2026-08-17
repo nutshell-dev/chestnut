@@ -75,7 +75,7 @@ if [ -f "clawspace/<contract-slug>/report.md" ]; then exit 0; else exit 1; fi
 ## 契约生命周期
 
 ```
-summon 创建契约 → contract create CLI（自动发 inbox 通知给目标 Claw）
+ContractSystem 创建契约 → 自动发 inbox 通知给目标 Claw
   → Claw daemon 读取 inbox → 执行 subtask
   → Claw 调用 submit_subtask tool（传入 subtask ID）→ 触发验收
   → 所有 subtask 完成 → 契约归档 → inbox 收到完成通知

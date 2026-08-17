@@ -86,7 +86,7 @@ describe('summon-rejected-shadow-audit', () => {
       const result = await tool.execute({ goal: 'test' }, ctx);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('shadow_summon_rejected');
+      expect(result.error).toBe('summon_unavailable');
 
       const rejectedCalls = auditWrite.mock.calls.filter(
         (c) => c[0] === SUMMON_AUDIT_EVENTS.REJECTED_SHADOW,
