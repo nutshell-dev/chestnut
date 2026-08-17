@@ -7,7 +7,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
-import { buildMinerSystemPrompt } from '../../../src/templates/prompts/mining.js';
+
 import { createSummonContractExtractPostProcessor } from '../../../src/core/summon-system/post-processors/contract-extract.js';
 import { createSummonCreationClaimStore } from '../../../src/core/summon-system/creation-claim-store.js';
 import type { RegisterRetrospectiveInput } from '../../../src/core/evolution-system/index.js';
@@ -172,7 +172,7 @@ Content.
           role: 'assistant',
           content: [
             { type: 'text', text: '好的、我来 summon' },
-            { type: 'tool_use', id: 'tu-summon-1', name: 'summon', input: { goal: 'audit L1 FileSystem', mode: 'shadow' } },
+            { type: 'tool_use', id: 'tu-summon-1', name: 'summon', input: { goal: 'audit L1 FileSystem' } },
           ] as unknown as string,
         },
       ];
@@ -201,7 +201,7 @@ Content.
           role: 'assistant',
           content: [
             { type: 'text', text: '好的、我来 summon' },
-            { type: 'tool_use', id: 'tu-summon-1', name: 'summon', input: { goal: 'create foo contract', mode: 'shadow' } },
+            { type: 'tool_use', id: 'tu-summon-1', name: 'summon', input: { goal: 'create foo contract' } },
           ] as unknown as string,
         },
       ];

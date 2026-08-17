@@ -77,7 +77,7 @@ describe('summon-rejected-shadow-audit', () => {
         }),
       });
       const taskSystem = createMockTaskSystem(mockFs, auditWriter);
-      const tool = new SummonTool(taskSystem, undefined, undefined, opts.allowFromShadow);
+      const tool = new SummonTool(taskSystem, undefined, opts.allowFromShadow);
       return { ctx, tool };
     }
 
@@ -279,7 +279,7 @@ describe('summon-verify-param', () => {
       expect((tool.schema.properties.goal as any).minLength).toBe(1);
     });
 
-    it('内部固定 verify=false 默认：prompt 不含 verification 模板段', async () => {
+    it('内部固定 no-verification 策略：prompt 不含 verification 模板段', async () => {
       const { ctx, tool } = makeCtx();
       const result = await tool.execute({ goal: 'test' }, ctx);
 
@@ -289,14 +289,15 @@ describe('summon-verify-param', () => {
 
       const content = getTaskContent(tasks[0]);
       expect(content).not.toContain('prompt_file:');
-      // verification: / escalation: 仅在禁令行出现（不出现 yaml 模板或 verification/.prompt.txt 格式段）
-      const verificationMatches = content.match(/verification:/g);
-      expect(verificationMatches?.length ?? 0).toBe(1);
-      const escalationMatches = content.match(/escalation:/g);
-      expect(escalationMatches?.length ?? 0).toBe(1);
+      expect(content).not.toContain('verification/');
+      expect(content).not.toContain('subtask_id:');
+      expect(content).not.toContain('type: llm');
+      // 固定策略声明存在，但不作为 caller choice
+      expect(content).toContain('不含 verification');
+      expect(content).toContain('escalation');
     });
 
-    it('legacy verify/mode/targetClaw 入参被忽略（不再读 agent args）', async () => {
+    it('agent 传入 legacy verify/mode/targetClaw 不被读取，summonDecision 写 v2', async () => {
       const { ctx, tool } = makeCtx();
       const result = await tool.execute(
         { goal: 'test', verify: true, mode: 'mining', targetClaw: 'x-claw' } as any,
@@ -306,14 +307,12 @@ describe('summon-verify-param', () => {
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      // 内部固定 shadow 路径 + verify=false
+      // 内部固定 shadow 路径；决策字段已从调用方协议中退场
       expect(tasks[0].callerType).toBe('shadow_subagent');
-      expect(tasks[0].summonDecision).toMatchObject({
-        schema_version: 1,
-        mode: 'shadow',
-        verify: false,
+      expect(tasks[0].summonDecision).toEqual({
+        schema_version: 2,
+        dispatchedAt: expect.any(String),
       });
-      expect((tasks[0].summonDecision as Record<string, unknown>).targetClaw).toBeUndefined();
       const content = getTaskContent(tasks[0]);
       expect(content).not.toContain('prompt_file:');
     });
@@ -483,11 +482,11 @@ describe('summon-default-mode-shadow', () => {
 
 describe('summon-decision-metadata', () => {
   /**
-   * phase 281 Step A: SummonDecision metadata embed tests.
+   * Phase 1396 Step K: SummonDecision metadata versioning tests.
    *
-   * Verifies that shadow / mining summon schedule writes summonDecision metadata
-   * directly into the async-task task file, eliminating the separate summon-state
-   * write path while keeping the store for backwards compatibility in Step A.
+   * - v2 (active): new summon writes only `{schema_version:2, dispatchedAt}`.
+   * - v1 (legacy): persisted tasks with mode/verify/targetClaw remain readable.
+   * - Unknown/future schema versions are rejected (fail-observable).
    */
 
   async function createTempDir(): Promise<string> {
@@ -508,24 +507,16 @@ describe('summon-decision-metadata', () => {
     }
   }
 
-  describe('summon decision metadata embed (phase 281 Step A)', () => {
+  describe('summon decision metadata embed (phase 281 Step A / phase 1396 Step K)', () => {
     let tempDir: string;
     let mockFs: NodeFileSystem;
     let auditEvents: Array<{ type: string; args: unknown[] }>;
-    let tool: SummonTool;
 
     beforeEach(async () => {
       vi.restoreAllMocks();
       tempDir = await createTempDir();
       mockFs = new NodeFileSystem({ baseDir: tempDir });
       auditEvents = [];
-      const auditWriter = {
-        write: (type: string, ...args: unknown[]) => { auditEvents.push({ type, args }); },
-        preview: (s: string) => s,
-        message: (s: string) => s,
-        summary: (s: string) => s,
-      } as any;
-      tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
     });
 
     afterEach(async () => {
@@ -566,24 +557,22 @@ describe('summon-decision-metadata', () => {
       return { ctx, tool };
     }
 
-    it('summon schedule → task file含 summonDecision metadata（phase 1396C：固定 shadow + verify=false）', async () => {
+    it('active summon schedule writes v2 summonDecision without mode/verify/targetClaw', async () => {
       const { ctx, tool } = makeCtx('claw');
       const result = await tool.execute({ goal: 'shadow task' }, ctx);
 
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].summonDecision).toMatchObject({
-        schema_version: 1,
-        mode: 'shadow',
-        verify: false,
+      expect(tasks[0].summonDecision).toEqual({
+        schema_version: 2,
+        dispatchedAt: expect.any(String),
       });
-      expect((tasks[0].summonDecision as Record<string, unknown>).targetClaw).toBeUndefined();
-      expect(typeof (tasks[0].summonDecision as Record<string, unknown>).dispatchedAt).toBe('string');
+      const decisionJson = JSON.stringify(tasks[0].summonDecision);
+      expect(decisionJson).not.toMatch(/mode|verify|targetClaw/);
     });
 
     it('non-summon 场景不存在 summonDecision 时字段为 undefined（optional）', async () => {
-      // 本测试文件聚焦 summon path；这里仅验证 schema 不强制 summonDecision
       const parsed = SubAgentTaskSchema.safeParse({
         kind: 'subagent',
         mode: 'standard',
@@ -598,8 +587,8 @@ describe('summon-decision-metadata', () => {
       expect((parsed.data as Record<string, unknown>).summonDecision).toBeUndefined();
     });
 
-    it('SubAgentTaskSchema validate summonDecision optional shape', () => {
-      const valid = {
+    it('SubAgentTaskSchema accepts legacy v1 decision shape', () => {
+      const v1Task = {
         kind: 'subagent',
         mode: 'shadow',
         id: '550e8401-e29b-41d4-a716-446655440000',
@@ -617,22 +606,67 @@ describe('summon-decision-metadata', () => {
           dispatchedAt: new Date().toISOString(),
         },
       };
-      const parsed = SubAgentTaskSchema.safeParse(valid);
-      expect(parsed.success).toBe(true);
-
-      const invalid = {
-        ...valid,
-        summonDecision: {
-          schema_version: 2,
-          mode: 'invalid',
-          verify: 'not-boolean',
-          dispatchedAt: 123,
-        },
-      };
-      const invalidParsed = SubAgentTaskSchema.safeParse(invalid);
-      expect(invalidParsed.success).toBe(false);
+      expect(SubAgentTaskSchema.safeParse(v1Task).success).toBe(true);
     });
 
+    it('SubAgentTaskSchema accepts active v2 decision shape', () => {
+      const v2Task = {
+        kind: 'subagent',
+        mode: 'shadow',
+        id: '550e8402-e29b-41d4-a716-446655440002',
+        shortId: '550e8402',
+        intent: 'test',
+        timeoutMs: 1000,
+        parentClawId: 'p1',
+        createdAt: new Date().toISOString(),
+        shadowMessages: [{ role: 'user', content: 'hi' }],
+        summonDecision: {
+          schema_version: 2,
+          dispatchedAt: new Date().toISOString(),
+        },
+      };
+      expect(SubAgentTaskSchema.safeParse(v2Task).success).toBe(true);
+    });
+
+    it('SubAgentTaskSchema rejects v2 decision with legacy fields', () => {
+      const invalid = {
+        kind: 'subagent',
+        mode: 'shadow',
+        id: '550e8403-e29b-41d4-a716-446655440003',
+        shortId: '550e8403',
+        intent: 'test',
+        timeoutMs: 1000,
+        parentClawId: 'p1',
+        createdAt: new Date().toISOString(),
+        shadowMessages: [{ role: 'user', content: 'hi' }],
+        summonDecision: {
+          schema_version: 2,
+          mode: 'shadow',
+          verify: false,
+          dispatchedAt: new Date().toISOString(),
+        },
+      };
+      expect(SubAgentTaskSchema.safeParse(invalid).success).toBe(false);
+    });
+
+    it('SubAgentTaskSchema rejects unknown future schema_version', () => {
+      const unknown = {
+        kind: 'subagent',
+        mode: 'shadow',
+        id: '550e8404-e29b-41d4-a716-446655440004',
+        shortId: '550e8404',
+        intent: 'test',
+        timeoutMs: 1000,
+        parentClawId: 'p1',
+        createdAt: new Date().toISOString(),
+        shadowMessages: [{ role: 'user', content: 'hi' }],
+        summonDecision: {
+          schema_version: 3,
+          dispatchedAt: new Date().toISOString(),
+        },
+      };
+      expect(SubAgentTaskSchema.safeParse(unknown).success).toBe(false);
+    });
   });
 });
 
@@ -736,6 +770,22 @@ describe('phase1396-summon-public-contract', () => {
     expect(section![1]).toContain('"goal"');
     // 明确异步最终结果语义
     expect(section![1]).toContain('异步');
+  });
+
+  it('active writer files do not encode legacy decision fields as caller choice', () => {
+    const summonTool = fsRead('src/core/summon-system/tools/summon.ts');
+    const prompt = fsRead('src/templates/prompts/summon-contract-task.ts');
+    const combined = summonTool + '\n' + prompt;
+
+    for (const banned of [
+      "mode: 'mining'",
+      'mode: "mining"',
+      "verify: false",
+      'verify: false',
+      'targetClaw:',
+    ]) {
+      expect(combined).not.toContain(banned);
+    }
   });
 
   function fsRead(rel: string): string {

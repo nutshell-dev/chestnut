@@ -4,26 +4,30 @@
  *
  * Builds the task body for summon shadow mode subagent (contract creation workflow).
  * 不含身份段；身份锚由 ShadowSystem.buildShadowInstruction wrap。
+ *
+ * Phase 1396 Step K: 公开契约已收缩为 `summon({goal})`；executor 选择、
+ * no-verification 策略、shadow 路径均为 SummonSystem 内部固定实现，不再由 caller 决策。
+ * 本 prompt 只保留 worker 完成 contract 创建所需的内部操作指引。
  */
-
 
 export function buildSummonContractTask(
   goal: string,
   skillsSummary?: string,
-  targetClaw?: string,
-  opts: { verify?: boolean } = {},
 ): string {
-  const verify = opts.verify === true;
   let task = `## 本次目标\n${goal}`;
 
   if (skillsSummary) {
     task += `\n\n${skillsSummary}`;
   }
 
-  task += `\n\n**重要协议约束**：
+  task += `
+
+**重要协议约束**：
 1. 你**绝不能**绕过 Step 4 的 \`chestnut contract create\` 自跑任务实际工作。
    唯一成功证据 = \`chestnut contract create\` CLI 返 \`Contract created: <id> for claw <name>\` 行。
    系统持久化本次创建的权威记录并核实 contract 真实提交；核实不到即判本次创建失败。
+2. 本契约**不含 verification 与 escalation 门控**；子任务 claw 调 submit_subtask 即立即标 completed。
+   这是 SummonSystem 当前固定创建策略，不是 caller 可选配置。
 
 ## 角色边界
 
@@ -44,32 +48,15 @@ export function buildSummonContractTask(
 
 提交后、target claw 由 dispatcher 派活、收 contract、跑 subtask、完成后通过 contract_completed 事件触 retro。整个执行链你不参与。
 
-**关键边界（phase 119）**：
-
-你**只能**为本次 summon 指定的 target_claw 创建契约。即使你跑 \`chestnut claw list --summary\`
-看到别的 claw 缺契约、跑 daemon 没起、或任何"系统状态不完整"
-的信号——**也不要补**。
-
-补别人的缺 = **越界违规**：
-- 用户没让你做、motion 没派你做、你不知道补的契约是不是用户要的
-- 系统 gate 会校验 \`--claw <X>\` 必须等于 SummonDecision.targetClaw、不等 throw SUMMON_TARGET_CLAW_VIOLATION
-- 若 sibling 子代理在做别的 claw、各 sibling 各自负责自己的、不需要你帮忙
-
-只关注 target_claw、不补缺=合规。
+**关键边界**：你**只能**为本次 summon 自行选定的 target claw 创建契约。即使你跑
+\`chestnut claw list --summary\` 看到别的 claw 缺契约、跑 daemon 没起、或任何“系统状态不完整”
+的信号——**也不要补**。补别人的缺 = 越界违规：用户没让你做、motion 没派你做、你不知道补的契约是不是用户要的。
+只关注自己选定的 target claw、不补缺 = 合规。
 
 ## 执行步骤
 
-### 1. 确定目标 claw`;
+### 1. 确定目标 claw
 
-  if (targetClaw) {
-    task += `
-目标 claw 已由用户指定：**${targetClaw}**。
-执行 \`chestnut claw list --summary\` 确认它存在且 daemon 已运行。
-如未运行，执行：
-  exec: chestnut claw ${targetClaw} daemon
-  exec: chestnut claw list --summary   ← 再次确认 daemon 状态`;
-  } else {
-    task += `
 用 \`chestnut claw list --summary\` 查现有 claw，判断复用还是新建：
 - 判断依据：上下文效率，不根据 claw 名称推断能力
 - 如果现有 claw 的对话状态专注于不同的项目或任务域，应新建 claw
@@ -77,10 +64,7 @@ export function buildSummonContractTask(
   exec: chestnut claw <name> create
   exec: chestnut claw <name> daemon
   exec: chestnut claw list --summary   ← 确认 daemon 已运行再继续
-- targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId`;
-  }
-
-  task += `
+- targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId
 
 ### 2. 安装 dispatch 模板（如需要）
 
@@ -97,83 +81,8 @@ exec: chestnut skill install --claw <id> --skill <name>
 **注意**：直接调用 \`skill: { "name": "..." }\`（不带 \`scope\`，默认 \`scope: "self"\`）只查 Motion 自己的 self 池，找不到 dispatch 模板。
 
 ### 3. 写契约文件
-`;
 
-  task += verify ? buildVerifyTrueWriteSection() : buildVerifyFalseWriteSection();
-
-  task += `
-
-### 4. 提交契约
-exec: chestnut contract create --claw <targetClawId> --dir ./contract-drafts/<contract-slug>
-
-CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次任务完成、可直接 \`done(result="<给 Motion 的简报>")\` 退出。系统按创建记录自动登记 retro、无需在 result 内附加任何特殊标记。
-
-**任何其他执行路径**（包括跳过 Step 4 自己跑 grep/write/exec 完成任务的实际工作）**都不算成功完成**，系统核实不到契约提交记录即判失败。
-
----
-
-### background / expectations 写法指引
-
-- **background**：用户意图，与具体行动无关的动机和背景。从对话上下文综合提炼，不是对任务的描述。
-- **expectations**：全局执行要求和质量期望，适用于所有子任务。包含：用户约束和偏好（显性 + 推断）、成果质量标准、预期产出路径（如有交付物）。`;
-
-  return task;
-}
-
-function buildVerifyTrueWriteSection(): string {
-  return `目录结构：
-\`\`\`
-./contract-drafts/<contract-slug>/
-  contract.yaml
-  verification/
-    <subtask-id>.prompt.txt  ← type: llm
-    <subtask-id>.sh          ← type: script
-\`\`\`
-
-\`<contract-slug>\`：kebab-case，描述本次契约内容，如 \`pdf-to-markdown-survey\`。
-
-**contract.yaml 格式**：
-\`\`\`yaml
-schema_version: 1
-title: "任务标题（50字以内）"
-background: "用户意图：为什么要做这件事（与具体行动无关的动机和背景）"
-goal: "要完成什么"
-expectations: |
-  全局执行要求和质量期望：
-  - 用户的约束和偏好
-  - 成果质量标准
-  - 产出文件路径（若有，例如：<contract-slug>/report.md）
-subtasks:
-  - id: <subtask-id>
-    description: "动词 + 做什么，将结果写入 <contract-slug>/<file>；含该子任务特有的细化要求"
-verification:
-  - subtask_id: <subtask-id>
-    type: llm
-    prompt_file: verification/<subtask-id>.prompt.txt
-escalation:
-  max_retries: 3
-\`\`\`
-
-**verification/.prompt.txt 格式**（type: llm 时）：
-\`\`\`
-检查 <contract-slug>/<file> 是否存在且包含……
-
-子任务描述：{{subtask_description}}
-完成证据：{{evidence}}
-\`\`\`
-
-可用变量：\`{{evidence}}\`（submit_subtask 时填写的描述）、\`{{subtask_description}}\`、\`{{artifacts}}\`。
-
-**关键规则**：
-- \`subtasks\` 必须是数组（\`- id: ...\` 列表），不能是对象映射（\`<subtask-id>: { description: ... }\` 格式系统拒绝）
-- 验证条件不能写在 subtask 内部，必须写在顶层 \`verification\` 数组里
-- \`type: llm\` 必须用 \`prompt_file\`（指向 verification/ 目录下的 .prompt.txt），不能用 \`prompt\` 内联文本
-- \`type: script\` 用 \`script_file\`（指向 verification/ 目录下的 .sh 文件）
-- 每个有产出文件的子任务，description 里必须写明路径（Claw 依赖此路径决定文件写到哪里）`;
-}
-
-function buildVerifyFalseWriteSection(): string {
-  return `目录结构：
+目录结构：
 \`\`\`
 ./contract-drafts/<contract-slug>/
   contract.yaml
@@ -201,8 +110,21 @@ subtasks:
 **关键规则**：
 - \`subtasks\` 必须是数组（\`- id: ...\` 列表），不能是对象映射（\`<subtask-id>: { description: ... }\` 格式系统拒绝）
 - 每个有产出文件的子任务，description 里必须写明路径（Claw 依赖此路径决定文件写到哪里）
+- **禁止在 contract.yaml 出现 verification 或 escalation 字段**。SummonSystem 当前策略固定为无 verification 门控；带这些字段的契约会被 gate 拒绝。
 
-**verify=false 行为承诺**：
-本契约 verify=false（默认）—— 子任务 claw 调 submit_subtask 即立即标 completed，不经过 verification 门控。
-**禁止在 contract.yaml 写 \`verification:\` / \`escalation:\` 字段**。CLI gate 会在 contract create 时拒带这些字段的契约（错误：SUMMON_VERIFY_FALSE_VIOLATION）。如确需 verification 门控，summon 调用方须显式传 \`verify: true\`。`;
+### 4. 提交契约
+exec: chestnut contract create --claw <targetClawId> --dir ./contract-drafts/<contract-slug>
+
+CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次任务完成、可直接 \`done(result="<给 Motion 的简报>"\` 退出。系统按创建记录自动登记 retro、无需在 result 内附加任何特殊标记。
+
+**任何其他执行路径**（包括跳过 Step 4 自己跑 grep/write/exec 完成任务的实际工作）**都不算成功完成**，系统核实不到契约提交记录即判失败。
+
+---
+
+### background / expectations 写法指引
+
+- **background**：用户意图，与具体行动无关的动机和背景。从对话上下文综合提炼，不是对任务的描述。
+- **expectations**：全局执行要求和质量期望，适用于所有子任务。包含：用户约束和偏好（显性 + 推断）、成果质量标准、预期产出路径（如有交付物）。`;
+
+  return task;
 }

@@ -2,30 +2,10 @@
  * SummonVerifyPolicy unit tests (phase 240 rewrite of phase 230 follow-up,
  * phase 281 Step B migrate from SummonStateStore to SubAgentTask.summonDecision metadata).
  *
- * Background: phase 230 introduced ContractCreatePolicy plug-in framework + replaced
- * SummonContractCreateGate with SummonVerifyPolicy; an adapter shim was left behind
- * (commit e242b5e2) and later deleted (commit 281e2abf). The old gate test file
- * (`tests/core/summon-system/contract-create-gate.test.ts`) was left as
- * `describe.skip(...)` with a dead import to mark the follow-up debt.
- *
- * Phase 240 deletes the old test file and replaces it with this one: 13 cases
- * = 12 mapped from the old gate API to the new policy API + 1 new case covering
- * the `read throws → SUMMON_STATE_READ_FAILED + pass-through` path the old tests
- * never exercised.
- *
- * Phase 281 Step B: decision source changed from SummonStateStore.read to
- * loadTask(taskId).summonDecision. Tests now construct a SubAgentTask with
- * optional summonDecision metadata.
- *
- * Phase 1396 Step B: 0/1 creation claim — policy 在 violation 检查通过后调用
- * SummonCreationClaimStore.claim；同候选重试幂等通过，不同候选 typed reject
- * （ContractCreatePolicyViolationError cause='summon_contract_already_claimed'）。
- *
- * Assertion patterns:
- * - Violation cases assert on `policyName` + `cause` + `details` (public fields of
- *   ContractCreatePolicyViolationError), not on the message string — message format
- *   may legitimately change without breaking the contract.
- * - Audit cases use SUMMON_AUDIT_EVENTS constants instead of literal event names.
+ * Phase 1396 Step K: decision 版本化。
+ * - v2 (active): 固定 no-verification；executor 只取 ctx.clawDir；缺失为 invariant failure。
+ * - v1 (legacy): 保留原 verify/targetClaw 行为，用于已落盘任务恢复兼容。
+ * - Unknown schema_version: fail-observable，不降级成 pass-through。
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -43,11 +23,12 @@ import {
   type SummonCreationClaimStore,
 } from '../../../src/core/summon-system/creation-claim-store.js';
 
-type DecisionBody = Omit<NonNullable<SubAgentTask['summonDecision']>, 'schema_version'> & { schema_version?: 1 };
+type SummonDecisionV2 = { schema_version: 2; dispatchedAt: string };
+type LegacySummonDecisionV1 = { schema_version: 1; mode: 'shadow' | 'mining'; verify: boolean; targetClaw?: string; dispatchedAt: string };
 
 function makeSubAgentTask(
   taskId: string,
-  decision?: DecisionBody,
+  decision?: SummonDecisionV2 | LegacySummonDecisionV1,
 ): SubAgentTask {
   return {
     kind: 'subagent',
@@ -57,12 +38,12 @@ function makeSubAgentTask(
     timeoutMs: 1000,
     parentClawId: 'parent-claw',
     createdAt: '2024-01-01T00:00:00.000Z',
-    ...(decision ? { summonDecision: { schema_version: 1 as const, ...decision } } : {}),
+    ...(decision ? { summonDecision: decision } : {}),
   };
 }
 
 function makeLoadTask(
-  decision?: DecisionBody,
+  decision?: SummonDecisionV2 | LegacySummonDecisionV1,
   readImpl?: (taskId: string) => Promise<SubAgentTask | undefined>,
 ): (taskId: TaskId) => Promise<SubAgentTask | undefined> {
   return vi.fn().mockImplementation(async (taskId: string) => {
@@ -110,7 +91,7 @@ function makeAudit(): {
   writes: Array<(string | number)[]>;
 } {
   const writes: Array<(string | number)[]> = [];
-  const audit = {
+  const audit: AuditLog = {
     __brand: 'AuditLog',
     write: (type: string, ...cols: (string | number)[]) => {
       writes.push([type, ...cols]);
@@ -132,25 +113,28 @@ function makeContract(verification?: ContractYaml['verification']): ContractYaml
   };
 }
 
-/** Phase 1396 Step B: CreatePolicyContext 必带 ContractSystem 规范化后的 proposedContractId。 */
 function makeCtx(over?: Partial<CreatePolicyContext>): CreatePolicyContext {
   return { proposedContractId: 'cand-1', ...over };
 }
 
-function makeBaseDecision(over?: Partial<DecisionBody>): DecisionBody {
+function makeV2Decision(over?: Partial<SummonDecisionV2>): SummonDecisionV2 {
+  return { schema_version: 2, dispatchedAt: '2024-01-01T00:00:00.000Z', ...over };
+}
+
+function makeV1Decision(over?: Partial<LegacySummonDecisionV1>): LegacySummonDecisionV1 {
   return {
-    verify: false,
+    schema_version: 1,
     mode: 'shadow',
+    verify: false,
     dispatchedAt: '2024-01-01T00:00:00.000Z',
     ...over,
   };
 }
 
-describe('SummonVerifyPolicy (phase 240 rewrite of phase 230 follow-up, phase 281 metadata)', () => {
-
+describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
   describe('pass-through paths (no decision read or no violation)', () => {
     it('subagentTaskId undefined → no-op pass, loadTask not called', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'my-claw' }));
+      const loadTask = makeLoadTask(makeV2Decision());
       const { audit } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
@@ -161,68 +145,26 @@ describe('SummonVerifyPolicy (phase 240 rewrite of phase 230 follow-up, phase 28
       expect(claimSpy).not.toHaveBeenCalled();
     });
 
-    it('subagentTaskId unset + decision.targetClaw set → pass, loadTask still not called', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ targetClaw: 'my-claw' }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
+    it('task.summonDecision undefined → audit SUMMON_GATE_NO_DECISION + pass-through', async () => {
+      const loadTask = makeLoadTask();
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
-        policy.check(makeCtx({ clawDir: 'other-claw' }), makeContract()),
+        policy.check(
+          makeCtx({ subagentTaskId: 't1', clawDir: 'any-claw' }),
+          makeContract([{ subtask_id: 'a', type: 'llm' }]),
+        ),
       ).resolves.toBeUndefined();
-      expect(loadTask).not.toHaveBeenCalled();
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
+        'subagentTaskId=t1',
+        'reason=likely_non_summon_subagent',
+      ]);
     });
 
-    it('verify=false + decision.targetClaw unset + clawDir present → pass (motion 未指定 targetClaw 由子代理自决)', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'any-claw' }), makeContract()),
-      ).resolves.toBeUndefined();
-    });
-
-    it('verify=true + clawDir mismatch → pass (verify=true 路径不校 target_claw)', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: true, targetClaw: 'statsvc-auditor' }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'gateway-auditor' }), makeContract()),
-      ).resolves.toBeUndefined();
-    });
-
-    it('verify=true + verification non-empty → pass', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: true }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1' }), makeContract([{ subtask_id: 'a', type: 'llm' }])),
-      ).resolves.toBeUndefined();
-    });
-
-    it('verify=false + verification empty → pass', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1' }), makeContract([])),
-      ).resolves.toBeUndefined();
-    });
-
-    it('verify=false + verification missing → pass', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1' }), makeContract()),
-      ).resolves.toBeUndefined();
-    });
-
-    it('loadTask throws → audit SUMMON_STATE_READ_FAILED + pass-through (phase 240 NEW)', async () => {
+    it('loadTask throws → audit SUMMON_STATE_READ_FAILED + pass-through', async () => {
       const loadTask = makeLoadTask(undefined, async () => { throw new Error('boom'); });
       const { audit, writes } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
@@ -244,20 +186,132 @@ describe('SummonVerifyPolicy (phase 240 rewrite of phase 230 follow-up, phase 28
     });
   });
 
-  describe('target_claw boundary (phase 119 contract)', () => {
-    it('verify=false + clawDir match → pass', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'my-claw' }));
+  describe('v2 active decision path', () => {
+    it('v2 + no verification + clawDir present → pass and claim', async () => {
+      const loadTask = makeLoadTask(makeV2Decision());
+      const { audit } = makeAudit();
+      const { claimStore, claimSpy, claims } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      await expect(
+        policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
+      ).resolves.toBeUndefined();
+
+      expect(claimSpy).toHaveBeenCalledTimes(1);
+      expect(claimSpy).toHaveBeenCalledWith({
+        summonId: 't1',
+        targetExecutorId: 'my-claw',
+        contractId: 'cand-1',
+      });
+      expect(claims.get('t1')).toMatchObject({ contractId: 'cand-1' });
+    });
+
+    it('v2 + verification entries → throw summon_verify_false_violation', async () => {
+      const loadTask = makeLoadTask(makeV2Decision());
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      const err = await policy
+        .check(
+          makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw' }),
+          makeContract([{ subtask_id: 'a', type: 'llm' }]),
+        )
+        .catch(e => e);
+
+      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
+      expect(err).toMatchObject({
+        policyName: 'summon-verify',
+        cause: 'summon_verify_false_violation',
+        details: expect.objectContaining({
+          subagentTaskId: 't1',
+          verificationCount: 1,
+        }),
+      });
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
+        'subagentTaskId=t1',
+        'verificationCount=1',
+        'reason=v2_no_verification_allowed',
+      ]);
+    });
+
+    it('v2 + clawDir missing → throw summon_v2_executor_context_missing', async () => {
+      const loadTask = makeLoadTask(makeV2Decision());
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      const err = await policy
+        .check(makeCtx({ subagentTaskId: 't1' }), makeContract())
+        .catch(e => e);
+
+      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
+      expect(err).toMatchObject({
+        policyName: 'summon-verify',
+        cause: 'summon_v2_executor_context_missing',
+      });
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_V2_EXECUTOR_CONTEXT_MISSING,
+        'subagentTaskId=t1',
+        'reason=no_executor_context',
+      ]);
+    });
+
+    it('v2 same candidate retry → same_claim idempotent', async () => {
+      const loadTask = makeLoadTask(makeV2Decision());
+      const { audit } = makeAudit();
+      const { claimStore } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+      const ctx = makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' });
+
+      await expect(policy.check(ctx, makeContract())).resolves.toBeUndefined();
+      await expect(policy.check(ctx, makeContract())).resolves.toBeUndefined();
+    });
+
+    it('v2 second different candidate → typed reject', async () => {
+      const loadTask = makeLoadTask(makeV2Decision());
+      const { audit } = makeAudit();
+      const { claimStore } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      await policy.check(
+        makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' }),
+        makeContract(),
+      );
+      const err = await policy
+        .check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-2' }), makeContract())
+        .catch(e => e);
+
+      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
+      expect(err).toMatchObject({
+        policyName: 'summon-verify',
+        cause: 'summon_contract_already_claimed',
+        details: expect.objectContaining({
+          subagentTaskId: 't1',
+          claimedContractId: 'cand-1',
+          requestedContractId: 'cand-2',
+        }),
+      });
+    });
+  });
+
+  describe('legacy v1 decision compatibility', () => {
+    it('v1 verify=false + clawDir match → pass', async () => {
+      const loadTask = makeLoadTask(makeV1Decision({ targetClaw: 'my-claw' }));
       const { audit, writes } = makeAudit();
       const { claimStore } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
         policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw' }), makeContract()),
       ).resolves.toBeUndefined();
-      expect(writes).toEqual([]);  // no violation, no audit
+      expect(writes).toEqual([]);
     });
 
-    it('verify=false + clawDir mismatch → throw ContractCreatePolicyViolationError', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'statsvc-auditor' }));
+    it('v1 verify=false + clawDir mismatch → throw summon_target_claw_violation', async () => {
+      const loadTask = makeLoadTask(makeV1Decision({ targetClaw: 'statsvc-auditor' }));
       const { audit } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
@@ -276,49 +330,31 @@ describe('SummonVerifyPolicy (phase 240 rewrite of phase 230 follow-up, phase 28
         }),
       });
       expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
-      // 被拒绝的创建不消耗 claim
       expect(claimSpy).not.toHaveBeenCalled();
     });
 
-    it('audit SUMMON_TARGET_CLAW_VIOLATION 载荷正确', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'statsvc-auditor' }));
-      const { audit, writes } = makeAudit();
+    it('v1 verify=true + clawDir mismatch → pass', async () => {
+      const loadTask = makeLoadTask(makeV1Decision({ verify: true, targetClaw: 'statsvc-auditor' }));
+      const { audit } = makeAudit();
       const { claimStore } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      await policy
-        .check(makeCtx({ subagentTaskId: 't1', clawDir: 'gateway-auditor' }), makeContract())
-        .catch(() => { /* swallow: 本 case 验 audit 载荷、不断言抛出（独立 case 已覆盖） */ });
-      expect(writes).toContainEqual([
-        SUMMON_AUDIT_EVENTS.SUMMON_TARGET_CLAW_VIOLATION,
-        'subagentTaskId=t1',
-        'expectedTargetClaw=statsvc-auditor',
-        'requestedClawId=gateway-auditor',
-      ]);
+      await expect(
+        policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'gateway-auditor' }), makeContract()),
+      ).resolves.toBeUndefined();
     });
-  });
 
-  describe('verify=false verification violation', () => {
-    it('task.summonDecision undefined → audit SUMMON_GATE_NO_DECISION + pass-through', async () => {
-      const loadTask = makeLoadTask();  // no decision
-      const { audit, writes } = makeAudit();
-      const { claimStore, claimSpy } = makeClaimStore();
+    it('v1 verify=true + verification non-empty → pass', async () => {
+      const loadTask = makeLoadTask(makeV1Decision({ verify: true }));
+      const { audit } = makeAudit();
+      const { claimStore } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
       await expect(
-        policy.check(
-          makeCtx({ subagentTaskId: 't1', clawDir: 'any-claw' }),
-          makeContract([{ subtask_id: 'a', type: 'llm' }]),
-        ),
+        policy.check(makeCtx({ subagentTaskId: 't1' }), makeContract([{ subtask_id: 'a', type: 'llm' }])),
       ).resolves.toBeUndefined();
-      expect(claimSpy).not.toHaveBeenCalled();
-      expect(writes).toContainEqual([
-        SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
-        'subagentTaskId=t1',
-        'reason=likely_non_summon_subagent',
-      ]);
     });
 
-    it('verify=false + verification non-empty → throw violation + audit SUMMON_VERIFY_FALSE_VIOLATION', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false, targetClaw: 'foo' }));
+    it('v1 verify=false + verification non-empty → throw summon_verify_false_violation', async () => {
+      const loadTask = makeLoadTask(makeV1Decision({ targetClaw: 'foo' }));
       const { audit, writes } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
@@ -344,131 +380,60 @@ describe('SummonVerifyPolicy (phase 240 rewrite of phase 230 follow-up, phase 28
         'targetClaw=foo',
         'verificationCount=1',
       ]);
-      // 被拒绝的创建不消耗 claim
       expect(claimSpy).not.toHaveBeenCalled();
     });
-  });
 
-  describe('phase 1396 Step B: 0/1 creation claim', () => {
-    it('summon task 首个合法候选 → claim {summonId, targetExecutorId, proposedContractId}', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: true }));
-      const { audit } = makeAudit();
-      const { claimStore, claimSpy, claims } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-
-      await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
-      ).resolves.toBeUndefined();
-
-      expect(claimSpy).toHaveBeenCalledTimes(1);
-      expect(claimSpy).toHaveBeenCalledWith({
-        summonId: 't1',
-        targetExecutorId: 'my-claw',
-        contractId: 'cand-1',
-      });
-      expect(claims.get('t1')).toMatchObject({ contractId: 'cand-1' });
-    });
-
-    it('verify=false 路径同样 claim（0/1 不变量与 verify 无关）', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: false }));
+    it('v1 claim with clawDir fallback to decision.targetClaw', async () => {
+      const loadTask = makeLoadTask(makeV1Decision({ verify: true, targetClaw: 'fallback-claw' }));
       const { audit } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
       await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
+        policy.check(makeCtx({ subagentTaskId: 't1' }), makeContract()),
       ).resolves.toBeUndefined();
-      expect(claimSpy).toHaveBeenCalledTimes(1);
+      expect(claimSpy).toHaveBeenCalledWith(expect.objectContaining({ targetExecutorId: 'fallback-claw' }));
     });
 
-    it('相同候选重试 → same_claim 幂等通过', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: true }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-      const ctx = makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' });
-
-      await expect(policy.check(ctx, makeContract())).resolves.toBeUndefined();
-      await expect(policy.check(ctx, makeContract())).resolves.toBeUndefined();
-    });
-
-    it('第二个不同候选 → typed reject（summon_contract_already_claimed）+ audit', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: true }));
+    it('v1 claim skipped when both clawDir and targetClaw missing', async () => {
+      const loadTask = makeLoadTask(makeV1Decision({ verify: true }));
       const { audit, writes } = makeAudit();
-      const { claimStore } = makeClaimStore();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+      await expect(
+        policy.check(makeCtx({ subagentTaskId: 't1' }), makeContract()),
+      ).resolves.toBeUndefined();
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_CLAIM_SKIPPED,
+        'subagentTaskId=t1',
+        'reason=no_executor_context',
+      ]);
+    });
+  });
+
+  describe('unknown schema version', () => {
+    it('schema_version 3 → fail-observable violation', async () => {
+      const loadTask = makeLoadTask({ schema_version: 3, dispatchedAt: '2024-01-01T00:00:00.000Z' } as unknown as SummonDecisionV2);
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
 
-      await policy.check(
-        makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' }),
-        makeContract(),
-      );
       const err = await policy
-        .check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-2' }), makeContract())
+        .check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw' }), makeContract())
         .catch(e => e);
 
       expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
       expect(err).toMatchObject({
         policyName: 'summon-verify',
-        cause: 'summon_contract_already_claimed',
-        details: expect.objectContaining({
-          subagentTaskId: 't1',
-          claimedContractId: 'cand-1',
-          requestedContractId: 'cand-2',
-        }),
+        cause: 'summon_unknown_schema_version',
       });
+      expect(claimSpy).not.toHaveBeenCalled();
       expect(writes).toContainEqual([
-        SUMMON_AUDIT_EVENTS.SUMMON_CONTRACT_ALREADY_CLAIMED,
+        SUMMON_AUDIT_EVENTS.SUMMON_GATE_UNKNOWN_SCHEMA_VERSION,
         'subagentTaskId=t1',
-        'summonId=t1',
-        'claimedContractId=cand-1',
-        'requestedContractId=cand-2',
+        'schema_version=3',
       ]);
-    });
-
-    it('不同 executor 的第二候选 → typed reject', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: true }));
-      const { audit } = makeAudit();
-      const { claimStore } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-
-      await policy.check(
-        makeCtx({ subagentTaskId: 't1', clawDir: 'claw-a', proposedContractId: 'cand-1' }),
-        makeContract(),
-      );
-      const err = await policy
-        .check(makeCtx({ subagentTaskId: 't1', clawDir: 'claw-b', proposedContractId: 'cand-1' }), makeContract())
-        .catch(e => e);
-      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
-      expect(err.cause).toBe('summon_contract_already_claimed');
-    });
-
-    it('clawDir 缺失时回退 decision.targetClaw 作 executor；两者皆缺 → CLAIM_SKIPPED + pass-through', async () => {
-      const loadTask = makeLoadTask(makeBaseDecision({ verify: true, targetClaw: 'fallback-claw' }));
-      const { audit, writes } = makeAudit();
-      const { claimStore, claimSpy } = makeClaimStore();
-      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
-
-      // clawDir 缺、decision.targetClaw 在 → 用 targetClaw claim
-      await expect(
-        policy.check(makeCtx({ subagentTaskId: 't1' }), makeContract()),
-      ).resolves.toBeUndefined();
-      expect(claimSpy).toHaveBeenCalledWith(expect.objectContaining({ targetExecutorId: 'fallback-claw' }));
-
-      // 两者皆缺 → skip + audit
-      const loadTask2 = makeLoadTask(makeBaseDecision({ verify: true }));
-      const { audit: audit2, writes: writes2 } = makeAudit();
-      const { claimStore: cs2, claimSpy: spy2 } = makeClaimStore();
-      const policy2 = createSummonVerifyPolicy({ loadTask: loadTask2, auditWriter: audit2, claimStore: cs2 });
-      await expect(
-        policy2.check(makeCtx({ subagentTaskId: 't2' }), makeContract()),
-      ).resolves.toBeUndefined();
-      expect(spy2).not.toHaveBeenCalled();
-      expect(writes2).toContainEqual([
-        SUMMON_AUDIT_EVENTS.SUMMON_CLAIM_SKIPPED,
-        'subagentTaskId=t2',
-        'reason=no_executor_context',
-      ]);
-      expect(writes.filter(w => w[0] === SUMMON_AUDIT_EVENTS.SUMMON_CLAIM_SKIPPED)).toHaveLength(0);
     });
   });
 });

@@ -58,10 +58,10 @@ export class SummonTool implements Tool {
   readonly restrictedOverrides = { allowFromShadow: false };
 
   // phase 281 Step B: SummonStateStore 已删；decision 内嵌 SubAgentTask metadata。
+  // Phase 1396 Step K: 移除无行为的 _subagentMaxSteps 占位，避免位置参数误传。
   constructor(
     taskSystem?: SubAgentTaskScheduler,
     originClawId?: string,
-    _subagentMaxSteps?: number,
     allowFromShadow: boolean = true,
   ) {
     this.taskSystem = taskSystem;
@@ -110,9 +110,9 @@ export class SummonTool implements Tool {
       }
     }
 
-    // Phase 1396 Step C: 内部固定 shadow 路径 + 系统内部默认（verify=false、
-    // 默认 idle timeout）；agent 只提供 goal。
-    const userMessage = buildSummonContractTask(args.goal as string, skillsSummary, undefined, { verify: false });
+    // Phase 1396 Step C/K: 内部固定 shadow 路径 + no-verification 策略由 policy
+    // 直接拥有；agent 只提供 goal。
+    const userMessage = buildSummonContractTask(args.goal as string, skillsSummary);
     const mainContextSnapshot = ctx.clawId && ctx.currentToolUseId
       ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
       : undefined;
@@ -175,10 +175,10 @@ export class SummonTool implements Tool {
       idleTimeoutMs,
       postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
       shadowIdPrefix: 'summon',
+      // Phase 1396 Step K: active summon 只写 v2 correlation marker；
+      // mode/verify/targetClaw 已从调用方决策中退场。
       summonDecision: {
-        schema_version: 1,
-        mode: 'shadow',
-        verify: false,
+        schema_version: 2,
         dispatchedAt: new Date().toISOString(),
       },
     });

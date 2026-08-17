@@ -47,7 +47,10 @@ export { classifyTaskError } from './_helpers.js';
 // phase 481: TASK_AUDIT_EVENTS barrel re-export
 export { TASK_AUDIT_EVENTS } from './audit-events.js';
 // phase 485: task-schemas type barrel re-export
-export type { SummonDecisionMetadata } from './task-schemas.js';
+export type {
+  SummonDecisionMetadata,
+  LegacySummonDecisionV1,
+} from './task-schemas.js';
 
 // phase 1130: typed audit emit functions
 // phase 1302: 32 个 emit* 符号在 src + tests 中经 barrel 消费全为 0；撤销 phase 132 wildcard。

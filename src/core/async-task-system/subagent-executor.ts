@@ -36,7 +36,10 @@ import { taskShortId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
 
-/** Compatibility for already-persisted tasks written before toolProfile existed. */
+/** Compatibility for already-persisted tasks written before toolProfile existed.
+ * Phase 1396 Step K: 'miner_subagent' branch is legacy v1 read-only; no new writer
+ * should schedule miner callerType tasks.
+ */
 function legacyCallerTypeToProfile(ct: string) {
   if (ct === 'miner_subagent') return 'miner';
   if (ct === 'shadow_subagent') return 'full';

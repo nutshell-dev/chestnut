@@ -3,7 +3,7 @@ import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { LLMOrchestrator } from '../../../foundation/llm-orchestrator/index.js';
 import { classifyLLMError } from '../../../foundation/llm-orchestrator/index.js';
 import type { Message } from '../../../foundation/llm-provider/index.js';
-import { buildAskMotionCloneFirstMessage } from '../../../templates/prompts/index.js';
+
 import { DialogStore } from '../../../foundation/dialog-store/index.js';
 
 import { formatErr } from '../../../foundation/node-utils/index.js';
@@ -13,6 +13,14 @@ export const ASK_MOTION_TOOL_NAME = 'ask_motion' as const;
 export const ASK_MOTION_TOOL_DESCRIPTION = `向 Motion 分身提问，获取 Motion 对用户意图、背景、偏好的判断。
 分身继承 Motion 完整上下文（系统提示 + 当前对话历史），多轮问答自动累积。
 适用场景：用户意图模糊、不确定目标 claw、需确认优先级或约束等。`;
+
+/**
+ * Phase 1396 Step K: AskMotionTool 仅作为 legacy `motionClawDir/miner_subagent` task 的
+ * 恢复依赖保留；新 v2 summon 路径不再注册/调用它。
+ */
+function buildAskMotionCloneFirstMessage(question: string): string {
+  return `你是 Motion 的分身，由 summon 在意图挖掘阶段创建。你只负责回答问题，不能调用任何工具。请基于你已有的对话上下文作答，协助完成契约创建。\n\n---\n\n${question}`;
+}
 
 export const ASK_MOTION_TOOL_SCHEMA = {
   type: 'object',

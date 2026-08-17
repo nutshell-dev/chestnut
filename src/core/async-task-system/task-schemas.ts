@@ -14,10 +14,13 @@ import { z } from 'zod';
 const CallerTypeSchema = z.enum(['spawn_subagent', 'verifier', 'shadow_subagent', 'miner_subagent']);
 
 /**
- * phase 281: SummonDecision 内嵌 metadata，与 async-task task 文件 lifecycle 同步。
- * 字段对齐 summon-state-store.ts SummonDecision（不含 taskId，task.id 即 taskId）。
+ * Phase 1396 Step K: SummonDecision 版本化 metadata。
+ *
+ * - v2 (active): 只标识“这是 summon contract creation”及派发时间；固定 no-verification
+ *   策略由 SummonSystem policy 直接拥有，不再伪装成 caller choice。
+ * - v1 (legacy): 保留已落盘任务的严格读取字段（mode/verify/可选 targetClaw）。
  */
-export const SummonDecisionMetadataSchema = z.object({
+export const LegacySummonDecisionV1Schema = z.object({
   schema_version: z.literal(1),
   mode: z.enum(['shadow', 'mining']),
   verify: z.boolean(),
@@ -25,7 +28,19 @@ export const SummonDecisionMetadataSchema = z.object({
   dispatchedAt: z.string(),
 });
 
+export const SummonDecisionV2Schema = z.object({
+  schema_version: z.literal(2),
+  dispatchedAt: z.string(),
+}).strict();
+
+export const SummonDecisionMetadataSchema = z.discriminatedUnion('schema_version', [
+  LegacySummonDecisionV1Schema,
+  SummonDecisionV2Schema,
+]);
+
 export type SummonDecisionMetadata = z.infer<typeof SummonDecisionMetadataSchema>;
+export type LegacySummonDecisionV1 = z.infer<typeof LegacySummonDecisionV1Schema>;
+export type SummonDecisionV2 = z.infer<typeof SummonDecisionV2Schema>;
 
 const commonSubAgentFields = {
   kind: z.literal('subagent'),

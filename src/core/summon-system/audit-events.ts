@@ -36,6 +36,13 @@ export const SUMMON_AUDIT_EVENTS = {
   SUMMON_TARGET_CLAW_VIOLATION: 'summon_target_claw_violation',
   SUMMON_LEGACY_STATE_FILE_DETECTED: 'summon_legacy_state_file_detected',
   /**
+   * Phase 1396 Step K: v2 active path invariants.
+   * V2_EXECUTOR_CONTEXT_MISSING: ctx.clawDir 缺失，无法确定 executor。
+   * GATE_UNKNOWN_SCHEMA_VERSION: task.summonDecision schema_version 非 1/2，fail-observable。
+   */
+  SUMMON_V2_EXECUTOR_CONTEXT_MISSING: 'summon_v2_executor_context_missing',
+  SUMMON_GATE_UNKNOWN_SCHEMA_VERSION: 'summon_gate_unknown_schema_version',
+  /**
    * phase 1129 P1-16: subagent audit.tsv 非 FNF 读失败。
    * 与 NO_CONTRACT_CREATED 区分：audit 不可读时契约状态不确定、禁止盲目 mining 重试。
    */

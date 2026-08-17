@@ -653,6 +653,7 @@
       "summon_creation_recovered",
       "summon_dispatched",
       "summon_gate_no_decision",
+      "summon_gate_unknown_schema_version",
       "summon_legacy_retro_ack_failed",
       "summon_legacy_state_file_detected",
       "summon_load_skills_failed",
@@ -664,6 +665,7 @@
       "summon_sub_audit_read_failed",
       "summon_target_claw_violation",
       "summon_verify_false_violation",
+      "summon_v2_executor_context_missing",
       "summon_write_by_contract_failed"
     ],
     "core_event-loop_audit-events": [
