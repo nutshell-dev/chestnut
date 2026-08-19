@@ -12,6 +12,7 @@ import * as fs from 'fs/promises';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import type { ContractNotification } from '../../../src/core/contract/notification.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { ToolError } from '../../../src/foundation/tools/index.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
@@ -42,7 +43,7 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
-async function setup(): Promise<Fixture> {
+async function setup(overrides?: { makeFs?: (clawDir: string) => NodeFileSystem }): Promise<Fixture> {
   const tempDir = await createTempDir('phase1396-failed-');
   const clawDir = path.join(tempDir, 'claws', EXECUTOR_ID);
   await fs.mkdir(clawDir, { recursive: true });
@@ -53,7 +54,7 @@ async function setup(): Promise<Fixture> {
   const manager = new ContractSystem({
     clawDir,
     clawId: EXECUTOR_ID,
-    fs: new NodeFileSystem({ baseDir: clawDir }),
+    fs: overrides?.makeFs ? overrides.makeFs(clawDir) : new NodeFileSystem({ baseDir: clawDir }),
     audit,
     toolRegistry: createToolRegistry(),
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
@@ -229,7 +230,7 @@ describe('Phase 1396 Step D: boot reconcile replays failed intents', () => {
   });
 });
 
-describe('Phase 1396 Step D: ContractSystem.failActiveForExecutor', () => {
+describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void> 收口)', () => {
   let fx: Fixture;
 
   beforeEach(async () => {
@@ -240,34 +241,38 @@ describe('Phase 1396 Step D: ContractSystem.failActiveForExecutor', () => {
     await cleanupTempDir(fx.tempDir);
   });
 
-  it('returns an empty outcome list when the executor has no active contract', async () => {
-    const outcomes = await fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE });
-    expect(outcomes).toEqual([]);
+  async function countIntentFiles(contractId: string): Promise<number> {
+    const dir = path.join(fx.clawDir, 'contract', 'lifecycle-intents', contractId);
+    if (!(await fileExists(dir))) return 0;
+    return (await fs.readdir(dir)).filter(n => n.endsWith('.json')).length;
+  }
+
+  async function createActive(title: string): Promise<string> {
+    return fx.manager.create(makeContractYaml({
+      title,
+      goal: 'Test',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    }));
+  }
+
+  it('resolves undefined when the executor has no active contract', async () => {
+    await expect(
+      fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
+    ).resolves.toBeUndefined();
   });
 
   it('fails every active contract of the executor in deterministic (sorted id) order', async () => {
-    const idB = await fx.manager.create(makeContractYaml({
-      title: 'B',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
-    const idA = await fx.manager.create(makeContractYaml({
-      title: 'A',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
+    const idB = await createActive('B');
+    const idA = await createActive('A');
     // Force deterministic ids independent of creation order.
     expect(idA).not.toBe(idB);
     const sorted = [idA, idB].sort();
 
-    const outcomes = await fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE });
+    await expect(
+      fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
+    ).resolves.toBeUndefined();
 
-    expect(outcomes).toHaveLength(2);
-    for (const outcome of outcomes) {
-      expect(outcome).toMatchObject({ kind: 'committed', state: 'failed' });
-    }
     // Deterministic enumeration: intents land in sorted contract-id order.
     const intentPersistedOrder = fx.auditWrite.mock.calls
       .filter((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_PERSISTED)
@@ -280,17 +285,96 @@ describe('Phase 1396 Step D: ContractSystem.failActiveForExecutor', () => {
     expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(2);
   });
 
-  it('refuses foreign executor ids without touching local contracts', async () => {
-    const contractId = await fx.manager.create(makeContractYaml({
-      title: 'Local',
-      goal: 'Test',
-      subtasks: [{ id: 't1', description: 'T1' }],
-      verification: [],
-    }));
+  it('derives a stable requestId per contract: reporting the same fact twice reuses one intent', async () => {
+    const contractId = await createActive('Stable');
+    const input = { executorId: EXECUTOR_ID, failure: FAILURE };
 
-    const outcomes = await fx.manager.failActiveForExecutor({ executorId: 'other-executor', failure: FAILURE });
+    await expect(fx.manager.failActiveForExecutor(input)).resolves.toBeUndefined();
+    // 重试：contract 已归档、不再枚举 → 不产生新 intent。
+    await expect(fx.manager.failActiveForExecutor(input)).resolves.toBeUndefined();
 
-    expect(outcomes).toEqual([]);
+    expect(await countIntentFiles(contractId)).toBe(1);
+    expect(failedAuditCalls(fx)).toHaveLength(1);
+    expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(1);
+  });
+
+  it('rejects when the terminal rename is retryable, keeps the intent, and the retry closes the same intent', async () => {
+    // 注入 moveDir 失败：rename 失败、contract 仍 active → retryable → reject。
+    const failMoves = { current: true };
+    class FlakyMoveFs extends NodeFileSystem {
+      override async moveDir(fromPath: string, toPath: string): Promise<void> {
+        if (failMoves.current && fromPath.includes(`active${path.sep}`)) {
+          throw new Error('mock move failure');
+        }
+        return super.moveDir(fromPath, toPath);
+      }
+    }
+    await cleanupTempDir(fx.tempDir);
+    fx = await setup({ makeFs: (dir) => new FlakyMoveFs({ baseDir: dir }) });
+
+    const contractId = await createActive('Retryable');
+    const input = { executorId: EXECUTOR_ID, failure: FAILURE };
+
+    await expect(fx.manager.failActiveForExecutor(input)).rejects.toThrow(ToolError);
+    // intent 已持久化（at-least-once 证据在 ContractSystem 侧），contract 仍 active。
+    expect(await countIntentFiles(contractId)).toBe(1);
+    expect(await fileExists(path.join(fx.clawDir, 'contract', 'active', contractId))).toBe(true);
+    expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(0);
+
+    // 重试同一失败事实：稳定 requestId 复用同一 intent，成功闭合后 resolve。
+    failMoves.current = false;
+    await expect(fx.manager.failActiveForExecutor(input)).resolves.toBeUndefined();
+    expect(await countIntentFiles(contractId)).toBe(1);
+    expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'failed', contractId))).toBe(true);
+  });
+
+  it('processes remaining active contracts when an earlier one is retryable; retry only touches still-active contracts', async () => {
+    const failMoves = { current: true };
+    class PartialMoveFs extends NodeFileSystem {
+      failFor = '';
+      override async moveDir(fromPath: string, toPath: string): Promise<void> {
+        if (failMoves.current && this.failFor !== '' && fromPath.includes(`active${path.sep}${this.failFor}`)) {
+          throw new Error('mock move failure');
+        }
+        return super.moveDir(fromPath, toPath);
+      }
+    }
+    let partial!: PartialMoveFs;
+    await cleanupTempDir(fx.tempDir);
+    fx = await setup({ makeFs: (dir) => { partial = new PartialMoveFs({ baseDir: dir }); return partial; } });
+
+    const id1 = await createActive('One');
+    const id2 = await createActive('Two');
+    const sorted = [id1, id2].sort();
+    partial.failFor = sorted[0];
+
+    // 第一个（sorted 序）retryable：reject，但第二个仍被处理并归档。
+    await expect(
+      fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
+    ).rejects.toThrow(ToolError);
+    expect(await fileExists(path.join(fx.clawDir, 'contract', 'active', sorted[0]))).toBe(true);
+    expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'failed', sorted[1]))).toBe(true);
+    expect(await countIntentFiles(sorted[0])).toBe(1);
+    expect(await countIntentFiles(sorted[1])).toBe(1);
+
+    // 重试：只枚举仍 active 的 contract；已归档的不产生新 intent。
+    failMoves.current = false;
+    await expect(
+      fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
+    ).resolves.toBeUndefined();
+    expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'failed', sorted[0]))).toBe(true);
+    expect(await countIntentFiles(sorted[0])).toBe(1);
+    expect(await countIntentFiles(sorted[1])).toBe(1);
+    expect(failedAuditCalls(fx)).toHaveLength(2);
+    expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(2);
+  });
+
+  it('rejects foreign executor ids without touching local contracts', async () => {
+    const contractId = await createActive('Local');
+
+    await expect(
+      fx.manager.failActiveForExecutor({ executorId: 'other-executor', failure: FAILURE }),
+    ).rejects.toThrow(ToolError);
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'active', contractId))).toBe(true);
     expect(fx.auditWrite.mock.calls.some((c: any[]) =>
       c[0] === CONTRACT_AUDIT_EVENTS.FAIL_EXECUTOR_MISMATCH,

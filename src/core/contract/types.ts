@@ -542,6 +542,12 @@ export interface ContractExecutionFailure {
  * Phase 1396 Step D: narrow intake for lower layers (event-loop recovery /
  * watchdog) to report execution failure. Implemented by ContractSystem; this is
  * the only path through which execution failure becomes a terminal state.
+ *
+ * Phase 1398 Step B: resolve/reject is the only reporter-visible result.
+ * Contract lifecycle outcomes (committed / already_committed / lost_to_state /
+ * retryable_failure) never cross this boundary: resolve means every relevant
+ * active contract reached a terminal winner; reject means the report is not
+ * closed this round and the reporter keeps its evidence and retries.
  */
 export interface ExecutionFailureSink {
   report(input: {
@@ -549,7 +555,7 @@ export interface ExecutionFailureSink {
     producer: string;
     reason: string;
     evidenceRef: string;
-  }): Promise<ReadonlyArray<LifecycleCommitOutcome>>;
+  }): Promise<void>;
 }
 
 /** Runtime-owned lifecycle view of ContractSystem. */
