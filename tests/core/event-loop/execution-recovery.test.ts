@@ -54,7 +54,7 @@ describe('execution-recovery controller', () => {
     audit = createMockAudit();
     currentNow = BASE_NOW;
     resumeCalls = [];
-    sinkReport = vi.fn().mockResolvedValue([]);
+    sinkReport = vi.fn().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -243,7 +243,7 @@ describe('execution-recovery controller', () => {
         // report 时 evidence 必须已持久化且 attempts 已耗尽
         const evidence = readRecordFile(CONTRACT_ID);
         expect(evidence?.attempts).toBe(MAX_EXECUTION_RECOVERY_ATTEMPTS);
-        return [{ kind: 'committed' }];
+        return undefined;
       });
       const { controller } = makeController();
       for (let i = 1; i <= MAX_EXECUTION_RECOVERY_ATTEMPTS; i++) {
@@ -283,21 +283,6 @@ describe('execution-recovery controller', () => {
       expect(resumeCalls).toHaveLength(MAX_EXECUTION_RECOVERY_ATTEMPTS);
       expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED)).toBe(true);
       // 下一窗口重试交付成功 → record 删除
-      currentNow += TIMEOUT_MS;
-      await controller.observe(stalledSnapshot());
-      expect(sinkReport).toHaveBeenCalledTimes(2);
-      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
-    });
-
-    it('sink 返回 retryable_failure outcome：视为未交付，保留 record 下 tick 重试', async () => {
-      const { controller } = makeController();
-      for (let i = 0; i < MAX_EXECUTION_RECOVERY_ATTEMPTS; i++) {
-        await controller.observe(stalledSnapshot());
-        currentNow += TIMEOUT_MS;
-      }
-      sinkReport.mockResolvedValueOnce([{ kind: 'retryable_failure' }]);
-      await controller.observe(stalledSnapshot());
-      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(MAX_EXECUTION_RECOVERY_ATTEMPTS);
       currentNow += TIMEOUT_MS;
       await controller.observe(stalledSnapshot());
       expect(sinkReport).toHaveBeenCalledTimes(2);

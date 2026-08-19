@@ -223,7 +223,7 @@ vi.mock('../../src/core/contract/manager.js', () => {
       close: vi.fn().mockResolvedValue(undefined),
       registerCreatePolicy: vi.fn(),
       createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })),
-      failActiveForExecutor: vi.fn().mockResolvedValue([]),
+      failActiveForExecutor: vi.fn().mockResolvedValue(undefined),
     };
     capturedContractSystems.push(instance);
     return instance;
@@ -735,13 +735,15 @@ describe('phase1396-execution-recovery-wiring', () => {
     const contractManager = capturedContractSystems[0];
     expect(contractManager).toBeDefined();
 
-    await instances.executionRecovery!.failureSink.report({
+    const reportResult = await instances.executionRecovery!.failureSink.report({
       executorId: 'motion',
       producer: 'runtime',
       reason: 'agent_spontaneous_stall',
       evidenceRef: 'event-loop/execution-recovery/c-1.json',
     });
 
+    // Phase 1398 Step C: 适配器透传 Promise<void>，报告方只能看到 resolve/reject。
+    expect(reportResult).toBeUndefined();
     expect(contractManager.failActiveForExecutor).toHaveBeenCalledTimes(1);
     expect(contractManager.failActiveForExecutor).toHaveBeenCalledWith({
       executorId: 'motion',

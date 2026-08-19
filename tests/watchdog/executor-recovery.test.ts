@@ -156,7 +156,7 @@ describe('maybeCronExecutorRecovery', () => {
   });
 
   it('attempts exhausted → circuit open + terminal evidence + sink.report', async () => {
-    const sinkReport = vi.fn().mockResolvedValue([{ kind: 'committed' }]);
+    const sinkReport = vi.fn().mockResolvedValue(undefined);
     makeFailureSink.mockReturnValue({ report: sinkReport });
     pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
     spawnDaemon.mockRejectedValue(new Error('fail'));
@@ -198,28 +198,9 @@ describe('maybeCronExecutorRecovery', () => {
 
     // 下一 tick 仍 circuit-open → 重试交付（不重复 spawn）
     now.mockReturnValue(TIME_BASE + 500_000);
-    sinkReport.mockResolvedValue([{ kind: 'committed' }]);
+    sinkReport.mockResolvedValue(undefined);
     next = await run(next);
     expect(sinkReport).toHaveBeenCalledTimes(2);
-    expect(next[CLAW].sinkDelivered).toBe(true);
-  });
-
-  it('sink returns retryable_failure → evidence retained + delivery retried', async () => {
-    const sinkReport = vi.fn().mockResolvedValue([{ kind: 'retryable_failure' }]);
-    makeFailureSink.mockReturnValue({ report: sinkReport });
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
-    spawnDaemon.mockRejectedValue(new Error('fail'));
-
-    let next: any = {};
-    for (let i = 0; i < 4; i++) {
-      now.mockReturnValue(TIME_BASE + i * 100_000);
-      next = await run(next);
-    }
-    expect(next[CLAW]).toBeDefined();
-    expect(next[CLAW].sinkDelivered).toBeFalsy();
-    now.mockReturnValue(TIME_BASE + 500_000);
-    sinkReport.mockResolvedValue([{ kind: 'committed' }]);
-    next = await run(next);
     expect(next[CLAW].sinkDelivered).toBe(true);
   });
 });

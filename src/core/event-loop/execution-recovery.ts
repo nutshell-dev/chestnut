@@ -239,6 +239,9 @@ export interface ExecutionActivitySnapshot {
 /**
  * Consumer-owned failure sink（结构兼容 contract.ExecutionFailureSink；
  * 接口随消费者，event-loop 不 import contract 类型）。
+ *
+ * Phase 1398 Step C: 报告方只依据 resolve/reject 管理交付证据；Contract
+ * lifecycle outcome（committed / retryable_failure 等）不可出现在本控制流。
  */
 export interface ExecutionRecoveryFailureSink {
   report(input: {
@@ -246,7 +249,7 @@ export interface ExecutionRecoveryFailureSink {
     producer: string;
     reason: string;
     evidenceRef: string;
-  }): Promise<ReadonlyArray<{ kind: string }>>;
+  }): Promise<void>;
 }
 
 export interface ExecutionRecoveryControllerDeps {
@@ -345,22 +348,15 @@ export function createExecutionRecoveryController(
       }
 
       // attempts 耗尽：terminal evidence（attempts=max 的 record）已在上次 attempt
-      // 落盘 → 交付 sink。sink 失败保留 record 下 tick 重试交付，不重复恢复。
+      // 落盘 → 交付 sink。report resolve 即闭合（terminal winner 已确定）→ 删
+      // record；reject/抛错走 catch 保留 record 下 tick 重试交付，不重复恢复。
       try {
-        const outcomes = await failureSink.report({
+        await failureSink.report({
           executorId: snapshot.executorId,
           producer: 'runtime',
           reason: 'agent_spontaneous_stall',
           evidenceRef: store.recordRef(contractId),
         });
-        if (outcomes.some(o => o.kind === 'retryable_failure')) {
-          audit.write(
-            EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED,
-            `contract=${contractId}`,
-            `reason=retryable_outcome`,
-          );
-          return;
-        }
         store.delete(contractId);
         audit.write(
           EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED,

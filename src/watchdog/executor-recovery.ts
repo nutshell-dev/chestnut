@@ -305,28 +305,22 @@ export async function maybeCronExecutorRecovery(
             ? deps.makeFailureSink(rawClawId)
             : makeContractFailureSink(fsFactory, rawClawId);
           try {
-            const outcomes = await sink.report({
+            // Phase 1398 Step C: report resolve 即交付闭合（terminal winner 已确定）；
+            // reject/抛错走 catch 保留证据下 tick 重试，不解释 lifecycle outcome。
+            await sink.report({
               executorId: rawClawId,
               producer: 'watchdog',
               reason: 'daemon_unavailable',
               evidenceRef: evidenceRef(rawClawId),
             });
-            if (outcomes.some(o => o.kind === 'retryable_failure')) {
-              audit.write(
-                WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_FAILED,
-                `claw=${rawClawId}`,
-                `reason=retryable_outcome`,
-              );
-            } else {
-              openState.sinkDelivered = true;
-              const evidence = readEvidence(rootFs, rawClawId);
-              if (evidence) writeEvidence(rootFs, { ...evidence, sinkDelivered: true });
-              audit.write(
-                WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERED,
-                `claw=${rawClawId}`,
-                `attempts=${openState.consecutiveAttempts}`,
-              );
-            }
+            openState.sinkDelivered = true;
+            const evidence = readEvidence(rootFs, rawClawId);
+            if (evidence) writeEvidence(rootFs, { ...evidence, sinkDelivered: true });
+            audit.write(
+              WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERED,
+              `claw=${rawClawId}`,
+              `attempts=${openState.consecutiveAttempts}`,
+            );
           } catch (err) {
             audit.write(
               WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_FAILED,
