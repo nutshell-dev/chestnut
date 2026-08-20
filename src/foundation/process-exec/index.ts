@@ -5,7 +5,7 @@
  * External process execution: the single entry point for all subprocess invocation.
  * Wraps spawn with timeout control, maxBuffer protection, and PATH augmentation.
  *
- * No dependencies.
+ * Depends: NodeUtils (formatErr) + node:child_process / node:fs / node:path（外部原生模块）
  */
 
 export { exec, execWithHandle } from './exec.js';
