@@ -15,7 +15,6 @@ export {
   getNamedSubrootDir,
   resolveChestnutRoot,
 } from './claw-instance-paths.js';
-export { makeAgentDirResolver } from './agent-dir-resolver.js';
 export { resolveClawDaemonDir } from './daemon-dir.js';
 // phase 765: notify_claw tool (moved from L2c Messaging)
 export { createNotifyClawTool } from './tools/notify-claw.js';

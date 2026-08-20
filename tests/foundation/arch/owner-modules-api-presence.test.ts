@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * the regression at test time.
  *
  * phase 574 扩 (phase 520-554 follow-up): 加 3 it block 覆盖新 owner module API:
- *   - core/claw-topology: MOTION_CLAW_ID + makeAgentDirResolver
+ *   - core/claw-topology: MOTION_CLAW_ID
  *   - cli-protocol: CLAW_COMMAND_CATALOG + getClawCommandSpec + typed guidance API (phase 1253)
  *     phase 1270 Step A: 旧 invocation 符号（renderClawInvocation / CONTRACT_COMMANDS /
  *     ContractCommand）从 barrel 退役 — 反向断言 namespace 不可见 + 源码无 ContractCommand 残留
@@ -55,16 +55,12 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
 
   // phase 574 扩: phase 520-554 引入新 owner module API invariant
 
-  it('core/claw-topology exposes MOTION_CLAW_ID + makeAgentDirResolver (phase 520/535)', async () => {
+  it('core/claw-topology exposes MOTION_CLAW_ID (phase 520; phase 1449 Step C: makeAgentDirResolver barrel 收窄)', async () => {
     const topoMod = await import('../../../src/core/claw-topology/index.js');
     expect(typeof topoMod.MOTION_CLAW_ID).toBe('string');
     expect(topoMod.MOTION_CLAW_ID).toBe('motion');
-    expect(typeof topoMod.makeAgentDirResolver).toBe('function');
-    const resolver = topoMod.makeAgentDirResolver();
-    expect(typeof resolver).toBe('function');
-    // motion goes to subroot, others to claws/<id>
-    expect(typeof resolver('motion')).toBe('string');
-    expect(typeof resolver('other-claw')).toBe('string');
+    // phase 1449 Step C: makeAgentDirResolver 0 外部业务消费者 → barrel 不公开（内部 helper）
+    expect((topoMod as Record<string, unknown>).makeAgentDirResolver).toBeUndefined();
   });
 
   it('cli-protocol barrel exposes formatClawStatusHint（phase 1278 Step A: owner 归位）', async () => {
