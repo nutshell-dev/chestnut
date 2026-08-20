@@ -306,7 +306,8 @@ async function runImport(deps: RouterDeps, name: string, args: string[]): Promis
   }
   const [source] = parser.processedArgs;
   const opts = parser.opts() as { target?: string };
-  await importCommand(deps, source as string, name, opts.target);
+  const { audit } = createDirContext(deps, getClawDir(name));
+  await importCommand(deps, source as string, name, opts.target, { audit });
 }
 
 async function runRead(deps: RouterDeps, name: string, args: string[]): Promise<void> {
@@ -367,7 +368,8 @@ async function runDaemon(deps: RouterDeps, name: string, args: string[]): Promis
     throw new CliError(`'daemon' takes no extra arguments (got: ${args.join(' ')})`);
   }
   const { clawDaemonCommand } = await import('./claw-daemon.js');
-  await clawDaemonCommand(deps, name);
+  const { audit } = createDirContext(deps, getClawDir(name));
+  await clawDaemonCommand(deps, name, { audit });
 }
 
 async function runTrace(deps: RouterDeps, name: string, args: string[]): Promise<void> {

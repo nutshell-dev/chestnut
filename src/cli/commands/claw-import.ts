@@ -12,6 +12,8 @@ import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem, StatInfo } from '../../foundation/fs/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { copyDir, type CopyStats } from '../utils/copy-dir.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -28,6 +30,7 @@ export async function importCommand(
   source: string,
   clawName: string,
   target?: string,
+  opts?: { audit?: AuditLog },
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
 
@@ -90,4 +93,6 @@ export async function importCommand(
     console.log(`✓ Copied to ${clawName}/clawspace/${displayRel}`);
     console.log(`  1 file, ${sizeStr}`);
   }
+  // phase 1452 Step B: 成功侧 emit（落盘后）；失败侧走既有 CliError/handler catch
+  opts?.audit?.write(CLI_AUDIT_EVENTS.CLAW_IMPORT, `claw=${clawName}`, `target=${displayRel}`);
 }

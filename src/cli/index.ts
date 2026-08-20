@@ -239,7 +239,8 @@ motionCmd
   .description('Start Motion daemon (auto-backgrounds)')
   .action(action('internal', async () => {
     const { motionDaemonCommand } = await import('./commands/motion-daemon.js');
-    await motionDaemonCommand({ fsFactory, rootConfig });
+    const { audit } = createDirContext({ fsFactory }, getChestnutRoot());
+    await motionDaemonCommand({ fsFactory, rootConfig }, { audit });
   }));
 
 motionCmd.on('command:*', (ops) => {

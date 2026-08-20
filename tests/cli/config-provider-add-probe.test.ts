@@ -120,6 +120,12 @@ describe('config provider add — primary probe', () => {
 
     const config = loadGlobalConfig({ fsFactory });
     expect(config.llm.primary.api_key).toBe('sk-ant-new');
+
+    // phase 1452 Step B: saveGlobal 成功侧 emit cli_config_saved
+    const auditContent = fs.readFileSync(path.join(tempDir, '.chestnut', 'audit.tsv'), 'utf-8');
+    expect(auditContent).toContain('cli_config_saved');
+    expect(auditContent).toContain('command=provider_add');
+    expect(auditContent).toContain('label=new-anthropic');
   });
 
   it('adds primary, probes fail auth, enters reconfigure', async () => {

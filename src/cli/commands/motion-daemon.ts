@@ -16,6 +16,8 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { resolveDaemonEntry } from '../../daemon/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { DaemonPM } from './claw-daemon.js';
 
 interface MotionDaemonDeps {
@@ -25,7 +27,7 @@ interface MotionDaemonDeps {
   processManager?: DaemonPM;
 }
 
-export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void> {
+export async function motionDaemonCommand(deps: MotionDaemonDeps, extraDeps?: { audit?: AuditLog }): Promise<void> {
   deps.rootConfig.loadGlobal();
   const motionDir = getNamedSubrootDir('motion');
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
@@ -45,5 +47,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void>
     logFile: path.join(motionDir, DAEMON_LOG),
     env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
   });
+  // phase 1452 Step B: spawn 成功侧 emit（claw-daemon 同型）；失败侧由 PM 承载
+  extraDeps?.audit?.write(CLI_AUDIT_EVENTS.MOTION_DAEMON_START, `pid=${pid}`);
   console.log(`Started Motion daemon (PID: ${pid})`);
 }

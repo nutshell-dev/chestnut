@@ -117,6 +117,12 @@ describe('config provider set-primary — probe', () => {
     expect(config.llm.primary.preset).toBe('openai');
     expect(config.llm.fallbacks).toHaveLength(1);
     expect(config.llm.fallbacks![0].preset).toBe('anthropic');
+
+    // phase 1452 Step B: saveGlobal 成功侧 emit cli_config_saved
+    const auditContent = fs.readFileSync(path.join(tempDir, '.chestnut', 'audit.tsv'), 'utf-8');
+    expect(auditContent).toContain('cli_config_saved');
+    expect(auditContent).toContain('command=provider_set_primary');
+    expect(auditContent).toContain('label=my-openai');
   });
 
   it('new primary probe fails auth → enters reconfigure', async () => {

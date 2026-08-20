@@ -16,6 +16,8 @@ import { createAgentProcessManager } from '../../foundation/process-manager/inde
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { resolveDaemonEntry } from '../../daemon/index.js';
 import { DAEMON_LOG } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
@@ -30,6 +32,7 @@ export interface ClawDaemonDeps extends ClawCommandDeps {
 export async function clawDaemonCommand(
   deps: ClawDaemonDeps,
   name: string,
+  extraDeps?: { audit?: AuditLog },
 ): Promise<void> {
   deps.rootConfig.loadGlobal();
   const configPath = getClawConfigPath(name);
@@ -53,5 +56,8 @@ export async function clawDaemonCommand(
     logFile: path.join(clawDir, DAEMON_LOG),
     env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
   });
+  // phase 1452 Step B: spawn 成功侧 emit（对齐 start.ts DAEMON_START 形态）；
+  // 失败侧由 PM PROCESS_SPAWN_FAILED 承载（豁免、不补 CLI 侧失败事件）
+  extraDeps?.audit?.write(CLI_AUDIT_EVENTS.CLAW_DAEMON_START, `claw=${name}`, `pid=${pid}`);
   console.log(`Started Claw "${name}" (PID: ${pid})`);
 }

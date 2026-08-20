@@ -24,6 +24,9 @@ import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
+import { createDirContext } from '../../foundation/audit/index.js';
+import { CLI_AUDIT_EVENTS } from '../audit-events.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
@@ -132,6 +135,12 @@ function findProviderIndex(config: ClawGlobalConfig, label: string): { type: 'pr
   return null;
 }
 
+// phase 1452 Step B: config mutation 子命令 saveGlobal 成功侧 CLI audit。
+// audit 与 notifyRunningDaemons 同根（chestnutRoot）/ 每次调用新实例（createDirContext 语义）。
+function configAudit(deps: ConfigCommandDeps): AuditLog {
+  return createDirContext({ fsFactory: deps.fsFactory }, getChestnutRoot()).audit;
+}
+
 // provider add command
 async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
   const config = deps.rootConfig.loadGlobal();
@@ -232,6 +241,7 @@ async function providerAdd(deps: ConfigCommandDeps): Promise<void> {
     }
     
     deps.rootConfig.saveGlobal(config);
+    configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_add', `label=${label}`, `role=${role}`);
     notifyRunningDaemons(deps, 'add');
 
     // phase 451: 改 config 必 probe
@@ -326,6 +336,7 @@ async function providerRemove(deps: ConfigCommandDeps, label: string): Promise<v
   // Remove from fallbacks
   config.llm.fallbacks!.splice(found.index, 1);
   deps.rootConfig.saveGlobal(config);
+  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_remove', `label=${label}`);
   console.log(`✓ Removed "${label}" from fallbacks`);
   notifyRunningDaemons(deps, 'remove');
 }
@@ -367,6 +378,7 @@ async function providerSetPrimary(deps: ConfigCommandDeps, label: string): Promi
   config.llm.primary = target;
 
   deps.rootConfig.saveGlobal(config);
+  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_set_primary', `label=${label}`);
   console.log(`✓ "${label}" is now primary`);
   notifyRunningDaemons(deps, 'set-primary');
 
@@ -418,6 +430,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
   fallbacks.splice(newPos, 0, removed);
   
   deps.rootConfig.saveGlobal(config);
+  configAudit(deps).write(CLI_AUDIT_EVENTS.CONFIG_SAVED, 'command=provider_move', `label=${label}`, `position=${newPos + 1}`);
   console.log(`✓ "${label}" moved to fallback #${newPos + 1}`);
   notifyRunningDaemons(deps, 'move');
 }

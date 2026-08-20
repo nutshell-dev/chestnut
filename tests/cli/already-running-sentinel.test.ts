@@ -18,6 +18,7 @@ import { motionDaemonCommand } from '../../src/cli/commands/motion-daemon.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../src/cli/errors.js';
 import { makeClawCommandDeps } from '../helpers/claw-command-deps.js';
+import { CLI_AUDIT_EVENTS } from '../../src/cli/audit-events.js';
 
 /**
  * Early-return upper bound (ms) for clawDaemonCommand happy path.
@@ -76,6 +77,14 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
     };
   }
 
+  /** Fake pm for the spawn-success path (phase 1452 Step B audit emit tests). */
+  function deadFakePM(pid = 4321): DaemonPM {
+    return {
+      getAliveStatus: () => ({ alive: false, reason: 'test dead' }),
+      spawn: () => Promise.resolve(pid),
+    };
+  }
+
   function daemonDeps(options: Parameters<typeof makeClawCommandDeps>[1] = {}) {
     return { ...makeClawCommandDeps(fsFactory, options), processManager: aliveFakePM() };
   }
@@ -118,6 +127,33 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
     await clawDaemonCommand(daemonDeps(), 'running-claw');
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(EARLY_RETURN_UPPER_BOUND_MS);
+  });
+
+  it('clawDaemonCommand emits CLI_AUDIT CLAW_DAEMON_START after successful spawn (phase 1452 Step B)', async () => {
+    setupClaw('new-claw');
+    const audit = { write: vi.fn() };
+    await clawDaemonCommand(
+      { ...makeClawCommandDeps(fsFactory), processManager: deadFakePM(4321) },
+      'new-claw',
+      { audit: audit as any },
+    );
+    expect(audit.write).toHaveBeenCalledWith(
+      CLI_AUDIT_EVENTS.CLAW_DAEMON_START,
+      'claw=new-claw',
+      'pid=4321',
+    );
+  });
+
+  it('motionDaemonCommand emits CLI_AUDIT MOTION_DAEMON_START after successful spawn (phase 1452 Step B)', async () => {
+    const audit = { write: vi.fn() };
+    await motionDaemonCommand(
+      { fsFactory, rootConfig: { loadGlobal: vi.fn() }, processManager: deadFakePM(5678) },
+      { audit: audit as any },
+    );
+    expect(audit.write).toHaveBeenCalledWith(
+      CLI_AUDIT_EVENTS.MOTION_DAEMON_START,
+      'pid=5678',
+    );
   });
 
   it('DaemonPM shape invariant — fake pm satisfies the structural contract', () => {
