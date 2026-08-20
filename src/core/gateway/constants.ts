@@ -4,6 +4,3 @@
  * delay (1s) / 配合 LOCK_RETRY_DELAY_MS=500 同型 short-budget 间隔.
  */
 export const GATEWAY_INTERRUPT_DEBOUNCE_MS = 500;
-
-/** Default timeout for ask_user tool waiting for client reply (ms) — 30 minutes */
-export const GATEWAY_ASK_USER_TIMEOUT_MS = 30 * 60 * 1000;

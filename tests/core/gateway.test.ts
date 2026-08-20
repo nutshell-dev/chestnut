@@ -4,7 +4,6 @@ import { createGateway } from '../../src/core/gateway/index.js';
 import type { Gateway, GatewayInput } from '../../src/core/gateway/index.js';
 import type { Transport, Connection } from '../../src/foundation/transport/index.js';
 import type { StreamReader, StreamEvent } from '../../src/foundation/stream/index.js';
-import type { ToolResult, ExecContext } from '../../src/foundation/tools/index.js';
 
 function mockAudit() {
   return { write: vi.fn() };
@@ -249,7 +248,7 @@ describe('Gateway', () => {
     );
   });
 
-  it('ask_user_reply with no pending session is silently ignored, does not drop connection', async () => {
+  it('retired ask_user_reply is treated as unknown message type and drops the connection', async () => {
     gateway = createGateway(createOnlineInput());
     await gateway.start();
 
@@ -258,11 +257,9 @@ describe('Gateway', () => {
 
     transport._message(conn, JSON.stringify({ type: 'ask_user_reply', id: 'q1', answer: 'yes' }));
 
-    // no broadcast, connection not dropped
-    const droppedCalls = transport.broadcast.mock.calls.filter(
-      (c) => (JSON.parse(c[0] as string) as { type: string }).type === 'connection_dropped',
+    expect(transport.broadcast).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'connection_dropped', connectionId: 'c1', reason: 'unknown message type: ask_user_reply' }),
     );
-    expect(droppedCalls).toHaveLength(0);
   });
 
   it('stop() tears down: stream first, then connections, then transport.close', async () => {
@@ -451,21 +448,6 @@ describe('Gateway', () => {
       expect.stringContaining('kind=callback_error'),
       expect.stringContaining('error='),
       expect.stringContaining('callbackName='),
-    );
-  });
-
-  it('ask_user_reply dropped: writes GATEWAY_ASK_USER_REPLY_DROPPED', async () => {
-    const audit = mockAudit();
-    const stubTransport = createStubTransport();
-    gateway = createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
-    await gateway.start();
-    const conn: Connection = { id: 'c1', connectedAt: Date.now() };
-    stubTransport._connect(conn);
-    stubTransport.simulateMessage(conn, JSON.stringify({ type: 'ask_user_reply', id: 'nonexistent', answer: 'x' }));
-    expect(audit.write).toHaveBeenCalledWith(
-      'gateway_ask_user_reply_dropped',
-      expect.stringContaining('id=nonexistent'),
-      expect.anything(),
     );
   });
 });

@@ -12,7 +12,6 @@
 
 import type { Transport } from '../../foundation/transport/index.js';
 import type { StreamEvent, StreamReader } from '../../foundation/stream/index.js';
-import type { ToolResult, ExecContext } from '../../foundation/tools/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
 /**
@@ -39,9 +38,7 @@ export interface GatewayInput {
   transport?: Transport;
   /** Daemon 注入的 interrupt 回调 */
   interrupt: (reason: 'user') => void;
-  /** askUser 超时（Step 3 使用） */
-  askUserTimeoutMs?: number;
-  /** audit 写入器；Gateway 用于写 10 类结构化事件 */
+  /** audit 写入器；Gateway 用于写结构化生命周期/连接/interrupt/transport 事件 */
   audit: AuditLog;
   /** 启动期 reader initialOffset 计算（assembly 闭包绑 fs+streamPath / chat-viewport spinner bug 同型 fix）/ undefined = 默认 tail mode */
   getInitialOffset?: () => number;
@@ -57,17 +54,13 @@ export interface Gateway {
   start(): Promise<void>;
   /** Stop：先停 reader，再 drop 连接，最后 close transport。idempotent。 */
   stop(): Promise<void>;
-  /** 向客户端发送 question、阻塞等待用户回复；超时 / abort / 无 listener / broadcast 失败 → 返回 failureResult。 */
-  askUser(question: string, ctx: ExecContext): Promise<ToolResult>;
 }
 
 // ---------------------------------------------------------------------------
 // Client → Gateway
 // ---------------------------------------------------------------------------
 
-export type ClientMessage =
-  | { type: 'interrupt'; reason: 'user' }
-  | { type: 'ask_user_reply'; id: string; answer: string };
+export type ClientMessage = { type: 'interrupt'; reason: 'user' };
 
 // ---------------------------------------------------------------------------
 // Gateway → Client
@@ -75,7 +68,4 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'stream'; event: StreamEvent }
-  | { type: 'ask_user_pending'; id: string; question: string }
-  | { type: 'ask_user_resolved'; id: string; by: string }
-  | { type: 'ask_user_cancelled'; id: string; reason: 'timeout' | 'abort' }
   | { type: 'connection_dropped'; connectionId: string; reason: string };

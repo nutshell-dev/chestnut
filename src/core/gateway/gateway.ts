@@ -7,7 +7,7 @@
  * 3. Gateway ↔ Transport 生命周期绑定（同 start/stop 周期）
  * 4. Gateway → Transport 连接视图派生（Map 跟随 onConnect/onDisconnect）
  *
- * 派生状态不持久化：connections、lastInterruptTs、pending 重启后从事件流自然重建。
+ * 派生状态不持久化：connections、lastInterruptTs 重启后从事件流自然重建。
  */
 
 import type {
@@ -18,42 +18,19 @@ import type {
 } from './types.js';
 import type { Connection, Transport } from '../../foundation/transport/index.js';
 import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js';
-import type { ToolResult, ExecContext } from '../../foundation/tools/index.js';
 import { GATEWAY_AUDIT_EVENTS } from './audit-events.js';
-import {
-  GATEWAY_INTERRUPT_DEBOUNCE_MS,
-  GATEWAY_ASK_USER_TIMEOUT_MS,
-} from './constants.js';
-
-interface AskUserEntry {
-  id: string;
-  resolve: (r: ToolResult) => void;
-  timer: ReturnType<typeof setTimeout>;
-  abortListener: (() => void) | null;
-  signal: AbortSignal | null;
-}
-
-function successResult(content: string): ToolResult {
-  return { success: true, content };
-}
-
-function failureResult(content: string): ToolResult {
-  return { success: false, content };
-}
+import { GATEWAY_INTERRUPT_DEBOUNCE_MS } from './constants.js';
 
 export function createGateway(input: GatewayInput): Gateway {
-  const { streamFactory, interrupt, askUserTimeoutMs, audit } = input;
+  const { streamFactory, interrupt, audit } = input;
   const isOnlineMode = input.transport !== undefined;
   let transport: Transport | null = input.transport ?? null;   // phase 932: type union narrow 至 2 token 单 absent (phase 877 sister-open-extension)
-  const timeoutMs = askUserTimeoutMs ?? GATEWAY_ASK_USER_TIMEOUT_MS;
 
   const connections = new Map<string, Connection>();
-  const pending = new Map<string, AskUserEntry>();
   let streamReader: StreamReader | null = null;
   let lastInterruptTs = 0;
   let debouncedAuditedInWindow = false;
   let started = false;
-  let askCounter = 0;
   let unsubListeners: Array<() => void> = [];
 
   const broadcast = (msg: ServerMessage): void => {
@@ -74,33 +51,6 @@ export function createGateway(input: GatewayInput): Gateway {
     connections.delete(connId);
     audit.write(GATEWAY_AUDIT_EVENTS.CONNECTION_DROPPED, `connId=${connId}`, `reason=${reason}`);
     broadcast({ type: 'connection_dropped', connectionId: connId, reason });
-  };
-
-  const cleanup = (id: string): void => {
-    const entry = pending.get(id);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    if (entry.abortListener && entry.signal) {
-      entry.signal.removeEventListener('abort', entry.abortListener);
-    }
-    pending.delete(id);
-  };
-
-  const cancel = (id: string, reason: 'timeout' | 'abort'): void => {
-    const entry = pending.get(id);
-    if (!entry) {
-      // race-loss: ask_user_reply 或并发 cancel 已 win / silent return 漂移、emit 区分 (phase 1011 D.1)
-      audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_RACE_LOSS, `id=${id}`, `reason=${reason}`, 'lost_to=other_branch');
-      return;
-    }
-    cleanup(id);
-    const message =
-      reason === 'timeout'
-        ? `用户未回复（超时 ${timeoutMs}ms）`
-        : 'ask_user 被中断取消';
-    entry.resolve(failureResult(message));
-    audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_CANCELLED, `id=${id}`, `reason=${reason}`);
-    broadcast({ type: 'ask_user_cancelled', id, reason });
   };
 
   const handleClientMessage = (conn: Connection, data: string): void => {
@@ -135,19 +85,6 @@ export function createGateway(input: GatewayInput): Gateway {
         debouncedAuditedInWindow = false;
         interrupt('user');
         audit.write(GATEWAY_AUDIT_EVENTS.INTERRUPT_TRIGGERED, `connId=${conn.id}`);
-        return;
-      }
-      case 'ask_user_reply': {
-        const entry = pending.get(msg.id);
-        if (!entry) {
-          // 重复 / 过期 reply：drop 消息，不 drop 连接
-          audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_REPLY_DROPPED, `id=${msg.id}`, `connId=${conn.id}`);
-          return;
-        }
-        cleanup(msg.id);
-        entry.resolve(successResult(msg.answer));
-        audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_RESOLVED, `id=${msg.id}`, `by=${conn.id}`);
-        broadcast({ type: 'ask_user_resolved', id: msg.id, by: conn.id });
         return;
       }
       default:
@@ -254,16 +191,7 @@ export function createGateway(input: GatewayInput): Gateway {
 
       const errors: Error[] = [];
 
-      // 1. Cancel pending askUser so waiters unblock immediately
-      for (const id of [...pending.keys()]) {
-        try {
-          cancel(id, 'abort');
-        } catch (err) { // silent: best-effort stop cleanup, collected into errors array
-          errors.push(err as Error);
-        }
-      }
-
-      // 2. Stop reader to prevent further stream events during shutdown
+      // 1. Stop reader to prevent further stream events during shutdown
       if (streamReader) {
         const sr = streamReader;
         try {
@@ -274,7 +202,7 @@ export function createGateway(input: GatewayInput): Gateway {
         streamReader = null;
       }
 
-      // 3. Drop all connections
+      // 2. Drop all connections
       for (const id of [...connections.keys()]) {
         try {
           dropConnection(id, 'gateway stopping');
@@ -283,7 +211,7 @@ export function createGateway(input: GatewayInput): Gateway {
         }
       }
 
-      // 4. Close transport
+      // 3. Close transport
       if (transport) {
         const t = transport;
         try {
@@ -301,61 +229,6 @@ export function createGateway(input: GatewayInput): Gateway {
         throw new AggregateError(errors, 'Gateway stop completed with errors');
       }
       audit.write(GATEWAY_AUDIT_EVENTS.STOPPED);
-    },
-
-    async askUser(question: string, ctx: ExecContext): Promise<ToolResult> {
-      if (!started) {
-        return failureResult('Gateway not started');
-      }
-      if (!isOnlineMode) {
-        return failureResult('未启用实时交互通道，跳过 ask_user');
-      }
-      if (ctx.signal?.aborted) {
-        return failureResult('ask_user 被中断取消');
-      }
-
-      const id = `ask_${Date.now()}_${askCounter++}`;
-
-      return new Promise<ToolResult>((resolve) => {
-        const timer = setTimeout(() => {
-          cancel(id, 'timeout');
-        }, timeoutMs);
-
-        let abortListener: (() => void) | null = null;
-        if (ctx.signal) {
-          abortListener = () => {
-            cancel(id, 'abort');
-          };
-        }
-
-        // phase 1102 gw-2: pending.set BEFORE addEventListener to prevent abort/cancel race
-        // If abort fires between addEventListener and pending.set, cancel() finds null → timer leaks.
-        pending.set(id, { id, resolve, timer, abortListener, signal: ctx.signal ?? null });
-
-        if (ctx.signal && abortListener) {
-          ctx.signal.addEventListener('abort', abortListener, { once: true });
-          // G4 robust：addEventListener 后立即 check / spec 不 retroactively fire
-          if (ctx.signal.aborted) {
-            ctx.signal.removeEventListener('abort', abortListener);
-            clearTimeout(timer);
-            pending.delete(id);
-            resolve(failureResult('ask_user 被中断取消'));
-            return;
-          }
-        }
-
-        audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_PENDING, `id=${id}`);
-        // phase 972: broadcast() internally catches all transport errors and returns failed list;
-        // it never throws, so the outer try/catch was dead code.
-        broadcast({ type: 'ask_user_pending', id, question });
-        // 0-listener short-circuit: broadcast 后无连接 → 立即 fail-loud
-        if (connections.size === 0) {
-          cleanup(id);
-          audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_NO_LISTENER, `id=${id}`);
-          resolve(failureResult('ask_user 无活动连接'));
-          return;
-        }
-      });
     },
   };
 }

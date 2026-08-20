@@ -412,13 +412,6 @@
       "retro_store_registration_conflict"
     ],
     "core_gateway_audit-events": [
-      "gateway_ask_user_broadcast_failed",
-      "gateway_ask_user_cancelled",
-      "gateway_ask_user_no_listener",
-      "gateway_ask_user_pending",
-      "gateway_ask_user_race_loss",
-      "gateway_ask_user_reply_dropped",
-      "gateway_ask_user_resolved",
       "gateway_connection_accepted",
       "gateway_connection_disconnected",
       "gateway_connection_dropped",

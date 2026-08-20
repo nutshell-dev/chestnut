@@ -30,7 +30,7 @@ export async function disassemble(instances: DisassemblyResources, signal: strin
     );
   }
 
-  // Step 1: gateway?.stop()（async；motion only；最前位置——切断对外推送 + cancel pending askUser）
+  // Step 1: gateway?.stop()（async；motion only；最前位置——切断对外推送）
   if (gateway) {
     try {
       await gateway.stop();

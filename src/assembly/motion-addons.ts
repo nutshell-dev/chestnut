@@ -25,7 +25,6 @@ import { createContractObserverJob } from '../core/contract/index.js';
 import { createOutboxSummaryJob } from '../core/claw-topology/index.js';
 import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
-import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_EVENT_NAMES, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../core/claw-topology/index.js';
 import { formatClawStatusHint } from '../cli-protocol/index.js';
@@ -111,8 +110,6 @@ export async function createMotionAddons(
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=gateway`, `phase=start`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: Gateway start failed: ${formatErr(e)}`, { cause: e });
   }
-  // ask_user 工具：motion 启 / claw 不启（决策 #25：用户 ↔ motion ↔ claw 中介）
-  toolRegistry.register(createAskUserTool(gateway));
   // notify_claw 工具：motion-only（D11 单向访问特权 / phase 477 design / phase 822 实施 / phase 1021 P0 三重错位 hotfix）
   // motion → claw inbox push、与 send（claw → 自己 outbox pull）物理不同、§10.3 不对称设计
   // fs = parentFs (baseDir = .chestnut/) align chestnutRoot、避免 systemFs (baseDir = motion/) 沙箱拒 sibling claws/<to> absolute path
