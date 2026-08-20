@@ -158,7 +158,11 @@ interface CommonSubAgentTaskFields {
   isShadow?: boolean;
   shadowSystemPrompt?: string;
   shadowToolsForLLM?: ToolDefinition[];
-  // phase 281: summon decision 内嵌 metadata，随 task lifecycle 同步
+  /**
+   * Legacy v1/v2 Summon recovery input; active writers must not populate.
+   * Phase 1402 Step B: 当前 summon task 由 canonical postProcessor identity 识别，
+   * 本字段仅为已落盘 v1/v2 task 的中断恢复读取保留；物理删除另立 phase。
+   */
   summonDecision?: SummonDecisionMetadata;
   /** Phase 873/874: persisted terminal intent for recovery routing. */
   terminalState?: 'done' | 'failed';

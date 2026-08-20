@@ -175,12 +175,8 @@ export class SummonTool implements Tool {
       idleTimeoutMs,
       postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
       shadowIdPrefix: 'summon',
-      // Phase 1396 Step K: active summon 只写 v2 correlation marker；
-      // mode/verify/targetClaw 已从调用方决策中退场。
-      summonDecision: {
-        schema_version: 2,
-        dispatchedAt: new Date().toISOString(),
-      },
+      // Phase 1402 Step B: active writer 停写 summon 专属 decision metadata；task identity
+      // 由 canonical postProcessor 承担，时间事实已有 task.createdAt；v1/v2 仅 legacy read-only 恢复输入。
     });
     if (!('taskId' in result)) return result;
 

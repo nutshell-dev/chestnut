@@ -297,7 +297,7 @@ describe('summon-verify-param', () => {
       expect(content).toContain('escalation');
     });
 
-    it('agent 传入 legacy verify/mode/targetClaw 不被读取，summonDecision 写 v2', async () => {
+    it('agent 传入 legacy verify/mode/targetClaw 不被读取，active task 不写 summonDecision', async () => {
       const { ctx, tool } = makeCtx();
       const result = await tool.execute(
         { goal: 'test', verify: true, mode: 'mining', targetClaw: 'x-claw' } as any,
@@ -309,10 +309,9 @@ describe('summon-verify-param', () => {
       expect(tasks).toHaveLength(1);
       // 内部固定 shadow 路径；决策字段已从调用方协议中退场
       expect(tasks[0].callerType).toBe('shadow_subagent');
-      expect(tasks[0].summonDecision).toEqual({
-        schema_version: 2,
-        dispatchedAt: expect.any(String),
-      });
+      // Phase 1402 Step B: active writer 停写 summonDecision；identity 由 canonical postProcessor 承担
+      expect(tasks[0].summonDecision).toBeUndefined();
+      expect(tasks[0].postProcessor).toBe('summon-contract-extract');
       const content = getTaskContent(tasks[0]);
       expect(content).not.toContain('prompt_file:');
     });
@@ -483,9 +482,11 @@ describe('summon-default-mode-shadow', () => {
 describe('summon-decision-metadata', () => {
   /**
    * Phase 1396 Step K: SummonDecision metadata versioning tests.
+   * Phase 1402 Step B: active writer 停写 summonDecision（identity 归 canonical
+   * post-processor）；v1/v2 schema 降级 legacy read-only，已落盘任务仍可恢复。
    *
-   * - v2 (active): new summon writes only `{schema_version:2, dispatchedAt}`.
-   * - v1 (legacy): persisted tasks with mode/verify/targetClaw remain readable.
+   * - active: new summon 只写 canonical postProcessor，不写 summonDecision。
+   * - v1/v2 (legacy): persisted tasks remain schema-readable。
    * - Unknown/future schema versions are rejected (fail-observable).
    */
 
@@ -557,19 +558,16 @@ describe('summon-decision-metadata', () => {
       return { ctx, tool };
     }
 
-    it('active summon schedule writes v2 summonDecision without mode/verify/targetClaw', async () => {
+    it('active summon schedule writes canonical postProcessor and no summonDecision', async () => {
       const { ctx, tool } = makeCtx('claw');
       const result = await tool.execute({ goal: 'shadow task' }, ctx);
 
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].summonDecision).toEqual({
-        schema_version: 2,
-        dispatchedAt: expect.any(String),
-      });
-      const decisionJson = JSON.stringify(tasks[0].summonDecision);
-      expect(decisionJson).not.toMatch(/mode|verify|targetClaw/);
+      // Phase 1402 Step B: active writer 0 summonDecision；时间事实已有 task.createdAt
+      expect(tasks[0].summonDecision).toBeUndefined();
+      expect(tasks[0].postProcessor).toBe('summon-contract-extract');
     });
 
     it('non-summon 场景不存在 summonDecision 时字段为 undefined（optional）', async () => {
@@ -609,7 +607,7 @@ describe('summon-decision-metadata', () => {
       expect(SubAgentTaskSchema.safeParse(v1Task).success).toBe(true);
     });
 
-    it('SubAgentTaskSchema accepts active v2 decision shape', () => {
+    it('SubAgentTaskSchema accepts legacy v2 decision shape (legacy read-only)', () => {
       const v2Task = {
         kind: 'subagent',
         mode: 'shadow',
@@ -786,6 +784,48 @@ describe('phase1396-summon-public-contract', () => {
     ]) {
       expect(combined).not.toContain(banned);
     }
+  });
+
+  function fsRead(rel: string): string {
+    return readFileSync(path.join(ROOT, rel), 'utf-8');
+  }
+});
+
+
+describe('phase1402-active-writer-stop', () => {
+  /**
+   * Phase 1402 Step B: active summonDecision writer/transport 源扫描 ratchet。
+   *
+   * - SummonTool/ShadowSystem 0 命中 summonDecision（active writer + 透传层拆除）；
+   * - AsyncTaskSystem 保留 legacy read-only schema/type/field（已落盘 v1/v2 恢复输入）。
+   */
+  const ROOT = path.resolve(process.cwd());
+
+  it('SummonTool active schedule 不再写 summonDecision', () => {
+    const src = fsRead('src/core/summon-system/tools/summon.ts');
+    expect(src).not.toContain('summonDecision');
+    // canonical post-processor identity 仍写入
+    expect(src).toContain('SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME');
+  });
+
+  it('ShadowSystem generic API 不再出现 summonDecision/SummonDecisionMetadata', () => {
+    for (const rel of [
+      'src/core/shadow-system/types.ts',
+      'src/core/shadow-system/spawn-shadow-subagent.ts',
+    ]) {
+      const src = fsRead(rel);
+      expect(src).not.toContain('summonDecision');
+      expect(src).not.toContain('SummonDecisionMetadata');
+    }
+  });
+
+  it('AsyncTaskSystem 保留 legacy read-only v1/v2 schema/type/field', () => {
+    const schemas = fsRead('src/core/async-task-system/task-schemas.ts');
+    expect(schemas).toContain('LegacySummonDecisionV1Schema');
+    expect(schemas).toContain('SummonDecisionV2Schema');
+    expect(schemas).toContain('SummonDecisionMetadataSchema');
+    const types = fsRead('src/core/async-task-system/types.ts');
+    expect(types).toContain('summonDecision?: SummonDecisionMetadata');
   });
 
   function fsRead(rel: string): string {

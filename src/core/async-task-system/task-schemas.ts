@@ -15,8 +15,11 @@ const CallerTypeSchema = z.enum(['spawn_subagent', 'verifier', 'shadow_subagent'
 
 /**
  * Phase 1396 Step K: SummonDecision 版本化 metadata。
+ * Phase 1402 Step B: 降级 legacy read-only —— active writer 已停写本字段，
+ * 当前 summon task 由 canonical post-processor identity 识别；以下 schema/type
+ * 仅为已落盘 v1/v2 task 的中断恢复读取保留，物理删除另立 phase。
  *
- * - v2 (active): 只标识“这是 summon contract creation”及派发时间；固定 no-verification
+ * - v2 (legacy): 只标识“这是 summon contract creation”及派发时间；固定 no-verification
  *   策略由 SummonSystem policy 直接拥有，不再伪装成 caller choice。
  * - v1 (legacy): 保留已落盘任务的严格读取字段（mode/verify/可选 targetClaw）。
  */
@@ -70,7 +73,7 @@ const commonSubAgentFields = {
   shadowToolsForLLM: z.array(z.unknown()).optional(),
   // phase 218: intent 提到 common fields（union 合并）
   intent: z.string(),
-  // phase 281: summon decision 内嵌 metadata，随 task lifecycle 同步
+  // Phase 1402 Step B: legacy v1/v2 Summon recovery input（read-only）；active writers 不得写入
   summonDecision: SummonDecisionMetadataSchema.optional(),
   // Phase 874: persisted terminal intent for recovery routing
   terminalState: z.enum(['done', 'failed']).optional(),
