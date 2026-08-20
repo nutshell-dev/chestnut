@@ -55,6 +55,8 @@ export const RUNTIME_AUDIT_EVENTS = {
   LLM_RELOADED: 'runtime_llm_reloaded',
   LLM_RELOAD_FAILED: 'runtime_llm_reload_failed',
   LLM_RELOAD_SKIPPED: 'runtime_llm_reload_skipped',
+  // phase 1440: ContextInjector context load failure（AGENTS.md / MEMORY.md / contract）
+  CONTEXT_INJECT_LOAD_FAILED: 'context_inject_load_failed',
   // phase 690: Runtime 反应式 trim+retry 触发 - LLM 返 context-exceeded 后 trim + 同 turn 重发
   REACTIVE_TRIM_TRIGGERED: 'runtime_reactive_trim_triggered',
   REACTIVE_TRIM_EXHAUSTED: 'runtime_reactive_trim_exhausted',
@@ -91,4 +93,5 @@ export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   runtime_turn_contract_id_cache_failed: 'audit',
   runtime_reactive_trim_triggered: 'audit',  // phase 690
   runtime_reactive_trim_exhausted: 'audit',  // phase 690
+  context_inject_load_failed: 'audit',  // phase 1440
 } as const;

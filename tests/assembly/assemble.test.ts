@@ -226,7 +226,7 @@ vi.mock('../../src/core/async-task-system/system.js', () => {
   };
 });
 
-vi.mock('../../src/core/dialog/injector.js', () => {
+vi.mock('../../src/core/runtime/injector.js', () => {
   const Ctor = trackCtor('ContextInjector', () => ({ buildSystemPrompt: vi.fn(), buildParts: vi.fn() }));
   return {
     ContextInjector: Ctor,

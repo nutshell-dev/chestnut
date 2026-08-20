@@ -13,7 +13,7 @@ import type { InboxDeliverySession, InboxMessageRenderingResolver } from '../../
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
-import type { ContextInjector } from '../context_manager/index.js';
+import type { ContextInjector } from './injector.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
 import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';

@@ -43,7 +43,7 @@ import { ExecContextImpl } from '../../foundation/tools/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
-import { createContextInjector, type ContextInjector } from '../context_manager/index.js';
+import { createContextInjector, type ContextInjector } from './injector.js';
 import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
@@ -208,7 +208,7 @@ export class Runtime {
     this.toolExecutor = deps.toolExecutor;
     this.contractManager = deps.contractManager;
     this.taskSystem = deps.taskSystem;
-    // phase 1211: ContextInjector + ExecContext 是 Runtime 内部组件 (per arch.md:328)
+    // phase 1211: ContextInjector + ExecContext 是 Runtime 内部组件（phase 1440: injector 物理迁 runtime/）
     // 用既有 RuntimeDeps 字段自构造、不接受外部 inject
     this.contextInjector = createContextInjector({
       fs: this.systemFs,

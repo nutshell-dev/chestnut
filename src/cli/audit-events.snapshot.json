@@ -478,6 +478,7 @@
       "heartbeat_fire_failed"
     ],
     "core_runtime_runtime-audit-events": [
+      "context_inject_load_failed",
       "guidance_composer_failed",
       "inbox_inject",
       "inbox_unaddressed",

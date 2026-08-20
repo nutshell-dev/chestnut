@@ -1,5 +1,5 @@
 /**
- * @module L4.ContextManager.Injector
+ * @module L5.Runtime.Injector
  *
  * ContextInjector - Injects fixed prefixes into conversation context
  *
@@ -11,6 +11,7 @@
  * 5. Tool definitions (via ToolRegistry - Phase 1)
  *
  * phase 685: 合并自 core/dialog/injector.ts（dialog→ContextManager 子模块）
+ * phase 1440: 物理收口迁 runtime/（ContextInjector 是 Runtime 内部组件，唯一消费方 runtime.ts）
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -18,7 +19,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
 import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { CLAW_MEMORY_FILE, CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
-import { DIALOG_AUDIT_EVENTS } from '../../foundation/dialog-store/index.js';
+import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
 /**
@@ -129,7 +130,7 @@ export class ContextInjector {
       agents = agentsResult.content.trim();
     }
     if (agentsResult.err && !(agentsResult.err instanceof FileNotFoundError)) {
-      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=AGENTS.md', `reason=${formatErr(agentsResult.err)}`);
+      this.audit?.write(RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED, 'file=AGENTS.md', `reason=${formatErr(agentsResult.err)}`);
     }
 
     // Try to read MEMORY.md (with mtime cache)
@@ -139,7 +140,7 @@ export class ContextInjector {
       memory = '## Memory\n' + memoryResult.content.trim();
     }
     if (memoryResult.err && !(memoryResult.err instanceof FileNotFoundError)) {
-      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=MEMORY.md', `reason=${formatErr(memoryResult.err)}`);
+      this.audit?.write(RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED, 'file=MEMORY.md', `reason=${formatErr(memoryResult.err)}`);
     }
 
     // Inject skill metadata if available
@@ -169,7 +170,7 @@ export class ContextInjector {
       } catch (err) {
         // FNF silent OK / else audit (phase 646 D2 align)
         if (!(err instanceof FileNotFoundError)) {
-          this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=contract', `reason=${formatErr(err)}`);
+          this.audit?.write(RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED, 'file=contract', `reason=${formatErr(err)}`);
         }
       }
     }

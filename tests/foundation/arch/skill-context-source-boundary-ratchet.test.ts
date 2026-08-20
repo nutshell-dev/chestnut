@@ -19,7 +19,7 @@ describe('phase 1361: skill context source boundary', () => {
 
   it('Runtime and ContextInjector see only the context source', () => {
     const runtimeTypes = read('src/core/runtime/types.ts');
-    const injector = read('src/core/context_manager/injector.ts');
+    const injector = read('src/core/runtime/injector.ts');
     expect(runtimeTypes).toContain('readonly skillRegistry: SkillContextSource');
     expect(injector).toContain('skillRegistry?: SkillContextSource');
     expect(injector).toContain('private skillRegistry?: SkillContextSource');
@@ -28,7 +28,7 @@ describe('phase 1361: skill context source boundary', () => {
   });
 
   it('ContextInjector retains prewarm and formatting calls', () => {
-    const source = read('src/core/context_manager/injector.ts');
+    const source = read('src/core/runtime/injector.ts');
     expect(source).toContain('await this.skillRegistry.ensureLoaded()');
     expect(source).toContain('this.skillRegistry.formatForContext()');
   });

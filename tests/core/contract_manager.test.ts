@@ -21,7 +21,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { ContractValidationError, ContractArchiveReadError } from '../../src/core/contract/errors.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
-import { createContextInjector } from '../../src/core/context_manager/injector.js';
+import { createContextInjector } from '../../src/core/runtime/injector.js';
 import { computeContractView } from '../../src/core/status-service/aggregators.js';
 
 

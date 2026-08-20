@@ -246,7 +246,7 @@ vi.mock('../../src/core/async-task-system/system.js', () => {
   };
 });
 
-vi.mock('../../src/core/dialog/injector.js', () => ({
+vi.mock('../../src/core/runtime/injector.js', () => ({
   ContextInjector: vi.fn(() => ({ buildSystemPrompt: vi.fn(), buildParts: vi.fn() })),
   createContextInjector: vi.fn((...args: any[]) => new (vi.fn(() => ({ buildSystemPrompt: vi.fn(), buildParts: vi.fn() })) as any)(...args)),
 }));

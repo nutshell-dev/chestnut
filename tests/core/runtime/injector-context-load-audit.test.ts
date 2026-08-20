@@ -1,6 +1,9 @@
 /**
  * ContextInjector — context load audit (phase 646 P1.3)
  *
+ * phase 1440: 随 injector.ts 物理迁 tests/core/runtime/；audit 归 Runtime 命名空间
+ * (RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED)。
+ *
  * Tests:
  * - FNF silent: AGENTS.md/MEMORY.md not found → 0 audit
  * - non-FNF audit: AGENTS.md read throws PermissionError → audit LOAD_FAILED
@@ -8,10 +11,10 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { ContextInjector } from '../../../src/core/context_manager/injector.js';
+import { ContextInjector } from '../../../src/core/runtime/injector.js';
 import { FileNotFoundError } from '../../../src/foundation/fs/types.js';
 import { PermissionError } from '../../../src/core/permissions/errors.js';
-import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
+import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 
 describe('ContextInjector — context load audit (phase 646 P1.3)', () => {
   it.each([
@@ -34,7 +37,7 @@ describe('ContextInjector — context load audit (phase 646 P1.3)', () => {
     expect(mockAudit.write).toHaveBeenCalledTimes(auditCalls);
     if (auditCalls > 0) {
       expect(mockAudit.write).toHaveBeenCalledWith(
-        DIALOG_AUDIT_EVENTS.LOAD_FAILED,
+        RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED,
         `file=${file}`,
         expect.stringContaining('reason='),
       );
@@ -60,7 +63,7 @@ describe('ContextInjector — context load audit (phase 646 P1.3)', () => {
 
     expect(mockAudit.write).toHaveBeenCalledTimes(1);
     expect(mockAudit.write).toHaveBeenCalledWith(
-      DIALOG_AUDIT_EVENTS.LOAD_FAILED,
+      RUNTIME_AUDIT_EVENTS.CONTEXT_INJECT_LOAD_FAILED,
       'file=contract',
       expect.stringContaining('reason='),
     );
