@@ -2,6 +2,7 @@ import type { ContractYaml } from '../contract/index.js';
 import type { ContractCreatePolicy, CreatePolicyContext } from '../contract/index.js';
 import { ContractCreatePolicyViolationError } from '../contract/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
+import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from './post-processors/contract-extract.js';
 import type { SubAgentTask, LegacySummonDecisionV1 } from '../async-task-system/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeTaskId, type TaskId } from '../async-task-system/index.js';
@@ -19,6 +20,9 @@ import {
 // SummonSystem 独占；ContractSystem 只运行已注册 policy，不理解 summon。
 // Phase 1396 Step K: decision 版本化 —— v2 active path 固定 no-verification，
 // executor 只取自 ctx.clawDir；v1 legacy adapter 保留原 verify/targetClaw 行为。
+// Phase 1402 Step A: decision 缺失时按 canonical post-processor 识别当前 summon
+// task（decision-present 永远优先按 legacy v1/v2 解释）；active writer 停写
+// decision 后 policy 无需等待新字段即可识别新任务。
 // ============================================================================
 
 export interface SummonVerifyPolicyDeps {
@@ -83,7 +87,13 @@ export function createSummonVerifyPolicy(
       const decision = task.summonDecision;
 
       if (!decision) {
-        // metadata 缺失 = 非 summon 创建路径（如直接 CLI 调用、其他 caller subagent、pre-phase 281 旧任务）
+        if (task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME) {
+          // Phase 1402 Step A: 当前 summon task 由 canonical post-processor identity 识别，
+          // 与 legacy v2 共用 no-verification + ctx.clawDir executor + claim 行为。
+          await checkCurrent(ctx, contract, task, deps);
+          return;
+        }
+        // metadata 缺失且无 canonical post-processor = 非 summon 创建路径（如直接 CLI 调用、其他 caller subagent、pre-phase 281 旧任务）
         deps.auditWriter.write(
           SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
           `subagentTaskId=${subagentTaskId}`,
@@ -93,7 +103,8 @@ export function createSummonVerifyPolicy(
       }
 
       if (decision.schema_version === 2) {
-        await checkV2(ctx, contract, task, decision, deps);
+        // Phase 1402 Step A: legacy v2 decision 与 canonical 当前路径行为一致，共用 helper。
+        await checkCurrent(ctx, contract, task, deps);
         return;
       }
 
@@ -121,11 +132,10 @@ export function createSummonVerifyPolicy(
   };
 }
 
-async function checkV2(
+async function checkCurrent(
   ctx: CreatePolicyContext,
   contract: ContractYaml,
   task: SubAgentTask,
-  _decision: { schema_version: 2; dispatchedAt: string },
   deps: SummonVerifyPolicyDeps,
 ): Promise<void> {
   // Phase 1396 Step K: v2 固定 no-verification 策略；verification/escalation 字段禁止出现。

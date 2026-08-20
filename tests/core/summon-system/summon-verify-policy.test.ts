@@ -6,10 +6,16 @@
  * - v2 (active): 固定 no-verification；executor 只取 ctx.clawDir；缺失为 invariant failure。
  * - v1 (legacy): 保留原 verify/targetClaw 行为，用于已落盘任务恢复兼容。
  * - Unknown schema_version: fail-observable，不降级成 pass-through。
+ *
+ * Phase 1402 Step A: decision 缺失时按 canonical post-processor 识别当前 summon task：
+ * - decision 存在 → 永远先按 legacy v1/v2 schema 解释（不被 post-processor 覆盖）；
+ * - decision 缺失 + postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME → 当前 policy；
+ * - decision 缺失 + 无/其他 post-processor → 非 summon pass-through。
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { createSummonVerifyPolicy } from '../../../src/core/summon-system/summon-verify-policy.js';
+import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../../../src/core/summon-system/post-processors/contract-extract.js';
 import { ContractCreatePolicyViolationError } from '../../../src/core/contract/types.js';
 import type { CreatePolicyContext } from '../../../src/core/contract/types.js';
 import { SUMMON_AUDIT_EVENTS } from '../../../src/core/summon-system/audit-events.js';
@@ -29,6 +35,7 @@ type LegacySummonDecisionV1 = { schema_version: 1; mode: 'shadow' | 'mining'; ve
 function makeSubAgentTask(
   taskId: string,
   decision?: SummonDecisionV2 | LegacySummonDecisionV1,
+  postProcessor?: string,
 ): SubAgentTask {
   return {
     kind: 'subagent',
@@ -39,6 +46,7 @@ function makeSubAgentTask(
     parentClawId: 'parent-claw',
     createdAt: '2024-01-01T00:00:00.000Z',
     ...(decision ? { summonDecision: decision } : {}),
+    ...(postProcessor ? { postProcessor } : {}),
   };
 }
 
@@ -145,9 +153,32 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
       expect(claimSpy).not.toHaveBeenCalled();
     });
 
-    it('task.summonDecision undefined → audit SUMMON_GATE_NO_DECISION + pass-through', async () => {
+    it('task.summonDecision undefined + no postProcessor → audit SUMMON_GATE_NO_DECISION + pass-through', async () => {
       // Phase 1396 Step M: loader 可靠返回 task 且 metadata 缺失 = 普通 subagent → pass-through。
       const loadTask = makeLoadTask(undefined, async (id) => makeSubAgentTask(id));
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+      await expect(
+        policy.check(
+          makeCtx({ subagentTaskId: 't1', clawDir: 'any-claw' }),
+          makeContract([{ subtask_id: 'a', type: 'llm' }]),
+        ),
+      ).resolves.toBeUndefined();
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_GATE_NO_DECISION,
+        'subagentTaskId=t1',
+        'reason=likely_non_summon_subagent',
+      ]);
+    });
+
+    it('no decision + non-canonical postProcessor → pass-through (generic name not interpreted)', async () => {
+      // Phase 1402 Step A: decision 缺失时只有 canonical summon post-processor 进入 summon policy；
+      // 其他 opaque post-processor 名字仍是非 summon pass-through。
+      const loadTask = makeLoadTask(undefined, async (id) =>
+        makeSubAgentTask(id, undefined, 'some-other-postprocessor'),
+      );
       const { audit, writes } = makeAudit();
       const { claimStore, claimSpy } = makeClaimStore();
       const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
@@ -328,6 +359,118 @@ describe('SummonVerifyPolicy (phase 240 / phase 1396 Step K)', () => {
           requestedContractId: 'cand-2',
         }),
       });
+    });
+  });
+
+  describe('canonical post-processor current path (Phase 1402 Step A, no decision)', () => {
+    it('canonical + no decision + no verification + clawDir present → pass and claim', async () => {
+      const loadTask = makeLoadTask(undefined, async (id) =>
+        makeSubAgentTask(id, undefined, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME),
+      );
+      const { audit } = makeAudit();
+      const { claimStore, claimSpy, claims } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      await expect(
+        policy.check(makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw', proposedContractId: 'cand-1' }), makeContract()),
+      ).resolves.toBeUndefined();
+
+      expect(claimSpy).toHaveBeenCalledTimes(1);
+      expect(claimSpy).toHaveBeenCalledWith({
+        summonId: 't1',
+        targetExecutorId: 'my-claw',
+        contractId: 'cand-1',
+      });
+      expect(claims.get('t1')).toMatchObject({ contractId: 'cand-1' });
+    });
+
+    it('canonical + no decision + verification entries → throw summon_verify_false_violation', async () => {
+      const loadTask = makeLoadTask(undefined, async (id) =>
+        makeSubAgentTask(id, undefined, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME),
+      );
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      const err = await policy
+        .check(
+          makeCtx({ subagentTaskId: 't1', clawDir: 'my-claw' }),
+          makeContract([{ subtask_id: 'a', type: 'llm' }]),
+        )
+        .catch(e => e);
+
+      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
+      expect(err).toMatchObject({
+        policyName: 'summon-verify',
+        cause: 'summon_verify_false_violation',
+        details: expect.objectContaining({
+          subagentTaskId: 't1',
+          verificationCount: 1,
+        }),
+      });
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_VERIFY_FALSE_VIOLATION,
+        'subagentTaskId=t1',
+        'verificationCount=1',
+        'reason=v2_no_verification_allowed',
+      ]);
+    });
+
+    it('canonical + no decision + clawDir missing → throw summon_v2_executor_context_missing', async () => {
+      const loadTask = makeLoadTask(undefined, async (id) =>
+        makeSubAgentTask(id, undefined, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME),
+      );
+      const { audit, writes } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      const err = await policy
+        .check(makeCtx({ subagentTaskId: 't1' }), makeContract())
+        .catch(e => e);
+
+      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
+      expect(err).toMatchObject({
+        policyName: 'summon-verify',
+        cause: 'summon_v2_executor_context_missing',
+      });
+      expect(claimSpy).not.toHaveBeenCalled();
+      expect(writes).toContainEqual([
+        SUMMON_AUDIT_EVENTS.SUMMON_V2_EXECUTOR_CONTEXT_MISSING,
+        'subagentTaskId=t1',
+        'reason=no_executor_context',
+      ]);
+    });
+
+    it('canonical + legacy v1 decision present → v1 verify/targetClaw semantics win over post-processor', async () => {
+      // Phase 1402 Step A: decision-present 分支优先于 canonical post-processor，
+      // 保证旧 v1 task 即使使用相同 post-processor 仍保留当时的 verify/targetClaw 语义。
+      const loadTask = makeLoadTask(undefined, async (id) =>
+        makeSubAgentTask(
+          id,
+          makeV1Decision({ targetClaw: 'statsvc-auditor' }),
+          SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
+        ),
+      );
+      const { audit } = makeAudit();
+      const { claimStore, claimSpy } = makeClaimStore();
+      const policy = createSummonVerifyPolicy({ loadTask, auditWriter: audit, claimStore });
+
+      const err = await policy
+        .check(makeCtx({ subagentTaskId: 't1', clawDir: 'gateway-auditor' }), makeContract())
+        .catch(e => e);
+
+      expect(err).toBeInstanceOf(ContractCreatePolicyViolationError);
+      expect(err).toMatchObject({
+        policyName: 'summon-verify',
+        cause: 'summon_target_claw_violation',
+        details: expect.objectContaining({
+          subagentTaskId: 't1',
+          expectedTargetClaw: 'statsvc-auditor',
+          requestedClawId: 'gateway-auditor',
+        }),
+      });
+      expect(claimSpy).not.toHaveBeenCalled();
     });
   });
 
