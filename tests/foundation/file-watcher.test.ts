@@ -101,8 +101,6 @@ describe('FileWatcher', () => {
   }
 
   it('callback receives add/change/unlink events', async () => {
-    // Mock non-macOS to prevent fallback poll from interfering with event assertions
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
     const events = makeEventBuffer<{ type: string; path: string }>();
     const watcher = await waitForReady((onReady) =>
       createWatcher(
@@ -130,12 +128,9 @@ describe('FileWatcher', () => {
 
     await watcher.close();
     expect(fakeWatcherInstance.close).toHaveBeenCalled();
-    platformSpy.mockRestore();
   });
 
   it('callback error triggers onError(err, "callback") and continues', async () => {
-    // Mock non-macOS to prevent fallback poll from interfering with event assertions
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
     const errors = makeEventBuffer<{ err: Error; context: string }>();
     const callbackTicks = makeEventBuffer<number>();
     let callCount = 0;
@@ -167,7 +162,6 @@ describe('FileWatcher', () => {
     expect(callCount).toBeGreaterThanOrEqual(2);
 
     await watcher.close();
-    platformSpy.mockRestore();
   });
 
   it('onReady error triggers onError(err, "ready")', async () => {
@@ -308,8 +302,7 @@ describe('FileWatcher', () => {
 
   // === fallback poll（phase 352 / 469 / 760 — cross-platform immediate mode）===
 
-  it('macOS immediate mode enables fallback poll with default 500ms', async () => {
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+  it('immediate mode enables fallback poll with default 500ms', async () => {
     const setSpy = vi.spyOn(globalThis, 'setInterval');
 
     const watcher = createWatcher(
@@ -321,12 +314,10 @@ describe('FileWatcher', () => {
     expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 500);
 
     await watcher.close();
-    platformSpy.mockRestore();
     setSpy.mockRestore();
   });
 
   it('fallback poll interval is overridable via options.fallbackPollMs', async () => {
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
     const setSpy = vi.spyOn(globalThis, 'setInterval');
 
     const watcher = createWatcher(
@@ -338,12 +329,10 @@ describe('FileWatcher', () => {
     expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 200);
 
     await watcher.close();
-    platformSpy.mockRestore();
     setSpy.mockRestore();
   });
 
   it('stable mode does not enable fallback poll', async () => {
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
     const setSpy = vi.spyOn(globalThis, 'setInterval');
 
     const watcher = createWatcher(
@@ -355,29 +344,30 @@ describe('FileWatcher', () => {
     expect(setSpy).not.toHaveBeenCalled();
 
     await watcher.close();
-    platformSpy.mockRestore();
     setSpy.mockRestore();
   });
 
-  it('Linux immediate mode enables fallback poll (phase 760 cross-platform)', async () => {
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
-    const setSpy = vi.spyOn(globalThis, 'setInterval');
+  it.each(['darwin', 'linux', 'win32'])(
+    'immediate mode creates fallback timer on %s (phase 760 cross-platform)',
+    async (platform) => {
+      const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue(platform as NodeJS.Platform);
+      const setSpy = vi.spyOn(globalThis, 'setInterval');
 
-    const watcher = createWatcher(
-      path.join(tmpDir, 'watch.txt'),
-      () => {},
-      { stability: 'immediate' },
-    );
+      const watcher = createWatcher(
+        path.join(tmpDir, 'watch.txt'),
+        () => {},
+        { stability: 'immediate' },
+      );
 
-    expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 500);
+      expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 500);
 
-    await watcher.close();
-    platformSpy.mockRestore();
-    setSpy.mockRestore();
-  });
+      await watcher.close();
+      platformSpy.mockRestore();
+      setSpy.mockRestore();
+    },
+  );
 
   it('fallback poll emits change event to callback', async () => {
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
     const events = makeEventBuffer<{ type: string; path: string }>();
 
     const watcher = createWatcher(
@@ -392,11 +382,9 @@ describe('FileWatcher', () => {
     expect(events.arr.every(e => e.type === 'change')).toBe(true);
 
     await watcher.close();
-    platformSpy.mockRestore();
   });
 
   it('close clears fallback poll timer / no resource leak', async () => {
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
     const setSpy = vi.spyOn(globalThis, 'setInterval');
 
     const watcher = createWatcher(
@@ -414,7 +402,6 @@ describe('FileWatcher', () => {
       expect(clearSpy).toHaveBeenCalledWith(timerHandle);
     }
 
-    platformSpy.mockRestore();
     setSpy.mockRestore();
     clearSpy.mockRestore();
   });

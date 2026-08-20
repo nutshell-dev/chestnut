@@ -19,7 +19,7 @@ const FAST_POLL_MS = 10;
  */
 const RESET_OBSERVATION_POLL_COUNT = 10;
 
-describe('fallback poller escalation (macOS only)', () => {
+describe('fallback poller escalation', () => {
   let tmpDir: string;
   let testFile: string;
 
@@ -34,11 +34,7 @@ describe('fallback poller escalation (macOS only)', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // skipIf rationale: chokidar fallback poller is only enabled on macOS FSEvents path
-  // when stability === 'immediate' (per src/foundation/file-watcher/watcher.ts comment).
-  // Linux inotify + Windows ReadDirectoryChangesW do not use the fallback poller,
-  // so escalation cannot be exercised on those platforms by design — not a coverage gap.
-  it.skipIf(process.platform !== 'darwin')(
+  it(
     'disables poller after 5 consecutive callback failures',
     async () => {
       const errors: Array<{ err: Error; context: string }> = [];
@@ -83,7 +79,7 @@ describe('fallback poller escalation (macOS only)', () => {
   );
 
   // phase 1128 P1-5: async callback rejection must be observed and increment fail counter
-  it.skipIf(process.platform !== 'darwin')(
+  it(
     'fallback poller: async callback rejection is observed (no unhandled rejection) + increments consecutiveCallbackFails',
     async () => {
       const errors: Array<{ err: Error; context: string }> = [];
@@ -127,7 +123,7 @@ describe('fallback poller escalation (macOS only)', () => {
   );
 
   // phase 1128 P1-5: consecutive async failures must reach limit and trigger escalation
-  it.skipIf(process.platform !== 'darwin')(
+  it(
     'fallback poller: consecutive async failures reach limit → fallback_limit_reset onError',
     async () => {
       const errors: Array<{ err: Error; context: string }> = [];
@@ -158,8 +154,7 @@ describe('fallback poller escalation (macOS only)', () => {
     },
   );
 
-  // (Same darwin-only rationale as above)
-  it.skipIf(process.platform !== 'darwin')(
+  it(
     'resets counter on successful callback',
     async () => {
       let throwCount = 0;
