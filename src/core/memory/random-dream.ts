@@ -30,8 +30,7 @@ import {
 
 /**
  * Default random-dream subagent execution timeout（ms）= 1 hour.
- * Derivation: 3600 * 1000 = 1hr / 给 dream subagent 足够时长完成探索性思考 /
- * 配 HEARTBEAT_INTERVAL_SEC_DEFAULT (300s) 即 timeout 内至少 12 次 heartbeat.
+ * Derivation: 3600 * 1000 = 1hr / 给 dream subagent 足够时长完成探索性思考.
  */
 const DEFAULT_RANDOM_DREAM_TIMEOUT_MS = 3600 * 1000;
 

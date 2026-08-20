@@ -14,17 +14,17 @@ import { HEARTBEAT_AUDIT_EVENTS } from './audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
 /**
- * Default heartbeat interval (seconds); 5 min by design.
- * Derivation: 300s = 5 min / 比 daemon liveness probe (3s) 稀疏 100× 因 heartbeat 是 motion-claw
- * 心跳协议、低频即可 / 比 SUBAGENT timeout (5 min) 同值确保至少 1 次 heartbeat 在 subagent 生命周期内.
+ * Default heartbeat interval (seconds); 0 = disabled by design.
+ * phase 1405: 省略 interval 等价于显式 0，Heartbeat 模块自身保证默认禁用；
+ * 只有显式指定 interval > 0 才启用周期触发。
  */
-const HEARTBEAT_INTERVAL_SEC_DEFAULT = 300;
+const HEARTBEAT_INTERVAL_SEC_DEFAULT = 0;
 
 /** phase 84: DI callback - caller (L6 装配期) bind chestnutRoot + targetClawId + audit */
 export type HeartbeatNotifyInboxFn = (message: InboxMessageOptionsBase) => void;
 
 export interface HeartbeatOptions {
-  /** 心跳间隔（秒），默认 {@link HEARTBEAT_INTERVAL_SEC_DEFAULT}（5分钟） */
+  /** 心跳间隔（秒），默认 {@link HEARTBEAT_INTERVAL_SEC_DEFAULT}（0 = 禁用）；仅显式正值启用 */
   interval?: number;
   audit: AuditLog;
   inboxReader: InboxReader;

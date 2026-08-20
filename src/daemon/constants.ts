@@ -11,8 +11,7 @@ export const DAEMON_FALLBACK_TIMEOUT_MS = 30000;
 
 /**
  * Cooldown between startup_check notifications to prevent spam from rapid daemon restarts (ms).
- * Derivation: 10 * 60 * 1000 = 10 min / 给 daemon 真异常 restart loop 足够 cooldown 不灌爆 /
- * 比 HEARTBEAT_INTERVAL_SEC_DEFAULT (300s = 5 min) 长 2× 故 1 次 cooldown 内必有 1+ heartbeat.
+ * Derivation: 10 * 60 * 1000 = 10 min / 给 daemon 真异常 restart loop 足够 cooldown 不灌爆.
  */
 export const STARTUP_CHECK_COOLDOWN_MS = 10 * 60 * 1000;
 

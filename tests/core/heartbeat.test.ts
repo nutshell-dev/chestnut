@@ -17,14 +17,15 @@ import { createInboxReader } from '../../src/foundation/messaging/index.js';
 import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 
-function createTestHeartbeat(tempDir: string, intervalSec: number = 1): Heartbeat {
+function createTestHeartbeat(tempDir: string, intervalSec?: number): Heartbeat {
   const nodeFs = new NodeFileSystem({ baseDir: tempDir });
   const audit = createSystemAudit(nodeFs, tempDir);
   const inboxReader = createInboxReader(nodeFs, audit, path.join(tempDir, 'motion', 'inbox'));
   // phase 84: DI callback - bind chestnutRoot + MOTION_CLAW_ID + fs + audit at caller
   const chestnutRoot = makeChestnutRoot(tempDir);
   return new Heartbeat({
-    interval: intervalSec,
+    // phase 1405: intervalSec 为 undefined 时物理省略 interval key，真实覆盖缺省路径
+    ...(intervalSec === undefined ? {} : { interval: intervalSec }),
     audit,
     inboxReader,
     notifyInbox: (msg) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
@@ -184,13 +185,18 @@ describe('Heartbeat', () => {
   });
 
   describe('default interval', () => {
-    it('should default to 300 seconds (5 minutes)', async () => {
-      heartbeat = createTestHeartbeat(tempDir); // 不传 interval
-      await heartbeat.fire();
+    it('omitting interval disables heartbeat (phase 1405)', async () => {
+      // fake timers 在构造前开启，避免 lastRun 时钟混用
+      vi.useFakeTimers();
+      heartbeat = createTestHeartbeat(tempDir); // 物理省略 interval key
+
+      // 推进超过旧的 300s 默认，禁用语义下时间推移不影响 isDue
+      vi.advanceTimersByTime(400_000);
       expect(heartbeat.isDue()).toBe(false);
 
-      // 等待 1 秒（远小于 300 秒）
-      // 不能直接测试 300 秒，但验证行为符合默认值
+      await heartbeat.fire();
+      const inboxDir = path.join(tempDir, 'motion', 'inbox', 'pending');
+      expect(fs.readdirSync(inboxDir).filter(f => f.endsWith('.md'))).toHaveLength(0);
     });
   });
 });
