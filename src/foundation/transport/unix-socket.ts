@@ -277,7 +277,16 @@ export class UnixDomainSocketTransport implements Transport {
       try {
         cb(evt);
       } catch (err) {
-        // silent: callback error already observable via transportErrorCbs fire
+        // phase 1422: handler throw 从静默吞改为 [AUDIT CRITICAL] 可观察兜底
+        // （audit/writer.ts、async-task-system 同型先例）；catch 保持循环内，
+        // 单 handler 失败不阻断后续 handler。
+        const detail =
+          evt.kind === 'callback_error'
+            ? `callbackName=${evt.callbackName} connectionId=${evt.connectionId}`
+            : 'server_error';
+        console.error( // console: L1 transport 不可 depend audit (防 L1→L2)；onTransportError handler throw 的 [AUDIT CRITICAL] 兜底是既有承诺形态 (phase 1422 Step A)
+          `[AUDIT CRITICAL] transport error callback threw: kind=${evt.kind} ${detail} error=${formatErr(err)}`,
+        );
       }
     }
   }
