@@ -10,3 +10,10 @@ export const TASKS_SYNC_SUBAGENT_DIR = 'tasks/sync/subagent';
 
 /** tasks/subagents — subagent 任务存储目录（canonical owner: subagent L3） */
 export const TASKS_SUBAGENTS_DIR = 'tasks/subagents';
+
+/**
+ * phase 1490 Step B: SubAgent 自有、永久保留的可审计 working-dir namespace 的
+ * ignore 声明。
+ * 由 canonical TASKS_SUBAGENTS_DIR 派生，Assembly 装配期聚合。
+ */
+export const SUBAGENT_SNAPSHOT_IGNORE: readonly string[] = [`${TASKS_SUBAGENTS_DIR}/`];

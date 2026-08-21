@@ -99,3 +99,36 @@ describe('phase 1489: tasks/sync/ snapshot ignore policy moved to Assembly', () 
     expect(matches).toHaveLength(1);
   });
 });
+
+describe('phase 1490: tasks/subagents/ snapshot ignore policy owned by SubAgent', () => {
+  it('subagent/constants.ts derives SUBAGENT_SNAPSHOT_IGNORE from TASKS_SUBAGENTS_DIR', () => {
+    const src = read('src/core/subagent/constants.ts');
+    expect(src).toContain('SUBAGENT_SNAPSHOT_IGNORE');
+    expect(src).toContain('TASKS_SUBAGENTS_DIR');
+    expect(src).toContain('`${TASKS_SUBAGENTS_DIR}/`');
+  });
+
+  it('SubAgent barrel exports SUBAGENT_SNAPSHOT_IGNORE', () => {
+    const barrel = read('src/core/subagent/index.ts');
+    expect(barrel).toContain('SUBAGENT_SNAPSHOT_IGNORE');
+  });
+
+  it('AsyncTaskSystem dirs.ts no longer contains literal tasks/subagents/', () => {
+    const dirs = read('src/core/async-task-system/dirs.ts');
+    expect(dirs).not.toContain("'tasks/subagents/'");
+    expect(dirs).not.toContain('"tasks/subagents/"');
+  });
+
+  it('Assembly snapshot-patterns imports and spreads SUBAGENT_SNAPSHOT_IGNORE', () => {
+    const patterns = read('src/assembly/config/snapshot-patterns.ts');
+    expect(patterns).toContain('SUBAGENT_SNAPSHOT_IGNORE');
+    expect(patterns).toMatch(/import\s+\{[^}]*SUBAGENT_SNAPSHOT_IGNORE[^}]*\}\s+from\s+['"]\.\.\/\.\.\/core\/subagent\/index\.js['"]/);
+    expect(patterns).toContain('...SUBAGENT_SNAPSHOT_IGNORE');
+  });
+
+  it('SNAPSHOT_IGNORE_PATTERNS contains tasks/subagents/ exactly once', async () => {
+    const { SNAPSHOT_IGNORE_PATTERNS } = await import('../../../src/assembly/config/snapshot-patterns.js');
+    const matches = SNAPSHOT_IGNORE_PATTERNS.filter((p: string) => p === 'tasks/subagents/');
+    expect(matches).toHaveLength(1);
+  });
+});

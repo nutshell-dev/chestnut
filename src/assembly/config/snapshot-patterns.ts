@@ -13,7 +13,8 @@
  * Sources（各 owner module 自家声明、本 file 仅 concat）：
  * - foundation/stream → STREAM_SNAPSHOT_IGNORE
  * - foundation/audit → AUDIT_SNAPSHOT_IGNORE
- * - core/async-task-system → TASK_SNAPSHOT_IGNORE
+ * - core/async-task-system → TASK_SNAPSHOT_IGNORE（仅 tasks/queues/）
+ * - core/subagent → SUBAGENT_SNAPSHOT_IGNORE（phase 1490 Step B：tasks/subagents/ 归 SubAgent owner）
  *
  * Assembly-own composition（跨 owner policy、非任一模块单一资源）：
  * - phase 1489 Step B: tasks/sync/ 覆盖多个 claw 内业务 owner，由 Assembly 用 ClawIdentity
@@ -23,6 +24,7 @@
 import { STREAM_SNAPSHOT_IGNORE } from '../../foundation/stream/index.js';
 import { AUDIT_SNAPSHOT_IGNORE } from '../../foundation/audit/index.js';
 import { TASK_SNAPSHOT_IGNORE } from '../../core/async-task-system/index.js';
+import { SUBAGENT_SNAPSHOT_IGNORE } from '../../core/subagent/index.js';
 import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 
 export const SNAPSHOT_IGNORE_PATTERNS: readonly string[] = [
@@ -30,4 +32,5 @@ export const SNAPSHOT_IGNORE_PATTERNS: readonly string[] = [
   ...AUDIT_SNAPSHOT_IGNORE,
   `${TASKS_SYNC_DIR}/`,
   ...TASK_SNAPSHOT_IGNORE,
+  ...SUBAGENT_SNAPSHOT_IGNORE,
 ];
