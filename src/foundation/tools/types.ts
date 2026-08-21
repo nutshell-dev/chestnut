@@ -13,7 +13,7 @@ import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protoco
 export type { CallerSnapshot };
 
 import type { PermissionChecker } from '../tool-protocol/index.js';
-import type { ToolUseId } from '../tool-protocol/index.js';
+import type { ToolUseId } from '../llm-provider/index.js';
 import type { TraceId } from '../audit/index.js';
 
 

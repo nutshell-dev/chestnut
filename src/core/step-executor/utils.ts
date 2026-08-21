@@ -6,7 +6,7 @@
 import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 

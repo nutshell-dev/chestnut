@@ -11,7 +11,7 @@ import { sha256ShortHex } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import type { ToolUseId } from '../tool-protocol/index.js';
+import type { ToolUseId } from '../llm-provider/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../node-utils/index.js';
 import { BlockIdIndex } from './block-id-index.js';

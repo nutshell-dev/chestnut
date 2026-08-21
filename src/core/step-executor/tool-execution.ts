@@ -19,7 +19,7 @@ import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
-import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
+import { makeToolUseId } from '../../foundation/llm-provider/index.js';
 
 
 

@@ -13,7 +13,7 @@ import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
 import type { ExecContext, FileState } from './types.js';
 import type { TraceId } from '../audit/index.js';
-import type { ToolUseId } from '../tool-protocol/index.js';
+import type { ToolUseId } from '../llm-provider/index.js';
 
 import type { AuditLog } from '../audit/index.js';
 
