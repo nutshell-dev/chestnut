@@ -5,7 +5,7 @@ import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../.
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
 import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/tools/index.js';
-import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
+import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult, TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 import { createDialogStore, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 
 import { STREAM_TASK_EVENTS } from './stream-events.js';
@@ -19,7 +19,6 @@ import {
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import {
   TASKS_QUEUES_RESULTS_DIR,
-  TASKS_SUBAGENTS_DIR,
   POST_PROCESS_INPUT_FILE,
 } from './dirs.js';
 import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';

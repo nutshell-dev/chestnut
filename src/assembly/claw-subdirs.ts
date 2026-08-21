@@ -25,9 +25,8 @@ import { TASKS_SYNC_WRITE_DIR, TASKS_SYNC_SEARCH_DIR } from '../foundation/file-
 import {
   TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_RESULTS_DIR,
-  TASKS_SUBAGENTS_DIR,
 } from '../core/async-task-system/index.js';
-import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
+import { TASKS_SUBAGENTS_DIR, TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { MEMORY_DIR } from '../core/memory/index.js';
