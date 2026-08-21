@@ -17,7 +17,6 @@ export const DIALOG_AUDIT_EVENTS = {
   ARCHIVE_READ_FAILED: 'session_archive_read_failed',
   ARCHIVE_PARSE_FAILED: 'session_archive_parse_failed',
   ARCHIVE_DIR_FAILED: 'session_archive_dir_failed',
-  RESTORE_IO_ERROR: 'dialog_restore_io_error',
   LOOKUP_IO_ERROR: 'dialog_lookup_io_error',
   ARCHIVE_ALREADY_ARCHIVED: 'dialog_archive_already_archived',
   VERSION_UNKNOWN: 'dialog_session_version_unknown',  // ← NEW phase 1019 r124 E fork
@@ -34,7 +33,6 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_RECOVERY_FAILED: 'dialog_turn_recovery_failed',
   TURN_CLEANUP_FAILED: 'dialog_turn_cleanup_failed',
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
-  CLAWID_MISMATCH: 'dialog_clawid_mismatch',
 } as const;
 
 /**

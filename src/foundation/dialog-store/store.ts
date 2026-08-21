@@ -19,8 +19,6 @@ import type { Message, ToolUseBlock, ToolResultBlock } from '../llm-provider/ind
 import type {
   SessionData,
   LoadResult,
-  DialogMarker,
-  RestoreResult,
   DialogSaveSnapshot,
   DialogSessionLifecycle,
 } from './types.js';
@@ -33,7 +31,6 @@ import { BlockIdIndex } from './block-id-index.js';
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR, TURN_TRANSACTION_FILE } from './dirs.js';
 import { repairMessages } from './repair.js';
-import { restoreMessages } from './restore.js';
 import { assertDialogShapeInvariants } from './invariants.js';
 
 /**
@@ -872,23 +869,6 @@ export class DialogStore implements DialogSessionLifecycle {
   }
 
   /**
-   * Restore message prefix up to and including the marker assistant message.
-   * Scans current.json then archive/*.json (newest first).
-   * phase 46 Step D: delegate to restore.ts pure function.
-   */
-  async restore(marker: DialogMarker): Promise<RestoreResult> {
-    return restoreMessages(this.fs, this.currentPath, this.archiveDir, marker, false, this.audit);
-  }
-
-  /**
-   * Restore message prefix up to and including the marker assistant message.
-   * phase 46 Step D: delegate to restore.ts pure function.
-   */
-  async restorePrefix(marker: DialogMarker): Promise<RestoreResult> {
-    return restoreMessages(this.fs, this.currentPath, this.archiveDir, marker, true, this.audit);
-  }
-
-  /**
    * Validate and normalize session data
    * phase 1400: 委托 validateSessionData / 消 DRY 违反 / clawId fallback 来源传 this.clawId
    * phase 46 Step B: validateSessionData 迁至 validate.ts
@@ -910,4 +890,4 @@ export function createDialogStore(
 }
 
 // phase 46 Step B: re-export 保直接从 store.js import 的 caller 0 改（barrel 透明）
-export { MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './validate.js';
+export { migrateAndValidateSession, validateSessionData } from './validate.js';

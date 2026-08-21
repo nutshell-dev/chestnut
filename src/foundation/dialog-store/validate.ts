@@ -1,6 +1,6 @@
 /**
  * @module L2b.DialogStore.Validate
- * 校验 / 迁移 / Marker 错误。
+ * 校验 / 迁移。
  *
  * 抽出自 store.ts、dialogstore-auditor §M-01 follow-up（SRP 拆分）。
  */
@@ -9,19 +9,8 @@ import type { Message } from '../llm-provider/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { SessionData } from './types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import type { ToolUseId } from '../tool-protocol/index.js';
 
 const SESSION_CURRENT_VERSION = 2;
-
-export class MarkerNotFoundError extends Error {
-  constructor(
-    readonly clawId: string,
-    readonly toolUseId: ToolUseId,
-  ) {
-    super(`marker not found: clawId=${clawId} toolUseId=${toolUseId}`);
-    this.name = 'MarkerNotFoundError';
-  }
-}
 
 /** v1 → v2 schema migration. */
 export function detectAndMigrateVersion(

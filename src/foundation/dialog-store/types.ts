@@ -5,7 +5,6 @@
  */
 
 import type { Message, ToolDefinition } from '../llm-provider/index.js';
-import type { ToolUseId } from '../tool-protocol/index.js';
 import type { TraceId } from '../audit/index.js';
 
 
@@ -50,21 +49,3 @@ export interface DialogSessionLifecycle {
   archive(): Promise<void>;
 }
 
-/** phase 466: marker 模式 for subagent context restoration */
-export interface DialogMarker {
-  clawId: string;
-  toolUseId: ToolUseId;
-}
-
-/** phase 466: restorePrefix 返完整前缀 */
-export interface RestoreResult {
-  messages: Message[];                              // marker 时刻 messages 切片（含 marker 那条 assistant message）
-  systemPrompt: string;                             // 该 SessionData 的 systemPrompt（phase 713: per-turn snapshot）
-  toolsForLLM: ToolDefinition[];                    // phase 713 NEW
-  meta: {
-    foundIn: 'current' | 'archive';
-    foundFile?: string;
-    /** Phase 997/999: populated when current.json was degraded and archive was used as fallback. */
-    degradationNotes?: [string, ...string[]];
-  };
-}
