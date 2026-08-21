@@ -121,7 +121,7 @@ export class SummonTool implements Tool {
       ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
       : undefined;
 
-    const result = await this.executeShadow({
+    const result = await this.executeContractCreationSubagent({
       userMessage,
       idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
       ctx,
@@ -144,7 +144,7 @@ export class SummonTool implements Tool {
     };
   }
 
-  private async executeShadow(
+  private async executeContractCreationSubagent(
     opts: {
       userMessage: string;
       idleTimeoutMs: number;

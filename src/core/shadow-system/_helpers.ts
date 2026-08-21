@@ -2,7 +2,7 @@
  * phase 767 NEW
  * Shadow session synthesis helper（phase 770 Form A 实证不可用，删 synthesizeFormA dead code）
  * phase 1115：phase 945 立的 3-turn 锚定撤回到 1-turn baseline（empirical refutation per `feedback_design_claim_requires_empirical_evidence`）
- * phase 1142：stripIncompleteToolUse mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers (SummonSystem) 复用 API。
+ * phase 1142：stripIncompleteToolUse mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers（SummonSystem 契约创建子代理）复用 API。
  */
 
 import type { Message } from '../../foundation/llm-provider/index.js';
@@ -11,7 +11,7 @@ import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../t
 
 /**
  * Strip trailing incomplete assistant message so subagent LLM doesn't see unpaired tool_uses.
- * phase 1142 mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers (SummonSystem) 复用 API。
+ * phase 1142 mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers（SummonSystem 契约创建子代理）复用 API。
  */
 export function stripIncompleteToolUse(msgs: Message[] | undefined): Message[] | undefined {
   if (!msgs || msgs.length === 0) return msgs;

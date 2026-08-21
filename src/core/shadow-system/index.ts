@@ -7,7 +7,7 @@
 
 export { createShadowTool } from './tools/shadow.js';
 export { TASKS_SYNC_SHADOW_DIR } from './constants.js';
-// phase 1142: primitives for L4 consumers (SummonSystem.shadow mode)
+// phase 1142: primitives for L4 consumers（SummonSystem 契约创建子代理复用 primitive）
 export { stripIncompleteToolUse } from './_helpers.js';
 // phase 1306: 删 dead re-export (buildShadowInstruction / _helpers.ts 已直接 import prompts/)
 // phase 1185: spawnShadowSubagent helper — shadow subagent 装配业务归位
