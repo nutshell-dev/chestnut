@@ -45,6 +45,8 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
     // 同层编排模块 watchdog-config-migration；均为迁移协议组成，非 daemon/监督依赖。
     // phase 1289 Step D: compose-config 边已删（root schema 移除 watchdog 段）；
     // init.ts 仅经 watchdog/workspace-config + config-migration-journal 消费（迁移协议）。
+    // phase 1455 Step A: CLI 同层编排模块 watchdog-state-migration（state 迁移协议
+    // 组成，与 watchdog-config-migration 同型特许）。
     const expected = [
       'assembly/business-systems.ts',
       'assembly/config/config-load.ts',
@@ -56,6 +58,7 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
       'cli/commands/watchdog-cli.ts',
       'cli/supervision-policy.ts',
       'cli/watchdog-config-migration.ts',
+      'cli/watchdog-state-migration.ts',
     ].sort();
     expect(fromOutside).toEqual(expected);
   });

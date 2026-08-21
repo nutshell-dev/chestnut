@@ -182,6 +182,21 @@ describe('logWithAudit — A1 clearance', () => {
 
     logSpy.mockRestore();
   });
+
+  it('phase 1455 Step B: log 写归位路径 watchdog/watchdog.log（不写 legacy logs/watchdog.log）', () => {
+    setAuditWriter(null);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    logWithAudit(fsFactory, 'relocated log line');
+
+    const chestnutDir = path.join(tmpDir, '.chestnut');
+    const newLog = path.join(chestnutDir, 'watchdog', 'watchdog.log');
+    expect(fs.existsSync(newLog)).toBe(true);
+    expect(fs.readFileSync(newLog, 'utf-8')).toContain('relocated log line');
+    expect(fs.existsSync(path.join(chestnutDir, 'logs', 'watchdog.log'))).toBe(false);
+
+    logSpy.mockRestore();
+  });
 });
 
 // ─── Existing: shutdownWatchdog ──────────────────────────────────────────────

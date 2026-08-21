@@ -1,15 +1,11 @@
 /**
- * Phase 1287 Step C: Watchdog 布局 owner 与 legacy IO 隔离 ratchet。Phase 1287 Step B
- * 建立零 IO 布局协议（src/watchdog/layout.ts）并把 ownership 目录常量改为派生后，本 ratchet 冻结：
- *  - WATCHDOG_PATHS / WATCHDOG_LEGACY_PATHS production 定义恰在
- *    watchdog/layout.ts 一处；目标/legacy 键值与 Phase 1286 逐项一致、不缺不溢；
- *  - layout 模块零 import、零 IO；
- *  - ownership 四个目录常量均从 WATCHDOG_PATHS 派生，文件内无目标路径字面；
- *  - Watchdog 外 production 模块不得 deep-import layout；模块内经 ./layout.js
- *    （模块外迁移协议消费方只经 Watchdog barrel）；
- *  - 阶段隔离：当前 log/subscription 生产 IO 仍在 legacy 位置，不得提前
- *    引用 target 值（非永久规则——后续资源迁移 Phase 必须显式校准本约束；
- *    state 已于 Phase 1455 Step A 迁移、移出本约束）。
+ * Phase 1287 Step C: Watchdog 布局 owner 与 legacy IO 隔离 ratchet，冻结：
+ *  - WATCHDOG_PATHS / WATCHDOG_LEGACY_PATHS production 定义恰在 watchdog/layout.ts
+ *    一处；目标/legacy 键值与 Phase 1286 逐项一致、不缺不溢；
+ *  - layout 模块零 import、零 IO；ownership 四目录常量均自 WATCHDOG_PATHS 派生；
+ *  - Watchdog 外 production 模块不得 deep-import layout（模块内经 ./layout.js）；
+ *  - 阶段隔离：state/log 已归位 target（Phase 1455 Step A/B）、不回退 legacy
+ *    字面；subscriptions 0 生产使用（清退登记归 Phase 1455 Step C）。
  * 正反 fixture 自证 scanner 能识别模块外 owner 复制与合法模块内 import。
  */
 
@@ -26,10 +22,8 @@ const LAYOUT_FILE = path.join(WATCHDOG_DIR, 'layout.ts');
 const OWNERSHIP_FILE = path.join(WATCHDOG_DIR, 'watchdog-ownership.ts');
 const INTERNAL_SPECIFIER = './layout.js';
 
-/**
- * Watchdog 外 layout 消费方限迁移协议原语：Assembly config-load 负责 legacy root
- * YAML 段 IO，CLI watchdog-config-migration 编排；两者也必须只经 Watchdog barrel。
- */
+/** Watchdog 外 layout 消费方限迁移协议原语（Assembly config-load legacy 段 IO +
+    CLI watchdog-config-migration 编排），也必须只经 Watchdog barrel。 */
 const OUTSIDE_CONSUMER_WHITELIST: ReadonlyArray<readonly [string, string]> = [
   ['src/assembly/config/config-load.ts', '../../watchdog/index.js'],
   ['src/cli/watchdog-config-migration.ts', '../watchdog/index.js'],
@@ -44,9 +38,8 @@ const TARGET_ENTRIES: ReadonlyArray<readonly [string, string]> = [
 ];
 const LEGACY_ENTRIES: ReadonlyArray<readonly [string, string]> = [
   ['state', 'watchdog-state.json'], ['subscriptions', 'watchdog-subscriptions'],
-  ['log', 'logs/watchdog.log'], ['pid', 'watchdog.pid'],
-  // Phase 1289 Step B: legacy root YAML watchdog 配置段顶层键名。
-  ['configSection', 'watchdog'],
+  // Phase 1289 Step B: configSection = legacy root YAML watchdog 配置段顶层键名。
+  ['log', 'logs/watchdog.log'], ['pid', 'watchdog.pid'], ['configSection', 'watchdog'],
 ];
 
 const DEFINITION_RE = /export\s+const\s+(WATCHDOG_PATHS|WATCHDOG_LEGACY_PATHS)\b/;
@@ -129,15 +122,20 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
     }
   });
 
-  it('阶段隔离：log 生产 IO 仍在 legacy 位置、未提前引用 target（迁移 Phase 须校准本约束）', () => {
-    // Phase 1455 Step A: state 已迁移（watchdog-state.ts 移出本清单）；
-    // log/subscriptions 待 Step B/C。
-    const staged = ['watchdog-log.ts', 'constants.ts'];
-    const targets = ['watchdog/watchdog.log', 'WATCHDOG_PATHS'];
-    for (const name of staged) {
+  it('阶段隔离：state/log 生产 IO 已归位 target、不回退 legacy 字面（Phase 1455 Step A/B）', () => {
+    // state/log 已迁移：锁定消费 WATCHDOG_PATHS、无路径字面直写（防双源漂移）。
+    const migrated: ReadonlyArray<readonly [string, string]> = [
+      ['watchdog-state.ts', 'WATCHDOG_PATHS.state'], ['watchdog-log.ts', 'WATCHDOG_PATHS.log'],
+    ];
+    const literals = ["'watchdog/state.json'", "'watchdog/watchdog.log'", "'watchdog-state.json'", "'logs/watchdog.log'"];
+    for (const [name, symbol] of migrated) {
       const text = fs.readFileSync(path.join(WATCHDOG_DIR, name), 'utf8');
-      for (const t of targets) expect(text.includes(t), `${name} must not reference target ${t} yet`).toBe(false);
+      expect(text.includes(symbol), `${name} must reference ${symbol}`).toBe(true);
+      for (const lit of literals) expect(text.includes(lit), `${name} repeats ${lit}`).toBe(false);
     }
+    // constants.ts：WATCHDOG_LOG 已退役（单源 WATCHDOG_PATHS.log），不得复现。
+    const constants = fs.readFileSync(path.join(WATCHDOG_DIR, 'constants.ts'), 'utf8');
+    expect(constants.includes('WATCHDOG_LOG'), 'WATCHDOG_LOG must stay retired').toBe(false);
   });
 
   it('scanner 正反 fixture 自证', () => {

@@ -4,12 +4,14 @@
  *
  * Phase 1396 Step H: motion-facing inbox writers retired; this module keeps
  * console/append-only log and best-effort audit forwarding only.
+ *
+ * Phase 1455 Step B: log 写路径归位 WATCHDOG_PATHS.log（watchdog/watchdog.log）。
  */
 
 import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutFs, getAuditWriter } from './watchdog-context.js';
-import { WATCHDOG_LOG } from './constants.js';
+import { WATCHDOG_PATHS } from './layout.js';
 
 /** 1:1 保 watchdog.ts:152-164 */
 export function log(fsFactory: (baseDir: string) => FileSystem, message: string): void {
@@ -19,8 +21,11 @@ export function log(fsFactory: (baseDir: string) => FileSystem, message: string)
 
   try {
     const fs = getChestnutFs(fsFactory);
-    fs.ensureDirSync(path.dirname(WATCHDOG_LOG));
-    fs.appendSync(WATCHDOG_LOG, logLine);
+    // Phase 1455 Step B: 写路径归位 watchdog/watchdog.log（constants.ts 旧 log
+    // 常量退役、WATCHDOG_PATHS.log 单源）；legacy logs/watchdog.log 保留为历史、
+    // 清退归 Step C。
+    fs.ensureDirSync(path.dirname(WATCHDOG_PATHS.log));
+    fs.appendSync(WATCHDOG_PATHS.log, logLine);
   } catch {
     // silent: fallback already logged to stdout
   }

@@ -87,8 +87,9 @@ describe('CLI supervision policy coverage ratchet (phase 1247)', () => {
     const content = fs.readFileSync(startPath, 'utf-8');
     // Phase 1289 Step B 校准：start.ts 可引用同层 CLI 迁移编排模块
     //（../watchdog-config-migration.js，与 audit-config-migration 同型）；
+    // Phase 1455 Step A 校准：同层 ../watchdog-state-migration.js 同型特许；
     // 禁止的是直依赖 Watchdog daemon/监督模块（watchdog/ 深链与 ensureWatchdog 原语）。
-    expect(content).not.toMatch(/from\s+['"][^'"]*watchdog(?!-config-migration)[^'"]*['"]/);
-    expect(content).not.toMatch(/\bensureWatchdog\b(?!ConfigMigrated)/);
+    expect(content).not.toMatch(/from\s+['"][^'"]*watchdog(?!(?:-config|-state)-migration)[^'"]*['"]/);
+    expect(content).not.toMatch(/\bensureWatchdog\b(?!ConfigMigrated|StateMigrated)/);
   });
 });
