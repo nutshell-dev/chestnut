@@ -19,3 +19,7 @@ export { DAEMON_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
 
 export { DAEMON_FILE_ROUTING } from './audit-events.js';
 export { resolveDaemonEntry } from './entry-resolver.js';
+
+// Phase 1464 Step B: daemon spawn specification 唯一 owner capability（CLIProcess/Watchdog 唯一启动规格入口）
+export { createDaemonSpawnOptions } from './spawn-options.js';
+export type { DaemonSpawnOptionsInput } from './spawn-options.js';

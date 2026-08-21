@@ -37,9 +37,8 @@ import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/i
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { EnsureSupervision } from '../supervision-policy.js';
-import { resolveDaemonEntry } from '../../daemon/index.js';
+import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
-import { DAEMON_LOG } from '../../daemon/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
@@ -166,13 +165,13 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
   await runtime.ensureSupervision();
   // Step 2: motion init
   const { fs: notifyFs, audit: notifyAudit } = createDirContext(deps, motionDir);
-  const daemonEntryPath = resolveDaemonEntry();
-  const motionSpawnOptions = {
-    command: 'node' as const,
-    args: [daemonEntryPath, MOTION_CLAW_ID],
-    logFile: path.join(motionDir, DAEMON_LOG),
-    env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-  };
+  // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner；motionSpawnOptions
+  // 继续作为 supervision input（ensureRunning），只替换构造来源
+  const motionSpawnOptions = createDaemonSpawnOptions({
+    clawId: MOTION_CLAW_ID,
+    agentDir: motionDir,
+    workspaceRoot: getWorkspaceRoot(),
+  });
   const motionFs = deps.fsFactory(motionDir);
   if (!motionFs.existsSync(CLAW_SPEC_FILE)) {
     await motionInitCommand(deps, true);

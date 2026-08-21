@@ -4,15 +4,13 @@
 
 import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import * as path from 'path';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createViewportAudit } from './viewport-audit-events.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import { resolveDaemonEntry } from '../../daemon/index.js';
-import { DAEMON_LOG } from '../../daemon/index.js';
+import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<void> {
@@ -34,15 +32,15 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
     ensureDaemon: async () => {
       const baseDir = getChestnutRoot();
       const pm = createProcessManagerForCLI({ ...deps, baseDir });
-      if (!pm.getAliveStatus(resolveClawDaemonDir(makeClawId(name))).alive) {
+      const clawId = makeClawId(name);
+      if (!pm.getAliveStatus(resolveClawDaemonDir(clawId)).alive) {
         console.log(`Starting Claw "${name}" daemon...`);
-        const daemonEntryPath = resolveDaemonEntry();
-        const pid = await pm.spawn(resolveClawDaemonDir(makeClawId(name)), {
-          command: 'node',
-          args: [daemonEntryPath, name],
-          logFile: path.join(clawDir, DAEMON_LOG),
-          env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-        });
+        // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
+        const pid = await pm.spawn(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
+          clawId,
+          agentDir: clawDir,
+          workspaceRoot: getWorkspaceRoot(),
+        }));
         console.log(`Started (PID: ${pid})`);
       }
     },

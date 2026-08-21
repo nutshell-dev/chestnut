@@ -285,7 +285,7 @@ describe('runWatchdogLoop ownership 门', () => {
     const foreign = newWatchdogAttempt(process.pid);
     seedActive(foreign);
 
-    await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+    await runWatchdogLoop(fsFactory);
 
     expect(fs.existsSync(path.join(chestnutDir, 'watchdog.pid'))).toBe(false);
     expect(capturedHandlers['SIGTERM']).toBeUndefined();
@@ -304,7 +304,7 @@ describe('runWatchdogLoop ownership 门', () => {
     const foreign = { ...newWatchdogAttempt(process.pid), workspace_root: '/foreign/root' };
     seedActive(foreign);
 
-    await expect(runWatchdogLoop(fsFactory, 'logs/daemon.log'))
+    await expect(runWatchdogLoop(fsFactory))
       .rejects.toThrow(WatchdogPidForeignWorkspaceError);
 
     // active 原样保留；零主 loop 副作用
@@ -321,7 +321,7 @@ describe('runWatchdogLoop ownership 门', () => {
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+      await runWatchdogLoop(fsFactory);
     } catch { /* process.exit mock may throw */ }
 
     const owner = activeOwner();
@@ -343,7 +343,7 @@ describe('runWatchdogLoop ownership 门', () => {
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+      await runWatchdogLoop(fsFactory);
     } catch { /* process.exit mock may throw */ }
 
     const retiredDirs = fs.readdirSync(path.join(chestnutDir, WATCHDOG_RETIRED_DIR));

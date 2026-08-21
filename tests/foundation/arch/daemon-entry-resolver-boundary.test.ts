@@ -53,16 +53,14 @@ function collectDefinitions(dir: string): string[] {
 }
 
 // phase 1284 当前 consumer 集合；合法新 caller 需显式更新本表。
+// Phase 1464 Step B：7 个 spawn 调用点（claw-daemon/claw-chat/motion-daemon/motion/start
+// + watchdog executor-recovery/watchdog）改经 createDaemonSpawnOptions 消费 entry，
+// 不再直 import resolver；仅剩 status/stop 两个非 spawn 查询消费方。
+// src/daemon/spawn-options.ts 是 owner internal consumer（同模块相对 import、不走 barrel）。
 const EXPECTED_CONSUMERS = [
-  'src/cli/commands/claw-chat.ts',
-  'src/cli/commands/claw-daemon.ts',
-  'src/cli/commands/motion-daemon.ts',
-  'src/cli/commands/motion.ts',
-  'src/cli/commands/start.ts',
   'src/cli/commands/status.ts',
   'src/cli/commands/stop.ts',
-  'src/watchdog/executor-recovery.ts',
-  'src/watchdog/watchdog.ts',
+  'src/daemon/spawn-options.ts',
 ];
 
 describe('phase 1284 Step B: Daemon entry resolver 归属边界', () => {
@@ -74,6 +72,11 @@ describe('phase 1284 Step B: Daemon entry resolver 归属边界', () => {
     const imports = collectResolverImports(SRC_ROOT);
     expect(imports.map((i) => i.file).sort()).toEqual(EXPECTED_CONSUMERS);
     for (const i of imports) {
+      if (i.file.startsWith('src/daemon/')) {
+        // owner internal：同模块相对路径直 import（Phase 1464 spawn-options.ts）
+        expect(i.specifier, `${i.file} must use module-internal relative import`).toBe('./entry-resolver.js');
+        continue;
+      }
       expect(i.specifier.endsWith(STABLE_SUFFIX), `${i.file} must use public barrel`).toBe(true);
       expect(i.specifier).not.toContain('assembly/spawn-entry');
     }

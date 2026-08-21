@@ -13,8 +13,7 @@ import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { resolveDaemonEntry } from '../../daemon/index.js';
-import { DAEMON_LOG } from '../../daemon/index.js';
+import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -40,13 +39,12 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps, extraDeps?: { 
     console.warn('⚠ Motion is already running');
     return;
   }
-  const daemonEntryPath = resolveDaemonEntry();
-  const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
-    command: 'node',
-    args: [daemonEntryPath, MOTION_CLAW_ID],
-    logFile: path.join(motionDir, DAEMON_LOG),
-    env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-  });
+  // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
+  const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+    clawId: MOTION_CLAW_ID,
+    agentDir: motionDir,
+    workspaceRoot: getWorkspaceRoot(),
+  }));
   // phase 1452 Step B: spawn 成功侧 emit（claw-daemon 同型）；失败侧由 PM 承载
   extraDeps?.audit?.write(CLI_AUDIT_EVENTS.MOTION_DAEMON_START, `pid=${pid}`);
   console.log(`Started Motion daemon (PID: ${pid})`);

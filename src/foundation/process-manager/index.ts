@@ -14,6 +14,8 @@ export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 
 export { ProcessManager, ProcessSpawnConflictError } from './manager.js';
 export type { ProcessSpawnConflictReason } from './manager.js';
+// Phase 1464 Step B: Daemon spawn specification capability 消费通用 SpawnOptions type
+export type { SpawnOptions } from './manager.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
 export { ProcessListUnavailable } from './errors.js';

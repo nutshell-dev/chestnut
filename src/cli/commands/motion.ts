@@ -28,8 +28,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
 import { CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, CLAW_HEARTBEAT_FILE } from '../../foundation/claw-identity/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/index.js';
-import { resolveDaemonEntry } from '../../daemon/index.js';
-import { DAEMON_LOG } from '../../daemon/index.js';
+import { createDaemonSpawnOptions, DAEMON_LOG } from '../../daemon/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/skill-system/index.js';
@@ -220,13 +219,12 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
       const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
       if (!pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID)).alive) {
         console.log('Starting Motion daemon...');
-        const daemonEntryPath = resolveDaemonEntry();
-        const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
-          command: 'node',
-          args: [daemonEntryPath, MOTION_CLAW_ID],
-          logFile: path.join(motionDir, DAEMON_LOG),
-          env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-        });
+        // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
+        const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+          clawId: MOTION_CLAW_ID,
+          agentDir: motionDir,
+          workspaceRoot: getWorkspaceRoot(),
+        }));
         console.log(`✓ Started (PID: ${pid})`);
       }
     },

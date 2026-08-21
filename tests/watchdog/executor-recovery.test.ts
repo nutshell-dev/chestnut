@@ -80,7 +80,6 @@ describe('maybeCronExecutorRecovery', () => {
       pm,
       audit,
       fsFactory,
-      daemonLogName: 'daemon.log',
       spawnDaemon,
       makeFailureSink,
       now,

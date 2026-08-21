@@ -33,7 +33,7 @@ import { makeClawId } from '../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir, getClawDir, enumerateClaws } from '../core/claw-topology/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import type { ExecutionFailureSink } from '../core/contract/index.js';
-import { resolveDaemonEntry } from '../daemon/index.js';
+import { createDaemonSpawnOptions } from '../daemon/index.js';
 import { getWorkspaceRoot } from '../core/claw-topology/index.js';
 import {
   getChestnutFs,
@@ -159,8 +159,6 @@ export interface ExecutorRecoveryDeps {
   pm: ProcessManager;
   audit: AuditLog;
   fsFactory: (baseDir: string) => FileSystem;
-  /** daemon stdout 日志文件相对名（同 watchdog.ts 传入 motion 的值）。 */
-  daemonLogName: string;
   /** 注入点：测试替代真实 spawn。 */
   spawnDaemon?: (rawClawId: string) => Promise<ExecutorSpawnOutcome>;
   /** 注入点：测试替代真实 ContractSystem sink。 */
@@ -180,7 +178,7 @@ export async function maybeCronExecutorRecovery(
   deps: ExecutorRecoveryDeps,
 ): Promise<ExecutorRestartMap> {
   const {
-    pm, audit, fsFactory, daemonLogName,
+    pm, audit, fsFactory,
   } = deps;
   const now = deps.now ?? (() => Date.now());
   const maxAttempts = deps.maxAttempts ?? getExecutorMaxRestart();
@@ -338,7 +336,7 @@ export async function maybeCronExecutorRecovery(
           try {
             return deps.spawnDaemon
               ? await deps.spawnDaemon(rawClawId)
-              : await defaultSpawnClawDaemon(pm, fsFactory, rawClawId, daemonLogName);
+              : await defaultSpawnClawDaemon(pm, fsFactory, rawClawId);
           } catch (error) {
           // silent: spawn failure is converted to a typed outcome and audited below
           return { kind: 'failed', error };
@@ -386,7 +384,6 @@ async function defaultSpawnClawDaemon(
   pm: ProcessManager,
   fsFactory: (baseDir: string) => FileSystem,
   rawClawId: string,
-  daemonLogName: string,
 ): Promise<ExecutorSpawnOutcome> {
   try {
     const clawId = makeClawId(rawClawId);
@@ -395,13 +392,14 @@ async function defaultSpawnClawDaemon(
     await pm.stop(daemonDir).catch((e) => {
       log(fsFactory, `[watchdog] Failed to clean up claw ${rawClawId} before restart: ${formatErr(e)}`);
     });
-    const pid = await pm.spawn(daemonDir, {
-      command: 'node',
-      args: [resolveDaemonEntry(), rawClawId],
-      logFile: path.join(getClawDir(rawClawId), daemonLogName),
-      env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-      cwd: getWorkspaceRoot(),
-    });
+    // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner（含 log/env/cwd 协议）；
+    // phase 444 daemonLogName DI 随本 capability 退役（watchdog→daemon 合法单边已由
+    // phase 1284/1343 ratify，log 路径协议收进 createDaemonSpawnOptions）
+    const pid = await pm.spawn(daemonDir, createDaemonSpawnOptions({
+      clawId,
+      agentDir: getClawDir(rawClawId),
+      workspaceRoot: getWorkspaceRoot(),
+    }));
     return { kind: 'spawned', pid };
   } catch (err) {
     if (err instanceof ProcessSpawnConflictError) {

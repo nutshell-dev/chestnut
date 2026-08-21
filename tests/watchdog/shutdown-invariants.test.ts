@@ -106,7 +106,7 @@ describe('watchdog-shutdown-guard', () => {
         exitSpy.mockRestore();
       });
       try {
-        await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+        await runWatchdogLoop(fsFactory);
       } catch {
         // process.exit mock may throw — expected
       }
@@ -177,7 +177,7 @@ describe('handler-idempotent-install', () => {
         exitSpy.mockRestore();
       });
       try {
-        await runWatchdogLoop(fsFactory, 'logs/daemon.log');
+        await runWatchdogLoop(fsFactory);
       } catch {
         // process.exit mock may throw — expected
       }
@@ -216,7 +216,7 @@ describe('handler-idempotent-install', () => {
         exitSpy.mockRestore();
       });
 
-      const loop2 = runWatchdogLoop(fsFactory, 'logs/daemon.log');
+      const loop2 = runWatchdogLoop(fsFactory);
       await new Promise((resolve) => setImmediate(resolve));
       const duringLoop2Sigterm = process.listenerCount('SIGTERM');
       const duringLoop2Sigint = process.listenerCount('SIGINT');

@@ -9,7 +9,6 @@
 
 import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import * as path from 'path';
 import { getChestnutRoot, getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
@@ -18,8 +17,7 @@ import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { resolveDaemonEntry } from '../../daemon/index.js';
-import { DAEMON_LOG } from '../../daemon/index.js';
+import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
 export type DaemonPM = Pick<ProcessManager, 'getAliveStatus' | 'spawn'>;
@@ -45,17 +43,17 @@ export async function clawDaemonCommand(
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
-  if (pm.getAliveStatus(resolveClawDaemonDir(makeClawId(name))).alive) {
+  const clawId = makeClawId(name);
+  if (pm.getAliveStatus(resolveClawDaemonDir(clawId)).alive) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }
-  const daemonEntryPath = resolveDaemonEntry();
-  const pid = await pm.spawn(resolveClawDaemonDir(makeClawId(name)), {
-    command: 'node',
-    args: [daemonEntryPath, name],
-    logFile: path.join(clawDir, DAEMON_LOG),
-    env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-  });
+  // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner，CLI 只提交 identity/agentDir/workspaceRoot
+  const pid = await pm.spawn(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
+    clawId,
+    agentDir: clawDir,
+    workspaceRoot: getWorkspaceRoot(),
+  }));
   // phase 1452 Step B: spawn 成功侧 emit（对齐 start.ts DAEMON_START 形态）；
   // 失败侧由 PM PROCESS_SPAWN_FAILED 承载（豁免、不补 CLI 侧失败事件）
   extraDeps?.audit?.write(CLI_AUDIT_EVENTS.CLAW_DAEMON_START, `claw=${name}`, `pid=${pid}`);

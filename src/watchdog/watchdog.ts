@@ -19,7 +19,6 @@
  */
 
 
-import * as path from 'path';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { setTimeout } from 'timers/promises';
 
@@ -40,7 +39,7 @@ import { ProcessSpawnConflictError } from '../foundation/process-manager/index.j
 import { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
 
-import { resolveDaemonEntry } from '../daemon/index.js';
+import { createDaemonSpawnOptions } from '../daemon/index.js';
 
 
 import {
@@ -358,7 +357,6 @@ async function attemptMotionRestart(
   fsFactory: (baseDir: string) => FileSystem,
   audit: AuditLog,
   status: ReturnType<ReturnType<typeof createProcessManagerForCLI>['getAliveStatus']>,
-  daemonLogName: string,
 ): Promise<MotionSpawnOutcome> {
   log(fsFactory, `[watchdog] motion down (${status.reason}), restarting...`);
   // phase 601: 裸 MOTION_CLAW_ID 改 key=value 形态 + 加 reason col、与其他 watchdog emit 对齐
@@ -376,19 +374,14 @@ async function attemptMotionRestart(
       // phase 718: payload 加 message= prefix、forensic 解析可 join message 维度
       logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, `message=${audit.message(msg)}`);
     });
-    const daemonEntryPath = resolveDaemonEntry();
-    const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
-      command: 'node',
-      args: [daemonEntryPath, MOTION_CLAW_ID],
-      logFile: path.join(getNamedSubrootDir('motion'), daemonLogName),
-      // phase 422 Step B (review medium orphan-cleanup uniformity): 与 motion.ts:209
-      // / start.ts / claw-chat (phase 398 N1) 全 CLI 入口对齐、不绕
-      // makeChestnutRoot/path.dirname。
-      env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-      // phase 458 (review N3-M): 显式传 cwd 防子进程继承 watchdog process.cwd（test/multi-workspace
-      // 污染风险）。motion 子进程逻辑通过 CHESTNUT_ROOT env 寻路、cwd 应为 chestnut workspace root。
-      cwd: getWorkspaceRoot(),
-    });
+    // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner；CLI 入口与
+    // watchdog 统一经 createDaemonSpawnOptions 取得 log/env/cwd 协议（phase 458
+    // 显式 cwd 语义由 helper 兑现，不再本地组装）。
+    const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
+      clawId: MOTION_CLAW_ID,
+      agentDir: getNamedSubrootDir('motion'),
+      workspaceRoot: getWorkspaceRoot(),
+    }));
     log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
     // phase 716: raw MOTION_CLAW_ID 加 claw= prefix、与 spawn.ts:351 同 event 形态对齐
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, `claw=${MOTION_CLAW_ID}`, `pid=${pid}`);
@@ -414,11 +407,9 @@ async function attemptMotionRestart(
  * 1:1 保 watchdog.ts:402-513
  *
  * @param fsFactory 文件系统工厂
- * @param daemonLogName daemon stdout 日志文件相对名（phase 1364 ratify daemon 单 owner、装配 caller setter 注入；phase 444 Step B DI 化避免 watchdog→daemon 模块边）
  */
 export async function runWatchdogLoop(
   fsFactory: (baseDir: string) => FileSystem,
-  daemonLogName: string,
 ): Promise<void> {
   log(fsFactory, '[watchdog] Daemon starting...');
 
@@ -588,7 +579,7 @@ export async function runWatchdogLoop(
         }
         break;
       case 'attempt': {
-        const outcome = await attemptMotionRestart(pm, fsFactory, auditWriter, status, daemonLogName);
+        const outcome = await attemptMotionRestart(pm, fsFactory, auditWriter, status);
         const next = reduceMotionRestartOutcome(
           decision.state, outcome, Date.now(), intervalMs, WATCHDOG_BACKOFF_MAX_MS,
         );
@@ -607,7 +598,7 @@ export async function runWatchdogLoop(
     // 2. Executor availability recovery (Phase 1396 Step F/H)
     const nextExecutorMap = await maybeCronExecutorRecovery(
       executorRestartStateAPI.snapshot(),
-      { pm, audit: auditWriter, fsFactory, daemonLogName },
+      { pm, audit: auditWriter, fsFactory },
     );
     executorRestartStateAPI.replace(nextExecutorMap);
     saveWatchdogState(fsFactory);
