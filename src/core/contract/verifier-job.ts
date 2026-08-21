@@ -26,8 +26,8 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
-// phase 691 Step C: deep import dirs.ts leaf (避 barrel 触发 contract↔async-task 已有 type 链 cycle)
-import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
+// phase 1488: TASKS_SYNC_DIR namespace name owned by ClawIdentity
+import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 

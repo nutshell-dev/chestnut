@@ -17,8 +17,6 @@ import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayRes
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
 import { classifyTaskError } from '../async-task-system/index.js';
-// phase 691 Step C: deep import dirs.ts leaf (避 barrel cycle / 同 verifier-job 模式)
-import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 import { type ToolUseId, makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
@@ -154,7 +152,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       systemPrompt: restoredSystemPrompt,
       messages: synthesizedMessages,
       resultDir,
-      syncDir: path.join(opts.ctx.clawDir, TASKS_SYNC_DIR),
+      syncDir: opts.ctx.syncDir,
       maxSteps: opts.maxSteps,
       timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
       // phase 369 §4 (review-2026-06-13): 用 const、tool 重命名时 shadow-system 跟住

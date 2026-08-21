@@ -40,7 +40,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { InboxDeliverySession, InboxEntry, InboxHandle } from '../../foundation/messaging/index.js';
 import { ExecContextImpl } from '../../foundation/tools/index.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
+import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from './injector.js';
@@ -52,7 +52,6 @@ import {
   type TurnResult,
   type PendingTurnFacts,
 } from './types.js';
-import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import {
   maybeTrimProactive,
   CONTEXT_TRIM_RECENT_WINDOW_MS,

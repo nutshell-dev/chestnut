@@ -19,8 +19,8 @@ import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
-// phase 691 Step C: removed import of TASKS_SYNC_DIR from async-task-system
-// — L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
+// phase 691 Step C / phase 1488: removed import of TASKS_SYNC_DIR from async-task-system.
+// TASKS_SYNC_DIR namespace name is now owned by ClawIdentity; L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME, type CapturableTool } from './tools/done.js';
@@ -46,8 +46,8 @@ export interface RunSubagentOptions {
   // 持久化位置（caller own resource path、如 'tasks/sync/subagent/<id>'）
   resultDir: string;
 
-  // phase 691 Step C：caller 计算 path.join(clawDir, TASKS_SYNC_DIR) 后注入。
-  // L3 SubAgent 不知 L4 AsyncTaskSystem 的 dir 字面（M#5 严守）。
+  // phase 691 Step C / phase 1488: caller 计算 path.join(clawDir, TASKS_SYNC_DIR) 后注入。
+  // TASKS_SYNC_DIR 为 ClawIdentity 持有的中性 namespace 名称；L3 SubAgent 不 own 该常量（M#5 严守）。
   // ToolExecutor 需要 syncDir 用于 file-tool 同 claw 沙箱内的 sync workspace 子目录解析。
   syncDir: string;
 

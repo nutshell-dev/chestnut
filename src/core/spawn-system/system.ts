@@ -11,8 +11,6 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
 import { TASKS_SYNC_SPAWN_DIR } from './constants.js';
-// phase 691 Step C: deep import dirs.ts leaf (避 barrel 触发已有 cycle / 同 verifier-job)
-import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../subagent/index.js';
 
 import { SPAWN_AUDIT_EVENTS } from './audit-events.js';
@@ -66,7 +64,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
       prompt: opts.intent,
       systemPrompt: opts.systemPrompt,
       resultDir,
-      syncDir: path.join(opts.ctx.clawDir, TASKS_SYNC_DIR),
+      syncDir: opts.ctx.syncDir,
       maxSteps: opts.maxSteps,
       timeoutMs: opts.timeoutMs,
       signal: opts.ctx.signal,

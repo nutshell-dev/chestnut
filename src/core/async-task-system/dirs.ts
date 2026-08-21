@@ -12,7 +12,6 @@ export const TASKS_QUEUES_RUNNING_DIR = 'tasks/queues/running' as const;
 export const TASKS_QUEUES_DONE_DIR = 'tasks/queues/done' as const;
 export const TASKS_QUEUES_FAILED_DIR = 'tasks/queues/failed' as const;
 export const TASKS_QUEUES_RESULTS_DIR = 'tasks/queues/results' as const;
-export const TASKS_SYNC_DIR = 'tasks/sync' as const;
 
 // Phase 1396 Step J: durable post-process input + authoritative outcome envelope
 export const POST_PROCESS_INPUT_FILE = 'post-process-input.json' as const;

@@ -40,7 +40,6 @@ export {
 export type { ProcessedResultStore } from './processed-result-store.js';
 
 export {
-  TASKS_SYNC_DIR,
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,

@@ -12,6 +12,7 @@ export { makeClawId } from './claw-id.js';
 
 export {
   CLAWSPACE_DIR,
+  TASKS_SYNC_DIR,
   CLAW_SPEC_FILE,
   CLAW_MEMORY_FILE,
   CLAW_IDENTITY_FILE,

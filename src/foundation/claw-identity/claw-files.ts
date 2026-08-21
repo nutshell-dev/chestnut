@@ -9,6 +9,13 @@
 export const CLAWSPACE_DIR = 'clawspace' as const;
 
 /**
+ * Neutral parent namespace for per-claw shared task sync workspace.
+ * Phase 1488: name constant owned by ClawIdentity; sub-resources under tasks/sync/*
+ * remain owned by their respective modules (M#3/M#5 namespace naming vs lifecycle).
+ */
+export const TASKS_SYNC_DIR = 'tasks/sync' as const;
+
+/**
  * Claw spec file (per-claw business identity + role spec).
  * 由 daemon-entry pre-assemble 读、core/dialog 注入 context、cli init/start 模板写入。
  * phase 391: 抽 7 site inline 'AGENTS.md' literal 为 const (M#1 + ML#9)。

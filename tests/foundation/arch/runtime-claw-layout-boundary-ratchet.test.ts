@@ -38,3 +38,39 @@ describe('phase 1368: claw layout ownership boundary', () => {
     expect(clawCreate).toContain('initializeClawLayout(fileSystem);');
   });
 });
+
+describe('phase 1488: TASKS_SYNC_DIR namespace name owned by ClawIdentity', () => {
+  it('claw-files.ts defines TASKS_SYNC_DIR exactly once', () => {
+    const src = read('src/foundation/claw-identity/claw-files.ts');
+    const matches = src.match(/export\s+const\s+TASKS_SYNC_DIR\s+=\s+['"]tasks\/sync['"]/g);
+    expect(matches).toHaveLength(1);
+  });
+
+  it('ClawIdentity barrel exports TASKS_SYNC_DIR', () => {
+    const barrel = read('src/foundation/claw-identity/index.ts');
+    expect(barrel).toContain('TASKS_SYNC_DIR');
+  });
+
+  it('AsyncTaskSystem dirs.ts and barrel no longer define or re-export TASKS_SYNC_DIR', () => {
+    const dirs = read('src/core/async-task-system/dirs.ts');
+    const barrel = read('src/core/async-task-system/index.ts');
+    expect(dirs).not.toContain('TASKS_SYNC_DIR');
+    expect(barrel).not.toContain('TASKS_SYNC_DIR');
+  });
+
+  it('Runtime and ContractSystem do not import TASKS_SYNC_DIR from async-task-system', () => {
+    const runtime = read('src/core/runtime/runtime.ts');
+    const verifier = read('src/core/contract/verifier-job.ts');
+    expect(runtime).not.toMatch(/TASKS_SYNC_DIR.*async-task-system|async-task-system.*TASKS_SYNC_DIR/);
+    expect(verifier).not.toMatch(/TASKS_SYNC_DIR.*async-task-system|async-task-system.*TASKS_SYNC_DIR/);
+  });
+
+  it('Spawn and Shadow use ctx.syncDir instead of TASKS_SYNC_DIR', () => {
+    const spawn = read('src/core/spawn-system/system.ts');
+    const shadow = read('src/core/shadow-system/system.ts');
+    expect(spawn).not.toContain('TASKS_SYNC_DIR');
+    expect(spawn).toContain('opts.ctx.syncDir');
+    expect(shadow).not.toContain('TASKS_SYNC_DIR');
+    expect(shadow).toContain('opts.ctx.syncDir');
+  });
+});

@@ -20,9 +20,9 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import {
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SUBAGENTS_DIR,
-  TASKS_SYNC_DIR,
   POST_PROCESS_INPUT_FILE,
 } from './dirs.js';
+import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import { createProcessedResultStore } from './processed-result-store.js';
 import * as nodePath from 'path';
 
