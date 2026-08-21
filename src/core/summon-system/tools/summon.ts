@@ -95,18 +95,22 @@ export class SummonTool implements Tool {
     }
 
     // 扫描 clawspace/dispatch-skills/ 生成简介（结构同普通 skill：子目录 + SKILL.md）
+    // phase 1474 Step B: SkillSystem audit 依赖收紧为 required——ctx 缺 auditWriter 时
+    // 跳过简介（生产 ExecContext 恒有 auditWriter；缺失即 best-effort 降级、不 throw）。
     let skillsSummary = '';
-    try {
-      const dispatchSkillRegistry = createSkillSystem(ctx.fs, DISPATCH_SKILLS_DIR, ctx.auditWriter);
-      await dispatchSkillRegistry.loadAll();
-      const formatted = dispatchSkillRegistry.formatForContext();
-      if (!formatted.includes('No skills loaded')) {
-        skillsSummary = formatted;
-      }
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (!isFileNotFound(e) && code !== 'ENOTDIR') {
-        ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.LOAD_SKILLS_FAILED, `error=${String(e)}`);
+    if (ctx.auditWriter) {
+      try {
+        const dispatchSkillRegistry = createSkillSystem(ctx.fs, DISPATCH_SKILLS_DIR, ctx.auditWriter);
+        await dispatchSkillRegistry.loadAll();
+        const formatted = dispatchSkillRegistry.formatForContext();
+        if (!formatted.includes('No skills loaded')) {
+          skillsSummary = formatted;
+        }
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (!isFileNotFound(e) && code !== 'ENOTDIR') {
+          ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.LOAD_SKILLS_FAILED, `error=${String(e)}`);
+        }
       }
     }
 

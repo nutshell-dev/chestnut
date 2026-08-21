@@ -1,7 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { SkillSystem, SkillDuplicateError } from '../../../src/foundation/skill-system/registry.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+
+// vitest 以进程 cwd 解析相对路径——source 路径用绝对路径（phase 1452 教训）
+const REGISTRY_SOURCE = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../src/foundation/skill-system/registry.ts',
+);
 
 // Helper: build minimal FileSystem mock
 function mockFs(files: Record<string, string>, dirs: string[]): FileSystem {
@@ -58,8 +67,21 @@ function mockAudit(): AuditLog & { calls: Array<[string, ...string[]]> } {
   } as unknown as AuditLog & { calls: Array<[string, ...string[]]> };
 }
 
-describe('skill-system registry edge cases (phase 953)', () => {
-  it('B1: SKILL.md with EOF (no trailing newline) registers successfully', async () => {
+describe('phase 1474 Step B: audit dependency required (source invariant)', () => {
+  const source = fs.readFileSync(REGISTRY_SOURCE, 'utf8');
+
+  it('registry.ts 无 optional audit 形态（ctor 参数 / 字段 / emit 全部收紧）', () => {
+    expect(source).not.toMatch(/audit\?: AuditLog|private audit\?|this\.audit\?\.write/);
+    expect(source).toMatch(/private readonly audit: AuditLog/);
+  });
+
+  it('反向核：所有 owner event emit 无条件（全文件无残留 optional chaining）', () => {
+    expect(source.match(/this\.audit\.write/g)!.length).toBeGreaterThan(0);
+    expect(source).not.toMatch(/audit\?\./);
+  });
+});
+
+describe('skill-system registry edge cases (phase 953)', () => {  it('B1: SKILL.md with EOF (no trailing newline) registers successfully', async () => {
     const skillsDir = '/skills';
     const skillDir = '/skills/foo';
     const skillMdPath = `${skillDir}/SKILL.md`;

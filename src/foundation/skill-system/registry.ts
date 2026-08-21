@@ -69,7 +69,7 @@ export class SkillSystem implements SkillContextSource {
   private metaMap: Map<string, SkillMeta> = new Map();
   // phase 953 (r118 H fork): track name source for duplicate diagnostics
   private nameSourceMap: Map<string, 'frontmatter' | 'fallback_dirname'> = new Map();
-  private audit?: AuditLog;
+  private readonly audit: AuditLog;
 
   // phase 1053 α-6: lazy init guard (cold-start sync chain removal)
   private _loaded = false;
@@ -78,7 +78,7 @@ export class SkillSystem implements SkillContextSource {
   // called while !_loaded emits one console.error; subsequent silent。
   private unloadedWarnEmitted = false;
 
-  constructor(fs: FileSystem, skillsDir: string, audit?: AuditLog) {
+  constructor(fs: FileSystem, skillsDir: string, audit: AuditLog) {
     this.fs = fs;
     this.skillsDir = skillsDir;
     this.audit = audit;
@@ -108,7 +108,7 @@ export class SkillSystem implements SkillContextSource {
     try {
       const exists = await this.fs.exists(this.skillsDir);
       if (!exists) {
-        this.audit?.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
+        this.audit.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
         this.metaMap.clear();
         this.nameSourceMap.clear();
         this._loaded = true; // 空目录也算加载完成
@@ -121,13 +121,13 @@ export class SkillSystem implements SkillContextSource {
     } catch (err) {
       if (isFileNotFound(err)) {
         // 空目录或 race 删除：清空快照
-        this.audit?.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
+        this.audit.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
         this.metaMap.clear();
         this.nameSourceMap.clear();
         this._loaded = true;
         return;
       }
-      this.audit?.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+      this.audit.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
         `op=list_dir`, `dir=${this.skillsDir}`, `reason=${formatErr(err)}`);
       return; // 保留旧 Map
     }
@@ -150,7 +150,7 @@ export class SkillSystem implements SkillContextSource {
         hasSkillMd = await this.fs.exists(skillMdPath);
       } catch (err) {
         if (!isFileNotFound(err)) {
-          this.audit?.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+          this.audit.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
             `op=exists`, `path=${skillMdPath}`, `reason=${formatErr(err)}`);
           return; // 保留旧 Map
         }
@@ -168,7 +168,7 @@ export class SkillSystem implements SkillContextSource {
             continue;
           }
           const existingNameSource = newNameSourceMap.get(meta.name) || 'unknown';
-          this.audit?.write(SKILL_AUDIT_EVENTS.DUPLICATE_REJECTED,
+          this.audit.write(SKILL_AUDIT_EVENTS.DUPLICATE_REJECTED,
             `name=${meta.name}`,
             `existing_skill_dir=${existing.skillDir}`,
             `attempted_skill_dir=${skillDir}`,
@@ -187,7 +187,7 @@ export class SkillSystem implements SkillContextSource {
         if (isFileNotFound(err)) continue; // race → treat as deleted
         if (err instanceof SkillParseError) {
           // 单个 skill 校验/解析失败 → audit + skip，不影响整轮快照
-          this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
+          this.audit.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
             `skill_dir=${skillDir}`,
             `skills_dir=${this.skillsDir}`,
             `error=${formatErr(err)}`,
@@ -196,7 +196,7 @@ export class SkillSystem implements SkillContextSource {
         }
         // 其余未知读取错误（EIO/EACCES/EPERM/ENFILE/EROFS/ENOSPC/ETIMEDOUT/unknown）
         // → 中止本轮提交，保留旧 Map
-        this.audit?.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
+        this.audit.write(SKILL_AUDIT_EVENTS.RESCAN_ABORTED,
           `skill=${entry.name}`,
           `skill_dir=${skillDir}`,
           `skills_dir=${this.skillsDir}`,
@@ -211,7 +211,7 @@ export class SkillSystem implements SkillContextSource {
     this.nameSourceMap = newNameSourceMap;
 
     // 正常出口 audit
-    this.audit?.write(SKILL_AUDIT_EVENTS.REGISTRY_LOADED,
+    this.audit.write(SKILL_AUDIT_EVENTS.REGISTRY_LOADED,
       `skills_dir=${this.skillsDir}`,
       `count=${this.metaMap.size}`,
     );
@@ -259,7 +259,7 @@ export class SkillSystem implements SkillContextSource {
 
     // phase 59 / skillsystem-auditor §P4: semver validation (observation only)
     if (versionSource === 'frontmatter' && !SKILL_VERSION_PATTERN.test(meta.version)) {
-      this.audit?.write(
+      this.audit.write(
         SKILL_AUDIT_EVENTS.VERSION_INVALID,
         `name=${meta.name}`,
         `version=${meta.version}`,
@@ -271,7 +271,7 @@ export class SkillSystem implements SkillContextSource {
 
     // phase 1235 B.1: namespace validation
     if (!SKILL_NAME_NAMESPACE_PATTERN.test(meta.name)) {
-      this.audit?.write(
+      this.audit.write(
         SKILL_AUDIT_EVENTS.NAMESPACE_INVALID,
         `name=${meta.name}`,
         `expected=<author>/<skill> or simple-kebab-name`,
@@ -300,7 +300,7 @@ export class SkillSystem implements SkillContextSource {
         return existing;
       }
       const existingNameSource = this.nameSourceMap.get(meta.name) || 'unknown';
-      this.audit?.write(SKILL_AUDIT_EVENTS.DUPLICATE_REJECTED,
+      this.audit.write(SKILL_AUDIT_EVENTS.DUPLICATE_REJECTED,
         `name=${meta.name}`,
         `existing_skill_dir=${existing.skillDir}`,
         `attempted_skill_dir=${skillDir}`,
@@ -335,7 +335,7 @@ export class SkillSystem implements SkillContextSource {
   private _triggerBackgroundLoad(): void {
     void this._ensureLoaded().catch((err) => {
       console.error(`[SkillSystem WARNING] background load failed: ${formatErr(err)}`); // console: skill-system background load rejection observability (phase 1128 P1-8) — must expose to stderr to prevent unhandledRejection
-      this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
+      this.audit.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
         `context=background_ensure_loaded`,
         `error=${formatErr(err)}`);
     });
@@ -419,7 +419,7 @@ export class SkillSystem implements SkillContextSource {
 export function createSkillSystem(
   fs: FileSystem,
   skillsDir: string,
-  audit?: AuditLog,
+  audit: AuditLog,
 ): SkillSystem {
   return new SkillSystem(fs, skillsDir, audit);
 }

@@ -70,6 +70,15 @@ export function createSkillTool(skillRegistry: SkillSystem, opts: SkillToolOptio
         }
         // 临时二级 registry：本次调用 own 实例、加载指定目录后即用即弃、生命周期不溢出本 execute。
         // phase 382 ratify「二级 registry 机制 = 显式设计、非应急 fallback」。
+        // phase 1474 Step B: SkillSystem audit 依赖已收紧为 required——ctx 缺 auditWriter
+        // 属执行环境缺陷，fail-loud（不再静默降级为无 audit registry）。
+        if (!deps.auditWriter) {
+          return {
+            success: false,
+            content: `scope="dispatch" unavailable: execution context has no audit writer.`,
+            error: 'audit_writer_required',
+          };
+        }
         try {
           const tempRegistry = createSkillSystem(deps.fs, dispatchSkillsDir, deps.auditWriter);
           await tempRegistry.loadAll();

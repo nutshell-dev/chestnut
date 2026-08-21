@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { createSkillTool } from '../../src/foundation/skill-system/tools/skill.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
+import type { AuditLog } from '../../src/foundation/audit/index.js';
 
 async function createTempDir(): Promise<string> {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -36,6 +37,8 @@ describe('skill tool scope parameter', () => {
       clawDir: tempDir,
       profile: 'full',
       fs: mockFs,
+      // phase 1474 Step B: SkillSystem audit required → fixture 供 mock auditWriter
+      auditWriter: { write: () => {} } as unknown as AuditLog,
     });
   }
 
