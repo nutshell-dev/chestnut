@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { assertStepsEntryShape } from '../../../src/core/subagent/invariants.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 
@@ -200,5 +201,12 @@ describe('subagent steps.jsonl shape invariant (phase 270 Step A)', () => {
       expect(() => assertStepsEntryShape({ step: 'x' }, audit as any, 'a1')).not.toThrow();
       expect(audit.write).toHaveBeenCalled();
     });
+  });
+});
+
+describe('phase 1484 Step B: run.ts must not define MainContextSnapshot', () => {
+  it('run.ts 不得包含 MainContextSnapshot interface 定义', () => {
+    const src = readFileSync('src/core/subagent/run.ts', 'utf-8');
+    expect(src).not.toMatch(/export\s+interface\s+MainContextSnapshot\b/);
   });
 });

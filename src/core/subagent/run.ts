@@ -25,15 +25,6 @@ import type { PermissionChecker, ToolProfile } from '../../foundation/tool-proto
 import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME, type CapturableTool } from './tools/done.js';
 
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-
-
-
-export interface MainContextSnapshot {
-  clawId: string;
-  toolUseId: ToolUseId;
-}
-
 export interface RunSubagentOptions {
   // 标识
   agentId: string;
