@@ -17,6 +17,7 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createHourlyHeartbeatAccumulator } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { createInterruptWatcher } from './interrupt-watcher.js';
+import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
@@ -102,7 +103,6 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       if (!startupFired) {
         startupFired = true;
         if (shouldEmitStartupCheck(agentFs, audit)) {
-          const STATUS_SUBDIR = 'status';
           agentFs.ensureDirSync(STATUS_SUBDIR);
           agentFs.writeAtomicSync(path.join(STATUS_SUBDIR, 'startup_check_ts'), String(Date.now()));
           notifyInbox(fsFactory(path.join(agentDir, '..')), {

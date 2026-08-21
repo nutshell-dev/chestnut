@@ -1,13 +1,4 @@
 export const DAEMON_AUDIT_EVENTS = {
-  // spawn / lifecycle
-  SPAWN_ATTEMPT: 'daemon_spawn_attempt',
-  SPAWN_SUCCESS: 'daemon_spawn_success',
-  SPAWN_FAILED: 'daemon_spawn_failed',
-  FORK_ATTEMPT: 'daemon_fork_attempt',
-  FORK_FAILED: 'daemon_fork_failed',
-  STOP_ATTEMPT: 'daemon_stop_attempt',
-  STOP_SUCCESS: 'daemon_stop_success',
-  STOP_FAILED: 'daemon_stop_failed',
   // snapshot 路径（daemon.ts）
   SNAPSHOT_COMMIT_UNCATEGORIZED: 'snapshot_commit_uncategorized',
   SNAPSHOT_COMMIT_FAILED: 'snapshot_commit_failed',
@@ -23,12 +14,6 @@ export const DAEMON_AUDIT_EVENTS = {
   // cleanup 路径
   CLEANUP_HEARTBEAT_FAILED: 'daemon_cleanup_heartbeat_failed',
   CLEANUP_PID_FAILED: 'daemon_cleanup_pid_failed',
-  // other
-  IDLE_TIMEOUT: 'daemon_idle_timeout',
-  CONTRACT_CANCELLED: 'contract_cancelled',
-  DAEMON_EXIT_ZERO: 'daemon_exit_zero',
-  LLM_RETRY_STATE_INVARIANT_VIOLATED: 'daemon_llm_retry_state_invariant_violated',
-  LLM_RETRY_STATE_LOAD_FAILED: 'daemon_llm_retry_state_load_failed',
   // NEW phase 272 Step B: raw audit emit migration to const SoT
   UNHANDLED_REJECTION: 'daemon_unhandled_rejection',
   UNCAUGHT_EXCEPTION: 'daemon_uncaught_exception',

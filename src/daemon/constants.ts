@@ -16,14 +16,6 @@ export const DAEMON_FALLBACK_TIMEOUT_MS = 30000;
 export const STARTUP_CHECK_COOLDOWN_MS = 10 * 60 * 1000;
 
 /**
- * Interrupt poller 轮询间隔（ms）/ daemon 内 inbox.priority queue 检测频率.
- * Derivation: 200ms ≈ 用户 interrupt 触发到 daemon 响应延迟（< user-perceptible 250ms）/
- * 比 GATEWAY_INTERRUPT_DEBOUNCE_MS (500ms) 紧 2.5× 保 debounce 后 1 cycle 内 ack /
- * 与 MIN_DWELL_MS (200) 同值（共享 user-perceptible 物理阈值）.
- */
-export const INTERRUPT_POLL_INTERVAL_MS = 200;
-
-/**
  * Interrupt poller 连续错误时 warn 触发频次（每 N 次 emit 1 warn）.
  * Derivation: 5 = 经验值 / N=5 + INTERRUPT_POLL_INTERVAL_MS=200ms ≈ 1s 频次 warn /
  * 平衡 audit 噪声 vs 真问题信号 / 配 INTERRUPT_POLL_MAX_ERRORS=20 即每 4 次 warn 触发 disable.
