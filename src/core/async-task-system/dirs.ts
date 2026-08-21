@@ -25,8 +25,8 @@ export { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 // phase 693 Step A: async-task 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
 // Assembly 装配期 aggregate 各 owner 声明、注入 Snapshot ctor (per architecture §29)
 // 用 dir prefix (trailing /) 形态：snapshot 按 dir 整忽略、与既有 TASKS_QUEUES_* (完整 path) 互补不重复
+// phase 1489 Step B: tasks/sync/ 这一 pattern 移出，由 Assembly 用 ClawIdentity 名称组合为跨 owner policy。
 export const TASK_SNAPSHOT_IGNORE: readonly string[] = [
   'tasks/queues/',
-  'tasks/sync/',
   'tasks/subagents/',
 ];

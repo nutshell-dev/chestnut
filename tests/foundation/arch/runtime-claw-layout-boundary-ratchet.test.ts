@@ -74,3 +74,28 @@ describe('phase 1488: TASKS_SYNC_DIR namespace name owned by ClawIdentity', () =
     expect(shadow).toContain('opts.ctx.syncDir');
   });
 });
+
+describe('phase 1489: tasks/sync/ snapshot ignore policy moved to Assembly', () => {
+  it('AsyncTaskSystem TASK_SNAPSHOT_IGNORE source no longer contains tasks/sync/', () => {
+    const dirs = read('src/core/async-task-system/dirs.ts');
+    expect(dirs).not.toContain("'tasks/sync/'");
+    expect(dirs).not.toContain('"tasks/sync/"');
+  });
+
+  it('Assembly snapshot-patterns imports TASKS_SYNC_DIR from ClawIdentity', () => {
+    const patterns = read('src/assembly/config/snapshot-patterns.ts');
+    expect(patterns).toContain('TASKS_SYNC_DIR');
+    expect(patterns).toMatch(/import\s+\{[^}]*TASKS_SYNC_DIR[^}]*\}\s+from\s+['"]\.\.\/\.\.\/foundation\/claw-identity\/index\.js['"]/);
+  });
+
+  it('Assembly snapshot-patterns composes tasks/sync/ from TASKS_SYNC_DIR', () => {
+    const patterns = read('src/assembly/config/snapshot-patterns.ts');
+    expect(patterns).toContain('`${TASKS_SYNC_DIR}/`');
+  });
+
+  it('SNAPSHOT_IGNORE_PATTERNS contains tasks/sync/ exactly once', async () => {
+    const { SNAPSHOT_IGNORE_PATTERNS } = await import('../../../src/assembly/config/snapshot-patterns.js');
+    const matches = SNAPSHOT_IGNORE_PATTERNS.filter((p: string) => p === 'tasks/sync/');
+    expect(matches).toHaveLength(1);
+  });
+});
