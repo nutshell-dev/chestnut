@@ -39,10 +39,11 @@ describe('L2 factories — 行为契约', () => {
     }
     tmpDirs = [];
   });
-  it('所有工厂：不缓存（两次调用返回不同实例）', () => {
+  it('所有工厂：不缓存（两次调用返回不同实例）', async () => {
     const { dir, fs, audit } = mkEnv();
     expect(createStreamWriter(fs, audit)).not.toBe(createStreamWriter(fs, audit));
-    expect(createSnapshot(dir, fs, audit, [])).not.toBe(createSnapshot(dir, fs, audit, []));
+    // phase 1445 Step D: createSnapshot 变 async（工厂内 init）；同一 dir 幂等
+    expect(await createSnapshot(dir, fs, audit, [])).not.toBe(await createSnapshot(dir, fs, audit, []));
     expect(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1')).not.toBe(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1'));
     expect(createInboxReader(fs, audit, 'inbox')).not.toBe(createInboxReader(fs, audit, 'inbox'));
     expect(createOutboxWriter('c1', dir, fs, audit)).not.toBe(createOutboxWriter('c1', dir, fs, audit));
@@ -114,9 +115,10 @@ describe('L2 factories — 行为契约', () => {
     expect(saved.clawId).toBe('c1');
   });
 
-  it('createStreamWriter / createSnapshot：返回类型正确（结构保底）', () => {
+  it('createStreamWriter / createSnapshot：返回类型正确（结构保底）', async () => {
     const { dir, fs, audit } = mkEnv();
     expect(createStreamWriter(fs, audit)).toBeInstanceOf(StreamWriter);
-    expect(createSnapshot(dir, fs, audit, [])).toBeInstanceOf(Snapshot);
+    // phase 1445 Step D: createSnapshot 变 async（工厂内 init）
+    expect(await createSnapshot(dir, fs, audit, [])).toBeInstanceOf(Snapshot);
   });
 });

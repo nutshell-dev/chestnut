@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SUBSECTION_DESIGNS = new Set(['l6_assembly_composer_framework.md']);
-const LEGACY_BACKLOG_NAMES = new Map([['l4_runtime.md', 'l5_runtime.md']]);
+// phase 799 Runtime 已从 L5 迁 L4（modules/l4_runtime.md、backlog 文件同名）——旧映射 l4→l5 已 stale、删除（checker 默认 fileName→fileName）
+const LEGACY_BACKLOG_NAMES = new Map();
+// l5_runtime.md 是 phase 799 前 legacy 名占位（drift-backlog/README.md §legacy filename 映射）、兼容既有引用保留、豁免 orphan 检查
+const LEGACY_BACKLOG_FILES = new Set(['l5_runtime.md']);
 
 function unescapedPipeCount(line) {
   let count = 0;
@@ -80,7 +83,7 @@ export function checkDriftBacklog(designRoot) {
     }
   }
   for (const actual of actualBacklogs) {
-    if (!expectedBacklogs.has(actual)) {
+    if (!expectedBacklogs.has(actual) && !LEGACY_BACKLOG_FILES.has(actual)) {
       violations.push(`${path.join(backlogDir, actual)}: orphan module backlog`);
     }
   }

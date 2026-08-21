@@ -21,7 +21,7 @@ import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js
 import { GATEWAY_AUDIT_EVENTS } from './audit-events.js';
 import { GATEWAY_INTERRUPT_DEBOUNCE_MS } from './constants.js';
 
-export function createGateway(input: GatewayInput): Gateway {
+export async function createGateway(input: GatewayInput): Promise<Gateway> {
   const { streamFactory, interrupt, audit } = input;
   const isOnlineMode = input.transport !== undefined;
   let transport: Transport | null = input.transport ?? null;   // phase 932: type union narrow 至 2 token 单 absent (phase 877 sister-open-extension)
@@ -93,7 +93,7 @@ export function createGateway(input: GatewayInput): Gateway {
     }
   };
 
-  return {
+  const gateway: Gateway = {
     async start() {
       if (started) throw new Error('Gateway already started');
       started = true;
@@ -231,4 +231,10 @@ export function createGateway(input: GatewayInput): Gateway {
       audit.write(GATEWAY_AUDIT_EVENTS.STOPPED);
     },
   };
+
+  // phase 1445 Step D（裁定②）：start 内化进工厂 —— 构造后工厂内 await start()；
+  // start 失败原样冒泡（start 内部已回滚 started/listeners 并写 STARTUP_FAILED）。
+  // 工厂返回的实例已 started；显式重复 start() 仍抛 'Gateway already started'。
+  await gateway.start();
+  return gateway;
 }

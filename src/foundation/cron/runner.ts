@@ -426,9 +426,12 @@ export class CronRunner {
 }
 
 /**
- * 构造 CronRunner。
- * 调用方必须在使用前显式 `runner.start(tickMs)` 启动 setInterval（契约 §2.1）。
+ * 构造并启动 CronRunner（phase 1445 Step D 裁定②：start 内化进工厂）。
+ * `tickMs` 经工厂参数传入（默认 `CRON_TICK_INTERVAL_MS`）、工厂内自动 `start(tickMs)`；
+ * `start()` 幂等（重复调用不建第二个 timer）、`stop()` 语义不变（生命周期 §7.2）。
  */
-export function createCronRunner(jobs: CronJob[], sink: CronEventSink): CronRunner {
-  return new CronRunner(jobs, sink);
+export function createCronRunner(jobs: CronJob[], sink: CronEventSink, tickMs = CRON_TICK_INTERVAL_MS): CronRunner {
+  const runner = new CronRunner(jobs, sink);
+  runner.start(tickMs);
+  return runner;
 }

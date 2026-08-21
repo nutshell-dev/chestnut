@@ -145,9 +145,8 @@ describe('Gateway', () => {
   it('offline mode: lifecycle is observable while transport remains inactive', async () => {
     const input = createOfflineInput();
     const write = vi.spyOn(input.audit, 'write');
-    gateway = createGateway(input);
+    gateway = await createGateway(input);
 
-    await gateway.start();
     expect(transport.listen).not.toHaveBeenCalled();
     expect(streamStub.lastReader).toBeNull();
     expect(write).toHaveBeenCalledWith('gateway_started', 'isOnline=false');
@@ -160,16 +159,14 @@ describe('Gateway', () => {
   it('online lifecycle emits start and stop', async () => {
     const input = createOnlineInput();
     const write = vi.spyOn(input.audit, 'write');
-    gateway = createGateway(input);
-    await gateway.start();
+    gateway = await createGateway(input);
     await gateway.stop();
     expect(write).toHaveBeenCalledWith('gateway_started', 'isOnline=true');
     expect(write).toHaveBeenCalledWith('gateway_stopped');
   });
 
   it('online mode: start binds transport callbacks and calls stream.start', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     expect(streamStub.lastReader?.start).toHaveBeenCalledTimes(1);
     // transport callbacks registered (at least one of each)
@@ -177,8 +174,7 @@ describe('Gateway', () => {
   });
 
   it('broadcasts stream events to all connected clients', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const ev: StreamEvent = { ts: 1, type: 'test', data: 'hello' };
     streamStub.fireEvent(ev);
@@ -189,8 +185,7 @@ describe('Gateway', () => {
   });
 
   it('interrupt message triggers callback once; repeated within 500ms is debounced', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -206,8 +201,7 @@ describe('Gateway', () => {
   });
 
   it('interrupt after debounce window triggers again', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -221,8 +215,7 @@ describe('Gateway', () => {
   });
 
   it('malformed JSON drops the connection + broadcasts connection_dropped', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -235,8 +228,7 @@ describe('Gateway', () => {
   });
 
   it('unknown message type drops the connection', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -249,8 +241,7 @@ describe('Gateway', () => {
   });
 
   it('retired ask_user_reply is treated as unknown message type and drops the connection', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -263,8 +254,7 @@ describe('Gateway', () => {
   });
 
   it('stop() tears down: stream first, then connections, then transport.close', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -304,8 +294,7 @@ describe('Gateway', () => {
   it('onDisconnect removes connection from active set', async () => {
     const input = createOnlineInput();
     const write = vi.spyOn(input.audit, 'write');
-    gateway = createGateway(input);
-    await gateway.start();
+    gateway = await createGateway(input);
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -323,8 +312,7 @@ describe('Gateway', () => {
       throw new Error('interrupt boom');
     });
 
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -339,8 +327,7 @@ describe('Gateway', () => {
   });
 
   it('can be called again after failed stop due to reader error', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     streamStub.lastReader!.stop = vi.fn().mockRejectedValueOnce(new Error('EIO'));
 
@@ -350,8 +337,7 @@ describe('Gateway', () => {
   });
 
   it('drops connection on null JSON message', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     transport._connect(conn);
@@ -367,30 +353,26 @@ describe('Gateway', () => {
     );
   });
 
-  it('start twice throws', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+  it('factory auto-starts (start 内化); explicit repeat start throws', async () => {
+    gateway = await createGateway(createOnlineInput());
     await expect(gateway.start()).rejects.toThrow('Gateway already started');
   });
 
   it('start (online): writes GATEWAY_STARTED audit event', async () => {
     const audit = mockAudit();
-    gateway = createGateway({ ...createOnlineInput(), audit });
-    await gateway.start();
+    gateway = await createGateway({ ...createOnlineInput(), audit });
     expect(audit.write).toHaveBeenCalledWith('gateway_started', expect.stringContaining('isOnline='));
   });
 
   it('start (offline): writes an explicit offline lifecycle audit', async () => {
     const audit = mockAudit();
-    gateway = createGateway({ ...createOfflineInput(), audit });
-    await gateway.start();
+    gateway = await createGateway({ ...createOfflineInput(), audit });
     expect(audit.write).toHaveBeenCalledWith('gateway_started', 'isOnline=false');
   });
 
   it('stop (online): writes GATEWAY_STOPPED', async () => {
     const audit = mockAudit();
-    gateway = createGateway({ ...createOnlineInput(), audit });
-    await gateway.start();
+    gateway = await createGateway({ ...createOnlineInput(), audit });
     audit.write.mockClear();
     await gateway.stop();
     expect(audit.write).toHaveBeenCalledWith('gateway_stopped');
@@ -399,8 +381,7 @@ describe('Gateway', () => {
   it('interrupt triggered: writes GATEWAY_INTERRUPT_TRIGGERED', async () => {
     const audit = mockAudit();
     const stubTransport = createStubTransport();
-    gateway = createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
-    await gateway.start();
+    gateway = await createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     stubTransport._connect(conn);
     stubTransport.simulateMessage(conn, JSON.stringify({ type: 'interrupt' }));
@@ -410,8 +391,7 @@ describe('Gateway', () => {
   it('interrupt debounced: writes GATEWAY_INTERRUPT_DEBOUNCED on second call within window', async () => {
     const audit = mockAudit();
     const stubTransport = createStubTransport();
-    gateway = createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
-    await gateway.start();
+    gateway = await createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     stubTransport._connect(conn);
     stubTransport.simulateMessage(conn, JSON.stringify({ type: 'interrupt' }));
@@ -425,8 +405,7 @@ describe('Gateway', () => {
   it('connection_dropped: writes GATEWAY_CONNECTION_DROPPED', async () => {
     const audit = mockAudit();
     const stubTransport = createStubTransport();
-    gateway = createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
-    await gateway.start();
+    gateway = await createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
     const conn: Connection = { id: 'c1', connectedAt: Date.now() };
     stubTransport._connect(conn);
     stubTransport.simulateMessage(conn, 'not-json');
@@ -440,8 +419,7 @@ describe('Gateway', () => {
   it('onTransportError: writes GATEWAY_TRANSPORT_ERROR (replaces console.error)', async () => {
     const audit = mockAudit();
     const stubTransport = createStubTransport();
-    gateway = createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
-    await gateway.start();
+    gateway = await createGateway({ ...createOnlineInput(), transport: stubTransport, audit });
     stubTransport.fireTransportError({ kind: 'callback_error', callbackName: 'onMessage', error: new Error('test') });
     expect(audit.write).toHaveBeenCalledWith(
       'gateway_transport_error',

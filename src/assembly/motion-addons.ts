@@ -97,15 +97,16 @@ export async function createMotionAddons(
   let disposeContractSystems: (() => Promise<void>) | undefined;
 
   // --- Gateway (motion only, offline mode) ---
+  // phase 1445 Step D（裁定②）：start 内化进 createGateway 工厂（工厂变 async）；
+  // start 失败由工厂抛错、本 catch 载荷不变（phase=start）。
   try {
-    gateway = createGateway({
+    gateway = await createGateway({
       streamFactory: (onEvent) => createStreamReader(systemFs, STREAM_FILE, onEvent, auditWriter),
       getInitialOffset: () => findRecentTurnStartOffset(systemFs, STREAM_FILE),
       transport: undefined,                      // offline mode (latent: future wire UnixDomainSocketTransport per phase 1055)
       interrupt: () => runtime.abort(),          // offline 不会触发，留接口
       audit: auditWriter,
     });
-    await gateway.start();
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=gateway`, `phase=start`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: Gateway start failed: ${formatErr(e)}`, { cause: e });
@@ -267,17 +268,12 @@ export async function createMotionAddons(
           outboxReader: new OutboxReader(chestnutFs, auditWriter),
         }, globalConfig),
       ];
-      cronRunner = createCronRunner(cronJobs, auditWriter);
+      // phase 1445 Step D（裁定②）：start 内化进 createCronRunner 工厂、tickMs 经工厂参数传入；
+      // start 失败由工厂抛错、并入本 catch（phase=construct、reason 含 start 错消息）。
+      cronRunner = createCronRunner(cronJobs, auditWriter, tickMs);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=cron_runner`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: CronRunner construct failed: ${formatErr(e)}`, { cause: e });
-    }
-
-    try {
-      cronRunner.start(tickMs);
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=cron_runner`, `phase=start`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: CronRunner start failed: ${formatErr(e)}`, { cause: e });
     }
   }
 

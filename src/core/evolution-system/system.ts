@@ -26,6 +26,11 @@ export interface EvolutionSystemDeps {
   contractManager: ContractSystem;
   retroSubagentTimeoutMs?: number;   // default 600000ms (10 min)
   createSkillSystem?: typeof defaultCreateSkillSystem;
+  /**
+   * phase 1445 Step D（裁定②）：boot reconcile（init）内化进 createEvolutionSystem 工厂，
+   *  ctx 经工厂参数传入（原 Assembly 直调 evolutionSystem.init(ctx) 已删）。
+   */
+  motionReviewContext: MotionReviewContext;
 }
 
 export interface RetroResult {
@@ -66,8 +71,10 @@ export interface ClawFactories {
   /** 临时构建 target claw FileSystem 的 factory（assembly 注入 / 业务 0 触 L1 impl）*/
   clawFsFactory: (clawDir: string) => FileSystem;
   /** 临时构建 target claw ContractSystem 的 factory（assembly 注入 / 业务 0 触 L4 ctor）。
-   *  factory 内部封装 createSystemAudit（避免 L2 audit instance leak 到业务）。 */
-  clawContractManagerFactory: (clawDir: string, targetClaw: string, fs: FileSystem) => ContractSystem;
+   *  factory 内部封装 createSystemAudit（避免 L2 audit instance leak 到业务）。
+   *  phase 1445 Step D：createContractSystem 工厂变 async（bootReconcile opt-in），
+   *  本 factory 随之 async；旁路实例故意不传 bootReconcile（不 init、只读用途）。 */
+  clawContractManagerFactory: (clawDir: string, targetClaw: string, fs: FileSystem) => Promise<ContractSystem>;
 }
 
 /** Context for retrospective review: motion resources + claw factories. */
@@ -318,7 +325,7 @@ export class EvolutionSystem {
     const executorId = executorIdOf(item);
     const clawDir = path.join(ctx.clawsBaseDir, executorId);
     const clawFs = ctx.clawFsFactory(clawDir);
-    const clawContractManager = ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
+    const clawContractManager = await ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
 
     let contractYaml: string;
     try {
@@ -356,7 +363,7 @@ export class EvolutionSystem {
     const executorId = executorIdOf(item);
     const clawDir = path.join(ctx.clawsBaseDir, executorId);
     const clawFs = ctx.clawFsFactory(clawDir);
-    const clawContractManager = ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
+    const clawContractManager = await ctx.clawContractManagerFactory(clawDir, executorId, clawFs);
     try {
       const progress = await clawContractManager.getProgress(item.contract_id);
       return !!progress?.completed_at;
@@ -374,6 +381,12 @@ export class EvolutionSystem {
 }
 
 
-export function createEvolutionSystem(deps: EvolutionSystemDeps): EvolutionSystem {
-  return new EvolutionSystem(deps);
+/**
+ * phase 1445 Step D（裁定②）：init(ctx) 内化进工厂 —— 构造后工厂内 await init
+ * （boot reconcile：legacy 观察 + retrospective 恢复）；init 失败原样冒泡。调用方一律 await。
+ */
+export async function createEvolutionSystem(deps: EvolutionSystemDeps): Promise<EvolutionSystem> {
+  const system = new EvolutionSystem(deps);
+  await system.init(deps.motionReviewContext);
+  return system;
 }

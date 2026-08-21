@@ -482,12 +482,23 @@ export class Snapshot implements SnapshotCommitter {
 }
 
 
-export function createSnapshot(
+/**
+ * phase 1445 Step D（裁定②）：init 内化进工厂 —— 构造后工厂内 await init()，
+ * 预期失败（Result.err）转为 throw（message 带 `Snapshot.init failed` 标记、cause 保留
+ * ExpectedGitFailure）；不可预期失败由 init 内部原样冒泡。调用方一律 await。
+ */
+export async function createSnapshot(
   dir: string,
   fs: FileSystem,
   audit: AuditLog,
   ignorePatterns: readonly string[],
   syncCleanupDirs?: readonly string[],
-): Snapshot {
-  return new Snapshot(dir, fs, audit, ignorePatterns, syncCleanupDirs);
+  execImpl?: typeof defaultExec,
+): Promise<Snapshot> {
+  const snapshot = new Snapshot(dir, fs, audit, ignorePatterns, syncCleanupDirs, execImpl);
+  const initResult = await snapshot.init();
+  if (!initResult.ok) {
+    throw new Error(`Snapshot.init failed: ${initResult.error.kind}`, { cause: initResult.error });
+  }
+  return snapshot;
 }

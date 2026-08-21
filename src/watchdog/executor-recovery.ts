@@ -124,15 +124,16 @@ function deleteEvidence(rootFs: FileSystem, rawClawId: string): void {
 }
 
 /** 构造最小 ContractSystem 只为 failActiveForExecutor（Step D narrow sink）。 */
-function makeContractFailureSink(
+async function makeContractFailureSink(
   fsFactory: (baseDir: string) => FileSystem,
   rawClawId: string,
-): ExecutionFailureSink {
+): Promise<ExecutionFailureSink> {
   const clawId = makeClawId(rawClawId);
   const clawDir = getClawDir(rawClawId);
   const fs = fsFactory(clawDir);
   const { audit } = createDirContext({ fsFactory }, clawDir);
-  const contractManager = createContractSystem({
+  // phase 1445 Step D：narrow sink 故意不传 bootReconcile（boot reconcile 归 owner-daemon）
+  const contractManager = await createContractSystem({
     clawDir,
     clawId,
     fs,
@@ -303,7 +304,7 @@ export async function maybeCronExecutorRecovery(
         if (!openState.sinkDelivered) {
           const sink = deps.makeFailureSink
             ? deps.makeFailureSink(rawClawId)
-            : makeContractFailureSink(fsFactory, rawClawId);
+            : await makeContractFailureSink(fsFactory, rawClawId);
           try {
             // Phase 1398 Step C: report resolve 即交付闭合（terminal winner 已确定）；
             // reject/抛错走 catch 保留证据下 tick 重试，不解释 lifecycle outcome。

@@ -145,6 +145,14 @@ export interface ContractSystemDeps {
   fsFactory: (baseDir: string) => FileSystem;
   runContractVerifier?: typeof defaultRunContractVerifier;
   runSubagent?: VerifierConfig['runSubagent'];
+  /**
+   * phase 1445 Step D（裁定②例外）：boot reconcile（init()）由工厂内参数触发。
+   * 仅 daemon 装配主路径（core-infrastructure、自有 claw）传 true；
+   * CLI / watchdog narrow sink / claw-contract-bridge / summon contractQuery 等旁路实例
+   * （只读或单方法用途、acting on 其他 claw 目录）不传——boot reconcile 是 owner-daemon
+   * 的职责，旁路实例故意不 init（实核 2026-08-20，详 coding plan/phase1445/Step D §4.1）。
+   */
+  bootReconcile?: boolean;
 }
 
 export class ContractSystem implements ContractRuntimeLifecycle {
@@ -1746,9 +1754,16 @@ export class ContractSystem implements ContractRuntimeLifecycle {
  * 输出：ContractSystem 实例
  * 边界：可选参数未传时运行期能力降级（见 design/modules/l4_contract_system.md §2.a）
  * 失败：不抛；能力降级延迟到方法调用
+ *
+ * phase 1445 Step D（裁定②例外）：`bootReconcile: true` 时工厂内 await init()
+ * （boot reconcile 内化）；init 失败原样冒泡。默认 false 保持显式 init 语义。
  */
-export function createContractSystem(deps: ContractSystemDeps): ContractSystem {
-  return new ContractSystem(deps);
+export async function createContractSystem(deps: ContractSystemDeps): Promise<ContractSystem> {
+  const system = new ContractSystem(deps);
+  if (deps.bootReconcile) {
+    await system.init();
+  }
+  return system;
 }
 
 /**

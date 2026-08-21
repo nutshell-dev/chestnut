@@ -68,21 +68,17 @@ export async function createRuntimeAssembly(
   } = business;
 
   // --- Snapshot（phase155B 已搬，但需保证在 Runtime 之前） ---
+  // phase 1445 Step D（裁定②）：init 内化进 createSnapshot 工厂；init 失败由工厂抛错
+  // （message 含 `Snapshot.init failed` 标记），并入本 catch（phase=construct、reason 含 init 字样）。
   let snapshot: Snapshot;
   try {
-    snapshot = createSnapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS, [
+    snapshot = await createSnapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS, [
       path.join(clawDir, TASKS_SYNC_EXEC_DIR),
       path.join(clawDir, TASKS_SYNC_WRITE_DIR),
     ]);
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=snapshot`, `phase=construct`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: Snapshot construct failed: ${formatErr(e)}`, { cause: e });
-  }
-
-  const initResult = await snapshot.init();
-  if (!initResult.ok) {
-    auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=snapshot`, `phase=init`, `reason=${initResult.error.kind}`);
-    throw new Error(`Assembly: Snapshot.init failed: ${initResult.error.kind}`);
   }
 
   const recoveryResult = await snapshot.commit('recovery-snapshot');

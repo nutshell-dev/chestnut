@@ -15,7 +15,7 @@ import { promises as fsAuditCompleted } from 'fs';
 import * as fs from 'fs/promises';
 import * as nodeFs from 'node:fs';
 import * as os from 'os';
-import { ContractSystem } from '../../../src/core/contract/manager.js';
+import { ContractSystem, createContractSystem } from '../../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
@@ -727,5 +727,69 @@ describe('boot replay-then-reset ordering (phase 1201 step C)', () => {
     const resetIdx = events.findIndex(e => e[0] === CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_IN_PROGRESS_RESET);
     expect(replayIdx).toBeGreaterThanOrEqual(0);
     expect(resetIdx).toBeGreaterThan(replayIdx);
+  });
+});
+
+
+/**
+ * phase 1445 Step D（裁定②例外）：createContractSystem 工厂 bootReconcile opt-in。
+ * - bootReconcile: true（daemon 装配主路径）→ 工厂内 await init()（boot reconcile）
+ * - 默认不传（CLI / watchdog narrow sink / bridge / summonQuery 旁路实例）→ 不 init
+ */
+describe('createContractSystem bootReconcile opt-in（phase 1445 Step D）', () => {
+  let testDir: string;
+  let clawDir: string;
+  let auditWrite: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+      os.tmpdir(),
+      `.test-contract-factory-boot-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
+    );
+    clawDir = path.join(testDir, 'claws', 'test-claw');
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await fs.mkdir(clawDir, { recursive: true });
+    auditWrite = vi.fn();
+  });
+
+  afterEach(async () => {
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    vi.restoreAllMocks();
+  });
+
+  function makeDeps(bootReconcile?: boolean) {
+    const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    return {
+      clawDir,
+      clawId: 'test-claw',
+      fs: nodeFs,
+      audit: { write: auditWrite, preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as any,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      clawsDir: '/tmp/test/claws',
+      notifyClaw: vi.fn(),
+      ...(bootReconcile !== undefined ? { bootReconcile } : {}),
+    };
+  }
+
+  it('bootReconcile=true → 工厂内 init（CONTRACT_BOOT_RECONCILE emitted）', async () => {
+    const manager = await createContractSystem(makeDeps(true) as any);
+    expect(manager).toBeInstanceOf(ContractSystem);
+
+    const reconcileCall = auditWrite.mock.calls.find(
+      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+    );
+    expect(reconcileCall).toBeDefined();
+  });
+
+  it('默认不传 bootReconcile → 不 init（旁路实例语义保持）', async () => {
+    const manager = await createContractSystem(makeDeps() as any);
+    expect(manager).toBeInstanceOf(ContractSystem);
+
+    const reconcileCall = auditWrite.mock.calls.find(
+      (c: any) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+    );
+    expect(reconcileCall).toBeUndefined();
   });
 });

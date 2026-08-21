@@ -136,7 +136,12 @@ vi.mock('../../src/foundation/cron/runner.js', () => {
   return {
     CronRunner,
     parseSchedule: vi.fn((s: string) => s),
-    createCronRunner: vi.fn((jobs: any, sink: any) => new (CronRunner as any)(jobs, sink)),
+    // phase 1445 Step D: mirror 实然工厂契约 — createCronRunner 内自动 start(tickMs)
+    createCronRunner: vi.fn((jobs: any, sink: any, tickMs?: number) => {
+      const r = new (CronRunner as any)(jobs, sink);
+      r.start(tickMs);
+      return r;
+    }),
   };
 });
 
@@ -230,7 +235,12 @@ vi.mock('../../src/core/contract/manager.js', () => {
   });
   return {
     ContractSystem,
-    createContractSystem: vi.fn((deps: any) => new (ContractSystem as any)(deps)),
+    // phase 1445 Step D: mirror 实然工厂契约 — bootReconcile=true 时工厂内 await init()
+    createContractSystem: vi.fn(async (deps: any) => {
+      const m = new (ContractSystem as any)(deps);
+      if (deps.bootReconcile) await m.init();
+      return m;
+    }),
   };
 });
 

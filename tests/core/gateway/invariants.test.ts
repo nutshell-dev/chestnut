@@ -127,8 +127,7 @@ describe('broadcast-after-stop', () => {
     }
 
     it('broadcast silent after transport.close (P0.21 fix)', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
+      gateway = await createGateway(createOnlineInput());
 
       // pre-stop: stream event triggers broadcast
       const ev: StreamEvent = { ts: 1, type: 'test', data: 'hello' };
@@ -267,8 +266,7 @@ describe('gateway-stop-broadcast-cascade', () => {
     }
 
     it('stop loop 期间 dropConnection 会 broadcast connection_dropped (started committed at end)', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
+      gateway = await createGateway(createOnlineInput());
 
       // 模拟 3 个连接
       const conn1: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };

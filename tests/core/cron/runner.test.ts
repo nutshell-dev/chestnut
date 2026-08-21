@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
 import {
   CronRunner,
+  createCronRunner,
   parseSchedule,
   type CronSchedule,
   type CronJob,
@@ -72,6 +73,25 @@ describe('CronRunner', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('createCronRunner 工厂内自动 start（phase 1445 Step D 裁定②：调用方不再显式 start）', () => {
+    const setIntervalSpy = vi.spyOn(global, 'setInterval');
+    const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler: vi.fn() };
+    const runner = createCronRunner([job], sink, 10);
+    // tickMs 经工厂参数透传到 start
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 10);
+    expect(sink.write).toHaveBeenCalledWith(CRON_AUDIT_EVENTS.RUNNER_STARTED, 'jobs=1');
+    runner.stop();
+  });
+
+  it('createCronRunner 默认 tickMs = CRON_TICK_INTERVAL_MS', () => {
+    const setIntervalSpy = vi.spyOn(global, 'setInterval');
+    const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler: vi.fn() };
+    const runner = createCronRunner([job], sink);
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+    runner.stop();
   });
 
   it('start is idempotent（重复调 timer 唯一）', () => {

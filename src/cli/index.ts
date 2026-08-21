@@ -315,7 +315,7 @@ contractCmd
         isMotion: false,
       });
 
-      const contractSystem = createContractSystem({
+      const contractSystem = await createContractSystem({
         clawDir,
         clawId: makeClawId(opts.claw),
         fs: clawFs,

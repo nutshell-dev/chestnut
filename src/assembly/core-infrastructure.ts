@@ -252,11 +252,15 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       // PermissionError、外层 try/catch 静默吞 → 跨 claw 通知 0 落。
       // 改 bind 一个 chestnut-root-scoped fs、绝对路径在合法范围。
       const rootFs = fsFactory(chestnutRoot);
-      contractManager = createContractSystem({
+      // phase 1445 Step D（裁定②例外）：bootReconcile 经工厂参数传入、init 内化进工厂；
+      // init 失败由工厂抛错、并入本 catch（phase=construct）。旁路调用点（CLI/watchdog/
+      // bridge/summonQuery）不传 bootReconcile、保持不 init（详 manager.ts deps 注释）。
+      contractManager = await createContractSystem({
         clawDir, clawId: makeClawId(clawId), fs: systemFs, audit: auditWriter, llm,
         toolRegistry,   // phase 704: toolRegistry 注入 ContractSystem
         toolTimeoutMs,  // phase 1029 / F-2
         fsFactory,
+        bootReconcile: true,
         // phase 104: pre-bound notifyClaw (bind fs + chestnutRoot + audit)
         // phase 324 H12: fs 改用 rootFs（chestnut-root-scoped）让绝对 inbox 路径能落。
         notifyClaw: (targetClawId, message) =>
@@ -265,12 +269,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: ContractSystem construct failed: ${formatErr(e)}`, { cause: e });
-    }
-    try {
-      await contractManager.init();
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=init`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: ContractSystem.init failed: ${formatErr(e)}`, { cause: e });
     }
 
     // Phase 230 / phase 281 Step B: SummonVerifyPolicy 改在 business-systems.ts

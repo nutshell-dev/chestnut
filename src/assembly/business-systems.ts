@@ -159,12 +159,45 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   let evolutionSystem: EvolutionSystem | undefined;
   let motionReviewContext: MotionReviewContext | undefined;
   if (isMotion) {
+    // phase 1445 Step D（裁定②）：init(motionReviewContext) 内化进 createEvolutionSystem 工厂，
+    // motionReviewContext 提前构造、经工厂参数传入；init 失败由工厂抛错、并入 construct catch。
+    motionReviewContext = {
+      motionFs: systemFs,
+      motionBaseDir: clawDir,
+      motionAudit: auditWriter,
+      clawsBaseDir: path.join(
+        resolveChestnutRoot(clawDir, true),
+        CLAWS_DIR
+      ),
+      clawFsFactory: fsFactory,
+      listLegacyPendingRetrospectives: () => listPendingRetrospectives({ fs: systemFs }),
+      ackLegacyPendingRetrospective: (contractId) =>
+        ackPendingRetrospective({ fs: systemFs, contractId, audit: auditWriter }),
+      clawContractManagerFactory: async (d: string, id: string, fs: typeof systemFs) => {
+        const cr = resolveChestnutRoot(d, false);
+        const perClawAudit = createSystemAudit(fs, d);
+        // phase 1445 Step D：旁路 per-claw 实例故意不传 bootReconcile（不 init、只读用途）
+        return createContractSystem({
+          clawDir: d,
+          clawId: makeClawId(id),
+          fs,
+          audit: perClawAudit,
+          toolRegistry,
+          toolTimeoutMs,
+          fsFactory,
+          // phase 104: pre-bound notifyClaw
+          notifyClaw: (targetClawId, message) =>
+            notifyClawFn(fs, cr, MOTION_CLAW_ID, targetClawId, message, perClawAudit),
+        });
+      },
+    };
     try {
-      evolutionSystem = createEvolutionSystem({
+      evolutionSystem = await createEvolutionSystem({
         fs: systemFs,
         audit: auditWriter,
         taskSystem,
         contractManager,
+        motionReviewContext,
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -208,7 +241,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         const execDir = path.join(chestnutRoot, CLAWS_DIR, targetExecutorId);
         const execFs = fsFactory(execDir);
         const execAudit = createSystemAudit(execFs, execDir);
-        const execContracts = createContractSystem({
+        // phase 1445 Step D：旁路只读实例故意不传 bootReconcile（不 init）
+        const execContracts = await createContractSystem({
           clawDir: execDir,
           clawId: makeClawId(targetExecutorId),
           fs: execFs,
@@ -230,44 +264,10 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
     taskSystem.addPostProcessor('dispatch-contract-extract', summonContractExtractPostProcessor);
 
-    motionReviewContext = {
-      motionFs: systemFs,
-      motionBaseDir: clawDir,
-      motionAudit: auditWriter,
-      clawsBaseDir: path.join(
-        resolveChestnutRoot(clawDir, true),
-        CLAWS_DIR
-      ),
-      clawFsFactory: fsFactory,
-      listLegacyPendingRetrospectives: () => listPendingRetrospectives({ fs: systemFs }),
-      ackLegacyPendingRetrospective: (contractId) =>
-        ackPendingRetrospective({ fs: systemFs, contractId, audit: auditWriter }),
-      clawContractManagerFactory: (d: string, id: string, fs: typeof systemFs) => {
-        const cr = resolveChestnutRoot(d, false);
-        const perClawAudit = createSystemAudit(fs, d);
-        return createContractSystem({
-          clawDir: d,
-          clawId: makeClawId(id),
-          fs,
-          audit: perClawAudit,
-          toolRegistry,
-          toolTimeoutMs,
-          fsFactory,
-          // phase 104: pre-bound notifyClaw
-          notifyClaw: (targetClawId, message) =>
-            notifyClawFn(fs, cr, MOTION_CLAW_ID, targetClawId, message, perClawAudit),
-        });
-      },
-    };
-    try {
-      await evolutionSystem.init(motionReviewContext);
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=init`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
-    }
     // Phase 1396 Step M：retrospective 完成事实交付统一由 ContractObserver（archive 扫描 +
     // retrospective 专用水位，at-least-once）→ EvolutionSystem.observeContractCompleted 承担；
     // 不再订阅 ContractManager 的进程内 onContractCompleted，避免双 producer。
+    // phase 1445 Step D：evolutionSystem.init(motionReviewContext) 已内化进 createEvolutionSystem 工厂。
   }
 
   // --- 11. 工具注册 + toolExecutor + DialogStore + InboxReader + ContractAuditor + FormatterRegistry + GuidanceRegistry ---

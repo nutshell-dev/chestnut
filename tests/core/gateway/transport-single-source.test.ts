@@ -122,13 +122,12 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
 
   describe('offline mode (transport=undefined)', () => {
     it('offline lifecycle is explicit and transport-free', async () => {
-      gateway = createGateway({
+      gateway = await createGateway({
         streamFactory: streamStub.factory,
         transport: undefined,
         interrupt: vi.fn(),
         audit,
       } as GatewayInput);
-      await gateway.start();
       await gateway.stop();
       expect(audit.write).toHaveBeenNthCalledWith(1, 'gateway_started', 'isOnline=false');
       expect(audit.write).toHaveBeenNthCalledWith(2, 'gateway_stopped');
@@ -137,8 +136,7 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
 
   describe('online mode: stop sequence broadcast', () => {
     it('dropConnection during stop broadcasts connection_dropped (started committed at end, phase 971)', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
+      gateway = await createGateway(createOnlineInput());
       const conn: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
       transport._connect(conn);
       expect(transport.getConnections().length).toBe(1);
@@ -164,8 +162,7 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
     it('close error is aggregated and second stop is STOP_NOOP', async () => {
       const closeError = new Error('mock close failure');
       transport.close.mockRejectedValueOnce(closeError);
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
+      gateway = await createGateway(createOnlineInput());
 
       // phase 971: close error is aggregated into AggregateError instead of re-thrown raw
       const err = await gateway.stop().catch((e: unknown) => e);
@@ -181,8 +178,7 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
 
   describe('online mode: stop() idempotent', () => {
     it('second stop is STOP_NOOP + transport.close not called twice', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
+      gateway = await createGateway(createOnlineInput());
       await gateway.stop();
       expect(transport.close).toHaveBeenCalledOnce();
 
@@ -196,8 +192,7 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
 
   describe('inverse oracle (defense against single source regression)', () => {
     it('post-stop late stream event must not trigger broadcast (covered by broadcast-after-stop)', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
+      gateway = await createGateway(createOnlineInput());
       const ev: StreamEvent = { ts: 1, type: 'test', data: 'hello' };
       streamStub.fireEvent(ev);
       const broadcastsBeforeStop = transport.broadcast.mock.calls.length;

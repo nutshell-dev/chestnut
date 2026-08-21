@@ -146,7 +146,12 @@ vi.mock('../../src/foundation/cron/runner.js', () => {
   return {
     CronRunner,
     parseSchedule: vi.fn((s: string) => s),
-    createCronRunner: vi.fn((jobs: any, sink: any) => new (CronRunner as any)(jobs, sink)),
+    // phase 1445 Step D: mirror 实然工厂契约 — createCronRunner 内自动 start(tickMs)
+    createCronRunner: vi.fn((jobs: any, sink: any, tickMs?: number) => {
+      const r = new (CronRunner as any)(jobs, sink);
+      r.start(tickMs);
+      return r;
+    }),
   };
 });
 
@@ -214,7 +219,12 @@ vi.mock('../../src/core/contract/manager.js', () => {
   });
   return {
     ContractSystem,
-    createContractSystem: vi.fn((deps: any) => new (ContractSystem as any)(deps)),
+    // phase 1445 Step D: mirror 实然工厂契约 — bootReconcile=true 时工厂内 await init()
+    createContractSystem: vi.fn(async (deps: any) => {
+      const m = new (ContractSystem as any)(deps);
+      if (deps.bootReconcile) await m.init();
+      return m;
+    }),
   };
 });
 
@@ -430,21 +440,20 @@ describe('assemble', () => {
   // --------------------------------------------------------------------------
   // 失败语义
   // --------------------------------------------------------------------------
-  it('snapshot.init 失败 → assemble_failed + 抛 Error', async () => {
-    mockSnapshot.init.mockResolvedValue({
-      ok: false,
-      error: { kind: 'git_error' },
-    });
+  it('snapshot.init 失败 → assemble_failed + 抛 Error（phase 1445 Step D：init 内化进工厂、失败由工厂抛）', async () => {
+    (createSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('Snapshot.init failed: git_error')
+    );
 
     await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
-      'Assembly: Snapshot.init failed: git_error'
+      'Assembly: Snapshot construct failed: Snapshot.init failed: git_error'
     );
 
     expect(mockAuditWrite).toHaveBeenCalledWith(
       'assemble_failed',
       'module=snapshot',
-      'phase=init',
-      'reason=git_error'
+      'phase=construct',
+      'reason=Snapshot.init failed: git_error'
     );
   });
 
@@ -509,18 +518,18 @@ describe('assemble', () => {
     );
   });
 
-  it('CronRunner.start 失败 → assemble_failed phase=start + 抛 Error', async () => {
+  it('CronRunner.start 失败 → assemble_failed + 抛 Error（phase 1445 Step D：start 内化进工厂、并入 construct catch）', async () => {
     mockCronRunner.start.mockImplementationOnce(() => {
       throw new Error('start boom');
     });
 
     await expect(assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory })).rejects.toThrow(
-      'Assembly: CronRunner start failed: start boom'
+      'Assembly: CronRunner construct failed: start boom'
     );
     expect(mockAuditWrite).toHaveBeenCalledWith(
       'assemble_failed',
       'module=cron_runner',
-      'phase=start',
+      'phase=construct',
       'reason=start boom'
     );
   });

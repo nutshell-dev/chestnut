@@ -121,21 +121,19 @@ describe('Gateway transport type narrow (phase 932)', () => {
   }
 
   it('offline mode: transport=undefined → isOnlineMode=false, local transport=null, no broadcast', async () => {
-    gateway = createGateway({
+    gateway = await createGateway({
       streamFactory: streamStub.factory,
       transport: undefined,
       interrupt: vi.fn(),
       audit,
     } as GatewayInput);
-    await gateway.start();
     await gateway.stop();
     expect(audit.write).toHaveBeenNthCalledWith(1, 'gateway_started', 'isOnline=false');
     expect(audit.write).toHaveBeenNthCalledWith(2, 'gateway_stopped');
   });
 
   it('online mode: transport=Transport → isOnlineMode=true, broadcast works', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
     transport._connect(conn);
@@ -147,8 +145,7 @@ describe('Gateway transport type narrow (phase 932)', () => {
   });
 
   it('stop after online drops late stream broadcasts', async () => {
-    gateway = createGateway(createOnlineInput());
-    await gateway.start();
+    gateway = await createGateway(createOnlineInput());
 
     const conn: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
     transport._connect(conn);

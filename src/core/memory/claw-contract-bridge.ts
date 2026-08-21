@@ -38,7 +38,8 @@ export function createClawContractBridge(deps: ClawContractBridgeDeps): ClawCont
         const cDir = location.clawDir;
         const cFs = deps.fsFactory(cDir);
         const cAudit = createSystemAudit(cFs, cDir);
-        cs = createContractSystem({
+        // phase 1445 Step D：只读 getProgress 用途、故意不传 bootReconcile（不 init）
+        cs = await createContractSystem({
           clawDir: cDir,
           clawId: makeClawId(clawId),
           fs: cFs,
