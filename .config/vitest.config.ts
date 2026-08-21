@@ -46,6 +46,7 @@ const VI_MOCK_FILES = [
   'tests/cli/commands/status.test.ts',
 
   'tests/cli/commands/subagent-cli-output.test.ts',  // phase 1395 merged from subagent-list + subagent-steps-json
+  'tests/cli/config-audit-emit.test.ts',  // phase 1452 Step B: vi.mock watchdog/ensure（补登记，phase 316 invariant）
   'tests/cli/config-provider-add-probe.test.ts',  // phase 451 Step A
   'tests/cli/config-provider-set-primary-probe.test.ts',  // phase 451 Step A
   'tests/cli/contract-events.test.ts',
