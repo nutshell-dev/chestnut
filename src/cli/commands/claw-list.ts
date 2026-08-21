@@ -16,6 +16,7 @@ import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import {
   getLatestContractStats,
+  listActiveContracts,
   listLegacyPausedContracts,
   CONTRACT_ACTIVE_DIR,
   CONTRACT_YAML_FILE,
@@ -94,36 +95,21 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   }
 
   // Helper: get latest contract title (active > most recent archive)
+  // phase 1454 Step B: active scan migrated to listActiveContracts public query API
+  // (phase 744). Semantics notes:
+  // - sorted by contractId (lexical = creation order); [0] = latest active
+  // - title '' (contract.yaml unreadable / no title match) maps to missing
+  // - API swallows listSync I/O errors (TOCTOU) as empty array → falls through
+  //   to archive scan; the former non-ENOENT error view is no longer reachable
+  //   for the active scan (plan §7 accepted drift)
   function getLatestContractTitle(clawFs: FileSystem): FieldValue {
-    try {
-      let activeEntries: Array<{ name: string; isDirectory: boolean }> = [];
-      try {
-        activeEntries = clawFs
-          .listSync(CONTRACT_ACTIVE_DIR, { includeDirs: true })
-          .filter(e => e.isDirectory)
-          .sort((a, b) => a.name.localeCompare(b.name));
-      } catch (err) {
-        if (!isFileNotFound(err)) {
-          return { kind: 'error', reason: `active contract scan failed: ${formatErr(err)}` };
-        }
-        // ENOENT means no active contract directory; fall through to archive scan.
-      }
-
-      if (activeEntries.length > 0) {
-        const yamlPath = path.join(CONTRACT_ACTIVE_DIR, activeEntries[0].name, CONTRACT_YAML_FILE);
-        try {
-          const content = clawFs.readSync(yamlPath);
-          const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
-          if (match) return { kind: 'value', text: match[1].slice(0, CLAW_TITLE_DISPLAY_CHARS) };
-        } catch (err) {
-          if (isFileNotFound(err)) return { kind: 'missing' };
-          return { kind: 'error', reason: `active contract scan failed: ${formatErr(err)}` };
-        }
-        return { kind: 'missing' };
-      }
-    } catch (err) {
-      return { kind: 'error', reason: `active contract scan failed: ${formatErr(err)}` };
+    const actives = listActiveContracts(clawFs, '.');
+    if (actives.length > 0) {
+      const title = actives[0].title;
+      if (title === '') return { kind: 'missing' };
+      return { kind: 'value', text: title.slice(0, CLAW_TITLE_DISPLAY_CHARS) };
     }
+    // No active contract: fall through to archive scan.
 
     try {
       // phase 1127 Step C: read across current archive state subdirs + legacy flat.

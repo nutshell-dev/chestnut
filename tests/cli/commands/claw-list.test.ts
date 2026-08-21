@@ -193,6 +193,9 @@ describe('claw-list', () => {
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
       const sp = String(p);
       if (sp.endsWith('config.yaml')) return true;
+      // phase 1454 Step B: active scan now goes through listActiveContracts,
+      // which probes the phase 1197 `.creating` claim marker per contract root.
+      if (sp.endsWith('.creating')) return false;
       if (sp.includes('contract.yaml')) {
         return sp.includes('active/c1');
       }
@@ -227,6 +230,7 @@ describe('claw-list', () => {
     expect(output).toMatch(/claw-c/);
     expect(output).toMatch(/running/);
     expect(output).toMatch(/active/);
+    expect(output).toMatch(/Test Contract/); // active title via listActiveContracts
     expect(output).toMatch(/3\s+5m/); // outbox count 3, last active ~5m
   });
 
