@@ -1,6 +1,9 @@
 /** Truncation threshold for combined exec output (β 应用层 / 应然 §10.4 ~2000) */
 export const EXEC_MAX_OUTPUT = 2000;
 
+/** Agent-facing exec 默认时限；同时约束 Tool deadline、schema 与 L1 显式 timeout。 */
+export const COMMAND_TOOL_DEFAULT_TIMEOUT_MS = 30_000;
+
 /** CommandTool overflow scratch 子目录名（phase 1475 提取常量、消 split.pop()! non-null assertion） */
 export const EXEC_OVERFLOW_DIR_NAME = 'exec';
 

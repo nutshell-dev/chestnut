@@ -13,11 +13,16 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import type { Tool } from '../tools/index.js';
 import { newShortUuid } from  '../node-utils/index.js';
 import * as path from 'path';
-import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME, EXEC_COMMAND_PLACEHOLDER_CHARS } from './constants.js';
+import {
+  COMMAND_TOOL_DEFAULT_TIMEOUT_MS,
+  EXEC_MAX_OUTPUT,
+  EXEC_OVERFLOW_DIR_NAME,
+  EXEC_COMMAND_PLACEHOLDER_CHARS,
+} from './constants.js';
 
 import { exec, execWithHandle } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
-import { PROCESS_EXEC_DEFAULT_MAX_BUFFER, PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
+import { PROCESS_EXEC_DEFAULT_MAX_BUFFER } from '../process-exec/index.js';
 import type { ExecHandle, ExecutionTerminationFact } from '../process-exec/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/index.js';
@@ -197,7 +202,7 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
         },
         timeoutMs: {
           type: 'number',
-          description: `Timeout in milliseconds (default ${PROCESS_EXEC_DEFAULT_TIMEOUT_MS})`,
+          description: `Timeout in milliseconds (default ${COMMAND_TOOL_DEFAULT_TIMEOUT_MS})`,
         },
         stdin: {
           type: 'string',
@@ -208,13 +213,14 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
     },
     readonly: false,
     idempotent: false,
-    defaultTimeoutMs: PROCESS_EXEC_DEFAULT_TIMEOUT_MS,
+    defaultTimeoutMs: COMMAND_TOOL_DEFAULT_TIMEOUT_MS,
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const { command, cwd, timeoutMs, env, stdin } = resolveExecArgs({
         command: args.command as string,
         cwd: args.cwd as string | undefined,
-        timeoutMs: args.timeoutMs as number | undefined,
+        // phase 1472 Step B: agent 未传参时由 CommandTool own 默认值显式填（不依赖 L1 fallback）
+        timeoutMs: (args.timeoutMs as number | undefined) ?? COMMAND_TOOL_DEFAULT_TIMEOUT_MS,
         stdin: args.stdin as string | undefined,
       }, ctx);
 

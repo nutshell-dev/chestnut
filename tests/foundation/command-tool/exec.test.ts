@@ -4,12 +4,42 @@
  * 验证空 output 时 placeholder 附加运行命令、长命令截断。
  */
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { createExecTool, processExecErrorToToolResult } from '../../../src/foundation/command-tool/exec.js';
-import { EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
+import { COMMAND_TOOL_DEFAULT_TIMEOUT_MS, EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 
 const execTool = createExecTool();
+
+// vitest 以进程 cwd 解析相对路径——source 路径用绝对路径（phase 1452 教训）
+const EXEC_SOURCE = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../src/foundation/command-tool/exec.ts',
+);
+
+describe('phase 1472 Step B: agent exec 默认时限 ownership（CommandTool 三处同源）', () => {
+  it('owner 常量 = 30_000，Tool default 与 schema description 同源', () => {
+    expect(COMMAND_TOOL_DEFAULT_TIMEOUT_MS).toBe(30_000);
+    expect(execTool.defaultTimeoutMs).toBe(COMMAND_TOOL_DEFAULT_TIMEOUT_MS);
+    const props = execTool.schema.properties as Record<string, { description?: string }> | undefined;
+    expect(props?.timeoutMs).toBeDefined();
+    expect(props?.timeoutMs?.description).toContain(String(COMMAND_TOOL_DEFAULT_TIMEOUT_MS));
+  });
+
+  it('反向 ownership：exec.ts 不再消费 L1 默认 timeout 常量，agent fallback 显式同源', () => {
+    const source = fs.readFileSync(EXEC_SOURCE, 'utf8');
+    expect(source).not.toContain('PROCESS_EXEC_DEFAULT_TIMEOUT_MS');
+    expect(source).toContain(
+      'timeoutMs: (args.timeoutMs as number | undefined) ?? COMMAND_TOOL_DEFAULT_TIMEOUT_MS,',
+    );
+    // createExecWithHandle 低级入口不得获得 agent 默认值（透明语义）
+    const withHandleRegion = source.slice(source.indexOf('createExecWithHandle'));
+    expect(withHandleRegion).not.toContain('COMMAND_TOOL_DEFAULT_TIMEOUT_MS');
+  });
+});
 
 describe('phase 96 exec empty-output placeholder', () => {
   it('exit 0 + empty output → content carries (no output) + [command]', async () => {
