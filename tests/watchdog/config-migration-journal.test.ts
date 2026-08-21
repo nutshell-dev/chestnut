@@ -117,12 +117,18 @@ describe('phase 1289 Step B: watchdog migration journal', () => {
     expect(findPendingWatchdogMigration(rootFs)?.migrationId).toBe('bbb-pending');
   });
 
-  it('publishWatchdogLayout 写 layout.json：schema_version + owner', () => {
+  it('publishWatchdogLayout 写 layout.json：schema_version + owner + resources 账本（Phase 1455 Step C ratchet）', () => {
     const rootFs = fsFactory(chestnutRoot);
     publishWatchdogLayout(rootFs);
     const layout = JSON.parse(fs.readFileSync(path.join(chestnutRoot, WATCHDOG_PATHS.layout), 'utf8'));
     expect(layout.schema_version).toBe(WATCHDOG_LAYOUT_SCHEMA_VERSION);
     expect(layout.owner).toBe('watchdog');
     expect(typeof layout.updated_at).toBe('string');
+    expect(layout.resources).toEqual({
+      config: 'migrated',
+      state: 'migrated',
+      log: 'migrated',
+      subscriptions: 'retired',
+    });
   });
 });

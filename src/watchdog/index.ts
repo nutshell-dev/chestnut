@@ -35,3 +35,7 @@ export {
   type WatchdogStateMigrationIntent,
   type WatchdogStateMigrationOutcome,
 } from './state-migration.js';
+export {
+  createWatchdogLegacyRetirement,
+  type WatchdogLegacyRetirement,
+} from './legacy-retirement.js';

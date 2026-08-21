@@ -79,7 +79,7 @@ describe('phase 1455 Step A: watchdog state migration orchestration', () => {
     expect(migrationDirs()).toEqual([]);
   });
 
-  it('仅 legacy → migrated：新路径逐字节一致 + journal/layout 齐备 + legacy 保留', () => {
+  it('仅 legacy → migrated：新路径逐字节一致 + journal/layout 齐备 + legacy 清退（Step C）', () => {
     fs.writeFileSync(legacyPath, LEGACY_STATE);
     const result = ensureWatchdogStateMigrated(deps);
     expect(result.kind).toBe('migrated');
@@ -88,8 +88,8 @@ describe('phase 1455 Step A: watchdog state migration orchestration', () => {
 
     // 新路径就位且逐字节等于 legacy 原文
     expect(fs.readFileSync(newPath, 'utf8')).toBe(LEGACY_STATE);
-    // legacy 保留（清退归 Step C）
-    expect(fs.readFileSync(legacyPath, 'utf8')).toBe(LEGACY_STATE);
+    // Step C：outcome 回读验证后 legacy 清退
+    expect(fs.existsSync(legacyPath)).toBe(false);
 
     // intent + outcome(completed, published=true) + layout
     const journal = createWatchdogStateMigration(fsFactory(chestnutRoot)).readJournal(migrationId);
@@ -101,18 +101,20 @@ describe('phase 1455 Step A: watchdog state migration orchestration', () => {
     expect(fs.existsSync(path.join(chestnutRoot, WATCHDOG_PATHS.layout))).toBe(true);
   });
 
-  it('迁移完成后重入（双方并存 + 内容漂移）→ already、journal 不增殖', () => {
+  it('迁移完成后重入（completed journal + legacy 残留 + 内容漂移）→ already + 清退 legacy、journal 不增殖', () => {
     fs.writeFileSync(legacyPath, LEGACY_STATE);
     const first = ensureWatchdogStateMigrated(deps);
     expect(first.kind).toBe('migrated');
+    const migrationId = (first as { migrationId: string }).migrationId;
 
-    // 模拟迁移后生产写只走新路径 → 内容漂移
+    // 模拟 Step A 窗口遗留：legacy 仍在（Step C 前的安装）+ 生产写漂移
+    fs.writeFileSync(legacyPath, LEGACY_STATE);
     fs.writeFileSync(newPath, JSON.stringify({ schema_version: 3, motionRestart: { status: 'open', consecutiveAttempts: 1, openedAt: 42 } }));
 
     expect(ensureWatchdogStateMigrated(deps)).toEqual({ kind: 'already' });
     expect(migrationDirs()).toHaveLength(1);
-    // 双方均保留、不清退
-    expect(fs.existsSync(legacyPath)).toBe(true);
+    // Step C：completed journal 下 legacy 残留被清退
+    expect(fs.existsSync(legacyPath)).toBe(false);
   });
 
   it('仅新路径 → already（无 journal）', () => {
@@ -124,9 +126,10 @@ describe('phase 1455 Step A: watchdog state migration orchestration', () => {
 
   it('中断恢复：仅 intent（crash 于 publish 前）→ 幂等续跑完成', () => {
     fs.writeFileSync(legacyPath, LEGACY_STATE);
-    // 手工造 pending：先跑到 migrated 再删 outcome + 新路径，模拟 crash 于 publish 前
+    // 手工造 pending：先跑到 migrated 再恢复 legacy + 删 outcome/新路径，模拟 crash 于 publish 前
     const first = ensureWatchdogStateMigrated(deps);
     const migrationId = (first as { migrationId: string }).migrationId;
+    fs.writeFileSync(legacyPath, LEGACY_STATE);
     fs.rmSync(newPath, { force: true });
     fs.rmSync(path.join(chestnutRoot, WATCHDOG_PATHS.migrations, migrationId, 'outcome.json'));
 
@@ -143,6 +146,7 @@ describe('phase 1455 Step A: watchdog state migration orchestration', () => {
     const first = ensureWatchdogStateMigrated(deps);
     const migrationId = (first as { migrationId: string }).migrationId;
     // 模拟 crash 于 outcome 前：双方皆在、字节相同、无 outcome
+    fs.writeFileSync(legacyPath, LEGACY_STATE);
     fs.rmSync(path.join(chestnutRoot, WATCHDOG_PATHS.migrations, migrationId, 'outcome.json'));
 
     const resumed = ensureWatchdogStateMigrated(deps);
@@ -168,6 +172,38 @@ describe('phase 1455 Step A: watchdog state migration orchestration', () => {
     // 重跑同 id 持久 fail-loud
     expect(() => ensureWatchdogStateMigrated(deps)).toThrow(/Watchdog state conflict/);
     expect(migrationDirs()).toEqual(dirs);
+  });
+
+  it('Step C：logs/watchdog.log 与 watchdog-subscriptions/ 在迁移终态后清退（幂等）', () => {
+    // 造 legacy 三件套
+    fs.writeFileSync(legacyPath, LEGACY_STATE);
+    const legacyLog = path.join(chestnutRoot, 'logs', 'watchdog.log');
+    fs.mkdirSync(path.dirname(legacyLog), { recursive: true });
+    fs.writeFileSync(legacyLog, '[old] line\n');
+    const legacySubs = path.join(chestnutRoot, 'watchdog-subscriptions');
+    fs.mkdirSync(legacySubs, { recursive: true });
+    fs.writeFileSync(path.join(legacySubs, 'sub.json'), '{}');
+
+    expect(ensureWatchdogStateMigrated(deps).kind).toBe('migrated');
+    expect(fs.existsSync(legacyPath)).toBe(false);
+    expect(fs.existsSync(legacyLog)).toBe(false);
+    expect(fs.existsSync(legacySubs)).toBe(false);
+
+    // 重入幂等：不缺文件不报错、终态 already
+    expect(ensureWatchdogStateMigrated(deps)).toEqual({ kind: 'already' });
+  });
+
+  it('Step C：conflict 时不清退任何 legacy（双方保留含 log/subscriptions）', () => {
+    fs.writeFileSync(legacyPath, LEGACY_STATE);
+    fs.mkdirSync(path.dirname(newPath), { recursive: true });
+    fs.writeFileSync(newPath, JSON.stringify({ schema_version: 3, motionRestart: { status: 'open', consecutiveAttempts: 9, openedAt: 1 } }));
+    const legacyLog = path.join(chestnutRoot, 'logs', 'watchdog.log');
+    fs.mkdirSync(path.dirname(legacyLog), { recursive: true });
+    fs.writeFileSync(legacyLog, '[old] line\n');
+
+    expect(() => ensureWatchdogStateMigrated(deps)).toThrow(/Watchdog state conflict/);
+    expect(fs.existsSync(legacyPath)).toBe(true);
+    expect(fs.existsSync(legacyLog)).toBe(true);
   });
 
   it('migrations/ 目录共享隔离：config pending intent 不被 state/config 双方误认', () => {

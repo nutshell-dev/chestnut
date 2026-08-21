@@ -10,22 +10,26 @@
  *   2. Watchdog publish legacy 原文 → watchdog/state.json + 回读验证
  *   3. Watchdog 写 outcome + 发布 layout.json
  *
- * 语义（Step A 拍板）：
+ * 语义（Step A 拍板；Step C 收口）：
  * - 仅 legacy → 全量迁移（verbatim copy + 回读验证）；
- * - 双方皆在 → 以 journal outcome(completed) 判 already（legacy 清退归 Step C，
- *   并存是正常稳态，内容会随生产写漂移、不做内容比对）；无 completed journal
+ * - 双方皆在 → 以 journal outcome(completed) 判 already；无 completed journal
  *   且原文逐字节相同 → crash 于 publish 后/outcome 前的续跑，补 outcome 收口；
  *   原文不同 → 保留双方 fail-loud（抛错、conflict outcome 留证）；
  * - 双方皆无 → missing（typed result，不静默创建；首次 save 自建新路径）；
  * - 中断恢复：intent 存在而 outcome 不存在 → pending → 幂等续跑；迁移 id 由
- *   legacy 原文 hash 派生（content-derived），同输入重入收敛同一 journal。
+ *   legacy 原文 hash 派生（content-derived），同输入重入收敛同一 journal；
+ * - Phase 1455 Step C：迁移终态后清退 legacy（root watchdog-state.json 仅在
+ *   outcome 回读验证后删；logs/watchdog.log 历史日志删除不归档；
+ *   watchdog-subscriptions/ 0 生产使用整体清退）——幂等、存在才删。
  */
 import { getChestnutRoot } from '../core/claw-topology/index.js';
 import type { RootConfigReader } from '../assembly/index.js';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import {
+  createWatchdogLegacyRetirement,
   createWatchdogStateMigration,
+  type WatchdogLegacyRetirement,
   type WatchdogStateMigration,
   type WatchdogStateMigrationOutcome,
 } from '../watchdog/index.js';
@@ -83,15 +87,25 @@ function writeOutcome(
 }
 
 /**
+ * Phase 1455 Step C 清退收口：log/subscriptions 在任何迁移终态后幂等清退
+ * （不依赖 state 迁移状态）；state legacy 仅在 outcome 回读验证后由调用点删。
+ */
+function retireLegacyArtifacts(retirement: WatchdogLegacyRetirement): void {
+  retirement.retireLegacyLog();
+  retirement.retireLegacySubscriptions();
+}
+
+/**
  * 确保 watchdog state 迁移到 watchdog/state.json（幂等、可重入）。
  * conflict / 回读验证失败场景抛错（fail-loud）；其余以 typed result 返回。
- * legacy 文件本 Step 不删（清退归 Phase 1455 Step C）。
+ * 迁移终态后清退 legacy 文件（Phase 1455 Step C）。
  */
 export function ensureWatchdogStateMigrated(deps: WatchdogStateMigrationDeps): WatchdogStateMigrationResult {
   if (!deps.rootConfig.isInitialized()) return { kind: 'not-initialized' };
 
   const rootFs = deps.fsFactory(getChestnutRoot());
   const migration = createWatchdogStateMigration(rootFs);
+  const retirement = createWatchdogLegacyRetirement(rootFs);
   const newRaw = migration.readNewRaw();
   const legacyRaw = migration.readLegacyRaw();
   const pending = migration.findPending();
@@ -105,6 +119,7 @@ export function ensureWatchdogStateMigrated(deps: WatchdogStateMigrationDeps): W
         detail: 'both legacy state and workspace state absent at resume',
       });
     }
+    retireLegacyArtifacts(retirement);
     return { kind: 'missing' };
   }
 
@@ -118,15 +133,20 @@ export function ensureWatchdogStateMigrated(deps: WatchdogStateMigrationDeps): W
       });
       migration.finalizeLayout();
     }
+    retireLegacyArtifacts(retirement);
     return { kind: 'already' };
   }
 
   // 以下 legacy 必在。
   const migrationId = pending?.migrationId ?? migrationIdFor(legacyRaw);
 
-  // 双方皆在：completed journal → 迁移后稳态（legacy 待 Step C 清退，内容漂移不比）
+  // 双方皆在：completed journal → 迁移后稳态；清退 legacy（Step C）
   if (newRaw !== null) {
-    if (migration.hasCompleted(migrationId)) return { kind: 'already' };
+    if (migration.hasCompleted(migrationId)) {
+      retirement.retireLegacyState();
+      retireLegacyArtifacts(retirement);
+      return { kind: 'already' };
+    }
     writeIntentIfAbsent(migration, migrationId, legacyRaw, pending !== undefined);
     if (newRaw === legacyRaw) {
       // crash 于 publish 后 / outcome 前 → 回读验证一致、补 outcome 收口
@@ -136,9 +156,11 @@ export function ensureWatchdogStateMigrated(deps: WatchdogStateMigrationDeps): W
         detail: 'resumed after publish; byte-identical read-back verified, outcome lost in crash',
       });
       migration.finalizeLayout();
+      retirement.retireLegacyState();
+      retireLegacyArtifacts(retirement);
       return { kind: 'migrated', migrationId };
     }
-    // 无 completed journal 且原文不同 → 冲突：双方保留、fail-loud
+    // 无 completed journal 且原文不同 → 冲突：双方保留、fail-loud（不清退）
     writeOutcome(migration, migrationId, {
       status: 'conflict',
       published: false,
@@ -151,7 +173,7 @@ export function ensureWatchdogStateMigrated(deps: WatchdogStateMigrationDeps): W
     );
   }
 
-  // 仅 legacy → 全量迁移：publish + outcome 回读验证
+  // 仅 legacy → 全量迁移：publish + outcome 回读验证 → 清退 legacy（Step C）
   writeIntentIfAbsent(migration, migrationId, legacyRaw, pending !== undefined);
   migration.publish(legacyRaw);
   const verifyRaw = migration.readNewRaw();
@@ -166,5 +188,7 @@ export function ensureWatchdogStateMigrated(deps: WatchdogStateMigrationDeps): W
     published: true,
   });
   migration.finalizeLayout();
+  retirement.retireLegacyState();
+  retireLegacyArtifacts(retirement);
   return { kind: 'migrated', migrationId };
 }

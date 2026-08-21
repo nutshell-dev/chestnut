@@ -12,10 +12,13 @@
  * （`watchdog-state-relocation-<sha256[0:12]>`），同输入重入收敛同一 journal。
  *
  * 与 config 迁移的语义差异（总览/Step A 拍板）：
- * - legacy 文件本 Step 不删（清退归 Phase 1455 Step C）——迁移完成后
- *   legacy 与新路径并存是正常稳态，以 journal outcome(completed) 判定
- *   already，不做内容比对（迁移后生产写只走新路径，legacy 冻结漂移）。
+ * - 迁移后稳态以 journal outcome(completed) 判定 already，不做内容比对
+ *   （迁移后生产写只走新路径，legacy 冻结漂移）；
  * - state 是 JSON 原文整体搬迁（publish = verbatim copy），不做 schema 变换。
+ *
+ * Phase 1455 Step C：legacy 文件清退由编排层在迁移终态收口（outcome 回读
+ * 验证后删 root watchdog-state.json；logs/watchdog.log 与
+ * watchdog-subscriptions/ 由 legacy-retirement.ts 原语清退）。
  *
  * 本模块只提供原语、不编排（编排见 cli/watchdog-state-migration.ts）。
  * fs 一律以 chestnutRoot 为 baseDir；路径全部出自 ./layout.js。

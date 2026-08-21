@@ -125,7 +125,9 @@ export function findPendingWatchdogMigration(
 
 /**
  * 发布 layout.json（迁移终态 / fresh init 时由编排层调用）。
- * 内容是布局协议版本 + owner 声明；路径 identity 的 SoT 是 ./layout.ts 常量，
+ * 内容是布局协议版本 + owner 声明 + 资源迁移账本（Phase 1455 Step C ratchet：
+ * config Phase 1289 Step B / state Phase 1455 Step A / log Phase 1455 Step B 已迁，
+ * subscriptions 0 生产使用退役）；路径 identity 的 SoT 是 ./layout.ts 常量，
  * 本文件只做磁盘留痕、不被生产代码读回。
  */
 export function publishWatchdogLayout(fs: FileSystem): void {
@@ -133,6 +135,12 @@ export function publishWatchdogLayout(fs: FileSystem): void {
     schema_version: WATCHDOG_LAYOUT_SCHEMA_VERSION,
     owner: 'watchdog',
     updated_at: new Date().toISOString(),
-  };
+    resources: {
+      config: 'migrated',
+      state: 'migrated',
+      log: 'migrated',
+      subscriptions: 'retired',
+    },
+  } as const;
   fs.writeAtomicSync(WATCHDOG_PATHS.layout, `${JSON.stringify(layout, null, 2)}\n`);
 }
