@@ -7,7 +7,7 @@
 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 
 export const SUBAGENT_AUDIT_EVENTS = {
   // phase 140: tool_result emitted by stream-callbacks (owner: subagent module)

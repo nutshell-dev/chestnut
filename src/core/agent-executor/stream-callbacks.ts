@@ -6,7 +6,7 @@
  * StreamCallbacks without creating a circular dependency with L5 Runtime.
  */
 
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 
 export interface StreamCallbacks {
   onBeforeLLMCall?: () => void;

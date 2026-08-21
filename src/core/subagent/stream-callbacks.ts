@@ -14,7 +14,7 @@
 import type { StreamEvent, StreamLog } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';

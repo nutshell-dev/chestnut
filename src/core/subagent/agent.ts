@@ -16,6 +16,7 @@ import {
   makeExternalAbortError,
   type AbortReason,
   type ToolDefinition,
+  type ToolUseId,
 } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
@@ -27,7 +28,7 @@ import type { StreamLog } from '../../foundation/stream/index.js';
 
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
-import type { PermissionChecker, ToolProfile, ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import { createTimeoutController } from './timeout-controller.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';

@@ -10,7 +10,7 @@
  * → 抽 generic `ReactFacade` (per phase 1180 升档锚 (a))
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message, ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
@@ -20,7 +20,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
 import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+
 import type { TurnEventCommitDeps } from './turn-event-commit.js';
 
 

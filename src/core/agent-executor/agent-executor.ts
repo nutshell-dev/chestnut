@@ -8,12 +8,12 @@
  * l3_agent_executor.md §A.invariant-2; SessionStore 落盘 phase409 已迁 caller).
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message, ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { asFinalStopReason } from '../step-executor/index.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';

@@ -10,7 +10,7 @@
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { StreamCallbacks } from '../runtime/index.js';
 import type { EventLoopTraceSource } from './types.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';

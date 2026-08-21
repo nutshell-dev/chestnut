@@ -14,7 +14,7 @@
  * this function owns the stream-emit side to ensure no event is dropped.
  */
 
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 
 export type TurnEvent =
   | { kind: 'text_end' }
