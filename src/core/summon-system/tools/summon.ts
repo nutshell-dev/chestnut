@@ -117,15 +117,11 @@ export class SummonTool implements Tool {
     // Phase 1396 Step C/K: 内部固定 shadow 路径 + no-verification 策略由 policy
     // 直接拥有；agent 只提供 goal。
     const userMessage = buildSummonContractTask(args.goal as string, skillsSummary);
-    const mainContextSnapshot = ctx.clawId && ctx.currentToolUseId
-      ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
-      : undefined;
 
     const result = await this.executeContractCreationSubagent({
       userMessage,
       idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
       ctx,
-      mainContextSnapshot,
     }, this.taskSystem);
     if (!('taskId' in result)) return result;
 
@@ -149,7 +145,6 @@ export class SummonTool implements Tool {
       userMessage: string;
       idleTimeoutMs: number;
       ctx: ExecContext;
-      mainContextSnapshot: { clawId: string; toolUseId: string } | undefined;
     },
     taskSystem?: SubAgentTaskScheduler,
   ): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {

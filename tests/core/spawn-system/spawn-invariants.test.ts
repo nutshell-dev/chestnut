@@ -7,10 +7,13 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
+import { promises as fsPromises } from 'fs';
 import { createSpawnTool } from '../../../src/core/spawn-system/index.js';
 import { spawnTool } from '../../../src/core/spawn-system/tools/spawn.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/index.js';
+import { createMockTaskSystem } from '../../helpers/task-system.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -82,5 +85,42 @@ describe('spawn-tool-description', () => {
       const desc = (spawnTool.schema.properties as any).maxSteps.description;
       expect(desc).not.toContain('default: 100');
     });
+  });
+});
+
+
+describe('phase 1479 Step B: spawn async schedule 不写 mainContextSnapshot', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
+  });
+
+  it('marker 条件具足（clawId + currentToolUseId）时 scheduled task 仍不含 mainContextSnapshot', async () => {
+    const fs = new NodeFileSystem({ baseDir: tempDir });
+    const audit = makeAudit();
+    const tool = createSpawnTool({ taskSystem: createMockTaskSystem(fs, audit.audit) });
+    const ctx = new ExecContextImpl({
+      clawId: 'test-claw',
+      clawDir: tempDir,
+      syncDir: path.join(tempDir, 'tasks', 'sync'),
+      profile: 'full',
+      fs,
+      auditWriter: audit.audit,
+      currentToolUseId: 'tu-phase1479' as never,
+    });
+
+    const result = await tool.execute({ intent: 'async task', async: true }, ctx);
+    expect(result.success).toBe(true);
+
+    const pendingDir = path.join(tempDir, TASKS_QUEUES_PENDING_DIR);
+    const files = (await fsPromises.readdir(pendingDir)).filter(f => f.endsWith('.json'));
+    expect(files).toHaveLength(1);
+    const task = JSON.parse(await fsPromises.readFile(path.join(pendingDir, files[0]), 'utf-8'));
+    expect(task.mainContextSnapshot).toBeUndefined();
   });
 });

@@ -570,6 +570,18 @@ describe('summon-decision-metadata', () => {
       expect(tasks[0].postProcessor).toBe('summon-contract-extract');
     });
 
+    it('phase 1479 Step B: active summon schedule 不写 mainContextSnapshot（含 marker 条件具足时）', async () => {
+      const { ctx, tool } = makeCtx('claw');
+      // marker 构造条件具足（clawId + currentToolUseId）——字段仍不得写入
+      (ctx as { currentToolUseId?: string }).currentToolUseId = 'tu-phase1479';
+      const result = await tool.execute({ goal: 'shadow task' }, ctx);
+
+      expect(result.success).toBe(true);
+      const tasks = await readPendingTasks(tempDir);
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].mainContextSnapshot).toBeUndefined();
+    });
+
     it('non-summon 场景不存在 summonDecision 时字段为 undefined（optional）', async () => {
       const parsed = SubAgentTaskSchema.safeParse({
         kind: 'subagent',

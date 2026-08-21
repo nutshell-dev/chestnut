@@ -8,7 +8,28 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ToolTaskSchema } from '../../../src/core/async-task-system/task-schemas.js';
+import { SubAgentTaskSchema, ToolTaskSchema } from '../../../src/core/async-task-system/task-schemas.js';
+
+describe('phase 1479 Step B: mainContextSnapshot legacy strip compat', () => {
+  it('旧 JSON 含 mainContextSnapshot → parse 成功且输出不含该字段（zod strip 行为）', () => {
+    const legacy = {
+      kind: 'subagent',
+      mode: 'standard',
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      shortId: '550e8400',
+      intent: 'legacy task with marker snapshot',
+      timeoutMs: 1000,
+      parentClawId: 'p1',
+      createdAt: new Date().toISOString(),
+      mainContextSnapshot: { clawId: 'c1', toolUseId: 'tu-1' },
+    };
+    const parsed = SubAgentTaskSchema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect('mainContextSnapshot' in parsed.data).toBe(false);
+    }
+  });
+});
 
 function makeBaseTask(extra: Record<string, unknown> = {}) {
   return {

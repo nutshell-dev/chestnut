@@ -152,7 +152,6 @@ interface CommonSubAgentTaskFields {
    */
   motionClawDir?: string;
   postProcessor?: string;            // 声明式 post-processor 名称（registry lookup）
-  mainContextSnapshot?: { clawId: string; toolUseId: ToolUseId };  // NEW marker mode
   systemPrompt?: string;                 // phase 546 internal field：caller-side specialized system prompt（agent 不可见 / 与 phase 470 砍 agent-facing spawn schema 不冲突 / fall-back DEFAULT_SUBAGENT_SYSTEM_PROMPT）
   // phase 1087：shadow async 上下文快照字段
   isShadow?: boolean;

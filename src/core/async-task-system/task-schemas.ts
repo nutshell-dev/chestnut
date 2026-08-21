@@ -61,10 +61,6 @@ const commonSubAgentFields = {
   originClawId: z.string().optional(),
   motionClawDir: z.string().optional(),
   postProcessor: z.string().optional(),
-  mainContextSnapshot: z.object({
-    clawId: z.string(),
-    toolUseId: z.string(),
-  }).optional(),
   systemPrompt: z.string().optional(),
   // phase 1087 shadow async 上下文快照字段（phase 1131 补 zod schema、消除 type-schema drift per feedback_ts_interface_vs_zod_schema_sync）
   // Message[] / ToolDefinition[] 复杂 union types 跨 LLM provider、schema 层用 z.unknown() loose（type safety 归 TS interface SubAgentTask）

@@ -122,9 +122,6 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             error: 'task_system_unavailable',
           };
         }
-        const mainContextSnapshot = ctx.clawId && ctx.currentToolUseId
-          ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
-          : undefined;
         try {
           const taskId = makeShortTaskId(await taskSystem.schedule('subagent', {
             kind: 'subagent',
@@ -137,7 +134,6 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             originClawId: deps.originClawId ?? ctx.clawId,
             callerType: 'spawn_subagent',
             toolProfile: 'subagent',
-            mainContextSnapshot,
           }));
 
           return {
