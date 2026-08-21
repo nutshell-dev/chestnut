@@ -29,3 +29,9 @@ export {
   type WatchdogMigrationIntent,
   type WatchdogMigrationOutcome,
 } from './migration.js';
+export {
+  createWatchdogStateMigration,
+  type WatchdogStateMigration,
+  type WatchdogStateMigrationIntent,
+  type WatchdogStateMigrationOutcome,
+} from './state-migration.js';

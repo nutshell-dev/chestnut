@@ -4,7 +4,10 @@
  * Legacy notification Maps (lastInactivityNotified / inactivityNotifyCount /
  * clawPreviouslyAlive / everSpawned / clawPreviouslyNotified) are atomically
  * preserved to a migration record on first load, then retired from in-memory
- * state and future watchdog-state.json writes.
+ * state and future state writes.
+ *
+ * Phase 1455 Step A: 磁盘位置归位 watchdog/state.json——读兼容（新路径缺失
+ * 回退 legacy root watchdog-state.json）、写只走新路径。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
@@ -53,6 +56,7 @@ describe('watchdog-state migration + schema invariants (Phase 1396 Step H)', () 
   let tmpDir: string;
   let chestnutDir: string;
   let stateFile: string;
+  let newStateFile: string;
   let migrationFile: string;
 
   beforeEach(() => {
@@ -62,6 +66,7 @@ describe('watchdog-state migration + schema invariants (Phase 1396 Step H)', () 
     chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    newStateFile = path.join(chestnutDir, 'watchdog', 'state.json');
     migrationFile = path.join(chestnutDir, 'watchdog', 'migrations', 'phase1396-retired-notification-state.json');
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
     vi.mocked(readWorkspaceWatchdogConfig).mockReturnValue({
@@ -119,7 +124,13 @@ describe('watchdog-state migration + schema invariants (Phase 1396 Step H)', () 
     expect(executorRestartStateAPI.snapshot()).toEqual(executorRestart);
 
     saveWatchdogState(fsFactory);
-    const saved = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    // Phase 1455 Step A: save 只写新路径；legacy 文件冻结不动。
+    expect(fs.readFileSync(stateFile, 'utf-8')).toBe(JSON.stringify({
+      schema_version: 3,
+      motionRestart,
+      executorRestart,
+    }));
+    const saved = JSON.parse(fs.readFileSync(newStateFile, 'utf-8'));
     expect(saved.schema_version).toBe(3);
     expect(saved.motionRestart).toEqual(motionRestart);
     expect(saved.executorRestart).toEqual(executorRestart);
@@ -153,13 +164,62 @@ describe('watchdog-state migration + schema invariants (Phase 1396 Step H)', () 
     expect(executorRestartStateAPI.snapshot()).toEqual({});
 
     saveWatchdogState(fsFactory);
-    const saved = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    const saved = JSON.parse(fs.readFileSync(newStateFile, 'utf-8'));
     expect(saved.schema_version).toBe(3);
     expect(saved).not.toHaveProperty('lastInactivityNotified');
     expect(saved).not.toHaveProperty('inactivityNotifyCount');
     expect(saved).not.toHaveProperty('clawPreviouslyAlive');
     expect(saved).not.toHaveProperty('everSpawned');
     expect(saved).not.toHaveProperty('clawPreviouslyNotified');
+  });
+
+  it('phase 1455 Step A read-compat: new path wins when both exist', () => {
+    fs.mkdirSync(path.dirname(newStateFile), { recursive: true });
+    const newMotion = {
+      status: 'open' as const,
+      consecutiveAttempts: 7,
+      openedAt: 9_000_000_000,
+    };
+    fs.writeFileSync(newStateFile, JSON.stringify({
+      schema_version: 3,
+      motionRestart: newMotion,
+    }));
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 3,
+      motionRestart: {
+        status: 'retrying',
+        consecutiveAttempts: 1,
+        nextAttemptAt: 1_111_111_111,
+        awaitingStability: false,
+      },
+    }));
+
+    setAuditWriter(makeAudit());
+    loadWatchdogState(fsFactory);
+
+    expect(motionRestartStateAPI.snapshot()).toEqual(newMotion);
+  });
+
+  it('phase 1455 Step A read-compat: corrupt new path quarantines new path (no legacy fallback)', () => {
+    fs.mkdirSync(path.dirname(newStateFile), { recursive: true });
+    fs.writeFileSync(newStateFile, 'CORRUPT{{{');
+    fs.writeFileSync(stateFile, JSON.stringify({
+      schema_version: 3,
+      motionRestart: { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: 1_111_111_111, awaitingStability: false },
+    }));
+
+    const audit = makeAudit();
+    setAuditWriter(audit);
+    expect(() => loadWatchdogState(fsFactory)).not.toThrow();
+
+    // 新路径被 quarantine；不回退 legacy（防静默退回旧态）、in-memory 重置
+    expect(fs.existsSync(newStateFile)).toBe(false);
+    expect(fs.existsSync(stateFile)).toBe(true);
+    expect(fs.readdirSync(path.dirname(newStateFile)).some(f => f.includes('.corrupt-'))).toBe(true);
+    expect(motionRestartStateAPI.snapshot()).toEqual({ status: 'closed', consecutiveAttempts: 0 });
+    const failedCall = audit.write.mock.calls.find((c) => c[0] === WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED);
+    expect(failedCall).toBeDefined();
+    expect(failedCall![1]).toContain('watchdog/state.json.corrupt-');
   });
 
   it('second load with identical legacy fields is idempotent (no duplicate migration audit)', () => {

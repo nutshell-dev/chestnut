@@ -6,6 +6,11 @@
  * state containing those fields, the original values are atomically preserved to
  * `.chestnut/watchdog/migrations/phase1396-retired-notification-state.json`
  * before the new in-memory state takes over.
+ *
+ * Phase 1455 Step A: 磁盘位置归位 `watchdog/state.json`（WATCHDOG_PATHS.state）。
+ * 读兼容：新路径缺失时回退 legacy root `watchdog-state.json`（迁移 pending 态）；
+ * 写只走新路径。迁移协议 owner 原语见 state-migration.ts，CLI 编排见
+ * cli/watchdog-state-migration.ts；legacy 清退归 Phase 1455 Step C。
  */
 
 import * as path from 'path';
@@ -17,6 +22,7 @@ import {
   type MotionRestartState, type ExecutorRestartMap, type ExecutorRestartState,
 } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { WATCHDOG_LEGACY_PATHS, WATCHDOG_PATHS } from './layout.js';
 
 import { isFileNotFound } from '../foundation/fs/index.js';
 
@@ -204,11 +210,28 @@ function migrateLegacyNotificationState(
   );
 }
 
+/**
+ * Resolve which state file to read (Phase 1455 Step A 迁移窗口读兼容)。
+ * 新路径存在读新；不存在回退 legacy（pending 态）。新路径存在但不可读
+ * （非 ENOENT）→ 抛错走 corrupt quarantine，不回退（防静默退回 legacy 旧态）。
+ */
+function readStateRaw(fs: FileSystem): { raw: string; statePath: string } {
+  try {
+    return { raw: fs.readSync(WATCHDOG_PATHS.state), statePath: WATCHDOG_PATHS.state };
+  } catch (err) {
+    if (!isFileNotFound(err)) throw err;
+  }
+  return { raw: fs.readSync(WATCHDOG_LEGACY_PATHS.state), statePath: WATCHDOG_LEGACY_PATHS.state };
+}
+
 /** Load durable watchdog state from disk. */
 export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): void {
+  let statePath: string = WATCHDOG_PATHS.state;
   try {
     const fs = getChestnutFs(fsFactory);
-    const raw = fs.readSync('watchdog-state.json');
+    const read = readStateRaw(fs);
+    statePath = read.statePath;
+    const raw = read.raw;
     const state = JSON.parse(raw) as Record<string, unknown>;
     const stateVersion = state.schema_version;
     if (
@@ -244,11 +267,11 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
     executorRestartStateAPI.reset();
 
     const fs = getChestnutFs(fsFactory);
-    const backupPath = `watchdog-state.json.corrupt-${Date.now()}`;
+    const backupPath = `${statePath}.corrupt-${Date.now()}`;
     let moveOk = true;
     let moveErr: unknown = undefined;
     try {
-      fs.moveSync('watchdog-state.json', backupPath);
+      fs.moveSync(statePath, backupPath);
     } catch (mErr) {
       moveOk = false;
       moveErr = mErr;
@@ -275,7 +298,9 @@ export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
     executorRestart: executorRestartStateAPI.snapshot(),
   };
   const fs = getChestnutFs(fsFactory);
-  fs.writeAtomicSync('watchdog-state.json', JSON.stringify(state, null, 2));
+  // Phase 1455 Step A: 生产写只走目标路径（writeAtomicSync 自建父目录）；
+  // legacy watchdog-state.json 冻结、清退归 Phase 1455 Step C。
+  fs.writeAtomicSync(WATCHDOG_PATHS.state, JSON.stringify(state, null, 2));
 }
 
 /** Best-effort crash log. */

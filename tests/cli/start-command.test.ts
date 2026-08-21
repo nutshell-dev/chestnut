@@ -23,8 +23,9 @@ describe('start command supervision boundary', () => {
     // 边界针对 Watchdog daemon 模块目录（../watchdog/）与监督原语 ensureWatchdog。
     // Phase 1289 Step B 特许：../watchdog-config-migration.js 是 CLI 编排层模块
     //（与 audit-config-migration 同层），不是 daemon 依赖。
+    // Phase 1455 Step A 特许：ensureWatchdogStateMigrated 同理（state 迁移编排）。
     expect(source).not.toMatch(/from\s+['"][^'"]*\.\.\/watchdog\//);
-    expect(source).not.toMatch(/\bensureWatchdog(?!ConfigMigrated)/);
+    expect(source).not.toMatch(/\bensureWatchdog(?!ConfigMigrated|StateMigrated)/);
   });
 
   it('startCommand 依赖显式必传的 ensureSupervision capability', () => {

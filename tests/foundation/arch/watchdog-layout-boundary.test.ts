@@ -7,8 +7,9 @@
  *  - ownership 四个目录常量均从 WATCHDOG_PATHS 派生，文件内无目标路径字面；
  *  - Watchdog 外 production 模块不得 deep-import layout；模块内经 ./layout.js
  *    （模块外迁移协议消费方只经 Watchdog barrel）；
- *  - 阶段隔离：当前 state/subscription/log 生产 IO 仍在 legacy 位置，不得提前
- *    引用 target 值（非永久规则——后续资源迁移 Phase 必须显式校准本约束）。
+ *  - 阶段隔离：当前 log/subscription 生产 IO 仍在 legacy 位置，不得提前
+ *    引用 target 值（非永久规则——后续资源迁移 Phase 必须显式校准本约束；
+ *    state 已于 Phase 1455 Step A 迁移、移出本约束）。
  * 正反 fixture 自证 scanner 能识别模块外 owner 复制与合法模块内 import。
  */
 
@@ -128,9 +129,11 @@ describe('phase 1287 Step C: Watchdog 布局 owner 边界', () => {
     }
   });
 
-  it('阶段隔离：state/log 生产 IO 仍在 legacy 位置、未提前引用 target（迁移 Phase 须校准本约束）', () => {
-    const staged = ['watchdog-state.ts', 'watchdog-log.ts', 'constants.ts'];
-    const targets = ['watchdog/state.json', 'watchdog/watchdog.log', 'WATCHDOG_PATHS'];
+  it('阶段隔离：log 生产 IO 仍在 legacy 位置、未提前引用 target（迁移 Phase 须校准本约束）', () => {
+    // Phase 1455 Step A: state 已迁移（watchdog-state.ts 移出本清单）；
+    // log/subscriptions 待 Step B/C。
+    const staged = ['watchdog-log.ts', 'constants.ts'];
+    const targets = ['watchdog/watchdog.log', 'WATCHDOG_PATHS'];
     for (const name of staged) {
       const text = fs.readFileSync(path.join(WATCHDOG_DIR, name), 'utf8');
       for (const t of targets) expect(text.includes(t), `${name} must not reference target ${t} yet`).toBe(false);

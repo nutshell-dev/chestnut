@@ -114,6 +114,9 @@ export function findPendingWatchdogMigration(
   for (const name of entries) {
     const journal = readWatchdogMigrationJournal(fs, name);
     if (journal.intent && !journal.outcome) {
+      // Phase 1455 Step A: migrations/ 目录现由 config/state 两类迁移共享，
+      // 必须按 kind 过滤，否则 state pending 会被误当 config pending 续跑。
+      if ((journal.intent as { kind?: string }).kind !== 'watchdog-config-relocation') continue;
       return { migrationId: name, intent: journal.intent };
     }
   }

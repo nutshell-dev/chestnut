@@ -218,7 +218,8 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
   it('calls saveWatchdogState before removeWatchdogPid and process.exit', () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
-    const stateFile = path.join(tmpDir, '.chestnut', 'watchdog-state.json');
+    // Phase 1455 Step A: save 写目标路径 watchdog/state.json
+    const stateFile = path.join(tmpDir, '.chestnut', 'watchdog', 'state.json');
     expect(fs.existsSync(stateFile)).toBe(false);
 
     expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
@@ -244,10 +245,10 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
   it('writes save_failed to audit and exits with code 1 when saveWatchdogState fails', () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
-    // Make watchdog-state.json a directory so atomic rename fails (EISDIR) while audit remains writable
-    const stateFile = path.join(tmpDir, '.chestnut', 'watchdog-state.json');
+    // Make watchdog/state.json a directory so atomic rename fails (EISDIR) while audit remains writable
+    const stateFile = path.join(tmpDir, '.chestnut', 'watchdog', 'state.json');
     fs.rmSync(stateFile, { force: true });
-    fs.mkdirSync(stateFile);
+    fs.mkdirSync(stateFile, { recursive: true });
 
     expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
 
@@ -872,7 +873,9 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
   });
 
   it('saveWatchdogState uses atomic write (new inode)', () => {
-    const stateFile = path.join(chestnutDir, 'watchdog-state.json');
+    // Phase 1455 Step A: 写路径 = watchdog/state.json
+    const stateFile = path.join(chestnutDir, 'watchdog', 'state.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify({ old: true }));
     const oldStat = fs.statSync(stateFile);
 
