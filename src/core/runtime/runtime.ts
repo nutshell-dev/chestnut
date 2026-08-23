@@ -25,7 +25,7 @@ import {
 import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
 import { loadReadFileState, clearReadFileState, persistReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
-import { runReact } from '../agent-executor/index.js';
+import { runReact, type StreamCallbacks } from '../agent-executor/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
@@ -49,7 +49,6 @@ import type { ContractRuntimeLifecycle } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
-  type StreamCallbacks,
   type TurnResult,
   type PendingTurnFacts,
 } from './types.js';

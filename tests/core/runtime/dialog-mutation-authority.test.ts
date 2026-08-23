@@ -7,7 +7,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
-import type { StreamCallbacks, TurnResult } from '../../../src/core/runtime/types.js';
+import type { StreamCallbacks } from '../../../src/core/agent-executor/index.js';
+import type { TurnResult } from '../../../src/core/runtime/types.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { makeAudit } from '../../helpers/audit.js';
 

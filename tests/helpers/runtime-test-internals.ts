@@ -20,7 +20,7 @@ import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/inde
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
-import type { StreamCallbacks } from '../../src/core/runtime/types.js';
+import type { StreamCallbacks } from '../../src/core/agent-executor/index.js';
 
 export interface RuntimeTestInternals {
   llm: LLMOrchestrator;

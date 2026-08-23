@@ -8,7 +8,7 @@
  */
 
 import type { Runtime } from '../../src/core/runtime/index.js';
-import type { StreamCallbacks } from '../../src/core/agent-executor/stream-callbacks.js';
+import type { StreamCallbacks } from '../../src/core/agent-executor/index.js';
 import { isContextExceededError } from '../../src/foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,

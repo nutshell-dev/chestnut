@@ -120,8 +120,6 @@ export interface RuntimeOptions {
   contextManagerConfig?: ContextManagerRuntimeConfig;
 }
 
-export type { StreamCallbacks } from '../agent-executor/index.js';
-
 export interface TurnResult {
   status: 'success' | 'failed' | 'interrupted';
   error?: unknown;
