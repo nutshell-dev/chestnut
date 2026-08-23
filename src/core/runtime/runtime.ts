@@ -36,7 +36,7 @@ import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 
 import { makeStepNumber } from '../agent-executor/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import { makeTraceId, type AuditLog, type TraceId } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { InboxDeliverySession, InboxEntry, InboxHandle } from '../../foundation/messaging/index.js';
 import { ExecContextImpl } from '../../foundation/tools/index.js';
@@ -64,9 +64,6 @@ import { trimAndPersist } from '../context_manager/index.js';
 
 
 import { formatTimeAgo } from './utils.js';
-
-import type { TraceId } from './types/trace-id.js';
-import { makeTraceId } from './types/trace-id.js';
 
 function auditError(
   audit: AuditLog,
