@@ -459,6 +459,13 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
   // 32-bit ms max; larger delays overflow and fire after ~1ms.
   const NODE_TIMER_DELAY_CAP_MS = 2_147_483_647;
 
+  function expectGoneTermination(error: ProcessExecError): void {
+    expect(
+      error.termination?.status,
+      `complete termination facts: ${JSON.stringify(error.termination)}`,
+    ).toBe('gone');
+  }
+
   /**
    * Advance fake timers in small steps while yielding real event-loop turns
    * (setImmediate stays real under this file's fake-timer config), so the OS
@@ -485,7 +492,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
     const error = err as ProcessExecError;
     expect(error.message).toContain('absolute deadline');
     expect(error.termination!.trigger).toBe('timeout');
-    expect(error.termination!.status).toBe('gone');
+    expectGoneTermination(error);
     expect(isAlivePid(handle.identity!.leaderPid)).toBe(false);
   }, 20_000);
 
@@ -500,7 +507,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
     expect(err).toBeInstanceOf(ProcessExecError);
     const error = err as ProcessExecError;
     expect(error.termination!.trigger).toBe('timeout');
-    expect(error.termination!.status).toBe('gone');
+    expectGoneTermination(error);
   }, 20_000);
 
   it('invalid deadlineAtMs values throw synchronously before any spawn', () => {
@@ -585,7 +592,7 @@ describe('execWithHandle absolute deadline policy (phase 1272 Step B)', () => {
       const error = err as ProcessExecError;
       expect(error.message).toBe(`Command timed out at absolute deadline ${deadlineAtMs}`);
       expect(error.termination!.trigger).toBe('timeout');
-      expect(error.termination!.status).toBe('gone');
+      expectGoneTermination(error);
     } finally {
       vi.useRealTimers();
       if (handle.identity && isAlivePid(handle.identity.leaderPid)) {
