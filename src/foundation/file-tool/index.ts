@@ -19,4 +19,4 @@ export { readTool } from './read.js';
 export { searchTool } from './search.js';
 export { lsTool } from './ls.js';
 export { TASKS_SYNC_WRITE_DIR, TASKS_SYNC_SEARCH_DIR } from './constants.js';
-export { createFileTools, type FileToolOptions } from './create-file-tools.js';
+export { createFileTools } from './create-file-tools.js';
