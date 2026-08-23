@@ -13,7 +13,8 @@
  * PermissionChecker is caller-scoped, not target-scoped. Direct claw-to-claw
  * read/write is not enforced here — see foundation/file-tool/read.ts line 103-104.
  *
- * Phase430: PermissionChecker interface + createClawPermissionChecker 完全归 L4。
+ * Phase430: claw-scoped permission policy + createClawPermissionChecker 归L4；
+ * PermissionChecker capability shape现归ToolProtocol，Permissions只import协议type。
  * NodeFileSystem (L1) 0 PermissionChecker dep / 0 业务概念。
  * L4 caller (FileTool 等) 自治调 claw-permissions check 后 call fs。
  */
@@ -39,7 +40,6 @@ import { CLAWSPACE_DIR, CLAW_SPEC_FILE, CLAW_MEMORY_FILE, CLAW_IDENTITY_FILE, CL
 import { CONFIG_YAML_FILE } from '../claw-topology/index.js';
 import { DIALOG_DIR } from '../../foundation/dialog-store/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
-export type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
 
 /**
