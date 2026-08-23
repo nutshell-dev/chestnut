@@ -1,5 +1,6 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
 import {
@@ -9,7 +10,6 @@ import {
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
 } from './dirs.js';
-import { formatErr } from './_helpers.js';
 import { ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
 import {
   emitRecovered,

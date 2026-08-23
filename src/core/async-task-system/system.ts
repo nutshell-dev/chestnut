@@ -5,7 +5,7 @@
  * Uses a pending queue + dispatcher pattern for concurrency control.
  */
 
-import { newUuid } from '../../foundation/node-utils/index.js';
+import { formatErr, newUuid, sha256Hex } from '../../foundation/node-utils/index.js';
 
 import * as path from 'path';
 
@@ -39,8 +39,6 @@ import { createAsyncExecWrapper, type AsyncExecWrapperParams, ASYNC_EXEC_MIGRATE
 import { createPendingWatcher, type PendingWatcherHandle } from './pending-watcher.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
-import { formatErr } from './_helpers.js';
-import { sha256Hex } from '../../foundation/node-utils/index.js';
 import { assertTaskShapeOnSave, type SaveSource } from './invariants.js';
 import { auditQueueCrossSource } from './queue-cross-source-audit.js';
 import {

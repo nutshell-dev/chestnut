@@ -3,13 +3,14 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/tools/index.js';
 import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult, TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 import { createDialogStore, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 
 import { STREAM_TASK_EVENTS } from './stream-events.js';
-import { formatErr, classifyTaskError } from './_helpers.js';
+import { classifyTaskError } from './_helpers.js';
 import {
   emitTaskCompleted,
   emitHandlerFailed,

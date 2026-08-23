@@ -18,8 +18,8 @@
 import { z } from 'zod';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import { TASKS_QUEUES_RESULTS_DIR, RESULT_META_FILE, RESULT_ENVELOPE_FILE } from './dirs.js';
-import { formatErr } from './_helpers.js';
 import type { ProcessedTaskResult } from './result-delivery-types.js';
 import type { SubAgentTask, TaskId } from './types.js';
 

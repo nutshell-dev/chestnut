@@ -1,11 +1,12 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
 import { sendToolResult as defaultSendToolResult, sendFallbackResult as defaultSendFallbackResult } from './result-delivery.js';
 import type { SendToolResult, SendFallbackResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
-import { formatErr, classifyTaskError } from './_helpers.js';
+import { classifyTaskError } from './_helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { getProcessStartTime } from '../../foundation/process-exec/index.js';
 import {

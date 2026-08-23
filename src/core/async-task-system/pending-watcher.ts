@@ -1,5 +1,6 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import {
   createWatcher as defaultCreateWatcher,
   type Watcher,
@@ -11,7 +12,6 @@ import {
   emitPendingWatcherFailed,
   emitRecoveryFailed,
 } from './audit-emit.js';
-import { formatErr } from './_helpers.js';
 
 export interface PendingWatcherDeps {
   fs: FileSystem;

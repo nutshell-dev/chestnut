@@ -13,7 +13,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ExecHandle, ExecutionIdentity } from '../../foundation/process-exec/index.js';
 import { getProcessStartTime, ProcessExecError } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
-import { newUuid } from '../../foundation/node-utils/index.js';
+import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/index.js';
 import { executeToolTask } from './tool-executor.js';
@@ -23,7 +23,6 @@ import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { emitHandlerFailed, emitMigratedExecTermination } from './audit-emit.js';
-import { formatErr } from './_helpers.js';
 import type { ToolTask, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
 import { makeFullTaskId, taskShortId } from './types.js';
 
