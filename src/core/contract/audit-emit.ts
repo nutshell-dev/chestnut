@@ -9,7 +9,6 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ContractId } from './types.js';
 import type { SubtaskId } from './types.js';
@@ -1068,9 +1067,6 @@ export function emitContractCreationRecoveryFailed(
   cols.push(`reason=${opts.reason}`, `error=${opts.error}`);
   audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED, ...cols);
 }
-
-// ─── Legacy helper: format error ──────────────────────────────────────────────
-export { formatErr };
 
 // ─── LIFECYCLE_INTENT (Phase 1198 Step A) ───────────────────────────────────
 export function emitLifecycleIntentPersisted(
