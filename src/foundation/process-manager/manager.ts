@@ -42,7 +42,7 @@ import {
 import type { EnsureRunningOutcome, ProcessManagerContext, SpawnOptions } from './types.js';
 
 
-export type { ProcessSpawnConflictReason, SpawnOptions } from './types.js';
+export type { SpawnOptions } from './types.js';
 export class ProcessManager {
   private readonly _ctx: ProcessManagerContext;
   protected readonly fs: FileSystem;
