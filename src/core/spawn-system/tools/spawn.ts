@@ -7,6 +7,7 @@
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
+import { formatErr } from '../../../foundation/node-utils/index.js';
 import { makeShortTaskId, type SubAgentTaskScheduler } from '../../async-task-system/index.js';
 import { runSpawnSync, type RunSpawnSyncOptions } from '../system.js';
 import {
@@ -26,7 +27,6 @@ import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
  * phase 11：加 template 参数 / caller-side 预制 system prompt 选择 / 未知名 reject 不静默 fall back。
  * 直接写 tasks/queues/pending/ 文件，由 async-task-system watcher 异步调度。
  */
-import { formatErr } from '../_helpers.js';
 // phase 1490: tool description 字符串不再泄 DEFAULT_MAX_STEPS const 值到 LLM docs — agent-executor 自持默认值。
 export const SPAWN_TOOL_NAME = 'spawn' as const;
 

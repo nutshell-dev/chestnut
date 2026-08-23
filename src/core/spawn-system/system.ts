@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { newShortUuid } from '../../foundation/node-utils/index.js';
+import { formatErr, newShortUuid } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
@@ -14,8 +14,6 @@ import { TASKS_SYNC_SPAWN_DIR } from './constants.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../subagent/index.js';
 
 import { SPAWN_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from './_helpers.js';
-
 
 export interface RunSpawnSyncOptions {
   intent: string;
