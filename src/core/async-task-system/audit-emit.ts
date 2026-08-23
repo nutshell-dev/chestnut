@@ -8,7 +8,6 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import type { FullTaskId, ShortTaskId } from './types.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
@@ -534,10 +533,6 @@ export function emitMigratedLegacyIdentity(
     'note=descendant_cleanup_unprovable',
   );
 }
-
-// ─── Legacy helper: format error and emit ─────────────────────────────────────
-// Re-export formatErr for callers that need to format errors before typed emit.
-export { formatErr };
 
 // ─── LEGACY_RESULT_CLASSIFICATION_UNKNOWN (Phase 1396 Step L) ────────────────
 /**
