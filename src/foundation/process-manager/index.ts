@@ -18,7 +18,7 @@ export type { ProcessSpawnConflictReason } from './manager.js';
 export type { SpawnOptions } from './manager.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
-export { DAEMON_SHUTDOWN_GRACE_MS } from './manager.js';
+export { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
 export { createProcessManagerForCLI } from './factories.js';
 // phase 1423 F5: agent-factory (daemon-scoped) sister to factories (CLI-scoped)
 // 同 phase 1416 F1 form 复用、跨模块 caller (daemon/) 走 barrel

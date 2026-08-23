@@ -44,8 +44,6 @@ import type { EnsureRunningOutcome, ProcessManagerContext, SpawnOptions } from '
 
 export { ProcessGenerationStateError, ProcessSpawnConflictError, ProcessWinnerConvergenceError } from './types.js';
 export type { EnsureRunningOutcome, ProcessSpawnConflictReason, ProcessWinnerConvergenceReason, SpawnOptions } from './types.js';
-export { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
-
 export class ProcessManager {
   private readonly _ctx: ProcessManagerContext;
   protected readonly fs: FileSystem;
