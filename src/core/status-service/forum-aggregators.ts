@@ -16,7 +16,8 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
+import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessListUnavailable } from '../../foundation/process-exec/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

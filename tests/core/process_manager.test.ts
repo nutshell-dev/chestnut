@@ -24,7 +24,8 @@ vi.mock('child_process', async (importOriginal) => {
   };
 });
 
-import { ProcessManager, ProcessListUnavailable } from '../../src/foundation/process-manager/index.js';
+import { ProcessManager } from '../../src/foundation/process-manager/index.js';
+import { ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeAudit } from '../helpers/audit.js';

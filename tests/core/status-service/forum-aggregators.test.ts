@@ -31,7 +31,7 @@ import { humanizeUptime, humanizeAgo } from '../../../src/core/status-service/fo
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { ProcessManager } from '../../../src/foundation/process-manager/index.js';
 import * as messaging from '../../../src/foundation/messaging/index.js';
-import { ProcessListUnavailable } from '../../../src/foundation/process-manager/index.js';
+import { ProcessListUnavailable } from '../../../src/foundation/process-exec/index.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 import { STATUS_AUDIT_EVENTS } from '../../../src/core/status-service/audit-events.js';

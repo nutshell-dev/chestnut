@@ -1,6 +1,5 @@
-import { findByPattern } from '../process-exec/index.js';
+import { findByPattern, ProcessListUnavailable } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { ProcessListUnavailable } from './errors.js';
 import type { ProcessManagerContext } from './types.js';
 import type { ProcessInfo } from '../process-exec/index.js';
 

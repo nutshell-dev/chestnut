@@ -1,11 +1,10 @@
 import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
-import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
+import { spawnDetached as defaultSpawnDetached, kill as defaultKill, ProcessListUnavailable } from '../process-exec/index.js';
 import { BOOT_DEADLINE_MS, DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
 import { awaitReadyConvergence } from './ready-convergence.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { ProcessListUnavailable } from './errors.js';
 import { isReady as checkReady } from './ready.js';
 import { findProcessesDetailed, commandContainsDaemonDirToken } from './find.js';
 import {

@@ -18,7 +18,6 @@ export type { ProcessSpawnConflictReason } from './manager.js';
 export type { SpawnOptions } from './manager.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
-export { ProcessListUnavailable } from './errors.js';
 export { DAEMON_SHUTDOWN_GRACE_MS } from './manager.js';
 export { createProcessManagerForCLI } from './factories.js';
 // phase 1423 F5: agent-factory (daemon-scoped) sister to factories (CLI-scoped)
