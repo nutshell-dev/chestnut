@@ -4,7 +4,7 @@
  * Extracted in phase 1314 (cluster #3 of 5 cleanup roadmap).
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message, ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -15,7 +15,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+
 import { uuidToShort } from '../../foundation/node-utils/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';

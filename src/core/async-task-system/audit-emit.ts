@@ -11,7 +11,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import type { FullTaskId, ShortTaskId } from './types.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 
 
 
