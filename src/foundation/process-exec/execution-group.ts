@@ -268,12 +268,13 @@ export async function terminateExecutionGroup(
   const killResult = signalProcessGroup(pgid, 'SIGKILL');
   killSent = killResult === 'sent';
   if (killResult === 'gone') return goneOutcome(identity, trigger, termSent, killSent);
-  if (killResult === 'error') {
-    return indeterminateOutcome(identity, trigger, termSent, killSent, 'sigkill_send_failed');
-  }
 
   if (await waitGroupGone(pgid, confirmMs)) {
     return goneOutcome(identity, trigger, termSent, killSent);
+  }
+
+  if (killResult === 'error') {
+    return indeterminateOutcome(identity, trigger, termSent, killSent, 'sigkill_send_failed');
   }
 
   return {
