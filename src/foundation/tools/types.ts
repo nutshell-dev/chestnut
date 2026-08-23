@@ -9,7 +9,6 @@ import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
-export type { CallerSnapshot };
 
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolUseId } from '../llm-provider/index.js';
