@@ -42,7 +42,6 @@ import {
 import type { EnsureRunningOutcome, ProcessManagerContext, SpawnOptions } from './types.js';
 
 
-export { ProcessWinnerConvergenceError } from './types.js';
 export type { EnsureRunningOutcome, ProcessSpawnConflictReason, ProcessWinnerConvergenceReason, SpawnOptions } from './types.js';
 export class ProcessManager {
   private readonly _ctx: ProcessManagerContext;
