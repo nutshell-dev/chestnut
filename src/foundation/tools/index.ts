@@ -23,7 +23,6 @@ export { ExecContextImpl } from './context.js';
 
 
 // Types (Tool, ExecContext now owned by L2c Tools)
-export type { ToolResult } from '../tool-protocol/index.js';
 export type {
   Tool,
   ExecContext,

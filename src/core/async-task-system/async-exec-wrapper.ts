@@ -6,7 +6,8 @@
  */
 
 import * as path from 'path';
-import type { ExecContext, Tool, ToolResult } from '../../foundation/tools/index.js';
+import type { ExecContext, Tool } from '../../foundation/tools/index.js';
+import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ExecHandle, ExecutionIdentity } from '../../foundation/process-exec/index.js';
