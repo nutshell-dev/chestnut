@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import { newShortUuid } from '../../foundation/node-utils/index.js';
+import { formatErr, newShortUuid } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import { applyRestrictedOverrides } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
@@ -15,7 +15,7 @@ import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
-import { synthesizeFormB, formatErr } from './_helpers.js';
+import { synthesizeFormB } from './_helpers.js';
 import { classifyTaskError } from '../async-task-system/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 
@@ -184,5 +184,4 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     };
   }
 }
-
 

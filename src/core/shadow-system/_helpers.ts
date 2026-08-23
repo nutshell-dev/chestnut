@@ -42,5 +42,3 @@ export function synthesizeFormB(args: {
     { role: 'user', content: instruction },
   ];
 }
-
-export { formatErr } from '../../foundation/node-utils/index.js';
