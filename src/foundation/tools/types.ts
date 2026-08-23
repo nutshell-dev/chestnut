@@ -4,7 +4,6 @@
  */
 
 import type { JSONSchema7 } from '../llm-provider/index.js';
-export type { JSONSchema7 };
 import type { ToolProfile } from '../tool-protocol/index.js';
 import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';

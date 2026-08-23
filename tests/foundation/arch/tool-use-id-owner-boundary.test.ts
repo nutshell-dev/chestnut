@@ -10,8 +10,7 @@ const srcRoot = path.resolve(__dirname, '..', '..', '..', 'src');
  * phase 1492 Step D: ToolUseId identity protocol owner boundary ratchet.
  *
  * ToolUseId type + makeToolUseId factory are owned by LLMProvider (L1).
- * ToolProtocol (L2b) no longer re-exports them; JSONSchema7 compatibility
- * surface remains on ToolProtocol.
+ * ToolProtocol (L2b) no longer re-exports them.
  */
 describe('ToolUseId owner boundary ratchet (phase 1492)', () => {
   /**
@@ -67,15 +66,13 @@ describe('ToolUseId owner boundary ratchet (phase 1492)', () => {
   });
 
   /**
-   * Backward assertions: ToolProtocol barrel retains JSONSchema7 but not the
-   * retired identity protocol re-exports.
+   * Backward assertions: ToolProtocol barrel drops ToolUseId/makeToolUseId.
    */
-  it('ToolProtocol barrel retains JSONSchema7 and drops ToolUseId/makeToolUseId', () => {
+  it('ToolProtocol barrel drops ToolUseId/makeToolUseId', () => {
     const barrelText = fs.readFileSync(
       path.join(srcRoot, 'foundation', 'tool-protocol', 'index.ts'),
       'utf8',
     );
-    expect(barrelText).toMatch(/JSONSchema7/);
     expect(barrelText).not.toMatch(/\bToolUseId\b/);
     expect(barrelText).not.toMatch(/\bmakeToolUseId\b/);
   });

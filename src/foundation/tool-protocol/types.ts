@@ -1,7 +1,6 @@
 import type { JSONSchema7 } from '../llm-provider/index.js';
 
 export type ToolProfile = string;
-export type { JSONSchema7 };
 
 export interface ToolDescriptor {
   name: string;

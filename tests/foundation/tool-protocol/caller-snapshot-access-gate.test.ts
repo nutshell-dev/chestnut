@@ -27,7 +27,8 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import type { Tool, ExecContext } from '../../../src/foundation/tools/types.js';
 import type { CallerSnapshot } from '../../../src/foundation/tool-protocol/index.js';
-import type { ToolResult, JSONSchema7 } from '../../../src/foundation/tool-protocol/index.js';
+import type { ToolResult } from '../../../src/foundation/tool-protocol/index.js';
+import type { JSONSchema7 } from '../../../src/foundation/llm-provider/index.js';
 
 function makeTool(opts: {
   name: string;

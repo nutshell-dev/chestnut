@@ -9,7 +9,6 @@
 
 export type {
   ToolProfile,
-  JSONSchema7,
   ToolDescriptor,
   ToolResult,
   CallerSnapshot,
