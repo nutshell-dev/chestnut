@@ -21,7 +21,6 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
-import type { ContextManagerRuntimeConfig } from '../step-executor/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 
 
@@ -117,7 +116,8 @@ export interface RuntimeOptions {
   regimeSwitchStrategy?: 'all' | 'none' | 'last-turn';
 
   /** phase 1190：上下文管理器运行时配置（filterSubtypes 已移除） */
-  contextManagerConfig?: ContextManagerRuntimeConfig;
+  /** Explicit Runtime-owned trim enablement; omitted/false disables trimming. */
+  contextTrimmingEnabled?: boolean;
 }
 
 export interface TurnResult {

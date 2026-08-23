@@ -152,7 +152,7 @@ export class Runtime {
   private dialogStoreFactory!: () => DialogSessionLifecycle;
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
   // phase 1190：上下文管理器运行时配置（filterSubtypes 已移除）
-  private contextManagerConfig?: import('../step-executor/index.js').ContextManagerRuntimeConfig;
+  private contextTrimmingEnabled: boolean;
   /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
   private lastLLMCallAt: number = 0;
   constructor(options: RuntimeOptions) {
@@ -168,7 +168,7 @@ export class Runtime {
     this.dialogStoreFactory = deps.dialogStoreFactory;
     this.formatterRegistry = deps.formatterRegistry;   // phase 1414: ctor-time bind（formatInboxMessage 可在 initialize 前调）
     this.guidanceCompose = deps.guidanceCompose;        // phase 27 Step D P5: callback hook
-    this.contextManagerConfig = options.contextManagerConfig;
+    this.contextTrimmingEnabled = options.contextTrimmingEnabled ?? false;
   }
 
   /** phase 1343 α-6: set/clear turn-level trace id on audit writer */
@@ -1186,7 +1186,7 @@ export class Runtime {
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
   ): Promise<Message[]> {
-    if (!this.contextManagerConfig || !this.sessionManager) {
+    if (!this.contextTrimmingEnabled || !this.sessionManager) {
       return messages;
     }
     const providerInfo = this.llm.getProviderInfo?.();
@@ -1215,7 +1215,7 @@ export class Runtime {
 
   /** Phase 1218 Step A: internal reactive trim implementation. */
   private async _reactiveTrimImpl(): Promise<ContextTrimOutcome> {
-    if (!this.contextManagerConfig || !this.sessionManager) {
+    if (!this.contextTrimmingEnabled || !this.sessionManager) {
       return {
         status: 'no_progress',
         before: 0,

@@ -197,7 +197,7 @@ export async function createRuntimeAssembly(
         idleTimeoutMs,
         configReloader,
         dependencies,
-        contextManagerConfig: {},
+        contextTrimmingEnabled: true,
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=runtime`, `phase=construct`, `reason=${formatErr(e)}`);

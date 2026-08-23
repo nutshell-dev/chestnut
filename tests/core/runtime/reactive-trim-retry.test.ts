@@ -86,7 +86,7 @@ describe('runtime reactive trim+retry path', () => {
       llmConfig: createMockLLMConfig(),
       dependencies: deps,
       idleTimeoutMs: 0,
-      contextManagerConfig: { filterSubtypes: new Set() },
+      contextTrimmingEnabled: true,
     });
     runtimes.push(runtime);
     await runtime.initialize();

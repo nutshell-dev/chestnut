@@ -18,16 +18,6 @@ export interface LLMCallInfo {
   error?: string;
 }
 
-/**
- * phase 440: ContextManager runtime config injected at assembly time.
- *
- * phase 690: StepExecutor 不再持 proactive trim、本 type 保留供 Runtime
- * 反应式 trim+retry 路径用（runtime.contextManagerConfig 字段类型）。
- */
-export interface ContextManagerRuntimeConfig {
-  /** phase 1190：filterSubtypes 已移除，系统消息统一压缩成预览。保留空接口以避免级联改动。 */
-}
-
 export interface StepCallbacks {
   onBeforeLLMCall?: () => void;
   onLLMResult?: (info: LLMCallInfo) => void;

@@ -74,7 +74,7 @@ describe('runtime proactive trim integration', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  async function makeRuntime(contextManagerConfig?: { filterSubtypes: ReadonlySet<string> }) {
+  async function makeRuntime(contextTrimmingEnabled?: boolean) {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'test-claw' });
     const runtime = new ProactiveTrimTestRuntime({
       clawId: 'test-claw',
@@ -82,7 +82,7 @@ describe('runtime proactive trim integration', () => {
       llmConfig: createMockLLMConfig(),
       dependencies: deps,
       idleTimeoutMs: 0,
-      ...(contextManagerConfig ? { contextManagerConfig } : {}),
+      ...(contextTrimmingEnabled === undefined ? {} : { contextTrimmingEnabled }),
     });
     runtimes.push(runtime);
     await runtime.initialize();
@@ -91,7 +91,7 @@ describe('runtime proactive trim integration', () => {
 
   it('1. first turn calls maybeTrimProactive with lastLLMCallAt = 0', async () => {
     const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
-    const runtime = await makeRuntime({ filterSubtypes: new Set() });
+    const runtime = await makeRuntime(true);
     const msg = { role: 'user', content: 'hi' } as Message;
     runtime.drainResult = makeDrainResult([msg]);
 
