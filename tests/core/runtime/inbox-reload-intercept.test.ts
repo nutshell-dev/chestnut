@@ -17,7 +17,8 @@ import {
 import { GATEWAY_INBOX_MESSAGE_TYPES } from '../../../src/core/gateway/index.js';
 import type { InboxMessageTypeRegistry } from '../../../src/foundation/messaging/index.js';
 import type { InboxEntry, InboxHandle } from '../../../src/foundation/messaging/index.js';
-import { RUNTIME_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/runtime-audit-events.js';
+import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
+import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/inbox-message-types.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/index.js';
 
 class TestRuntime extends Runtime {

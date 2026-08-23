@@ -62,9 +62,6 @@ export const RUNTIME_AUDIT_EVENTS = {
   REACTIVE_TRIM_EXHAUSTED: 'runtime_reactive_trim_exhausted',
 } as const;
 
-// phase 320: re-export reload message type const for callers that already import from this file
-export { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './inbox-message-types.js';
-
 /**
  * React loop audit events (γ 同源复制 / phase375 裁决 2)
  *

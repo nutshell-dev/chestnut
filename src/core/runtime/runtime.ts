@@ -28,7 +28,8 @@ import { loadReadFileState, clearReadFileState, persistReadFileState } from '../
 import { runReact } from '../agent-executor/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
-import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
+import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
+import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './inbox-message-types.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）
 import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
 // phase 1414: HEARTBEAT_AUDIT_EVENTS import removed — heartbeat 自家 inbox-formatter 持 audit

@@ -7,7 +7,7 @@
 export { Runtime } from './runtime.js';
 export type { RuntimeOptions, RuntimeDependencies, StreamCallbacks, TurnResult, GuidanceCompose, GuidanceEnvelope } from './types.js';
 export { createRuntime } from './create-runtime.js';
-// phase 488: runtime-audit-events barrel re-export (cli/config caller)
-export { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
+// phase 488: reload inbox protocol barrel re-export (cli/config caller)
+export { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './inbox-message-types.js';
 export { runtimeMotionConfigSchema } from './config-schema.js';
 export { clawConfigSchema } from './claw-config-schema.js';
