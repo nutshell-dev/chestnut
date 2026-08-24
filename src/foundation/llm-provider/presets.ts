@@ -4,7 +4,7 @@
  */
 
 export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
-export type AuthMethod = 'api_key';
+type AuthMethod = 'api_key';
 
 export interface ProviderPreset {
   id: string;
