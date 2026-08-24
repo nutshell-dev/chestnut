@@ -7,7 +7,7 @@
 
 import { formatErr } from '../node-utils/index.js';
 
-export type FSErrorCode = 'FS_NOT_FOUND';
+type FSErrorCode = 'FS_NOT_FOUND';
 
 export class FileNotFoundError extends Error {
   readonly code: FSErrorCode = 'FS_NOT_FOUND';

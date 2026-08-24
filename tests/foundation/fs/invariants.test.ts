@@ -104,6 +104,7 @@ describe('NodeFileSystem — exists PathGuardError signal (P1.5 phase 611)', () 
 describe('isFileNotFound helper', () => {
   it('returns true for FileNotFoundError instance', () => {
     const err = new FileNotFoundError('/some/path');
+    expect(err.code).toBe('FS_NOT_FOUND');
     expect(isFileNotFound(err)).toBe(true);
   });
 
