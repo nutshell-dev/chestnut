@@ -67,7 +67,7 @@ function getPrefixAllow(): ReadonlyArray<string> {
   return base;
 }
 
-export interface ScrubEnvOptions {
+interface ScrubEnvOptions {
   /** Extra explicit key names to permit through scrub. */
   allowExtra?: ReadonlyArray<string>;
 }
