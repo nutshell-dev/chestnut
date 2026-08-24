@@ -60,7 +60,7 @@ export interface ThinkingBlock {
   blockId?: string;
 }
 
-export interface UnknownBlock {
+interface UnknownBlock {
   type: string;
   [key: string]: unknown;
 }
