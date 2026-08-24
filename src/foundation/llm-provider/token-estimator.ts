@@ -90,7 +90,7 @@ function estimateContentBlockTokens(block: ContentBlock): number {
 }
 
 /** Estimate token count for a single message (含 per-message overhead) */
-export function estimateMessageTokens(msg: Message): number {
+function estimateMessageTokens(msg: Message): number {
   let total = PER_MESSAGE_OVERHEAD_TOKENS;
   if (typeof msg.content === 'string') {
     total += estimateTextTokens(msg.content);

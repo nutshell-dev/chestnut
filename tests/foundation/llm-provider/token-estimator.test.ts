@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   estimateTextTokens,
-  estimateMessageTokens,
   estimateMessagesTokens,
   estimateToolTokens,
   estimateToolsTokens,
@@ -45,10 +44,10 @@ describe('token-estimator', () => {
     });
   });
 
-  describe('estimateMessageTokens', () => {
+  describe('estimateMessagesTokens single-message coverage', () => {
     it('string content message includes PER_MESSAGE_OVERHEAD_TOKENS', () => {
       const msg: Message = { role: 'user', content: 'hi' };
-      const tokens = estimateMessageTokens(msg);
+      const tokens = estimateMessagesTokens([msg]);
       expect(tokens).toBeGreaterThanOrEqual(PER_MESSAGE_OVERHEAD_TOKENS);
     });
 
@@ -57,7 +56,7 @@ describe('token-estimator', () => {
         role: 'user',
         content: [{ type: 'text', text: 'Hello world' }],
       };
-      const tokens = estimateMessageTokens(msg);
+      const tokens = estimateMessagesTokens([msg]);
       expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS);
     });
 
@@ -74,7 +73,7 @@ describe('token-estimator', () => {
           },
         ],
       };
-      const tokens = estimateMessageTokens(msg);
+      const tokens = estimateMessagesTokens([msg]);
       expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS + 5);
     });
 
@@ -89,7 +88,7 @@ describe('token-estimator', () => {
           },
         ],
       };
-      const tokens = estimateMessageTokens(msg);
+      const tokens = estimateMessagesTokens([msg]);
       expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS);
     });
 
@@ -98,7 +97,7 @@ describe('token-estimator', () => {
         role: 'assistant',
         content: [{ type: 'thinking', thinking: 'Let me consider this carefully.' }],
       };
-      const tokens = estimateMessageTokens(msg);
+      const tokens = estimateMessagesTokens([msg]);
       expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS);
     });
   });
