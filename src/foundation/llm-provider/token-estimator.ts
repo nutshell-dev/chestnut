@@ -35,13 +35,6 @@ const requireModule = createRequire(
   typeof __filename === 'string' ? __filename : import.meta.url
 );
 
-export function __resetForTest(): void {
-  if (process.env.NODE_ENV !== 'test') {
-    throw new Error('__resetForTest is for tests only');
-  }
-  encodingCache = null;
-  textTokenCache.clear();
-}
 function getEnc(): Tiktoken {
   if (encodingCache === null) {
     const { getEncoding } = requireModule('js-tiktoken') as typeof import('js-tiktoken');
