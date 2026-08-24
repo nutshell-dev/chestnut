@@ -1,13 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import {
-  resolveContextWindow,
-  DEFAULT_MODEL_CONTEXT_WINDOW,
-} from '../../../src/foundation/llm-provider/model-context-windows.js';
+import { resolveContextWindow } from '../../../src/foundation/llm-provider/model-context-windows.js';
 
 describe('resolveContextWindow (phase 684)', () => {
   it('returns default 256K for undefined model', () => {
     expect(resolveContextWindow(undefined)).toBe(256_000);
-    expect(DEFAULT_MODEL_CONTEXT_WINDOW).toBe(256_000);
   });
 
   it('returns default 256K for model without million-token substring', () => {

@@ -11,7 +11,7 @@
  */
 
 /** 默认 context window（model 名未命中 1M 特判时 fallback、phase 684 改 128K → 256K） */
-export const DEFAULT_MODEL_CONTEXT_WINDOW = 256_000;
+const DEFAULT_MODEL_CONTEXT_WINDOW = 256_000;
 
 /**
  * Model 名含以下任一子串即视为 1M context window。
