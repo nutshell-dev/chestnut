@@ -23,7 +23,7 @@ import {
   isAbortError,
 } from '../llm-provider/index.js';
 
-export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError, LLMInvalidRequestError } from '../llm-provider/index.js';
+export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError, LLMInvalidRequestError } from '../llm-provider/index.js';
 
 export type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
 
