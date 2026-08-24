@@ -60,7 +60,7 @@ interface ExecBaseOptions {
  * Passing both (or neither field name spelled differently) is a compile-time
  * error — no special numeric values (0/Infinity/null) act as hidden protocol.
  */
-export type ExecTimeoutPolicy =
+type ExecTimeoutPolicy =
   | {
       /** Timeout in ms, clamped to [PROCESS_EXEC_TIMEOUT_MIN_MS, PROCESS_EXEC_TIMEOUT_MAX_MS] */
       timeout?: number;
