@@ -102,13 +102,3 @@ export function scrubEnv(
   }
   return result;
 }
-
-/** Number of keys dropped by a scrub — for audit/observability. */
-export function countScrubbed(
-  env: NodeJS.ProcessEnv,
-  options: ScrubEnvOptions = {},
-): number {
-  const before = Object.keys(env).filter(k => env[k] !== undefined).length;
-  const after = Object.keys(scrubEnv(env, options)).length;
-  return Math.max(0, before - after);
-}
