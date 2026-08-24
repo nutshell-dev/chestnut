@@ -15,7 +15,7 @@ import { spawnSync } from 'child_process';
  * Read a process's argv string via `ps -o args= -p $PID`.
  * Returns empty string on any failure (process gone, ps unavailable, perm denied).
  */
-export function readPidArgv(pid: number): string {
+function readPidArgv(pid: number): string {
   try {
     const result = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf-8' });
     if (result.error) return '';
