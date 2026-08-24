@@ -24,7 +24,7 @@ import type { Message, ContentBlock, ToolDefinition } from './types.js';
  */
 
 /** Per-message overhead tokens (model boilerplate per Anthropic / OpenAI doc) */
-export const PER_MESSAGE_OVERHEAD_TOKENS = 4;
+const PER_MESSAGE_OVERHEAD_TOKENS = 4;
 
 /** Lazy singleton tiktoken encoding (cl100k_base baseline) */
 let encodingCache: Tiktoken | null = null;

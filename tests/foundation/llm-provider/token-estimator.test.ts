@@ -3,9 +3,12 @@ import {
   estimateTextTokens,
   estimateMessagesTokens,
   estimateToolsTokens,
-  PER_MESSAGE_OVERHEAD_TOKENS,
 } from '../../../src/foundation/llm-provider/token-estimator.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/index.js';
+
+const perMessageOverheadTokens = estimateMessagesTokens([
+  { role: 'user', content: '' },
+]);
 
 describe('token-estimator', () => {
   describe('estimateTextTokens', () => {
@@ -44,10 +47,10 @@ describe('token-estimator', () => {
   });
 
   describe('estimateMessagesTokens single-message coverage', () => {
-    it('string content message includes PER_MESSAGE_OVERHEAD_TOKENS', () => {
+    it('string content message includes per-message overhead', () => {
       const msg: Message = { role: 'user', content: 'hi' };
       const tokens = estimateMessagesTokens([msg]);
-      expect(tokens).toBeGreaterThanOrEqual(PER_MESSAGE_OVERHEAD_TOKENS);
+      expect(tokens).toBeGreaterThanOrEqual(perMessageOverheadTokens);
     });
 
     it('array content with text block', () => {
@@ -56,7 +59,7 @@ describe('token-estimator', () => {
         content: [{ type: 'text', text: 'Hello world' }],
       };
       const tokens = estimateMessagesTokens([msg]);
-      expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS);
+      expect(tokens).toBeGreaterThan(perMessageOverheadTokens);
     });
 
     it('array content with tool_use block', () => {
@@ -73,7 +76,7 @@ describe('token-estimator', () => {
         ],
       };
       const tokens = estimateMessagesTokens([msg]);
-      expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS + 5);
+      expect(tokens).toBeGreaterThan(perMessageOverheadTokens + 5);
     });
 
     it('array content with tool_result block', () => {
@@ -88,7 +91,7 @@ describe('token-estimator', () => {
         ],
       };
       const tokens = estimateMessagesTokens([msg]);
-      expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS);
+      expect(tokens).toBeGreaterThan(perMessageOverheadTokens);
     });
 
     it('thinking block', () => {
@@ -97,7 +100,7 @@ describe('token-estimator', () => {
         content: [{ type: 'thinking', thinking: 'Let me consider this carefully.' }],
       };
       const tokens = estimateMessagesTokens([msg]);
-      expect(tokens).toBeGreaterThan(PER_MESSAGE_OVERHEAD_TOKENS);
+      expect(tokens).toBeGreaterThan(perMessageOverheadTokens);
     });
   });
 
@@ -113,7 +116,7 @@ describe('token-estimator', () => {
       ];
       const tokens = estimateMessagesTokens(messages);
       // 2 messages × PER_MESSAGE_OVERHEAD + text
-      expect(tokens).toBeGreaterThanOrEqual(2 * PER_MESSAGE_OVERHEAD_TOKENS);
+      expect(tokens).toBeGreaterThanOrEqual(2 * perMessageOverheadTokens);
     });
   });
 
@@ -137,9 +140,9 @@ describe('token-estimator', () => {
     });
   });
 
-  describe('PER_MESSAGE_OVERHEAD_TOKENS constant', () => {
+  describe('per-message overhead behavior', () => {
     it('equals 4 (Anthropic / OpenAI doc boilerplate)', () => {
-      expect(PER_MESSAGE_OVERHEAD_TOKENS).toBe(4);
+      expect(perMessageOverheadTokens).toBe(4);
     });
   });
 });
