@@ -73,7 +73,7 @@ export interface StatInfo {
  * @member includeDirs - include directory entries in result
  * @member pattern - regular expression pattern for filename filter
  */
-export interface ListOptions {
+interface ListOptions {
   recursive?: boolean;
   includeDirs?: boolean;
   pattern?: string;
