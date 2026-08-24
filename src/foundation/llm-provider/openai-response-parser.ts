@@ -37,7 +37,7 @@ interface OpenAIResponse {
   };
 }
 
-export type ToolArgParseErrorCallback = (event: {
+type ToolArgParseErrorCallback = (event: {
   provider: string;
   toolName: string;
   rawArgs: string;
