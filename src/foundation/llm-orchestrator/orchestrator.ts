@@ -14,7 +14,6 @@ import {
   LLMTimeoutError,
   LLMRateLimitError,
   LLMEmptyResponseError,
-  LLMStreamAbortedError,
   classifyLLMError,
   getUserActionHint,
   getRetryAfterSec,
@@ -33,7 +32,7 @@ import type {
   LLMOrchestrator,
 } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
-import { createLLMProvider, LLMCircuitBreakerOpenError, type LLMProvider, type AuditSink } from '../llm-provider/index.js';
+import { createLLMProvider, LLMCircuitBreakerOpenError, LLMStreamAbortedError, type LLMProvider, type AuditSink } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
