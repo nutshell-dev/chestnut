@@ -19,7 +19,4 @@ export { FileNotFoundError, isFileNotFound, PathGuardError } from './types.js';
 export { NodeFileSystem } from './node-fs.js';
 
 // Atomic file operations
-export {
-  stat,
-  IGNORE_PATTERN,
-} from './atomic.js';
+export { IGNORE_PATTERN } from './atomic.js';

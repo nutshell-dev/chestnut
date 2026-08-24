@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { formatErr } from "../../../foundation/node-utils/index.js";
 import * as yaml from 'js-yaml';
-import { isFileNotFound, stat, type FileSystem } from '../../../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import type { ArchiveState, LifecycleIntent } from '../types.js';
@@ -413,7 +413,7 @@ export async function scanArchivedContracts(
         }, 0);
       if (archivedAt === 0) {
         try {
-          const statResult = await stat(progressPath);
+          const statResult = await fs.stat(progressPath);
           archivedAt = statResult.mtime.getTime();
         } catch { // silent: stat 失败回落当前时间（archive mtime 不可得、best-effort 排序用途、不阻断事件收集）
           archivedAt = Date.now();
