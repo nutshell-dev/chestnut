@@ -16,7 +16,7 @@ import type { Watcher, WatchEvent, WatchEventType, WatcherErrorContext } from '.
  * Value: 5 = empirical（mirror stream/reader.ts:25 CONSECUTIVE_PARSE_FAIL_LIMIT 同模板 / 平衡
  * transient FS error 容忍 vs 系统真坏立 fail-loud / 调小过敏 / 调大延迟 fail-loud）
  */
-export const FALLBACK_CONSECUTIVE_FAIL_LIMIT = 5;
+const FALLBACK_CONSECUTIVE_FAIL_LIMIT = 5;
 
 /**
  * Fallback poll interval (ms) / chokidar native-watcher silent stall 兜底.

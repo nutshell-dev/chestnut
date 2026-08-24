@@ -7,6 +7,10 @@ const barrel = readFileSync(
   new URL('../../../src/foundation/file-watcher/index.ts', import.meta.url),
   'utf8',
 );
+const watcherSource = readFileSync(
+  new URL('../../../src/foundation/file-watcher/watcher.ts', import.meta.url),
+  'utf8',
+);
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
 const walk = (dir: string): string[] =>
@@ -27,19 +31,18 @@ describe('FileWatcher public contract surface', () => {
     }
   });
 
-  it('has no deep FileWatcher imports in tests except the allowlisted fallback constant', () => {
+  it('keeps the fallback failure limit local and fixed at five', () => {
+    expect(watcherSource).not.toMatch(/export\s+const\s+FALLBACK_CONSECUTIVE_FAIL_LIMIT\b/);
+    expect(watcherSource).toMatch(/const\s+FALLBACK_CONSECUTIVE_FAIL_LIMIT\s*=\s*5;/);
+    expect(watcherSource).toMatch(/consecutiveCallbackFails\s*>=\s*FALLBACK_CONSECUTIVE_FAIL_LIMIT/);
+  });
+
+  it('has no deep FileWatcher imports in tests', () => {
     const offenders: string[] = [];
     for (const file of walk(join(repoRoot, 'tests'))) {
       const source = readFileSync(file, 'utf8');
       for (const match of source.matchAll(deepImportRe)) {
         const statement = match[0];
-        if (
-          file.endsWith('tests/foundation/file-watcher/fallback-escalation.test.ts') &&
-          /\bFALLBACK_CONSECUTIVE_FAIL_LIMIT\b/.test(statement) &&
-          /watcher\.js/.test(statement)
-        ) {
-          continue;
-        }
         offenders.push(`${file}: ${statement.replace(/\s+/g, ' ').trim()}`);
       }
     }
