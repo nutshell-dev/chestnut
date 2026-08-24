@@ -7,10 +7,9 @@
  */
 
 
-import type { LLMResponse } from '../llm-provider/index.js';
+import { LLMError, type LLMResponse } from '../llm-provider/index.js';
 import {
   LLMAllProvidersFailedError,
-  LLMError,
   LLMTimeoutError,
   LLMRateLimitError,
   classifyLLMError,

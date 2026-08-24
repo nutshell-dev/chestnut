@@ -4,7 +4,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
-import { LLMError, LLMAllProvidersFailedError, LLMTimeoutError } from '../../src/foundation/llm-orchestrator/errors.js';
+import { LLMAllProvidersFailedError, LLMTimeoutError } from '../../src/foundation/llm-orchestrator/errors.js';
+import { LLMError } from '../../src/foundation/llm-provider/errors.js';
 
 /**
  * AbortController 触发延迟 (50ms): 等 retry/stream 进入 backoff sleep 后再 abort.
