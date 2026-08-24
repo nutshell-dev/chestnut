@@ -390,11 +390,3 @@ export function isFileNotFound(err: unknown): boolean {
   }
   return false;
 }
-
-/**
- * FileSystem factory options
- */
-export interface FileSystemOptions {
-  /** Base directory for all operations */
-  baseDir: string;
-}

@@ -11,7 +11,6 @@ import { promises as fs, realpathSync } from 'fs';
 import * as fsSync from 'fs';
 import type {
   FileSystem,
-  FileSystemOptions,
   FileEntry,
   StatInfo,
 } from './types.js';
@@ -73,6 +72,12 @@ function dirTotalSizeSync(dirPath: string): number {
     }
   }
   return total;
+}
+
+/** Options owned by the NodeFileSystem implementation. */
+interface FileSystemOptions {
+  /** Base directory for all operations. */
+  baseDir: string;
 }
 
 /**
