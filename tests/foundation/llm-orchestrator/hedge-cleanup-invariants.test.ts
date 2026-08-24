@@ -11,12 +11,11 @@ import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/or
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
-  ProviderConfig,
   LLMEventSink,
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderConfig, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
 
 
 

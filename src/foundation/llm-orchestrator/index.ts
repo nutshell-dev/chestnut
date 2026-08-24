@@ -11,7 +11,6 @@ export type {
   LLMEventSink,
   LLMEvent,
   LLMCallOptions,
-  ProviderConfig,
   LLMOrchestrator,
 } from './types.js';
 

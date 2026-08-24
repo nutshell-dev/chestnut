@@ -42,7 +42,8 @@ export { NodeFileSystem } from './foundation/fs/index.js';
 export { Heartbeat, createHeartbeat } from './core/heartbeat/index.js';
 
 export type { LLMOrchestrator } from './foundation/llm-orchestrator/index.js';
-export type { LLMOrchestratorConfig, ProviderConfig, LLMCallOptions } from './foundation/llm-orchestrator/index.js';
+export type { LLMOrchestratorConfig, LLMCallOptions } from './foundation/llm-orchestrator/index.js';
+export type { ProviderConfig } from './foundation/llm-provider/index.js';
 
 // Re-export commonly used types
 export type { ToolResult } from './foundation/tool-protocol/index.js';

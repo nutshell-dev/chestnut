@@ -7,16 +7,13 @@
 
 import type {
   StreamChunk,
-  ProviderConfig as L1ProviderConfig,
+  ProviderConfig,
   ProviderAdapter,
   LLMCallOptions as L1LLMCallOptions,
 } from '../llm-provider/index.js';
 import type { LLMResponse } from '../llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
-
-// Re-export L1 ProviderConfig for backward compat
-export type ProviderConfig = L1ProviderConfig;
 
 /**
  * LLM call options — extends L1 base with L2b orchestration fields.
