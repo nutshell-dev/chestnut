@@ -112,7 +112,7 @@ export function estimateMessagesTokens(messages: readonly Message[]): number {
 }
 
 /** Estimate token count for a single tool definition (name + description + JSON schema) */
-export function estimateToolTokens(tool: ToolDefinition): number {
+function estimateToolTokens(tool: ToolDefinition): number {
   return estimateTextTokens(tool.name)
     + estimateTextTokens(tool.description)
     + estimateTextTokens(JSON.stringify(tool.input_schema));

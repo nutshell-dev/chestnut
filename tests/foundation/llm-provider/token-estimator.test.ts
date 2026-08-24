@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   estimateTextTokens,
   estimateMessagesTokens,
-  estimateToolTokens,
   estimateToolsTokens,
   PER_MESSAGE_OVERHEAD_TOKENS,
 } from '../../../src/foundation/llm-provider/token-estimator.js';
@@ -118,7 +117,7 @@ describe('token-estimator', () => {
     });
   });
 
-  describe('estimateToolTokens / estimateToolsTokens', () => {
+  describe('estimateToolsTokens', () => {
     it('tool definition includes name + description + schema', () => {
       const tool: ToolDefinition = {
         name: 'calculator',
@@ -129,7 +128,7 @@ describe('token-estimator', () => {
           required: ['a', 'b'],
         },
       };
-      const tokens = estimateToolTokens(tool);
+      const tokens = estimateToolsTokens([tool]);
       expect(tokens).toBeGreaterThan(5);
     });
 
