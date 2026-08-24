@@ -25,7 +25,7 @@ const CONTEXT_EXCEEDED_PATTERNS: RegExp[] = [
   /token count.{0,30}exceed/i,
 ];
 
-export function isContextExceededMessage(text: string): boolean {
+function isContextExceededMessage(text: string): boolean {
   return CONTEXT_EXCEEDED_PATTERNS.some(p => p.test(text));
 }
 

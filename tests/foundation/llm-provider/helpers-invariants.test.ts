@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  isContextExceededMessage,
   parseRetryAfter,
   throwHttpErrorResponse,
 } from '../../../src/foundation/llm-provider/_helpers.js';
@@ -100,37 +99,33 @@ describe('parseRetryAfter', () => {
  * phase 690 Step A: LLMContextExceededError + throwHttpErrorResponse 400 识别
  */
 
-describe('isContextExceededMessage', () => {
-  it('matches OpenAI maximum context length', () => {
-    expect(isContextExceededMessage("This model's maximum context length is 128000 tokens, but you requested 200000.")).toBe(true);
+describe('throwHttpErrorResponse context pattern classification', () => {
+  it.each([
+    "This model's maximum context length is 128000 tokens, but you requested 200000.",
+    'Please reduce the length of the messages.',
+    'context_length_exceeded',
+    'prompt is too long: 250000 tokens > 200000 maximum',
+    'input length and `max_tokens` exceed context limit',
+    'The input token count exceeds the maximum',
+  ])('classifies matching message as context exceeded: %s', async message => {
+    await expect(throwHttpErrorResponse(
+      'test-provider',
+      'test-model',
+      new Response('', { status: 400 }),
+      message,
+    )).rejects.toBeInstanceOf(LLMContextExceededError);
   });
 
-  it('matches OpenAI reduce length hint', () => {
-    expect(isContextExceededMessage('Please reduce the length of the messages.')).toBe(true);
-  });
-
-  it('matches OpenAI error code', () => {
-    expect(isContextExceededMessage('context_length_exceeded')).toBe(true);
-  });
-
-  it('matches Anthropic prompt too long', () => {
-    expect(isContextExceededMessage('prompt is too long: 250000 tokens > 200000 maximum')).toBe(true);
-  });
-
-  it('matches Anthropic input length + max_tokens', () => {
-    expect(isContextExceededMessage('input length and `max_tokens` exceed context limit')).toBe(true);
-  });
-
-  it('matches Gemini token count exceed', () => {
-    expect(isContextExceededMessage('The input token count exceeds the maximum')).toBe(true);
-  });
-
-  it('does NOT match generic 400 error', () => {
-    expect(isContextExceededMessage('invalid_request: missing field "model"')).toBe(false);
-  });
-
-  it('does NOT match rate limit', () => {
-    expect(isContextExceededMessage('Rate limit reached for requests')).toBe(false);
+  it.each([
+    'invalid_request: missing field "model"',
+    'Rate limit reached for requests',
+  ])('does not classify unrelated message as context exceeded: %s', async message => {
+    await expect(throwHttpErrorResponse(
+      'test-provider',
+      'test-model',
+      new Response('', { status: 400 }),
+      message,
+    )).rejects.not.toBeInstanceOf(LLMContextExceededError);
   });
 });
 
