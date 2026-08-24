@@ -6,7 +6,7 @@
 export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
 type AuthMethod = 'api_key';
 
-export interface ProviderPreset {
+interface ProviderPreset {
   id: string;
   displayName: string;
   apiFormat: ApiFormat;

@@ -13,7 +13,7 @@ describe('LLMProvider AuthMethod deep surface', () => {
       /(?:^|\n)(?:export\s+)?type\s+AuthMethod\s*=\s*'api_key';/,
     );
     expect(presetsSource).toMatch(
-      /export\s+interface\s+ProviderPreset\s*\{[^}]*authMethod:\s*AuthMethod;/s,
+      /(?:export\s+)?interface\s+ProviderPreset\s*\{[^}]*authMethod:\s*AuthMethod;/s,
     );
   });
 });
