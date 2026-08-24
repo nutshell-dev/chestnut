@@ -18,13 +18,13 @@ import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
-  ProviderAdapter,
   ProviderConfig,
   StreamChunk,
   LLMEventSink,
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
 import { buildLLMConfig } from '../../../src/assembly/config/config-load.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 

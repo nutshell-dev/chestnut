@@ -3,7 +3,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
-import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
+import type { StreamChunk, LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
+import type { ProviderAdapter } from '../../src/foundation/llm-provider/index.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
 

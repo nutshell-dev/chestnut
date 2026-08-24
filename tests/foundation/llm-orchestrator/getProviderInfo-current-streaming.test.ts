@@ -12,10 +12,10 @@ import { describe, it, expect } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import type {
-  ProviderAdapter,
   LLMEventSink,
   LLMEvent,
 } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
 
 function createMockSink() {
   const emitted: LLMEvent[] = [];

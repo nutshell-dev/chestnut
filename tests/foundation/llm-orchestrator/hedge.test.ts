@@ -11,13 +11,13 @@ import {
 } from '../../../src/foundation/llm-orchestrator/errors.js';
 import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
-  ProviderAdapter,
   ProviderConfig,
   StreamChunk,
   LLMEventSink,
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
 
 function createMockProvider(
   name: string,

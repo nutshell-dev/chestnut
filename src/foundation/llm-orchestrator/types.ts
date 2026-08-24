@@ -16,7 +16,7 @@ import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
 
 // Re-export L1 base types for backward compat
-export type { StreamChunk, ProviderAdapter };
+export type { StreamChunk };
 export type ProviderConfig = L1ProviderConfig;
 
 /**

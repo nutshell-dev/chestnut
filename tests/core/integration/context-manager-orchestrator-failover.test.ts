@@ -3,9 +3,9 @@ import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/or
 import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
 import type {
   LLMEventSink,
-  ProviderAdapter,
   ProviderConfig,
 } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
 
 function createMockProvider(name: string): ProviderAdapter {
   return {
