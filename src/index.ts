@@ -19,9 +19,10 @@ export type { ToolProfile } from './foundation/tool-protocol/index.js';
 export { ToolError, ToolTimeoutError } from './foundation/tools/index.js';
 export {
   LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError,
-  LLMEmptyResponseError, LLMModelNotFoundError, LLMAllProvidersFailedError,
+  LLMModelNotFoundError, LLMAllProvidersFailedError,
   classifyLLMError, getUserActionHint,
 } from './foundation/llm-orchestrator/index.js';
+export { LLMEmptyResponseError } from './foundation/llm-provider/index.js';
 export type { LLMErrorClass, UserActionHint } from './foundation/llm-orchestrator/index.js';
 export { FileNotFoundError } from './foundation/fs/index.js';
 export {
