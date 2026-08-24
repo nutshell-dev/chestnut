@@ -27,10 +27,10 @@ import { RateLimitError, APIConnectionTimeoutError, APIUserAbortError } from '@a
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import {
-  LLMRateLimitError,
   LLMTimeoutError,
   LLMAllProvidersFailedError,
 } from '../../src/foundation/llm-orchestrator/errors.js';
+import { LLMRateLimitError } from '../../src/foundation/llm-provider/errors.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 // Mock Anthropic SDK

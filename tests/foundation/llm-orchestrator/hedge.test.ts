@@ -7,10 +7,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import {
-  LLMRateLimitError,
   LLMAllProvidersFailedError,
 } from '../../../src/foundation/llm-orchestrator/errors.js';
-import { LLMAuthError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMNetworkError, LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   ProviderAdapter,
   ProviderConfig,

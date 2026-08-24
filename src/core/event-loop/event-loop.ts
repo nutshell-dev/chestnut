@@ -39,13 +39,12 @@ import { waitForInbox } from './inbox-watcher.js';
 import {
   isContextExceededError,
   LLMAllProvidersFailedError,
-  LLMRateLimitError,
   classifyLLMError,
   getUserActionHint,
 } from '../../foundation/llm-orchestrator/index.js';
 import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
-import { LLMInvalidRequestError, type Message } from '../../foundation/llm-provider/index.js';
+import { LLMInvalidRequestError, LLMRateLimitError, type Message } from '../../foundation/llm-provider/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import {
