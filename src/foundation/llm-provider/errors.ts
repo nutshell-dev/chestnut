@@ -11,7 +11,7 @@
 
 import { formatErr } from '../node-utils/index.js';
 
-export type LLMErrorCode =
+type LLMErrorCode =
   | 'LLM_CALL_FAILED'
   | 'LLM_RATE_LIMITED'
   | 'LLM_TIMEOUT'
