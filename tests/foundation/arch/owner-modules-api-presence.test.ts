@@ -30,6 +30,8 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
 
     const id = uuidMod.newUuid();
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(uuidMod.uuidToShort('12345678-aaaa-bbbb-cccc-dddddddddddd')).toBe('12345678');
+    expect(uuidMod.uuidToShort('12345678-aaaa-bbbb-cccc-dddddddddddd', 12)).toBe('12345678-aaa');
     expect(uuidMod.newShortUuid().length).toBe(8);
     expect(uuidMod.newShortUuid(12).length).toBe(12);
     expect(uuidMod.randomHex(8).length).toBe(16);

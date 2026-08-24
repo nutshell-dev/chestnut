@@ -9,7 +9,7 @@
 
 import { randomUUID, randomBytes } from 'node:crypto';
 /** Short UUID prefix length for human-readable IDs (phase 520: inlined from former root constants.ts) */
-export const UUID_SHORT_LEN = 8;
+const UUID_SHORT_LEN = 8;
 
 /**
  * 生成 UUID v4。
