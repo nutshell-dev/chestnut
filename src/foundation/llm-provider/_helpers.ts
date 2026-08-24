@@ -104,7 +104,7 @@ export async function throwHttpErrorResponse(
   );
 }
 
-export interface ParsedOutputBudgetError {
+interface ParsedOutputBudgetError {
   contextLimit: number;
   inputTokens: number;
   requestedMaxTokens: number;
