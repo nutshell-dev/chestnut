@@ -18,11 +18,11 @@ export type { ToolProfile } from './foundation/tool-protocol/index.js';
 
 export { ToolError, ToolTimeoutError } from './foundation/tools/index.js';
 export {
-  LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError,
+  LLMError, LLMRateLimitError, LLMTimeoutError, LLMNetworkError,
   LLMAllProvidersFailedError,
   classifyLLMError, getUserActionHint,
 } from './foundation/llm-orchestrator/index.js';
-export { LLMEmptyResponseError, LLMModelNotFoundError } from './foundation/llm-provider/index.js';
+export { LLMAuthError, LLMEmptyResponseError, LLMModelNotFoundError } from './foundation/llm-provider/index.js';
 export type { LLMErrorClass, UserActionHint } from './foundation/llm-orchestrator/index.js';
 export { FileNotFoundError } from './foundation/fs/index.js';
 export {
@@ -51,4 +51,3 @@ export type { ExecContext, Tool } from './foundation/tools/index.js';
 export type { ToolRegistry, IToolExecutor } from './foundation/tools/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
 export type { ProgressData, VerificationResult } from './core/contract/index.js';
-

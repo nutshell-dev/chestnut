@@ -8,10 +8,10 @@ import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/or
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import {
   LLMNetworkError,
-  LLMAuthError,
   LLMRateLimitError,
   LLMAllProvidersFailedError,
 } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   ProviderAdapter,
   ProviderConfig,
