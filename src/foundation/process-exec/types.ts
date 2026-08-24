@@ -4,7 +4,7 @@
  * Interface types only. Constants live in `constants.ts`; error classes in `errors.ts`.
  */
 
-export interface ExecBaseOptions {
+interface ExecBaseOptions {
   /** Working directory (required) */
   cwd: string;
   /** Abort signal for cancellation */
