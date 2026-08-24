@@ -14,10 +14,9 @@ import type {
   Message,
   ProviderAdapter,
   ProviderConfig,
+  StreamChunk,
   ToolDefinition
 } from '../../src/foundation/llm-provider/types.js';
-
-import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { AnthropicAdapter } from '../../src/foundation/llm-provider/anthropic.js';
 import { CustomAnthropicAdapter } from '../../src/foundation/llm-provider/custom-anthropic.js';
 import { OpenAIAdapter } from '../../src/foundation/llm-provider/openai.js';

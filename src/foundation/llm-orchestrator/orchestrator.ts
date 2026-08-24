@@ -21,13 +21,12 @@ const CONTEXT_TRIM_EXHAUSTED_ERROR_NAME = 'ContextTrimExhaustedError';
 import type {
   LLMOrchestratorConfig,
   LLMCallOptions,
-  StreamChunk,
   LLMEventSink,
   ProviderConfig,
   LLMOrchestrator,
 } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
-import { createLLMProvider, LLMCircuitBreakerOpenError, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter } from '../llm-provider/index.js';
+import { createLLMProvider, LLMCircuitBreakerOpenError, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type StreamChunk } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';

@@ -15,8 +15,7 @@ import type { LLMResponse } from '../llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../stream/index.js';
 import type { LLMErrorClass, UserActionHint } from './errors.js';
 
-// Re-export L1 base types for backward compat
-export type { StreamChunk };
+// Re-export L1 ProviderConfig for backward compat
 export type ProviderConfig = L1ProviderConfig;
 
 /**

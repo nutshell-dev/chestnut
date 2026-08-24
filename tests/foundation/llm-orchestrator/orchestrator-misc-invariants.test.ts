@@ -28,12 +28,11 @@ import {
 import { createLLMEventSink } from '../../../src/assembly/llm-event-sink.js';
 import type {
   ProviderConfig,
-  StreamChunk,
   LLMEventSink,
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 

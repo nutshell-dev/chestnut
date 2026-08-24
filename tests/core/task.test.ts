@@ -15,9 +15,8 @@ import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-
 import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
-import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
+import type { LLMResponse, StreamChunk } from '../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
-import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
 
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
