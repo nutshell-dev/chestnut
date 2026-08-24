@@ -38,7 +38,6 @@ import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import {
   isContextExceededError,
-  LLMInvalidRequestError,
   LLMAllProvidersFailedError,
   LLMRateLimitError,
   classifyLLMError,
@@ -46,7 +45,7 @@ import {
 } from '../../foundation/llm-orchestrator/index.js';
 import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
-import type { Message } from '../../foundation/llm-provider/index.js';
+import { LLMInvalidRequestError, type Message } from '../../foundation/llm-provider/index.js';
 import { PendingViewError } from '../../foundation/messaging/index.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import {
