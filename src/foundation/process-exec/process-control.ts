@@ -10,7 +10,7 @@ import { ProcessExecError } from './errors.js';
 import { formatErr } from "../node-utils/index.js";
 import { getProcessStartTime, type ProcessStartTime } from './process-starttime.js';
 
-export type Signal = 'TERM' | 'KILL' | 'INT';
+type Signal = 'TERM' | 'KILL' | 'INT';
 
 const SIGNAL_MAP: Record<Signal, NodeJS.Signals> = {
   TERM: 'SIGTERM',
