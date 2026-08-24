@@ -29,7 +29,7 @@ export interface AuditSink {
 // LLM Protocol Message Types (L1 canonical)
 // ============================================================================
 
-export type Role = 'user' | 'assistant' | 'system';
+type Role = 'user' | 'assistant' | 'system';
 
 export interface TextBlock {
   type: 'text';
