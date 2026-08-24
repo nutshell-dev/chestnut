@@ -4,7 +4,7 @@
  */
 const HTTP_SERVER_ERROR_STATUS_MIN = 500;
 
-import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError } from './errors.js';
+import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError } from './errors.js';
 import { LLMInvalidRequestError } from './request-unicode.js';
 
 /**
@@ -121,15 +121,6 @@ export function parseOutputBudgetError(message: string): ParsedOutputBudgetError
     inputTokens: parseInt(m[3], 10),
     requestedMaxTokens: parseInt(m[4], 10),
   };
-}
-
-/**
- * Detect output-budget errors (input fits, but input + max_tokens exceeds context limit).
- *
- * Used by Anthropic adapters to decide whether to retry with an adjusted max_tokens.
- */
-export function isOutputBudgetExceededError(error: unknown): error is LLMOutputBudgetExceededError {
-  return error instanceof LLMOutputBudgetExceededError;
 }
 
 /**
