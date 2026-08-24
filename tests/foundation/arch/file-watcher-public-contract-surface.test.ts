@@ -37,6 +37,15 @@ describe('FileWatcher public contract surface', () => {
     expect(watcherSource).toMatch(/consecutiveCallbackFails\s*>=\s*FALLBACK_CONSECUTIVE_FAIL_LIMIT/);
   });
 
+  it('keeps stable-mode timing parameters local and wired to awaitWriteFinish', () => {
+    expect(watcherSource).not.toMatch(/export\s+const\s+CHOKIDAR_STABILITY_THRESHOLD_MS\b/);
+    expect(watcherSource).not.toMatch(/export\s+const\s+CHOKIDAR_POLL_INTERVAL_MS\b/);
+    expect(watcherSource).toMatch(/const\s+CHOKIDAR_STABILITY_THRESHOLD_MS\s*=\s*100;/);
+    expect(watcherSource).toMatch(/const\s+CHOKIDAR_POLL_INTERVAL_MS\s*=\s*50;/);
+    expect(watcherSource).toMatch(/stabilityThreshold:\s*CHOKIDAR_STABILITY_THRESHOLD_MS/);
+    expect(watcherSource).toMatch(/pollInterval:\s*CHOKIDAR_POLL_INTERVAL_MS/);
+  });
+
   it('has no deep FileWatcher imports in tests', () => {
     const offenders: string[] = [];
     for (const file of walk(join(repoRoot, 'tests'))) {

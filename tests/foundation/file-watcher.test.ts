@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
+import { watch as chokidarWatch } from 'chokidar';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { waitFor } from '../helpers/wait-for.js';
 
@@ -345,6 +346,23 @@ describe('FileWatcher', () => {
 
     await watcher.close();
     setSpy.mockRestore();
+  });
+
+  it('stable mode configures chokidar with the 100ms/50ms stability window', async () => {
+    vi.mocked(chokidarWatch).mockClear();
+    const watcher = createWatcher('/fake/watch.txt', () => {}, { stability: 'stable' });
+
+    expect(vi.mocked(chokidarWatch)).toHaveBeenCalledWith(
+      '/fake/watch.txt',
+      expect.objectContaining({
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 50,
+        },
+      }),
+    );
+
+    await watcher.close();
   });
 
   it.each(['darwin', 'linux', 'win32'])(
