@@ -126,35 +126,3 @@ export function estimateToolsTokens(tools: readonly ToolDefinition[]): number {
   }
   return total;
 }
-
-/** Composite input token estimate options */
-export interface InputTokenEstimateOptions {
-  systemPrompt?: string;
-  messages: readonly Message[];
-  tools?: readonly ToolDefinition[];
-}
-
-/** Composite input token estimate breakdown */
-export interface InputTokenEstimate {
-  systemPromptTokens: number;
-  messagesTokens: number;
-  toolsTokens: number;
-  total: number;
-}
-
-/**
- * Estimate input tokens for an LLM API call (composite breakdown)
- *
- * Returns breakdown by source (systemPrompt / messages / tools) for cost attribution.
- */
-export function estimateInputTokens(input: InputTokenEstimateOptions): InputTokenEstimate {
-  const systemPromptTokens = input.systemPrompt ? estimateTextTokens(input.systemPrompt) : 0;
-  const messagesTokens = estimateMessagesTokens(input.messages);
-  const toolsTokens = input.tools ? estimateToolsTokens(input.tools) : 0;
-  return {
-    systemPromptTokens,
-    messagesTokens,
-    toolsTokens,
-    total: systemPromptTokens + messagesTokens + toolsTokens,
-  };
-}

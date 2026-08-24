@@ -5,7 +5,6 @@ import {
   estimateMessagesTokens,
   estimateToolTokens,
   estimateToolsTokens,
-  estimateInputTokens,
   PER_MESSAGE_OVERHEAD_TOKENS,
 } from '../../../src/foundation/llm-provider/token-estimator.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/index.js';
@@ -137,44 +136,6 @@ describe('token-estimator', () => {
 
     it('empty tools array returns 0', () => {
       expect(estimateToolsTokens([])).toBe(0);
-    });
-  });
-
-  describe('estimateInputTokens (composite)', () => {
-    it('returns breakdown by source', () => {
-      const result = estimateInputTokens({
-        systemPrompt: 'You are a helpful assistant.',
-        messages: [{ role: 'user', content: 'hello' }],
-        tools: [
-          {
-            name: 'calc',
-            description: 'calculator',
-            input_schema: { type: 'object' },
-          },
-        ],
-      });
-      expect(result.systemPromptTokens).toBeGreaterThan(0);
-      expect(result.messagesTokens).toBeGreaterThanOrEqual(PER_MESSAGE_OVERHEAD_TOKENS);
-      expect(result.toolsTokens).toBeGreaterThan(0);
-      expect(result.total).toBe(
-        result.systemPromptTokens + result.messagesTokens + result.toolsTokens
-      );
-    });
-
-    it('omits systemPrompt when undefined', () => {
-      const result = estimateInputTokens({
-        messages: [{ role: 'user', content: 'hi' }],
-      });
-      expect(result.systemPromptTokens).toBe(0);
-      expect(result.toolsTokens).toBe(0);
-    });
-
-    it('omits tools when undefined', () => {
-      const result = estimateInputTokens({
-        systemPrompt: 'sys',
-        messages: [{ role: 'user', content: 'hi' }],
-      });
-      expect(result.toolsTokens).toBe(0);
     });
   });
 
