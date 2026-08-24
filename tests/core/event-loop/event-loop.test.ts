@@ -18,7 +18,7 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { LLMInvalidRequestError, LLMAllProvidersFailedError, LLMAuthError, LLMRateLimitError } from '../../../src/foundation/llm-orchestrator/index.js';
-import { LLMContextExceededError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMContextExceededError } from '../../../src/foundation/llm-provider/index.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';

@@ -3,7 +3,7 @@ import {
   isContextExceededError,
   LLMAllProvidersFailedError,
 } from '../../src/foundation/llm-orchestrator/index.js';
-import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/errors.js';
+import { LLMContextExceededError } from '../../src/foundation/llm-provider/index.js';
 import { LLMError } from '../../src/foundation/llm-provider/errors.js';
 
 describe('isContextExceededError', () => {
