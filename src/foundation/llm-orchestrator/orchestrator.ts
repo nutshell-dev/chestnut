@@ -7,10 +7,9 @@
  */
 
 
-import { LLMError, LLMRateLimitError, type LLMResponse } from '../llm-provider/index.js';
+import { LLMError, LLMRateLimitError, LLMTimeoutError, type LLMResponse } from '../llm-provider/index.js';
 import {
   LLMAllProvidersFailedError,
-  LLMTimeoutError,
   classifyLLMError,
   getUserActionHint,
   getRetryAfterSec,

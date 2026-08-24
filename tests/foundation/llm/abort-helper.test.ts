@@ -4,7 +4,7 @@ import {
   classifyFetchAbortError,
   makeExternalAbortError,
 } from '../../../src/foundation/llm-provider/abort-helper.js';
-import { LLMTimeoutError } from '../../../src/foundation/llm-orchestrator/errors.js';
+import { LLMTimeoutError } from '../../../src/foundation/llm-provider/errors.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();

@@ -8,15 +8,15 @@ import {
 import type { StepCallbacks } from '../../../src/core/step-executor/types.js';
 import {
   LLMAllProvidersFailedError,
-  LLMTimeoutError,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
   LLMCallOptions,
   LLMOrchestrator,
 } from '../../../src/foundation/llm-orchestrator/index.js';
-import type {
-  LLMResponse,
-  StreamChunk,
+import {
+  LLMTimeoutError,
+  type LLMResponse,
+  type StreamChunk,
 } from '../../../src/foundation/llm-provider/index.js';
 
 function makeLLM(chunks: StreamChunk[], errToThrow: Error): LLMOrchestrator {

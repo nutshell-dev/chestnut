@@ -23,8 +23,6 @@ import {
   isAbortError,
 } from '../llm-provider/index.js';
 
-export { LLMTimeoutError } from '../llm-provider/index.js';
-
 export type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
 
 export class LLMAllProvidersFailedError extends Error {
