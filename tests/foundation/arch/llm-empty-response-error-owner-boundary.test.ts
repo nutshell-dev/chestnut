@@ -30,7 +30,7 @@ describe('LLMEmptyResponseError owner boundary', () => {
     );
     expect(orchestratorSource.match(/new LLMEmptyResponseError\(/g)).toHaveLength(2);
     expect(sdkSource).toMatch(
-      /export\s*\{\s*LLMEmptyResponseError\s*\}\s*from\s*['"]\.\/foundation\/llm-provider\/index\.js['"]/s,
+      /export\s*\{[^}]*LLMEmptyResponseError[^}]*\}\s*from\s*['"]\.\/foundation\/llm-provider\/index\.js['"]/s,
     );
   });
 });
