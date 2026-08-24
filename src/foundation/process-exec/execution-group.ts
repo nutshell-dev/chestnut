@@ -132,7 +132,7 @@ function indeterminateOutcome(
  * responding PGID without a verified leader cannot be distinguished from
  * PGID reuse — signalling it could kill an innocent reused group.
  */
-export type ExecutionGroupRecoveryState =
+type ExecutionGroupRecoveryState =
   | { kind: 'verified_alive' }
   | { kind: 'gone' }
   | { kind: 'indeterminate'; reason: string };
