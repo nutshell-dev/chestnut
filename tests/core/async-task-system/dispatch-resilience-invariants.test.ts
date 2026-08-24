@@ -17,8 +17,7 @@ import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-tas
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { ToolTask } from '../../../src/core/async-task-system/types.js';
-import type { WatcherFactory } from '../../../src/foundation/file-watcher/index.js';
-import type { WatchEvent } from '../../../src/foundation/file-watcher/types.js';
+import type { WatcherFactory, WatchEvent } from '../../../src/foundation/file-watcher/index.js';
 
 function makeMockWatcherFactory(): WatcherFactory {
   return vi.fn((_path: string, _callback: (event: WatchEvent) => void) => ({

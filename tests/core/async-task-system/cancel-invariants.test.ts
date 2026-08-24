@@ -16,8 +16,7 @@ import { CANCEL_SETTLE_TIMEOUT_MS } from '../../../src/core/async-task-system/co
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import type { WatcherFactory } from '../../../src/foundation/file-watcher/index.js';
-import type { WatchEvent } from '../../../src/foundation/file-watcher/watcher.js';
+import type { WatcherFactory, WatchEvent } from '../../../src/foundation/file-watcher/index.js';
 
 function makeMockWatcherFactory(): { createWatcher: WatcherFactory; getCallback: () => ((event: WatchEvent) => void) | undefined } {
   let capturedWatcherCallback: ((event: WatchEvent) => void) | undefined;

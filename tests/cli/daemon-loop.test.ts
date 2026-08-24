@@ -15,7 +15,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
 import { waitForInbox } from '../../src/core/event-loop/inbox-watcher.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
-import type { Watcher } from '../../src/foundation/file-watcher/types.js';
+import type { Watcher } from '../../src/foundation/file-watcher/index.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';

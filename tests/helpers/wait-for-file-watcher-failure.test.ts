@@ -6,7 +6,7 @@ import type {
   WatcherErrorContext,
   WatcherFactory,
   WatchEvent,
-} from '../../src/foundation/file-watcher/types.js';
+} from '../../src/foundation/file-watcher/index.js';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 
 interface WatchHarness {

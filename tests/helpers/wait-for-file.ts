@@ -5,8 +5,8 @@ import {
   createWatcher,
   type Watcher,
   type WatcherFactory,
+  type WatcherErrorContext,
 } from '../../src/foundation/file-watcher/index.js';
-import type { WatcherErrorContext } from '../../src/foundation/file-watcher/types.js';
 
 interface PathWatcherWaitOptions {
   watcherFactory?: WatcherFactory;

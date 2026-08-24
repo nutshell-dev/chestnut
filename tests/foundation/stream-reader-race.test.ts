@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createStreamReader } from '../../src/foundation/stream/reader.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { FileSystem, StatInfo } from '../../src/foundation/fs/types.js';
-import type { WatchEvent } from '../../src/foundation/file-watcher/types.js';
+import type { WatchEvent } from '../../src/foundation/file-watcher/index.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 
 /**
