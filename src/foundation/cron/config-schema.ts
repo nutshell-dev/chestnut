@@ -43,5 +43,4 @@ export const cronConfigSchema = z.object({
   jobs: cronJobsConfigSchema.default({}),
 });
 
-export type CronConfig = z.infer<typeof cronConfigSchema>;
 export type CronJobsConfig = z.infer<typeof cronJobsConfigSchema>;
