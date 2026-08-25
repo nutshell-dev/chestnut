@@ -70,7 +70,7 @@ export function probeLegacyProcess(
  * only reported after positive confirmation, `indeterminate` carries a
  * reason and must never be flattened to gone.
  */
-export type LegacyProcessTerminationOutcome =
+type LegacyProcessTerminationOutcome =
   | { status: 'gone'; pid: number; termSent: boolean; killSent: boolean; completedAt: string }
   | { status: 'still_alive'; pid: number; termSent: boolean; killSent: boolean; checkedAt: string }
   | { status: 'indeterminate'; pid: number; termSent: boolean; killSent: boolean; checkedAt: string; reason: string };
