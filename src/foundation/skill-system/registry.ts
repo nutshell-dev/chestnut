@@ -50,7 +50,7 @@ export class SkillParseError extends Error {
   }
 }
 
-export interface SkillMeta {
+interface SkillMeta {
   name: string;
   description: string;
   version: string;
