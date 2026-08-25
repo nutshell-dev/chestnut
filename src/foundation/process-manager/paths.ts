@@ -9,10 +9,6 @@ export function getStatusDir(_ctx: ProcessManagerContext, daemonDir: DaemonDir):
   return path.join(daemonDir, STATUS_SUBDIR);
 }
 
-export function getReadyFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
-  return path.join(getStatusDir(ctx, daemonDir), 'ready');
-}
-
 export async function ensureStatusDir(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<void> {
   await ctx.fs.ensureDir(getStatusDir(ctx, daemonDir));
 }
