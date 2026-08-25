@@ -8,7 +8,3 @@ export const STATUS_SUBDIR = 'status';
 export function getStatusDir(_ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
   return path.join(daemonDir, STATUS_SUBDIR);
 }
-
-export async function ensureStatusDir(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<void> {
-  await ctx.fs.ensureDir(getStatusDir(ctx, daemonDir));
-}
