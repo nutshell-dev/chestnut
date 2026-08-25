@@ -9,10 +9,6 @@ export function getStatusDir(_ctx: ProcessManagerContext, daemonDir: DaemonDir):
   return path.join(daemonDir, STATUS_SUBDIR);
 }
 
-export function getPidFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
-  return path.join(getStatusDir(ctx, daemonDir), 'pid');
-}
-
 export function getReadyFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
   return path.join(getStatusDir(ctx, daemonDir), 'ready');
 }
