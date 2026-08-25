@@ -42,5 +42,3 @@ export const cronConfigSchema = z.object({
   tick_interval_ms: z.number().min(100).max(60000).default(CRON_TICK_INTERVAL_MS),
   jobs: cronJobsConfigSchema.default({}),
 });
-
-export type CronJobsConfig = z.infer<typeof cronJobsConfigSchema>;
