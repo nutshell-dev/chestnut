@@ -34,7 +34,7 @@ import type { GroupTerminationOptions } from './execution-group.js';
  *   mismatch) → the original process is gone; NEVER signal the reused PID.
  * - indeterminate: ownership cannot be verified (start time unreadable).
  */
-export type LegacyProcessRecoveryState =
+type LegacyProcessRecoveryState =
   | { kind: 'alive' }
   | { kind: 'gone' }
   | { kind: 'indeterminate'; reason: string };
