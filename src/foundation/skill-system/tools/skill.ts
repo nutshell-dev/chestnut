@@ -16,7 +16,7 @@ import { createSkillSystem, type SkillSystem } from '../registry.js';
  *
  * Requires skillRegistry to be injected before use.
  */
-export const SKILL_TOOL_NAME = 'skill' as const;
+const SKILL_TOOL_NAME = 'skill' as const;
 
 export type SkillScope = 'self' | 'dispatch';
 
