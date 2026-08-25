@@ -18,7 +18,7 @@ import { createSkillSystem, type SkillSystem } from '../registry.js';
  */
 const SKILL_TOOL_NAME = 'skill' as const;
 
-export type SkillScope = 'self' | 'dispatch';
+type SkillScope = 'self' | 'dispatch';
 
 export interface SkillToolOptions {
   /**
