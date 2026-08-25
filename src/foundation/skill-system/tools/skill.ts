@@ -20,7 +20,7 @@ const SKILL_TOOL_NAME = 'skill' as const;
 
 type SkillScope = 'self' | 'dispatch';
 
-export interface SkillToolOptions {
+interface SkillToolOptions {
   /**
    * Dispatch skills 物理目录（clawDir-relative）。仅 Motion 装配传入。
    * 不传 = 当前身份无 dispatch 池，scope='dispatch' 运行期 reject。
