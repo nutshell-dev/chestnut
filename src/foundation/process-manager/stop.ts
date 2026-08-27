@@ -44,7 +44,7 @@ export async function stopProcess(ctx: ProcessManagerContext, daemonDir: DaemonD
   return result.kind === 'stopped' || result.kind === 'intent_recorded';
 }
 
-export async function stopProcessDetailed(
+async function stopProcessDetailed(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
 ): Promise<StopProcessResult> {
