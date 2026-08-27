@@ -5,8 +5,6 @@
  * 字符串值与 phase148 起 events.ts 中央注册表的 SESSION_* 系列等价 / 0 漂移。
  */
 
-import type { IdNamingEntry } from '../audit/index.js';
-
 export const DIALOG_AUDIT_EVENTS = {
   LOAD_FAILED: 'session_load_failed',
   SAVE_FAILED: 'session_save_failed',
@@ -33,18 +31,4 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_RECOVERY_FAILED: 'dialog_turn_recovery_failed',
   TURN_CLEANUP_FAILED: 'dialog_turn_cleanup_failed',
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
-} as const;
-
-/**
- * Phase 140: dialog-store 业主声明 ID-naming map.
- *
- * SoT: dialog-store own turn sequence 语义。
- */
-export const DIALOG_ID_NAMING: Readonly<Record<string, IdNamingEntry>> = {
-  turn: {
-    auditCol: 'turn',
-    dialogMeta: null,  // implicit via messages.length
-    tsField: 'turnSeq',
-    cliFlag: '(implicit, via --col step)',
-  },
 } as const;
