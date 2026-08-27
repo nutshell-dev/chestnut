@@ -11,5 +11,3 @@ export const streamConfigSchema = z.object({
     max_days: z.number().min(1).nullable().default(null),
   }).default({}),
 });
-
-export type StreamConfig = z.infer<typeof streamConfigSchema>;
