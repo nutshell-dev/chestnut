@@ -15,5 +15,3 @@ export const toolsConfigSchema = z
   .min(1000)
   .max(600000)
   .default(TOOL_TIMEOUT_DEFAULT_MS);
-
-export type ToolsConfig = z.infer<typeof toolsConfigSchema>;
