@@ -27,5 +27,3 @@ export const llmOrchestratorConfigSchema = z.object({
     reset_timeout_ms: DEFAULT_RESET_TIMEOUT_MS,
   }),
 });
-
-export type LLMOrchestratorConfigShape = z.infer<typeof llmOrchestratorConfigSchema>;
