@@ -316,14 +316,21 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
+    // Release-file 门控进程退出（4f6c334f6 同文件先例）：保证软超时迁移必先于进程结束，
+    // 消除高负载下 timer 延迟越过进程退出 → 同步路径无 fullTaskId 的 race。
+    const releaseFile = path.join(tmpDir, 'release-clean-exit');
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
+    const result = await tool.execute({
+      command: 'while [ ! -f release-clean-exit ]; do sleep 0.01; done; echo done',
+    }, ctx);
 
     expect(result.success).toBe(true);
     const fullId = result.metadata?.fullTaskId as string;
+    expect(fullId).toBeTruthy();
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     const exitMarkerFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'exit.json');
 
+    await fs.writeFile(releaseFile, 'go', 'utf-8');
     await waitUntilGone(runningFile, 5000);
 
     const exitMarker = JSON.parse(await fs.readFile(exitMarkerFile, 'utf-8'));
