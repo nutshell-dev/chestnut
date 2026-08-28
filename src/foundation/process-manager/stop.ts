@@ -18,7 +18,7 @@ import {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-export type StopProcessResult =
+type StopProcessResult =
   | { kind: 'stopped'; pid: number; via: 'sigterm' | 'sigkill' | 'already_dead' }
   | { kind: 'intent_recorded' }
   | { kind: 'not_running' }
