@@ -41,7 +41,7 @@ import type { DaemonDir, ProcessManagerContext } from './types.js';
 
 export const PROCESS_GENERATION_SCHEMA_VERSION = 1;
 
-export const PROCESS_DIR_NAME = 'process';
+const PROCESS_DIR_NAME = 'process';
 export const CANDIDATES_DIR_NAME = 'candidates';
 export const SPAWNING_DIR_NAME = 'spawning';
 export const ACTIVE_DIR_NAME = 'active';
