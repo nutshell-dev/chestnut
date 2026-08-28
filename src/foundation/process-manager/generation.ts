@@ -177,7 +177,7 @@ export function getProcessDir(daemonDir: DaemonDir): string {
   return path.join(daemonDir, STATUS_SUBDIR, PROCESS_DIR_NAME);
 }
 
-export function getCandidatesDir(daemonDir: DaemonDir): string {
+function getCandidatesDir(daemonDir: DaemonDir): string {
   return path.join(getProcessDir(daemonDir), CANDIDATES_DIR_NAME);
 }
 
