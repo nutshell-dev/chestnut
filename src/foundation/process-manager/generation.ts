@@ -92,7 +92,7 @@ function isValidPid(n: unknown): n is number {
   return typeof n === 'number' && Number.isInteger(n) && n > 0;
 }
 
-export function isGenerationRecord(parsed: unknown): parsed is ProcessGenerationRecord {
+function isGenerationRecord(parsed: unknown): parsed is ProcessGenerationRecord {
   if (typeof parsed !== 'object' || parsed === null) return false;
   const p = parsed as Partial<ProcessGenerationRecord>;
   return (
