@@ -43,7 +43,7 @@ export const PROCESS_GENERATION_SCHEMA_VERSION = 1;
 
 const PROCESS_DIR_NAME = 'process';
 const CANDIDATES_DIR_NAME = 'candidates';
-export const SPAWNING_DIR_NAME = 'spawning';
+const SPAWNING_DIR_NAME = 'spawning';
 export const ACTIVE_DIR_NAME = 'active';
 export const RETIRED_DIR_NAME = 'retired';
 export const STOP_INTENTS_DIR_NAME = 'stop-intents';
