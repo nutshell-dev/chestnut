@@ -46,7 +46,7 @@ const CANDIDATES_DIR_NAME = 'candidates';
 const SPAWNING_DIR_NAME = 'spawning';
 const ACTIVE_DIR_NAME = 'active';
 const RETIRED_DIR_NAME = 'retired';
-export const STOP_INTENTS_DIR_NAME = 'stop-intents';
+const STOP_INTENTS_DIR_NAME = 'stop-intents';
 
 export const GENERATION_FILE = 'generation.json';
 export const PID_FILE = 'pid.json';
