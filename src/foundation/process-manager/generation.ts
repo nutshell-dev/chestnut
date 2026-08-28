@@ -45,7 +45,7 @@ const PROCESS_DIR_NAME = 'process';
 const CANDIDATES_DIR_NAME = 'candidates';
 const SPAWNING_DIR_NAME = 'spawning';
 const ACTIVE_DIR_NAME = 'active';
-export const RETIRED_DIR_NAME = 'retired';
+const RETIRED_DIR_NAME = 'retired';
 export const STOP_INTENTS_DIR_NAME = 'stop-intents';
 
 export const GENERATION_FILE = 'generation.json';
