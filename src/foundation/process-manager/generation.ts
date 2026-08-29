@@ -735,7 +735,7 @@ export interface StopIntentRecord {
   created_at: string;
 }
 
-export type WriteStopIntentResult =
+type WriteStopIntentResult =
   | { kind: 'written'; intent: StopIntentRecord }
   | { kind: 'retryable_failure'; cause: unknown };
 
