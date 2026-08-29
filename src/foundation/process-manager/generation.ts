@@ -135,7 +135,7 @@ export type GenerationInspection =
   | { status: 'ok'; record: ProcessGenerationRecord }
   | { status: 'malformed'; cause: unknown };
 
-export type CommitSpawning =
+type CommitSpawning =
   | { kind: 'committed'; record: ProcessGenerationRecord }
   | { kind: 'already_committed'; record: ProcessGenerationRecord }
   | { kind: 'foreign_spawning'; winner: ProcessGenerationRecord }
