@@ -105,7 +105,7 @@ function isGenerationRecord(parsed: unknown): parsed is ProcessGenerationRecord 
   );
 }
 
-export function isPidRecord(parsed: unknown): parsed is ProcessPidRecord {
+function isPidRecord(parsed: unknown): parsed is ProcessPidRecord {
   if (typeof parsed !== 'object' || parsed === null) return false;
   const p = parsed as Partial<ProcessPidRecord>;
   return (
