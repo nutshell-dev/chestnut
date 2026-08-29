@@ -148,7 +148,7 @@ export type WriteGenerationFact =
   | { kind: 'malformed_spawning'; cause: unknown }
   | { kind: 'retryable_failure'; cause: unknown };
 
-export interface GenerationIdentity {
+interface GenerationIdentity {
   generationId: string;
   pid: number;
   startTime?: ProcessStartTime;
