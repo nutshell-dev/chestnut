@@ -726,7 +726,7 @@ export function retireGeneration(
 
 // === Stop intents ===
 
-export interface StopIntentRecord {
+interface StopIntentRecord {
   schema_version: number;
   request_id: string;
   target_generation_id: string;
