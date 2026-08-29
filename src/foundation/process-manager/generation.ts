@@ -117,7 +117,7 @@ function isPidRecord(parsed: unknown): parsed is ProcessPidRecord {
   );
 }
 
-export function isFailureRecord(parsed: unknown): parsed is ProcessFailureRecord {
+function isFailureRecord(parsed: unknown): parsed is ProcessFailureRecord {
   if (typeof parsed !== 'object' || parsed === null) return false;
   const p = parsed as Partial<ProcessFailureRecord>;
   return (
