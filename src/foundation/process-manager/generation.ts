@@ -739,7 +739,7 @@ type WriteStopIntentResult =
   | { kind: 'written'; intent: StopIntentRecord }
   | { kind: 'retryable_failure'; cause: unknown };
 
-export type StopIntentScanResult =
+type StopIntentScanResult =
   | { kind: 'ok'; requestIds: string[] }
   | { kind: 'malformed'; requestId: string; cause: unknown }
   | { kind: 'unreadable'; cause: unknown };
