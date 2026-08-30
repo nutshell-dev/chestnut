@@ -10,7 +10,7 @@ import { newShortUuid } from  '../node-utils/index.js';
 
 export const STREAM_SNAPSHOT_IGNORE: readonly string[] = [STREAM_FILE];
 
-export interface StreamRetentionOptions {
+interface StreamRetentionOptions {
   maxFiles?: number | null;
   maxDays?: number | null;
 }
