@@ -29,7 +29,7 @@ import type {
 } from './types.js';
 import { ContractLayoutCorruptedError } from './errors.js';
 
-export type ContractAggregateStatus = 'pending' | 'running' | 'completed';
+type ContractAggregateStatus = 'pending' | 'running' | 'completed';
 
 export interface ArchivePayloadLayoutSnapshot {
   root: string;
