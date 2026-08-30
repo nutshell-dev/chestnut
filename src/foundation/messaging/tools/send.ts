@@ -8,7 +8,7 @@ import { formatErr } from "../../node-utils/index.js";
 import type { ToolResult } from '../../tool-protocol/index.js';
 import type { OutboxWriter } from '../outbox-writer.js';
 
-export const SEND_TOOL_NAME = 'send' as const;
+const SEND_TOOL_NAME = 'send' as const;
 
 /**
  * phase 520: defaultTarget 由 caller 注入（foundation 不 import MOTION_CLAW_ID、owner=core/claw-topology）。
