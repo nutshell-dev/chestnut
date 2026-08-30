@@ -302,30 +302,6 @@ async function readCurrentArchivePayload(
 }
 
 /**
- * Phase 1198 Step C: project the canonical cancelled reason from an archive view.
- *
- * Prefers lifecycle intents; falls back to legacy progress.checkpoint.
- */
-export function projectCancelledReason(view: ArchivePayloadView): {
-  reason: string;
-  source: 'intent' | 'legacy_checkpoint';
-} {
-  const cancelledIntents = view.intents.filter(
-    (i): i is typeof i & { requested_state: 'cancelled'; reason: string } =>
-      i.requested_state === 'cancelled',
-  );
-  if (cancelledIntents.length > 0) {
-    const reasons = cancelledIntents.map(i => i.reason);
-    return {
-      reason: reasons.length === 1 ? reasons[0] : `requests: ${reasons.join('; ')}`,
-      source: 'intent',
-    };
-  }
-  const legacy = (view.progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
-  return { reason: legacy, source: 'legacy_checkpoint' };
-}
-
-/**
  * Phase 1198 Step C: project the canonical corrupted cause from an archive view.
  *
  * Prefers lifecycle intents; falls back to legacy progress.checkpoint.
