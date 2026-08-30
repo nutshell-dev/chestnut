@@ -53,7 +53,7 @@ interface WorkspaceAuditSegmentMissing extends WorkspaceAuditSegmentBase {
   readonly status: 'missing';
 }
 
-export interface WorkspaceAuditSegmentUnreadable extends WorkspaceAuditSegmentBase {
+interface WorkspaceAuditSegmentUnreadable extends WorkspaceAuditSegmentBase {
   readonly status: 'unreadable';
   readonly issue: WorkspaceAuditSegmentIssue;
 }
