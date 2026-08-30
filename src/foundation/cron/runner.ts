@@ -32,7 +32,7 @@ type ParseScheduleResult =
  * phase 1216 (r131 B): suffix 严格 enforce、防 phase 793 起 silent drift 复发
  * Phase 28 Step C: 拆 audit 到 thin wrapper (parseSchedule)
  */
-export function parseScheduleRaw(s: string): ParseScheduleResult {
+function parseScheduleRaw(s: string): ParseScheduleResult {
   if (s === 'hourly') return { ok: true, schedule: { type: 'hourly' } };
   if (s.startsWith('daily:')) {
     const [hh, mm] = s.slice(6).split(':').map(Number);
@@ -57,7 +57,7 @@ export function parseScheduleRaw(s: string): ParseScheduleResult {
 }
 
 /** 将配置字符串解析为 CronSchedule（backward-compat thin wrapper，含 audit）。
- * 新代码优先用 parseScheduleRaw 以获得纯解析语义。
+ * parseScheduleRaw 是模块内部纯解析 core，仅由本 wrapper 调用；模块外一律经本公开 wrapper 获得解析 + audit 语义。
  */
 export function parseSchedule(s: string, sink?: CronEventSink): CronSchedule | null {
   const r = parseScheduleRaw(s);
