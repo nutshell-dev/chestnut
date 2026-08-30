@@ -56,7 +56,7 @@ export function emitSnapshotDegraded(audit: AuditLog, opts: {
 }
 
 // === SYNC_CLEAN_FAILED ===
-export type SnapshotSyncCleanFailedPayload = {
+type SnapshotSyncCleanFailedPayload = {
   dir: string;
   context?: 'empty_or_escaping_relDir' | 'realpath_failed' | 'symlink_traversal';
   cleanupDir?: string;
