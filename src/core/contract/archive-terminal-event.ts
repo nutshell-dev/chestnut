@@ -14,7 +14,7 @@ type TerminalRecordInvalidReason =
   | 'id_conflict'
   | 'invalid_timestamp';
 
-export type TerminalRecordMatch =
+type TerminalRecordMatch =
   | { kind: 'match'; recordedAt: string; seq: number }
   | { kind: 'no-match' }
   | { kind: 'invalid'; reason: TerminalRecordInvalidReason };
