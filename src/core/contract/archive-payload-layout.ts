@@ -38,7 +38,7 @@ interface ArchivePayloadLayoutSnapshot {
   aggregate: ContractAggregateStatus;
 }
 
-export interface SubtaskRetrySummary {
+interface SubtaskRetrySummary {
   retryCount: number;
   lastFailure?: {
     attemptId: string;
