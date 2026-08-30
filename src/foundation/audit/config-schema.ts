@@ -29,7 +29,7 @@ export const auditWorkspaceConfigFileSchema = auditConfigSchema.extend({
   schema_version: z.literal(AUDIT_LAYOUT_SCHEMA_VERSION),
 });
 
-export type AuditWorkspaceConfigFile = z.infer<typeof auditWorkspaceConfigFileSchema>;
+type AuditWorkspaceConfigFile = z.infer<typeof auditWorkspaceConfigFileSchema>;
 
 /** fresh init 默认 workspace audit config（只有 fresh init 才允许创建默认配置）。 */
 export function createDefaultAuditWorkspaceConfig(): AuditWorkspaceConfigFile {
