@@ -11,7 +11,7 @@ import {
 } from './defaults.js';
 import { llmProviderConfigSchema } from './llm-provider-config-schema.js';
 
-export const circuitBreakerConfigSchema = z.object({
+const circuitBreakerConfigSchema = z.object({
   failure_threshold: z.number().min(1).max(20).default(3),
   reset_timeout_ms: z.number().min(1000).max(3600000).default(DEFAULT_RESET_TIMEOUT_MS),
 });
