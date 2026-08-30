@@ -108,7 +108,7 @@ export interface InboxEntry {
 }
 
 /** Phase 994: drainInbox result includes error summary for observability. */
-export interface DrainInboxResult {
+interface DrainInboxResult {
   entries: InboxEntry[];
   transientErrors: number;  // files kept in pending for retry (InboxReadError)
   permanentErrors: number;  // files moved to failed/
