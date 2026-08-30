@@ -28,7 +28,7 @@ import {
 import { newShortUuid } from '../node-utils/index.js';
 import { emitOutboxDelivered } from './audit-emit.js';
 
-export type ClaimResult =
+type ClaimResult =
   | { status: 'empty' }
   | { status: 'race_lost'; error: string }
   | { status: 'io_error'; error: string }
