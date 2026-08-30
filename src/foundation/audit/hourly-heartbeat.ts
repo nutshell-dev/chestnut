@@ -13,7 +13,7 @@ export interface HourlyHeartbeatAccumulator {
   reset: () => void;
 }
 
-export interface HourlyAccumulatorOptions {
+interface HourlyAccumulatorOptions {
   /** 满 1 小时触发回调，入参为过去 1h 内的 tick 数与真实经过毫秒。 */
   onHourly: (tickCount: number, elapsedMs: number) => void;
   /** 时间锚点；未指定则取构造时的 Date.now()。 */
