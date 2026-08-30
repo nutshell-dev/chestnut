@@ -70,7 +70,7 @@ export interface ProcessGenerationRecord {
   created_at: string;
 }
 
-export interface ProcessPidRecord {
+interface ProcessPidRecord {
   schema_version: number;
   generation_id: string;
   pid: number;
