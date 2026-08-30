@@ -25,7 +25,7 @@
 import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 
-export type MessageKind = 'inbox' | 'outbox';
+type MessageKind = 'inbox' | 'outbox';
 export type MessageDirection = 'write';   // 留 future 扩 'read'
 
 // 与 types.ts Priority union 同源；改 union 时同步
