@@ -8,7 +8,7 @@
  * phase 712: 从 utils/ 迁入 file-tool/。
  */
 const TRUNCATE_HEAD_LIMIT = 600;
-export const TRUNCATE_TAIL_LIMIT = 1400;
+const TRUNCATE_TAIL_LIMIT = 1400;
 export const TRUNCATE_TOTAL_LIMIT = TRUNCATE_HEAD_LIMIT + TRUNCATE_TAIL_LIMIT;
 
 /**
