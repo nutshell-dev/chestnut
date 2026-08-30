@@ -42,7 +42,7 @@ interface WorkspaceAuditSegmentBase {
   readonly path: string;
 }
 
-export interface WorkspaceAuditSegmentOk extends WorkspaceAuditSegmentBase {
+interface WorkspaceAuditSegmentOk extends WorkspaceAuditSegmentBase {
   readonly status: 'ok';
   /** 单段读取（malformed 行 warn+skip 语义同 createAuditReader）。 */
   read(opts?: ReadOptions): AsyncIterableIterator<AuditRecord>;
