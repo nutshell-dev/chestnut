@@ -10,7 +10,7 @@
 
 const PREFIX_PATTERN = /"content"\s*:\s*"/;
 
-export interface SendContentTracker {
+interface SendContentTracker {
   inContent: boolean;
   /** Position in accumulated input where content value starts (after `"content": "`) */
   contentStart: number;
