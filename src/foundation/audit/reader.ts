@@ -75,7 +75,7 @@ export interface AuditFileInfo {
   isBusinessMain: boolean;
 }
 
-export interface PendingFallbackDump {
+interface PendingFallbackDump {
   path: string;
   pid: number;
   ts: number;
