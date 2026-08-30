@@ -57,7 +57,7 @@ function expandEnvVars(obj: unknown): unknown {
   return obj;
 }
 
-export interface LoaderDeps {
+interface LoaderDeps {
   fsFactory: (baseDir: string) => FileSystem;
 }
 
