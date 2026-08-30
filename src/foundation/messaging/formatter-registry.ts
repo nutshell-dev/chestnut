@@ -8,7 +8,7 @@
  */
 
 /** 已 format 好的"(2m ago)"字串、formatter 不重复 format。空串表示无 timestamp。*/
-export interface MessageFormatterContext {
+interface MessageFormatterContext {
   /** 消息发件方 claw id 或 'system' */
   from: string;
   /** 消息正文 */
