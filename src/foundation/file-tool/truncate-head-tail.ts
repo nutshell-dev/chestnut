@@ -7,7 +7,7 @@
  * phase 524: 抽 file-tool/read.ts 和 command-tool/exec.ts 两 私有 truncateHeadTail 实现。
  * phase 712: 从 utils/ 迁入 file-tool/。
  */
-export const TRUNCATE_HEAD_LIMIT = 600;
+const TRUNCATE_HEAD_LIMIT = 600;
 export const TRUNCATE_TAIL_LIMIT = 1400;
 export const TRUNCATE_TOTAL_LIMIT = TRUNCATE_HEAD_LIMIT + TRUNCATE_TAIL_LIMIT;
 
