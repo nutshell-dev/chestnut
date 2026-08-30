@@ -119,7 +119,7 @@ type PendingViewIssue =
   | { kind: 'malformed'; filePath: string; error: Error }
   | { kind: 'duplicate'; filePath: string; duplicateOf: string; shortTaskId?: string; fullTaskId?: string; contractId?: string };
 
-export interface PendingView {
+interface PendingView {
   entries: InboxEntry[];
   issues: PendingViewIssue[];
 }
