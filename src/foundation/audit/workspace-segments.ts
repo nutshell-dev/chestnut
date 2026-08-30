@@ -64,7 +64,7 @@ type WorkspaceAuditSegment =
   | WorkspaceAuditSegmentUnreadable;
 
 /** merged 时间序视图的单条记录：保留 segment 身份与段内 offset（稳定 tie-break）。 */
-export interface WorkspaceAuditSegmentRecord {
+interface WorkspaceAuditSegmentRecord {
   readonly segment: {
     readonly origin: WorkspaceAuditSegmentOrigin;
     readonly path: string;
