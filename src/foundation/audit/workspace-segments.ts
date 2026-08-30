@@ -48,7 +48,7 @@ interface WorkspaceAuditSegmentOk extends WorkspaceAuditSegmentBase {
   read(opts?: ReadOptions): AsyncIterableIterator<AuditRecord>;
 }
 
-export interface WorkspaceAuditSegmentMissing extends WorkspaceAuditSegmentBase {
+interface WorkspaceAuditSegmentMissing extends WorkspaceAuditSegmentBase {
   /** 段不存在是合法状态（fresh workspace 无 legacy / 新文件尚未创建），非失败。 */
   readonly status: 'missing';
 }
