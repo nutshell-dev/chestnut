@@ -52,7 +52,7 @@ export interface AuditMigrationOutcome {
   detail?: string;
 }
 
-export interface AuditMigrationJournal {
+interface AuditMigrationJournal {
   intent?: AuditMigrationIntent;
   outcome?: AuditMigrationOutcome;
 }
