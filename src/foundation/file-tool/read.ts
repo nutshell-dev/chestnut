@@ -40,7 +40,7 @@ function toSafeNumber(v: unknown): number | undefined {
   return Number.isNaN(n) || !Number.isFinite(n) ? undefined : n;
 }
 
-export const READ_TOOL_NAME = 'read' as const;
+const READ_TOOL_NAME = 'read' as const;
 
 const ReadInputSchema = z.object({
   path: z.string().describe(
