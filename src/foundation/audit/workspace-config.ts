@@ -27,7 +27,7 @@ import {
   type AuditConfig,
 } from './config-schema.js';
 
-export type WorkspaceAuditConfigResult =
+type WorkspaceAuditConfigResult =
   | { kind: 'ok'; config: AuditConfig }
   | { kind: 'missing' }
   | { kind: 'invalid'; message: string };
