@@ -24,7 +24,7 @@ import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { enforceFullReadGate } from './fullread-gate.js';
 import { isFileToolAbortError, throwIfFileToolAborted } from './abort.js';
 
-export const WRITE_TOOL_NAME = 'write' as const;
+const WRITE_TOOL_NAME = 'write' as const;
 
 const WriteInputSchema = z.object({
   path: z.string().describe(
