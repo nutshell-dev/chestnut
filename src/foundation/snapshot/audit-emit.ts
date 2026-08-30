@@ -2,7 +2,7 @@ import type { AuditLog } from '../audit/index.js';
 import { SNAPSHOT_AUDIT_EVENTS } from './audit-events.js';
 
 // === INIT_FAILED ===
-export type SnapshotInitFailedPayload = {
+type SnapshotInitFailedPayload = {
   dir: string;
   kind?: string;
   context?: 'incomplete_repo_reinit';
