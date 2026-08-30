@@ -18,7 +18,7 @@ import { backupToSync } from './sync-backup.js';
 import { recordEditResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
-export type EditCommitTool = 'edit' | 'multi_edit';
+type EditCommitTool = 'edit' | 'multi_edit';
 export type EditCommitBackupSource = 'edit_backup' | 'multi_edit_backup';
 
 export interface EditCommitInput {
