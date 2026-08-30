@@ -15,7 +15,7 @@ import { isFileNotFound } from '../fs/index.js';
  * Only `not_found` is treated as an empty/ benign result; `io_error` is propagated
  * so callers can distinguish unreadable audits from missing audits.
  */
-export type LightweightResult<T> =
+type LightweightResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: 'not_found' | 'io_error' };
 
