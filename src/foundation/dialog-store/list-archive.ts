@@ -9,7 +9,7 @@ import { isFileNotFound } from '../fs/index.js';
 import { DIALOG_ARCHIVE_DIR } from './dirs.js';
 
 /** Lightweight reference to an archived dialog file. */
-export interface ArchiveDialogRef {
+interface ArchiveDialogRef {
   /** Basename (e.g. "1700000000000_abc123.json"). */
   name: string;
   /** Path relative to clawDir (e.g. "dialog/archive/1700000000000_abc123.json"). */
