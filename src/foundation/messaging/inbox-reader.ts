@@ -97,7 +97,7 @@ function compareInboxEntries(a: InboxEntry, b: InboxEntry): number {
 // 未来加新态（如 'archived'）必触 INBOX_LOCATIONS 扩 + 编译期 assertNever
 // catch missing case、自动暴露所有 helper（如本 findByExtraMeta）需做语义决策的点。
 const INBOX_LOCATIONS = ['pending', 'inflight', 'done', 'failed'] as const;
-export type InboxLocation = typeof INBOX_LOCATIONS[number];
+type InboxLocation = typeof INBOX_LOCATIONS[number];
 
 /** Locations that findByExtraMeta returns on hit (failed/ scanning is by-design declined). */
 export type ScannedInboxLocation = Exclude<InboxLocation, 'failed'>;
