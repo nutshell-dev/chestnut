@@ -23,7 +23,7 @@ import {
   isAbortError,
 } from '../llm-provider/index.js';
 
-export type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
+type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
 
 export class LLMAllProvidersFailedError extends Error {
   readonly code: OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
