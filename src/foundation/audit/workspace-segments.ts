@@ -58,7 +58,7 @@ interface WorkspaceAuditSegmentUnreadable extends WorkspaceAuditSegmentBase {
   readonly issue: WorkspaceAuditSegmentIssue;
 }
 
-export type WorkspaceAuditSegment =
+type WorkspaceAuditSegment =
   | WorkspaceAuditSegmentOk
   | WorkspaceAuditSegmentMissing
   | WorkspaceAuditSegmentUnreadable;
