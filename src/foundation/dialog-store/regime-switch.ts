@@ -35,7 +35,7 @@ type RegimeStrategy = 'all' | 'last-turn' | 'none';
  * 历史立项时挂在 Runtime audit namespace、本次迁移保持兼容（snapshot.json
  * lock 不破）。未来可考虑迁 `DIALOG_AUDIT_EVENTS` 命名空间。
  */
-export interface RegimeSwitchAuditEvents {
+interface RegimeSwitchAuditEvents {
   REGIME_SWITCH: string;
   REGIME_SWITCH_COMMITTED: string;
   REGIME_SWITCH_FAILED: string;
