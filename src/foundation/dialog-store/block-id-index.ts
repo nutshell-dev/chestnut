@@ -21,7 +21,7 @@ import type { FileSystem } from '../fs/index.js';
 
 const INDEX_FILENAME = 'block-index.json';
 
-export interface BlockIdMap {
+interface BlockIdMap {
   [shortId: string]: string; // 8-char shortId → full UUID
 }
 
