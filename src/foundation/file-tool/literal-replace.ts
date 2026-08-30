@@ -17,7 +17,7 @@
 
 type LiteralReplaceMode = 'unique' | 'all';
 
-export type LiteralReplaceResult =
+type LiteralReplaceResult =
   | {
       ok: true;
       content: string;
