@@ -6,7 +6,7 @@
  * 写一条摘要事件（长期留痕）。
  */
 
-export interface HourlyHeartbeatAccumulator {
+interface HourlyHeartbeatAccumulator {
   /** 记录一次心跳 tick；可选传入当前时间戳（测试用）。 */
   tick: (nowMs?: number) => void;
   /** 重置计数与时间锚点（测试用）。 */
