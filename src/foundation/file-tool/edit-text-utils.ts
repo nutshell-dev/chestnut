@@ -109,7 +109,7 @@ const NEAR_MATCH_SCAN_LINE_LIMIT = 5000;
  */
 const NEAR_MATCH_LINE_TEXT_MAX = 200;
 
-export interface NearMatch {
+interface NearMatch {
   /** 1-based line number where the partial match appears. */
   line: number;
   /** The line text (trimmed; truncated to NEAR_MATCH_LINE_TEXT_MAX). */
