@@ -1,6 +1,6 @@
 import { formatErr } from '../node-utils/index.js';
 
-export type DialogStoreErrorCode = 'DIALOG_STORE_ERROR';
+type DialogStoreErrorCode = 'DIALOG_STORE_ERROR';
 
 export class DialogStoreError extends Error {
   readonly code: DialogStoreErrorCode = 'DIALOG_STORE_ERROR';
