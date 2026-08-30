@@ -15,7 +15,7 @@
  *   `String.replace` or regex substitution.
  */
 
-export type LiteralReplaceMode = 'unique' | 'all';
+type LiteralReplaceMode = 'unique' | 'all';
 
 export type LiteralReplaceResult =
   | {
