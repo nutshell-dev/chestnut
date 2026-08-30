@@ -73,7 +73,7 @@ interface PerformRegimeSwitchOpts {
   onSwitchComplete?: () => Promise<void>;
 }
 
-export interface PerformRegimeSwitchResult {
+interface PerformRegimeSwitchResult {
   newStore: DialogSessionLifecycle;
   inheritedCount: number;
   discardedCount: number;
