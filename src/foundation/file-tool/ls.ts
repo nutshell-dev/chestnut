@@ -16,7 +16,7 @@ import { isFileToolAbortError, throwIfFileToolAborted } from './abort.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 
-export const LS_TOOL_NAME = 'ls' as const;
+const LS_TOOL_NAME = 'ls' as const;
 
 const LsInputSchema = z.object({
   path: z.string().optional().describe(
