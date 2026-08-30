@@ -72,7 +72,7 @@ function ensureExitHandler(): void {
   process.on('exit', dumpFallback);
 }
 
-export function pushFallback(line: string, origin: string): void {
+function pushFallback(line: string, origin: string): void {
   if (pendingFallback.length >= FALLBACK_BUFFER_CAP) {
     pendingFallback.shift();   // FIFO drop-oldest (phase 586 D1.b ratify 不动)
     dropCountTotal++;
