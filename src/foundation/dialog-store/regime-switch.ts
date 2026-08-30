@@ -42,7 +42,7 @@ interface RegimeSwitchAuditEvents {
   REGIME_SWITCH_HARD_FAIL: string;
 }
 
-export interface PerformRegimeSwitchOpts {
+interface PerformRegimeSwitchOpts {
   /** 继承策略 */
   strategy: RegimeStrategy;
   /** 新 system prompt（caller 已 build） */
