@@ -33,7 +33,7 @@ interface EditCommitInput {
   editCount: number;
 }
 
-export type EditCommitResult =
+type EditCommitResult =
   | {
       ok: true;
       beforeHash: string;
