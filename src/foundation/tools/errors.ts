@@ -1,6 +1,6 @@
 import { formatErr } from '../node-utils/index.js';
 
-export type ToolErrorCode = 'TOOL_EXECUTION_FAILED' | 'TOOL_TIMEOUT';
+type ToolErrorCode = 'TOOL_EXECUTION_FAILED' | 'TOOL_TIMEOUT';
 
 export class ToolError extends Error {
   readonly code: ToolErrorCode = 'TOOL_EXECUTION_FAILED';
