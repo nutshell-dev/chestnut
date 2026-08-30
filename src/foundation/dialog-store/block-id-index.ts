@@ -25,7 +25,7 @@ interface BlockIdMap {
   [shortId: string]: string; // 8-char shortId → full UUID
 }
 
-export interface BlockIdIndexAuditWriter {
+interface BlockIdIndexAuditWriter {
   write(event: string, ...details: string[]): void;
 }
 
