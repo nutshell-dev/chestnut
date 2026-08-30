@@ -308,7 +308,7 @@ async function finalize(
   return { success: true, content: `${preview}\n\n${overflowFooter}` };
 }
 
-export const SEARCH_TOOL_NAME = 'search' as const;
+const SEARCH_TOOL_NAME = 'search' as const;
 
 const SearchInputSchema = z.object({
   text: z.string().describe(
