@@ -24,7 +24,7 @@ import { throwIfFileToolAborted } from './abort.js';
 import { formatEditDiff, lineDelta, findNearMatches, findAllMatchLines } from './edit-text-utils.js';
 import { literalReplace } from './literal-replace.js';
 import { editCommit } from './edit-commit.js';
-export const EDIT_TOOL_NAME = 'edit' as const;
+const EDIT_TOOL_NAME = 'edit' as const;
 
 const EditInputSchema = z.object({
   path: z.string().describe(
