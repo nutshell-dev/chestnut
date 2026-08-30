@@ -26,7 +26,7 @@ import { AUDIT_PATHS, AUDIT_LEGACY_PATHS } from './layout.js';
 import { createAuditReader, type AuditRecord, type ReadOptions } from './reader.js';
 
 /** segment 来源：legacy = 兼容期只读旧段；new = 唯一生产写入目标段。 */
-export type WorkspaceAuditSegmentOrigin = 'legacy' | 'new';
+type WorkspaceAuditSegmentOrigin = 'legacy' | 'new';
 
 /** 逐段分型读取失败（stage: probe = 存在性探测；read = 内容读取）。 */
 export interface WorkspaceAuditSegmentIssue {
