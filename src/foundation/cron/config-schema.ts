@@ -12,7 +12,7 @@ import { CRON_TICK_INTERVAL_MS } from './constants.js';
 const SCHEDULE_REGEX = /^(?:hourly|daily:\d{1,2}:\d{2}|interval:\d+[smh])$/;
 
 // 通用 schedule 子 schema（cron 本模块 own、job owner 复用）
-export const cronJobScheduleField = z.string().regex(SCHEDULE_REGEX);
+const cronJobScheduleField = z.string().regex(SCHEDULE_REGEX);
 
 // 各 job 子 schema 内联（Step A 阶段集中、Step B/C 可决定是否进一步迁到各 job owner）
 // 注：cron jobs 子字段实际 own 应归各 job owner（dream_trigger → memory-system 等）
