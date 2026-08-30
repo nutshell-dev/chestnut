@@ -130,7 +130,7 @@ function isFailureRecord(parsed: unknown): parsed is ProcessFailureRecord {
 
 // === Typed outcomes ===
 
-export type GenerationInspection =
+type GenerationInspection =
   | { status: 'none' }
   | { status: 'ok'; record: ProcessGenerationRecord }
   | { status: 'malformed'; cause: unknown };
