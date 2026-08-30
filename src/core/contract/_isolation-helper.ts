@@ -34,7 +34,7 @@ interface IsolationArgs {
   reason: string;          // 'unknown_schema_version' | 'schema_invalid'
 }
 
-export interface IsolationResult {
+interface IsolationResult {
   /** Absolute path on this filesystem (useful for immediate fs operations). */
   backupPath: string;
   /** Path relative to the Contract root; stable after archive move. */
