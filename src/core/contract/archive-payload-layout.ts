@@ -323,7 +323,7 @@ export function deriveSubtaskRetrySummary(
 // Runtime projection
 // ============================================================================
 
-export interface ArchivePayloadRuntimeView {
+interface ArchivePayloadRuntimeView {
   contract: Contract;
   progress: ProgressData;
 }
