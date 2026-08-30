@@ -26,7 +26,7 @@ import type { DialogSessionLifecycle } from './types.js';
 import { DIALOG_DIR } from './dirs.js';
 
 /** Regime switch 继承策略：identity 变化时 inherited messages 算法。*/
-export type RegimeStrategy = 'all' | 'last-turn' | 'none';
+type RegimeStrategy = 'all' | 'last-turn' | 'none';
 
 /**
  * Audit event const namespace (caller 注入)。
