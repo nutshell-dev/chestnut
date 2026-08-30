@@ -9,7 +9,6 @@
  */
 const TRUNCATE_HEAD_LIMIT = 600;
 const TRUNCATE_TAIL_LIMIT = 1400;
-export const TRUNCATE_TOTAL_LIMIT = TRUNCATE_HEAD_LIMIT + TRUNCATE_TAIL_LIMIT;
 
 /**
  * 截断 content head+tail、中间替「[...truncated N bytes...]」+ 「Full output 提示」。

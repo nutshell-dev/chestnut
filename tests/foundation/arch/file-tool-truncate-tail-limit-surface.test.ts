@@ -14,10 +14,8 @@ describe('FileTool TRUNCATE_TAIL_LIMIT deep surface', () => {
   it('keeps the tail limit const local behind truncateHeadTail', () => {
     expect(truncateSource).not.toMatch(/export\s+const\s+TRUNCATE_TAIL_LIMIT\b/);
     expect(truncateSource).toMatch(/(?:^|\n)const\s+TRUNCATE_TAIL_LIMIT\s*=\s*1400;/);
-    // total expression still derives from head + tail (Step J retires the derived const)
-    expect(truncateSource).toMatch(
-      /TRUNCATE_TOTAL_LIMIT\s*=\s*TRUNCATE_HEAD_LIMIT\s*\+\s*TRUNCATE_TAIL_LIMIT;/,
-    );
+    // derived total const retired in Step J: name must stay absent
+    expect(truncateSource).not.toMatch(/\bTRUNCATE_TOTAL_LIMIT\b/);
     // tail slice binding
     expect(truncateSource).toMatch(/const\s+tail\s*=\s*content\.slice\(-TRUNCATE_TAIL_LIMIT\);/);
     // truncatedBytes subtraction binding

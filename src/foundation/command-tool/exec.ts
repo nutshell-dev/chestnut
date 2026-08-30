@@ -94,7 +94,7 @@ function truncate(str: string, maxLen: number): string {
 }
 
 // phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/file-tool/truncate-head-tail.ts。
-// EXEC_MAX_OUTPUT === TRUNCATE_TOTAL_LIMIT === HEAD + TAIL = 2000B（业务 truncation 协议）。
+// EXEC_MAX_OUTPUT === HEAD + TAIL = 2000B（业务 truncation 协议）。
 // caller 均在 `if (output.length > EXEC_MAX_OUTPUT)` 内调用、无需 helper 内重复阈值判。
 
 function formatNoOutput(command: string): string {
