@@ -31,7 +31,7 @@ import { ContractLayoutCorruptedError } from './errors.js';
 
 type ContractAggregateStatus = 'pending' | 'running' | 'completed';
 
-export interface ArchivePayloadLayoutSnapshot {
+interface ArchivePayloadLayoutSnapshot {
   root: string;
   contract: PersistedContractYaml;
   subtasks: ReadonlyMap<string, SubtaskRuntimeRecord>;
