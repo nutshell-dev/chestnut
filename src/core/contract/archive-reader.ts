@@ -40,7 +40,7 @@ import { readLifecycleIntentsForContract } from './lifecycle-intent.js';
 
 export type { ArchivePayloadView, ArchiveReadIssue, ArchiveReadIssueCode };
 
-export type ArchivePayloadReadResult =
+type ArchivePayloadReadResult =
   | { kind: 'found'; view: ArchivePayloadView }
   | { kind: 'issue'; issue: ArchiveReadIssue };
 
