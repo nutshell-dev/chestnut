@@ -1,7 +1,7 @@
 import * as path from 'path';
 import type { ExecContext } from '../tools/index.js';
 
-export type WorkspacePathContext = Pick<ExecContext, 'clawDir' | 'workspaceDir'>;
+type WorkspacePathContext = Pick<ExecContext, 'clawDir' | 'workspaceDir'>;
 
 /**
  * Resolve file tool path argument against workspaceDir (default) or explicit cwd.
