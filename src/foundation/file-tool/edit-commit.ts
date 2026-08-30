@@ -19,7 +19,7 @@ import { recordEditResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 type EditCommitTool = 'edit' | 'multi_edit';
-export type EditCommitBackupSource = 'edit_backup' | 'multi_edit_backup';
+type EditCommitBackupSource = 'edit_backup' | 'multi_edit_backup';
 
 export interface EditCommitInput {
   ctx: ExecContext;
