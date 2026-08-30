@@ -74,7 +74,7 @@ export interface WorkspaceAuditSegmentRecord {
   readonly record: AuditRecord;
 }
 
-export interface WorkspaceAuditMergedOptions extends ReadOptions {
+interface WorkspaceAuditMergedOptions extends ReadOptions {
   /** 逐段失败回调（unreadable 段 + 读取中途失败段）；缺失段不触发。 */
   onIssue?: (issue: WorkspaceAuditSegmentIssue) => void;
 }
