@@ -10,7 +10,7 @@ import type { AuditRecord } from '../../foundation/audit/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ArchiveState, ContractId } from './types.js';
 
-export type TerminalRecordInvalidReason =
+type TerminalRecordInvalidReason =
   | 'id_conflict'
   | 'invalid_timestamp';
 
