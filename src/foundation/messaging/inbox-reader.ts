@@ -114,7 +114,7 @@ export interface DrainInboxResult {
   permanentErrors: number;  // files moved to failed/
 }
 
-export type PendingViewIssue =
+type PendingViewIssue =
   | { kind: 'transient_read'; filePath: string; error: InboxReadError }
   | { kind: 'malformed'; filePath: string; error: Error }
   | { kind: 'duplicate'; filePath: string; duplicateOf: string; shortTaskId?: string; fullTaskId?: string; contractId?: string };
