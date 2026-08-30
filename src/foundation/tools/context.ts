@@ -24,7 +24,7 @@ import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 /**
  * Options for creating execution context
  */
-export interface ExecContextImplOptions {
+interface ExecContextImplOptions {
   /** Claw identifier */
   clawId: string;
 
