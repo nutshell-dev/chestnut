@@ -173,7 +173,7 @@ export type RetireGeneration =
 
 // === Path helpers ===
 
-export function getProcessDir(daemonDir: DaemonDir): string {
+function getProcessDir(daemonDir: DaemonDir): string {
   return path.join(daemonDir, STATUS_SUBDIR, PROCESS_DIR_NAME);
 }
 
