@@ -302,30 +302,6 @@ async function readCurrentArchivePayload(
 }
 
 /**
- * Phase 1198 Step C: project the canonical corrupted cause from an archive view.
- *
- * Prefers lifecycle intents; falls back to legacy progress.checkpoint.
- */
-export function projectCorruptedCause(view: ArchivePayloadView): {
-  cause: string;
-  source: 'intent' | 'legacy_checkpoint';
-} {
-  const corruptedIntents = view.intents.filter(
-    (i): i is typeof i & { requested_state: 'corrupted'; evidence: { reason: string; relativePath: string } } =>
-      i.requested_state === 'corrupted',
-  );
-  if (corruptedIntents.length > 0) {
-    const entries = corruptedIntents.map(i => `${i.evidence.reason} (${i.evidence.relativePath})`);
-    return {
-      cause: entries.length === 1 ? entries[0] : `requests: ${entries.join('; ')}`,
-      source: 'intent',
-    };
-  }
-  const legacy = (view.progress.checkpoint ?? '').replace(/^archive_corrupted:\s*/, '') || '(no cause given)';
-  return { cause: legacy, source: 'legacy_checkpoint' };
-}
-
-/**
  * Phase 1396 Step D: project the canonical execution-failure fact from an archive
  * view. `failed` has no legacy layout, so intents are the only source; returns
  * null when no failed intent is present.
