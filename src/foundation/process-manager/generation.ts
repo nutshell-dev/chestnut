@@ -79,7 +79,7 @@ export interface ProcessPidRecord {
 }
 
 /** ready 事实与 pid 同形：child 在 spawning 内写好后随目录整体 move 进 active（单 SoT）。 */
-export type ProcessReadyRecord = ProcessPidRecord;
+type ProcessReadyRecord = ProcessPidRecord;
 
 export interface ProcessFailureRecord {
   schema_version: number;
