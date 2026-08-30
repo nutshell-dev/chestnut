@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 
-export const TOOL_TIMEOUT_DEFAULT_MS = 60_000;
+const TOOL_TIMEOUT_DEFAULT_MS = 60_000;
 
 export const toolsConfigSchema = z
   .number()
