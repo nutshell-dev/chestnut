@@ -49,7 +49,7 @@ const AUDIT_SIZE_CRITICAL_BYTES = 1024 * 1024 * 1024;
 // phase 8: dedup per audit path / daemon process 生命周期内、under→over 时 emit / over→under 清状态允许下次再 fire
 const auditOverThreshold = new Map<string, 'warn' | 'critical'>();
 
-export interface AuditSizeMonitorOptions {
+interface AuditSizeMonitorOptions {
   fs: FileSystem;
   audit: AuditLog;
   primaryAuditPath: string;
