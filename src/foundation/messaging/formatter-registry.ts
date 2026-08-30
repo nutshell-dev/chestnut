@@ -19,7 +19,7 @@ interface MessageFormatterContext {
 
 export type MessageFormatter = (ctx: MessageFormatterContext) => Promise<string>;
 
-export type StandardMessagePresentation = 'system' | 'user_chat' | 'user_inbox';
+type StandardMessagePresentation = 'system' | 'user_chat' | 'user_inbox';
 
 export type InboxMessageRendering =
   | { readonly kind: 'standard'; readonly presentation: StandardMessagePresentation }
