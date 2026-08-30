@@ -21,7 +21,7 @@ import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 type EditCommitTool = 'edit' | 'multi_edit';
 type EditCommitBackupSource = 'edit_backup' | 'multi_edit_backup';
 
-export interface EditCommitInput {
+interface EditCommitInput {
   ctx: ExecContext;
   tool: EditCommitTool;
   path: string;
