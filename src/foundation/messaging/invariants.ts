@@ -26,7 +26,7 @@ import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 
 type MessageKind = 'inbox' | 'outbox';
-export type MessageDirection = 'write';   // 留 future 扩 'read'
+type MessageDirection = 'write';   // 留 future 扩 'read'
 
 // 与 types.ts Priority union 同源；改 union 时同步
 const VALID_PRIORITIES: ReadonlySet<string> = new Set(['low', 'normal', 'high', 'critical']);
