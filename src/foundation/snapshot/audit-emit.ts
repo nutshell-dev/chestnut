@@ -24,7 +24,7 @@ export function emitSnapshotInitCleanupFailed(audit: AuditLog, opts: {
 }
 
 // === COMMIT_FAILED ===
-export type SnapshotCommitFailedPayload = {
+type SnapshotCommitFailedPayload = {
   dir: string;
   kind?: string;
   consecutive?: number;
