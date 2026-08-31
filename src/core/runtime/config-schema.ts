@@ -14,5 +14,3 @@ export const runtimeMotionConfigSchema = z.object({
   max_concurrent_tasks: z.number().min(1).max(20).default(DEFAULT_MAX_CONCURRENT_TASKS),
   llm_idle_timeout_ms: z.number().min(0).max(600000).default(DEFAULT_LLM_IDLE_TIMEOUT_MS),
 });
-
-export type RuntimeMotionConfig = z.infer<typeof runtimeMotionConfigSchema>;
