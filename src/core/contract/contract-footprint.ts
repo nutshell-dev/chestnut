@@ -37,7 +37,7 @@ export interface FootprintSubmit {
   step: number;
 }
 
-export interface FootprintSpawn {
+interface FootprintSpawn {
   taskId: string;
   step: number;
 }
