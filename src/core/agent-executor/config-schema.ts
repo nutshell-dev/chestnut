@@ -8,5 +8,3 @@
 import { z } from 'zod';
 
 export const agentExecutorConfigSchema = z.number().min(1).max(1000).optional();
-
-export type AgentExecutorConfig = z.infer<typeof agentExecutorConfigSchema>;
