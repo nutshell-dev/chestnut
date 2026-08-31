@@ -20,7 +20,7 @@ export interface TaskReadError {
   reason: string;
 }
 
-export interface MigratedExecListResult {
+interface MigratedExecListResult {
   tasks: MigratedExecTaskInfo[];
   errors: TaskReadError[];
 }
