@@ -57,7 +57,7 @@ const OutcomeIdentitySchema = z.object({
   completed_at: z.string().min(1),
 }).strict();
 
-export const VerificationOutcomeSchema = z.discriminatedUnion('kind', [
+const VerificationOutcomeSchema = z.discriminatedUnion('kind', [
   OutcomeIdentitySchema.extend({
     kind: z.literal('passed'),
     result: VerificationResultFactSchema,
