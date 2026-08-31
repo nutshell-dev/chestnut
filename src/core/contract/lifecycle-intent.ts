@@ -79,7 +79,7 @@ const LifecycleIntentSchema = z.discriminatedUnion('requested_state', [
   FailedLifecycleIntentSchema,
 ]);
 
-export interface ReadLifecycleIntentsResult {
+interface ReadLifecycleIntentsResult {
   intents: LifecycleIntent[];
   issues: LifecycleIntentIssue[];
 }
