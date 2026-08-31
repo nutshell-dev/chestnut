@@ -24,7 +24,7 @@ import {
 
 export type AuditWriter = { write(event: string, ...details: string[]): void };
 
-export type TrimCandidateOutcome =
+type TrimCandidateOutcome =
   | {
       status: 'target_reached' | 'progress';
       before: number;
