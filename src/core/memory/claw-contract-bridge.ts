@@ -10,7 +10,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import type { ContractSystem } from '../contract/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 
-export interface ClawContractBridgeDeps {
+interface ClawContractBridgeDeps {
   fsFactory: (baseDir: string) => FileSystem;
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
