@@ -28,7 +28,7 @@ import {
   type WatchdogConfig,
 } from './config-schema.js';
 
-export type WorkspaceWatchdogConfigResult =
+type WorkspaceWatchdogConfigResult =
   | { kind: 'ok'; config: WatchdogConfig }
   | { kind: 'missing' }
   | { kind: 'invalid'; message: string };
