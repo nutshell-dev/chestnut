@@ -55,7 +55,7 @@ const CancelledLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
   reason: z.string().min(1),
 }).strict();
 
-export const CorruptedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
+const CorruptedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
   requested_state: z.literal('corrupted'),
   evidence: ContractCorruptionEvidenceSchema,
 }).strict();
