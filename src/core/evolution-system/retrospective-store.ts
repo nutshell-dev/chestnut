@@ -77,7 +77,7 @@ export function executorIdOf(item: RetrospectiveWorkItem): string {
   return item.schema_version === 2 ? item.target_executor_id : item.target_claw;
 }
 
-export type BeginDispatchDisposition = 'acquired' | 'submitted' | 'busy' | 'missing';
+type BeginDispatchDisposition = 'acquired' | 'submitted' | 'busy' | 'missing';
 
 export interface LegacyPendingRetrospective {
   contractId: ContractId;
