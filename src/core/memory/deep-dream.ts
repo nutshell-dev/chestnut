@@ -672,8 +672,6 @@ export const __test_flushPendingDeepNotifications = flushPendingDeepNotification
 /** @internal test-only export (phase 1162) */
 export type { DeepNotificationFlushResult as __test_DeepNotificationFlushResult };
 /** @internal test-only export (phase 1162) */
-export const __test_buildPendingDeepNotification = buildPendingDeepNotification;
-/** @internal test-only export (phase 1162) */
 export type { PendingDeepDreamNotification as __test_PendingDeepDreamNotification };
 
 export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
