@@ -49,7 +49,7 @@ export interface ContractObserverOptions {
   signal?: AbortSignal;
 }
 
-export interface ContractObserverJobDeps {
+interface ContractObserverJobDeps {
   clawTopology: ClawTopology;
   motionDir: string;
   fs: FileSystem;
