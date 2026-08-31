@@ -450,7 +450,7 @@ export interface ContractCorruptionEvidence {
 
 export type LifecycleIntentState = ArchiveState;
 
-export interface BaseLifecycleIntent {
+interface BaseLifecycleIntent {
   schema_version: 1;
   request_id: string;
   contract_id: string;
