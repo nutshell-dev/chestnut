@@ -99,18 +99,6 @@ export function emitContractYamlSchemaInvalid(
   audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID, ...cols);
 }
 
-// ─── OBSERVER_STATE_PARSE_FAILED ────────────────────────────────────────────
-export function emitContractObserverStateParseFailed(
-  audit: AuditLog,
-  opts: { path: string; raw: string },
-): void {
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
-    `path=${opts.path}`,
-    `raw=${opts.raw}`,
-  );
-}
-
 // ─── PROGRESS_CORRUPTED ─────────────────────────────────────────────────────
 export function emitContractProgressCorrupted(
   audit: AuditLog,
