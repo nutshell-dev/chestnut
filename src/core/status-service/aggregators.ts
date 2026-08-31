@@ -39,7 +39,7 @@ export type StorageMemoryView =
   | { type: 'not-found' }
   | { type: 'error'; message: string };
 
-export type StorageClawspaceView =
+type StorageClawspaceView =
   | { type: 'count'; files: number }
   | { type: 'error'; message: string };
 
