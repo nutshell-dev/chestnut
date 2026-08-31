@@ -668,8 +668,6 @@ export type { ProcessResult as __test_ProcessResult };
 
 // Phase 1162 Step D: test-only exports for durable delivery behavior.
 /** @internal test-only export (phase 1162) */
-export const __test_flushPendingDeepNotifications = flushPendingDeepNotifications;
-/** @internal test-only export (phase 1162) */
 export type { DeepNotificationFlushResult as __test_DeepNotificationFlushResult };
 /** @internal test-only export (phase 1162) */
 export type { PendingDeepDreamNotification as __test_PendingDeepDreamNotification };
