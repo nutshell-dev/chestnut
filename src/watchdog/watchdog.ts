@@ -104,7 +104,7 @@ export function _setWatchdogOwnershipForTest(ownership: WatchdogOwnership | null
   currentOwnership = ownership;
 }
 
-export type AcquireWatchdogOwnership =
+type AcquireWatchdogOwnership =
   | { kind: 'committed'; ownership: WatchdogOwnership }
   | { kind: 'lost'; owner: WatchdogOwnerRecord }
   | { kind: 'foreign_owned'; owner: WatchdogOwnerRecord }
