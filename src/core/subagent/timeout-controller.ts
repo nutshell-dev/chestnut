@@ -26,7 +26,7 @@ export interface TimeoutControllerOptions {
   agentId: string;
 }
 
-export interface TimeoutControllerHandle {
+interface TimeoutControllerHandle {
   signal: AbortSignal;
   timeoutPromise: Promise<never>;
   resetIdle?: () => void;
