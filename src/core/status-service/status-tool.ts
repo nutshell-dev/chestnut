@@ -30,7 +30,7 @@ import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 // status-tool-helpers.test.ts 重写为 createStatusTool integration test 保持 phase 1468
 // F9 cov 意图（CONTRACT_ERROR / TASK_PENDING_ERROR / TASK_RUNNING_ERROR 三条 audit emit）。
 
-export const STATUS_TOOL_NAME = 'status' as const;
+const STATUS_TOOL_NAME = 'status' as const;
 
 /**
  * createStatusTool —— phase 1472 Step D：可选 motionGuidance 参数。
