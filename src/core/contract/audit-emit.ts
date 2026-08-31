@@ -199,17 +199,6 @@ export function emitContractMoveArchiveFailed(
   audit.write(CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED, ...cols);
 }
 
-// ─── VERIFICATION_INBOX_FAILED ────────────────────────────────────────────────
-export function emitContractVerificationInboxFailed(
-  audit: AuditLog,
-  opts: { context?: string; error: string },
-): void {
-  const cols: string[] = [];
-  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
-  cols.push(`error=${opts.error}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_INBOX_FAILED, ...cols);
-}
-
 // ─── VERIFICATION_RESET_FAILED ────────────────────────────────────────────────
 export function emitContractVerificationResetFailed(
   audit: AuditLog,
