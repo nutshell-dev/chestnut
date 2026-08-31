@@ -23,7 +23,7 @@ import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from './constants.js';
 import { AGENT_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
-export interface AgentInput {
+interface AgentInput {
   messages: Message[];
   systemPrompt: string;
   llm: LLMOrchestrator;
