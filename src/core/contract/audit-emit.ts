@@ -978,17 +978,6 @@ export function emitContractCreationInterrupted(
   );
 }
 
-export function emitContractCreationRecoveryFailed(
-  audit: AuditLog,
-  opts: { contractId: ContractId; startedAt?: string; reason: string; error: string },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreationRecoveryFailed')) return;
-  const cols: string[] = [`contractId=${opts.contractId}`];
-  if (opts.startedAt !== undefined) cols.push(`started_at=${opts.startedAt}`);
-  cols.push(`reason=${opts.reason}`, `error=${opts.error}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERY_FAILED, ...cols);
-}
-
 // ─── LIFECYCLE_INTENT (Phase 1198 Step A) ───────────────────────────────────
 export function emitLifecycleIntentPersisted(
   audit: AuditLog,
