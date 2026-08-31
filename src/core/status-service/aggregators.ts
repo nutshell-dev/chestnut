@@ -19,7 +19,7 @@ import { CLAWSPACE_DIR, CLAW_MEMORY_FILE } from '../../foundation/claw-identity/
 
 // ── Views ───────────────────────────────────────────────────────────────────
 
-export type ContractView =
+type ContractView =
   | { type: 'no-active' }
   | {
       type: 'active';
