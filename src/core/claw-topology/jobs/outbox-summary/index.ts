@@ -25,7 +25,7 @@ import { parseSchedule } from '../../../../foundation/cron/index.js';
 import type { CronJobGlobalConfig } from '../../../../foundation/cron/index.js';
 
 /** Cron job timeout per M#2 (per-module business decides). 5s 充裕：dedup scan = meta parse only. */
-export const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;
+const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;
 
 
 // cron wrapper
