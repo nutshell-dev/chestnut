@@ -45,7 +45,7 @@ const BaseLifecycleIntentSchema = z.object({
   requested_at: z.string().min(1),
 }).strict();
 
-export const CompletedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
+const CompletedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
   requested_state: z.literal('completed'),
   context: z.string().min(1),
 }).strict();
