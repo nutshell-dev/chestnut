@@ -89,7 +89,7 @@ export type VerificationOutcomeIssueReason =
   | 'identity_mismatch'
   | 'list_failed';
 
-export interface VerificationOutcomeIssue {
+interface VerificationOutcomeIssue {
   attemptId: string;
   path: string;
   reason: VerificationOutcomeIssueReason;
