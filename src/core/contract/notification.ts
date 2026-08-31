@@ -16,7 +16,7 @@
 import type { ContractId, SubtaskId, LastFailedFeedback } from './types.js';
 
 /** contract_completed 事件内已完成 subtask 的 typed fact。 */
-export interface CompletedSubtaskNotification {
+interface CompletedSubtaskNotification {
   readonly id: SubtaskId;
   readonly completedAt: string;
   readonly forceAccepted: boolean;
