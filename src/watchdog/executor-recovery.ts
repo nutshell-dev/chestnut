@@ -53,7 +53,7 @@ import { log } from './watchdog-log.js';
 export const EXECUTOR_RECOVERY_EVIDENCE_DIR = 'watchdog/executor-recovery';
 
 /** Terminal evidence persisted by Watchdog before delivering daemon_unavailable. */
-export interface ExecutorRecoveryEvidence {
+interface ExecutorRecoveryEvidence {
   schema_version: 1;
   executorId: string;
   consecutiveAttempts: number;
