@@ -98,7 +98,7 @@ export interface VerificationOutcomeIssue {
 
 export type PersistVerificationOutcomeResult = 'persisted' | 'idempotent' | 'conflict';
 
-export function verificationOutcomeDir(baseDir: string, contractId: ContractId): string {
+function verificationOutcomeDir(baseDir: string, contractId: ContractId): string {
   return `${baseDir}/${CONTRACT_VERIFICATION_OUTCOMES_DIR}/${contractId}`;
 }
 
