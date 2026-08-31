@@ -641,18 +641,6 @@ export function emitContractVerifierResultParseFailed(
   );
 }
 
-// ─── OBSERVER_EVENT_FAILED ────────────────────────────────────────────────────
-export function emitContractObserverEventFailed(
-  audit: AuditLog,
-  opts: { path: string; reason: string },
-): void {
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
-    `path=${opts.path}`,
-    `reason=${opts.reason}`,
-  );
-}
-
 // ─── CONTRACT_COMPLETED_HANDLER_FAILED ────────────────────────────────────────
 export function emitContractCompletedHandlerFailed(
   audit: AuditLog,
