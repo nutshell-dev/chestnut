@@ -29,7 +29,7 @@ const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;
 
 
 // cron wrapper
-export interface OutboxSummaryJobOptions {
+interface OutboxSummaryJobOptions {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
   fs: FileSystem;
