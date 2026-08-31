@@ -340,7 +340,7 @@ export async function failContract(
   return outcome;
 }
 
-export interface ReconcilePendingIntentsResult {
+interface ReconcilePendingIntentsResult {
   /** The terminal state that was ultimately committed, if any. */
   committed?: ArchiveState;
   /** One outcome per pending intent, in deterministic replay order. */
