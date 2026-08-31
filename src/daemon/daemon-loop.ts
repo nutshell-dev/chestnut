@@ -34,7 +34,7 @@ interface DaemonMotionExtensions {
   heartbeat?: Heartbeat;
 }
 
-export interface DaemonLoopOptions {
+interface DaemonLoopOptions {
   // 核心驱动
   fsFactory: (baseDir: string) => FileSystem;
   eventLoop: EventLoop;
