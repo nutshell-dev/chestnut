@@ -80,6 +80,7 @@ export {
   encodeContractCancelledGuidance,
   decodeContractCancelledGuidance,
 } from './contract-cancelled-guidance.js';
+export type { ContractCancelledGuidanceState } from './contract-cancelled-guidance.js';
 
 export {
   CONTRACT_ACTIVE_DIR,
