@@ -237,5 +237,3 @@ export const ContractProgressArchiveLooseSchema = z.object({
   // phase 335: contract_id 在 archive/boot_reconcile 路径 legacy 可含 (derive 字段)、explicit typed access
   contract_id: z.string().optional(),
 }).passthrough();
-
-export type ContractProgressArchiveValidated = z.infer<typeof ContractProgressArchiveLooseSchema>;
