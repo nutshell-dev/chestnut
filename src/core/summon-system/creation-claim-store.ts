@@ -23,7 +23,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 export const SUMMON_CREATION_CLAIMS_DIR = 'summons' as const;
 export const SUMMON_CREATION_CLAIM_FILE = 'creation-claim.json' as const;
 
-export const SummonCreationClaimSchema = z.object({
+const SummonCreationClaimSchema = z.object({
   schema_version: z.literal(1),
   summonId: z.string().min(1),
   targetExecutorId: z.string().min(1),
