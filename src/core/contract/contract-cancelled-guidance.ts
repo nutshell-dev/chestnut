@@ -73,7 +73,7 @@ export interface ContractCancelledGuidanceRef {
 }
 
 /** decoder 产出的 typed state（consumer 唯一依赖的稳定形状）。 */
-export interface ContractCancelledGuidanceState {
+interface ContractCancelledGuidanceState {
   readonly schemaVersion: 1;
   readonly contractRefs: readonly ContractCancelledGuidanceRef[];
 }

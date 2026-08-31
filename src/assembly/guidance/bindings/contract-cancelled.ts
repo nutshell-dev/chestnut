@@ -31,6 +31,7 @@
 
 import {
   defineCliGuidanceBinding,
+  type CliGuidanceBinding,
   type CliGuidanceDocument,
   type CliGuidanceDocumentLine,
 } from '../../../cli-protocol/index.js';
@@ -43,7 +44,13 @@ import { decodeContractCancelledGuidance } from '../../../core/contract/index.js
  */
 const MAX_BATCH_RENDER = 10;
 
-export const contractCancelledGuidanceBinding = defineCliGuidanceBinding({
+/**
+ * owner decoded state 类型（Phase 1653 Step D：owner interface 已 localize 不可跨模块命名，
+ * 经公开 decode 函数返回推导；本 exported const 的 declaration emit 需可命名类型）。
+ */
+type CancelledGuidanceDecodedState = ReturnType<typeof decodeContractCancelledGuidance>;
+
+export const contractCancelledGuidanceBinding: CliGuidanceBinding<CancelledGuidanceDecodedState> = defineCliGuidanceBinding({
   type: 'contract_cancelled',
   decode: decodeContractCancelledGuidance,
   toDocument(state): CliGuidanceDocument {
