@@ -6,7 +6,7 @@ export type AgentErrorCode =
   | 'CONSECUTIVE_MAX_TOKENS_TOOL_USE_EXCEEDED'
   | 'WALL_TIME_EXCEEDED';
 
-export class AgentError extends Error {
+class AgentError extends Error {
   readonly code: AgentErrorCode;
   readonly context?: Record<string, unknown>;
   readonly timestamp: string = new Date().toISOString();
