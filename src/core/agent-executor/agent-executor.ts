@@ -50,7 +50,7 @@ interface AgentInput {
   // 已上提到 L5 Runtime 反应式 retry 路径、agent-executor 不再透传。
 }
 
-export interface AgentResult {
+interface AgentResult {
   finalText: string;
   stepsUsed: number;
   stopReason: FinalStopReason;
