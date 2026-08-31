@@ -91,7 +91,7 @@ type ActiveInspection =
   | { status: 'ok'; owner: WatchdogOwnerRecord }
   | { status: 'malformed'; cause: unknown };
 
-export type RetireOwnership =
+type RetireOwnership =
   | { kind: 'retired'; owner: WatchdogOwnerRecord }
   | { kind: 'no_active' }
   | { kind: 'mismatch'; owner: WatchdogOwnerRecord }
