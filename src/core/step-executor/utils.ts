@@ -34,7 +34,7 @@ export function safeCallback(
   }
 }
 
-export type ParseToolInputResult =
+type ParseToolInputResult =
   | { ok: true; data: Record<string, unknown> }
   | { ok: false; raw: string; error: string };
 
