@@ -91,18 +91,6 @@ export interface LoopErrorContext {
  */
 export type LLMRetryWaitingStreamAction = 'scheduled' | 'gated' | 'released';
 
-export interface LLMRetryWaitingStreamEvent {
-  ts: number;
-  type: 'llm_retry_waiting';
-  stage: 'retry' | 'cooldown';
-  action: LLMRetryWaitingStreamAction;
-  attempt: number;
-  maxAttempts: number;
-  delayMs: number;
-  resumeAt: string;
-  errorClass: RecoverableLLMErrorClass;
-}
-
 interface LLMRequestBlockedBase {
   version: 2;
   requestFingerprint: string;
