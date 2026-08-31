@@ -18,7 +18,7 @@ import type { SubtaskStatus } from './types.js';
 
 export const CREATION_CLAIM_FILE = '.creating';
 
-export const ContractCreationIntentSchema = z.object({
+const ContractCreationIntentSchema = z.object({
   schema_version: z.literal(1),
   contract_id: z.string(),
   started_at: z.string().datetime(),
