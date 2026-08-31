@@ -45,7 +45,7 @@ export interface RetroConfig {
   createSkillSystem?: typeof defaultCreateSkillSystem;
 }
 
-export interface RetroSubagentPayloadInput {
+interface RetroSubagentPayloadInput {
   targetClaw: string;
   contractId: ContractId;
   contractYaml: string;
