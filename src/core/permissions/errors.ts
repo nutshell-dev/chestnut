@@ -27,7 +27,7 @@ export class PermissionError extends Error {
   }
 }
 
-export type WriteForbiddenReason = 'system_readonly' | 'outside_allowlist';
+type WriteForbiddenReason = 'system_readonly' | 'outside_allowlist';
 
 export class PathNotInClawSpaceError extends PermissionError {
   readonly code: PermissionErrorCode = 'PATH_NOT_IN_CLAW_SPACE';
