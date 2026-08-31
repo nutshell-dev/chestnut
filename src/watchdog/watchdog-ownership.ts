@@ -45,7 +45,7 @@ export interface WatchdogOwnerRecord {
   created_at: string;
 }
 
-export interface WatchdogOutcomeRecord {
+interface WatchdogOutcomeRecord {
   schema_version: number;
   attempt_id: string;
   outcome: 'lost' | 'failed';
