@@ -63,7 +63,7 @@ export interface ContractEventGuidanceRef {
 }
 
 /** decoder 产出的 typed state（consumer 唯一依赖的稳定形状）。 */
-export interface ContractEventsGuidanceState {
+interface ContractEventsGuidanceState {
   readonly schemaVersion: 1;
   readonly contractRefs: readonly ContractEventGuidanceRef[];
 }
