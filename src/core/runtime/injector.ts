@@ -25,7 +25,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 /**
  * Context injector configuration
  */
-export interface ContextInjectorOptions {
+interface ContextInjectorOptions {
   /** File system instance */
   fs: FileSystem;
   /** Skill registry for skill metadata injection */
