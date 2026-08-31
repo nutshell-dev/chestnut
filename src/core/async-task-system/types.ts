@@ -54,7 +54,6 @@ export function taskShortId(task: { id: TaskId; shortId?: ShortTaskId | string }
   return task.shortId ? makeShortTaskId(task.shortId) : deriveShortIdFromTaskId(task.id);
 }
 
-export type DispatchCallerType = 'shadow_subagent' | 'miner_subagent';
 export type CallerType = 'spawn_subagent' | 'verifier' | 'shadow_subagent' | 'miner_subagent';
 
 /** Read-only task identity capability for query consumers. */
