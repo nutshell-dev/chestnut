@@ -33,7 +33,7 @@ export function isInboxEmpty(fs: FileSystem, audit: AuditLog): boolean {
 }
 
 /** 是否有活跃 contract（contracts/active 目录下有子目录）。读失败默 false（保守假定无活跃）。*/
-export function hasActiveContracts(fs: FileSystem, audit: AuditLog): boolean {
+function hasActiveContracts(fs: FileSystem, audit: AuditLog): boolean {
   try {
     return hasActiveContract(fs, '.');
   } catch (err) {
