@@ -79,14 +79,12 @@ import type {
   ContractProgressPersistedValidated,
   PersistedContractYamlSchema,
   SubtaskRuntimeRecordSchema,
-  VerificationAttemptRecordSchema,
 } from './schemas.js';
 export type ContractYaml = ContractYamlValidated;
 
 // Phase 1134: new-layout schema-derived types
 export type PersistedContractYaml = z.infer<typeof PersistedContractYamlSchema>;
 export type SubtaskRuntimeRecord = z.infer<typeof SubtaskRuntimeRecordSchema>;
-export type VerificationAttemptRecord = z.infer<typeof VerificationAttemptRecordSchema>;
 import {
   VERIFICATION_ATTEMPT_STATUSES_TUPLE,
 } from './status-tuples.js';
