@@ -29,7 +29,7 @@ export const WATCHDOG_OWNERSHIP_DIR = WATCHDOG_PATHS.root;
 export const WATCHDOG_CANDIDATES_DIR = WATCHDOG_PATHS.candidates;
 export const WATCHDOG_ACTIVE_DIR = WATCHDOG_PATHS.active;
 export const WATCHDOG_RETIRED_DIR = WATCHDOG_PATHS.retired;
-export const WATCHDOG_OWNER_FILE = 'owner.json';
+const WATCHDOG_OWNER_FILE = 'owner.json';
 const WATCHDOG_OUTCOME_FILE = 'outcome.json';
 export const WATCHDOG_TERMINAL_FILE = 'terminal.json';
 
