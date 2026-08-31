@@ -21,7 +21,7 @@ import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { WATCHDOG_PATHS } from './layout.js';
 import { getAuditWriter } from './watchdog-context.js';
 
-export const WATCHDOG_OWNERSHIP_SCHEMA_VERSION = 1;
+const WATCHDOG_OWNERSHIP_SCHEMA_VERSION = 1;
 
 // Phase 1287 Step B: 目录常量归 layout 协议唯一 owner；此处保留兼容导出
 // 名称（测试与内部调用契约），仅从 WATCHDOG_PATHS 派生、不再重复字面。
