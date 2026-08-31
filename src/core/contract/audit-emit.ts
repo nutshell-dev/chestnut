@@ -978,18 +978,6 @@ export function emitContractCreationInterrupted(
   );
 }
 
-export function emitContractCreationRecovered(
-  audit: AuditLog,
-  opts: { contractId: ContractId; startedAt: string },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreationRecovered')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CONTRACT_CREATION_RECOVERED,
-    `contractId=${opts.contractId}`,
-    `started_at=${opts.startedAt}`,
-  );
-}
-
 export function emitContractCreationRecoveryFailed(
   audit: AuditLog,
   opts: { contractId: ContractId; startedAt?: string; reason: string; error: string },
