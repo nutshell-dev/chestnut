@@ -124,19 +124,6 @@ export function emitContractProgressCorrupted(
   audit.write(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED, ...cols);
 }
 
-// ─── ROLLBACK_INCOMPLETE ────────────────────────────────────────────────────
-export function emitContractRollbackIncomplete(
-  audit: AuditLog,
-  opts: { contractId: ContractId; remaining: string },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractRollbackIncomplete')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.ROLLBACK_INCOMPLETE,
-    `contractId=${opts.contractId}`,
-    `remaining=${opts.remaining}`,
-  );
-}
-
 // ─── CREATED ────────────────────────────────────────────────────────────────
 export function emitContractCreated(
   audit: AuditLog,
