@@ -13,7 +13,7 @@ import {
   emitRecoveryFailed,
 } from './audit-emit.js';
 
-export interface PendingWatcherDeps {
+interface PendingWatcherDeps {
   fs: FileSystem;
   auditWriter: AuditLog;
   pendingDir: string;
