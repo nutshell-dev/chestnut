@@ -467,7 +467,7 @@ interface CancelledLifecycleIntent extends BaseLifecycleIntent {
   reason: string;
 }
 
-export interface CorruptedLifecycleIntent extends BaseLifecycleIntent {
+interface CorruptedLifecycleIntent extends BaseLifecycleIntent {
   requested_state: 'corrupted';
   evidence: ContractCorruptionEvidence;
 }
