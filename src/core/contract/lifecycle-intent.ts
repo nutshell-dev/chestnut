@@ -84,7 +84,7 @@ export interface ReadLifecycleIntentsResult {
   issues: LifecycleIntentIssue[];
 }
 
-export function lifecycleIntentDir(baseDir: string, contractId: ContractId): string {
+function lifecycleIntentDir(baseDir: string, contractId: ContractId): string {
   return path.join(baseDir, CONTRACT_LIFECYCLE_INTENTS_DIR, contractId);
 }
 
