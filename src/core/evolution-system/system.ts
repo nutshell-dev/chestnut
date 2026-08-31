@@ -67,7 +67,7 @@ export interface MotionResources {
 }
 
 /** target claw 构造 factory（运行期按 targetClaw 解析）。 */
-export interface ClawFactories {
+interface ClawFactories {
   /** 临时构建 target claw FileSystem 的 factory（assembly 注入 / 业务 0 触 L1 impl）*/
   clawFsFactory: (clawDir: string) => FileSystem;
   /** 临时构建 target claw ContractSystem 的 factory（assembly 注入 / 业务 0 触 L4 ctor）。
