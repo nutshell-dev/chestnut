@@ -42,7 +42,7 @@ export interface FootprintSpawn {
   step: number;
 }
 
-export interface FootprintSend {
+interface FootprintSend {
   to: string;
   step: number;
 }
