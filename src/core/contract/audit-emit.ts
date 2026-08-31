@@ -711,19 +711,6 @@ export function emitContractEventCollectorScanFailed(
   );
 }
 
-// ─── CONTRACT_DIR_SCAN_FAILED ─────────────────────────────────────────────────
-export function emitContractContractDirScanFailed(
-  audit: AuditLog,
-  opts: { dir: string; code: string; error: string },
-): void {
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
-    `dir=${opts.dir}`,
-    `code=${opts.code}`,
-    `error=${opts.error}`,
-  );
-}
-
 // ─── OBSERVER_STATE_LOAD_FAILED ───────────────────────────────────────────────
 export function emitContractObserverStateLoadFailed(
   audit: AuditLog,
