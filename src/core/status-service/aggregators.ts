@@ -34,7 +34,7 @@ export type TaskView =
   | { type: 'counts'; running: number; pending: number; pendingError?: string; runningError?: string }
   | { type: 'unavailable'; message: string };
 
-export type StorageMemoryView =
+type StorageMemoryView =
   | { type: 'size'; bytes: number }
   | { type: 'not-found' }
   | { type: 'error'; message: string };
