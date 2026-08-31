@@ -55,7 +55,7 @@ export interface CompletedContractRef {
 }
 
 /** Motion 侧资源（pending-retrospective 索引读取 + motion audit 路由）。 */
-export interface MotionResources {
+interface MotionResources {
   /** Motion agent 根目录的 FileSystem */
   motionFs: FileSystem;
   /** Motion agent 根目录绝对路径 */
