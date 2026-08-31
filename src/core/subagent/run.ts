@@ -79,7 +79,7 @@ export interface RunSubagentOptions {
 
 }
 
-export interface RunSubagentResult {
+interface RunSubagentResult {
   text: string;
   capturedResult?: unknown;
 }
