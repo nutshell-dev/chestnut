@@ -174,7 +174,7 @@ export type ContractLifecycleState = 'active' | ArchiveState;
  * 非终态契约的 status: pending + running (DerivableStatus 活动态)。
  * archive sweep 用、检测 archive 内仍含 ACTIVE status 的 stale entries。
  */
-export const ACTIVE_STATUSES_TUPLE = [
+const ACTIVE_STATUSES_TUPLE = [
   'pending',                      // DerivableStatus
   'running',                      // DerivableStatus
 ] as const;
