@@ -32,7 +32,7 @@ interface FootprintEdit {
   step: number;
 }
 
-export interface FootprintSubmit {
+interface FootprintSubmit {
   subtaskId: string;
   step: number;
 }
