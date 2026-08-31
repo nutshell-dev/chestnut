@@ -117,7 +117,7 @@ export function writeForceAcceptInbox(
  * Caller of writeVerificationError used to bundle this with retry handling;
  * now decomposed so each function has single responsibility.
  */
-export function notifyVerificationError(
+function notifyVerificationError(
   ctx: VerificationContext,
   contractId: ContractId,
   subtaskId: SubtaskId,
