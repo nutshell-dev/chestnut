@@ -9,7 +9,6 @@ export const CONTRACT_DIR = 'contract' as const;
 export const CONTRACT_ACTIVE_DIR = 'contract/active' as const;
 export const CONTRACT_PAUSED_DIR = 'contract/paused' as const;
 export const CONTRACT_ARCHIVE_DIR = 'contract/archive' as const;
-export const CONTRACT_ARCHIVE_CORRUPTED_DIR = 'contract/archive/corrupted' as const;
 export const CONTRACT_LIFECYCLE_INTENTS_DIR = 'contract/lifecycle-intents' as const;
 // Phase 1201 Step C: durable immutable verification outcome store (additive 资源、
 // 位于 active/archive 之外、不随 terminal rename 删除、非 lifecycle SoT)。
