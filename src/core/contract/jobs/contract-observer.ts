@@ -35,7 +35,7 @@ import { makeClawId } from '../../../foundation/claw-identity/index.js';
  */
 export const CONTRACT_OBSERVER_CRON_TIMEOUT_MS = 5 * 60_000;
 
-export interface ContractObserverOptions {
+interface ContractObserverOptions {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
   /** phase 101: caller (装配期) 算好的 motion dir (state file 位置) */
