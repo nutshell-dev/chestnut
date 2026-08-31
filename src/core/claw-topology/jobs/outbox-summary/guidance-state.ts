@@ -80,7 +80,7 @@ export interface OutboxSummaryGuidanceWire {
   readonly meta: Readonly<Record<string, string>>;
 }
 
-export type OutboxSummaryGuidanceDecodeErrorReason =
+type OutboxSummaryGuidanceDecodeErrorReason =
   | 'unknown_schema_version'
   | 'schema_invalid';
 
