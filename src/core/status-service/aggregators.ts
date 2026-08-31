@@ -43,7 +43,7 @@ type StorageClawspaceView =
   | { type: 'count'; files: number }
   | { type: 'error'; message: string };
 
-export interface StorageView {
+interface StorageView {
   memoryMd: StorageMemoryView;
   clawspace: StorageClawspaceView;
 }
