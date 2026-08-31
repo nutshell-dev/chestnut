@@ -7,8 +7,6 @@
  * RETRO_* 子域 events 已迁出至 ./retro-audit-events.ts（phase383 / r52 H 裁决 1+5）。
  */
 
-import type { IdNamingEntry } from '../../foundation/audit/index.js';
-
 export const CONTRACT_AUDIT_EVENTS = {
   PROGRESS_SCHEMA_INVALID: 'contract_progress_schema_invalid',  // ← NEW (phase 587)
   CONTRACT_YAML_SCHEMA_INVALID: 'contract_yaml_schema_invalid', // ← NEW (phase 587)
@@ -170,27 +168,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   VERIFICATION_OUTCOME_REPLAY: 'contract_verification_outcome_replay',
   VERIFICATION_OUTCOME_LATE: 'contract_verification_outcome_late',
 } as const;
-
-/**
- * Phase 140: contract 业主声明 ID-naming map.
- *
- * SoT: contract 模块 own ContractId / SubtaskId 语义。
- */
-export const CONTRACT_ID_NAMING: Readonly<Record<string, IdNamingEntry>> = {
-  contract: {
-    auditCol: 'contract_id',
-    dialogMeta: 'contract_id',  // inbox metadata
-    tsField: 'ContractId',      // brand type
-    cliFlag: '--col contract_id',
-  },
-  subtask: {
-    auditCol: 'subtask_id',
-    dialogMeta: 'subtask_id',
-    tsField: 'SubtaskId',       // brand type
-    cliFlag: '--col subtask_id',
-  },
-} as const;
-
 
 /**
  * Phase 163 业主声明 file 归属（phase 122 §5.A + §6.7 + phase 159 模式）.
