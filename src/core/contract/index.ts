@@ -74,6 +74,7 @@ export {
   encodeContractEventsGuidance,
   decodeContractEventsGuidance,
 } from './contract-events-guidance.js';
+export type { ContractEventsGuidanceState } from './contract-events-guidance.js';
 
 // phase 1262 Step A: ContractSystem-owned contract_cancelled persisted guidance codec
 export {
