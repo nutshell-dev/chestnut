@@ -50,7 +50,7 @@ export interface PrimitiveStreamCallbacks {
   ) => void;
 }
 
-export interface StreamCallbacksHandle {
+interface StreamCallbacksHandle {
   callbacks: PrimitiveStreamCallbacks;
   safeSwWrite: (event: StreamEvent) => void;
   closeSw: () => void;
