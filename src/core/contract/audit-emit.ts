@@ -843,19 +843,6 @@ export function emitContractCreationInterrupted(
 }
 
 // ─── LIFECYCLE_INTENT (Phase 1198 Step A) ───────────────────────────────────
-export function emitLifecycleIntentPersisted(
-  audit: AuditLog,
-  opts: { contractId: ContractId; requestId: string; requestedState: string },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitLifecycleIntentPersisted')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_PERSISTED,
-    `contractId=${opts.contractId}`,
-    `requestId=${opts.requestId}`,
-    `requested_state=${opts.requestedState}`,
-  );
-}
-
 export function emitLifecycleIntentReadIssue(
   audit: AuditLog,
   opts: { contractId: string; requestId: string; reason: string; detail?: string },
