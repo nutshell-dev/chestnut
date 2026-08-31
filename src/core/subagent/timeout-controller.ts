@@ -17,7 +17,7 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../ste
 import { makeExternalAbortError, type AbortReason } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
 
-export interface TimeoutControllerOptions {
+interface TimeoutControllerOptions {
   timeoutMs: number;
   idleTimeoutMs?: number;
   onIdleTimeout?: () => void;
