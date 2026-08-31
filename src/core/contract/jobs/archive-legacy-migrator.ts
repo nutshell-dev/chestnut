@@ -31,7 +31,7 @@ const MIGRABLE_STATUSES: Readonly<Record<string, ArchiveState>> = {
   archive_corrupted: 'corrupted',
 } as const;
 
-export interface ArchiveLegacyMigratorContext {
+interface ArchiveLegacyMigratorContext {
   fs: FileSystem;
   audit: AuditLog;
 }
