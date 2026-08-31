@@ -8,6 +8,3 @@ export const OUTBOX_SUMMARY_AUDIT_EVENTS = {
   OUTBOX_SUMMARY_WRITTEN: 'cron_outbox_summary_written',
   OUTBOX_SUMMARY_FAILED: 'cron_outbox_summary_failed',
 } as const;
-
-export type OutboxSummaryAuditEvent =
-  typeof OUTBOX_SUMMARY_AUDIT_EVENTS[keyof typeof OUTBOX_SUMMARY_AUDIT_EVENTS];
