@@ -22,7 +22,7 @@ import {
 } from '../contract-cancelled-guidance.js';
 
 /** phase 101: DI callback - caller (装配期) bind fs + chestnutRoot + MOTION_CLAW_ID + audit */
-export type NotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
+type NotifyMotionFn = (message: InboxMessageOptionsBase) => Promise<void>;
 import type { CronJob } from '../../../foundation/cron/index.js';
 import { parseSchedule } from '../../../foundation/cron/index.js';
 import type { CronJobGlobalConfig } from '../../../foundation/cron/index.js';
