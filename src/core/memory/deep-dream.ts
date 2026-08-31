@@ -662,8 +662,6 @@ export type { SessionFile as __test_SessionFile };
 /** @internal test-only export (phase 923) */
 export const __test_persistDreamRun = persistDreamRun;
 /** @internal test-only export (phase 923) */
-export const __test_runDeepDreamForClaw = runDeepDreamForClaw;
-/** @internal test-only export (phase 923) */
 export type { ProcessResult as __test_ProcessResult };
 
 // Phase 1162 Step D: test-only exports for durable delivery behavior.
