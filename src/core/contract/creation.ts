@@ -27,7 +27,7 @@ export const ContractCreationIntentSchema = z.object({
 
 export type ContractCreationIntent = z.infer<typeof ContractCreationIntentSchema>;
 
-export type ActivePublication =
+type ActivePublication =
   | { kind: 'unpublished'; reason: 'creating' }
   | { kind: 'published' };
 
