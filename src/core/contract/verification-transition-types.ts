@@ -59,8 +59,3 @@ export interface VerificationTransitionLate {
   actualAttemptId?: string;
 }
 
-export type VerificationTransitionResult =
-  | VerificationTransitionSuccess
-  | VerificationTransitionSkipped
-  | VerificationTransitionLate;
-
