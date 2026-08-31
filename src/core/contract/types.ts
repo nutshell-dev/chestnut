@@ -447,7 +447,7 @@ export interface ContractCorruptionEvidence {
 // Phase 1198 Step A: immutable lifecycle intent types
 // ============================================================================
 
-export type LifecycleIntentState = ArchiveState;
+type LifecycleIntentState = ArchiveState;
 
 interface BaseLifecycleIntent {
   schema_version: 1;
