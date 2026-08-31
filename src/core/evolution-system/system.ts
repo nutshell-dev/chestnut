@@ -33,7 +33,7 @@ interface EvolutionSystemDeps {
   motionReviewContext: MotionReviewContext;
 }
 
-export interface RetroResult {
+interface RetroResult {
   status:
     | 'submitted'
     | 'already_submitted'
