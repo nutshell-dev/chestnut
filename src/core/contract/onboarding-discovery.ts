@@ -15,7 +15,7 @@ import {
 import { listArchiveContractLocations, archiveContainerDir } from './locations.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
-export type OnboardingStatusKind = 'not_found' | 'in_progress' | 'complete';
+type OnboardingStatusKind = 'not_found' | 'in_progress' | 'complete';
 
 export interface OnboardingStatus {
   state: OnboardingStatusKind;
