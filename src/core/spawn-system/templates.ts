@@ -7,7 +7,7 @@
 
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 
-export const SPAWN_TEMPLATES = {
+const SPAWN_TEMPLATES = {
   default: DEFAULT_SUBAGENT_SYSTEM_PROMPT,
 } as const satisfies Record<string, string>;
 
