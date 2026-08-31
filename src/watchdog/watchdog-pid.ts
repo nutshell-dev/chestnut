@@ -161,7 +161,7 @@ export function removeWatchdogPidIfOwner(fsFactory: (baseDir: string) => FileSys
 
 // === Legacy watchdog.pid 处置（Phase 1203 Step D） ===
 
-export type LegacyPidDisposition =
+type LegacyPidDisposition =
   | { kind: 'none' }
   | { kind: 'live'; pid: number }
   | { kind: 'foreign_live'; pid: number; root: string }
