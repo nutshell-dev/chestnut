@@ -106,7 +106,7 @@ export type WatchdogGenerationTerminal =
   | { kind: 'crashed'; reason: string; recorded_at: string }
   | { kind: 'unclean'; detected_at: string; detected_by_pid: number };
 
-export type RecordTerminalResult =
+type RecordTerminalResult =
   | { kind: 'recorded'; terminal: WatchdogGenerationTerminal }
   | { kind: 'already_recorded'; terminal: WatchdogGenerationTerminal }
   | { kind: 'no_active' }
