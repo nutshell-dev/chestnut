@@ -63,7 +63,7 @@ export class ProcessedResultUnsupportedVersionError extends Error {
 }
 
 /** In-memory → disk codec (snake_case). The only envelope serializer. */
-export function envelopeToDiskJson(result: ProcessedTaskResult): string {
+function envelopeToDiskJson(result: ProcessedTaskResult): string {
   return JSON.stringify({
     schema_version: 1,
     content: result.content,
