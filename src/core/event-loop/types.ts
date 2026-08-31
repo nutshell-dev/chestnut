@@ -84,13 +84,6 @@ export interface LoopErrorContext {
   signal?: AbortSignal;
 }
 
-/**
- * Phase 1268 Step D: EventLoop-owned waiting 状态的结构化 stream 事件。
- * owner 只递交 presentation/recovery 所需字段（M#5/M#8）；
- * attempt 在 retry stage 为 1-based 已消费次数，cooldown stage 为耗尽 attempts。
- */
-export type LLMRetryWaitingStreamAction = 'scheduled' | 'gated' | 'released';
-
 interface LLMRequestBlockedBase {
   version: 2;
   requestFingerprint: string;
