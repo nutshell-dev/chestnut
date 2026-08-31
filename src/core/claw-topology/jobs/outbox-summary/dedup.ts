@@ -14,7 +14,7 @@ import type { InboxReader, ScannedInboxLocation } from '../../../../foundation/m
 export const DEDUP_DONE_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const SUMMARY_HASH_META_KEY = 'summary-hash' as const;
 
-export type DedupHit = ScannedInboxLocation | null;
+type DedupHit = ScannedInboxLocation | null;
 
 interface DedupDeps {
   inboxReader: InboxReader;
