@@ -23,7 +23,7 @@ interface StatusMotionGuidanceFacts {
   readonly note: string;
 }
 
-export interface StatusMotionGuidanceVerb {
+interface StatusMotionGuidanceVerb {
   /** verb 关键字 + 必要 args 占位（subject-first 形态、由 composer 在前面拼 binary）。 */
   readonly fragment: string;
   /** 该 verb 的 motion 视角语义（单行简述、用户可读）。 */
