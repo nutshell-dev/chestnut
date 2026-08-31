@@ -38,7 +38,7 @@ export interface ContractCompletedNotification {
   readonly completedAt: string;
 }
 
-export interface ContractCancelledNotification {
+interface ContractCancelledNotification {
   readonly type: 'contract_cancelled';
   readonly contractId: ContractId;
   readonly reason: string;
