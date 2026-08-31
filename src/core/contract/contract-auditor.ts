@@ -35,7 +35,7 @@ interface AuditorDrift {
   evidence: string;
 }
 
-export interface AuditorVerdict {
+interface AuditorVerdict {
   on_track: boolean;
   drifts: AuditorDrift[];
   next_focus_suggestion: string;
