@@ -19,7 +19,7 @@ import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/index.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
-export interface NotifyClawDeps {
+interface NotifyClawDeps {
   fs: FileSystem;
   /**
    * phase 705: caller-provided delivery callback；L4+ caller 负责解析 chestnut 拓扑路径。
