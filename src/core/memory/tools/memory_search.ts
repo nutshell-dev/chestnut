@@ -9,7 +9,7 @@ import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileEntry } from '../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { MEMORY_DIR } from '../memory-paths.js';
-export const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
+const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
 
 /**
  * Default cap on memory search results returned to agent.
