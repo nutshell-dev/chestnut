@@ -64,8 +64,3 @@ export type VerificationTransitionResult =
   | VerificationTransitionSkipped
   | VerificationTransitionLate;
 
-export interface TransitionApplicationFailure {
-  success: false;
-  reason: string;
-}
-
