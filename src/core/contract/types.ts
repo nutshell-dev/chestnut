@@ -179,7 +179,7 @@ const ACTIVE_STATUSES_TUPLE = [
   'running',                      // DerivableStatus
 ] as const;
 
-export type ActiveStatus = (typeof ACTIVE_STATUSES_TUPLE)[number];
+type ActiveStatus = (typeof ACTIVE_STATUSES_TUPLE)[number];
 
 export const ACTIVE_STATUSES: ReadonlySet<ActiveStatus> = new Set(ACTIVE_STATUSES_TUPLE);
 
