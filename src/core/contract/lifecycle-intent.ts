@@ -72,7 +72,7 @@ export const FailedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
   failure: ContractFailureSchema,
 }).strict();
 
-export const LifecycleIntentSchema = z.discriminatedUnion('requested_state', [
+const LifecycleIntentSchema = z.discriminatedUnion('requested_state', [
   CompletedLifecycleIntentSchema,
   CancelledLifecycleIntentSchema,
   CorruptedLifecycleIntentSchema,
