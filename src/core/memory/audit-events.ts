@@ -30,19 +30,6 @@ export const MEMORY_AUDIT_EVENTS = {
   DREAM_STATE_FUTURE_VERSION: 'memory_dream_state_future_version',             // NEW phase 926
 } as const;
 
-
-/**
- * Phase 216 Step B: per-event col schema (mirror phase 140 §6.8 + phase 180 cron 模式).
- * 仅 RANDOM_DREAM_ERROR 升 β 第 2 步，其他 events 渐进。
- */
-export const MEMORY_COLS: Readonly<Record<string, readonly { name: string; type: 'string' | 'number' | 'boolean'; required: boolean }[]>> = {
-  [MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR]: [
-    { name: 'site', type: 'string', required: true },     // 替原 step=、表 error 发生的代码 site location
-    { name: 'reason', type: 'string', required: true },   // shape_mismatch / ENOENT / parse_failed 等
-    { name: 'got', type: 'string', required: false },     // 实然类型 hint (typeof parsed)
-  ],
-} as const;
-
 /**
  * Phase 163 业主声明 file 归属（phase 122 §5.A + §6.7 + phase 159 模式）.
  *
