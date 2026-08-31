@@ -53,9 +53,3 @@ export interface VerificationTransitionSkipped {
   reason: string;
 }
 
-export interface VerificationTransitionLate {
-  kind: 'late';
-  expectedAttemptId: string;
-  actualAttemptId?: string;
-}
-
