@@ -73,7 +73,7 @@ export interface TrimV2Options {
   audit?: AuditWriter;
 }
 
-export interface TrimV2Result {
+interface TrimV2Result {
   outcome: TrimCandidateOutcome;
   droppedMessages: Message[];
   metrics: {
