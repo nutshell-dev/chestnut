@@ -35,7 +35,7 @@ import { makeContractId } from './types.js';
 import type { ContractId } from './types.js';
 
 /** 当前 writer 持久化的 schema version（string wire value）。 */
-export const CONTRACT_EVENTS_GUIDANCE_SCHEMA_VERSION = '1' as const;
+const CONTRACT_EVENTS_GUIDANCE_SCHEMA_VERSION = '1' as const;
 
 /** owner-local wire key（metadata key，仅此文件声明）。 */
 const WIRE_KEYS = {
