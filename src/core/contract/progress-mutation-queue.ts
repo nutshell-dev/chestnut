@@ -32,7 +32,7 @@ import {
  * Typed mutation kinds. Step A introduces the primitive; later steps route
  * business mutations through these kinds.
  */
-export type ProgressMutationKind =
+type ProgressMutationKind =
   | 'sync_complete'
   | 'attempt_start'
   | 'attempt_pass'
