@@ -29,7 +29,3 @@ export interface StreamCallbacks {
   /** Provider failed, failover continuing to next provider */
   onProviderFailed?: (info: { provider: string; model: string; error: string }) => void;
 }
-
-export interface DaemonStreamCallbacks extends StreamCallbacks {
-  onInboxMessages?: (messages: import('../../foundation/messaging/index.js').InboxMessage[]) => Promise<void>;
-}
