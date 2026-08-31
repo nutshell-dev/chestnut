@@ -10,5 +10,3 @@ export const SUMMON_CALLER_TYPES = {
   /** Legacy v1 miner path; preserved only for recovering persisted miner tasks. */
   MINER: 'miner_subagent',
 } as const;
-
-export type SummonCallerType = typeof SUMMON_CALLER_TYPES[keyof typeof SUMMON_CALLER_TYPES];
