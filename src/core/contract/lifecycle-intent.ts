@@ -61,7 +61,7 @@ export const CorruptedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
 }).strict();
 
 /** Phase 1396 Step D: typed execution-failure payload for failed intents. */
-export const ContractFailureSchema = z.object({
+const ContractFailureSchema = z.object({
   reason: z.string().min(1),
   evidenceRef: z.string().min(1),
   producer: z.string().min(1),
