@@ -332,7 +332,7 @@ interface ArchivedContractEntry {
 /**
  * phase 950: 结构化 scan 结果，使 caller 能感知扫描是否完整。
  */
-export interface ArchivedContractScanResult {
+interface ArchivedContractScanResult {
   entries: ArchivedContractEntry[];
   /** true when at least one contract could not be parsed / validated / read */
   incomplete: boolean;
