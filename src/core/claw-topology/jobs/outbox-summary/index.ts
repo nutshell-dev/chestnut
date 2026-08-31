@@ -40,7 +40,7 @@ export interface OutboxSummaryJobOptions {
   signal?: AbortSignal;
 }
 
-export interface OutboxSummaryJobDeps {
+interface OutboxSummaryJobDeps {
   clawTopology: ClawTopology;
   fs: FileSystem;
   audit: AuditLog;
