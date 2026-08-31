@@ -16,7 +16,7 @@ export const SUMMARY_HASH_META_KEY = 'summary-hash' as const;
 
 export type DedupHit = ScannedInboxLocation | null;
 
-export interface DedupDeps {
+interface DedupDeps {
   inboxReader: InboxReader;
 }
 
