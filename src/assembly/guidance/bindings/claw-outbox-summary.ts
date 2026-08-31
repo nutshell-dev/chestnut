@@ -24,10 +24,16 @@
  * CLIProtocol public barrel；不 import GuidanceComposer/GuidanceEntry/registry。
  */
 
-import { defineCliGuidanceBinding } from '../../../cli-protocol/index.js';
+import { defineCliGuidanceBinding, type CliGuidanceBinding } from '../../../cli-protocol/index.js';
 import { decodeOutboxSummaryGuidance } from '../../../core/claw-topology/index.js';
 
-export const clawOutboxSummaryGuidanceBinding = defineCliGuidanceBinding({
+/**
+ * owner decoded state 类型（Phase 1678 Step F：owner interface 已 localize 不可跨模块命名，
+ * 经公开 decode 函数返回推导；本 exported const 的 declaration emit 需可命名类型）。
+ */
+type OutboxSummaryGuidanceDecodedState = ReturnType<typeof decodeOutboxSummaryGuidance>;
+
+export const clawOutboxSummaryGuidanceBinding: CliGuidanceBinding<OutboxSummaryGuidanceDecodedState> = defineCliGuidanceBinding({
   type: 'claw_outbox_summary',
   decode: decodeOutboxSummaryGuidance,
   toDocument(state) {
