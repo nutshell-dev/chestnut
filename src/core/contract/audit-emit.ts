@@ -774,21 +774,6 @@ export function emitContractFileIsolated(
   );
 }
 
-// ─── ARCHIVE_PRECONDITION_VIOLATED ──────────────────────────────────────────
-export function emitContractArchivePreconditionViolated(
-  audit: AuditLog,
-  opts: {
-    contractId: ContractId;
-    status: string;
-    context?: string;
-  },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchivePreconditionViolated')) return;
-  const cols: string[] = [`contractId=${opts.contractId}`, `status=${opts.status}`];
-  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_PRECONDITION_VIOLATED, ...cols);
-}
-
 // ─── ARCHIVE_RECONCILE_STALE ────────────────────────────────────────────────
 export function emitContractArchiveReconcileStale(
   audit: AuditLog,
