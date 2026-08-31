@@ -50,7 +50,7 @@ export interface ContractAuditorDeps {
   maxOutputTokens?: number;
 }
 
-export interface AuditRequest {
+interface AuditRequest {
   contractId: string;
   contractTitle: string;
   clawId: ClawId;
