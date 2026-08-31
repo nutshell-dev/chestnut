@@ -27,7 +27,7 @@ import { makeContractId } from './types.js';
 import { classifyActivePublicationSync, isActivePublished } from './creation.js';
 
 /** Lightweight contract summary for enumeration (CLI list / health check scenarios). */
-export interface ContractSummary {
+interface ContractSummary {
   /** Contract directory name (ts-hash format). */
   contractId: string;
   /** Title field from contract.yaml. Empty string if unreadable. */
