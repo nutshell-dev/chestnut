@@ -78,7 +78,7 @@ export interface ContractEventsGuidanceWire {
   readonly meta: Readonly<Record<string, string>>;
 }
 
-export type ContractEventsGuidanceDecodeErrorReason =
+type ContractEventsGuidanceDecodeErrorReason =
   | 'unknown_schema_version'
   | 'schema_invalid';
 
