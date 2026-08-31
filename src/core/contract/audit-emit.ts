@@ -679,18 +679,6 @@ export function emitContractCompletedHandlerFailed(
   );
 }
 
-// ─── EVENT_COLLECTOR_SCAN_FAILED ──────────────────────────────────────────────
-export function emitContractEventCollectorScanFailed(
-  audit: AuditLog,
-  opts: { path: string; reason: string },
-): void {
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
-    `path=${opts.path}`,
-    `reason=${opts.reason}`,
-  );
-}
-
 // ─── OBSERVER_STATE_LOAD_FAILED ───────────────────────────────────────────────
 export function emitContractObserverStateLoadFailed(
   audit: AuditLog,
