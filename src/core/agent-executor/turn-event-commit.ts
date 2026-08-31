@@ -16,7 +16,7 @@
 
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 
-export type TurnEvent =
+type TurnEvent =
   | { kind: 'text_end' }
   | { kind: 'tool_call'; name: string; toolUseId: ToolUseId }
   | { kind: 'tool_result'; name: string; toolUseId: ToolUseId; result: { success: boolean; content: string }; step: number; maxSteps: number };
