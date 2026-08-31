@@ -38,7 +38,7 @@ export const SUBAGENT_AUDIT_EVENTS = {
 
 type PartialAssistantDiscardCause = 'all_providers_failed' | 'idle_timeout' | 'unknown';
 
-export interface PartialAssistantDiscardInfo {
+interface PartialAssistantDiscardInfo {
   cause: PartialAssistantDiscardCause;
   toolUseCount: number;
   hasText: boolean;
