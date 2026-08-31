@@ -21,7 +21,7 @@ import { AUDIT_FILE } from '../../foundation/audit/index.js';
  */
 const RECENT_EXEC_N_DEFAULT = 50;
 
-export interface FootprintWrite {
+interface FootprintWrite {
   file: string;
   bytes: number;
   step: number;
