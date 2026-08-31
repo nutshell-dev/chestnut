@@ -108,7 +108,7 @@ export async function listPhysicalActiveContractIds(opts: {
   return results.sort();
 }
 
-export function isArchiveStateContainer(name: string): name is ArchiveState {
+function isArchiveStateContainer(name: string): name is ArchiveState {
   return (ARCHIVE_STATES as ReadonlySet<string>).has(name);
 }
 
