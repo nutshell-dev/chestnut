@@ -11,7 +11,7 @@ const SPAWN_TEMPLATES = {
   default: DEFAULT_SUBAGENT_SYSTEM_PROMPT,
 } as const satisfies Record<string, string>;
 
-export type SpawnTemplateName = keyof typeof SPAWN_TEMPLATES;
+type SpawnTemplateName = keyof typeof SPAWN_TEMPLATES;
 
 export const DEFAULT_SPAWN_TEMPLATE: SpawnTemplateName = 'default';
 
