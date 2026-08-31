@@ -6,8 +6,6 @@
  * decoupled from both public types.ts and repository internals.
  */
 
-import type { SubtaskRuntimeRecord } from './types.js';
-
 export type VerificationAttemptTransition =
   | {
       kind: 'start';
@@ -41,10 +39,4 @@ export type VerificationAttemptTransition =
       cause?: 'daemon_restart';
       feedback?: string;
     };
-
-export interface VerificationTransitionSuccess {
-  kind: 'updated';
-  record: SubtaskRuntimeRecord;
-  prior: SubtaskRuntimeRecord;
-}
 
