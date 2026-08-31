@@ -1,6 +1,6 @@
 import { formatErr } from '../../foundation/node-utils/index.js';
 
-export type AgentErrorCode =
+type AgentErrorCode =
   | 'MAX_STEPS_EXCEEDED'
   | 'CONSECUTIVE_PARSE_ERRORS_EXCEEDED'
   | 'CONSECUTIVE_MAX_TOKENS_TOOL_USE_EXCEEDED'
