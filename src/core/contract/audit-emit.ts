@@ -654,18 +654,6 @@ export function emitContractCompletedHandlerFailed(
   );
 }
 
-// ─── OBSERVER_STATE_LOAD_FAILED ───────────────────────────────────────────────
-export function emitContractObserverStateLoadFailed(
-  audit: AuditLog,
-  opts: { path: string; reason: string },
-): void {
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
-    `path=${opts.path}`,
-    `reason=${opts.reason}`,
-  );
-}
-
 // ─── VERIFICATION_PIPELINE_RACE_REJECTED ─────────────────────────────────────
 export function emitContractVerificationPipelineRaceRejected(
   audit: AuditLog,
