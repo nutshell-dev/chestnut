@@ -80,7 +80,7 @@ export interface WatchdogOwnership {
   record: WatchdogOwnerRecord;
 }
 
-export type CommitOwnership =
+type CommitOwnership =
   | { kind: 'committed'; ownership: WatchdogOwnership }
   | { kind: 'already_owned'; owner: WatchdogOwnerRecord }
   | { kind: 'foreign_owned'; owner: WatchdogOwnerRecord }
