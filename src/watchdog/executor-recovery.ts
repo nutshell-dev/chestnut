@@ -155,7 +155,7 @@ async function makeContractFailureSink(
 }
 
 /** Deps for maybeCronExecutorRecovery. */
-export interface ExecutorRecoveryDeps {
+interface ExecutorRecoveryDeps {
   pm: ProcessManager;
   audit: AuditLog;
   fsFactory: (baseDir: string) => FileSystem;
