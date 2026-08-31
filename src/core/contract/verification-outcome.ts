@@ -29,7 +29,7 @@ import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 export const VERIFICATION_OUTCOME_SCHEMA_VERSION = 1 as const;
 
 const RejectCauseSchema = z.enum(['llm_rejected', 'script_failed', 'programming_bug', 'subagent_timeout']);
-export type VerificationOutcomeRejectCause = z.infer<typeof RejectCauseSchema>;
+type VerificationOutcomeRejectCause = z.infer<typeof RejectCauseSchema>;
 
 const VerificationResultFactSchema = z.object({
   passed: z.boolean(),
