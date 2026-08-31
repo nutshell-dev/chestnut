@@ -60,7 +60,7 @@ export interface WatchdogStateMigrationOutcome {
   detail?: string;
 }
 
-export interface WatchdogStateMigrationJournal {
+interface WatchdogStateMigrationJournal {
   intent?: WatchdogStateMigrationIntent;
   outcome?: WatchdogStateMigrationOutcome;
 }
