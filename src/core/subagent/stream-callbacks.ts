@@ -22,7 +22,7 @@ import { createSendContentTracker, feedSendContentDelta } from '../../foundation
 
 
 
-export interface StreamCallbacksOptions {
+interface StreamCallbacksOptions {
   streamWriter: StreamLog;
   auditWriter: AuditLog;
   agentId: string;
