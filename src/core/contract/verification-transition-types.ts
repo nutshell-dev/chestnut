@@ -64,11 +64,6 @@ export type VerificationTransitionResult =
   | VerificationTransitionSkipped
   | VerificationTransitionLate;
 
-export interface TransitionApplication {
-  success: true;
-  record: SubtaskRuntimeRecord;
-}
-
 export interface TransitionApplicationFailure {
   success: false;
   reason: string;
