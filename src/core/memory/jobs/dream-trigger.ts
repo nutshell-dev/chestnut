@@ -9,7 +9,7 @@ import type { MemorySystem } from '../system.js';
  * 业务执行体（runDeepDream + runRandomDream）归 MemorySystem。
  * phase 237 物理迁出 cron/jobs/（per drift-backlog B.phase197-cron-jobs-业务归属未彻底分散 升档 (a)）。
  */
-export const DREAM_TRIGGER_CRON_TIMEOUT_MS = 30 * 60_000;  // 30 min
+const DREAM_TRIGGER_CRON_TIMEOUT_MS = 30 * 60_000;  // 30 min
 
 export interface DreamTriggerJobDeps {
   memorySystem: MemorySystem;
