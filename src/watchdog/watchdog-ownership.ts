@@ -86,7 +86,7 @@ export type CommitOwnership =
   | { kind: 'foreign_owned'; owner: WatchdogOwnerRecord }
   | { kind: 'retryable_failure'; attemptId: string; cause: unknown };
 
-export type ActiveInspection =
+type ActiveInspection =
   | { status: 'none' }
   | { status: 'ok'; owner: WatchdogOwnerRecord }
   | { status: 'malformed'; cause: unknown };
