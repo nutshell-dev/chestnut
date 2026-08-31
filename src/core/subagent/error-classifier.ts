@@ -22,7 +22,7 @@ import { ExternalAbortError } from '../../foundation/llm-provider/index.js';
 import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
 import { REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
 
-export interface ClassifyErrorOptions {
+interface ClassifyErrorOptions {
   error: unknown;
   safeSwWrite: (event: StreamEvent) => void;
   auditWriter: AuditLog;
