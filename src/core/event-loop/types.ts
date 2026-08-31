@@ -110,13 +110,6 @@ export interface LLMRetryWaitingStreamEvent {
   errorClass: RecoverableLLMErrorClass;
 }
 
-export type LLMRequestBlockedReason =
-  | 'no_progress'
-  | 'policy_conflict'
-  | 'retry_exhausted'
-  | 'invalid_request'
-  | 'permanent_provider_error';
-
 interface LLMRequestBlockedBase {
   version: 2;
   requestFingerprint: string;
