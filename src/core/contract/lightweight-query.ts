@@ -195,7 +195,7 @@ export function listLegacyPausedContracts(
 /**
  * Contract metadata (started_at + title) from progress.json.
  */
-export interface ContractMetadata {
+interface ContractMetadata {
   started_at?: string;
   title?: string;
 }
