@@ -30,7 +30,7 @@ import type { ClawId } from '../../foundation/claw-identity/index.js';
  */
 const DEFAULT_AUDITOR_MAX_OUTPUT_TOKENS = 1024;
 
-export interface AuditorDrift {
+interface AuditorDrift {
   what: string;
   evidence: string;
 }
