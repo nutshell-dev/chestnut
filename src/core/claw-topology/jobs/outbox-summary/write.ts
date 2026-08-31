@@ -18,7 +18,7 @@ import type { OutboxSummaryState } from './types.js';
 
 export const SUMMARY_INBOX_TYPE = 'claw_outbox_summary';
 
-export interface WriteDeps {
+interface WriteDeps {
   inboxWriter: InboxWriter;
   audit: AuditLog;
   now?: () => number;
