@@ -27,7 +27,7 @@ export interface FootprintWrite {
   step: number;
 }
 
-export interface FootprintEdit {
+interface FootprintEdit {
   file: string;
   step: number;
 }
