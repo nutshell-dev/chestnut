@@ -38,7 +38,7 @@ export const watchdogWorkspaceConfigFileSchema = watchdogConfigSchema.extend({
   schema_version: z.literal(WATCHDOG_LAYOUT_SCHEMA_VERSION),
 });
 
-export type WatchdogWorkspaceConfigFile = z.infer<typeof watchdogWorkspaceConfigFileSchema>;
+type WatchdogWorkspaceConfigFile = z.infer<typeof watchdogWorkspaceConfigFileSchema>;
 
 /** fresh init 默认 workspace watchdog config（只有 fresh init 才允许创建默认配置）。 */
 export function createDefaultWatchdogWorkspaceConfig(): WatchdogWorkspaceConfigFile {
