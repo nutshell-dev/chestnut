@@ -31,7 +31,7 @@ interface ContractCreatedEvidence {
  * Phase 1396 Step B 起 evidence 只作审计交叉验证（不再是创建 authority），
  * 读失败只产生 audit，不再改变判定。
  */
-export class SubAuditReadError extends Error {
+class SubAuditReadError extends Error {
   constructor(
     public readonly path: string,
     public readonly cause: unknown,
