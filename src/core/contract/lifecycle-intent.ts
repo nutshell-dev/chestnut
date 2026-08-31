@@ -24,7 +24,7 @@ import {
 } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
-export const LIFECYCLE_INTENT_SCHEMA_VERSION = 1 as const;
+const LIFECYCLE_INTENT_SCHEMA_VERSION = 1 as const;
 
 const ContractCorruptionEvidenceSchema = z.object({
   reason: z.enum([
