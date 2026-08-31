@@ -114,7 +114,7 @@ type RecordTerminalResult =
   | { kind: 'malformed'; cause: unknown }
   | { kind: 'failed'; cause: unknown };
 
-export type TerminalInspection =
+type TerminalInspection =
   | { status: 'none' }
   | { status: 'ok'; terminal: WatchdogGenerationTerminal }
   | { status: 'malformed'; cause: unknown };
