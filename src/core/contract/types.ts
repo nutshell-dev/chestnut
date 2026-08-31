@@ -391,7 +391,7 @@ export type ArchiveTime =
   | { kind: 'known'; recordedAt: string; epochMs: number; source: 'terminal_audit' }
   | { kind: 'unknown'; reason: ArchiveTimeUnknownReason };
 
-export type ArchiveQueryIssueCode =
+type ArchiveQueryIssueCode =
   | ArchiveTimeUnknownReason
   | 'claw_resolve_failed'
   | 'remote_claw_unsupported'
