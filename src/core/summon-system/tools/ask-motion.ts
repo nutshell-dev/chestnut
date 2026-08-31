@@ -10,7 +10,7 @@ import { formatErr } from '../../../foundation/node-utils/index.js';
 import { isAbortError } from '../../../foundation/llm-provider/index.js';
 export const ASK_MOTION_TOOL_NAME = 'ask_motion' as const;
 
-export const ASK_MOTION_TOOL_DESCRIPTION = `向 Motion 分身提问，获取 Motion 对用户意图、背景、偏好的判断。
+const ASK_MOTION_TOOL_DESCRIPTION = `向 Motion 分身提问，获取 Motion 对用户意图、背景、偏好的判断。
 分身继承 Motion 完整上下文（系统提示 + 当前对话历史），多轮问答自动累积。
 适用场景：用户意图模糊、不确定目标 claw、需确认优先级或约束等。`;
 
