@@ -9,7 +9,7 @@
 import type { MotionRestartState } from './watchdog-context.js';
 import type { ProcessSpawnConflictReason } from '../foundation/process-manager/index.js';
 
-export type MotionRestartDecision =
+type MotionRestartDecision =
   | { action: 'healthy'; state: MotionRestartState; recoveredAttempts: number }
   | { action: 'defer'; state: MotionRestartState; waitMs: number }
   | { action: 'circuit_open'; state: MotionRestartState; justOpened: boolean }
