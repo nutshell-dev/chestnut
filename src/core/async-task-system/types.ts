@@ -234,7 +234,7 @@ export type TaskExecutor = (
  * must never be guessed into a process-group identity (legacy processes were
  * not detached group leaders).
  */
-export interface MigratedExecutionV1 {
+interface MigratedExecutionV1 {
   version: 1;
   leaderPid: number;
   processGroupId: number;
