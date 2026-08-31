@@ -83,7 +83,7 @@ export const VerificationOutcomeSchema = z.discriminatedUnion('kind', [
 
 export type VerificationOutcomeIntent = z.infer<typeof VerificationOutcomeSchema>;
 
-export type VerificationOutcomeIssueReason =
+type VerificationOutcomeIssueReason =
   | 'parse_failed'
   | 'schema_invalid'
   | 'identity_mismatch'
