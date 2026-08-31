@@ -77,7 +77,7 @@ export async function scanSubAuditForContracts(
  * Phase 1396 Step C: 统一失败 envelope 标记。
  * summon 失败 = contract 创建未完成（reason 一行、不含内部恢复处方）。
  */
-export const SUMMON_CONTRACT_CREATION_FAILED_ERROR = 'summon_contract_creation_failed' as const;
+const SUMMON_CONTRACT_CREATION_FAILED_ERROR = 'summon_contract_creation_failed' as const;
 
 function buildFailureResult(reason: string): ProcessedTaskResult {
   return {
