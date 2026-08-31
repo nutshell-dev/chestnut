@@ -21,7 +21,7 @@ export interface ClawContractBridgeDeps {
   toolTimeoutMs: number;
 }
 
-export interface ClawContractBridge {
+interface ClawContractBridge {
   getContractProgress(clawId: string, contractId: ContractId): Promise<ProgressData | null>;
   dispose(): Promise<void>;
 }
