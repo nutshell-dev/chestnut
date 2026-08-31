@@ -842,21 +842,6 @@ export function emitContractCreationInterrupted(
   );
 }
 
-// ─── LIFECYCLE_INTENT (Phase 1198 Step A) ───────────────────────────────────
-export function emitLifecycleIntentReadIssue(
-  audit: AuditLog,
-  opts: { contractId: string; requestId: string; reason: string; detail?: string },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitLifecycleIntentReadIssue')) return;
-  const cols: string[] = [
-    `contractId=${opts.contractId}`,
-    `requestId=${opts.requestId}`,
-    `reason=${opts.reason}`,
-  ];
-  if (opts.detail !== undefined) cols.push(`detail=${opts.detail}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.LIFECYCLE_INTENT_READ_ISSUE, ...cols);
-}
-
 // ─── PROGRESS_MUTATION queue (Phase 1201 Step A) ────────────────────────────
 // depth 是 observability metadata、非 authority。
 interface ProgressMutationEmitPayload {
