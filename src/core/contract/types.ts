@@ -379,7 +379,7 @@ export interface ArchiveReadIssue {
 // Phase 1146 Step B: archive terminal time resolution
 // ============================================================================
 
-export type ArchiveTimeUnknownReason =
+type ArchiveTimeUnknownReason =
   | 'legacy_state_unresolved'
   | 'audit_file_missing'
   | 'terminal_event_unavailable'
