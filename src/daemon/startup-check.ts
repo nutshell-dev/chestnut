@@ -62,7 +62,7 @@ export function hasPendingStartupCheck(fs: FileSystem, audit: AuditLog): boolean
 }
 
 /** startup_check_ts 文件是否过 cooldown。读失败 / 解析失败 / 负值 → 默 true（无 cooldown）。*/
-export function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
+function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
   try {
     const raw = fs.readSync(path.join(STATUS_SUBDIR, 'startup_check_ts')).trim();
     const ts = parseInt(raw, 10);
