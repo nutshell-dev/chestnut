@@ -18,7 +18,7 @@ export interface SubmitSubtaskParams {
   artifacts?: string[];
 }
 
-export interface SubmitSubtaskToolDeps {
+interface SubmitSubtaskToolDeps {
   loadForeground(): Promise<Contract | null>;
   submit(params: SubmitSubtaskParams): Promise<VerificationResult>;
 }
