@@ -252,7 +252,7 @@ export interface ExecutionRecoveryFailureSink {
   }): Promise<void>;
 }
 
-export interface ExecutionRecoveryControllerDeps {
+interface ExecutionRecoveryControllerDeps {
   store: ExecutionRecoveryStore;
   failureSink: ExecutionRecoveryFailureSink;
   audit: AuditLog;
