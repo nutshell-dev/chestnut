@@ -20,7 +20,7 @@ import { PREVIEW_MAX_CHARS } from './types.js';
 import type { OutboxSummaryState } from './types.js';
 import { makeExternalAbortError, type AbortReason } from '../../../../foundation/llm-provider/index.js';
 
-export interface ScanDeps {
+interface ScanDeps {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
   fs: FileSystem;             // 仅供 enumerate claws/
