@@ -34,7 +34,7 @@ import { STREAM_FILE_ROUTING } from '../foundation/stream/index.js';
 import { TOOLS_FILE_ROUTING } from '../foundation/tools/index.js';
 import { WATCHDOG_FILE_ROUTING } from '../watchdog/index.js';
 
-export type FileName = AuditFileName;
+type FileName = AuditFileName;
 
 export const DEFAULT_FILE: FileName = 'audit';
 
