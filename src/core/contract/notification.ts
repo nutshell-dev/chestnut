@@ -29,7 +29,7 @@ export interface ContractCreatedNotification {
   readonly subtaskCount: number;
 }
 
-export interface ContractCompletedNotification {
+interface ContractCompletedNotification {
   readonly type: 'contract_completed';
   readonly contractId: ContractId;
   readonly title: string;
