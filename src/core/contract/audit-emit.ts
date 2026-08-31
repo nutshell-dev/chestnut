@@ -419,26 +419,6 @@ export function emitContractCorrupted(
   audit.write(CONTRACT_AUDIT_EVENTS.CORRUPTED, ...cols);
 }
 
-// ─── CORRUPT_PARTIAL_FAILED (phase 1121 Step C) ─────────────────────────────
-export function emitContractCorruptPartialFailed(
-  audit: AuditLog,
-  opts: {
-    contractId: ContractId;
-    reason: string;
-    evidencePath: string;
-    error: string;
-  },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCorruptPartialFailed')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CORRUPT_PARTIAL_FAILED,
-    `contractId=${opts.contractId}`,
-    `reason=${opts.reason}`,
-    `evidence_path=${opts.evidencePath}`,
-    `error=${opts.error}`,
-  );
-}
-
 // ─── CANCELLED ──────────────────────────────────────────────────────────────
 export function emitContractCancelled(
   audit: AuditLog,
