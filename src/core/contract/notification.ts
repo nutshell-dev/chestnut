@@ -56,7 +56,7 @@ interface ContractFailedNotification {
   readonly producer: string;
 }
 
-export interface SubtaskCompletedNotification {
+interface SubtaskCompletedNotification {
   readonly type: 'subtask_completed';
   readonly contractId: ContractId;
   readonly subtaskId: SubtaskId;
