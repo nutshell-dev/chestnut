@@ -605,24 +605,6 @@ export function emitContractCompletedHandlerFailed(
   );
 }
 
-// ─── VERIFICATION_PIPELINE_RACE_REJECTED ─────────────────────────────────────
-export function emitContractVerificationPipelineRaceRejected(
-  audit: AuditLog,
-  opts: {
-    contractId: ContractId;
-    subtaskId?: string;
-    context?: string;
-    reason?: string;
-  },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationPipelineRaceRejected')) return;
-  const cols: string[] = [`contractId=${opts.contractId}`];
-  if (opts.subtaskId !== undefined) cols.push(`subtaskId=${opts.subtaskId}`);
-  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
-  if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_PIPELINE_RACE_REJECTED, ...cols);
-}
-
 // ─── ARCHIVE_RECONCILE_STALE ────────────────────────────────────────────────
 export function emitContractArchiveReconcileStale(
   audit: AuditLog,
