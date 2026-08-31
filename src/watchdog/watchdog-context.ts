@@ -13,7 +13,6 @@ import { readWorkspaceWatchdogConfig } from './workspace-config.js';
 import type { WatchdogConfig } from './config-schema.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import { createDirContext } from '../foundation/audit/index.js';
 
 export type MotionRestartState =
   | {
@@ -77,7 +76,6 @@ export const executorRestartStateAPI = {
 
 // === Lazy cache state（封装 / 经 getter） ===
 
-let _motionCtx: { fs: FileSystem; audit: AuditLog } | null = null;
 let _chestnutFs: FileSystem | null = null;
 let _chestnutFsBaseDir: string | null = null;
 let watchdogConfigCache: WatchdogConfig | null = null;
@@ -96,22 +94,7 @@ export function getWatchdogEntryPath(): string {
   return resolveWatchdogEntry();
 }
 
-// motion audit 归属：watchdog 对 motion 的观察事件（inbox 通知 / crash 通知）
-// 命名契约：内部可变变量 `_motionCtx`（下划线前缀 = 模块私有），外部访问仅经 `getMotionContext()`
-// 唯一管理者：watchdog.ts 模块；进程级单例，lazy init
-/** 1:1 保 watchdog.ts:58-67 */
-export function getMotionContext(fsFactory: (baseDir: string) => FileSystem): { fs: FileSystem; audit: AuditLog } {
-  if (!_motionCtx) {
-    _motionCtx = createDirContext({ fsFactory }, getNamedSubrootDir('motion'));
-    // 失败契约（fail-fast）：createDirContext 抛错 → 直接上抛
-    //   - _motionCtx 保持 null，调用方（watchdog 主循环）整个 iteration 失败
-    //   - 不做 catch 重建、不降级写 stdout；watchdog 进程应由 SIGTERM 或 uncaughtException 兜底
-    //   - 理由：motion audit 写入失败属基础设施损坏，静默继续会丢观察事件（违反"信息不丢失"）
-  }
-  return _motionCtx;
-}
-
-// chestnut FileSystem lazy singleton（mirror getMotionContext 模式）
+// chestnut FileSystem lazy singleton
 // 增加 baseDir 缓存校验，使测试环境在 getChestnutDir() 变化时自动重建实例
 /** 1:1 保 watchdog.ts:73-80 */
 export function getChestnutFs(fsFactory: (baseDir: string) => FileSystem): FileSystem {
@@ -153,7 +136,6 @@ export function _resetWatchdogContextForTest(): void {
     throw new Error('_resetWatchdogContextForTest is for tests only');
   }
   // lazy caches
-  _motionCtx = null;
   _chestnutFs = null;
   _chestnutFsBaseDir = null;
   watchdogConfigCache = null;
