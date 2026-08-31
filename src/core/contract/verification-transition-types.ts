@@ -48,8 +48,3 @@ export interface VerificationTransitionSuccess {
   prior: SubtaskRuntimeRecord;
 }
 
-export interface VerificationTransitionSkipped {
-  kind: 'skipped';
-  reason: string;
-}
-
