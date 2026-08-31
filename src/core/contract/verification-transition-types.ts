@@ -74,4 +74,3 @@ export interface TransitionApplicationFailure {
   reason: string;
 }
 
-export type TransitionApplicationResult = TransitionApplication | TransitionApplicationFailure;
