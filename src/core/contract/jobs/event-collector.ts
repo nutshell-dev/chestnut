@@ -473,7 +473,7 @@ export async function scanArchivedContracts(
  * phase 1487: 返回结构化 result 替 string[].
  * `events` 字段保留原 join 兼容性 / `problemPairs` 用于 motion guidance composer extraMeta.
  */
-export interface CollectedContractEventsResult {
+interface CollectedContractEventsResult {
   events: string[];
   /** [`<clawId>:<contractDirName>`, ...] for entries with last_failure feedback */
   problemPairs: string[];
