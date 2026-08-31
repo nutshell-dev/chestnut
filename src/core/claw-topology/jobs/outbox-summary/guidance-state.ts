@@ -59,7 +59,7 @@ const WIRE_TYPE = 'claw_outbox_summary';
 const WIRE_FROM = 'system';
 
 /** decoder 产出的 typed state（consumer 唯一依赖的稳定形状）。 */
-interface OutboxSummaryGuidanceState {
+export interface OutboxSummaryGuidanceState {
   readonly schemaVersion: 1;
   /** canonical dedup hash（wire `summary-hash`；12 位 hex）。 */
   readonly hash: string;
