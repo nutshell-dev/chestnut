@@ -208,7 +208,7 @@ export interface VerificationResult {
  * phase 19 Step A: split into VerifierIdentityConfig + VerifierRuntimeConfig (ISP).
  * VerifierConfig is the intersection — runtime shape unchanged, structurally compatible.
  */
-export interface VerifierIdentityConfig {
+interface VerifierIdentityConfig {
   agentId: string;
   prompt: string;
   clawDir: string;
