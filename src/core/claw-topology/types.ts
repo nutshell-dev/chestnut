@@ -39,10 +39,3 @@ export class CrossClawReadError extends Error {
     this.name = 'CrossClawReadError';
   }
 }
-
-export class BroadcastNotMotionError extends Error {
-  constructor(public readonly callerClawId: ClawId, public readonly tool: string) {
-    super(`broadcast "*" is Motion-only (per DP11). caller="${callerClawId}", tool="${tool}"`);
-    this.name = 'BroadcastNotMotionError';
-  }
-}
