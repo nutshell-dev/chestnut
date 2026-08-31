@@ -88,7 +88,7 @@ export interface LegacyPendingRetrospective {
   createdAt?: string;
 }
 
-export interface RetrospectiveStoreDeps {
+interface RetrospectiveStoreDeps {
   fs: FileSystem;
   audit: AuditLog;
   generateTaskId?: () => FullTaskId;
