@@ -85,10 +85,6 @@ export type ContractYaml = ContractYamlValidated;
 // Phase 1134: new-layout schema-derived types
 export type PersistedContractYaml = z.infer<typeof PersistedContractYamlSchema>;
 export type SubtaskRuntimeRecord = z.infer<typeof SubtaskRuntimeRecordSchema>;
-import {
-  VERIFICATION_ATTEMPT_STATUSES_TUPLE,
-} from './status-tuples.js';
-export type VerificationAttemptStatus = (typeof VERIFICATION_ATTEMPT_STATUSES_TUPLE)[number];
 
 // phase 282 Step B: 落盘 schema（不含 derive field）
 // phase 319: type derive from Zod schema (ML#9 优先编译器检查、broaden phase 311 pattern)
