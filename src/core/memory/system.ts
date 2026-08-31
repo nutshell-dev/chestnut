@@ -14,7 +14,7 @@ import type { ClawTopology } from '../../core/claw-topology/index.js';
 
 
 
-export interface MemorySystemOptions {
+interface MemorySystemOptions {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
   motionDir: string;
