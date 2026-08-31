@@ -463,7 +463,7 @@ export interface CompletedLifecycleIntent extends BaseLifecycleIntent {
   context: string;
 }
 
-export interface CancelledLifecycleIntent extends BaseLifecycleIntent {
+interface CancelledLifecycleIntent extends BaseLifecycleIntent {
   requested_state: 'cancelled';
   reason: string;
 }
