@@ -11,7 +11,7 @@ import type { MemorySystem } from '../system.js';
  */
 const DREAM_TRIGGER_CRON_TIMEOUT_MS = 30 * 60_000;  // 30 min
 
-export interface DreamTriggerJobDeps {
+interface DreamTriggerJobDeps {
   memorySystem: MemorySystem;
 }
 
