@@ -73,7 +73,7 @@ import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { ToolRegistry } from '../foundation/tools/index.js';
 
-export interface BusinessSysInput {
+interface BusinessSysInput {
   core: CoreInfraOutput;
   /** phase 1243 Step B: external production contributions（inbox message type declarations 等） */
   contributions?: AssemblyContributions;
