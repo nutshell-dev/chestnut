@@ -73,7 +73,7 @@ export interface AuditRequest {
   recentMessages?: string;
 }
 
-export interface AuditOutcome {
+interface AuditOutcome {
   audited: boolean;
   verdict?: AuditorVerdict;
   reason?: string;  // skip 原因（audited=false 时）
