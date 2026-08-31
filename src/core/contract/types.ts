@@ -164,10 +164,9 @@ export const ARCHIVE_STATES: ReadonlySet<ArchiveState> = new Set(ARCHIVE_STATE_D
 
 /**
  * Step B: current lifecycle is path-derived; ProgressData.status only carries the
- * aggregate of subtasks. ContractLifecycleState is the runtime location vocabulary.
+ * aggregate of subtasks.
  */
 export type ProgressAggregateStatus = DerivableStatus;
-export type ContractLifecycleState = 'active' | ArchiveState;
 
 /**
  * phase 351 / 1123 Step C: ACTIVE_STATUSES tuple/type/Set 一以贯之 (mirror phase 347/348 pattern)。
