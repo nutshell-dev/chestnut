@@ -22,7 +22,7 @@ interface CompletedSubtaskNotification {
   readonly forceAccepted: boolean;
 }
 
-export interface ContractCreatedNotification {
+interface ContractCreatedNotification {
   readonly type: 'contract_created';
   readonly contractId: ContractId;
   readonly title: string;
