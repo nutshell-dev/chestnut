@@ -19,7 +19,7 @@ import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 
 // phase 351: ACTIVE_STATUSES 复用 types.ts (ML#1 共用基础设施单源、mirror phase 347/348 pattern)
 
-export interface ArchiveReconcilerContext {
+interface ArchiveReconcilerContext {
   fs: FileSystem;
   audit: AuditLog;
 }
