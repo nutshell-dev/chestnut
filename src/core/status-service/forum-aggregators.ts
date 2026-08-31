@@ -41,7 +41,7 @@ export type ActiveClawView =
   | { status: 'ok'; name: string; pid: number; uptimeMs?: number; lastActivityAgoMs?: number; inboxUnread?: number }
   | { status: 'error'; name: string; error: string };
 
-export interface OrphansView {
+interface OrphansView {
   watchdog: number[];
   daemon: number[];
   error?: string;
