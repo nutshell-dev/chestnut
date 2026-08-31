@@ -47,7 +47,7 @@ export interface FootprintSend {
   step: number;
 }
 
-export interface FootprintRead {
+interface FootprintRead {
   file: string;
   step: number;
 }
