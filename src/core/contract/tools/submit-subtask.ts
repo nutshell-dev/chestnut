@@ -23,7 +23,7 @@ export interface SubmitSubtaskToolDeps {
   submit(params: SubmitSubtaskParams): Promise<VerificationResult>;
 }
 
-export const SUBMIT_SUBTASK_TOOL_NAME = 'submit_subtask' as const;
+const SUBMIT_SUBTASK_TOOL_NAME = 'submit_subtask' as const;
 
 export function buildSubmitSubtaskTool(deps: SubmitSubtaskToolDeps): Tool {
   return {
