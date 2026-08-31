@@ -458,7 +458,7 @@ interface BaseLifecycleIntent {
   requested_at: string;
 }
 
-export interface CompletedLifecycleIntent extends BaseLifecycleIntent {
+interface CompletedLifecycleIntent extends BaseLifecycleIntent {
   requested_state: 'completed';
   context: string;
 }
