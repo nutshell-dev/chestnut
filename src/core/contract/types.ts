@@ -163,12 +163,6 @@ export type ArchiveState = (typeof ARCHIVE_STATE_DIRS_TUPLE)[number];
 export const ARCHIVE_STATES: ReadonlySet<ArchiveState> = new Set(ARCHIVE_STATE_DIRS_TUPLE);
 
 /**
- * Step B: current lifecycle is path-derived; ProgressData.status only carries the
- * aggregate of subtasks.
- */
-export type ProgressAggregateStatus = DerivableStatus;
-
-/**
  * phase 351 / 1123 Step C: ACTIVE_STATUSES tuple/type/Set 一以贯之 (mirror phase 347/348 pattern)。
  * 非终态契约的 status: pending + running (DerivableStatus 活动态)。
  * archive sweep 用、检测 archive 内仍含 ACTIVE status 的 stale entries。
