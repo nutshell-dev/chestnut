@@ -48,13 +48,6 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
   reactiveTrim(): Promise<ContextTrimOutcome>;
 }
 
-export interface LLMRetryState {
-  count: number;
-  delayMs: number;
-  /** @deprecated P1-10: pending 字段已废弃，仅存于文件 schema 兼容。 */
-  pending?: boolean;
-}
-
 /** Phase 1268 Step B: recoverable LLM 失败的错误分类（waiting 判别联合的合法值） */
 export type RecoverableLLMErrorClass = 'transient' | 'rate_limit';
 
