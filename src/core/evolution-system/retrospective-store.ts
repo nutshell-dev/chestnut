@@ -36,7 +36,7 @@ export const SUBMITTED_DIR = `${RETROSPECTIVES_DIR}/submitted`;
  * Phase 1206  legacy v1 行字段（含 summon mode / source task id）。
  * Phase 1396 Step M: 只读兼容；新 writer 不再写 v1。
  */
-export type RetrospectiveMode = 'mining' | 'shadow';
+type RetrospectiveMode = 'mining' | 'shadow';
 
 /** Phase 1396 Step M: active 观察输入 —— 只含已完成契约的稳定身份。 */
 export interface EnsureRetrospectiveInput {
