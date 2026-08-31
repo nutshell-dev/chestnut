@@ -11,7 +11,7 @@ import { createWatcher, type Watcher } from '../foundation/file-watcher/index.js
 import type { WatcherFactory } from '../foundation/file-watcher/index.js';
 import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 
-export const INTERRUPT_FILE_NAME = 'interrupt';
+const INTERRUPT_FILE_NAME = 'interrupt';
 
 export interface InterruptWatcherDeps {
   agentFs: FileSystem;            // baseDir = clawDir、用于 deleteSync('interrupt')
