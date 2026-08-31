@@ -30,7 +30,7 @@ import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
 // phase 1490: tool description 字符串不再泄 DEFAULT_MAX_STEPS const 值到 LLM docs — agent-executor 自持默认值。
 export const SPAWN_TOOL_NAME = 'spawn' as const;
 
-export interface SpawnToolDeps {
+interface SpawnToolDeps {
   runSubagent?: RunSpawnSyncOptions['runSubagent'];
   taskSystem?: SubAgentTaskScheduler;
   /** 创建链路的源头 clawId，同 daemon 内恒定（motion='motion'，clawA='clawA'） */
