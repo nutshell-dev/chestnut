@@ -13,7 +13,7 @@ import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 
 const INTERRUPT_FILE_NAME = 'interrupt';
 
-export interface InterruptWatcherDeps {
+interface InterruptWatcherDeps {
   agentFs: FileSystem;            // baseDir = clawDir、用于 deleteSync('interrupt')
   agentDir: string;               // abs path to clawDir（chokidar 需 abs path）
   onInterrupt: () => void;        // 由 caller 实现 runtime.abort() 等动作
