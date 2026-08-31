@@ -88,10 +88,8 @@ export type PersistedContractYaml = z.infer<typeof PersistedContractYamlSchema>;
 export type SubtaskRuntimeRecord = z.infer<typeof SubtaskRuntimeRecordSchema>;
 export type VerificationAttemptRecord = z.infer<typeof VerificationAttemptRecordSchema>;
 import {
-  SUBTASK_RUNTIME_STATUSES_TUPLE,
   VERIFICATION_ATTEMPT_STATUSES_TUPLE,
 } from './status-tuples.js';
-export type SubtaskRuntimeStatus = (typeof SUBTASK_RUNTIME_STATUSES_TUPLE)[number];
 export type VerificationAttemptStatus = (typeof VERIFICATION_ATTEMPT_STATUSES_TUPLE)[number];
 
 // phase 282 Step B: 落盘 schema（不含 derive field）
