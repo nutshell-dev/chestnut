@@ -1,6 +1,6 @@
 import { formatErr } from '../../foundation/node-utils/index.js';
 
-export type PermissionErrorCode =
+type PermissionErrorCode =
   | 'PERMISSION_DENIED'
   | 'PATH_NOT_IN_CLAW_SPACE'
   | 'WRITE_OPERATION_FORBIDDEN';
