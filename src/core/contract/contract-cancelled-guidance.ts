@@ -88,7 +88,7 @@ export interface ContractCancelledGuidanceWire {
   readonly meta: Readonly<Record<string, string>>;
 }
 
-export type ContractCancelledGuidanceDecodeErrorReason =
+type ContractCancelledGuidanceDecodeErrorReason =
   | 'unknown_schema_version'
   | 'schema_invalid';
 
