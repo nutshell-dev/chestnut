@@ -317,7 +317,7 @@ function formatCrashed(
 /**
  * phase 37: 结构化 entry、含 contractId（caller 可作 dedup key）+ ms 时间戳（caller 可作 sinceTs filter）。
  */
-export interface ArchivedContractEntry {
+interface ArchivedContractEntry {
   contractId: string;
   body: string;
   hasFailure: boolean;
