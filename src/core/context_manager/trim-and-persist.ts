@@ -29,7 +29,7 @@ export interface DialogStoreMutationCapability {
   }): Promise<void>;
 }
 
-export interface TrimAndPersistInputs {
+interface TrimAndPersistInputs {
   messages: Message[];
   systemPrompt: string;
   toolsForLLM: ToolDefinition[];
