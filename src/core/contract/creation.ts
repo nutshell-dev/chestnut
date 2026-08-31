@@ -139,7 +139,7 @@ export function serializeCreationIntent(intent: ContractCreationIntent): string 
 /**
  * Parse and validate a durable creation intent. Returns null if malformed.
  */
-export function parseCreationIntent(raw: string): ContractCreationIntent | null {
+function parseCreationIntent(raw: string): ContractCreationIntent | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
