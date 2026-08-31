@@ -44,7 +44,7 @@ export interface EnsureRetrospectiveInput {
   targetExecutorId: string;
 }
 
-export interface RegisterRetrospectiveResult {
+interface RegisterRetrospectiveResult {
   taskId: FullTaskId;
   createdAt: string;
 }
