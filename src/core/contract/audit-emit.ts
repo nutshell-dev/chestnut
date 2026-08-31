@@ -35,19 +35,6 @@ function assertContractIdNonEmpty(
   return true;
 }
 
-// ─── CONTRACT_MULTI_DIR ───────────────────────────────────────────────────
-export function emitContractMultiDir(
-  audit: AuditLog,
-  opts: { contractId: ContractId; dirs: string[] },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractMultiDir')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR,
-    `contractId=${opts.contractId}`,
-    `dirs=${opts.dirs.join(',')}`,
-  );
-}
-
 // ─── MISSING_STARTED_AT (Phase 1194 Step A) ─────────────────────────────────
 export function emitContractMissingStartedAt(
   audit: AuditLog,
