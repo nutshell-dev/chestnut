@@ -41,7 +41,7 @@ interface AuditorVerdict {
   next_focus_suggestion: string;
 }
 
-export interface ContractAuditorDeps {
+interface ContractAuditorDeps {
   audit: AuditLog;
   fs: FileSystem;
   inbox: InboxWriter;
