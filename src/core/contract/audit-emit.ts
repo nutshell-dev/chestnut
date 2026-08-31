@@ -833,25 +833,6 @@ export function emitContractArchiveReconcileSummary(
   );
 }
 
-// ─── ARCHIVE TARGET CONFLICT ────────────────────────────────────────────────
-// phase 1127 Step D: terminal writer refuses to overwrite an existing target entry
-export function emitContractArchiveTargetExists(
-  audit: AuditLog,
-  opts: {
-    contractId: string;
-    targetPath: string;
-    context: string;
-  },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveTargetExists')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_TARGET_EXISTS,
-    `contractId=${opts.contractId}`,
-    `targetPath=${opts.targetPath}`,
-    `context=${opts.context}`,
-  );
-}
-
 // ─── ARCHIVE LEGACY MIGRATION ─────────────────────────────────────────────────
 // phase 1127 Step E: classified legacy flat entry migrated to state subdirectory
 export function emitContractArchiveLegacyMigrated(
