@@ -10,7 +10,7 @@
 import type { ContractFootprint } from './contract-footprint.js';
 import { FOOTPRINT_READS_TOP_N } from './constants.js';
 
-export interface AuditorPromptInput {
+interface AuditorPromptInput {
   contractId: string;
   contractTitle: string;
   expectations: string;
