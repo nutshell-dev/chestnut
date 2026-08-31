@@ -25,7 +25,7 @@ export const ContractCreationIntentSchema = z.object({
   contract: ContractYamlSchema,
 }).strict();
 
-export type ContractCreationIntent = z.infer<typeof ContractCreationIntentSchema>;
+type ContractCreationIntent = z.infer<typeof ContractCreationIntentSchema>;
 
 type ActivePublication =
   | { kind: 'unpublished'; reason: 'creating' }
