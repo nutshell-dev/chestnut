@@ -21,7 +21,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 const HEARTBEAT_INTERVAL_SEC_DEFAULT = 0;
 
 /** phase 84: DI callback - caller (L6 装配期) bind chestnutRoot + targetClawId + audit */
-export type HeartbeatNotifyInboxFn = (message: InboxMessageOptionsBase) => void;
+type HeartbeatNotifyInboxFn = (message: InboxMessageOptionsBase) => void;
 
 export interface HeartbeatOptions {
   /** 心跳间隔（秒），默认 {@link HEARTBEAT_INTERVAL_SEC_DEFAULT}（0 = 禁用）；仅显式正值启用 */
