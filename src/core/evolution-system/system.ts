@@ -19,7 +19,7 @@ import {
   type RetrospectiveWorkItem,
 } from './retrospective-store.js';
 
-export interface EvolutionSystemDeps {
+interface EvolutionSystemDeps {
   fs: FileSystem;
   audit: AuditLog;
   taskSystem: PreparedSubAgentTaskScheduler;
