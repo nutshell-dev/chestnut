@@ -482,7 +482,7 @@ export interface ContractFailure {
   producer: string;
 }
 
-export interface FailedLifecycleIntent extends BaseLifecycleIntent {
+interface FailedLifecycleIntent extends BaseLifecycleIntent {
   requested_state: 'failed';
   failure: ContractFailure;
 }
