@@ -30,7 +30,7 @@ export interface ShortIdMap {
   [shortId: string]: string; // shortId → full UUID string
 }
 
-export interface ShortIdIndexAuditWriter {
+interface ShortIdIndexAuditWriter {
   write(event: string, payload: Record<string, unknown>): void;
 }
 
