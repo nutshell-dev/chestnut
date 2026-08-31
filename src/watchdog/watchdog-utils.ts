@@ -18,7 +18,7 @@ import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
-export interface ClawActivityInfo {
+interface ClawActivityInfo {
   lastEventMs: number | null;  // most recent ts from any LLM output event
   lastError: string | null;    // error message when the last terminal event was turn_error
                                // only cleared by turn_end
