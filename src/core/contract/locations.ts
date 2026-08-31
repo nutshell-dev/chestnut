@@ -19,8 +19,6 @@ import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { ContractLocationAmbiguityError } from './errors.js';
 import { classifyActivePublication, classifyActivePublicationSync, isActivePublished } from './creation.js';
 
-export type ContractLocationKind = 'active' | 'archived-current' | 'archived-legacy';
-
 export type ContractLocation =
   | { kind: 'active'; containerDir: string; contractRoot: string }
   | { kind: 'archived-current'; state: ArchiveState; containerDir: string; contractRoot: string }
