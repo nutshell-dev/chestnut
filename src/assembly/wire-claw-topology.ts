@@ -23,7 +23,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 
 /** phase 520: motionClawId DI 删（topology 自家持 MOTION_CLAW_ID const、不需 assembly 注入） */
-export interface WireClawTopologyDeps {
+interface WireClawTopologyDeps {
   fs: FileSystem;
   chestnutRoot: string;
   audit?: AuditLog;
