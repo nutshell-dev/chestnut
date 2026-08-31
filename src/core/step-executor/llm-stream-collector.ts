@@ -128,7 +128,7 @@ export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, audi
   }
 }
 
-export function resetState(state: StreamState): void {
+function resetState(state: StreamState): void {
   state.contentBlocks.length = 0;
   state.currentText = '';
   state.currentThinking = '';
