@@ -143,7 +143,7 @@ const fallbackHandler: ErrorHandler = {
   },
 };
 
-export const ERROR_HANDLERS: ReadonlyArray<ErrorHandler> = [
+const ERROR_HANDLERS: ReadonlyArray<ErrorHandler> = [
   idleTimeoutHandler,
   userInterruptHandler,
   priorityInboxHandler,
