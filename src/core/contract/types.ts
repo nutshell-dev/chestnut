@@ -338,7 +338,7 @@ export interface CreateContractOptions {
 
 export type ArchivePayloadLayout = 'current' | 'legacy';
 
-export type ArchivePayloadState = ArchiveState | 'legacy-unresolved';
+type ArchivePayloadState = ArchiveState | 'legacy-unresolved';
 
 export interface ArchivePayloadView {
   contractId: ContractId;
