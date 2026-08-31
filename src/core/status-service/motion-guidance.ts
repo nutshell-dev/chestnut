@@ -16,7 +16,7 @@
  * - **motion LLM 层**：从 status 工具尾段读 guidance 段、按 note 决策何时调 verb。
  */
 
-export interface StatusMotionGuidanceFacts {
+interface StatusMotionGuidanceFacts {
   /** verb 片段、不含 binary 字面、不含 `<args>` 占位拼装（占位由 composer 拼）。 */
   readonly verbs: readonly StatusMotionGuidanceVerb[];
   /** 顶层 note，解释这组 CLI hint 的 motion 使用场景。 */
