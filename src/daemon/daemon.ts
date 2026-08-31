@@ -55,7 +55,7 @@ export function _resetDaemonSignalHandlers(): void {
   shutdownStarted = null;
 }
 
-export interface DaemonCommandDeps {
+interface DaemonCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
   rootConfig: Pick<RootConfigReader, 'loadGlobal' | 'loadClaw'>;
   // phase 386: inline anonymous type 替为 AssembleConfig (assembly/types.ts) —
