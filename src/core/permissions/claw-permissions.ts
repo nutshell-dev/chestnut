@@ -77,7 +77,7 @@ const BASE_WRITABLE_PATHS = [
   'logs',
 ];
 
-export interface ClawPermissionOptions {
+interface ClawPermissionOptions {
   /** Base directory for the claw */
   clawDir: string;
 
