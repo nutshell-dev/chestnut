@@ -33,7 +33,7 @@ import { createAggregatedFileRouting } from './file-routing-aggregator.js';
 import { initializeClawLayout } from './claw-subdirs.js';
 import type { AssembleConfig, AssemblyContributions } from './types.js';
 
-export interface CoreInfraInput {
+interface CoreInfraInput {
   config: AssembleConfig;
   createSkillSystem?: typeof defaultCreateSkillSystem;
   /** phase 1243 Step B: external production contributions（audit file routing 等） */
