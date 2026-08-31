@@ -28,7 +28,7 @@ import {
   type ContractNotificationSink,
 } from '../core/contract/index.js';
 
-export interface ContractNotificationAdapterDeps {
+interface ContractNotificationAdapterDeps {
   streamWriter: StreamWriter;
   clawId: string;
   systemFs: FileSystem;
