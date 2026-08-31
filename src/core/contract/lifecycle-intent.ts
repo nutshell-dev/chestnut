@@ -50,7 +50,7 @@ export const CompletedLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
   context: z.string().min(1),
 }).strict();
 
-export const CancelledLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
+const CancelledLifecycleIntentSchema = BaseLifecycleIntentSchema.extend({
   requested_state: z.literal('cancelled'),
   reason: z.string().min(1),
 }).strict();
