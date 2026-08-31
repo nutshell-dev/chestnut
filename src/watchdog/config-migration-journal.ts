@@ -57,7 +57,7 @@ export interface WatchdogMigrationOutcome {
   detail?: string;
 }
 
-export interface WatchdogMigrationJournal {
+interface WatchdogMigrationJournal {
   intent?: WatchdogMigrationIntent;
   outcome?: WatchdogMigrationOutcome;
 }
