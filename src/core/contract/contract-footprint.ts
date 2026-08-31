@@ -52,7 +52,7 @@ export interface FootprintRead {
   step: number;
 }
 
-export interface FootprintExec {
+interface FootprintExec {
   command: string;
   exitCode: number;
   step: number;
