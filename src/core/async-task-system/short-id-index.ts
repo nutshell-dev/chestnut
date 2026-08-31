@@ -26,7 +26,7 @@ const INDEX_PATH = 'tasks/queues/short-id-map.json';
 const SHORT_ID_RE = /^[0-9a-f]{8}$/;
 const FULL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export interface ShortIdMap {
+interface ShortIdMap {
   [shortId: string]: string; // shortId → full UUID string
 }
 
