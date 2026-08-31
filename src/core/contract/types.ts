@@ -428,7 +428,7 @@ export interface ArchiveQueryResult {
  * phase 1121 Step C: deterministic persistent corruption reasons.
  * Only these reasons may write the corruption lifecycle transition.
  */
-export type ContractCorruptionReason =
+type ContractCorruptionReason =
   | 'yaml_parse_error'
   | 'yaml_schema_invalid'
   | 'progress_json_parse_error'
