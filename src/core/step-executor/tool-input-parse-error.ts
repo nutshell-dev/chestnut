@@ -1,5 +1,5 @@
 /** Single owner for the prebuilt tool-input parse-error wire text. */
-export const TOOL_INPUT_PARSE_ERROR_PREFIX = 'Tool input JSON parse failed for' as const;
+const TOOL_INPUT_PARSE_ERROR_PREFIX = 'Tool input JSON parse failed for' as const;
 
 export function formatToolInputParseError(toolName: string, raw: string): string {
   return `${TOOL_INPUT_PARSE_ERROR_PREFIX} "${toolName}". Raw: ${raw}`;
