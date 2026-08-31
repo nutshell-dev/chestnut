@@ -21,7 +21,7 @@ export const SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME = 'summon-contract-extra
  */
 const CONTRACT_CREATED_SUMMARY = /^summary=Contract created: ([\w\-]+) for claw ([\w\-]+)/;
 
-export interface ContractCreatedEvidence {
+interface ContractCreatedEvidence {
   contractId: string;
   targetClaw: string;
 }
