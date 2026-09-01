@@ -17,7 +17,7 @@ import type { ProviderConfig } from '../foundation/llm-provider/index.js';
 
 export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'quota' | 'unknown';
 
-export interface LLMConfigDeps {
+interface LLMConfigDeps {
   rootConfig: Pick<RootConfigAdmin, 'loadGlobal' | 'patchPrimary'>;
 }
 
