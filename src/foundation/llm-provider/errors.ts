@@ -21,7 +21,6 @@ type LLMErrorCode =
   | 'LLM_MODEL_NOT_FOUND'
   | 'LLM_CONTEXT_EXCEEDED'
   | 'LLM_OUTPUT_BUDGET_EXCEEDED'
-  | 'LLM_CIRCUIT_BREAKER_OPEN'
   | 'LLM_STREAM_ABORTED'
   | 'LLM_INVALID_REQUEST';
 
@@ -153,13 +152,6 @@ export class LLMOutputBudgetExceededError extends LLMError {
     this.contextLimit = contextLimit;
     this.inputTokens = inputTokens;
     this.requestedMaxTokens = requestedMaxTokens;
-  }
-}
-
-export class LLMCircuitBreakerOpenError extends LLMError {
-  readonly code: LLMErrorCode = 'LLM_CIRCUIT_BREAKER_OPEN';
-  constructor(provider: string) {
-    super(`Circuit breaker open for ${provider}`, { provider });
   }
 }
 

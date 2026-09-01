@@ -23,7 +23,7 @@ import {
   isAbortError,
 } from '../llm-provider/index.js';
 
-type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
+type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED' | 'LLM_CIRCUIT_BREAKER_OPEN';
 
 export class LLMAllProvidersFailedError extends Error {
   readonly code: OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
@@ -53,6 +53,32 @@ export class LLMAllProvidersFailedError extends Error {
   }
 }
 
+/**
+ * Circuit breaker open — 多 provider 编排状态机产生的拒绝错误（Phase 1722 Step F 归位）。
+ * 仅 LLMOrchestrator 构造；provider adapter 不产生。extends Error（同 LLMAllProvidersFailedError 先例），
+ * 镜像 LLMError 运行时字段（name/context/timestamp/toJSON）保持序列化行为；
+ * classifyLLMError 显式分支保持历史 transient 分类不变。
+ */
+export class LLMCircuitBreakerOpenError extends Error {
+  readonly code: OrchestratorErrorCode = 'LLM_CIRCUIT_BREAKER_OPEN';
+  readonly context?: Record<string, unknown>;
+  readonly timestamp: string = new Date().toISOString();
+
+  constructor(provider: string) {
+    super(`Circuit breaker open for ${provider}`);
+    this.name = this.constructor.name;
+    this.context = { provider };
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      context: this.context,
+    };
+  }
+}
+
 export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'context_exceeded' | 'unknown';
 
 export function classifyLLMError(err: unknown): LLMErrorClass {
@@ -76,6 +102,7 @@ export function classifyLLMError(err: unknown): LLMErrorClass {
   if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError || err instanceof LLMInvalidRequestError) return 'permanent';
   if (err instanceof LLMRateLimitError) return 'rate_limit';
   if (err instanceof LLMNetworkError || err instanceof LLMTimeoutError) return 'transient';
+  if (err instanceof LLMCircuitBreakerOpenError) return 'transient';
   if (isAbortError(err)) return 'abort';
   if (err instanceof LLMError) return 'transient';
   return 'unknown';

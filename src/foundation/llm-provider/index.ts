@@ -35,7 +35,7 @@ export {
 export type { ToolUseId } from './tool-use-id.js';
 export { makeToolUseId } from './tool-use-id.js';
 
-export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from './errors.js';
+export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMStreamAbortedError } from './errors.js';
 
 export { isAbortError } from './is-abort-error.js';
 
