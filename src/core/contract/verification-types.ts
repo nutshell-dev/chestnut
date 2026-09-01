@@ -100,7 +100,7 @@ interface VerificationContractContext {
   ) => Promise<VerificationGatewayResult>;
 }
 
-export interface VerificationExecutionContext {
+interface VerificationExecutionContext {
   llm?: LLMOrchestrator;
   toolRegistry: ToolRegistry;
   toolTimeoutMs?: number;
