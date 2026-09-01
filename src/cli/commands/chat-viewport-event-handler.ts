@@ -67,7 +67,7 @@ export interface TaskWatchRole {
   };
 }
 
-export interface ObservabilityRole {
+interface ObservabilityRole {
   audit: AuditLog;
   observability: ReturnType<typeof createViewportObservability>;
 }
