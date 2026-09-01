@@ -42,7 +42,7 @@ export type WatchdogConfigMigrationResult =
 
 type LegacyWatchdogConfigSection = NonNullable<ReturnType<RootConfigLegacyMigration['readWatchdogSection']>>;
 
-export interface WatchdogConfigMigrationDeps {
+interface WatchdogConfigMigrationDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigReader, 'isInitialized'>;
   rootConfigLegacy: Pick<RootConfigLegacyMigration, 'readWatchdogSection' | 'removeWatchdogSection'>;
