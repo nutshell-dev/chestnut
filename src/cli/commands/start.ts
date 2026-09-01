@@ -129,7 +129,7 @@ export interface StartCommandRuntime {
   ensureSupervision: EnsureSupervision;
 }
 
-export interface StartCommandDeps {
+interface StartCommandDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
   rootConfigLegacy: RootConfigLegacyMigration;
