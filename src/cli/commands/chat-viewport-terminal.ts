@@ -34,7 +34,7 @@ export interface ViewportTerminalLike {
   setTitle(title: string): void;
 }
 
-export interface ScrollbackPreservingTerminalOptions {
+interface ScrollbackPreservingTerminalOptions {
   inner: ViewportTerminalLike;
   onSuppress?: (count: number) => void;
 }
