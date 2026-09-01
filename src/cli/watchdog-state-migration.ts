@@ -34,7 +34,7 @@ import {
   type WatchdogStateMigrationOutcome,
 } from '../watchdog/index.js';
 
-export type WatchdogStateMigrationResult =
+type WatchdogStateMigrationResult =
   /** 工作区未初始化（无 root config.yaml）——不属本协议范围。 */
   | { kind: 'not-initialized' }
   /** 双方皆无 —— typed 报告，不静默创建。 */
