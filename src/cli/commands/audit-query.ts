@@ -29,7 +29,7 @@ import type { AuditCommandDeps } from './audit-command-deps.js';
  */
 export const WORKSPACE_AUDIT_SCOPE = 'workspace';
 
-export interface AuditQueryOpts {
+interface AuditQueryOpts {
   claw: string;
   file: string;
   allFiles?: boolean;
