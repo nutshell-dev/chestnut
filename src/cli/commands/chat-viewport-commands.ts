@@ -24,7 +24,7 @@ export interface ViewportCommand {
  * CommandsDeps 仅保留命令实施期需读的 state（mainUI / topology / clawManager / config）。
  */
 
-export interface CommandsClawDeps {
+interface CommandsClawDeps {
   isMotion: boolean;
   clawTopology: ClawTopology;
   clawTrackMap: Map<string, ClawTrack>;
