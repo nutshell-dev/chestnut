@@ -12,8 +12,6 @@ export interface CommandResult {
   descriptors: RenderDescriptor[];
 }
 
-export const emptyResult = (): CommandResult => ({ descriptors: [] });
-
 export const textResult = (color: string, text: string): CommandResult => ({
   descriptors: [{ kind: 'text-line', color, text }],
 });
