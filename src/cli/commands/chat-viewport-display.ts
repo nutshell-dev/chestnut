@@ -22,7 +22,7 @@ export interface OutputLine {
   hangIndent?: string;
 }
 
-export interface DisplayDeps {
+interface DisplayDeps {
   label: string;
   outputText: { setText(text: string): void };
   tui: { requestRender(): void };
