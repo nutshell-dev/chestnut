@@ -8,7 +8,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 export type ShutdownReason = 'daemon_dead' | 'user_quit' | 'stream_end';
 
-export interface EditorHandle {
+interface EditorHandle {
   getText(): string;
   setText(text: string): void;
 }
