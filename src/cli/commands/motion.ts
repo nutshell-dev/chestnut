@@ -47,7 +47,7 @@ const TEMPLATE_FILES = [CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, C
 /** motion outbox drain 默认读取条数。 */
 export const DEFAULT_OUTBOX_DRAIN_LIMIT = 1;
 
-export interface MotionRuntimeDeps {
+interface MotionRuntimeDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigReader, 'loadGlobal'>;
 }
