@@ -17,7 +17,7 @@ import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import { createChatViewportWatcher, type Watcher } from './chat-viewport-watcher.js';
 
 
-export interface ClawManagerDeps {
+interface ClawManagerDeps {
   fs: FileSystem;
   pm: {
     inspectSpawning: (daemonDir: DaemonDir) => { status: string; record?: { generation_id: string } };
