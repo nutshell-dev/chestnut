@@ -1,15 +1,15 @@
 import { vi } from 'vitest';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
-import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
-import type { LLMResponse, StreamChunk } from '../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestratorConfig, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
+import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 /**
  * Convert LLMResponse to stream chunks for mock
  */
-export async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
+export async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
   for (const block of response.content) {
     if (block.type === 'text') {
       yield { type: 'text_delta', delta: (block as { text: string }).text };

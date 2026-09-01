@@ -8,7 +8,7 @@
 export type {
   ProviderConfig,
   LLMCallOptions,
-  StreamChunk,
+  ProviderStreamChunk,
   ProviderAdapter,
   AuditSink,
 } from './types.js';

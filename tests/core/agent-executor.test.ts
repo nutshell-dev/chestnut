@@ -8,8 +8,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { runReact } from '../../src/core/agent-executor/index.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError } from '../../src/core/agent-executor/errors.js';
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from '../../src/core/agent-executor/constants.js';
-import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
-import type { LLMResponse, Message, StreamChunk } from '../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMResponse, Message } from '../../src/foundation/llm-provider/types.js';
 import type { ExecContext, ToolResult } from '../../src/foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../src/foundation/tools/executor.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
@@ -19,7 +19,7 @@ import { makeExecContext } from '../helpers/exec-context.js';
 
 function makeMockLLM(responses: LLMResponse[]): LLMOrchestrator {
   let i = 0;
-  async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
+  async function* streamOne(r: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
     for (const block of r.content) {
       if (block.type === 'text') {
         yield { type: 'text_delta', delta: (block as { text: string }).text };
@@ -65,7 +65,7 @@ function makeCtx(): ExecContext {
 /** LLM that yields malformed JSON for every tool_use in a sequence of responses */
 function makeMalformedSequenceLLM(responses: LLMResponse[]): LLMOrchestrator {
   let i = 0;
-  async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
+  async function* streamOne(r: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
     for (const block of r.content) {
       if (block.type === 'text') {
         yield { type: 'text_delta', delta: (block as { text: string }).text };

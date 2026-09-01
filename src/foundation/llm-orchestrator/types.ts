@@ -1,12 +1,15 @@
 /**
  * LLMOrchestrator (L2b) types — retry/failover/hedge orchestration types.
  *
- * Base types (StreamChunk, ProviderConfig, ProviderAdapter, LLMCallOptions)
+ * Base types (ProviderStreamChunk, ProviderConfig, ProviderAdapter, LLMCallOptions)
  * are owned by L1 llm-provider per M#5; L2b imports and extends them.
+ *
+ * Phase 1722 Step E: 组合流协议 `LLMStreamChunk` 归本模块 —— reset / provider_failed
+ * 是多 provider 编排控制信号，不属于单 provider 调用协议。
  */
 
 import type {
-  StreamChunk,
+  ProviderStreamChunk,
   ProviderConfig,
   ProviderAdapter,
   LLMCallOptions as L1LLMCallOptions,
@@ -84,13 +87,50 @@ export interface LLMEventSink {
 }
 
 /**
+ * reset chunk — 多 provider 编排控制信号（stream idle/异常重置、重新挑 provider）。
+ * 仅 LLMOrchestrator 产生；单 provider adapter 不可能 yield。
+ */
+export interface LLMStreamResetChunk {
+  type: 'reset';
+
+  /** Provider name that timed out */
+  provider?: string;
+
+  /** Timeout duration in ms */
+  timeoutMs?: number;
+}
+
+/**
+ * provider_failed chunk — 多 provider 编排控制信号（本 provider 流失败、转 failover）。
+ * 仅 LLMOrchestrator 产生；单 provider adapter 不可能 yield。
+ */
+export interface LLMStreamProviderFailedChunk {
+  type: 'provider_failed';
+
+  /** Provider name that failed */
+  provider?: string;
+
+  /** Model name */
+  model?: string;
+
+  /** Error message */
+  error?: string;
+}
+
+/**
+ * Caller-facing 组合流协议（Phase 1722 Step E）：L1 单 provider chunk ∪ 本模块两个 control 成员。
+ * 运行时对象 shape 与历史 `StreamChunk` 逐字一致；仅 owner 与命名面变化。
+ */
+export type LLMStreamChunk = ProviderStreamChunk | LLMStreamResetChunk | LLMStreamProviderFailedChunk;
+
+/**
  * LLMOrchestrator interface — multi-provider fault-tolerant LLM orchestration
  *
  * Implemented by LLMOrchestratorImpl class.
  */
 export interface LLMOrchestrator {
   call(options: LLMCallOptions): Promise<LLMResponse>;
-  stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
+  stream(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk>;
   healthCheck(): Promise<boolean>;
   getProviderInfo(): { name: string; model: string; isFallback: boolean };
   /** 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。Runtime 在每轮 turn 开始调。 */

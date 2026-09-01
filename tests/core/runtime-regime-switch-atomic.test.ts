@@ -14,14 +14,14 @@ import { promises as fs } from 'fs';
 import { TestRuntime } from '../helpers/test-runtime.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
-import type { LLMResponse, StreamChunk } from '../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestratorConfig, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
+import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../src/foundation/llm-provider/types.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
-async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
+async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
   for (const block of response.content) {
     if (block.type === 'text') {
       yield { type: 'text_delta', delta: (block as { text: string }).text };

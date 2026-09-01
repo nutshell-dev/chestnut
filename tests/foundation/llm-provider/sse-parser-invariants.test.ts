@@ -3,7 +3,7 @@ import { parseAnthropicSSEStream as parseCustomAnthropic } from '../../../src/fo
 import { LLMRateLimitError } from '../../../src/foundation/llm-provider/errors.js';
 import { parseGeminiSSEStream } from '../../../src/foundation/llm-provider/gemini-sse-parser.js';
 import { parseSSEStream as parseOpenAI } from '../../../src/foundation/llm-provider/openai-sse-parser.js';
-import type { StreamChunk } from '../../../src/foundation/llm-provider/types.js';
+import type { ProviderStreamChunk } from '../../../src/foundation/llm-provider/types.js';
 
 /**
  * Phase 1139 — gemini-sse-parser SSE 解析语义 dedicated unit test
@@ -30,8 +30,8 @@ function makeMockResponse(chunks: string[]): Response {
 
 const noopHandle = { abort: () => {}, signal: new AbortController().signal, enterStreamPhase: () => {} };
 
-async function drain(response: Response, onParseError?: any): Promise<StreamChunk[]> {
-  const out: StreamChunk[] = [];
+async function drain(response: Response, onParseError?: any): Promise<ProviderStreamChunk[]> {
+  const out: ProviderStreamChunk[] = [];
   for await (const chunk of parseGeminiSSEStream(response, noopHandle as any, 60_000, 'gemini', onParseError)) {
     out.push(chunk);
   }

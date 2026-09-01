@@ -24,7 +24,7 @@ import { parseRetryAfter, parseOutputBudgetError } from './_helpers.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
-  StreamChunk,
+  ProviderStreamChunk,
 } from './types.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
@@ -279,7 +279,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
   /**
    * Stream LLM response using SDK
    */
-  async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
+  async* stream(options: LLMCallOptions): AsyncIterableIterator<ProviderStreamChunk> {
     const body = this.buildRequestBody(options);
     serializeProviderRequest(this.name, body);
     const requestOptions: Anthropic.RequestOptions = {
@@ -347,12 +347,12 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
   }
 
   /**
-   * Parse SDK stream events to StreamChunk format
+   * Parse SDK stream events to ProviderStreamChunk format
    */
   private async* parseSDKStream(
     stream: ReturnType<Anthropic['messages']['stream']>,
     signal?: AbortSignal,
-  ): AsyncIterableIterator<StreamChunk> {
+  ): AsyncIterableIterator<ProviderStreamChunk> {
     let currentToolId = '';
     let currentToolName = '';
 

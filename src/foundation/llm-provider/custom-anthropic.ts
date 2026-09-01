@@ -18,7 +18,7 @@ import { isAbortError } from './is-abort-error.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
-  StreamChunk,
+  ProviderStreamChunk,
 } from './types.js';
 import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
@@ -192,7 +192,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
   /**
    * Stream LLM response with true SSE parsing
    */
-  async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
+  async* stream(options: LLMCallOptions): AsyncIterableIterator<ProviderStreamChunk> {
     const { timeoutMs, signal } = options;
     const body = this.buildRequestBody(options);
 

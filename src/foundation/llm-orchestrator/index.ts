@@ -12,6 +12,7 @@ export type {
   LLMEvent,
   LLMCallOptions,
   LLMOrchestrator,
+  LLMStreamChunk,
 } from './types.js';
 
 // phase 461: llm-provider-config-schema barrel re-export (M#7 接口稳定)

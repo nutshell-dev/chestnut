@@ -6,7 +6,7 @@
  * 函数无 this 依赖、纯逻辑、易测试。
  */
 
-import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock, StreamChunk } from '../llm-provider/index.js';
+import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock, ProviderStreamChunk } from '../llm-provider/index.js';
 import { makeExternalAbortError, type AbortReason } from '../llm-provider/index.js';
 
 /**
@@ -34,7 +34,7 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /** Whether a stream chunk carries content (text/thinking/tool_use). */
-export function isContentChunk(chunk: StreamChunk): boolean {
+export function isContentChunk(chunk: ProviderStreamChunk): boolean {
   return chunk.type === 'text_delta'
     || chunk.type === 'thinking_delta'
     || chunk.type === 'tool_use_start'
@@ -44,7 +44,7 @@ export function isContentChunk(chunk: StreamChunk): boolean {
 /** Wrap a non-streaming LLMResponse as a stream of chunks. */
 export async function* wrapResponseAsStream(
   response: LLMResponse,
-): AsyncIterableIterator<StreamChunk> {
+): AsyncIterableIterator<ProviderStreamChunk> {
   for (const block of response.content) {
     if (block.type === 'text') {
       const b = block as TextBlock;

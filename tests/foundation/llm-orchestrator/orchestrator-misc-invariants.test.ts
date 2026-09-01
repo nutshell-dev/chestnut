@@ -31,7 +31,8 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 
@@ -126,7 +127,7 @@ describe('timeout-distinction', () => {
     return { sink, emitted };
   }
 
-  function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<StreamChunk>, callImpl?: () => Promise<any>): ProviderAdapter {
+  function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<ProviderStreamChunk>, callImpl?: () => Promise<any>): ProviderAdapter {
     return {
       name,
       model: 'mock-model',
@@ -217,7 +218,7 @@ describe('timeout-distinction', () => {
         createAnthropicAdapter: () => primary as any,
       });
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       try {
         for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
           chunks.push(chunk);
@@ -255,7 +256,7 @@ describe('timeout-distinction', () => {
         createAnthropicAdapter: () => primary as any,
       });
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 100 })) {
         chunks.push(chunk);
       }
@@ -272,7 +273,7 @@ describe('all-providers-context-exceeded-emit', () => {
   function createMockProvider(
     name: string,
     opts: {
-      streamChunks?: StreamChunk[];
+      streamChunks?: ProviderStreamChunk[];
       streamError?: Error;
     } = {},
   ): ProviderAdapter {
@@ -564,7 +565,7 @@ describe('race-loser-cleanup', () => {
   function createMockProvider(
     name: string,
     opts: {
-      streamChunks?: StreamChunk[];
+      streamChunks?: ProviderStreamChunk[];
       streamError?: Error;
       streamDelayMs?: number;
       callResponse?: LLMResponse;
@@ -692,7 +693,7 @@ describe('race-loser-cleanup', () => {
       (service as any).events = sink;
       forceBreakerOpen(service, 0, 'transient');
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }
@@ -724,7 +725,7 @@ describe('race-loser-cleanup', () => {
       const service = createOrchestrator(primary, [fb1]);
       forceBreakerOpen(service, 0, 'transient');
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }
@@ -758,7 +759,7 @@ describe('race-loser-cleanup', () => {
       (service as any).events = sink;
       forceBreakerOpen(service, 0, 'transient');
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }
@@ -779,7 +780,7 @@ describe('hedge-cache-token-emit', () => {
   function createMockProvider(
     name: string,
     opts: {
-      streamChunks?: StreamChunk[];
+      streamChunks?: ProviderStreamChunk[];
       streamError?: Error;
       streamDelayMs?: number;
       callResponse?: LLMResponse;
@@ -889,7 +890,7 @@ describe('hedge-cache-token-emit', () => {
       forceBreakerOpen(service, 0, 'transient');
       const events = attachEventSpy(service);
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }
@@ -927,7 +928,7 @@ describe('hedge-cache-token-emit', () => {
       forceBreakerOpen(service, 0, 'transient');
       const events = attachEventSpy(service);
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }
@@ -955,7 +956,7 @@ describe('hedge-cache-token-emit', () => {
       forceBreakerOpen(service, 0, 'transient');
       const events = attachEventSpy(service);
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }
@@ -1523,8 +1524,8 @@ describe('phase1268-stepC-provider-retry-event-fidelity', () => {
       async *stream() {
         streamCount++;
         if (streamCount === 1) throw new LLMRateLimitError('primary', 7);
-        yield { type: 'text_delta', delta: 'ok' } as StreamChunk;
-        yield { type: 'done' } as StreamChunk;
+        yield { type: 'text_delta', delta: 'ok' } as ProviderStreamChunk;
+        yield { type: 'done' } as ProviderStreamChunk;
       },
     };
     const orchestrator = makeOrchestrator(provider, sink);

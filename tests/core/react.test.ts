@@ -6,8 +6,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { runReact } from '../../src/core/agent-executor/loop.js';
-import type { Message, ContentBlock, LLMResponse, ToolDefinition, StreamChunk } from '../../src/foundation/llm-provider/types.js';
-import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { Message, ContentBlock, LLMResponse, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../src/foundation/tool-protocol/index.js';
 import { makeExecContext } from '../helpers/exec-context.js';
 import type { IToolExecutor } from '../../src/foundation/tools/executor.js';
@@ -16,7 +16,7 @@ import { MaxStepsExceededError } from '../../src/core/agent-executor/errors.js';
 /**
  * Convert LLMResponse to stream chunks for mock
  */
-async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
+async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
   for (const block of response.content) {
     if (block.type === 'text') {
       yield { type: 'text_delta', delta: (block as { text: string }).text };
@@ -840,7 +840,7 @@ describe('ReAct Loop', () => {
     /**
      * 生成包含格式错误 JSON 的 tool_use stream（无法通过 JSON.parse）
      */
-    function createMalformedToolUseStream(toolName: string, callId: string): AsyncIterableIterator<StreamChunk> {
+    function createMalformedToolUseStream(toolName: string, callId: string): AsyncIterableIterator<LLMStreamChunk> {
       return (async function* () {
         yield { type: 'tool_use_start' as const, toolUse: { id: callId, name: toolName, partialInput: '' } };
         yield { type: 'tool_use_delta' as const, toolUse: { id: '', name: '', partialInput: '{bad json' } };
@@ -952,7 +952,7 @@ describe('ReAct Loop', () => {
     /**
      * 辅助：生成 max_tokens 截断的 tool_use stream
      */
-    function createMaxTokensToolUseStream(toolName: string, callId: string, partialInput: string): AsyncIterableIterator<StreamChunk> {
+    function createMaxTokensToolUseStream(toolName: string, callId: string, partialInput: string): AsyncIterableIterator<LLMStreamChunk> {
       return (async function* () {
         yield { type: 'tool_use_start' as const, toolUse: { id: callId, name: toolName, partialInput: '' } };
         yield { type: 'tool_use_delta' as const, toolUse: { id: '', name: '', partialInput: partialInput } };

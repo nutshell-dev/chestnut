@@ -20,7 +20,7 @@ import type {
   ProviderConfig,
   LLMCallOptions,
   ProviderAdapter,
-  StreamChunk,
+  ProviderStreamChunk,
 } from './types.js';
 import { STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper.js';
@@ -179,7 +179,7 @@ export class OpenAIAdapter implements ProviderAdapter {
   /**
    * Stream LLM response with true SSE parsing
    */
-  async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
+  async* stream(options: LLMCallOptions): AsyncIterableIterator<ProviderStreamChunk> {
     const { messages, system, tools, maxTokens, temperature, timeoutMs, signal } = options;
 
     const effectiveMaxTokens = maxTokens ?? this.config.maxTokens;

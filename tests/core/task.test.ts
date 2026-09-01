@@ -15,8 +15,8 @@ import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-
 import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
-import type { LLMResponse, StreamChunk } from '../../src/foundation/llm-provider/types.js';
-import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
 
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
@@ -30,7 +30,7 @@ import { waitForAnyFile, waitForCompleteFile } from '../helpers/wait-for-file.js
 /**
  * Convert LLMResponse to stream chunks for mock
  */
-async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
+async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
   for (const block of response.content) {
     if (block.type === 'text') {
       yield { type: 'text_delta', delta: (block as { text: string }).text };
@@ -78,7 +78,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
  * Create a mock LLM that never resolves - useful for keeping tasks in running state
  */
 function createHangingMockLLM(): LLMOrchestrator {
-  async function* hangingStream(signal?: AbortSignal): AsyncIterableIterator<StreamChunk> {
+  async function* hangingStream(signal?: AbortSignal): AsyncIterableIterator<LLMStreamChunk> {
     await new Promise<void>((_, reject) => {
       if (signal?.aborted) return reject(new Error('Aborted'));
       signal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
@@ -105,7 +105,7 @@ function createHangingMockLLM(): LLMOrchestrator {
  * the executor-driven timeout is the only path that can break the hang.
  */
 function createAbortableHangingMockLLM(): LLMOrchestrator {
-  async function* hangingStream(signal?: AbortSignal): AsyncIterableIterator<StreamChunk> {
+  async function* hangingStream(signal?: AbortSignal): AsyncIterableIterator<LLMStreamChunk> {
     await new Promise<void>((_, reject) => {
       if (signal?.aborted) {
         reject(new Error('Aborted'));
@@ -282,7 +282,7 @@ describe('Task System + SubAgent', () => {
       const streamGapReleases: Array<() => void> = [];
       let signalStreamStarted: (() => void) | undefined;
       const streamStartedP = new Promise<void>(r => { signalStreamStarted = r; });
-      async function* slowStream(): AsyncIterableIterator<StreamChunk> {
+      async function* slowStream(): AsyncIterableIterator<LLMStreamChunk> {
         yield { type: 'text_delta', delta: 'Starting' };
         // barrier: mock slow chunk gap, release externally after cancel
         await new Promise<void>(r => { streamGapReleases.push(r); signalStreamStarted?.(); });

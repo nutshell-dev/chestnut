@@ -8,8 +8,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeStep } from '../../src/core/step-executor/step-executor.js';
 import { IdleTimeoutSignal } from '../../src/core/step-executor/signals.js';
 import type { LLMCallInfo } from '../../src/core/step-executor/step-executor.js';
-import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
-import type { LLMResponse, Message, StreamChunk } from '../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMResponse, Message } from '../../src/foundation/llm-provider/types.js';
 import type { ExecContext, ToolResult, Tool } from '../../src/foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../src/foundation/tools/executor.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
@@ -24,7 +24,7 @@ import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 function makeMockLLM(responses: LLMResponse[]): LLMOrchestrator {
   let i = 0;
-  async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
+  async function* streamOne(r: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
     for (const block of r.content) {
       if (block.type === 'text') {
         yield { type: 'text_delta', delta: (block as { text: string }).text };
@@ -69,7 +69,7 @@ function makeCtx(): ExecContext {
 
 /** Yield two tool_use blocks; first has malformed JSON, second is valid */
 function makeMidStreamMalformedLLM(): LLMOrchestrator {
-  async function* stream(): AsyncIterableIterator<StreamChunk> {
+  async function* stream(): AsyncIterableIterator<LLMStreamChunk> {
     // First tool_use: malformed JSON
     yield { type: 'tool_use_start', toolUse: { id: 'tu1', name: 'foo', partialInput: '' } };
     yield { type: 'tool_use_delta', toolUse: { id: '', name: '', partialInput: '{not json' } };
@@ -89,7 +89,7 @@ function makeMidStreamMalformedLLM(): LLMOrchestrator {
 
 /** Yield tool_use_start + tool_use_delta with malformed JSON input */
 function makeMalformedToolInputLLM(toolUseId: string, toolName: string, rawInput: string): LLMOrchestrator {
-  async function* stream(): AsyncIterableIterator<StreamChunk> {
+  async function* stream(): AsyncIterableIterator<LLMStreamChunk> {
     yield {
       type: 'tool_use_start',
       toolUse: { id: toolUseId, name: toolName, partialInput: '' },
@@ -134,7 +134,7 @@ afterEach(async () => {
   tmpDirs.length = 0;
 });
 
-function makeStreamLLM(chunks: StreamChunk[]): LLMOrchestrator {
+function makeStreamLLM(chunks: LLMStreamChunk[]): LLMOrchestrator {
   return {
     call: vi.fn(),
     stream: vi.fn(() => (async function* () { for (const c of chunks) yield c; })()),
@@ -279,7 +279,7 @@ describe('StepExecutor', () => {
     const plainObjError = { code: 'ECONNRESET', detail: 'connection reset' };
     const llm = makeMockLLM([{ content: [{ type: 'text', text: '' }], stop_reason: 'end_turn' }]);
     llm.stream.mockImplementationOnce(() => {
-      async function* gen(): AsyncIterableIterator<StreamChunk> {
+      async function* gen(): AsyncIterableIterator<LLMStreamChunk> {
         throw plainObjError;
       }
       return gen();
@@ -302,7 +302,7 @@ describe('StepExecutor', () => {
   it('abort during tool_use stream throws immediately without executing tool', async () => {
     const abortController = new AbortController();
 
-    async function* stream(): AsyncIterableIterator<StreamChunk> {
+    async function* stream(): AsyncIterableIterator<LLMStreamChunk> {
       yield { type: 'tool_use_start', toolUse: { id: 'tu1', name: 'testTool', partialInput: '' } };
       yield { type: 'tool_use_delta', toolUse: { id: '', name: '', partialInput: '{"key":"value"}' } };
       abortController.abort({ type: 'idle_timeout', ms: 120000 });

@@ -14,7 +14,7 @@ import type {
   Message,
   ProviderAdapter,
   ProviderConfig,
-  StreamChunk,
+  ProviderStreamChunk,
   ToolDefinition
 } from '../../src/foundation/llm-provider/types.js';
 import { AnthropicAdapter } from '../../src/foundation/llm-provider/anthropic.js';
@@ -25,6 +25,7 @@ import { GeminiAdapter } from '../../src/foundation/llm-provider/gemini.js';
 import { RateLimitError, APIConnectionTimeoutError, APIUserAbortError } from '@anthropic-ai/sdk';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import {
   LLMAllProvidersFailedError,
 } from '../../src/foundation/llm-orchestrator/errors.js';
@@ -665,7 +666,7 @@ describe('LLM Service', () => {
           config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
       });
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const chunk of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(chunk);
       }
@@ -725,7 +726,7 @@ describe('LLM Service', () => {
           config.name === fallbackConfig.name ? fallbackAdapter : primaryAdapter,
       });
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const chunk of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(chunk);
       }
@@ -799,7 +800,7 @@ describe('AnthropicAdapter.stream', () => {
     mockMessagesStream.mockReturnValue(createMockSDKStream(streamEvents));
 
     const adapter = new AnthropicAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'read file' }] })) {
       chunks.push(chunk);
     }
@@ -827,7 +828,7 @@ describe('AnthropicAdapter.stream', () => {
     mockMessagesStream.mockReturnValue(createMockSDKStream(streamEvents));
 
     const adapter = new AnthropicAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(chunk);
     }
@@ -846,7 +847,7 @@ describe('AnthropicAdapter.stream', () => {
     mockMessagesStream.mockReturnValue(createMockSDKStream(streamEvents));
 
     const adapter = new AnthropicAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'think' }] })) {
       chunks.push(chunk);
     }
@@ -863,7 +864,7 @@ describe('AnthropicAdapter.stream', () => {
     mockMessagesStream.mockReturnValue(createMockSDKStream(streamEvents));
 
     const adapter = new AnthropicAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(chunk);
     }
@@ -926,7 +927,7 @@ describe('CustomAnthropicAdapter.stream SSE error events', () => {
     vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
 
     const adapter = new CustomAnthropicAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(chunk);
     }
@@ -966,7 +967,7 @@ describe('OpenAIAdapter.stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSSEStreamResponse(events)));
 
     const adapter = new OpenAIAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(chunk);
     }
@@ -993,7 +994,7 @@ describe('OpenAIAdapter.stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSSEStreamResponse(events)));
 
     const adapter = new OpenAIAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'read file' }] })) {
       chunks.push(chunk);
     }
@@ -1020,7 +1021,7 @@ describe('OpenAIAdapter.stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSSEStreamResponse(events)));
 
     const adapter = new OpenAIAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'write' }] })) {
       chunks.push(chunk);
     }
@@ -1036,7 +1037,7 @@ describe('OpenAIAdapter.stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSSEStreamResponse(events)));
 
     const adapter = new OpenAIAdapter(config);
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(chunk);
     }
@@ -1221,7 +1222,7 @@ describe('OpenAIAdapter — Phase 98 fixes', () => {
       '[DONE]',
     ];
     vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const c of new OpenAIAdapter(config).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
@@ -1239,7 +1240,7 @@ describe('OpenAIAdapter — Phase 98 fixes', () => {
       '[DONE]',
     ];
     vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const c of new OpenAIAdapter(config).stream({ messages: [{ role: 'user', content: 'prove' }] })) {
       chunks.push(c);
     }
@@ -1288,7 +1289,7 @@ describe('OpenAIAdapter — Phase 98 fixes', () => {
       // 注意：没有任何 event 携带 finish_reason: 'stop'
     ];
     vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const c of new OpenAIAdapter(config).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
@@ -1305,7 +1306,7 @@ describe('OpenAIAdapter — Phase 98 fixes', () => {
       '[DONE]',
     ];
     vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const c of new OpenAIAdapter(config).stream({ messages: [{ role: 'user', content: 'prove' }] })) {
       chunks.push(c);
     }
@@ -1435,7 +1436,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
       apiFormat: 'gemini' as const,
     };
 
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const c of new GeminiAdapter(cfg).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
@@ -1458,7 +1459,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
       apiFormat: 'gemini' as const,
     };
 
-    const chunks: StreamChunk[] = [];
+    const chunks: ProviderStreamChunk[] = [];
     for await (const c of new GeminiAdapter(cfg).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }

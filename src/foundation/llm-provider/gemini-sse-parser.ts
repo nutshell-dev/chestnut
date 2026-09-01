@@ -4,7 +4,7 @@
  * 参数化 this.name → providerName param
  */
 
-import type { StreamChunk } from './types.js';
+import type { ProviderStreamChunk } from './types.js';
 import { formatErr } from "../node-utils/index.js";
 import type { CombinedAbortHandle } from './abort-helper.js';
 import { LLMError, LLMRateLimitError } from './errors.js';
@@ -29,7 +29,7 @@ export async function* parseGeminiSSEStream(
   idleTimeoutMs: number,
   providerName: string,
   onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void,
-): AsyncIterableIterator<StreamChunk> {
+): AsyncIterableIterator<ProviderStreamChunk> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

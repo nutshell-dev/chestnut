@@ -18,7 +18,7 @@ import type {
   ProviderConfig,
   LLMCallOptions,
   ProviderAdapter,
-  StreamChunk,
+  ProviderStreamChunk,
 } from './types.js';
 import { STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper.js';
@@ -122,7 +122,7 @@ export class GeminiAdapter implements ProviderAdapter {
     }
   }
 
-  async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
+  async* stream(options: LLMCallOptions): AsyncIterableIterator<ProviderStreamChunk> {
     const body = this.buildRequestBody(options);
     const timeout = options.timeoutMs ?? this.config.timeoutMs;
     const [abortHandle, cleanup] = withCombinedAbortSignal(options.signal, timeout);

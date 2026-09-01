@@ -23,9 +23,10 @@ import type {
   LLMCallOptions,
   LLMEventSink,
   LLMOrchestrator,
+  LLMStreamChunk,
 } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
-import { createLLMProvider, LLMCircuitBreakerOpenError, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type StreamChunk, type ProviderConfig } from '../llm-provider/index.js';
+import { createLLMProvider, LLMCircuitBreakerOpenError, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
@@ -377,7 +378,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
    * - Note: retry only applies before stream starts; once chunks are flowing, 
    *         mid-stream errors will fail over without retry
    */
-  async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
+  async* stream(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk> {
     // Hedge gate (phase 737): breaker open + transient cause + fallbacks available → 2-track hedge
     const primaryBreakerOpen = this.breakers[0]?.isOpen() ?? false;
     const openCause = this.breakers[0]?.getOpenCause() ?? null;
@@ -467,7 +468,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           cleanupSignal = merged.cleanup;
           const providerOptions: LLMCallOptions = { ...options, signal: merged.signal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
 
-          let pendingDone: StreamChunk | null = null;
+          let pendingDone: ProviderStreamChunk | null = null;
           resetIdleTimer();
           for await (const chunk of adapter.stream(providerOptions)) {
             resetIdleTimer();
@@ -845,7 +846,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
    * Track B: fallback chain sequential call() — first success wins.
    * Winner-takes-all via Promise.race; loser aborted to avoid resource waste.
    */
-  private async* _streamHedge(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
+  private async* _streamHedge(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk> {
     const fallbackNames = this.fallbacks.map(f => f.name);
     this.events.emit({
       type: 'hedge_started',
@@ -871,7 +872,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     const primaryIter = this.primary.stream!(primaryProviderOpts);
 
     type AResult =
-      | { winner: 'A'; chunk: StreamChunk }
+      | { winner: 'A'; chunk: ProviderStreamChunk }
       | { winner: 'A-error'; error: Error };
 
     const trackAPromise: Promise<AResult> = (async () => {

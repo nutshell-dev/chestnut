@@ -4,7 +4,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, StreamChunk } from '../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderStreamChunk } from '../../src/foundation/llm-provider/index.js';
+import type { LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 import { LLMError, LLMTimeoutError } from '../../src/foundation/llm-provider/errors.js';
 
@@ -38,7 +39,7 @@ function createMockSink() {
   };
   return { sink, emitted };
 }
-function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<StreamChunk>): ProviderAdapter {
+function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<ProviderStreamChunk>): ProviderAdapter {
   return {
     name,
     model: 'mock-model',
@@ -82,7 +83,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     // Replace internal provider with mock
     (service as any).primary = primary;
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
       chunks.push(chunk);
     }
@@ -117,7 +118,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
       chunks.push(chunk);
     }
@@ -151,7 +152,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     (service as any).primary = primary;
     (service as any).fallback = undefined;
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     let caughtError: Error | undefined;
 
     try {
@@ -174,13 +175,13 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
   it('should yield reset and failover after partial yield on mid-stream error (H4)', async () => {
     const primary = createMockProvider('primary', async function* () {
-      yield { type: 'text_delta', delta: 'partial' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'partial' } as ProviderStreamChunk;
       throw new Error('mid-stream disconnect');
     });
 
     const fallback = createMockProvider('fallback', async function* () {
-      yield { type: 'text_delta', delta: 'fallback' } as StreamChunk;
-      yield { type: 'done' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'fallback' } as ProviderStreamChunk;
+      yield { type: 'done' } as ProviderStreamChunk;
     });
 
     const service = new LLMOrchestratorImpl({
@@ -194,7 +195,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
-    const received: StreamChunk[] = [];
+    const received: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
       received.push(chunk);
     }
@@ -213,8 +214,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     const primary = createMockProvider('primary', async function* () {
       attempt++;
       if (attempt === 1) throw new Error('transient connection error');  // 第一次无 yield
-      yield { type: 'text_delta', delta: 'retry ok' } as StreamChunk;
-      yield { type: 'done' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'retry ok' } as ProviderStreamChunk;
+      yield { type: 'done' } as ProviderStreamChunk;
     });
 
     const service = new LLMOrchestratorImpl({
@@ -227,7 +228,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     (service as any).primary = primary;
     (service as any).fallbacks = [];
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
       chunks.push(chunk);
     }
@@ -315,13 +316,13 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
   it('should yield reset chunk and failover to fallback on mid-stream LLMTimeoutError', async () => {
     const primary = createMockProvider('primary', async function* () {
-      yield { type: 'text_delta', delta: 'partial text' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'partial text' } as ProviderStreamChunk;
       throw new LLMTimeoutError('primary', 60000);
     });
 
     const fallback = createMockProvider('fallback', async function* () {
-      yield { type: 'text_delta', delta: 'fallback response' } as StreamChunk;
-      yield { type: 'done' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'fallback response' } as ProviderStreamChunk;
+      yield { type: 'done' } as ProviderStreamChunk;
     });
 
     const service = new LLMOrchestratorImpl({
@@ -335,7 +336,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
       chunks.push(chunk);
     }
@@ -350,12 +351,12 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
   it('should throw LLMAllProvidersFailedError when all providers time out mid-stream', async () => {
     const primary = createMockProvider('primary', async function* () {
-      yield { type: 'text_delta', delta: 'partial' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'partial' } as ProviderStreamChunk;
       throw new LLMTimeoutError('primary', 60000);
     });
 
     const fallback = createMockProvider('fallback', async function* () {
-      yield { type: 'text_delta', delta: 'fallback partial' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'fallback partial' } as ProviderStreamChunk;
       throw new LLMTimeoutError('fallback', 60000);
     });
 
@@ -371,7 +372,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     (service as any).fallbacks = [fallback];
 
     let caughtError: Error | undefined;
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     try {
       for await (const chunk of service.stream({ messages: [] })) {
         chunks.push(chunk);
@@ -393,13 +394,13 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       if (primaryAttempts === 1) {
         throw new Error('primary down');  // 第一次失败
       }
-      yield { type: 'text_delta', delta: 'primary back' } as StreamChunk;
-      yield { type: 'done' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'primary back' } as ProviderStreamChunk;
+      yield { type: 'done' } as ProviderStreamChunk;
     });
 
     const fallback = createMockProvider('fallback', async function* () {
-      yield { type: 'text_delta', delta: 'fallback ok' } as StreamChunk;
-      yield { type: 'done' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'fallback ok' } as ProviderStreamChunk;
+      yield { type: 'done' } as ProviderStreamChunk;
     });
 
     const service = new LLMOrchestratorImpl({
@@ -414,7 +415,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     (service as any).fallbacks = [fallback];
 
     // First call: primary fails, fallback succeeds
-    const chunks1: StreamChunk[] = [];
+    const chunks1: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks1.push(chunk);
     expect(chunks1.some(c => 'delta' in c && c.delta === 'fallback ok')).toBe(true);
 
@@ -422,7 +423,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     service.resetLastSuccessProvider();
 
     // Second call: primary must be tried again (regression test for startIndex bug)
-    const chunks2: StreamChunk[] = [];
+    const chunks2: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks2.push(chunk);
     expect(primaryAttempts).toBe(2);  // old bug: primary was skipped, this would be 1
     expect(chunks2.some(c => 'delta' in c && c.delta === 'primary back')).toBe(true);
@@ -774,13 +775,13 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
 
   it('throws AbortError from mid-stream without yielding reset/provider_failed', async () => {
     const primary = createMockProvider('primary', async function* () {
-      yield { type: 'text_delta', delta: 'hi' } as StreamChunk;
+      yield { type: 'text_delta', delta: 'hi' } as ProviderStreamChunk;
       const err = new Error('Execution aborted');
       err.name = 'AbortError';
       throw err;
     });
     const fallbackStream = vi.fn(async function* () {
-      yield { type: 'done' } as StreamChunk;
+      yield { type: 'done' } as ProviderStreamChunk;
     });
     const fallback = createMockProvider('fallback', fallbackStream);
 
@@ -1012,7 +1013,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     (svc as any).primary = p1;
     (svc as any).fallbacks = [p2];
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of svc.stream({
       messages: [],
       streamIdleTimeoutMs: 50,
@@ -1110,7 +1111,7 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
     (service as any).primary = mockProvider1;
     (service as any).fallbacks = [mockProvider2];
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
       chunks.push(chunk);
     }

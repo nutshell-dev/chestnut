@@ -12,16 +12,16 @@ import {
 import type {
   LLMCallOptions,
   LLMOrchestrator,
+  LLMStreamChunk,
 } from '../../../src/foundation/llm-orchestrator/index.js';
 import {
   LLMTimeoutError,
   type LLMResponse,
-  type StreamChunk,
 } from '../../../src/foundation/llm-provider/index.js';
 
-function makeLLM(chunks: StreamChunk[], errToThrow: Error): LLMOrchestrator {
+function makeLLM(chunks: LLMStreamChunk[], errToThrow: Error): LLMOrchestrator {
   return {
-    async *stream(_opts: LLMCallOptions): AsyncGenerator<StreamChunk> {
+    async *stream(_opts: LLMCallOptions): AsyncGenerator<LLMStreamChunk> {
       for (const c of chunks) yield c;
       throw errToThrow;
     },
@@ -32,7 +32,7 @@ function makeLLM(chunks: StreamChunk[], errToThrow: Error): LLMOrchestrator {
 
 describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', () => {
   it('LLMAllProvidersFailedError → cause=all_providers_failed + 正确 count/range', async () => {
-    const chunks: StreamChunk[] = [
+    const chunks: LLMStreamChunk[] = [
       { type: 'thinking_delta', delta: 'plan' },
       { type: 'tool_use_start', toolUse: { id: 'c1', name: 'exec', partialInput: '' } },
       { type: 'tool_use_delta', toolUse: { id: 'c1', name: 'exec', partialInput: '{"x":1}' } },
@@ -62,7 +62,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
   });
 
   it('LLMTimeoutError → cause=idle_timeout', async () => {
-    const chunks: StreamChunk[] = [
+    const chunks: LLMStreamChunk[] = [
       { type: 'text_delta', delta: 'hi' },
       { type: 'tool_use_start', toolUse: { id: 't1', name: 'read', partialInput: '' } },
       { type: 'tool_use_delta', toolUse: { id: 't1', name: 'read', partialInput: '{"path":"a"}' } },
@@ -87,7 +87,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
   });
 
   it('其他 error → cause=unknown', async () => {
-    const chunks: StreamChunk[] = [
+    const chunks: LLMStreamChunk[] = [
       { type: 'text_delta', delta: 'x' },
     ];
     const err = new Error('weird internal');
@@ -108,13 +108,13 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
   });
 
   it('正常成功路径不 fire onPartialAssistantDiscarded', async () => {
-    const chunks: StreamChunk[] = [
+    const chunks: LLMStreamChunk[] = [
       { type: 'tool_use_start', toolUse: { id: 'a', name: 'read', partialInput: '' } },
       { type: 'tool_use_delta', toolUse: { id: 'a', name: 'read', partialInput: '{"path":"x"}' } },
       { type: 'done', usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'tool_use' },
     ];
     const llm: LLMOrchestrator = {
-      async *stream(_opts: LLMCallOptions): AsyncGenerator<StreamChunk> {
+      async *stream(_opts: LLMCallOptions): AsyncGenerator<LLMStreamChunk> {
         for (const c of chunks) yield c;
       },
       async call() { throw new Error('not used'); },
@@ -148,7 +148,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
   });
 
   it('callback throw 不污染原 err', async () => {
-    const chunks: StreamChunk[] = [{ type: 'text_delta', delta: 'a' }];
+    const chunks: LLMStreamChunk[] = [{ type: 'text_delta', delta: 'a' }];
     const err = new LLMAllProvidersFailedError([{ provider: 'p', error: new Error('boom') }]);
     const llm = makeLLM(chunks, err);
 
@@ -244,9 +244,9 @@ describe('phase 688: stream.jsonl 落 tool_use input + catch 路径 drain', () =
   });
 
   describe('collectStreamResponse catch 路径 drain', () => {
-    function makeLLM(chunks: StreamChunk[], throwAfter: number, errToThrow: Error): LLMOrchestrator {
+    function makeLLM(chunks: LLMStreamChunk[], throwAfter: number, errToThrow: Error): LLMOrchestrator {
       return {
-        async *stream(_opts: LLMCallOptions): AsyncGenerator<StreamChunk> {
+        async *stream(_opts: LLMCallOptions): AsyncGenerator<LLMStreamChunk> {
           let i = 0;
           for (const c of chunks) {
             if (i >= throwAfter) throw errToThrow;
@@ -261,7 +261,7 @@ describe('phase 688: stream.jsonl 落 tool_use input + catch 路径 drain', () =
     }
 
     it('流式 emit 3 个 tool_use_start + 抛错 → catch drain 让 3 个 input 都 fire（含 in-flight 最后一个）', async () => {
-      const chunks: StreamChunk[] = [
+      const chunks: LLMStreamChunk[] = [
         { type: 'tool_use_start', toolUse: { id: 'c1', name: 'exec', partialInput: '' } },
         { type: 'tool_use_delta', toolUse: { id: 'c1', name: 'exec', partialInput: '{"cmd":"a"}' } },
         { type: 'tool_use_start', toolUse: { id: 'c2', name: 'exec', partialInput: '' } },
@@ -287,7 +287,7 @@ describe('phase 688: stream.jsonl 落 tool_use input + catch 路径 drain', () =
     });
 
     it('正常成功路径 → 每个 tool_use 都 fire 一次、不重复', async () => {
-      const chunks: StreamChunk[] = [
+      const chunks: LLMStreamChunk[] = [
         { type: 'tool_use_start', toolUse: { id: 'a1', name: 'read', partialInput: '' } },
         { type: 'tool_use_delta', toolUse: { id: 'a1', name: 'read', partialInput: '{"path":"x"}' } },
         { type: 'tool_use_start', toolUse: { id: 'a2', name: 'read', partialInput: '' } },
@@ -296,7 +296,7 @@ describe('phase 688: stream.jsonl 落 tool_use input + catch 路径 drain', () =
       ];
       // not throw — generator ends naturally
       const llm: LLMOrchestrator = {
-        async *stream(_opts: LLMCallOptions): AsyncGenerator<StreamChunk> {
+        async *stream(_opts: LLMCallOptions): AsyncGenerator<LLMStreamChunk> {
           for (const c of chunks) yield c;
         },
         async call() { throw new Error('not used'); },
@@ -318,7 +318,7 @@ describe('phase 688: stream.jsonl 落 tool_use input + catch 路径 drain', () =
     });
 
     it('callback throw 不污染原 err（safeCallback 守 + drain best-effort）', async () => {
-      const chunks: StreamChunk[] = [
+      const chunks: LLMStreamChunk[] = [
         { type: 'tool_use_start', toolUse: { id: 'b1', name: 'exec', partialInput: '' } },
         { type: 'tool_use_delta', toolUse: { id: 'b1', name: 'exec', partialInput: '{"x":1}' } },
       ];

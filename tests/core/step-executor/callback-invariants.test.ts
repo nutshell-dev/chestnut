@@ -11,8 +11,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeSingleTool } from '../../../src/core/step-executor/tool-execution.js';
 import type { ExecContext, ToolResult } from '../../../src/foundation/tool-protocol/index.js';
 import { executeStep } from '../../../src/core/step-executor/step-executor.js';
-import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { LLMResponse, Message, StreamChunk } from '../../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { LLMResponse, Message } from '../../../src/foundation/llm-provider/types.js';
 import type { IToolExecutor, ToolRegistry } from '../../../src/foundation/tools/executor.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { parseToolInput } from '../../../src/core/step-executor/utils.js';
@@ -102,7 +102,7 @@ describe('safe-callback-audit', () => {
 
   function makeMockLLM(responses: LLMResponse[]): LLMOrchestrator {
     let i = 0;
-    async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
+    async function* streamOne(r: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
       for (const block of r.content) {
         if (block.type === 'text') {
           yield { type: 'text_delta', delta: (block as { text: string }).text };

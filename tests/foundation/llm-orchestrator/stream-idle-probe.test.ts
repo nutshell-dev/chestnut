@@ -6,7 +6,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 
 /**
  * Mock stream 延长延迟 / mock probe 延长延迟: 让 stream 进入 idle window 后触 abort.
@@ -24,7 +25,7 @@ function createMockSink() {
 
 function createMockProvider(
   name: string,
-  streamImpl?: (opts: { signal?: AbortSignal }) => AsyncGenerator<StreamChunk>,
+  streamImpl?: (opts: { signal?: AbortSignal }) => AsyncGenerator<ProviderStreamChunk>,
   callImpl?: (opts?: { signal?: AbortSignal }) => Promise<any>,
 ): ProviderAdapter {
   return {
@@ -83,7 +84,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     });
     (service as any).primary = primary;
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
       chunks.push(chunk);
     }
@@ -143,7 +144,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     try {
       for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
         chunks.push(chunk);
@@ -245,7 +246,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
     });
     (service as any).primary = primary;
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
       chunks.push(chunk);
     }
@@ -292,7 +293,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
       chunks.push(chunk);
     }
@@ -354,7 +355,7 @@ describe('Stream idle probe reset + done-guard + signal propagation (phase 893)'
     (service as any).primary = primary;
 
     const promise = (async () => {
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50, signal: abortCtrl.signal })) {
         chunks.push(chunk);
       }

@@ -14,12 +14,13 @@ import type {
   LLMEventSink,
   LLMEvent,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 
 function createMockProvider(
   name: string,
   opts: {
-    streamChunks?: StreamChunk[];
+    streamChunks?: ProviderStreamChunk[];
     streamError?: Error;
     streamErrorAfter?: number;
     streamDelayMs?: number;
@@ -142,7 +143,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       const breaker = (service as any).breakers[0] as CircuitBreaker;
       const onFailureSpy = vi.spyOn(breaker, 'onFailure');
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
       try {
         for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {
@@ -182,7 +183,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       const service = createOrchestrator(primary, [fallback]);
       forceBreakerOpen(service, 0, 'transient');
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
       try {
         for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {
@@ -263,7 +264,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       const breaker = (service as any).breakers[0] as CircuitBreaker;
       const onFailureSpy = vi.spyOn(breaker, 'onFailure');
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
       try {
         for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {
@@ -387,7 +388,7 @@ describe('hedge state machine cluster (phase 991)', () => {
       forceBreakerOpen(service, 0, 'transient');
       const events = attachEventSpy(service);
 
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       let caught: Error | undefined;
       try {
         for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {

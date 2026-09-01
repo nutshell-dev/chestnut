@@ -22,7 +22,8 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { buildLLMConfig } from '../../../src/assembly/config/config-load.js';
 import { createGlobalConfigSchema } from '../../../src/assembly/config/compose-config.js';
 
@@ -38,7 +39,7 @@ function createMockSink() {
 function createMockProvider(
   name: string,
   opts: {
-    streamChunks?: StreamChunk[];
+    streamChunks?: ProviderStreamChunk[];
     streamError?: Error;
     streamErrorAfter?: number;
     callResponse?: LLMResponse;
@@ -236,7 +237,7 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
     const breaker = (service as any).breakers[0] as CircuitBreaker;
     const onFailureSpy = vi.spyOn(breaker, 'onFailure');
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     let caught: Error | undefined;
     try {
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -270,7 +271,7 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
     const breaker = (service as any).breakers[0] as CircuitBreaker;
     const onFailureSpy = vi.spyOn(breaker, 'onFailure');
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     let caught: Error | undefined;
     try {
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
@@ -291,7 +292,7 @@ describe('LLMOrchestratorImpl Phase 896 fixes', () => {
 // Phase 895 helper: function-based mock provider for streaming scenarios.
 function createMockStreamProvider(
   name: string,
-  streamImpl?: (opts: { signal?: AbortSignal }) => AsyncGenerator<StreamChunk>,
+  streamImpl?: (opts: { signal?: AbortSignal }) => AsyncGenerator<ProviderStreamChunk>,
   callImpl?: (opts?: { signal?: AbortSignal }) => Promise<any>,
 ): ProviderAdapter {
   return {
@@ -359,7 +360,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     });
 
     const promise = (async () => {
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const chunk of service.stream({
         messages: [],
         streamIdleTimeoutMs: 50,
@@ -416,7 +417,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     const breaker = (service as any).breakers[0];
     const onFailureSpy = vi.spyOn(breaker, 'onFailure');
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
       chunks.push(chunk);
     }
@@ -456,7 +457,7 @@ describe('Phase 895 — orchestrator stream fixes', () => {
       createAnthropicAdapter: (cfg) => (cfg.name === fallback.name ? fallback : primary) as any,
     });
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) {
       chunks.push(chunk);
     }

@@ -5,7 +5,7 @@
  * Shared logic for message formatting and request body building.
  */
 
-import type { ProviderConfig, LLMCallOptions, ProviderAdapter, StreamChunk } from './types.js';
+import type { ProviderConfig, LLMCallOptions, ProviderAdapter, ProviderStreamChunk } from './types.js';
 import type { LLMResponse } from './types.js';
 import { assertContentBlocks } from './_block-guards.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
@@ -49,7 +49,7 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
   protected abstract readonly config: ProviderConfig;
 
   abstract call(options: LLMCallOptions): Promise<LLMResponse>;
-  abstract stream?(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
+  abstract stream?(options: LLMCallOptions): AsyncIterableIterator<ProviderStreamChunk>;
 
   onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;
 

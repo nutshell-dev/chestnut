@@ -11,13 +11,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { createShadowTool } from '../../../src/core/shadow-system/index.js';
 import { SHADOW_TOOL_NAME } from '../../../src/core/shadow-system/constants.js';
-import type { Message, ToolDefinition, LLMResponse, StreamChunk } from '../../../src/foundation/llm-provider/types.js';
+import type { Message, ToolDefinition, LLMResponse } from '../../../src/foundation/llm-provider/types.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
-import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/index.js';
 import { NoopAuditWriter } from '../../../src/core/subagent/noop-writers.js';
 import { synthesizeFormB } from '../../../src/core/shadow-system/_helpers.js';
@@ -151,7 +151,7 @@ describe('shadow-integration', () => {
    * Convert LLMResponse to stream chunks for mock
    * (duplicate from tests/core/task.test.ts:30+49 per Step A decision Q4 YAGNI)
    */
-  async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
+  async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
     for (const block of response.content) {
       if (block.type === 'text') {
         yield { type: 'text_delta', delta: (block as { text: string }).text };

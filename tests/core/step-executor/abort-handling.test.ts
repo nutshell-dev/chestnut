@@ -7,8 +7,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { executeStep } from '../../../src/core/step-executor/index.js';
 import { IdleTimeoutSignal } from '../../../src/core/step-executor/signals.js';
 import { INIT_LLM_IDLE_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { Message, LLMResponse, StreamChunk } from '../../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
+import type { Message, LLMResponse } from '../../../src/foundation/llm-provider/types.js';
 import type { ExecContext, ToolResult } from '../../../src/foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../../src/foundation/tools/executor.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
@@ -17,7 +17,7 @@ import { makeExecContext } from '../../helpers/exec-context.js';
 
 function makeMockLLM(responses: LLMResponse[]): LLMOrchestrator {
   let i = 0;
-  async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
+  async function* streamOne(r: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
     for (const block of r.content) {
       if (block.type === 'text') {
         yield { type: 'text_delta', delta: (block as { text: string }).text };
@@ -94,7 +94,7 @@ describe('StepExecutor abort handling (Phase 538)', () => {
   it('abort-stream-with-partial-tool-use: 立即抛 / 不 finalize', async () => {
     const abortController = new AbortController();
 
-    async function* stream(): AsyncIterableIterator<StreamChunk> {
+    async function* stream(): AsyncIterableIterator<LLMStreamChunk> {
       yield { type: 'tool_use_start', toolUse: { id: 'tu1', name: 'testTool', partialInput: '' } };
       yield { type: 'tool_use_delta', toolUse: { id: '', name: '', partialInput: '{"path":"foo' } };
       abortController.abort({ type: 'idle_timeout', ms: INIT_LLM_IDLE_TIMEOUT_MS });
@@ -124,7 +124,7 @@ describe('StepExecutor abort handling (Phase 538)', () => {
   it('abort-stream-text-only: 立即抛 IdleTimeoutSignal', async () => {
     const abortController = new AbortController();
 
-    async function* stream(): AsyncIterableIterator<StreamChunk> {
+    async function* stream(): AsyncIterableIterator<LLMStreamChunk> {
       yield { type: 'text_delta', delta: 'Hello' };
       abortController.abort({ type: 'idle_timeout', ms: INIT_LLM_IDLE_TIMEOUT_MS });
       throw new Error('Execution aborted');

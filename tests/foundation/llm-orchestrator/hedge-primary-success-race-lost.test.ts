@@ -16,13 +16,14 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 
 
 function createDeferredMockProvider(
   name: string,
   opts: {
-    streamChunks?: StreamChunk[];
+    streamChunks?: ProviderStreamChunk[];
     streamError?: Error;
     callResponse?: LLMResponse;
     callError?: Error;
@@ -132,7 +133,7 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
     const events = attachEventSpy(service);
 
     const streamPromise = (async () => {
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }
@@ -174,7 +175,7 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
     const events = attachEventSpy(service);
 
     const streamPromise = (async () => {
-      const chunks: StreamChunk[] = [];
+      const chunks: LLMStreamChunk[] = [];
       for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
         chunks.push(c);
       }

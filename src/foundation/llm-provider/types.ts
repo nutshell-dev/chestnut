@@ -176,10 +176,12 @@ export interface ProviderConfig {
 }
 
 /**
- * Streaming response chunk
+ * Streaming response chunk — 单 provider 调用协议（Phase 1722 Step E）。
+ * 只含单 provider 可能产生的 content/done/usage 成员；
+ * 多 provider 编排控制成员（reset / provider_failed）归 LLMOrchestrator `LLMStreamChunk`。
  */
-export interface StreamChunk {
-  type: 'text_delta' | 'thinking_delta' | 'thinking_signature' | 'tool_use_start' | 'tool_use_delta' | 'done' | 'reset' | 'provider_failed';
+export interface ProviderStreamChunk {
+  type: 'text_delta' | 'thinking_delta' | 'thinking_signature' | 'tool_use_start' | 'tool_use_delta' | 'done';
 
   /** Text delta (for text_delta type) */
   delta?: string;
@@ -215,18 +217,6 @@ export interface StreamChunk {
 
   /** Stop reason (only in type='done' chunk) */
   stopReason?: string;
-
-  /** Provider name that timed out (only in type='reset' chunk) */
-  provider?: string;
-
-  /** Timeout duration in ms (only in type='reset' chunk) */
-  timeoutMs?: number;
-
-  /** Error message (only in type='provider_failed' chunk) */
-  error?: string;
-
-  /** Model name (only in type='provider_failed' chunk) */
-  model?: string;
 }
 
 /**
@@ -284,7 +274,7 @@ export interface ProviderAdapter {
   /**
    * Stream LLM response
    */
-  stream?(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
+  stream?(options: LLMCallOptions): AsyncIterableIterator<ProviderStreamChunk>;
 
   /** Set by LLMOrchestratorImpl; providers call this for SSE parse errors (A.4) */
   onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;

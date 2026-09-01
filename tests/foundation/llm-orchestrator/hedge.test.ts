@@ -15,12 +15,13 @@ import type {
   LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
-import type { ProviderAdapter, ProviderConfig, StreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { ProviderAdapter, ProviderConfig, ProviderStreamChunk } from '../../../src/foundation/llm-provider/index.js';
+import type { LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 
 function createMockProvider(
   name: string,
   opts: {
-    streamChunks?: StreamChunk[];
+    streamChunks?: ProviderStreamChunk[];
     streamError?: Error;
     streamDelayMs?: number;
     callResponse?: LLMResponse;
@@ -129,7 +130,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     forceBreakerOpen(service, 0, 'transient');
     const events = attachEventSpy(service);
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
@@ -161,7 +162,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     forceBreakerOpen(service, 0, 'transient');
     const events = attachEventSpy(service);
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
@@ -205,7 +206,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     forceBreakerOpen(service, 0, 'permanent');
     const events = attachEventSpy(service);
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
@@ -228,7 +229,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
     forceBreakerOpen(service, 0, 'rate_limit');
     const events = attachEventSpy(service);
 
-    const chunks: StreamChunk[] = [];
+    const chunks: LLMStreamChunk[] = [];
     for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }

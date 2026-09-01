@@ -13,8 +13,8 @@ import * as path from 'path';
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-writers.js';
 import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
-import type { LLMResponse, StreamChunk } from '../../src/foundation/llm-provider/types.js';
-import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
+import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { makeAudit, makeMockAudit } from '../helpers/audit.js';
@@ -55,7 +55,7 @@ function makeSubAgentToolExecutor(opts: {
 /**
  * Convert LLMResponse to stream chunks for mock (verbatim copy)
  */
-async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
+async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
   for (const block of response.content) {
     if (block.type === 'text') {
       yield { type: 'text_delta', delta: (block as { text: string }).text };
