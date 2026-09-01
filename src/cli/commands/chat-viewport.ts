@@ -79,7 +79,7 @@ export interface ViewportLifecycle {
   ensureDaemon?: () => Promise<void>;  // 调用方提供：检查 daemon 是否运行，没运行就启动
 }
 
-export interface ViewportInfra {
+interface ViewportInfra {
   audit: AuditLog; // audit sink for createWatcher
   fsFactory: (baseDir: string) => FileSystem;
 }
