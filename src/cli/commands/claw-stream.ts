@@ -24,7 +24,7 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
-export type StreamStartMode =
+type StreamStartMode =
   | { kind: 'recent-turn' }
   | { kind: 'now' }
   | { kind: 'history' }
