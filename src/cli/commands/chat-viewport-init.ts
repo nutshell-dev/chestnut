@@ -17,7 +17,7 @@ import type { StreamEvent } from '../../foundation/stream/index.js';
 /** chat-viewport crash audit 写入时 stack trace top-N 行截取（防 audit row 过长）*/
 const CHAT_CRASH_STACK_TOP_N = 5;
 
-export interface UncaughtHandlerDeps {
+interface UncaughtHandlerDeps {
   agentDir: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
