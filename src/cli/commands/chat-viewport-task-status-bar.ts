@@ -77,7 +77,7 @@ export interface TaskStatusBarDeps {
   updateRender: () => void;   // debounced render trigger（与 attachedClawBar 同 nextTick 模式）
 }
 
-export interface MigratedExecTrack {
+interface MigratedExecTrack {
   taskId: TaskId;
   command: string;
   startedAt: number;  // ms epoch
