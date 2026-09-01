@@ -19,7 +19,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { prefixLines } from '../utils/string.js';
 
 
-export type TurnUIPhase =
+type TurnUIPhase =
   | 'idle'
   | 'waiting_llm'
   | 'streaming_text'
