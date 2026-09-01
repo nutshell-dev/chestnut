@@ -44,7 +44,7 @@ export interface TurnLifecycleRole {
   mainUI: MainTurnUIController;
 }
 
-export interface DisplayRenderRole {
+interface DisplayRenderRole {
   sink: DescriptorSink;
 }
 
