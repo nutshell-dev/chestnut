@@ -69,7 +69,7 @@ export function createClawPanel(deps: ClawPanelDeps) {
   return { _renderClawPanel, materializeNow, updateClawPanel };
 }
 
-export interface RescanClawsDirDeps {
+interface RescanClawsDirDeps {
   clawsFs: FileSystem;
   clawTopology: ClawTopology;
   clawTrackMap: Map<string, ClawTrack>;
