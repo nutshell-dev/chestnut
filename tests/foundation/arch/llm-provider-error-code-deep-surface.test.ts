@@ -12,6 +12,7 @@ describe('LLMProvider LLMErrorCode deep surface', () => {
     expect(providerErrors).toMatch(
       /(?:^|\n)(?:export\s+)?type\s+LLMErrorCode\s*=[\s\S]*?'LLM_INVALID_REQUEST';/,
     );
-    expect(providerErrors.match(/readonly\s+code:\s*LLMErrorCode\s*=/g)).toHaveLength(11);
+    // phase 1722 F: LLMCircuitBreakerOpenError 归 LLMOrchestrator，L1 code 属性自 11 降为 10
+    expect(providerErrors.match(/readonly\s+code:\s*LLMErrorCode\s*=/g)).toHaveLength(10);
   });
 });
