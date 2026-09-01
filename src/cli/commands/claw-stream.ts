@@ -30,7 +30,7 @@ export type StreamStartMode =
   | { kind: 'history' }
   | { kind: 'offset'; value: number };
 
-export interface StreamOptions {
+interface StreamOptions {
   startMode?: StreamStartMode;
 }
 
