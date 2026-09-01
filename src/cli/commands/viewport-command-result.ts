@@ -11,7 +11,3 @@ import type { RenderDescriptor } from './viewport-render-descriptor.js';
 export interface CommandResult {
   descriptors: RenderDescriptor[];
 }
-
-export const textResult = (color: string, text: string): CommandResult => ({
-  descriptors: [{ kind: 'text-line', color, text }],
-});
