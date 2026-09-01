@@ -32,7 +32,7 @@ interface CommandsClawDeps {
   clawManager: ClawManager;
 }
 
-export interface CommandsConfigDeps {
+interface CommandsConfigDeps {
   mainUI: MainTurnUIController;
   getThinkingMode: () => ThinkingMode;
   setThinkingMode: (m: ThinkingMode) => void;
