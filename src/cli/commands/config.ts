@@ -437,7 +437,7 @@ async function providerMove(deps: ConfigCommandDeps, label: string, position: st
 }
 
 // Build the config command
-export interface ConfigCommandDeps {
+interface ConfigCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
   rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
   rootConfigLegacy: RootConfigLegacyMigration;
