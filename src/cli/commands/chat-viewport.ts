@@ -61,7 +61,7 @@ const CHAT_CRASH_LOG_FILE = 'logs/chat-crash.log';
  * phase 31 P2.4: ChatViewportOptions 按 role 拆 ISP align。
  */
 
-export interface ViewportIdentity {
+interface ViewportIdentity {
   agentDir: string;   // motion dir 或 claw dir
   label: string;      // 显示名，如 'motion' 或 'claw-search'
 }
