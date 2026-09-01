@@ -55,7 +55,7 @@ export function createUncaughtHandler(deps: UncaughtHandlerDeps) {
   };
 }
 
-export interface InitOwnStateDeps {
+interface InitOwnStateDeps {
   isMotion: boolean;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
