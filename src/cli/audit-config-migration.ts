@@ -35,7 +35,7 @@ import {
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
-export type AuditConfigMigrationResult =
+type AuditConfigMigrationResult =
   /** root config.yaml 不存在（未初始化工作区）——不属本协议范围。 */
   | { kind: 'not-initialized' }
   /** 两边皆无 —— typed 报告，不静默创建。 */
