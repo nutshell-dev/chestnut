@@ -73,7 +73,7 @@ export function buildTaskLine(t: TaskTrack, cols: number): string {
   return `\x1b[38;5;147m${fitLine(`[${label}] ⊙ (${inner})${waitingSuffix}`, cols)}\x1b[0m`;
 }
 
-export interface TaskStatusBarDeps {
+interface TaskStatusBarDeps {
   updateRender: () => void;   // debounced render trigger（与 attachedClawBar 同 nextTick 模式）
 }
 
