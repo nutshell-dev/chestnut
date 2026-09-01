@@ -37,7 +37,7 @@ export type NotifyClawFn = (
  * Composed via `&` intersection — runtime ctx instance unchanged, structurally compatible.
  */
 
-export interface VerificationContractContext {
+interface VerificationContractContext {
   fs: FileSystem;
   audit: AuditLog;
   clawDir: string;
