@@ -41,7 +41,7 @@ const PROVIDER_LIST = [
   'qwen-coder',
 ];
 
-export interface InitCommandDeps {
+interface InitCommandDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigAdmin, 'isInitialized' | 'loadGlobal' | 'saveGlobal' | 'patchPrimary'>;
 }
