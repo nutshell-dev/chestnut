@@ -4,7 +4,7 @@
  * HH:MM:SS（本地时区）；测试注入固定 Date 断言结构，不依赖运行机 locale 字符串。
  */
 
-export function formatClockTime(d: Date): string {
+function formatClockTime(d: Date): string {
   const hh = String(d.getHours()).padStart(2, '0');
   const mi = String(d.getMinutes()).padStart(2, '0');
   const ss = String(d.getSeconds()).padStart(2, '0');
