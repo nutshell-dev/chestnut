@@ -21,7 +21,7 @@ import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core
 /** chat-viewport task line shortId 显示截断 cap（viewport UI 业务、与 UUID_SHORT_LEN=8 独立可变）*/
 const VIEWPORT_TASK_ID_DISPLAY_CHARS = 6;
 
-export interface TaskTrack {
+interface TaskTrack {
   taskId: TaskId;
   taskKind: 'spawn_subagent' | 'shadow_subagent';   // 'spawn_subagent' 归 spawn 数组、'shadow_subagent' 归 shadow 数组
   currentTool: string | null;
