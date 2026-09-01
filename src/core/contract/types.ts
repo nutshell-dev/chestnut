@@ -217,7 +217,7 @@ interface VerifierIdentityConfig {
   contractId: ContractId;
 }
 
-export interface VerifierRuntimeConfig {
+interface VerifierRuntimeConfig {
   llm: LLMOrchestrator;
   fs: FileSystem;
   /** Audit writer / phase 646 ⚓ verifier cleanup audit / per `feedback_audit_injection_alpha_template` */
