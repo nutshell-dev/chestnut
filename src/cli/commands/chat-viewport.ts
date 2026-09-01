@@ -66,7 +66,7 @@ export interface ViewportIdentity {
   label: string;      // 显示名，如 'motion' 或 'claw-search'
 }
 
-export interface ViewportDisplayOptions {
+interface ViewportDisplayOptions {
   showRecapStream?: boolean;   // 复盘子代理 stream，默认 false
   showSystemMessages?: boolean;   // system message，默认 false
   showContractEvents?: boolean;   // contract 子任务完成信息，默认 true
