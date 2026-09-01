@@ -72,7 +72,7 @@ interface ObservabilityRole {
   observability: ReturnType<typeof createViewportObservability>;
 }
 
-export interface ThinkingConfigRole {
+interface ThinkingConfigRole {
   getThinkingMode: () => ThinkingMode;
 }
 
