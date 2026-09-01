@@ -124,7 +124,7 @@ export function getOnboardingStatus(motionDir: string, deps: { fsFactory: (baseD
  * ensureSupervision 为必传的一次性监督 capability——由 CLI 监督边界
  * （cliDeferredRequiredAction）创建并注入；start 不直接 import Watchdog。
  */
-export interface StartCommandRuntime {
+interface StartCommandRuntime {
   audit?: AuditLog;
   ensureSupervision: EnsureSupervision;
 }
