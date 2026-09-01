@@ -20,7 +20,7 @@ import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 
-export interface ClawPanelDeps {
+interface ClawPanelDeps {
   attachedClawBar: { setText(text: string): void };
   requestRender?: () => void;
 }
