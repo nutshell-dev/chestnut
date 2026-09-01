@@ -29,9 +29,9 @@ export type TurnUIPhase =
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
- * Spinner 帧切换节奏。Exported: e2e 测可镜像验渲染节奏.
+ * Spinner 帧切换节奏（模块内部常量）。
  */
-export const SPINNER_INTERVAL_MS = 80;
+const SPINNER_INTERVAL_MS = 80;
 
 /**
  * Spinner 进 phase 后保证可见 dwell（ms）。dwell 内 clear 推迟兑现。
