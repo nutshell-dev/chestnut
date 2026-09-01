@@ -11,7 +11,7 @@
 
 import { createWatcher, type Watcher } from '../../foundation/file-watcher/index.js';
 
-export interface DaemonLivenessMonitorDeps {
+interface DaemonLivenessMonitorDeps {
   pidFilePath: string;        // abs path to daemon PID file
   onDead: () => void;         // caller: 标 daemonDead + abort + display + observability
   onError?: (err: Error) => void;  // watcher 内部错误
