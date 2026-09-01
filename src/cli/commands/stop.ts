@@ -22,7 +22,7 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
 
-export interface StopCommandDeps {
+interface StopCommandDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigReader, 'loadGlobal'>;
 }
