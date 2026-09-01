@@ -40,7 +40,7 @@ const VerificationResultFactSchema = z.object({
     issues: z.array(z.string()).optional(),
   }).strict().optional(),
 }).strict();
-export type VerificationResultFact = z.infer<typeof VerificationResultFactSchema>;
+type VerificationResultFact = z.infer<typeof VerificationResultFactSchema>;
 
 const SerializableErrorFactSchema = z.object({
   message: z.string(),
