@@ -44,7 +44,7 @@ export type WatchdogStateMigrationResult =
   /** 本次运行推进了迁移（含 resume 续跑完成）。 */
   | { kind: 'migrated'; migrationId: string };
 
-export interface WatchdogStateMigrationDeps {
+interface WatchdogStateMigrationDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigReader, 'isInitialized'>;
 }
