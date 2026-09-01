@@ -76,7 +76,7 @@ export interface ThinkingConfigRole {
   getThinkingMode: () => ThinkingMode;
 }
 
-export interface PendingResolutionRole {
+interface PendingResolutionRole {
   resolvePending: (count: number) => void;
 }
 
