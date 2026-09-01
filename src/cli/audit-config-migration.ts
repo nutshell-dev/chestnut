@@ -47,7 +47,7 @@ export type AuditConfigMigrationResult =
 
 type LegacyAuditConfigSection = NonNullable<ReturnType<RootConfigLegacyMigration['readAuditSection']>>;
 
-export interface AuditConfigMigrationDeps {
+interface AuditConfigMigrationDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigReader, 'isInitialized'>;
   rootConfigLegacy: Pick<RootConfigLegacyMigration, 'readAuditSection' | 'removeAuditSection'>;
