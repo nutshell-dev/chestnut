@@ -7,7 +7,7 @@
 
 import type { TurnTracker } from './chat-viewport-types.js';
 
-export interface TurnTrackerDeps {
+interface TurnTrackerDeps {
   mainUI: {
     enterPhase(phase: string, label?: string): void;
     flushThinking(): void;
