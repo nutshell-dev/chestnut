@@ -39,7 +39,7 @@ interface CommandsConfigDeps {
   getRegistry: () => Map<string, ViewportCommand>;
 }
 
-export type CommandsDeps = CommandsClawDeps & CommandsConfigDeps;
+type CommandsDeps = CommandsClawDeps & CommandsConfigDeps;
 
 const textLine = (color: string, text: string, wrap?: boolean): RenderDescriptor =>
   ({ kind: 'text-line', color, text, ...(wrap ? { wrap } : {}) });
