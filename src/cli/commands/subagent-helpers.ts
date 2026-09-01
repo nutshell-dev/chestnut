@@ -123,7 +123,7 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   return 'running';
 }
 
-export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, resultDir: string, id: string, clawDir: string): Date | undefined {
+function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: TaskIdResolver }, resultDir: string, id: string, clawDir: string): Date | undefined {
   const clawFs = deps.fsFactory(clawDir);
   // Phase 849: queue files are keyed by fullTaskId; use resolved path id for lookups.
   const pathId = resolvePathTaskId(id, deps.shortIdIndex);
