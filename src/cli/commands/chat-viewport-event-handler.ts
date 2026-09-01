@@ -39,7 +39,7 @@ export interface TaskWatch {
  * phase 31 P2.4: EventHandlerDeps 按 role 拆 ISP align。
  */
 
-export interface TurnLifecycleRole {
+interface TurnLifecycleRole {
   turnTracker: TurnTracker;
   mainUI: MainTurnUIController;
 }
