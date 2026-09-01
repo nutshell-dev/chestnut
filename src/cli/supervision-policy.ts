@@ -26,7 +26,7 @@ export type SupervisionPolicy =
   | 'disabled'
   | 'internal';
 
-export interface SupervisionContext {
+interface SupervisionContext {
   fsFactory: (baseDir: string) => FileSystem;
 }
 
