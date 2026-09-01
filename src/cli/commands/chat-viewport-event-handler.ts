@@ -54,7 +54,7 @@ interface InboxFilterRole {
   label: string;
 }
 
-export interface TaskWatchRole {
+interface TaskWatchRole {
   agentDir: string;
   fsFactory: (baseDir: string) => FileSystem;
   taskWatchMap: Map<string, TaskWatch>;
