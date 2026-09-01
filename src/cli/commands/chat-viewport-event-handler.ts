@@ -48,7 +48,7 @@ interface DisplayRenderRole {
   sink: DescriptorSink;
 }
 
-export interface InboxFilterRole {
+interface InboxFilterRole {
   showSystemMessages: boolean;
   showContractEvents: boolean;
   label: string;
