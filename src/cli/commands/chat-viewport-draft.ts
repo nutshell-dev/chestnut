@@ -13,7 +13,7 @@ interface ViewportDraftDocument {
   updatedAt: string;
 }
 
-export type ViewportDraftLoadResult =
+type ViewportDraftLoadResult =
   | { kind: 'none' }
   | { kind: 'restored'; text: string }
   | { kind: 'quarantined'; path: string };
