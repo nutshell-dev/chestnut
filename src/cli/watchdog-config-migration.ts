@@ -30,7 +30,7 @@ import {
   type WatchdogMigrationOutcome,
 } from '../watchdog/index.js';
 
-export type WatchdogConfigMigrationResult =
+type WatchdogConfigMigrationResult =
   /** root config.yaml 不存在（未初始化工作区）——不属本协议范围。 */
   | { kind: 'not-initialized' }
   /** 两边皆无 —— typed 报告，不静默创建。 */
