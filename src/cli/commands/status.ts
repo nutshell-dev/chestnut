@@ -30,7 +30,7 @@ import { createClawTopology } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { STATUS_AUDIT_EVENTS } from '../../core/status-service/index.js';
 
-export interface StatusCommandDeps {
+interface StatusCommandDeps {
   fsFactory(baseDir: string): FileSystem;
   rootConfig: Pick<RootConfigReader, 'loadGlobal'>;
 }
