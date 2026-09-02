@@ -10,6 +10,8 @@
  *  - re-tick after done file aged > 24h → write new (mtime window expired)
  *  - state change (new msg) → write new summary, old stays pending
  *  - all unread consumed + new tick → no write, no audit, old summary stays pending
+ *  - phase 1749: repeat push (aged > 24h same hash) → body carries outbox-skip guidance
+ *  - phase 1749: first push / new-hash push → body has no guidance
  */
 
 import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
@@ -467,5 +469,105 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     // Only the first summary should exist.
     expect(await listSummaries(root, 'pending', fs)).toHaveLength(1);
+  });
+
+  it('phase 1749: repeat after done window expiry → body carries outbox-skip guidance', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), encodeOutbox(makeMsg('b1', '2026-06-04T10:00:00Z')));
+    await runOutboxSummaryTick({
+      clawTopology: topology,
+      fs,
+      inboxReader,
+      inboxWriter,
+      outboxReader,
+      audit,
+    });
+    const drained = await inboxReader.drainAndDeliver();
+    expect(drained.handles.length).toBe(1);
+    await inboxReader.ack(drained.handles[0]);
+    const doneFiles = await fsAsync.readdir(path.join(root, 'motion/inbox/done'));
+    const old = Date.now() - DEDUP_DONE_WINDOW_MS - 60_000;
+    await fsAsync.utimes(path.join(root, 'motion/inbox/done', doneFiles[0]), old / 1000, old / 1000);
+
+    events.length = 0;
+    await runOutboxSummaryTick({
+      clawTopology: topology,
+      fs,
+      inboxReader,
+      inboxWriter,
+      outboxReader,
+      audit,
+    });
+    const summaries = await listSummaries(root, 'pending', fs);
+    expect(summaries).toHaveLength(1);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_written')).toBe(true);
+
+    const summaryContent = await fsAsync.readFile(path.join(root, 'motion/inbox/pending', summaries[0]), 'utf-8');
+    const body = decodeInbox(summaryContent).content;
+    expect(body).toContain('〔提示〕以上未读消息与此前推送完全重复');
+    expect(body).toContain('chestnut claw clawA outbox-skip --all');
+    expect(body).toContain('chestnut claw clawB outbox-skip --all');
+    // 逐 claw 命令按 claw id localeCompare 排序（与 body 行列表同序）
+    expect(body.indexOf('chestnut claw clawA')).toBeLessThan(body.indexOf('chestnut claw clawB'));
+    // hash 不变：extraMeta 与 body 解耦，dedup 语义不受影响
+    const decoded = decodeInbox(summaryContent);
+    expect(decoded.metadata).toEqual({
+      guidance_schema_version: '1',
+      'summary-hash': expect.stringMatching(/^[0-9a-f]{12}$/),
+      counts: JSON.stringify({ clawA: 1, clawB: 1 }),
+      total_claws: '2',
+      total_msgs: '2',
+    });
+  });
+
+  it('phase 1749: first push → body has no skip guidance', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
+    await runOutboxSummaryTick({
+      clawTopology: topology,
+      fs,
+      inboxReader,
+      inboxWriter,
+      outboxReader,
+      audit,
+    });
+    const summaries = await listSummaries(root, 'pending', fs);
+    expect(summaries).toHaveLength(1);
+    const body = decodeInbox(await fsAsync.readFile(path.join(root, 'motion/inbox/pending', summaries[0]), 'utf-8')).content;
+    expect(body).not.toContain('〔提示〕');
+    expect(body).not.toContain('outbox-skip');
+  });
+
+  it('phase 1749: new-hash push (state change, old summary pending) → new body has no guidance', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
+    await runOutboxSummaryTick({
+      clawTopology: topology,
+      fs,
+      inboxReader,
+      inboxWriter,
+      outboxReader,
+      audit,
+    });
+    const firstSummary = (await listSummaries(root, 'pending', fs))[0];
+
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), encodeOutbox(makeMsg('m2', '2026-06-04T10:00:01Z')));
+    events.length = 0;
+    await runOutboxSummaryTick({
+      clawTopology: topology,
+      fs,
+      inboxReader,
+      inboxWriter,
+      outboxReader,
+      audit,
+    });
+    const summaries = await listSummaries(root, 'pending', fs);
+    expect(summaries).toHaveLength(2);
+    const newSummary = summaries.find(s => s !== firstSummary)!;
+    const body = decodeInbox(await fsAsync.readFile(path.join(root, 'motion/inbox/pending', newSummary), 'utf-8')).content;
+    expect(body).not.toContain('〔提示〕');
+    expect(body).not.toContain('outbox-skip');
   });
 });
