@@ -31,3 +31,22 @@ export async function findExistingSummaryByHash(
   );
   return hit?.location ?? null;
 }
+
+/**
+ * done/ 全量历史查询：判断该 hash 是否曾推送过（含 24h 窗外的陈旧记录）。
+ * 前置条件 = dedup miss（pending/inflight/done<24h 均无）→ 命中必来自
+ * done 中 mtime ≥ 24h 的旧 summary；failed 不扫为 findByExtraMeta 固有语义。
+ * phase 1749：∞ 窗口复用 includeDoneWithinMs 参数、零 Messaging 接口扩展
+ * （inbox-reader done 分支 windowMs<=0 才拒、∞ 时 cutoff=-Infinity 不过滤）。
+ */
+export async function findHistoricalSummaryByHash(
+  deps: DedupDeps,
+  hash: string,
+): Promise<boolean> {
+  const hit = await deps.inboxReader.findByExtraMeta(
+    SUMMARY_HASH_META_KEY,
+    hash,
+    { includeDoneWithinMs: Number.POSITIVE_INFINITY },
+  );
+  return hit !== null;
+}

@@ -18,7 +18,7 @@ import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
 import type { ClawTopology } from '../../types.js';
 import { scanOutboxes } from './scan.js';
-import { findExistingSummaryByHash } from './dedup.js';
+import { findExistingSummaryByHash, findHistoricalSummaryByHash } from './dedup.js';
 import { writeNewSummary } from './write.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 
@@ -74,8 +74,16 @@ export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise
   // phase 938: after dedup and before writing inbox, respect cancellation.
   throwIfAborted(deps.signal);
 
+  // phase 1749: done 全量历史同 hash = 内容与历史完全重复（写入侧判定、
+  // 24h dedup 语义不动）→ 写出的 summary body 末尾追加 outbox-skip 指引段。
+  const isRepeat = await findHistoricalSummaryByHash(
+    { inboxReader: deps.inboxReader },
+    state.hash,
+  );
+
   await writeNewSummary(
     { inboxWriter: deps.inboxWriter, audit: deps.audit, now: deps.now },
     state,
+    { isRepeat },
   );
 }

@@ -27,9 +27,10 @@ interface WriteDeps {
 export async function writeNewSummary(
   deps: WriteDeps,
   state: OutboxSummaryState,
+  opts: { isRepeat?: boolean } = {},
 ): Promise<void> {
   const now = deps.now?.() ?? Date.now();
-  const body = formatBody(state);
+  const body = formatBody(state, opts.isRepeat === true);
   const extra = encodeOutboxSummaryGuidance(state);
   const msg: InboxMessage = {
     id: `claw-outbox-summary-${state.hash}-${now}`,
@@ -53,12 +54,23 @@ export async function writeNewSummary(
   );
 }
 
-function formatBody(state: OutboxSummaryState): string {
+function formatBody(state: OutboxSummaryState, isRepeat: boolean): string {
   const head = `[system] outbox 未读：共 ${state.total_claws} 个 claw ${state.total_msgs} 条消息`;
   const lines = Object.entries(state.counts)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([id, n]) => `- ${id} (${n}): 「${state.previews[id] ?? '(无预览)'}」`);
   const parts = [head, ...lines];
+  if (isRepeat) {
+    // phase 1749: 重复推送（同 hash 曾在 24h 窗外推送过）→ motion 已看过、
+    // 未处理/不需要处理，追加逐 claw 的 outbox-skip 使用指引（事件驱动教学、零预灌）。
+    parts.push(
+      '',
+      '〔提示〕以上未读消息与此前推送完全重复。若你已确认这些消息无需处理，可执行以下命令跳过对应 claw 的未读消息（归档到 done/、不再提醒）：',
+      ...Object.keys(state.counts)
+        .sort((a, b) => a.localeCompare(b))
+        .map((id) => `  chestnut claw ${id} outbox-skip --all`),
+    );
+  }
   if (state.incomplete) {
     parts.push(`警告：以下 claw 扫描失败，计数可能不完整 — ${state.failed_claws.join(', ')}`);
   }
