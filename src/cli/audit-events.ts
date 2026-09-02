@@ -14,6 +14,8 @@ export const CLI_AUDIT_EVENTS = {
   CLAW_OUTBOX_DRAIN_START: 'cli_claw_outbox_drain_start',
   CLAW_OUTBOX_DRAIN_DONE: 'cli_claw_outbox_drain_done',
   CLAW_OUTBOX_DRAIN_RACE_LOST: 'cli_claw_outbox_drain_race_lost',          // NEW phase 1222 α-2: atomic claim loser
+  CLAW_OUTBOX_SKIP_START: 'cli_claw_outbox_skip_start',                      // NEW phase 1748: outbox-skip mutation 对称 start 事件
+  CLAW_OUTBOX_SKIP_DONE: 'cli_claw_outbox_skip_done',                        // NEW phase 1748: outbox-skip mutation 对称 done 事件
   CONTRACT_CREATE: 'cli_contract_create',
   CONTRACT_CANCEL: 'cli_contract_cancel',                                    // NEW phase 1471: contract cancel CLI
   CONFIG_SAVED: 'cli_config_saved',                                        // NEW phase 1452: config provider 子命令 saveGlobal 成功侧

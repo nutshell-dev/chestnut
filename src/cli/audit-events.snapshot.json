@@ -47,6 +47,8 @@
       "cli_claw_outbox_drain_done",
       "cli_claw_outbox_drain_race_lost",
       "cli_claw_outbox_drain_start",
+      "cli_claw_outbox_skip_done",
+      "cli_claw_outbox_skip_start",
       "cli_claw_stop",
       "cli_config_saved",
       "cli_contract_cancel",
@@ -782,7 +784,8 @@
       "outbox_list_failed",
       "outbox_processing_orphan_cleaned",
       "outbox_send_failed",
-      "outbox_sent"
+      "outbox_sent",
+      "outbox_skipped"
     ],
     "foundation_process-manager_audit-events": [
       "clean_stop_cleared",

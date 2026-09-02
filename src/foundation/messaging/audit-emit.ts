@@ -165,6 +165,19 @@ export function emitOutboxDelivered(
   audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED, ...cols);
 }
 
+// ─── OUTBOX_SKIPPED (phase 1748) ──────────────────────────────────────────────
+// outbox-skip 不读内容直接归档、独立审计（区别于 delivered）
+export function emitOutboxSkipped(
+  audit: AuditLog,
+  opts: { file: string; skippedAt?: number },
+): void {
+  const cols: string[] = [`file=${opts.file}`];
+  if (opts.skippedAt !== undefined) {
+    cols.push(`skippedAt=${opts.skippedAt}`);
+  }
+  audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_SKIPPED, ...cols);
+}
+
 // ─── INBOX_MOVE_FAILED ────────────────────────────────────────────────────────
 export function emitInboxMoveFailed(
   audit: AuditLog,

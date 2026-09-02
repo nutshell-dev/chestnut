@@ -26,7 +26,7 @@ import {
   OUTBOX_FAILED_DIR,
 } from './dirs.js';
 import { newShortUuid } from '../node-utils/index.js';
-import { emitOutboxDelivered } from './audit-emit.js';
+import { emitOutboxDelivered, emitOutboxSkipped } from './audit-emit.js';
 
 type ClaimResult =
   | { status: 'empty' }
@@ -291,19 +291,26 @@ export class OutboxReader {
    * Steps:
    *   1. List pending/, take first .md file (filename-sorted)
    *   2. Move pending/<filename> → processing/<claimToken>_<filename> (atomic claim)
-   *   3. Read content from claimed path
+   *   3. Read content from claimed path (unless opts.readContent === false)
    *   4. Return { status: 'claimed', claimPath, filename, content }
    *
    * Returns a discriminated result so callers can distinguish:
    *   - `empty`: nothing to claim (including race-lost cases)
    *   - `io_error`: filesystem error while listing/moving/reading
    *
-   * The returned `claimPath` is relative to clawDir; caller passes it to markDone()/markFailed().
+   * The returned `claimPath` is relative to clawDir; caller passes it to markDone()/markFailed()/markSkipped().
+   *
+   * phase 1748: opts.readContent === false 时跳过 fs.read（outbox-skip 不读内容、
+   * rollback 语义只对已读失败保留）；默认行为不变（drain 调用点零改动）。
    *
    * @param clawDir absolute path to a claw root
+   * @param opts readContent === false → claim without reading content
    * @returns ClaimResult
    */
-  async claimNext(clawDir: string): Promise<ClaimResult> {
+  async claimNext(
+    clawDir: string,
+    opts: { readContent?: boolean } = {},
+  ): Promise<ClaimResult> {
     const listResult = await this.listClawOutboxPendingResult(clawDir);
     if (!listResult.ok) return { status: 'io_error', error: listResult.error };
     if (listResult.value.length === 0) return { status: 'empty' };
@@ -332,29 +339,31 @@ export class OutboxReader {
       return { status: 'io_error', error: reason };
     }
 
-    // Read
-    let content: string;
-    try {
-      content = await this.fs.read(relClaimedPath);
-    } catch (err) {
-      // Rollback: move back to pending so message is not stuck in processing
+    // Read (phase 1748: skip when opts.readContent === false)
+    let content = '';
+    if (opts.readContent !== false) {
       try {
-        await this.fs.move(relClaimedPath, relPendingPath);
-      } catch (rollbackErr) {
-        // Rollback failed: leave audit trail, message will be recovered by reconcile on next restart
+        content = await this.fs.read(relClaimedPath);
+      } catch (err) {
+        // Rollback: move back to pending so message is not stuck in processing
+        try {
+          await this.fs.move(relClaimedPath, relPendingPath);
+        } catch (rollbackErr) {
+          // Rollback failed: leave audit trail, message will be recovered by reconcile on next restart
+          emitOutboxClaimFailed(this.audit, {
+            file: fileName,
+            op: 'read_rollback',
+            reason: formatErr(rollbackErr),
+          });
+        }
+        const reason = formatErr(err);
         emitOutboxClaimFailed(this.audit, {
           file: fileName,
-          op: 'read_rollback',
-          reason: formatErr(rollbackErr),
+          op: 'read',
+          reason,
         });
+        return { status: 'io_error', error: reason };
       }
-      const reason = formatErr(err);
-      emitOutboxClaimFailed(this.audit, {
-        file: fileName,
-        op: 'read',
-        reason,
-      });
-      return { status: 'io_error', error: reason };
     }
 
     // Build claimPath relative to clawDir (for markDone/markFailed to use)
@@ -395,6 +404,45 @@ export class OutboxReader {
     emitOutboxDelivered(this.audit, {
       file: originalFilename,
       deliveredAt: Date.now(),
+    });
+  }
+
+  /**
+   * Mark a claimed outbox message as skipped — move processing/ → done/ WITHOUT
+   * emitting delivered (phase 1748 outbox-skip).
+   *
+   * Path traversal 校验与 markDone 完全一致；归档目标同 done/<ts>_<origName>.md。
+   * 独立 audit 事件 outbox_skipped（不误报 delivered，区别于 markDone）。
+   *
+   * @param clawDir absolute path to a claw root
+   * @param claimPath relative path within clawDir (returned by claimNext)
+   * @param originalFilename original pending filename (for audit trail)
+   */
+  async markSkipped(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
+    const normalizedClaimPath = path.normalize(claimPath);
+    const processingPrefix = path.join(OUTBOX_PROCESSING_DIR) + path.sep;
+    if (
+      normalizedClaimPath === '..' ||
+      normalizedClaimPath.startsWith('..' + path.sep) ||
+      normalizedClaimPath.startsWith('../') ||
+      !normalizedClaimPath.startsWith(processingPrefix)
+    ) {
+      throw new Error(`Path traversal detected in claimPath: "${claimPath}"`);
+    }
+
+    const safeOriginal = path.basename(originalFilename);
+    if (!safeOriginal.endsWith('.md') || safeOriginal.includes('..')) {
+      throw new Error(`Invalid originalFilename: "${originalFilename}"`);
+    }
+
+    const processingFullPath = path.join(clawDir, normalizedClaimPath);
+    const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
+    await this.fs.ensureDir(doneDir);
+    const donePath = path.join(doneDir, `${Date.now()}_${safeOriginal}`);
+    await this.fs.move(processingFullPath, donePath);
+    emitOutboxSkipped(this.audit, {
+      file: originalFilename,
+      skippedAt: Date.now(),
     });
   }
 

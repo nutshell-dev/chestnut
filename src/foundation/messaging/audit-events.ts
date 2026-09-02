@@ -35,6 +35,8 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_BODY_OVERSIZE: 'inbox_body_oversize',
   OUTBOX_SENT: 'outbox_sent',
   OUTBOX_DELIVERED: 'outbox_delivered',
+  // phase 1748: outbox-skip 不读内容归档、独立审计（区别于 delivered）
+  OUTBOX_SKIPPED: 'outbox_skipped',
   OUTBOX_SEND_FAILED: 'outbox_send_failed',
   // phase 430 Step E (review medium、inbox cap 对称): outbox body 超 cap、防 disk DoS
   OUTBOX_BODY_OVERSIZE: 'outbox_body_oversize',
@@ -79,6 +81,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   inbox_body_oversize: 'audit',
   outbox_sent: 'audit',
   outbox_delivered: 'audit',
+  outbox_skipped: 'audit',
   outbox_send_failed: 'audit',
   outbox_body_oversize: 'audit',
   notify_claw_sent: 'audit',
