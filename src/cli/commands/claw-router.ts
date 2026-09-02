@@ -27,6 +27,7 @@ import {
   healthCommand,
   sendCommand,
   outboxCommand,
+  outboxSkipCommand,
   importCommand,
   readCommand,
   lsCommand,
@@ -204,6 +205,7 @@ export async function dispatchClawSubcommand(
     case 'health': return verbAction('observe_only', () => runHealth(deps, name, verbArgs), deps)();
     case 'send': return verbAction('required', () => runSend(deps, name, verbArgs), deps)();
     case 'outbox': return verbAction('required', () => runOutbox(deps, name, verbArgs), deps)();
+    case 'outbox-skip': return verbAction('required', () => runOutboxSkip(deps, name, verbArgs), deps)();
     case 'import': return verbAction('required', () => runImport(deps, name, verbArgs), deps)();
     case 'read': return verbAction('observe_only', () => runRead(deps, name, verbArgs), deps)();
     case 'ls': return verbAction('observe_only', () => runLs(deps, name, verbArgs), deps)();
@@ -293,6 +295,27 @@ async function runOutbox(deps: RouterDeps, name: string, args: string[]): Promis
   const opts = parser.opts() as { limit: string };
   const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
   await outboxCommand(deps, name, { limit }, { audit });
+}
+
+async function runOutboxSkip(deps: RouterDeps, name: string, args: string[]): Promise<void> {
+  const parser = makeVerbParser('outbox-skip');
+  parser.option('--limit <n>', 'Max messages to skip', String(DEFAULT_OUTBOX_READ_LIMIT));
+  parser.option('--all', 'Skip all unread messages');
+  try {
+    parser.parse(args, { from: 'user' });
+  } catch (err) {
+    throw new CliError(`invalid 'claw <name> outbox-skip' options: ${(err as Error).message}`, { cause: err });
+  }
+  // 互斥：--all 与显式 --limit 同用报错（commander boolean option 无显式 seen
+  // 标记，用原始 args 检查是否显式传过 --limit；仿 list --json/--summary 互斥先例）。
+  const opts = parser.opts() as { limit: string; all?: boolean };
+  if (opts.all === true && args.some((a) => a.startsWith('--limit'))) {
+    throw new CliError("options '--all' and '--limit' are mutually exclusive");
+  }
+  deps.rootConfig.loadGlobal();
+  const { audit } = createDirContext(deps, getClawDir(name));
+  const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
+  await outboxSkipCommand(deps, name, { all: opts.all === true, limit }, { audit });
 }
 
 async function runImport(deps: RouterDeps, name: string, args: string[]): Promise<void> {

@@ -32,6 +32,7 @@ export { listCommand } from './claw-list.js';
 export { healthCommand } from './claw-health.js';
 export { sendCommand } from './claw-send.js';
 export { outboxCommand } from './claw-outbox.js';
+export { outboxSkipCommand } from './claw-outbox-skip.js';
 export { clawTraceCommand } from './claw-trace.js';
 export { importCommand } from './claw-import.js';
 export { readCommand } from './claw-read.js';

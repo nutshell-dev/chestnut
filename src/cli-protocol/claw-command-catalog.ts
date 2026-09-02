@@ -103,6 +103,20 @@ export const CLAW_COMMAND_CATALOG = [
     examples: ['chestnut claw alice outbox', 'chestnut claw alice outbox --limit 5'],
   },
   {
+    id: 'outbox-skip',
+    group: 'messaging',
+    form: 'instance',
+    summary: 'Skip unread outbox messages (archived without reading, not marked delivered)',
+    options: [
+      { flag: '--limit <n>', desc: 'Max messages to skip', defaultValue: String(DEFAULT_OUTBOX_READ_LIMIT) },
+      { flag: '--all', desc: 'Skip all unread messages' },
+    ],
+    examples: [
+      'chestnut claw alice outbox-skip --limit 3',
+      'chestnut claw alice outbox-skip --all',
+    ],
+  },
+  {
     id: 'read',
     group: 'messaging',
     form: 'instance',
