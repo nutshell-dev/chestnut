@@ -68,6 +68,23 @@ export interface StatInfo {
 }
 
 /**
+ * Atomic write rename 后目录耐久性结果协议（phase 1752 冻结 / 1753 实施）。
+ *
+ * - `durable`：rename 后 parent-directory fsync 成功，提交完全持久。
+ * - `committed_platform_limited`：rename 已成功（内容已提交可见），错误码属于
+ *   已核实的平台目录 fsync 不支持集合；保留错误证据，调用方可观察但不应重试写入。
+ * - `committed_durability_unknown`：rename 已成功，目录 fsync 发生其他错误；
+ *   调用方必须把它作为已提交事实处理，不得盲目重写覆盖。
+ *
+ * rename 前（temp 写入、文件 fsync、rename 本身）失败仍抛原异常，不返回本类型。
+ * async（Promise<AtomicWriteResult>）与 sync（AtomicWriteResult）字段完全对称。
+ */
+export type AtomicWriteResult =
+  | { kind: 'durable' }
+  | { kind: 'committed_platform_limited'; error: NodeJS.ErrnoException }
+  | { kind: 'committed_durability_unknown'; error: NodeJS.ErrnoException };
+
+/**
  * Options for FileSystem.list / FileSystem.listSync.
  * @member recursive - traverse subdirectories
  * @member includeDirs - include directory entries in result
@@ -104,9 +121,11 @@ export interface FileSystem {
    * Write file atomically (write-to-temp + rename)
    * @param path - Relative path within configured baseDir
    * @param content - Content to write
+   * @returns AtomicWriteResult — rename 后目录耐久性三态协议（phase 1753）
    * @throws PathGuardError if path is outside configured baseDir
+   * @throws 原异常 if rename 前失败（temp 写入 / 文件 fsync / rename 本身）
    */
-  writeAtomic(path: string, content: string): Promise<void>;
+  writeAtomic(path: string, content: string): Promise<AtomicWriteResult>;
 
   /**
    * Write file atomically, requiring the parent directory to already exist.
@@ -118,10 +137,12 @@ export interface FileSystem {
    *
    * @param path - Relative path within configured baseDir
    * @param content - Content to write
+   * @returns AtomicWriteResult — rename 后目录耐久性三态协议（phase 1753）
    * @throws FileNotFoundError if the parent directory does not exist
    * @throws PathGuardError if path is outside configured baseDir
+   * @throws 原异常 if rename 前失败
    */
-  writeAtomicExisting(path: string, content: string): Promise<void>;
+  writeAtomicExisting(path: string, content: string): Promise<AtomicWriteResult>;
   
   /**
    * Append content to file (creates if not exists)
@@ -223,8 +244,9 @@ export interface FileSystem {
    * Uses write-to-temp + fsync + rename pattern.
    * @param path - Relative path within configured baseDir
    * @param content - Content to write
+   * @returns AtomicWriteResult — 与 async writeAtomic 字段完全对称（phase 1753）
    */
-  writeAtomicSync(path: string, content: string): void;
+  writeAtomicSync(path: string, content: string): AtomicWriteResult;
 
   /**
    * Create file exclusively and write content. Throws EEXIST if file already exists.

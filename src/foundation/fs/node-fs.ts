@@ -13,6 +13,7 @@ import type {
   FileSystem,
   FileEntry,
   StatInfo,
+  AtomicWriteResult,
 } from './types.js';
 import {
   readFile,
@@ -27,6 +28,7 @@ import {
   stat,
   isDirectory,
   IGNORE_PATTERN,
+  classifyDirFsyncError,
 } from './atomic.js';
 import { FileNotFoundError, PathGuardError } from './types.js';
 
@@ -306,14 +308,14 @@ export class NodeFileSystem implements FileSystem {
     return wrapENOENT(relativePath, () => readFile(absolute));
   }
 
-  async writeAtomic(relativePath: string, content: string): Promise<void> {
+  async writeAtomic(relativePath: string, content: string): Promise<AtomicWriteResult> {
     const absolute = this.resolveAndCheck(relativePath);
     
     // Ensure parent directory exists
     const dir = path.dirname(absolute);
     await ensureDir(dir);
     
-    await writeAtomic(absolute, content);
+    return await writeAtomic(absolute, content);
   }
 
   /**
@@ -324,7 +326,7 @@ export class NodeFileSystem implements FileSystem {
    * 与目录 rename 的交错天然安全（terminal rename 先胜出 → ENOENT；temp 先创建
    * → 随目录移动、旧路径 rename 失败，不复活旧 parent）。
    */
-  async writeAtomicExisting(relativePath: string, content: string): Promise<void> {
+  async writeAtomicExisting(relativePath: string, content: string): Promise<AtomicWriteResult> {
     const absolute = this.resolveAndCheck(relativePath);
     return wrapENOENT(relativePath, () => writeAtomic(absolute, content));
   }
@@ -482,7 +484,7 @@ export class NodeFileSystem implements FileSystem {
   // Synchronous Operations
   // ========================================================================
 
-  writeAtomicSync(relativePath: string, content: string): void {
+  writeAtomicSync(relativePath: string, content: string): AtomicWriteResult {
     const absolute = this.resolveAndCheck(relativePath);
     const dir = path.dirname(absolute);
     fsSync.mkdirSync(dir, { recursive: true });
@@ -497,16 +499,14 @@ export class NodeFileSystem implements FileSystem {
 
       // phase 369 §4 (review-2026-06-13): fsync parent dir 保 rename 持久。
       // ext4 default / btrfs / ZFS rename 可能仅 page cache、crash 丢 rename。
-      // Windows / 部分 FS r-open 目录不支持、捕获静默（mirror async 路径）。
+      // phase 1753: 错误不再静默 — 与 async writeAtomic 对称的三态
+      // AtomicWriteResult（rename 已提交事实 + 原始错误证据交付调用方）。
       try {
         const dirFd = fsSync.openSync(dir, 'r');
         try { fsSync.fsyncSync(dirFd); } finally { fsSync.closeSync(dirFd); }
+        return { kind: 'durable' };
       } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== 'EISDIR' && code !== 'EACCES' && code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EINVAL') {
-          // silent: 跨 FS unsupported error 已枚举；atomic 已完成、不抛
-        }
-        // silent: dir fsync unsupported on this FS / platform
+        return classifyDirFsyncError(err);
       }
     } catch (error) {
       try { fsSync.unlinkSync(tmpFile); } catch { /* by-design: best-effort tmpFile cleanup post-rename; original error propagates via throw (L345); phase 166 ratify */ }

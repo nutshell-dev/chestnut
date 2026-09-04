@@ -53,8 +53,9 @@ describe('NodeFileSystem symlink ancestor containment', () => {
 
       const nodeFs = new NodeFileSystem({ baseDir });
 
+      // phase 1753: writeAtomic 返回 AtomicWriteResult 三态协议（此处 dir fsync 成功 → durable）
       await expect(nodeFs.writeAtomic('inner/a/b/c/file.txt', 'data'))
-        .resolves.toBeUndefined();
+        .resolves.toEqual({ kind: 'durable' });
 
       const written = await fsp.readFile(path.join(baseDir, 'inner', 'a', 'b', 'c', 'file.txt'), 'utf-8');
       expect(written).toBe('data');
