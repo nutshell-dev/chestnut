@@ -282,11 +282,38 @@ async function spawnAndAwaitReady(
     // 跨进程交接必须携带 generation identity，child 不得「扫描 spawning 猜是自己」。
     const baseEnv = options.env ?? process.env;
     const childEnv = { ...baseEnv, [PROCESS_GENERATION_ENV]: record.generation_id };
-    ({ pid } = (ctx.spawnDetached ?? defaultSpawnDetached)(options.command, options.args, {
-      cwd: options.cwd,
-      env: childEnv,
-      logFile: options.logFile,
-    }));
+    // phase 1763: detached spawn 提交点由 owner（process-exec）以 child 'spawn'
+    // 事件定义；pre-commit 同步/异步失败经 typed outcome 返回（保留原始
+    // errno/时间/命令身份），不得以 pid 非空或后续 liveness 替代；提交点后
+    // 异步失败经 audit sink 交付。
+    const spawnOutcome = await (ctx.spawnDetached ?? defaultSpawnDetached)(
+      options.command,
+      options.args,
+      {
+        cwd: options.cwd,
+        env: childEnv,
+        logFile: options.logFile,
+        onSpawnFailure: (failure) => {
+          ctx.audit.write(
+            PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_POST_COMMIT_FAILED,
+            `daemon_dir=${daemonDir}`,
+            `command=${failure.command}`,
+            `pid=${failure.pid ?? 'unknown'}`,
+            `errno=${failure.errno ?? failure.code ?? 'unknown'}`,
+            `at=${failure.atMs}`,
+            `error=${failure.message}`,
+          );
+        },
+      },
+    );
+    if (spawnOutcome.kind === 'failed') {
+      const f = spawnOutcome.failure;
+      throw new Error(
+        `Spawn pre-commit failure for "${daemonDir}" command "${f.command}"` +
+          ` (errno=${f.errno ?? f.code ?? 'unknown'}, at=${f.atMs}): ${f.message}`,
+      );
+    }
+    pid = spawnOutcome.pid;
 
     childStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(pid);
 

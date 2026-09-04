@@ -180,8 +180,43 @@ export interface ProcessInfo {
   command: string;
 }
 
+/**
+ * phase 1763: detached spawn 失败事实 — 原始 errno / 时间 / 命令身份无损保留。
+ * 提交点前失败随 SpawnDetachedOutcome 返回；提交点后失败经 failure sink 交付。
+ */
+export interface SpawnDetachedFailure {
+  /** 被 spawn 的命令（身份证据，不含 CLI 私有格式） */
+  command: string;
+  /** 参数快照（identity 辅助） */
+  args: readonly string[];
+  /** 仅 post-commit 失败存在（进程已拿到 pid 后死亡/执行失败） */
+  pid?: number;
+  /** 标准化 errno：优先 Node 字符串 code（如 'ENOENT'），退化为数字 errno */
+  errno?: number | string;
+  /** Node 原始 code（与 errno 可能同值） */
+  code?: number | string;
+  message: string;
+  /** 观察时间（epoch ms） */
+  atMs: number;
+}
+
+/**
+ * phase 1763: detached spawn typed outcome。
+ * 提交点 = child 'spawn' 事件成功交付且 pid 已存在（Phase 1762 冻结设计）；
+ * 提交点前同步/异步错误一律走 failed 变体，禁止只返回成功 pid。
+ */
+export type SpawnDetachedOutcome =
+  | { kind: 'spawned'; pid: number }
+  | { kind: 'failed'; failure: SpawnDetachedFailure };
+
 export interface SpawnDetachedOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
   logFile?: string;       // 内部 open/close fd 包装
+  /**
+   * phase 1763: post-commit failure sink。提交点后异步错误（exec 失败等）
+   * 经此交付 owner（至少 pid/command/errno/时间）。sink 自身抛错不得静默：
+   * fallback 到 stderr。未注入时默认 console.error — 任何情况下错误都不被吞。
+   */
+  onSpawnFailure?: (failure: SpawnDetachedFailure) => void;
 }

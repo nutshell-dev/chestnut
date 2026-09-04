@@ -37,10 +37,26 @@ export async function spawnWatchdogCandidate(
 ): Promise<number> {
   const watchdogEntryPath = getWatchdogEntryPath();
   const chestnutRoot = getWorkspaceRoot();
-  spawnDetached('node', [watchdogEntryPath], {
+  // phase 1763: 提交点前失败经 typed outcome 抛出（含原始 errno/时间/命令身份），
+  // 不再静默落到 poll 超时；提交点后异步失败经 stderr sink 保持可观察。
+  const outcome = await spawnDetached('node', [watchdogEntryPath], {
     env: { ...process.env, CHESTNUT_ROOT: chestnutRoot },
     cwd: chestnutRoot,
+    onSpawnFailure: (failure) => {
+      console.error(
+        `[watchdog] post-commit spawn failure: command=${failure.command}` +
+          ` pid=${failure.pid ?? 'unknown'} errno=${failure.errno ?? failure.code ?? 'unknown'}` +
+          ` at=${failure.atMs}: ${failure.message}`,
+      );
+    },
   });
+  if (outcome.kind === 'failed') {
+    const f = outcome.failure;
+    throw new Error(
+      `Watchdog spawn pre-commit failure (command="${f.command}"` +
+        ` errno=${f.errno ?? f.code ?? 'unknown'} at=${f.atMs}): ${f.message}`,
+    );
+  }
 
   let attempts = 0;
   while (!isWatchdogAlive(fsFactory) && attempts < WATCHDOG_START_MAX_ATTEMPTS) {

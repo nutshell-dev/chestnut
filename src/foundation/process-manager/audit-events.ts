@@ -9,6 +9,7 @@
 export const PROCESS_MANAGER_AUDIT_EVENTS = {
   PROCESS_SPAWNED: 'process_spawned',
   PROCESS_SPAWN_FAILED: 'process_spawn_failed',
+  PROCESS_SPAWN_POST_COMMIT_FAILED: 'process_spawn_post_commit_failed', // ← NEW phase 1763: detached spawn 提交点后异步失败（原始 errno 证据）
   PROCESS_STOPPED: 'process_stopped',
   PROCESS_STOP_FAILED: 'process_stop_failed',
   PROCESS_KILL_ESCALATED: 'process_kill_escalated',
