@@ -24,6 +24,8 @@ import {
   EXECUTION_INACTIVITY_TIMEOUT_MS,
   EXECUTION_RECOVERY_MESSAGE_TYPE,
   LLM_COOLDOWN_MS,
+  LLM_QUOTA_INITIAL_DELAY_MS,
+  LLM_QUOTA_MAX_DELAY_MS,
   LLM_MAX_RETRIES,
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_MAX_DELAY_MS,
@@ -72,6 +74,8 @@ export class EventLoop {
   // LLM failure retry state
   private llmRetryCount = 0;
   private llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
+  // phase 1776 Step C: quota 退避曲线当前值（10min 起翻倍 cap 60min），不进 retry 预算。
+  private llmQuotaDelayMs = LLM_QUOTA_INITIAL_DELAY_MS;
   // Phase 1268 Step B: 已决定的 retry/cooldown 等待（决定即落盘，restart 按 resumeAt 恢复）
   private llmRetryWaiting?: LLMRetryWaitingState;
 
@@ -263,6 +267,37 @@ export class EventLoop {
     const scheduledAt = new Date(nowMs).toISOString();
     const errorText = formatErr(error);
 
+    // phase 1776 Step C: quota 独立时间退避——不进 retry 预算（llmRetryCount 不消耗）、
+    // kind='cooldown'（到期仅一次 probe，probe 失败再按曲线翻倍等待）；指纹变化不释放。
+    if (errorClass === 'quota') {
+      const delayMs = this.llmQuotaDelayMs;
+      this.llmQuotaDelayMs = Math.min(delayMs * 2, LLM_QUOTA_MAX_DELAY_MS);
+      const resumeAt = new Date(nowMs + delayMs).toISOString();
+      const quotaWaiting: LLMRetryWaitingState = {
+        kind: 'cooldown',
+        requestFingerprint,
+        errorClass,
+        attempts: this.llmRetryCount,
+        maxAttempts: LLM_MAX_RETRIES,
+        scheduledAt,
+        resumeAt,
+        error: errorText,
+      };
+      this.llmRetryWaiting = quotaWaiting;
+      this._saveLlmRetryState();
+      this.audit.write(
+        EVENTLOOP_AUDIT_EVENTS.COOLDOWN,
+        `action=scheduled`,
+        `cooldown_ms=${delayMs}`,
+        `resume_at=${resumeAt}`,
+        `fingerprint=${requestFingerprint}`,
+        `error_class=${errorClass}`,
+        `error=${errorText}`,
+      );
+      this._writeLlmRetryWaitingStream(quotaWaiting, 'scheduled', delayMs);
+      return;
+    }
+
     if (this.llmRetryCount < LLM_MAX_RETRIES) {
       this.llmRetryCount++;
       const delayMs = errorClass === 'rate_limit'
@@ -330,7 +365,7 @@ export class EventLoop {
    */
   private _writeLlmRetryWaitingStream(
     waiting: LLMRetryWaitingState,
-    action: 'scheduled' | 'gated' | 'released',
+    action: 'scheduled' | 'gated' | 'released' | 'notice',
     delayMs: number,
   ): void {
     if (!this.streamWriter) return;
@@ -374,8 +409,12 @@ export class EventLoop {
 
     let fingerprint = entryFingerprint;
     if (fingerprint !== waiting.requestFingerprint) {
-      this._releaseLlmRetryWaiting(waiting, fingerprint);
-      return 'proceed';
+      // phase 1776 Step C: quota 指纹豁免——新内容与配额时间窗无关，变化不释放、
+      // 不真发；继续等 deadline（消息保持 pending，probe 成功后自动处理）。
+      if (waiting.errorClass !== 'quota') {
+        this._releaseLlmRetryWaiting(waiting, fingerprint);
+        return 'proceed';
+      }
     }
 
     while (!this.stopped) {
@@ -423,8 +462,12 @@ export class EventLoop {
         throw error;
       }
       if (fingerprint !== waiting.requestFingerprint) {
-        this._releaseLlmRetryWaiting(waiting, fingerprint);
-        return 'proceed';
+        if (waiting.errorClass !== 'quota') {
+          this._releaseLlmRetryWaiting(waiting, fingerprint);
+          return 'proceed';
+        }
+        // phase 1776 Step C: quota 指纹豁免——新消息收 quota 提示（不释放、不真发），继续等 deadline。
+        this._notifyQuotaWaiting(waiting);
       }
     }
     if (this.stopped) return 'stopped';
@@ -454,6 +497,26 @@ export class EventLoop {
       `new=${newFingerprint}`,
     );
     this._writeLlmRetryWaitingStream(waiting, 'released', 0);
+  }
+
+  /**
+   * phase 1776 Step C: quota 退避期间新用户消息的提示——stream + audit 通知
+   * （不真发、不释放指纹门、消息保持 pending，恢复后自动处理；对齐 blocked gate
+   * 的新消息先例：不伪造 assistant 回复、不污染 dialog）。
+   */
+  private _notifyQuotaWaiting(waiting: LLMRetryWaitingState): void {
+    const remainingMs = Math.max(0, Date.parse(waiting.resumeAt) - Date.now());
+    const eventName = waiting.kind === 'retry'
+      ? EVENTLOOP_AUDIT_EVENTS.LLM_RETRY
+      : EVENTLOOP_AUDIT_EVENTS.COOLDOWN;
+    this.audit.write(
+      eventName,
+      `action=quota_notice`,
+      `resume_at=${waiting.resumeAt}`,
+      `remaining_ms=${remainingMs}`,
+      `error=${waiting.error}`,
+    );
+    this._writeLlmRetryWaitingStream(waiting, 'notice', remainingMs);
   }
 
   /**
@@ -882,6 +945,7 @@ export class EventLoop {
   private _resetLlmRetryState(): void {
     this.llmRetryCount = 0;
     this.llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
+    this.llmQuotaDelayMs = LLM_QUOTA_INITIAL_DELAY_MS;
     this.llmRetryWaiting = undefined;
   }
 
@@ -895,6 +959,8 @@ export class EventLoop {
           schema_version: 2,
           llmRetryCount: this.llmRetryCount,
           llmRetryDelayMs: this.llmRetryDelayMs,
+          // phase 1776: quota 退避曲线持久化（旧文件无此字段，加载时回退初值）。
+          llmQuotaDelayMs: this.llmQuotaDelayMs,
           // P1-10: pending 字段已废弃，恒 false 保持 schema 兼容。
           llmRetryPending: false,
           waiting: this.llmRetryWaiting ?? null,
@@ -988,6 +1054,9 @@ export class EventLoop {
 
     this.llmRetryCount = s.llmRetryCount;
     this.llmRetryDelayMs = s.llmRetryDelayMs;
+    // phase 1776: 旧文件无 llmQuotaDelayMs 字段 → 回退初始曲线值。
+    this.llmQuotaDelayMs =
+      typeof s.llmQuotaDelayMs === 'number' ? s.llmQuotaDelayMs : LLM_QUOTA_INITIAL_DELAY_MS;
     // Phase 1268 Step B: v1 读取迁移 count/delay，waiting 恒 null；v2 恢复已决定的等待。
     this.llmRetryWaiting = s.schema_version === 2
       ? (s.waiting as LLMRetryWaitingState | null) ?? undefined
@@ -1009,7 +1078,7 @@ export class EventLoop {
     const w = waiting as Record<string, unknown>;
     if (w.kind !== 'retry' && w.kind !== 'cooldown') return false;
     if (typeof w.requestFingerprint !== 'string' || w.requestFingerprint.length === 0) return false;
-    if (w.errorClass !== 'transient' && w.errorClass !== 'rate_limit') return false;
+    if (w.errorClass !== 'transient' && w.errorClass !== 'rate_limit' && w.errorClass !== 'quota') return false;
     if (typeof w.scheduledAt !== 'string' || typeof w.resumeAt !== 'string') return false;
     if (typeof w.error !== 'string') return false;
     if (typeof w.maxAttempts !== 'number') return false;

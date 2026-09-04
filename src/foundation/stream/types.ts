@@ -94,7 +94,7 @@ export interface StreamEventMap {
   provider_info: { name: string; model: string; isFallback: boolean; trace_id?: string };
   provider_failover: { from: string; timeoutMs: number; trace_id?: string };
   provider_failed: { provider: string; model: string; error: string; trace_id?: string };
-  llm_retry_waiting: { stage: 'retry' | 'cooldown'; action: 'scheduled' | 'gated' | 'released'; attempt: number; maxAttempts: number; delayMs: number; resumeAt: string; errorClass: string; trace_id?: string };
+  llm_retry_waiting: { stage: 'retry' | 'cooldown'; action: 'scheduled' | 'gated' | 'released' | 'notice'; attempt: number; maxAttempts: number; delayMs: number; resumeAt: string; errorClass: string; trace_id?: string };
   // llm-orchestrator LLMEvent（27，payload 重定义、orchestrator 特有类型降级）
   provider_attempt_failed: { provider: string; attempt: number; maxAttempts: number; error: string; errorClass: string; userActionHint: string; retryAfterSec?: number; trace_id?: string };
   retry_scheduled: { provider: string; attempt: number; maxAttempts: number; backoffMs: number; trace_id?: string };

@@ -37,6 +37,15 @@ export const LLM_RETRY_MAX_DELAY_MS = 300_000;
  */
 export const LLM_COOLDOWN_MS = 300_000;
 
+/**
+ * phase 1776 Step C: quota（配额时间窗）独立退避曲线（ms）。
+ * Derivation: 10min 起、每次 probe 失败翻倍（20/40）、cap 60min——5h 服务窗内
+ * 至多 5-6 次 probe（用户拍板值）；quota 不进 retry 预算（llmRetryCount 不消耗）、
+ * 指纹变化不释放（内容与时间窗无关）。
+ */
+export const LLM_QUOTA_INITIAL_DELAY_MS = 600_000;
+export const LLM_QUOTA_MAX_DELAY_MS = 3_600_000;
+
 /** LLM retry state 持久化文件名 */
 export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;
 
