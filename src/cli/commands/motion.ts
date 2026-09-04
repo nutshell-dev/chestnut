@@ -280,15 +280,27 @@ export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?:
   }
 
   console.log('Stopping Motion daemon...');
-  const stopped = await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID));
-  if (stopped) {
+  // phase 1769: typed outcome——按 discriminant 处理，不再由 boolean 反推终局
+  const outcome = await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID));
+  if (outcome.kind === 'stopped' || outcome.kind === 'intent_recorded') {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=success`);
     console.log('✓ Stopped Motion daemon');
+    return;
+  }
+  if (outcome.kind === 'not_running') {
+    // 竞态终局（alive 检查后 generation 消失）：非失败，不 throw
+    audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);
+    console.log('Motion is not running');
     return;
   }
   // phase 355 C2 (review-2026-06-13): throw CliError 而非 process.exitCode=1 静默。
   // process.exitCode 等 Node 自然 drain + audit writer fs flush 才退、race 可能
   // 把 code 改回 0；throw 让 handleCliError 立即 process.exit(1)、CI 看到真信号。
-  audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=failed`);
-  throw new CliError('✗ Failed to stop Motion', 1);
+  audit?.write(
+    CLI_AUDIT_EVENTS.MOTION_STOP,
+    `status=failed`,
+    `stage=${outcome.stage}`,
+    `reason=${outcome.reason}`,
+  );
+  throw new CliError(`✗ Failed to stop Motion (stage=${outcome.stage}): ${outcome.reason}`, 1);
 }

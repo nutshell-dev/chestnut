@@ -46,17 +46,31 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
     audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=clean_stop_marker_failed`, `error=${String(err)}`);
   }
 
-  const success = await processManager.stop(daemonDir);
-  if (success) {
+  // phase 1769: typed outcome——按 discriminant 处理，不再由 boolean 反推终局
+  const outcome = await processManager.stop(daemonDir);
+  if (outcome.kind === 'stopped' || outcome.kind === 'intent_recorded') {
     audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=success`);
     console.log(`✓ Stopped Claw "${name}"`);
-  } else {
-    audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=failed`);
-    // phase 1124 P1-18: stop 失败 → 清残留 marker，防后续真崩溃被误判 active_user_stopped
-    // （γ4 anchor 不动：stopping 窗口内 marker 仍在；stop 成功路径 marker 保留）
-    try {
-      await clearCleanStop(rootFs, daemonDir, audit);
-    } catch { /* silent: marker 清理 best-effort，残留仅次启动 spurious ungraceful warn */ }
-    throw new CliError(`Failed to stop Claw "${name}"`);
+    return;
   }
+  if (outcome.kind === 'not_running') {
+    // 竞态终局（alive 检查后 generation 消失）：非失败，不 throw
+    audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=not_running`);
+    console.log(`Claw "${name}" is not running`);
+    return;
+  }
+  // failed：保留 stage 与原始 reason 证据
+  audit?.write(
+    CLI_AUDIT_EVENTS.CLAW_STOP,
+    `name=${name}`,
+    `status=failed`,
+    `stage=${outcome.stage}`,
+    `reason=${outcome.reason}`,
+  );
+  // phase 1124 P1-18: stop 失败 → 清残留 marker，防后续真崩溃被误判 active_user_stopped
+  // （γ4 anchor 不动：stopping 窗口内 marker 仍在；stop 成功路径 marker 保留）
+  try {
+    await clearCleanStop(rootFs, daemonDir, audit);
+  } catch { /* silent: marker 清理 best-effort，残留仅次启动 spurious ungraceful warn */ }
+  throw new CliError(`Failed to stop Claw "${name}" (stage=${outcome.stage}): ${outcome.reason}`);
 }

@@ -102,6 +102,35 @@ export type EnsureRunningOutcome =
   | { kind: 'joined'; pid: number; generationId: string };
 
 /**
+ * phase 1769 (Phase 1768 冻结设计): ProcessManager stop 的公开 typed outcome。
+ * 穷举四种终局，禁止以 boolean 重新压平（`stop-outcome-boolean-flattened`）：
+ * caller 按 discriminant 处理，不再由 boolean 或 audit 反推终局。
+ *
+ * - stopped:         目标进程已处置（sigterm / sigkill / 已死）且 generation retired
+ * - intent_recorded: 目标仍在 spawning 无 PID，immutable intent 已写、parent 会 abort
+ * - not_running:     无目标 generation（幂等终局，非失败）
+ * - failed:          失败携带 stage（内部阶段不丢失）与原始错误 evidence
+ */
+export type StopProcessOutcome =
+  | { kind: 'stopped'; pid: number; via: 'sigterm' | 'sigkill' | 'already_dead' }
+  | { kind: 'intent_recorded' }
+  | { kind: 'not_running' }
+  | { kind: 'failed'; stage: StopFailureStage; reason: string; error?: unknown };
+
+/**
+ * phase 1769: stop 失败的内部阶段（failed outcome 的 discriminant 维度）。
+ * 阶段证据必须保留——caller 不得丢失内部阶段/errno（risk 条款）。
+ */
+export type StopFailureStage =
+  | 'target_lookup'    // 初始目标定位失败（malformed generation / slot 被 foreign generation 占据）
+  | 'intent_write'     // 持久化 stop intent 失败
+  | 'no_pid'           // 目标无 PID 证据（spawning 外路径）
+  | 'locate'           // intent 后 / signal 后按 identity 重定位失败（foreign / missing）
+  | 'signal'           // kill 或等待过程抛错（error 为原始异常）
+  | 'survived_sigkill' // 进程在 SIGKILL 后仍存活
+  | 'retire';          // retire 或 retired identity 校验失败
+
+/**
  * Phase 1282 Step A: join foreign winner 收敛失败的 typed reason（discriminant）。
  * caller 不解析 message、reason 编译期可检。
  *

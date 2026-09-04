@@ -93,8 +93,11 @@ export async function stopAllCommand(
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
     const results = await Promise.allSettled(running.map(async name => {
-      const ok = await pm.stop(resolveClawDaemonDir(makeClawId(name)));
-      if (!ok) throw new Error(`stopProcess returned false for ${name}`);
+      // phase 1769: typed outcome——not_running 是竞态终局非失败；failed 带 stage/reason 证据
+      const outcome = await pm.stop(resolveClawDaemonDir(makeClawId(name)));
+      if (outcome.kind === 'failed') {
+        throw new Error(`stopProcess failed for ${name} (stage=${outcome.stage}): ${outcome.reason}`);
+      }
     }));
     stopFailed = results
       .map((r, i) => (r.status === 'rejected' ? running[i] : null))

@@ -17,6 +17,7 @@ export { ProcessSpawnConflictError } from './types.js';
 export type { ProcessSpawnConflictReason } from './types.js';
 // Phase 1464 Step B: Daemon spawn specification capability 消费通用 SpawnOptions type
 export type { SpawnOptions } from './types.js';
+export type { StopProcessOutcome, StopFailureStage } from './types.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
 export { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';

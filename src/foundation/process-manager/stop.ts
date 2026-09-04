@@ -3,7 +3,7 @@ import type { DaemonDir } from './types.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr, newUuid } from '../node-utils/index.js';
-import type { ProcessManagerContext } from './types.js';
+import type { ProcessManagerContext, StopProcessOutcome } from './types.js';
 import {
   inspectActive,
   inspectActivePid,
@@ -17,12 +17,6 @@ import {
 } from './generation.js';
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-type StopProcessResult =
-  | { kind: 'stopped'; pid: number; via: 'sigterm' | 'sigkill' | 'already_dead' }
-  | { kind: 'intent_recorded' }
-  | { kind: 'not_running' }
-  | { kind: 'failed'; reason: string };
 
 interface TargetLocation {
   source: 'spawning' | 'active';
@@ -38,16 +32,20 @@ interface TargetLocation {
  * immutable stop intent，然后按 generation identity（而非固定磁盘位置）追踪处置。
  * 目标在 spawning → active 之间移动时会被重读并继续处置；槽位出现不同 generation
  * 或目标无 retired 证据即消失时 fail-closed。
+ * phase 1769: 公开 typed {@link StopProcessOutcome}（Phase 1768 冻结设计），
+ * 四种终局 stopped / intent_recorded / not_running / failed，失败携带 stage 与原始错误。
  */
-export async function stopProcess(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<boolean> {
-  const result = await stopProcessDetailed(ctx, daemonDir);
-  return result.kind === 'stopped' || result.kind === 'intent_recorded';
+export async function stopProcess(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+): Promise<StopProcessOutcome> {
+  return stopProcessDetailed(ctx, daemonDir);
 }
 
 async function stopProcessDetailed(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
-): Promise<StopProcessResult> {
+): Promise<StopProcessOutcome> {
   const initial = inspectTarget(ctx, daemonDir);
 
   if (initial.kind === 'malformed_active') {
@@ -58,7 +56,7 @@ async function stopProcessDetailed(
       `ctx=stop_target_lookup`,
       `reason=${ctx.audit.message(formatErr(initial.cause))}`,
     );
-    return { kind: 'failed', reason: `malformed active generation: ${formatErr(initial.cause)}` };
+    return { kind: 'failed', stage: 'target_lookup', reason: `malformed active generation: ${formatErr(initial.cause)}`, error: initial.cause };
   }
   if (initial.kind === 'malformed_spawning') {
     ctx.audit.write(
@@ -68,7 +66,7 @@ async function stopProcessDetailed(
       `ctx=stop_target_lookup`,
       `reason=${ctx.audit.message(formatErr(initial.cause))}`,
     );
-    return { kind: 'failed', reason: `malformed spawning generation: ${formatErr(initial.cause)}` };
+    return { kind: 'failed', stage: 'target_lookup', reason: `malformed spawning generation: ${formatErr(initial.cause)}`, error: initial.cause };
   }
   if (initial.kind === 'none') {
     ctx.audit.write(
@@ -88,6 +86,7 @@ async function stopProcessDetailed(
     );
     return {
       kind: 'failed',
+      stage: 'target_lookup',
       reason: `late stop: slot held by different generation (${initial.observedGenerationId})`,
     };
   }
@@ -96,7 +95,7 @@ async function stopProcessDetailed(
   const requestId = newUuid();
   const intent = writeStopIntent(ctx, daemonDir, requestId, initial.generationId, initial.source);
   if (intent.kind !== 'written') {
-    return { kind: 'failed', reason: `failed to record stop intent: ${formatErr(intent.cause)}` };
+    return { kind: 'failed', stage: 'intent_write', reason: `failed to record stop intent: ${formatErr(intent.cause)}`, error: intent.cause };
   }
 
   return handleTarget(ctx, daemonDir, initial);
@@ -195,7 +194,7 @@ async function handleTarget(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
   target: TargetLocation,
-): Promise<StopProcessResult> {
+): Promise<StopProcessOutcome> {
   const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
 
   // spawning 尚无 PID：intent 已足够，parent 写 PID 时会 abort。
@@ -204,7 +203,7 @@ async function handleTarget(
   }
 
   if (target.pid === undefined) {
-    return { kind: 'failed', reason: 'stop target has no pid' };
+    return { kind: 'failed', stage: 'no_pid', reason: 'stop target has no pid' };
   }
 
   // 写 intent 后重读目标位置（可能在 spawning → active 之间移动）。
@@ -213,6 +212,7 @@ async function handleTarget(
     if (!retiredIdentityMatches(ctx, daemonDir, target.generationId)) {
       return {
         kind: 'failed',
+        stage: 'retire',
         reason: `target generation ${target.generationId} retired directory does not match identity`,
       };
     }
@@ -233,12 +233,14 @@ async function handleTarget(
     );
     return {
       kind: 'failed',
+      stage: 'locate',
       reason: `late stop: slot held by different generation (${current.observedGenerationId})`,
     };
   }
   if (current.kind === 'missing') {
     return {
       kind: 'failed',
+      stage: 'locate',
       reason: `target generation ${target.generationId} disappeared without retired evidence`,
     };
   }
@@ -327,7 +329,7 @@ function retireStoppedGeneration(
   daemonDir: DaemonDir,
   generationId: string,
   source: 'spawning' | 'active',
-): { kind: 'retired' } | { kind: 'failed'; reason: string } {
+): { kind: 'retired' } | { kind: 'failed'; stage: 'retire'; reason: string } {
   const first = retireGeneration(ctx, daemonDir, { generationId }, 'stopped', source);
   if (first.kind === 'retired') {
     return { kind: 'retired' };
@@ -347,7 +349,7 @@ function retireStoppedGeneration(
           if (second.kind === 'collision' && retiredIdentityMatches(ctx, daemonDir, generationId)) {
             return { kind: 'retired' };
           }
-          return { kind: 'failed', reason: `retire active after move failed: ${second.kind}` };
+          return { kind: 'failed', stage: 'retire', reason: `retire active after move failed: ${second.kind}` };
         }
       }
       if (retiredIdentityMatches(ctx, daemonDir, generationId)) {
@@ -355,6 +357,7 @@ function retireStoppedGeneration(
       }
       return {
         kind: 'failed',
+        stage: 'retire',
         reason: `target generation ${generationId} moved out of spawning but not to active or retired`,
       };
     }
@@ -364,6 +367,7 @@ function retireStoppedGeneration(
     }
     return {
       kind: 'failed',
+      stage: 'retire',
       reason: `target generation ${generationId} disappeared from active without retired evidence`,
     };
   }
@@ -372,10 +376,10 @@ function retireStoppedGeneration(
     if (retiredIdentityMatches(ctx, daemonDir, generationId)) {
       return { kind: 'retired' };
     }
-    return { kind: 'failed', reason: `retire collision and retired identity mismatch for ${generationId}` };
+    return { kind: 'failed', stage: 'retire', reason: `retire collision and retired identity mismatch for ${generationId}` };
   }
 
-  return { kind: 'failed', reason: `retire failed: ${first.kind}` };
+  return { kind: 'failed', stage: 'retire', reason: `retire failed: ${first.kind}` };
 }
 
 async function stopAndRetire(
@@ -383,7 +387,7 @@ async function stopAndRetire(
   daemonDir: DaemonDir,
   generationId: string,
   current: { kind: 'spawning' | 'active'; pid: number; startTime: ProcessStartTime | undefined; source: 'spawning' | 'active' },
-): Promise<StopProcessResult> {
+): Promise<StopProcessOutcome> {
   const l1IsAlive = ctx.l1IsAlive ?? defaultL1IsAlive;
   const kill = ctx.kill ?? defaultKill;
 
@@ -417,7 +421,7 @@ async function stopAndRetire(
           `pid=${current.pid}`,
           `grace_ms=${SIGKILL_DEAD_VERIFY_GRACE_MS}`,
         );
-        return { kind: 'failed', reason: 'process survived SIGKILL' };
+        return { kind: 'failed', stage: 'survived_sigkill', reason: 'process survived SIGKILL' };
       }
     }
   } catch (err) {
@@ -428,7 +432,7 @@ async function stopAndRetire(
       `via=${via}`,
       `reason=${(err as NodeJS.ErrnoException).code || (err as Error).message}`,
     );
-    return { kind: 'failed', reason: formatErr(err) };
+    return { kind: 'failed', stage: 'signal', reason: formatErr(err), error: err };
   }
 
   // 信号发送后再次按 identity 定位目标，然后在真实位置 retire。
@@ -437,6 +441,7 @@ async function stopAndRetire(
     if (!retiredIdentityMatches(ctx, daemonDir, generationId)) {
       return {
         kind: 'failed',
+        stage: 'retire',
         reason: `target generation ${generationId} retired directory does not match identity`,
       };
     }
@@ -455,11 +460,13 @@ async function stopAndRetire(
     );
     return {
       kind: 'failed',
+      stage: 'locate',
       reason: `late stop after signal: slot held by different generation (${after.observedGenerationId})`,
     };
   } else if (after.kind === 'missing') {
     return {
       kind: 'failed',
+      stage: 'locate',
       reason: `target generation ${generationId} disappeared after signal without retired evidence`,
     };
   } else {

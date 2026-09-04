@@ -39,7 +39,7 @@ import {
   type ProcessGenerationRecord,
   type WriteGenerationFact,
 } from './generation.js';
-import type { EnsureRunningOutcome, ProcessManagerContext, SpawnOptions } from './types.js';
+import type { EnsureRunningOutcome, ProcessManagerContext, SpawnOptions, StopProcessOutcome } from './types.js';
 
 
 export class ProcessManager {
@@ -99,7 +99,8 @@ export class ProcessManager {
   ensureRunning(daemonDir: DaemonDir, options: SpawnOptions): Promise<EnsureRunningOutcome> {
     return ensureRunningOp(this._ctx, daemonDir, options);
   }
-  stop(daemonDir: DaemonDir): Promise<boolean> { return stopProcess(this._ctx, daemonDir); }
+  // phase 1769: 公开 typed StopProcessOutcome（禁 boolean 压平）
+  stop(daemonDir: DaemonDir): Promise<StopProcessOutcome> { return stopProcess(this._ctx, daemonDir); }
 
   // query
   findProcesses(pattern: string): number[] { return findProcesses(this._ctx, pattern); }
