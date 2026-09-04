@@ -143,6 +143,8 @@ const VI_MOCK_FILES = [
   'tests/foundation/audit/writer-fallback-origin.test.ts',
   'tests/foundation/audit/writer-fallback.test.ts',
   'tests/foundation/fs.test.ts',
+  // phase 1756: 补登记（phase 1753 新增 vi.mock('fs') 故障注入、phase 316 invariant 抓漂移）
+  'tests/foundation/fs/atomic-write-result.test.ts',
   // phase 1028: llm-orchestrator 6 文件移出 ISOLATED — AnthropicAdapter 改为 createAnthropicAdapter DI 注入。
   'tests/foundation/llm.test.ts',
   'tests/foundation/llm-provider/anthropic-adapter.test.ts',  // phase 862: vi.mock @anthropic-ai/sdk
