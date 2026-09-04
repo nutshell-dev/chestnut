@@ -14,7 +14,9 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
-import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
+// phase 1758: task 状态经 AsyncTaskSystem 最小只读 capability 读取、
+// StatusService 不再导入 queue path 常量 / 直接 list 队列目录（owner bypass 修复）
+import { readTaskQueueCounts } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR, CLAW_MEMORY_FILE } from '../../foundation/claw-identity/index.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────
@@ -74,30 +76,10 @@ export async function computeContractView(contractSystem: ContractSystem): Promi
 
 export async function computeTaskView(fs: FileSystem): Promise<TaskView> {
   try {
-    let pending = 0;
-    let running = 0;
-    let pendingError: string | undefined;
-    let runningError: string | undefined;
-
-    try {
-      pending = (await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false })).length;
-    } catch (err) {
-      // silent: ENOENT/FS_NOT_FOUND 视作"队列目录尚未建"、非业务错误；其余 error 折进 pendingError 字段由调用方 audit
-      if (!isFileNotFound(err)) {
-        pendingError = formatErr(err);
-      }
-    }
-
-    try {
-      running = (await fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false })).length;
-    } catch (err) {
-      // silent: 同 pending 段、ENOENT 视作未建队列、其余折进 runningError
-      if (!isFileNotFound(err)) {
-        runningError = formatErr(err);
-      }
-    }
-
-    return { type: 'counts', running, pending, pendingError, runningError };
+    // phase 1758: 目录布局 + ENOENT 折叠 + 错误证据全部归 AsyncTaskSystem owner；
+    // 此处只把 counts 快照折成 view 形态（行为与内联实现等价）
+    const counts = await readTaskQueueCounts(fs);
+    return { type: 'counts', ...counts };
   } catch (err) {
     // silent: pure aggregator 不写 audit / 外层兜底任何意外、折进 view 形态由调用方决定降级文本
     return { type: 'unavailable', message: formatErr(err) };
