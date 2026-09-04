@@ -16,7 +16,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
-import type { AuditArtifactRef, AuditLog, AuditLossRecord } from './types.js';
+import type { AuditArtifactRef, AuditLog, AuditLossRecord, AuditWriteOutcome } from './types.js';
 import { AuditWriter, TICK_RETENTION_DAYS } from './writer.js';
 import { clipPreview, clipMessage, clipSummary } from './_helpers.js';
 import { encodeAuditArtifact, encodeAuditLoss } from './artifact.js';
@@ -49,7 +49,7 @@ export class DispatchingAuditWriter implements AuditLog {
     }
   }
 
-  write(type: string, ...cols: (string | number)[]): void {
+  write(type: string, ...cols: (string | number)[]): AuditWriteOutcome {
     const fileName = this.typeToFile.get(type) ?? this.defaultFile;
     const writer = this.writers.get(fileName) ?? this.writers.get(this.defaultFile);
     if (!writer) {
@@ -58,7 +58,8 @@ export class DispatchingAuditWriter implements AuditLog {
         `DispatchingAuditWriter: no writer for type=${type} file=${fileName} (default=${this.defaultFile})`,
       );
     }
-    writer.write(type, ...cols);
+    // phase 1765: 透传 durability outcome（write 返回类型协变拓宽，AuditLog 接口不变）
+    return writer.write(type, ...cols);
   }
 
   dispose(): void {

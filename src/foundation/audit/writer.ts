@@ -22,8 +22,7 @@
  * Coupling: none
  * Consumers: Daemon, Runtime, ContractSystem, SubagentSystem
  *
- * 递归边界：AuditWriter 自身 write/rotation 失败是"审计的审计"死角，
- * 无法进入结构化事件流（会无限递归），唯一兜底是 console.error
+ * 递归边界：AuditWriter 自身 write/rotation 失败是"审计的审计"死角， * 无法进入结构化事件流（会无限递归），唯一兜底是 console.error
  * 以 [AUDIT CRITICAL] 前缀输出。这是 L2 层唯一允许保留的 console 出口
  * （依赖 AuditLog 的其他 L2 模块不得效仿）。
  */
@@ -31,7 +30,7 @@
 import * as path from 'node:path';
 import { newShortUuid } from  '../node-utils/index.js';
 import { formatErr } from "../node-utils/index.js";
-import type { TraceId } from './types.js';
+import type { AuditLog, AuditWriteOutcome, TraceId } from './types.js';
 import type { AuditArtifactRef, AuditLossRecord } from './types.js';
 import { encodeAuditArtifact, encodeAuditLoss } from './artifact.js';
 import * as nodeFs from 'node:fs';
@@ -39,7 +38,6 @@ import * as nodeFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { FileNotFoundError } from '../fs/index.js';
 import type { FileSystem } from '../fs/index.js';
-import type { AuditLog } from './types.js';
 import { esc, clipPreview, clipMessage, clipSummary } from './_helpers.js';
 
 export const FALLBACK_BUFFER_CAP = 1000;
@@ -295,7 +293,7 @@ export class AuditWriter implements AuditLog {
     this.retentionDays = retentionDays ?? null;
   }
 
-  write(type: string, ...cols: (string | number)[]): void {
+  write(type: string, ...cols: (string | number)[]): AuditWriteOutcome {
     this.seq++;
     const ts = new Date().toISOString();
     const parts = [esc(ts), `seq=${this.seq}`, esc(type), ...cols.map(c => esc(String(c)))];
@@ -310,13 +308,21 @@ export class AuditWriter implements AuditLog {
       try {
         this.fs.syncSync(this.filePath);
       } catch (syncErr) {
+        // phase 1765: sync 失败不再「warning 后照常返回」——结构化交付
+        // committed_platform_limited（原始 error/path/row identity 无损）。
+        // row 已在主文件 page-cache 可见，绝不重复 append / 进 fallback
+        // （reconcile 回放会致双份）；durability 恢复责任 owner 内聚。
         const reason = formatErr(syncErr);
         console.error(`[AUDIT WARNING] sync failed: type=${type} path=${this.filePath} reason=${reason}`);
+        return { kind: 'committed_platform_limited', path: this.filePath, row: line, error: syncErr };
       }
+      return { kind: 'durable' };
     } catch (err) {
       const reason = formatErr(err);
       console.error(`[AUDIT CRITICAL] write failed: type=${type} path=${this.filePath} reason=${reason}`);
       pushFallback(line, this.filePath);
+      // phase 1765: append 失败亦结构化交付（row 进 fallback 池、保留证据）
+      return { kind: 'pending_fallback', path: this.filePath, row: line, error: err };
     }
   }
 
