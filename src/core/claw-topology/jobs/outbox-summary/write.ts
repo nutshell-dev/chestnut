@@ -6,11 +6,15 @@
  * dedup 查询不再依赖文件名 schema。
  * phase 1259 Step A: extra 只经 owner codec（guidance-state.ts）产出 v1 最小
  * metadata — 手工平铺 serializer + hash 双源退役（M#7/M#8）。
+ * phase 1754 Step B: 重复推送的逐 claw outbox-skip 命令行不再由本文件拼接裸
+ * `chestnut` 字面（M#5）— 只交付 typed affordance（claw.outbox-skip action），
+ * 最终 invocation 文本唯一归 CLIProtocol 渲染（renderCliGuidanceAction）。
  */
 
 import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxWriter } from '../../../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../../../foundation/messaging/index.js';
+import { renderCliGuidanceAction } from '../../../../cli-protocol/index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from '../../motion-claw-id.js';
 import { encodeOutboxSummaryGuidance } from './guidance-state.js';
@@ -68,7 +72,7 @@ function formatBody(state: OutboxSummaryState, isRepeat: boolean): string {
       '〔提示〕以上未读消息与此前推送完全重复。若你已确认这些消息无需处理，可执行以下命令跳过对应 claw 的未读消息（归档到 done/、不再提醒）：',
       ...Object.keys(state.counts)
         .sort((a, b) => a.localeCompare(b))
-        .map((id) => `  chestnut claw ${id} outbox-skip --all`),
+        .map((id) => `  ${renderCliGuidanceAction({ kind: 'claw.outbox-skip', target: { kind: 'claw', id } })}`),
     );
   }
   if (state.incomplete) {

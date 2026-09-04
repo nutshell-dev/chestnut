@@ -37,6 +37,8 @@ const ALL_ACTIONS = [
   { kind: 'claw.status', target: clawA },
   { kind: 'claw.steps', target: clawA },
   { kind: 'claw.outbox', target: clawA, limit: 4 },
+  // phase 1754 Step B：重复 outbox summary 的逐 claw skip 指引（scope 恒 --all）
+  { kind: 'claw.outbox-skip', target: clawA },
   { kind: 'claw.trace', clawId: 'clawA', contractId: 'c1' },
   { kind: 'contract.show', clawId: 'clawA', contractId: 'c1' },
 ] as const satisfies readonly CliGuidanceAction[];
@@ -81,6 +83,20 @@ describe('phase 1263 Step A: renderCliGuidanceAction', () => {
       .toBe('chestnut claw <claw-id> outbox --limit 4');
     expect(renderCliGuidanceAction({ kind: 'claw.outbox', target: clawA, limit: 25 }))
       .toBe('chestnut claw clawA outbox --limit 25');
+  });
+
+  it('phase 1754 Step B: claw.outbox-skip 渲染 outbox-skip --all（真 id 与 placeholder 两种 target）', () => {
+    expect(renderCliGuidanceAction({ kind: 'claw.outbox-skip', target: clawA }))
+      .toBe('chestnut claw clawA outbox-skip --all');
+    expect(renderCliGuidanceAction({ kind: 'claw.outbox-skip', target: placeholder }))
+      .toBe('chestnut claw <claw-id> outbox-skip --all');
+  });
+
+  it('phase 1754 Step B: claw target id 含空白字符 → fail-fast throw（owner-safe token 校验）', () => {
+    for (const id of ['claw A', 'claw\tA', 'claw\nA']) {
+      expect(() => renderCliGuidanceAction({ kind: 'claw.outbox-skip', target: { kind: 'claw', id } }))
+        .toThrowError(CliGuidanceRenderError);
+    }
   });
 
   it('claw.trace 渲染 subject-first trace + --contract', () => {

@@ -37,12 +37,14 @@ export type CliGuidanceTarget =
   | { readonly kind: 'placeholder'; readonly name: 'claw-id' };
 
 /** 冻结的 CLI guidance action vocabulary（Phase 1255 冻结七种 variant；
- * Phase 1396 Step H 退役 claw.watch）。 */
+ * Phase 1396 Step H 退役 claw.watch；Phase 1754 Step B 增第八种 claw.outbox-skip —
+ * 重复 outbox summary 的逐 claw skip 指引，scope 恒为 `--all`、无其它 scope variant）。 */
 export type CliGuidanceAction =
   | { readonly kind: 'claw.daemon'; readonly target: CliGuidanceTarget }
   | { readonly kind: 'claw.status'; readonly target: CliGuidanceTarget }
   | { readonly kind: 'claw.steps'; readonly target: CliGuidanceTarget }
   | { readonly kind: 'claw.outbox'; readonly target: CliGuidanceTarget; readonly limit: number }
+  | { readonly kind: 'claw.outbox-skip'; readonly target: CliGuidanceTarget }
   | { readonly kind: 'claw.trace'; readonly clawId: string; readonly contractId: string }
   | { readonly kind: 'contract.show'; readonly clawId: string; readonly contractId: string };
 
@@ -129,11 +131,21 @@ function requirePositiveInteger(value: number, what: string): number {
   return value;
 }
 
-/** target → invocation operand；placeholder 唯一渲染成 `<claw-id>`，空真实 id fail-fast。 */
+/**
+ * target → invocation operand；placeholder 唯一渲染成 `<claw-id>`。
+ * 真实 claw id 是 owner-safe token 校验（phase 1754 Step B）：空 / 含空白字符
+ * （空格 / tab / 换行）fail-fast — 空白会使单行 invocation 产生歧义、可能被
+ * shell 拆成多个参数；占位符渲染不受此校验影响。
+ */
 function renderCliGuidanceTarget(target: CliGuidanceTarget): string {
   switch (target.kind) {
-    case 'claw':
-      return requireNonEmptyId(target.id, 'claw target id');
+    case 'claw': {
+      const id = requireNonEmptyId(target.id, 'claw target id');
+      if (/\s/.test(id)) {
+        throw new CliGuidanceRenderError('cli guidance claw target id must not contain whitespace');
+      }
+      return id;
+    }
     case 'placeholder':
       return `<${target.name}>`;
     default: {
@@ -157,6 +169,9 @@ export function renderCliGuidanceAction(action: CliGuidanceAction): string {
       return renderClawInvocation(renderCliGuidanceTarget(action.target), 'steps');
     case 'claw.outbox':
       return `${renderClawInvocation(renderCliGuidanceTarget(action.target), 'outbox')} --limit ${requirePositiveInteger(action.limit, 'outbox limit')}`;
+    case 'claw.outbox-skip':
+      // phase 1754 Step B：scope 恒 --all（variant 名即冻结该语义、无 limit variant）。
+      return `${renderClawInvocation(renderCliGuidanceTarget(action.target), 'outbox-skip')} --all`;
     case 'claw.trace':
       return `${renderClawInvocation(requireNonEmptyId(action.clawId, 'trace clawId'), 'trace')} --contract ${requireNonEmptyId(action.contractId, 'trace contractId')}`;
     case 'contract.show':
