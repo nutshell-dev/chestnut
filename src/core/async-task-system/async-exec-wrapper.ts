@@ -16,6 +16,7 @@ import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js'
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/index.js';
+import { formatExecOutputForToolResult } from '../../foundation/command-tool/index.js';
 import { executeToolTask } from './tool-executor.js';
 import { sendToolResult as defaultSendToolResult, sendFallbackResult as defaultSendFallbackResult } from './result-delivery.js';
 import type { SendToolResult, SendFallbackResult, WriteInboxAsync } from './result-delivery-types.js';
@@ -202,9 +203,11 @@ export function createAsyncExecWrapper(
           );
 
           const result = await handle.promise;
+          // phase 1750 Step B: 同步返回路径施加与 createExecTool 一致的截断协议
+          const content = await formatExecOutputForToolResult(ctx, result.output);
           return {
             success: true,
-            content: result.output || `(no output)\n[command]: ${command}`,
+            content: content || `(no output)\n[command]: ${command}`,
           };
         } catch (err) {
           if (err instanceof ProcessExecError) {
@@ -366,9 +369,10 @@ export function createAsyncExecWrapper(
           `taskId=${task.id}`,
           `shortTaskId=${shortId}`,
         );
+        const content = await formatExecOutputForToolResult(ctx, result.output);
         return {
           success: true,
-          content: result.output || `(no output)\n[command]: ${command}`,
+          content: content || `(no output)\n[command]: ${command}`,
         };
       }
 
