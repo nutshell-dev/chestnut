@@ -23,3 +23,4 @@ export { createExecWithHandle } from './exec.js';
 export { EXEC_TOOL_NAME } from './exec.js';
 export type { ExecWithHandleArgs, PreExecGuard } from './exec.js';
 export { processExecErrorToToolResult } from './exec.js';
+export { formatExecOutputForToolResult } from './exec.js';

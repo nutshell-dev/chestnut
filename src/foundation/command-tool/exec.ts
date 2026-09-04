@@ -182,6 +182,22 @@ async function persistOverflow(
   }
 }
 
+/**
+ * exec 输出呈现协议单实现（phase 1750）：LLM 边界统一截断——超 EXEC_MAX_OUTPUT
+ * 完整落盘 tasks/sync/exec/<uuid>.md（frontmatter 记 content_length）+ head/tail
+ * 截断 + relPath read 提示；落盘失败退化为纯 truncate（内容不丢但无文件）。
+ * createExecTool（subagent）与 async-exec-wrapper（主 agent）共同调用，
+ * 防止「同一边界、两种实现」漂移（phase 1750 根因形态）。
+ */
+export async function formatExecOutputForToolResult(
+  ctx: ExecContext,
+  output: string,
+): Promise<string> {
+  if (output.length <= EXEC_MAX_OUTPUT) return output;
+  const relPath = await persistOverflow(ctx, output);
+  return relPath ? truncateHeadTail(output, relPath) : truncate(output, EXEC_MAX_OUTPUT);
+}
+
 export const EXEC_TOOL_NAME = 'exec' as const;
 
 export function createExecTool(preExecGuard?: PreExecGuard): Tool {
@@ -249,14 +265,9 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
           env,
         });
 
-        if (result.output.length > EXEC_MAX_OUTPUT) {
-          const relPath = await persistOverflow(ctx, result.output);
-          const content = relPath
-            ? truncateHeadTail(result.output, relPath)
-            : truncate(result.output, EXEC_MAX_OUTPUT);
-          return { success: true, content };
-        }
-        return { success: true, content: result.output || formatNoOutput(command) };
+        // phase 1750 Step B: 成功路径截断协议内聚进公共 helper（与 async-exec-wrapper 单实现复用）
+        const content = await formatExecOutputForToolResult(ctx, result.output);
+        return { success: true, content: content || formatNoOutput(command) };
       } catch (error) {
         // cwd hint 已删（phase: 心智收敛 workspace-relative / error 已含 LLM 自己的 tool_use，cwd 信息冗余）
         if (!(error instanceof ProcessExecError)) {
