@@ -131,6 +131,32 @@ export type StopFailureStage =
   | 'retire';          // retire 或 retired identity 校验失败
 
 /**
+ * phase 1771 (Phase 1770 冻结设计): readiness owner 的公开 typed result。
+ * 对外区分 not-ready 与 malformed/read/probe 系统故障，保留原始 evidence；
+ * 不得将系统故障重新压平为 not_ready（risk 条款）。
+ *
+ * - ready:             generation 绑定一致且 liveness probe 存活
+ * - not_ready:         正常未就绪（reason 编译期可检）；stale_generation /
+ *                      process_not_alive 为冻结设计枚举之外、原 boolean 实现已区分
+ *                      的合法未就绪终局，保留不丢证据
+ * - malformed:         JSON parse/shape 失败（file + 原始 error）
+ * - read_failure:      文件读取失败（非 ENOENT）（file + 原始 error）
+ * - probe_unavailable: liveness probe 抛错（原始 error）
+ */
+export type ReadinessResult =
+  | { kind: 'ready'; generationId: string; pid: number }
+  | { kind: 'not_ready'; reason: ReadinessNotReadyReason }
+  | { kind: 'malformed'; file?: string; error: unknown }
+  | { kind: 'read_failure'; file?: string; error: unknown }
+  | { kind: 'probe_unavailable'; file?: string; error: unknown };
+
+export type ReadinessNotReadyReason =
+  | 'missing_active'
+  | 'missing_ready'
+  | 'stale_generation'
+  | 'process_not_alive';
+
+/**
  * Phase 1282 Step A: join foreign winner 收敛失败的 typed reason（discriminant）。
  * caller 不解析 message、reason 编译期可检。
  *

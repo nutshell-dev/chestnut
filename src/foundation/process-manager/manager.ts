@@ -39,7 +39,7 @@ import {
   type ProcessGenerationRecord,
   type WriteGenerationFact,
 } from './generation.js';
-import type { EnsureRunningOutcome, ProcessManagerContext, SpawnOptions, StopProcessOutcome } from './types.js';
+import type { EnsureRunningOutcome, ProcessManagerContext, ReadinessResult, SpawnOptions, StopProcessOutcome } from './types.js';
 
 
 export class ProcessManager {
@@ -70,7 +70,10 @@ export class ProcessManager {
   getAliveStatus(daemonDir: DaemonDir): { alive: boolean; reason: string; pid?: number } {
     return aliveOps.getAliveStatus(this._ctx, daemonDir);
   }
-  isReady(daemonDir: DaemonDir): boolean { return readyOps.isReady(this._ctx, daemonDir); }
+  // phase 1771: 公开 typed ReadinessResult（禁 boolean 压平，risk 条款）
+  readiness(daemonDir: DaemonDir): ReadinessResult { return readyOps.readiness(this._ctx, daemonDir); }
+  // convenience fail-closed：仅 kind==='ready'，不得承载其它状态判断
+  isReady(daemonDir: DaemonDir): boolean { return this.readiness(daemonDir).kind === 'ready'; }
 
   // generation (Phase 1204)
   inspectSpawning(daemonDir: DaemonDir): ReturnType<typeof inspectSpawning> { return inspectSpawning(this._ctx, daemonDir); }

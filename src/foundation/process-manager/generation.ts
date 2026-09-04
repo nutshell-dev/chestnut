@@ -133,7 +133,9 @@ function isFailureRecord(parsed: unknown): parsed is ProcessFailureRecord {
 type GenerationInspection =
   | { status: 'none' }
   | { status: 'ok'; record: ProcessGenerationRecord }
-  | { status: 'malformed'; cause: unknown };
+  // phase 1771: malformed 携带 source（read/parse/shape）与原始 error（cause 不再预 formatErr），
+  // readiness owner 据此区分 read_failure vs malformed，error evidence 不丢。
+  | { status: 'malformed'; cause: unknown; source?: 'read' | 'parse' | 'shape' };
 
 type CommitSpawning =
   | { kind: 'committed'; record: ProcessGenerationRecord }
@@ -243,14 +245,14 @@ function readGenerationFile(fs: ProcessManagerContext['fs'], dir: string): Gener
     content = fs.readSync(path.join(dir, GENERATION_FILE));
   } catch (err) {
     if (isFileNotFound(err)) return { status: 'none' };
-    return { status: 'malformed', cause: formatErr(err) };
+    return { status: 'malformed', cause: err, source: 'read' };
   }
   try {
     const parsed: unknown = JSON.parse(content);
-    if (!isGenerationRecord(parsed)) return { status: 'malformed', cause: 'generation_shape_mismatch' };
+    if (!isGenerationRecord(parsed)) return { status: 'malformed', cause: 'generation_shape_mismatch', source: 'shape' };
     return { status: 'ok', record: parsed };
   } catch (err) {
-    return { status: 'malformed', cause: formatErr(err) };
+    return { status: 'malformed', cause: err, source: 'parse' };
   }
 }
 
@@ -304,20 +306,20 @@ export function inspectActivePid(ctx: ProcessManagerContext, daemonDir: DaemonDi
 function readReadyFile(fs: ProcessManagerContext['fs'], dir: string):
   | { status: 'none' }
   | { status: 'ok'; record: ProcessReadyRecord }
-  | { status: 'malformed'; cause: unknown } {
+  | { status: 'malformed'; cause: unknown; source?: 'read' | 'parse' | 'shape' } {
   let content: string;
   try {
     content = fs.readSync(path.join(dir, READY_FILE));
   } catch (err) {
     if (isFileNotFound(err)) return { status: 'none' };
-    return { status: 'malformed', cause: formatErr(err) };
+    return { status: 'malformed', cause: err, source: 'read' };
   }
   try {
     const parsed: unknown = JSON.parse(content);
-    if (!isPidRecord(parsed)) return { status: 'malformed', cause: 'ready_shape_mismatch' };
+    if (!isPidRecord(parsed)) return { status: 'malformed', cause: 'ready_shape_mismatch', source: 'shape' };
     return { status: 'ok', record: parsed };
   } catch (err) {
-    return { status: 'malformed', cause: formatErr(err) };
+    return { status: 'malformed', cause: err, source: 'parse' };
   }
 }
 
@@ -331,7 +333,7 @@ export function inspectSpawningReady(ctx: ProcessManagerContext, daemonDir: Daem
 export function inspectActiveReady(ctx: ProcessManagerContext, daemonDir: DaemonDir):
   | { status: 'none' }
   | { status: 'ok'; record: ProcessReadyRecord }
-  | { status: 'malformed'; cause: unknown } {
+  | { status: 'malformed'; cause: unknown; source?: 'read' | 'parse' | 'shape' } {
   return readReadyFile(ctx.fs, getActiveDir(daemonDir));
 }
 
