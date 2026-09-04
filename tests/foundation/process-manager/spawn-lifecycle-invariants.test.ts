@@ -52,7 +52,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
       kill: vi.fn(),
-      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
+      spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: FAKE_LIVE_PID }),
       getProcessStartTime: vi.fn().mockReturnValue(undefined),
       ...overrides,
     };
@@ -111,7 +111,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     const ctx = makeCtx({
       isReady: () => false,
       l1IsAlive: l1IsAliveSpy,
-      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
+      spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: FAKE_LIVE_PID }),
       getProcessStartTime: vi.fn().mockReturnValue(childStartTime),
     });
 
@@ -136,7 +136,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     const ctx = makeCtx({
       isReady: () => false,
       l1IsAlive: vi.fn().mockReturnValue(true), // child survives everything
-      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
+      spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: FAKE_LIVE_PID }),
     });
 
     // 让 child PID 持久化失败，触发 cleanup；child 存活 → generation 保留作取证
@@ -189,7 +189,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
       isReady: () => false,
       l1IsAlive: vi.fn().mockReturnValue(true),
       kill: killSpy,
-      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
+      spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: FAKE_LIVE_PID }),
     });
 
     const nowSpy = vi
@@ -242,7 +242,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
             created_at: new Date().toISOString(),
           }),
         );
-        return { pid: FAKE_LIVE_PID };
+        return { kind: 'spawned', pid: FAKE_LIVE_PID };
       }),
     });
 
@@ -318,7 +318,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
             created_at: new Date().toISOString(),
           }),
         );
-        return { pid: FAKE_LIVE_PID };
+        return { kind: 'spawned', pid: FAKE_LIVE_PID };
       }),
     });
 

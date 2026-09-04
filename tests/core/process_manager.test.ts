@@ -20,7 +20,7 @@ vi.mock('child_process', async (importOriginal) => {
       // Default: pgrep finds nothing (exit code 1 = no match)
       return { status: 1, stdout: '', stderr: '' };
     }),
-    spawn: vi.fn().mockReturnValue({ pid: process.pid, unref: vi.fn() }),
+    spawn: vi.fn().mockImplementation(() => makeFakeSpawnedChild(process.pid)),
   };
 });
 
@@ -31,6 +31,7 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeAudit } from '../helpers/audit.js';
 import { spawnSync, spawn } from 'child_process';  // phase 273: hoist 5 dyn imports (vi.mock above hoisted by vitest)
 import { DEAD_PID } from '../helpers/dead-pid.js';
+import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
 import { writeActiveGenerationSync } from '../helpers/generation-fixtures.js';
 
 describe('ProcessManager', () => {
@@ -44,7 +45,7 @@ describe('ProcessManager', () => {
     vi.mocked(spawnSync).mockImplementation(() =>
       ({ status: 1, stdout: Buffer.from(''), stderr: Buffer.from('') }) as ReturnType<typeof import('child_process').spawnSync>
     );
-    vi.mocked(spawn).mockReturnValue({ pid: process.pid, unref: vi.fn() } as unknown as ReturnType<typeof import('child_process').spawn>);
+    vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(process.pid) as unknown as ReturnType<typeof import('child_process').spawn>);
   });
 
   afterEach(async () => {

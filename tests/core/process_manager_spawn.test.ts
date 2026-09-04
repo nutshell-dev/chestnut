@@ -29,7 +29,7 @@ vi.mock('child_process', async (importOriginal) => {
       // Default: pgrep finds nothing (exit code 1 = no match)
       return { status: 1, stdout: '', stderr: '' };
     }),
-    spawn: vi.fn().mockReturnValue({ pid: process.pid, unref: vi.fn() }),
+    spawn: vi.fn().mockImplementation(() => makeFakeSpawnedChild(process.pid)),
   };
 });
 
@@ -37,6 +37,7 @@ import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
 import { spawnSync, spawn } from 'child_process';  // phase 274: hoist 4 dyn imports (vi.mock above hoisted)
+import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
 
 let tempDir: string;
 let nodeFs: NodeFileSystem;
@@ -49,7 +50,7 @@ beforeEach(async () => {
   vi.spyOn(ProcessManager.prototype, 'isReady').mockReturnValue(true);
   // Restore default: pgrep no match
   vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: '', stderr: '' } as any);
-  vi.mocked(spawn).mockReturnValue({ pid: process.pid, unref: vi.fn() } as any);
+  vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(process.pid) as any);
 });
 
 afterEach(async () => {
@@ -94,7 +95,7 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
       stdout: `${orphanPid} node /fake/daemon-entry.js ${clawId}\n`,
       stderr: '',
     } as any);
-    vi.mocked(spawn).mockReturnValue({ pid: process.pid, unref: vi.fn() } as any);
+    vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(process.pid) as any);
 
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
@@ -116,7 +117,7 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
 
   it('ignores stale empty legacy PID file and spawns successfully', async () => {
     vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: '', stderr: '' } as any);
-    vi.mocked(spawn).mockReturnValue({ pid: process.pid, unref: vi.fn() } as any);
+    vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(process.pid) as any);
 
     const clawId = 'stale-empty-claw';
     const statusDir = path.join(tempDir, 'claws', clawId, 'status');

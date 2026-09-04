@@ -94,7 +94,8 @@ describe('stop real process race (Phase 1204 Step G)', () => {
     // Spawn the real child that will activate on demand.
     const logFile = path.join(daemonDir, 'logs', 'child.log');
     nodeFs.ensureDirSync(path.dirname(logFile));
-    const { pid } = defaultSpawnDetached(process.execPath, [CHILD_SCRIPT, daemonDir], {
+    // phase 1763: spawnDetached 返回 typed outcome（Promise），提交点 = spawn 事件
+    const { pid } = await defaultSpawnDetached(process.execPath, [CHILD_SCRIPT, daemonDir], {
       logFile,
       env: { [PROCESS_GENERATION_ENV]: generationId, NODE_ENV: 'test' },
     });

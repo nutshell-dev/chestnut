@@ -63,7 +63,8 @@ vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return {
     ...actual,
-    spawn: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID, unref: vi.fn() }),
+    // phase 1763: spawnDetached 提交点由 'spawn' 事件定义，double 自动交付 spawn 事件
+    spawn: vi.fn().mockImplementation(() => makeFakeSpawnedChild(FAKE_LIVE_PID)),
     spawnSync: vi.fn(),
   };
 });
@@ -103,6 +104,7 @@ import { startCommand, stopCommand } from '../../src/cli/commands/watchdog-cli.j
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { spawn } from 'child_process';
+import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
 import { setTimeout as setTimeoutP } from 'timers/promises';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
@@ -397,7 +399,7 @@ describe('startCommand', () => {
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(spawn).mockReturnValue({ pid: FAKE_LIVE_PID, unref: vi.fn() });
+    vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(FAKE_LIVE_PID) as any);
   });
 
   afterEach(() => {

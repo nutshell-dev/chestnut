@@ -50,7 +50,7 @@ function defaultCtx(
     audit,
     isReady: () => true,
     l1IsAlive: vi.fn().mockReturnValue(true),
-    spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
+    spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: process.pid }),
     getProcessStartTime: vi.fn().mockReturnValue(undefined),
     ...overrides,
   };
@@ -456,7 +456,7 @@ describe('spawn', () => {
       const { audit } = makeAudit();
       const clawId = 'gen-env';
       const daemonDir = testClawDaemonDir(tempDir, clawId);
-      const spawnDetached = vi.fn().mockReturnValue({ pid: process.pid });
+      const spawnDetached = vi.fn().mockResolvedValue({ kind: 'spawned', pid: process.pid });
       const ctx = defaultCtx(nodeFs, audit, { isReady: () => true, spawnDetached });
 
       await spawnProcess(ctx, daemonDir, {

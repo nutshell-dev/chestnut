@@ -22,22 +22,19 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 import { spawn } from 'child_process';
+import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
 
 describe('ProcessManager - spawn defaults', () => {
   let tempDir: string;
   let nodeFs: NodeFileSystem;
-  let mockProc: any;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
 
-    // Setup mock process
-    mockProc = {
-      pid: FAKE_LIVE_PID,
-      unref: vi.fn(),
-    };
-    vi.mocked(spawn).mockReturnValue(mockProc as any);
+    // Setup mock process（phase 1763: spawnDetached 提交点由 'spawn' 事件定义，
+    // double 需自动交付 spawn 事件，见 makeFakeSpawnedChild）
+    vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(FAKE_LIVE_PID) as any);
 
     // Mock ready to skip the spawn convergence wait. Liveness uses the
     // injected/default L1 PID probe inside ProcessManager's spawn owner.

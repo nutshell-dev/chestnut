@@ -86,7 +86,7 @@ function defaultCtx(
     audit,
     isReady: () => true,
     l1IsAlive: vi.fn().mockReturnValue(true),
-    spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
+    spawnDetached: vi.fn().mockResolvedValue({ kind: 'spawned', pid: process.pid }),
     getProcessStartTime: vi.fn().mockReturnValue(undefined),
     ...overrides,
   };
