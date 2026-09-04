@@ -480,6 +480,7 @@
     ],
     "core_heartbeat_audit-events": [
       "heartbeat_checklist_read_failed",
+      "heartbeat_clock_rollback",
       "heartbeat_fire_failed"
     ],
     "core_runtime_runtime-audit-events": [

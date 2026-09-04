@@ -30,6 +30,11 @@ interface HeartbeatOptions {
   inboxReader: InboxReader;
   /** phase 84: caller-bound notify (L6 装配期 bind fs + chestnutRoot + MOTION_CLAW_ID + audit) */
   notifyInbox: HeartbeatNotifyInboxFn;
+  /**
+   * phase 1767: 注入时钟读取（sole purpose: test 控时钟 / wall-clock rollback 核证）。
+   * 缺省 Date.now。仅 Heartbeat due 判断使用，不得扩散到无关模块。
+   */
+  now?: () => number;
 }
 
 /**
@@ -42,15 +47,37 @@ export class Heartbeat {
   private readonly audit: AuditLog;
   private readonly inboxReader: InboxReader;
   private readonly notifyInbox: HeartbeatNotifyInboxFn;
+  private readonly now: () => number;
 
   constructor(options: HeartbeatOptions) {
     const intervalSec = options.interval ?? HEARTBEAT_INTERVAL_SEC_DEFAULT;
     this.enabled = intervalSec > 0;
     this.interval = Math.max(0, intervalSec) * 1000;
-    this.lastRun = Date.now();  // 启动后等满一个 interval 再首次触发
+    this.now = options.now ?? Date.now;
+    this.lastRun = this.now();  // 启动后等满一个 interval 再首次触发
     this.audit = options.audit;
     this.inboxReader = options.inboxReader;
     this.notifyInbox = options.notifyInbox;
+  }
+
+  /**
+   * phase 1767 (Phase 1766 冻结设计): 观测当前时钟；检测 wall-clock 回拨
+   * （now < lastRun）时显式重锚定 due 基线为当前 now 并写可观察 rollback
+   * 事实。重锚定后须等满一个 interval 才 due —— 回拨不得触发重复 heartbeat。
+   * 不引入持久化 cursor；lastRun 即最近观测值。
+   */
+  private observeNow(): number {
+    const now = this.now();
+    if (now < this.lastRun) {
+      this.audit.write(
+        HEARTBEAT_AUDIT_EVENTS.CLOCK_ROLLBACK,
+        `last_run=${this.lastRun}`,
+        `now=${now}`,
+        `delta_ms=${now - this.lastRun}`,
+      );
+      this.lastRun = now;  // 重锚定 due 基线
+    }
+    return now;
   }
 
   /**
@@ -58,7 +85,7 @@ export class Heartbeat {
    */
   isDue(): boolean {
     if (!this.enabled) return false;
-    const now = Date.now();
+    const now = this.observeNow();
     return now - this.lastRun >= this.interval;
   }
 
@@ -72,7 +99,7 @@ export class Heartbeat {
       const metas = await this.inboxReader.peekMetas();
       const hasPendingHeartbeat = metas.some((m) => m.type === 'heartbeat');
       if (hasPendingHeartbeat) {
-        this.lastRun = Date.now();
+        this.lastRun = this.observeNow();
         return;
       }
 
@@ -84,7 +111,7 @@ export class Heartbeat {
         body: '',
         idPrefix: 'hb',
       });
-      this.lastRun = Date.now();  // 只在成功写入后更新
+      this.lastRun = this.observeNow();  // 只在成功写入后更新
     } catch (error) {
       this.audit.write(
         HEARTBEAT_AUDIT_EVENTS.FIRE_FAILED,

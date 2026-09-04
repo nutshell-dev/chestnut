@@ -7,6 +7,7 @@
 export const HEARTBEAT_AUDIT_EVENTS = {
   FIRE_FAILED: 'heartbeat_fire_failed',
   CHECKLIST_READ_FAILED: 'heartbeat_checklist_read_failed',
+  CLOCK_ROLLBACK: 'heartbeat_clock_rollback', // ← NEW phase 1767: wall-clock 回拨重锚定事实（HEARTBEAT-WALL-CLOCK-ROLLBACK-STALL）
 } as const;
 
 
@@ -18,4 +19,5 @@ export const HEARTBEAT_AUDIT_EVENTS = {
 export const HEARTBEAT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   heartbeat_fire_failed: 'audit',
   heartbeat_checklist_read_failed: 'audit',
+  heartbeat_clock_rollback: 'audit',
 } as const;
