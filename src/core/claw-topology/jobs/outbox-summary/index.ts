@@ -18,6 +18,7 @@ import { formatErr } from '../../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../../foundation/fs/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
 import type { ClawTopology } from '../../types.js';
+import type { RenderOutboxSkipHint } from './types.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { runOutboxSummaryTick } from './tick.js';
 import type { CronJob } from '../../../../foundation/cron/index.js';
@@ -37,6 +38,8 @@ interface OutboxSummaryJobOptions {
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
   outboxReader: OutboxReader;
+  /** phase 1757 Step B: 逐 claw outbox-skip 指引渲染 port（Assembly 边界注入）。 */
+  renderOutboxSkipHint: RenderOutboxSkipHint;
   signal?: AbortSignal;
 }
 
@@ -47,6 +50,8 @@ interface OutboxSummaryJobDeps {
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
   outboxReader: OutboxReader;
+  /** phase 1757 Step B: 逐 claw outbox-skip 指引渲染 port（Assembly 边界注入）。 */
+  renderOutboxSkipHint: RenderOutboxSkipHint;
 }
 
 export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<void> {
@@ -58,6 +63,7 @@ export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<v
       inboxReader: opts.inboxReader,
       inboxWriter: opts.inboxWriter,
       outboxReader: opts.outboxReader,
+      renderOutboxSkipHint: opts.renderOutboxSkipHint,
       signal: opts.signal,
     });
   } catch (err) {

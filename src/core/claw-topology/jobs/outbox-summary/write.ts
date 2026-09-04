@@ -7,24 +7,27 @@
  * phase 1259 Step A: extra 只经 owner codec（guidance-state.ts）产出 v1 最小
  * metadata — 手工平铺 serializer + hash 双源退役（M#7/M#8）。
  * phase 1754 Step B: 重复推送的逐 claw outbox-skip 命令行不再由本文件拼接裸
- * `chestnut` 字面（M#5）— 只交付 typed affordance（claw.outbox-skip action），
- * 最终 invocation 文本唯一归 CLIProtocol 渲染（renderCliGuidanceAction）。
+ * `chestnut` 字面（M#5）。
+ * phase 1757 Step B: 修正 1754 的反向依赖 —— core 不 import CLIProtocol，
+ * 只声明中性 callback port（{@link RenderOutboxSkipHint}），最终 invocation
+ * 由 CLI/Assembly 层注入 renderer 在边界渲染（cli-status-hint-boundary）。
  */
 
 import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxWriter } from '../../../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../../../foundation/messaging/index.js';
-import { renderCliGuidanceAction } from '../../../../cli-protocol/index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from '../../motion-claw-id.js';
 import { encodeOutboxSummaryGuidance } from './guidance-state.js';
-import type { OutboxSummaryState } from './types.js';
+import type { OutboxSummaryState, RenderOutboxSkipHint } from './types.js';
 
 export const SUMMARY_INBOX_TYPE = 'claw_outbox_summary';
 
 interface WriteDeps {
   inboxWriter: InboxWriter;
   audit: AuditLog;
+  /** phase 1757 Step B: 逐 claw outbox-skip 指引渲染 port（caller 注入、core 不见 CLI 层）。 */
+  renderOutboxSkipHint: RenderOutboxSkipHint;
   now?: () => number;
 }
 
@@ -34,7 +37,7 @@ export async function writeNewSummary(
   opts: { isRepeat?: boolean } = {},
 ): Promise<void> {
   const now = deps.now?.() ?? Date.now();
-  const body = formatBody(state, opts.isRepeat === true);
+  const body = formatBody(state, opts.isRepeat === true, deps.renderOutboxSkipHint);
   const extra = encodeOutboxSummaryGuidance(state);
   const msg: InboxMessage = {
     id: `claw-outbox-summary-${state.hash}-${now}`,
@@ -58,7 +61,11 @@ export async function writeNewSummary(
   );
 }
 
-function formatBody(state: OutboxSummaryState, isRepeat: boolean): string {
+function formatBody(
+  state: OutboxSummaryState,
+  isRepeat: boolean,
+  renderOutboxSkipHint: RenderOutboxSkipHint,
+): string {
   const head = `[system] outbox 未读：共 ${state.total_claws} 个 claw ${state.total_msgs} 条消息`;
   const lines = Object.entries(state.counts)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -72,7 +79,7 @@ function formatBody(state: OutboxSummaryState, isRepeat: boolean): string {
       '〔提示〕以上未读消息与此前推送完全重复。若你已确认这些消息无需处理，可执行以下命令跳过对应 claw 的未读消息（归档到 done/、不再提醒）：',
       ...Object.keys(state.counts)
         .sort((a, b) => a.localeCompare(b))
-        .map((id) => `  ${renderCliGuidanceAction({ kind: 'claw.outbox-skip', target: { kind: 'claw', id } })}`),
+        .map((id) => `  ${renderOutboxSkipHint(id)}`),
     );
   }
   if (state.incomplete) {

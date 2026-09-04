@@ -27,7 +27,7 @@ import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_EVENT_NAMES, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../core/claw-topology/index.js';
-import { formatClawStatusHint } from '../cli-protocol/index.js';
+import { formatClawStatusHint, renderCliGuidanceAction } from '../cli-protocol/index.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
@@ -266,6 +266,10 @@ export async function createMotionAddons(
           inboxReader,
           inboxWriter: business.selfInbox,
           outboxReader: new OutboxReader(chestnutFs, auditWriter),
+          // phase 1757 Step B: 重复推送 skip 指引的最终 CLI invocation 在 L6 边界
+          // 渲染 —— core 只见中性 RenderOutboxSkipHint callback port、零 cli-protocol。
+          renderOutboxSkipHint: (clawId) =>
+            renderCliGuidanceAction({ kind: 'claw.outbox-skip', target: { kind: 'claw', id: clawId } }),
         }, globalConfig),
       ];
       // phase 1445 Step D（裁定②）：start 内化进 createCronRunner 工厂、tickMs 经工厂参数传入；

@@ -21,6 +21,7 @@ import { scanOutboxes } from './scan.js';
 import { findExistingSummaryByHash, findHistoricalSummaryByHash } from './dedup.js';
 import { writeNewSummary } from './write.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
+import type { RenderOutboxSkipHint } from './types.js';
 
 interface OutboxSummaryTickDeps {
   /** phase 259: caller (装配期) 注入的 claw topology */
@@ -30,6 +31,8 @@ interface OutboxSummaryTickDeps {
   inboxWriter: InboxWriter;
   outboxReader: OutboxReader;
   audit: AuditLog;
+  /** phase 1757 Step B: 逐 claw outbox-skip 指引渲染 port（透传 writeNewSummary，core 不见 CLI 层）。 */
+  renderOutboxSkipHint: RenderOutboxSkipHint;
   now?: () => number;
   /** phase 938: cooperative abort signal checked at stage boundaries. */
   signal?: AbortSignal;
@@ -82,7 +85,7 @@ export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise
   );
 
   await writeNewSummary(
-    { inboxWriter: deps.inboxWriter, audit: deps.audit, now: deps.now },
+    { inboxWriter: deps.inboxWriter, audit: deps.audit, renderOutboxSkipHint: deps.renderOutboxSkipHint, now: deps.now },
     state,
     { isRepeat },
   );

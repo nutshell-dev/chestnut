@@ -10,6 +10,14 @@
 
 export const PREVIEW_MAX_CHARS = 40 as const;
 
+/**
+ * phase 1757 Step B: 重复推送逐 claw outbox-skip 指引的渲染 port。
+ * core 只声明此中性 callback 签名（clawId → 指引行文本），不知道 CLIProtocol
+ * 路径、`CliGuidanceAction` 或任何 CLI 字面；最终 invocation 由 CLI/Assembly
+ * 层在边界注入实现渲染（src/assembly/motion-addons.ts 经 renderCliGuidanceAction）。
+ */
+export type RenderOutboxSkipHint = (clawId: string) => string;
+
 /** Output of one outbox-summary scan tick. */
 export interface OutboxSummaryState {
   /** Map clawId → unread file count (only claws with > 0 unread are present). */
