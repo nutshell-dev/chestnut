@@ -54,6 +54,13 @@ export function formatForumStatusView(view: ForumStatusView): string[] {
     lines.push(`  ${formatActiveClawHeader(claw)}`);
     if (claw.status === 'ok') {
       lines.push(`    last activity   ${humanizeAgo(claw.lastActivityAgoMs)}`);
+      // phase 1759: degraded activity 聚合显式呈现（不压平为正常时间值）
+      if (claw.lastActivityReadFailures && claw.lastActivityReadFailures.length > 0) {
+        lines.push(`    ⚠ last activity degraded: ${claw.lastActivityReadFailures.length} audit file(s) unreadable`);
+        for (const f of claw.lastActivityReadFailures) {
+          lines.push(`      - ${f.file}: ${f.error}`);
+        }
+      }
       lines.push(`    inbox           ${claw.inboxUnread ?? '?'} unread`);
     }
   }

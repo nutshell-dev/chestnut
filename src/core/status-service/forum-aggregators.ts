@@ -38,7 +38,20 @@ export interface SystemComponentView {
 }
 
 export type ActiveClawView =
-  | { status: 'ok'; name: string; pid: number; uptimeMs?: number; lastActivityAgoMs?: number; inboxUnread?: number }
+  | {
+      status: 'ok';
+      name: string;
+      pid: number;
+      uptimeMs?: number;
+      lastActivityAgoMs?: number;
+      /**
+       * phase 1759：activity 聚合 degraded 证据（STATUS-LAST-ACTIVITY-READ-FAILURE-SILENT）。
+       * 仅当存在 audit 文件读取失败时非空；complete 时字段缺席。formatter/JSON caller
+       * 以此区分「完整聚合」与「部分结果 + 失败证据」，不得压平为正常时间值。
+       */
+      lastActivityReadFailures?: ClawLastActivityReadFailure[];
+      inboxUnread?: number;
+    }
   | { status: 'error'; name: string; error: string };
 
 interface OrphansView {
@@ -112,11 +125,28 @@ export async function computeClawInboxUnread(
  */
 const AUDIT_TAIL_WINDOW_BYTES = 8 * 1024;
 
-export function computeClawLastActivityAgoMs(clawFs: FileSystem, now: number): number | undefined {
+/**
+ * phase 1759 冻结的最小 discriminated result（STATUS-LAST-ACTIVITY-READ-FAILURE-SILENT）：
+ * - `complete`：全部可读 audit 文件成功处理（agoMs 可 undefined = 正常无活动/不可解析）；
+ * - `degraded`：至少一个文件 existsSync/statSync/readBytesSync 抛错，携带可选部分
+ *   agoMs 与非空、逐文件 failure evidence。
+ * 文件不存在/为空/时间戳不可解析仍是正常无活动，不归入读取故障。
+ */
+export interface ClawLastActivityReadFailure {
+  file: string;
+  error: string;
+}
+
+export type ClawLastActivityResult =
+  | { kind: 'complete'; agoMs: number | undefined }
+  | { kind: 'degraded'; agoMs: number | undefined; failures: ClawLastActivityReadFailure[] };
+
+export function computeClawLastActivityAgoMs(clawFs: FileSystem, now: number): ClawLastActivityResult {
   const files = listAuditFiles(clawFs, '.');
-  if (files.length === 0) return undefined;
+  if (files.length === 0) return { kind: 'complete', agoMs: undefined };
 
   let maxTs: number | undefined;
+  const failures: ClawLastActivityReadFailure[] = [];
 
   for (const file of files) {
     try {
@@ -140,14 +170,17 @@ export function computeClawLastActivityAgoMs(clawFs: FileSystem, now: number): n
       if (maxTs === undefined || ts > maxTs) {
         maxTs = ts;
       }
-    } catch {
-      // silent: single file read failure shouldn't break cross-file max
+    } catch (err) {
+      // phase 1759: 单文件读取失败不再静默 — 折进 failures 证据、由 result discriminant 显式交付
+      failures.push({ file: file.path, error: formatErr(err) });
     }
   }
 
-  if (maxTs === undefined) return undefined;
-  const elapsed = now - maxTs;
-  return elapsed >= 0 ? elapsed : 0;
+  const agoMs = maxTs === undefined ? undefined : Math.max(0, now - maxTs);
+  if (failures.length > 0) {
+    return { kind: 'degraded', agoMs, failures };
+  }
+  return { kind: 'complete', agoMs };
 }
 
 // ── Composite view builder ──────────────────────────────────────────────────
@@ -216,12 +249,15 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
       const location = deps.clawTopology.resolve(makeClawId(clawId));
       if (location.kind !== 'local') continue;
       const clawFs = deps.fsFactory(location.clawDir);
+      // phase 1759: activity discriminant 透传进 view（degraded 证据不压平）
+      const activity = computeClawLastActivityAgoMs(clawFs, nowMs);
       activeClaws.push({
         status: 'ok',
         name: clawId,
         pid: s.pid,
         uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
-        lastActivityAgoMs: computeClawLastActivityAgoMs(clawFs, nowMs),
+        lastActivityAgoMs: activity.agoMs,
+        ...(activity.kind === 'degraded' ? { lastActivityReadFailures: activity.failures } : {}),
         inboxUnread: await computeClawInboxUnread(clawFs, deps.audit, clawId),
       });
     } catch (err) {
