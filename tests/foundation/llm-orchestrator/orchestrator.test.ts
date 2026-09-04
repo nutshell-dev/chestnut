@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
-import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
+import { LLMAuthError, LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import type {
   LLMEventSink,
   LLMEvent,
@@ -467,5 +467,58 @@ describe('Phase 895 — orchestrator stream fixes', () => {
     expect(chunks.some((c) => c.type === 'text_delta' && (c as any).delta === 'fallback-content')).toBe(true);
     expect(chunks.some((c) => c.type === 'provider_failed' && (c as any).provider === 'primary')).toBe(true);
     expect(emitted.some((e) => e.type === 'fallback_switched')).toBe(true);
+  });
+});
+describe('phase 1776 Step B/D: breaker 跳过 permanent/quota', () => {
+  it('permanent（LLMAuthError）失败不调用 breaker.onFailure、不 open', async () => {
+    const primary = createMockProvider('primary', {
+      callError: new LLMAuthError('anthropic', 401, 'invalid api key'),
+    });
+    const service = createOrchestrator(primary, []);
+    const breaker = (service as any).breakers[0] as CircuitBreaker;
+    const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+
+    await expect(
+      service.call({ messages: [{ role: 'user', content: 'hi' }] }),
+    ).rejects.toBeDefined();
+
+    expect(onFailureSpy).not.toHaveBeenCalled();
+  });
+
+  it('quota（usage limit 时间窗）失败不调用 breaker.onFailure、不 open', async () => {
+    const primary = createMockProvider('primary', {
+      callError: new Error("You've reached your 5-hour usage limit."),
+    });
+    const service = createOrchestrator(primary, []);
+    const breaker = (service as any).breakers[0] as CircuitBreaker;
+    const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+
+    await expect(
+      service.call({ messages: [{ role: 'user', content: 'hi' }] }),
+    ).rejects.toBeDefined();
+
+    expect(onFailureSpy).not.toHaveBeenCalled();
+  });
+
+  it('quota 失败后再次 call 仍真发（breaker 未 open，无半开探针语义）', async () => {
+    let calls = 0;
+    const primary = createMockProvider('primary', {
+      callError: new Error('quota exceeded'),
+    });
+    const originalCall = primary.call.bind(primary);
+    primary.call = async (opts) => {
+      calls++;
+      return originalCall(opts);
+    };
+    const service = createOrchestrator(primary, []);
+
+    await expect(
+      service.call({ messages: [{ role: 'user', content: 'hi' }] }),
+    ).rejects.toBeDefined();
+    await expect(
+      service.call({ messages: [{ role: 'user', content: 'hi' }] }),
+    ).rejects.toBeDefined();
+
+    expect(calls).toBe(2);
   });
 });

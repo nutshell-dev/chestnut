@@ -79,4 +79,45 @@ describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
   it('unrecognized plain Error → unknown', () => {
     expect(classifyLLMError(new Error('unexpected'))).toBe('unknown');
   });
+
+  // phase 1776: 'usage limit' 覆盖 Kimi k3 5h 窗文案；LLMAuthError 403 + quota
+  // message 时 quota 优先于 instanceof permanent（时间窗语义 ≠ 配置类永久）。
+  it('usage limit keyword (Kimi 5h window) → quota', () => {
+    expect(classifyLLMError(new Error("You've reached your 5-hour usage limit."))).toBe('quota');
+  });
+
+  it('LLMAuthError 403 with quota message → quota (quota 优先于 instanceof)', () => {
+    expect(classifyLLMError(new LLMAuthError('anthropic', 403, "You've reached your 5-hour usage limit."))).toBe('quota');
+  });
+
+  it('LLMAllProvidersFailedError [quota] → quota', () => {
+    const err = new LLMAllProvidersFailedError([
+      { provider: 'kimi', error: new Error('quota exceeded') },
+    ]);
+    expect(classifyLLMError(err)).toBe('quota');
+  });
+
+  it('LLMAllProvidersFailedError [quota, transient] → transient（transient 优先可重试）', () => {
+    const err = new LLMAllProvidersFailedError([
+      { provider: 'kimi', error: new Error('quota exceeded') },
+      { provider: 'openai', error: new LLMNetworkError('openai', new Error('ECONNRESET')) },
+    ]);
+    expect(classifyLLMError(err)).toBe('transient');
+  });
+
+  it('LLMAllProvidersFailedError [quota, rate_limit] → rate_limit（Retry-After 驱动优先）', () => {
+    const err = new LLMAllProvidersFailedError([
+      { provider: 'kimi', error: new Error('quota exceeded') },
+      { provider: 'openai', error: new LLMRateLimitError('openai') },
+    ]);
+    expect(classifyLLMError(err)).toBe('rate_limit');
+  });
+
+  it('LLMAllProvidersFailedError [permanent, quota] → quota（quota 优先于 permanent）', () => {
+    const err = new LLMAllProvidersFailedError([
+      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'invalid_unicode') },
+      { provider: 'kimi', error: new Error('quota exceeded') },
+    ]);
+    expect(classifyLLMError(err)).toBe('quota');
+  });
 });

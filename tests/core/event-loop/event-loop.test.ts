@@ -35,6 +35,9 @@ vi.mock('../../../src/core/event-loop/constants.js', async () => {
     // Phase 1268 Step B: cooldown 独立常量，测试用小值锁状态机；
     // Retry-After 截短断言用远大于该值的秒数反向验证。
     LLM_COOLDOWN_MS: 80,
+    // phase 1776 Step C/D: quota 独立退避曲线用小值锁状态机（10→20→40，cap 50）。
+    LLM_QUOTA_INITIAL_DELAY_MS: 10,
+    LLM_QUOTA_MAX_DELAY_MS: 50,
   };
 });
 
@@ -1695,6 +1698,142 @@ describe('EventLoop.run', () => {
 
     expect(processTurn).toHaveBeenCalledTimes(1);
     expect(audit.entries.some(e => e.some(c => String(c) === 'action=gated'))).toBe(false);
+  });
+
+  // ----- phase 1776 Step C/D: quota 独立时间退避 + 指纹门豁免 + 新消息 quota 提示 -----
+
+  const quotaErr = () => new Error("You've reached your 5-hour usage limit.");
+
+  it('quota 失败：kind=cooldown、quota 曲线初值、不消耗 retry 预算', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn } = makeRecoverableRuntime(quotaErr(), 'quota-fp');
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    // quota 不进 retry 预算
+    const saved = readRetryState()!;
+    expect(saved.llmRetryCount).toBe(0);
+    // schedule 用 quota 曲线初值（mocked 10），决定等待时翻倍持久化（10→20）
+    expect(saved.llmQuotaDelayMs).toBe(20);
+    expect(saved.waiting).toMatchObject({
+      kind: 'cooldown',
+      errorClass: 'quota',
+      requestFingerprint: 'quota-fp',
+    });
+    const waiting = saved.waiting as Record<string, unknown>;
+    expect(Date.parse(waiting.resumeAt as string) - Date.parse(waiting.scheduledAt as string)).toBe(10);
+    const scheduled = cooldownScheduled(audit);
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0].some(c => String(c) === 'cooldown_ms=10')).toBe(true);
+    expect(scheduled[0].some(c => String(c) === 'error_class=quota')).toBe(true);
+  });
+
+  it('quota 到期 probe 失败：退避按曲线翻倍（10→20），预算仍不消耗', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn } = makeRecoverableRuntime(quotaErr(), 'quota-fp');
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();  // schedule delay=10，曲线 →20
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);  // 越过 resumeAt → 到期一次 probe
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(2);  // 仅到期 probe，无提前真发
+    expect(readRetryState()!.llmRetryCount).toBe(0);
+    const scheduled = cooldownScheduled(audit);
+    expect(scheduled.length).toBe(2);
+    expect(scheduled[1].some(c => String(c) === 'cooldown_ms=20')).toBe(true);
+    expect(readRetryState()!.llmQuotaDelayMs).toBe(40);
+  });
+
+  it('quota 退避 cap：llmQuotaDelayMs 到上限后 probe 失败不再翻倍', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    // v2 文件预置 quota 曲线已到 cap（mocked 50）
+    const statusDir = path.join(agentDir, 'status');
+    require('fs').mkdirSync(statusDir, { recursive: true });
+    require('fs').writeFileSync(
+      path.join(statusDir, 'llm-retry-state.json'),
+      JSON.stringify({ schema_version: 2, llmRetryCount: 0, llmRetryDelayMs: 10, llmQuotaDelayMs: 50, llmRetryPending: false, waiting: null }),
+    );
+    const { runtime, processTurn } = makeRecoverableRuntime(quotaErr(), 'quota-fp');
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    const run = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    const scheduled = cooldownScheduled(audit);
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0].some(c => String(c) === 'cooldown_ms=50')).toBe(true);
+    expect(readRetryState()!.llmQuotaDelayMs).toBe(50);  // 封顶不翻倍
+  });
+
+  it('quota 指纹门豁免：fingerprint 变化不释放、不提前真发（对照 transient 释放）', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();  // quota schedule，resumeAt=+10ms
+
+    // transient/rate_limit 对照（上一条 released 用例）：fingerprint 变化 → released + 立即执行；
+    // quota：变化被豁免，须等 deadline 才 probe，且不写 released、预算不重置。
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(2);  // 仅到期 probe，无提前真发
+    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(false);
+    expect(readRetryState()!.llmRetryCount).toBe(0);
+  });
+
+  it('quota waiting 期间新消息：quota_notice audit + stream notice，无额外真发、消息保持 pending', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const streamEvents: Array<Record<string, unknown>> = [];
+    const streamWriter = { write: (ev: Record<string, unknown>) => { streamEvents.push(ev); } };
+    const { runtime, processTurn, computeTurnRequestFingerprint, ackHandles } = makeRecoverableRuntime(quotaErr(), 'fp-A');
+    // streamWriter 存在时 wrapped callbacks.onTurnStart 需要 getCurrentTraceId
+    (runtime as any).getCurrentTraceId = vi.fn().mockReturnValue(undefined);
+
+    const eventLoop = new EventLoop({
+      runtime: runtime as Runtime,
+      fsFactory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      streamWriter,
+    });
+
+    await eventLoop.run();  // quota schedule delay=10
+
+    // 新消息 → fingerprint 变化：quota 豁免不释放，发 quota 提示后继续等 deadline
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+
+    // 无额外真发：run1 + 到期 probe 共 2 次（probe 又失败 → 第 2 次 schedule）
+    expect(processTurn).toHaveBeenCalledTimes(2);
+    // audit quota_notice
+    const notices = audit.entries.filter(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=quota_notice'));
+    expect(notices.length).toBeGreaterThanOrEqual(1);
+    // stream notice
+    const noticeEvents = streamEvents.filter(e => e.type === 'llm_retry_waiting' && e.action === 'notice');
+    expect(noticeEvents.length).toBeGreaterThanOrEqual(1);
+    expect(noticeEvents[0]).toMatchObject({ stage: 'cooldown', errorClass: 'quota' });
+    // 消息保持 pending：未 ack（nack 后仍在 inbox，probe 成功前不排空）
+    expect(ackHandles).not.toHaveBeenCalled();
   });
 });
 
