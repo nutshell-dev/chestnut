@@ -133,20 +133,18 @@ describe('statusCommand (Phase 977)', () => {
     rootConfig: { loadGlobal },
   });
 
-  it('writes FORUM_STATUS audit event', async () => {
+  it('does not write FORUM_STATUS audit event (owner-owned since phase 1761)', async () => {
     vi.mocked(computeForumStatusView).mockResolvedValue(baseForumView());
 
     await statusCommand(deps());
 
-    const events = currentAudit.events.filter(
-      (e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_STATUS,
-    );
-    expect(events.length).toBe(1);
-    expect(events[0][1]).toMatch(/^claws=/);
-    expect(events[0][2]).toMatch(/^total=/);
+    // phase 1761 边界：FORUM_* 触发语义归 StatusService owner，CLI 零触发
+    expect(
+      currentAudit.events.filter((e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_STATUS),
+    ).toEqual([]);
   });
 
-  it('writes FORUM_CLAW_ERROR for each error claw', async () => {
+  it('does not write FORUM_CLAW_ERROR (owner-owned since phase 1761)', async () => {
     vi.mocked(computeForumStatusView).mockResolvedValue({
       ...baseForumView(),
       activeClaws: [
@@ -157,23 +155,12 @@ describe('statusCommand (Phase 977)', () => {
 
     await statusCommand(deps());
 
-    const clawErrors = currentAudit.events.filter(
-      (e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR,
-    );
-    expect(clawErrors.length).toBe(2);
-    expect(clawErrors[0]).toEqual([
-      STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR,
-      'claw=claw-a',
-      'error=boom-a',
-    ]);
-    expect(clawErrors[1]).toEqual([
-      STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR,
-      'claw=claw-b',
-      'error=boom-b',
-    ]);
+    expect(
+      currentAudit.events.filter((e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR),
+    ).toEqual([]);
   });
 
-  it('writes FORUM_ORPHAN_ERROR when orphan detection fails', async () => {
+  it('does not write FORUM_ORPHAN_ERROR (owner-owned since phase 1761)', async () => {
     vi.mocked(computeForumStatusView).mockResolvedValue({
       ...baseForumView(),
       orphans: { watchdog: [], daemon: [], error: 'process list unavailable' },
@@ -181,14 +168,9 @@ describe('statusCommand (Phase 977)', () => {
 
     await statusCommand(deps());
 
-    const orphanErrors = currentAudit.events.filter(
-      (e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR,
-    );
-    expect(orphanErrors.length).toBe(1);
-    expect(orphanErrors[0]).toEqual([
-      STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR,
-      'error=process list unavailable',
-    ]);
+    expect(
+      currentAudit.events.filter((e) => e[0] === STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR),
+    ).toEqual([]);
   });
 
   it('propagates RootConfig error before status computation', async () => {

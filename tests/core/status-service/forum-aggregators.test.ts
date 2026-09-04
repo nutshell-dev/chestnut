@@ -395,6 +395,68 @@ describe('computeForumStatusView', () => {
     expect(orphans.watchdog).toEqual([]);
     expect(orphans.daemon).toEqual([]);
   });
+
+  // phase 1761: FORUM_* audit 触发语义归 StatusService owner（CLI 只消费 view）
+  it('writes FORUM_STATUS audit event with ok claw count and total', async () => {
+    const audit = { write: vi.fn() };
+    const pm = {
+      getAliveStatus: vi.fn()
+        .mockReturnValueOnce({ alive: false, reason: 'no PID file' }) // motion
+        .mockReturnValueOnce({ alive: true, pid: 100 }) // claw-a ok
+        .mockReturnValueOnce({ alive: true, pid: 200 }), // claw-b ok
+      findProcesses: vi.fn().mockReturnValue([]),
+    } as unknown as ProcessManager;
+    const deps = makeDeps({ claws: ['claw-a', 'claw-b'], pm, audit });
+    const view = await computeForumStatusView(deps);
+    const events = audit.write.mock.calls.filter(
+      (c) => c[0] === STATUS_AUDIT_EVENTS.FORUM_STATUS,
+    );
+    expect(events.length).toBe(1);
+    expect(events[0][1]).toBe(
+      `claws=${view.activeClaws.filter((c) => c.status === 'ok').length}`,
+    );
+    expect(events[0][2]).toBe(`total=${view.totalClawCount}`);
+  });
+
+  it('writes FORUM_CLAW_ERROR for each error claw', async () => {
+    const audit = { write: vi.fn() };
+    const pm = {
+      getAliveStatus: vi.fn()
+        .mockReturnValueOnce({ alive: false, reason: 'no PID file' }) // motion
+        .mockReturnValueOnce({ alive: true, pid: 100 }) // claw-a ok
+        .mockImplementationOnce(() => {
+          throw new Error('boom-b');
+        }), // claw-b error
+      findProcesses: vi.fn().mockReturnValue([]),
+    } as unknown as ProcessManager;
+    const deps = makeDeps({ claws: ['claw-a', 'claw-b'], pm, audit });
+    await computeForumStatusView(deps);
+    const clawErrors = audit.write.mock.calls.filter(
+      (c) => c[0] === STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR,
+    );
+    expect(clawErrors.length).toBe(1);
+    expect(clawErrors[0][1]).toBe('claw=claw-b');
+    expect(clawErrors[0][2]).toBe('error=boom-b');
+  });
+
+  it('writes FORUM_ORPHAN_ERROR when orphan detection fails', async () => {
+    const audit = { write: vi.fn() };
+    const deps = makeDeps({
+      pm: {
+        getAliveStatus: () => ({ alive: false, reason: 'no PID file' }),
+        findProcesses: () => {
+          throw new ProcessListUnavailable('ps not available');
+        },
+      } as unknown as ProcessManager,
+      audit,
+    });
+    await computeForumStatusView(deps);
+    const orphanErrors = audit.write.mock.calls.filter(
+      (c) => c[0] === STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR,
+    );
+    expect(orphanErrors.length).toBe(1);
+    expect(orphanErrors[0][1]).toBe('error=process list unavailable');
+  });
 });
 
 // ── formatForumStatusView snapshot ──────────────────────────────────────────
