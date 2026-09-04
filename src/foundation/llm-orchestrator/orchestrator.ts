@@ -288,7 +288,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
     // All retries exhausted — record breaker failure and throw
     // (breaker_opened emit 由 onTransition 回调独占，phase 1275)
-    this.breakers[breakerIndex]?.onFailure(classifyLLMError(lastError!));
+    // phase 1776: permanent/quota 失败不进熔断计数——配置类开 breaker 无意义
+    // （半开探针每 resetTimeout 空烧）；quota 的时间窗恢复语义由 EventLoop 层承担。
+    const lastClass = classifyLLMError(lastError!);
+    if (lastClass !== 'permanent' && lastClass !== 'quota') {
+      this.breakers[breakerIndex]?.onFailure(lastClass);
+    }
     this.events.emit({ type: 'provider_exhausted', provider: adapter.name, error: lastError!.message });
     throw lastError;
   }

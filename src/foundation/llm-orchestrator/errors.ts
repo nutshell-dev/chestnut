@@ -79,24 +79,31 @@ export class LLMCircuitBreakerOpenError extends Error {
   }
 }
 
-export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'context_exceeded' | 'unknown';
+export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'context_exceeded' | 'quota' | 'unknown';
 
 export function classifyLLMError(err: unknown): LLMErrorClass {
   // phase 690: context_exceeded 必须先于 LLMError 通用判定（subclass 关系）
   if (err instanceof LLMContextExceededError || err instanceof LLMOutputBudgetExceededError) return 'context_exceeded';
   if (err instanceof LLMAllProvidersFailedError) {
     const classes = err.failures.map(failure => classifyLLMError(failure.error));
-    if (classes.length > 0 && classes.every(c => c === 'permanent')) return 'permanent';
+    // phase 1776: 聚合归类顺序——transient 优先（可重试快）；全 permanent（无 quota）
+    // 保持 permanent；rate_limit 次之（服务端 Retry-After 驱动）；含 quota → quota
+    // （时间窗退避归 EventLoop quota 调度，不进配置类 blocked gate）。
     if (classes.some(c => c === 'transient')) return 'transient';
+    if (classes.length > 0 && classes.every(c => c === 'permanent')) return 'permanent';
     if (classes.some(c => c === 'rate_limit')) return 'rate_limit';
+    if (classes.some(c => c === 'quota')) return 'quota';
     if (classes.some(c => c === 'context_exceeded')) return 'context_exceeded';
     if (classes.some(c => c === 'abort')) return 'abort';
     return 'unknown';
   }
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
-    if (msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
-      return 'permanent';
+    // phase 1776: quota（用量/配额时间窗）先于 permanent 判定——5h 窗内重试必败、
+    // 窗结束自动恢复：语义 = EventLoop 时间退避，非配置类永久错误。
+    // 'usage limit' 覆盖 Kimi k3 5h 窗文案（"reached your 5-hour usage limit"）。
+    if (msg.includes('quota') || msg.includes('usage limit') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
+      return 'quota';
     }
   }
   if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError || err instanceof LLMInvalidRequestError) return 'permanent';

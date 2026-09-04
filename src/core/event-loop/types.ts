@@ -48,8 +48,8 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
   reactiveTrim(): Promise<ContextTrimOutcome>;
 }
 
-/** Phase 1268 Step B: recoverable LLM 失败的错误分类（waiting 判别联合的合法值） */
-export type RecoverableLLMErrorClass = 'transient' | 'rate_limit';
+/** Phase 1268 Step B / phase 1776: recoverable LLM 失败的错误分类（waiting 判别联合的合法值）。quota = 配额时间窗类（EventLoop quota 退避，非配置类 permanent）。 */
+export type RecoverableLLMErrorClass = 'transient' | 'rate_limit' | 'quota';
 
 /**
  * Phase 1268 Step B: 已决定的 retry/cooldown 等待（schema v2 判别联合）。

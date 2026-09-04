@@ -237,9 +237,11 @@ export class EventLoop {
       return;
     }
     const errorClass = classifyLLMError(result.error);
-    if (errorClass === 'transient' || errorClass === 'rate_limit') {
+    if (errorClass === 'transient' || errorClass === 'rate_limit' || errorClass === 'quota') {
       // Phase 1268 Step B: recoverable LLM 失败由 EventLoop-owned 持久
       // waiting 状态机调度，不再经由通用 fallback handler 清零重放。
+      // phase 1776 Step B: quota 先进 waiting（占位接既有 retry 曲线）；
+      // Step C 实现 quota 独立退避曲线（10min 起翻倍 cap 60min）+ 指纹门豁免。
       await this._scheduleRecoverableLlmWait(result.error, errorClass, failedRequestFingerprint);
       return;
     }
@@ -714,7 +716,11 @@ export class EventLoop {
         );
       }
       const postDrainErrorClass = classifyLLMError(error);
-      if (postDrainErrorClass === 'transient' || postDrainErrorClass === 'rate_limit') {
+      if (
+        postDrainErrorClass === 'transient' ||
+        postDrainErrorClass === 'rate_limit' ||
+        postDrainErrorClass === 'quota'
+      ) {
         // Phase 1268 Step B: reject 路径的 recoverable LLM 错误同样进入持久 waiting，
         // 保持旧 llmRetryHandler 对 throw 路径的重试语义。
         await this._scheduleRecoverableLlmWait(error, postDrainErrorClass, args.turnFingerprint);

@@ -94,7 +94,7 @@ export class AskMotionTool implements Tool {
     } catch (err) {
       this.cloneHistory.pop();
       // phase 687 (audit T1.7): abort 直接重抛、让 parent cancellation 走 normal 路径；
-      // 其余按 classifyLLMError 5 类分流、避免「网络断」「LLM 拒答」「配额耗尽」全压成同 fallback content
+      // 其余按 classifyLLMError 6 类分流、避免「网络断」「LLM 拒答」「配额耗尽」全压成同 fallback content
       if (isAbortError(err)) {
         throw err;
       }
@@ -102,7 +102,8 @@ export class AskMotionTool implements Tool {
       const labelMap: Record<string, string> = {
         rate_limit: '限速（可稍后重试）',
         transient:  '网络/超时（可重试）',
-        permanent:  'API 不可用（需检查配置/配额）',
+        quota:      '配额耗尽（时间窗，稍后自动恢复）',
+        permanent:  'API 不可用（需检查配置/密钥）',
         unknown:    '未知错误',
       };
       return {

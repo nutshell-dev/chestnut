@@ -11,16 +11,17 @@ import { LLMInvalidRequestError } from '../../../src/foundation/llm-provider/req
 import { classifyLLMError, LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 
 describe('orchestrator classifyLLMError (phase 451 Step C)', () => {
-  it('quota keyword in plain Error → permanent', () => {
-    expect(classifyLLMError(new Error('quota exceeded'))).toBe('permanent');
+  // phase 1776: quota 类从 permanent 拆出——配额时间窗语义（EventLoop 退避），非配置类永久
+  it('quota keyword in plain Error → quota', () => {
+    expect(classifyLLMError(new Error('quota exceeded'))).toBe('quota');
   });
 
-  it('insufficient credit keyword → permanent', () => {
-    expect(classifyLLMError(new Error('insufficient credit'))).toBe('permanent');
+  it('insufficient credit keyword → quota', () => {
+    expect(classifyLLMError(new Error('insufficient credit'))).toBe('quota');
   });
 
-  it('billing keyword → permanent', () => {
-    expect(classifyLLMError(new Error('billing issue'))).toBe('permanent');
+  it('billing keyword → quota', () => {
+    expect(classifyLLMError(new Error('billing issue'))).toBe('quota');
   });
 
   it('LLMAuthError without quota keyword → permanent', () => {
