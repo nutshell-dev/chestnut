@@ -60,7 +60,6 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
 
   const view = await computeForumStatusView({
     fsFactory: deps.fsFactory,
-    baseDir,
     clawTopology: topology,
     motionDir,
     pm,

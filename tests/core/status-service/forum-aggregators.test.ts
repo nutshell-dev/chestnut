@@ -284,7 +284,6 @@ describe('computeForumStatusView', () => {
 
     return {
       fsFactory,
-      baseDir,
       clawTopology,
       motionDir,
       pm: makePm(aliveMap),

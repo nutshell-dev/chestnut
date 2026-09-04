@@ -187,7 +187,8 @@ export function computeClawLastActivityAgoMs(clawFs: FileSystem, now: number): C
 
 export interface ForumStatusDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  baseDir: string; // workspace root containing .chestnut/claws/*
+  // phase 1760: 未使用的 workspace-root 必填字段已删除
+  // （STATUS-FORUM-UNUSED-BASEDIR-COUPLING）；调用方仍各自持有自己所需的 root 路径。
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
   motionDir: string; // .chestnut/motion (for motion-side inbox)
