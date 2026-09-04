@@ -433,15 +433,9 @@ export class NodeFileSystem implements FileSystem {
   }
 
   async exists(relativePath: string): Promise<boolean> {
-    let absolute: string;
-    try {
-      absolute = this.resolveAndCheck(relativePath);
-    } catch (err) {
-      if (err instanceof PathGuardError) {
-        throw err;  // 安全 signal 不静默 / D2+D11 align
-      }
-      return false;  // 其他（normalize 错等）视为不存在
-    }
+    // phase 1751: 解析失败不再折叠为 false — 系统 I/O 失败不能伪装成目标不存在。
+    // 唯一 false 来源是底层 probe 的 ENOENT（已证明缺失）。
+    const absolute = this.resolveAndCheck(relativePath);
     return await exists(absolute);
   }
   

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -6,6 +6,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { FileNotFoundError, isFileNotFound, PathGuardError } from '../../../src/foundation/fs/types.js';
+import { createTrackedTempDir } from '../../utils/temp.js';
 
 describe('fs/node-fs.ts: no _operation param', () => {
   it('resolveAndCheck does not take _operation parameter', () => {
@@ -89,6 +90,19 @@ describe('NodeFileSystem — exists PathGuardError signal (P1.5 phase 611)', () 
     expect(await fs.exists(tmpName)).toBe(true);
     // cleanup
     await fs.delete(tmpName).catch(() => { /* silent: cleanup */ });
+  });
+
+  it('propagates non-ENOENT failures from path resolution (phase 1751)', async () => {
+    // baseDir 祖先含普通文件 → resolveAndCheck 的 lstatSync 沿祖先稳定得到 ENOTDIR。
+    // 修前：被宽泛 catch 折叠为 false（系统失败伪装成不存在）；
+    // 修后：非 ENOENT 解析失败原样传播（ENOTDIR 契约反向证明被删 catch）。
+    const tempDir = await createTrackedTempDir('fs-exists-resolution-');
+    const notADirectory = path.join(tempDir, 'not-a-directory');
+    // 注意：describe 内 `fs` 被 NodeFileSystem 实例遮蔽，须用顶层导入的 writeFileSync
+    writeFileSync(notADirectory, 'file');
+    const guardedFs = new NodeFileSystem({ baseDir: path.join(notADirectory, 'child') });
+
+    await expect(guardedFs.exists('target')).rejects.toMatchObject({ code: 'ENOTDIR' });
   });
 });
 
