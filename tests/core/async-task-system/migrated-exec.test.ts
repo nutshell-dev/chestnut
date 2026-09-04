@@ -666,6 +666,128 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
 });
 
 
+describe('phase 1750: wrapper sync return path truncation', () => {
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+  let system: AsyncTaskSystem;
+  let audit: AuditLog;
+
+  const BIG_SEQ_LINES = 5000;
+  const bigCommand = `seq 1 ${BIG_SEQ_LINES}`;
+  // seq 1 5000 → "1\n2\n...\n5000\n"（约 24KB > EXEC_MAX_OUTPUT 2000）
+  const bigExpected = Array.from({ length: BIG_SEQ_LINES }, (_, i) => String(i + 1)).join('\n') + '\n';
+
+  beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    tmpDir = path.join(os.tmpdir(), `phase1750-wrapper-truncate-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    const mockAudit = makeMockAudit();
+    audit = mockAudit.audit;
+
+    system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit,
+      ...makeTaskSystemDeps(),
+    });
+    await system.initialize();
+  });
+
+  afterEach(async () => {
+    await system.shutdown(1000).catch(() => { /* silent */ });
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  // persistOverflow 落盘到 ctx.syncDir/exec/<id>.md；ctx 必须带真实 syncDir（Step B §7 风险核对）
+  function makeWrapperCtx() {
+    return makeExecContext({
+      fs: nodeFs,
+      workspaceDir: tmpDir,
+      syncDir: path.join(tmpDir, '.sync'),
+    });
+  }
+
+  async function readOverflowFiles(): Promise<string[]> {
+    const names = await fs.readdir(path.join(tmpDir, '.sync', 'exec')).catch(() => [] as string[]);
+    return Promise.all(names.map(n => fs.readFile(path.join(tmpDir, '.sync', 'exec', n), 'utf8')));
+  }
+
+  it('pure sync (timeoutMs set) large output → truncated content + overflow file with full output', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    const result = await tool.execute({ command: bigCommand, timeoutMs: 5000 }, makeWrapperCtx());
+
+    expect(result.success).toBe(true);
+    // head 600 + tail 1400 截断协议
+    expect(result.content).toMatch(/\[\.\.\.truncated \d+ bytes\.\.\.\]/);
+    expect(result.content.startsWith(bigExpected.slice(0, 600))).toBe(true);
+    expect(result.content).toContain(bigExpected.slice(-1400));
+    expect(result.content).toContain(`Full output (${bigExpected.length} bytes) saved`);
+    expect(result.content).toContain('read:');
+    expect(result.content).toContain('.sync/exec/');
+    // 中间部分（第 2500 行）被截掉、全文不进 tool_result
+    expect(result.content).not.toContain('\n2500\n');
+    expect(result.content).not.toBe(bigExpected);
+
+    // 溢出文件存在、frontmatter 记录 source/content_length、正文 = 完整 output
+    const overflowFiles = await readOverflowFiles();
+    expect(overflowFiles).toHaveLength(1);
+    const match = overflowFiles[0].match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    expect(match).not.toBeNull();
+    expect(match![1]).toContain('source: exec_overflow');
+    expect(match![1]).toContain(`content_length: ${bigExpected.length}`);
+    expect(match![2]).toBe(bigExpected);
+  });
+
+  it('pure sync (timeoutMs set) small output → unchanged content, no overflow file', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    const result = await tool.execute({ command: 'echo small-output', timeoutMs: 5000 }, makeWrapperCtx());
+
+    expect(result.success).toBe(true);
+    expect(result.content).toBe('small-output\n');
+    expect(await readOverflowFiles()).toHaveLength(0);
+  });
+
+  it('sync→async fast completion large output → truncated content + result.txt keeps full output + moved to done', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    // 不传 timeoutMs → sync→async 模式；命令 10s 内完成 → sync completion 分支
+    const result = await tool.execute({ command: bigCommand }, makeWrapperCtx());
+
+    expect(result.success).toBe(true);
+    expect(result.metadata).toBeUndefined();
+    expect(result.content).toMatch(/\[\.\.\.truncated \d+ bytes\.\.\.\]/);
+    expect(result.content).not.toContain('\n2500\n');
+
+    // result.txt 检查点完整保留全文
+    const resultDirs = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR));
+    expect(resultDirs).toHaveLength(1);
+    const resultTxt = await fs.readFile(
+      path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, resultDirs[0], 'result.txt'),
+      'utf8',
+    );
+    expect(resultTxt).toBe(bigExpected);
+
+    // task 经 moveTaskToDone
+    const doneFiles = await fs.readdir(path.join(tmpDir, TASKS_QUEUES_DONE_DIR));
+    expect(doneFiles.some(name => name.endsWith('.json'))).toBe(true);
+  });
+});
+
+
 describe('subagent exec registry (Phase 773)', () => {
   let tmpDir: string;
   let nodeFs: NodeFileSystem;
