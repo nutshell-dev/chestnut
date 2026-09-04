@@ -11,6 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Heartbeat } from '../../src/core/heartbeat/index.js';
+import type { AuditLog } from '../../src/foundation/audit/index.js';
+import { makeAudit } from '../helpers/audit.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { createInboxReader } from '../../src/foundation/messaging/index.js';
@@ -197,6 +199,109 @@ describe('Heartbeat', () => {
       await heartbeat.fire();
       const inboxDir = path.join(tempDir, 'motion', 'inbox', 'pending');
       expect(fs.readdirSync(inboxDir).filter(f => f.endsWith('.md'))).toHaveLength(0);
+    });
+  });
+
+  // phase 1767 (Phase 1766 冻结设计): wall-clock 回拨不造成无限期 due 阻塞，
+  // rollback 事实可观察；回拨不触发重复 heartbeat（重锚定后等满 interval）。
+  describe('wall-clock rollback（phase 1767）', () => {
+    function createClockControlledHeartbeat(
+      intervalSec: number,
+      clock: { now: number },
+      audit: AuditLog,
+    ): Heartbeat {
+      const nodeFs = new NodeFileSystem({ baseDir: tempDir });
+      const inboxReader = createInboxReader(nodeFs, audit, path.join(tempDir, 'motion', 'inbox'));
+      const chestnutRoot = makeChestnutRoot(tempDir);
+      return new Heartbeat({
+        interval: intervalSec,
+        audit,
+        inboxReader,
+        notifyInbox: (msg) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
+        now: () => clock.now,
+      });
+    }
+
+    it('回拨时重锚定 due 基线并写可观察 rollback 事实，且不立即 due', () => {
+      const { audit, events } = makeAudit();
+      const clock = { now: 1_000_000 };
+      heartbeat = createClockControlledHeartbeat(60, clock, audit);
+
+      // 前进满 interval → due，fire 后 lastRun 锚定
+      clock.now += 60_000;
+      expect(heartbeat.isDue()).toBe(true);
+
+      // wall-clock 回拨到启动前
+      clock.now = 500_000;
+      expect(heartbeat.isDue()).toBe(false);
+
+      const rollbackEvents = events.filter((e) => e[0] === 'heartbeat_clock_rollback');
+      expect(rollbackEvents.length).toBe(1);
+      expect(rollbackEvents[0].join('\t')).toContain('last_run=1000000');
+      expect(rollbackEvents[0].join('\t')).toContain('now=500000');
+      expect(rollbackEvents[0].join('\t')).toContain('delta_ms=-500000');
+    });
+
+    it('回拨不立即 due；重锚定后须从新基线等满 interval 才 due（回拨本身不触发重复 heartbeat）', async () => {
+      const { audit, events } = makeAudit();
+      const clock = { now: 1_000_000 };
+      heartbeat = createClockControlledHeartbeat(10, clock, audit);
+
+      clock.now += 10_000;
+      expect(heartbeat.isDue()).toBe(true);
+      await heartbeat.fire(); // lastRun 锚定到 1_010_000，inbox 落一条 heartbeat
+      const inboxDir = path.join(tempDir, 'motion', 'inbox', 'pending');
+      expect(fs.readdirSync(inboxDir).filter(f => f.endsWith('.md'))).toHaveLength(1);
+
+      // 回拨：重锚定到 900_000，不 due、不重复触发
+      clock.now = 900_000;
+      expect(heartbeat.isDue()).toBe(false);
+      expect(events.filter((e) => e[0] === 'heartbeat_clock_rollback').length).toBe(1);
+      expect(fs.readdirSync(inboxDir).filter(f => f.endsWith('.md'))).toHaveLength(1);
+
+      // 从新基线前进不足 interval → 仍不 due
+      clock.now = 905_000;
+      expect(heartbeat.isDue()).toBe(false);
+
+      // 从新基线等满 interval → due
+      clock.now = 910_000;
+      expect(heartbeat.isDue()).toBe(true);
+    });
+
+    it('正常前进沿用 elapsed interval 语义', () => {
+      const { audit } = makeAudit();
+      const clock = { now: 2_000_000 };
+      heartbeat = createClockControlledHeartbeat(30, clock, audit);
+
+      clock.now += 29_999;
+      expect(heartbeat.isDue()).toBe(false);
+      clock.now += 1;
+      expect(heartbeat.isDue()).toBe(true);
+    });
+
+    it('相等边界（elapsed == interval）保持 due', () => {
+      const { audit } = makeAudit();
+      const clock = { now: 3_000_000 };
+      heartbeat = createClockControlledHeartbeat(5, clock, audit);
+
+      clock.now += 5_000; // 恰好相等
+      expect(heartbeat.isDue()).toBe(true);
+    });
+
+    it('同一回拨片段只审计一次（重锚定后 lastRun=now，后续观测正常）', () => {
+      const { audit, events } = makeAudit();
+      const clock = { now: 4_000_000 };
+      heartbeat = createClockControlledHeartbeat(60, clock, audit);
+
+      clock.now = 3_000_000; // 回拨
+      expect(heartbeat.isDue()).toBe(false);
+      expect(heartbeat.isDue()).toBe(false);
+      expect(events.filter((e) => e[0] === 'heartbeat_clock_rollback').length).toBe(1);
+
+      // 时钟继续回拨（第二次、更深的回拨）→ 新的事实
+      clock.now = 2_000_000;
+      expect(heartbeat.isDue()).toBe(false);
+      expect(events.filter((e) => e[0] === 'heartbeat_clock_rollback').length).toBe(2);
     });
   });
 });
