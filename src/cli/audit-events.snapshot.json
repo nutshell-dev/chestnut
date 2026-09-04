@@ -830,6 +830,7 @@
       "process_ready_mark_stale",
       "process_ready_mark_wrote",
       "process_spawn_failed",
+      "process_spawn_post_commit_failed",
       "process_spawned",
       "process_stop_failed",
       "process_stop_idempotent",
