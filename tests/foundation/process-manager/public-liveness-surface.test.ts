@@ -25,16 +25,23 @@ function walkTs(dir: string): string[] {
   });
 }
 
-describe('ProcessManager public liveness surface (phase 1382)', () => {
-  it('keeps getAliveStatus as the only owner directory-liveness query', () => {
+describe('ProcessManager public liveness surface (phase 1382, ratchet phase 1773)', () => {
+  it('keeps liveness() as the only owner directory-liveness query', () => {
     const manager = read('src/foundation/process-manager/manager.ts');
     const alive = read('src/foundation/process-manager/alive.ts');
     const types = read('src/foundation/process-manager/types.ts');
 
-    expect(manager).toMatch(/\bgetAliveStatus\s*\(daemonDir:\s*DaemonDir\)/);
-    expect(alive).toMatch(/export function getAliveStatus\s*\(/);
+    // phase 1773: typed owner 是 liveness()，返回 LivenessResult union
+    expect(manager).toMatch(/\bliveness\s*\(daemonDir:\s*DaemonDir\):\s*LivenessResult/);
+    expect(alive).toMatch(/export function liveness\s*\(/);
+    expect(types).toMatch(/export type LivenessResult\s*=/);
 
-    expect(manager).not.toMatch(/^\s*isAlive\s*\(daemonDir:\s*DaemonDir\)/m);
+    // boolean convenience 只允许单行 fail-closed 投影，不得二次 probe
+    expect(manager).toMatch(
+      /isAlive\(daemonDir:\s*DaemonDir\):\s*boolean \{ return this\.liveness\(daemonDir\)\.kind === 'alive'; \}/,
+    );
+
+    // isAlive 已由上方正断言限定为单行投影；此处只禁旧 wrapper 形态
     expect(alive).not.toMatch(/export function isAliveByPidFile\s*\(/);
     expect(types).not.toMatch(/^\s*isAlive\?:\s*\(daemonDir:\s*DaemonDir\)/m);
   });

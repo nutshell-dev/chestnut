@@ -157,6 +157,26 @@ export type ReadinessNotReadyReason =
   | 'process_not_alive';
 
 /**
+ * phase 1773 (Phase 1772 冻结设计): liveness owner 的公开 typed result。
+ * 对外穷举区分存活/死亡/不存在/证据损坏/probe 系统故障；probe 异常不得伪装
+ * alive（risk 条款：probe_unavailable ≠ dead ≠ alive，caller 显式决策）。
+ *
+ * - alive:             pid 证据完整且 probe 存活
+ * - dead:              pid 证据完整但 probe 确认已死（含 ESRCH）；pid/startTime 保留
+ * - absent:            无 active generation（missing_active）或有 generation 但无
+ *                      pid 事实（missing_pid，crash 窗口）——不同终局不压平
+ * - malformed:         磁盘证据损坏（generation.json / pid.json parse/shape/read 失败，
+ *                      或 pid 事实与 active generation 身份不匹配）
+ * - probe_unavailable: probe 抛非 ESRCH 异常（EPERM/未知错误），error 保留原始 identity
+ */
+export type LivenessResult =
+  | { kind: 'alive'; pid: number; startTime?: string }
+  | { kind: 'dead'; pid: number; startTime?: string }
+  | { kind: 'absent'; reason: 'missing_active' | 'missing_pid' }
+  | { kind: 'malformed'; file: 'generation.json' | 'pid.json'; evidence: unknown }
+  | { kind: 'probe_unavailable'; pid: number; error: unknown };
+
+/**
  * Phase 1282 Step A: join foreign winner 收敛失败的 typed reason（discriminant）。
  * caller 不解析 message、reason 编译期可检。
  *

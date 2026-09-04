@@ -20,6 +20,8 @@ export type { SpawnOptions } from './types.js';
 export type { StopProcessOutcome, StopFailureStage } from './types.js';
 // phase 1771: readiness owner typed union（禁 boolean 压平）
 export type { ReadinessResult, ReadinessNotReadyReason } from './types.js';
+// phase 1773: liveness owner typed union（probe 异常不伪装 alive）
+export type { LivenessResult } from './types.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
 export { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';

@@ -39,7 +39,7 @@ import {
   type ProcessGenerationRecord,
   type WriteGenerationFact,
 } from './generation.js';
-import type { EnsureRunningOutcome, ProcessManagerContext, ReadinessResult, SpawnOptions, StopProcessOutcome } from './types.js';
+import type { EnsureRunningOutcome, LivenessResult, ProcessManagerContext, ReadinessResult, SpawnOptions, StopProcessOutcome } from './types.js';
 
 
 export class ProcessManager {
@@ -67,6 +67,11 @@ export class ProcessManager {
   }
 
   // alive / ready
+  // phase 1773: 公开 typed LivenessResult（禁 boolean 压平，probe 异常不伪装 alive）
+  liveness(daemonDir: DaemonDir): LivenessResult { return aliveOps.liveness(this._ctx, daemonDir); }
+  // convenience fail-closed：仅 kind==='alive'，单行投影不得二次 probe
+  isAlive(daemonDir: DaemonDir): boolean { return this.liveness(daemonDir).kind === 'alive'; }
+  // @deprecated phase 1773 Step A 过渡适配器，Step B 删（旧 {alive, reason} 表面）
   getAliveStatus(daemonDir: DaemonDir): { alive: boolean; reason: string; pid?: number } {
     return aliveOps.getAliveStatus(this._ctx, daemonDir);
   }
