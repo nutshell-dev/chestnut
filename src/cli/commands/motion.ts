@@ -217,7 +217,7 @@ export async function chatCommand(deps: MotionRuntimeDeps): Promise<void> {
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
       const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
-      if (!pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID)).alive) {
+      if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
         console.log('Starting Motion daemon...');
         // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
         const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), createDaemonSpawnOptions({
@@ -273,7 +273,7 @@ export async function stopCommand(deps: MotionRuntimeDeps, extraDeps?: { audit?:
   deps.rootConfig.loadGlobal();
   const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
 
-  if (!pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID)).alive) {
+  if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);
     console.log('Motion is not running');
     return;

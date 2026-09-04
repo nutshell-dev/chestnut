@@ -46,8 +46,9 @@ const ALLOWED_PATTERNS = [
   /\blog\(/,
   /\bappendOutput\b/,
   /\blines\.push\(/,
-  // Structured error returns
-  /\breturn\s*\{\s*(success|ok|passed|alive|winner|error|content|reason|lastEventMs|lastError|pid|command)/,
+  // Structured error returns（phase 1773: 补 status——GenerationInspection 等
+  // `{ status: 'malformed', cause: err }` 结构化 outcome 同样是错误暴露而非吞没）
+  /\breturn\s*\{\s*(success|ok|passed|alive|winner|error|content|reason|lastEventMs|lastError|pid|command|status)/,
   /\breturn\s+(false|true|0|null|undefined|await|base|this\.)/,
   /\breturn\s*;/,
   /\breturn\s*\[\]/,

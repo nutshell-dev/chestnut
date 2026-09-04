@@ -62,7 +62,7 @@ vi.mock('../../../src/core/claw-topology/index.js', async (importOriginal) => {
 
 vi.mock('../../../src/foundation/process-manager/index.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
-    getAliveStatus: () => ({ alive: false, reason: 'no PID file' }),
+    isAlive: () => false,
     findProcesses: () => [],
   })),
 }));

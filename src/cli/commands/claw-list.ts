@@ -10,7 +10,7 @@ import {
   resolveClawDaemonDir,
 } from '../../core/claw-topology/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
-import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import { createProcessManagerForCLI, describeLiveness } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
@@ -145,14 +145,18 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
       if (spawning.status === 'malformed') {
         return { kind: 'error', reason: 'malformed spawning generation' };
       }
-      const aliveStatus = processManager.getAliveStatus(daemonDir);
-      if (aliveStatus.alive) {
-        return { kind: 'value', text: String(aliveStatus.pid) };
+      // phase 1773: 穷举 discriminant；probe_unavailable/malformed 不伪装 alive/pid
+      const liveness = processManager.liveness(daemonDir);
+      switch (liveness.kind) {
+        case 'alive':
+          return { kind: 'value', text: String(liveness.pid) };
+        case 'absent':
+          return liveness.reason === 'missing_active'
+            ? { kind: 'missing' }
+            : { kind: 'error', reason: describeLiveness(liveness) };
+        default:
+          return { kind: 'error', reason: describeLiveness(liveness) };
       }
-      if (aliveStatus.reason === 'no active generation') {
-        return { kind: 'missing' };
-      }
-      return { kind: 'error', reason: aliveStatus.reason };
     } catch (err) {
       return { kind: 'error', reason: formatErr(err) };
     }
@@ -173,7 +177,7 @@ export async function listCommand(deps: ClawCommandDeps, opts?: { json?: boolean
   for (const entry of entries) {
     const clawFs = deps.fsFactory(path.join(clawsDir, entry));
     if (clawFs.existsSync(CONFIG_YAML_FILE)) {
-      const isRunning = processManager.getAliveStatus(resolveClawDaemonDir(makeClawId(entry))).alive;
+      const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(entry)));
 
       const contractField = getContractStatus(clawFs);
       const lastContractField = getLatestContractTitle(clawFs);

@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
+import { aliveLiveness } from '../helpers/liveness-fixtures.js';
 
 vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
@@ -269,7 +270,8 @@ describe('runWatchdogLoop ownership 门', () => {
 
   beforeEach(() => {
     const mockPm = {
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
+      liveness: vi.fn().mockReturnValue(aliveLiveness()),
+      isAlive: vi.fn().mockReturnValue(true),
       spawn: vi.fn().mockResolvedValue(9999),
       stop: vi.fn().mockResolvedValue(undefined),
     } as unknown as ProcessManager;

@@ -55,7 +55,7 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
   let notified = 0;
   for (const id of candidates) {
     const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
-    if (!pm.getAliveStatus(resolveClawDaemonDir(clawId)).alive) continue;
+    if (!pm.isAlive(resolveClawDaemonDir(clawId))) continue;
     routeNotifyClaw(rootFs, chestnutRoot, MOTION_CLAW_ID, id, {
       type: RELOAD_LLM_CONFIG_MESSAGE_TYPE,
       // source must not contain '/'; it goes into the inbox file name

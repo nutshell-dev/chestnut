@@ -49,38 +49,26 @@ export function liveness(ctx: ProcessManagerContext, daemonDir: DaemonDir): Live
 }
 
 /**
- * @deprecated phase 1773 Step A 过渡适配器——旧 `{alive, reason:string}` 表面
- * （含 EPERM/未知 probe 错误保守映射 alive:true 的 drift 行为）。Step B 删。
+ * phase 1773: LivenessResult → 展示/audit reason 的纯渲染投影（无 probe、无 IO）。
+ * caller 不得用此字符串反推状态——决策必须走 discriminant，本函数只供 log/audit/view 渲染。
  */
-export function getAliveStatus(
-  ctx: ProcessManagerContext,
-  daemonDir: DaemonDir,
-): { alive: boolean; reason: string; pid?: number } {
-  const r = liveness(ctx, daemonDir);
+export function describeLiveness(r: LivenessResult): string {
   switch (r.kind) {
     case 'alive':
-      return { alive: true, reason: `PID ${r.pid}`, pid: r.pid };
+      return `PID ${r.pid}`;
     case 'dead':
-      return { alive: false, reason: `PID ${r.pid} not alive`, pid: r.pid };
+      return `PID ${r.pid} not alive`;
     case 'absent':
-      return {
-        alive: false,
-        reason: r.reason === 'missing_active'
-          ? 'no active generation'
-          : 'active generation without pid fact',
-      };
+      return r.reason === 'missing_active'
+        ? 'no active generation'
+        : 'active generation without pid fact';
     case 'malformed':
-      if (r.file === 'generation.json') {
-        return { alive: false, reason: `malformed active generation: ${formatErr(r.evidence)}` };
-      }
-      if (r.evidence === 'pid_generation_mismatch') {
-        return { alive: false, reason: 'active pid generation mismatch' };
-      }
-      return { alive: false, reason: `malformed active pid: ${formatErr(r.evidence)}` };
+      return r.file === 'generation.json'
+        ? `malformed active generation: ${formatErr(r.evidence)}`
+        : r.evidence === 'pid_generation_mismatch'
+          ? 'active pid generation mismatch'
+          : `malformed active pid: ${formatErr(r.evidence)}`;
     case 'probe_unavailable':
-      // 过渡期内复刻旧 drift 行为（保守 alive:true）；Step B caller 迁移后此适配器删除
-      return (r.error as NodeJS.ErrnoException).code === 'EPERM'
-        ? { alive: true, reason: 'isAlive EPERM (process exists, cannot probe)', pid: r.pid }
-        : { alive: true, reason: `isAlive probe failed: ${formatErr(r.error)}`, pid: r.pid };
+      return `probe unavailable: ${formatErr(r.error)}`;
   }
 }

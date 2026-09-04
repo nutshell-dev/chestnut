@@ -27,7 +27,7 @@ export async function stopCommand(deps: ClawCommandDeps, name: string, extraDeps
   const daemonDir = resolveClawDaemonDir(makeClawId(name));
 
   // Check if running
-  if (!processManager.getAliveStatus(daemonDir).alive) {
+  if (!processManager.isAlive(daemonDir)) {
     console.log(`Claw "${name}" is not running`);
     return;
   }

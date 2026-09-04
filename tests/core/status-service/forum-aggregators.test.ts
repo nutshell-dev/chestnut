@@ -29,7 +29,8 @@ import {
 } from '../../../src/core/status-service/forum-aggregators.js';
 import { humanizeUptime, humanizeAgo } from '../../../src/core/status-service/forum-formatter.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
-import type { ProcessManager } from '../../../src/foundation/process-manager/index.js';
+import type { ProcessManager, LivenessResult } from '../../../src/foundation/process-manager/index.js';
+import { absentLiveness, aliveLiveness } from '../../helpers/liveness-fixtures.js';
 import * as messaging from '../../../src/foundation/messaging/index.js';
 import { ProcessListUnavailable } from '../../../src/foundation/process-exec/index.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
@@ -224,19 +225,22 @@ describe('humanizeUptime / humanizeAgo', () => {
 
 // ── computeForumStatusView (composite) ──────────────────────────────────────
 
+// phase 1773: pm mock double 返回 LivenessResult union（旧 {alive, reason} 已删除）
 function makePm(
-  alive: Record<string, { alive: boolean; reason: string; pid?: number }>,
+  livenessMap: Record<string, LivenessResult>,
   orphanPids: number[] = [],
 ): ProcessManager {
   return {
-    getAliveStatus: (daemonDir: string) => {
+    liveness: (daemonDir: string) => {
       const s = String(daemonDir);
       // phase 694: daemonDir is branded path; match by key or by trailing segment
-      if (alive[s]) return alive[s];
-      for (const [k, v] of Object.entries(alive)) {
+      if (livenessMap[s]) return livenessMap[s];
+      for (const [k, v] of Object.entries(livenessMap)) {
         if (s.endsWith(`/${k}`) || s.endsWith(k)) return v;
       }
-      return { alive: false, reason: 'no PID file' };
+      // 旧 default {alive:false, reason:'no PID file'} → absent missing_active
+      // （describeLiveness 渲染同为 'no active generation'）
+      return absentLiveness();
     },
     findProcesses: () => orphanPids,
   } as unknown as ProcessManager;
@@ -249,7 +253,7 @@ describe('computeForumStatusView', () => {
     overrides: Partial<ForumStatusDeps> & {
       claws?: string[];
       clawFs?: Record<string, FileSystem>;
-      aliveMap?: Record<string, { alive: boolean; reason: string; pid?: number }>;
+      aliveMap?: Record<string, LivenessResult>;
       startTimes?: Record<number, string>;
       audit?: AuditLog;
     } = {},
@@ -320,8 +324,8 @@ describe('computeForumStatusView', () => {
       claws: ['cmdtool-v3'],
       clawFs: { 'cmdtool-v3': clawAFs },
       aliveMap: {
-        [String(MOTION_CLAW_ID)]: { alive: true, reason: 'alive', pid: 52703 },
-        [String('cmdtool-v3')]: { alive: true, reason: 'alive', pid: 53508 },
+        [String(MOTION_CLAW_ID)]: aliveLiveness(52703),
+        [String('cmdtool-v3')]: aliveLiveness(53508),
       },
       startTimes: { 52703: fourHoursAgo, 53508: fourHoursAgo, 52933: fourHoursAgo },
       watchdog: { pid: 52933, alive: true, entryPath: '/wd-entry' },
@@ -351,7 +355,8 @@ describe('computeForumStatusView', () => {
   it('ProcessListUnavailable in findProcesses degrades to empty orphan list with error field', async () => {
     const deps = makeDeps({
       pm: {
-        getAliveStatus: () => ({ alive: false, reason: 'no PID file' }),
+        // phase 1773: 无 active generation → absent missing_active（渲染 'no active generation'）
+        liveness: () => absentLiveness(),
         findProcesses: () => {
           throw new ProcessListUnavailable('ps not available');
         },
@@ -367,9 +372,9 @@ describe('computeForumStatusView', () => {
 
   it('continues to next claw when one fails', async () => {
     const pm = {
-      getAliveStatus: vi.fn()
-        .mockReturnValueOnce({ alive: false, reason: 'no PID file' }) // motion
-        .mockReturnValueOnce({ alive: true, pid: 100 }) // claw-a
+      liveness: vi.fn()
+        .mockReturnValueOnce(absentLiveness()) // motion
+        .mockReturnValueOnce(aliveLiveness(100)) // claw-a
         .mockImplementationOnce(() => {
           throw new Error('EIO');
         }), // claw-b
@@ -400,10 +405,10 @@ describe('computeForumStatusView', () => {
   it('writes FORUM_STATUS audit event with ok claw count and total', async () => {
     const audit = { write: vi.fn() };
     const pm = {
-      getAliveStatus: vi.fn()
-        .mockReturnValueOnce({ alive: false, reason: 'no PID file' }) // motion
-        .mockReturnValueOnce({ alive: true, pid: 100 }) // claw-a ok
-        .mockReturnValueOnce({ alive: true, pid: 200 }), // claw-b ok
+      liveness: vi.fn()
+        .mockReturnValueOnce(absentLiveness()) // motion
+        .mockReturnValueOnce(aliveLiveness(100)) // claw-a ok
+        .mockReturnValueOnce(aliveLiveness(200)), // claw-b ok
       findProcesses: vi.fn().mockReturnValue([]),
     } as unknown as ProcessManager;
     const deps = makeDeps({ claws: ['claw-a', 'claw-b'], pm, audit });
@@ -421,9 +426,9 @@ describe('computeForumStatusView', () => {
   it('writes FORUM_CLAW_ERROR for each error claw', async () => {
     const audit = { write: vi.fn() };
     const pm = {
-      getAliveStatus: vi.fn()
-        .mockReturnValueOnce({ alive: false, reason: 'no PID file' }) // motion
-        .mockReturnValueOnce({ alive: true, pid: 100 }) // claw-a ok
+      liveness: vi.fn()
+        .mockReturnValueOnce(absentLiveness()) // motion
+        .mockReturnValueOnce(aliveLiveness(100)) // claw-a ok
         .mockImplementationOnce(() => {
           throw new Error('boom-b');
         }), // claw-b error
@@ -443,7 +448,7 @@ describe('computeForumStatusView', () => {
     const audit = { write: vi.fn() };
     const deps = makeDeps({
       pm: {
-        getAliveStatus: () => ({ alive: false, reason: 'no PID file' }),
+        liveness: () => absentLiveness(),
         findProcesses: () => {
           throw new ProcessListUnavailable('ps not available');
         },

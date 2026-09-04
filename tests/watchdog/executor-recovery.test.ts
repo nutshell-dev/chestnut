@@ -12,6 +12,7 @@ import { _resetWatchdogContextForTest, type ExecutorRestartMap } from '../../src
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import type { ExecutionFailureSink } from '../../src/core/contract/index.js';
+import { absentLiveness, aliveLiveness, deadLiveness } from '../helpers/liveness-fixtures.js';
 
 const TIME_BASE = 1_700_000_000_000;
 const CLAW = 'test-claw';
@@ -26,7 +27,7 @@ function makeMockAudit() {
 
 function makeMockPm(overrides?: Partial<ProcessManager>): ProcessManager {
   return {
-    getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'no active generation' }),
+    liveness: vi.fn().mockReturnValue(absentLiveness('missing_active')),
     spawn: vi.fn(),
     stop: vi.fn().mockResolvedValue(undefined),
     isAlive: vi.fn(),
@@ -90,7 +91,7 @@ describe('maybeCronExecutorRecovery', () => {
   }
 
   it('dead claw with active generation pid → spawn restart, state retrying', async () => {
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
     spawnDaemon.mockResolvedValue({ kind: 'spawned', pid: 456 });
     const next = await run();
     expect(spawnDaemon).toHaveBeenCalledWith(CLAW);
@@ -101,7 +102,7 @@ describe('maybeCronExecutorRecovery', () => {
   it('alive claw → clear state + delete evidence', async () => {
     fs.mkdirSync(path.dirname(evidencePath(CLAW)), { recursive: true });
     fs.writeFileSync(evidencePath(CLAW), JSON.stringify({ schema_version: 1, executorId: CLAW, consecutiveAttempts: 3, openedAt: TIME_BASE - 1000 }));
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'PID 123', pid: 123 }) });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(aliveLiveness(123)) });
     const prior = { [CLAW]: { status: 'open', consecutiveAttempts: 3, openedAt: TIME_BASE - 1000 } };
     const next = await run(prior);
     expect(next[CLAW]).toBeUndefined();
@@ -111,7 +112,7 @@ describe('maybeCronExecutorRecovery', () => {
 
   it('clean-stop marker → no restart, state cleared', async () => {
     fs.writeFileSync(path.join(rootDir, '.chestnut', 'claws', CLAW, 'clean-stop'), '123');
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
     const prior = { [CLAW]: { status: 'retrying', consecutiveAttempts: 1, nextAttemptAt: TIME_BASE - 1 } };
     const next = await run(prior);
     expect(spawnDaemon).not.toHaveBeenCalled();
@@ -120,14 +121,15 @@ describe('maybeCronExecutorRecovery', () => {
   });
 
   it('no active generation (never started) → no restart', async () => {
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'no active generation' }) });
+    // phase 1773 语义：absent（missing_active）不恢复（frozen 设计）。
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(absentLiveness('missing_active')) });
     const next = await run();
     expect(spawnDaemon).not.toHaveBeenCalled();
     expect(next[CLAW]).toBeUndefined();
   });
 
   it('spawn conflict → reset to closed, no attempts', async () => {
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
     spawnDaemon.mockResolvedValue({ kind: 'spawn_conflict', reason: 'already_spawning' });
     const next = await run();
     expect(next[CLAW]).toBeUndefined();
@@ -135,7 +137,7 @@ describe('maybeCronExecutorRecovery', () => {
   });
 
   it('spawn failure → retrying with attempts + defer', async () => {
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
     spawnDaemon.mockRejectedValue(new Error('spawn failed'));
     let next = await run();
     expect(next[CLAW].status).toBe('retrying');
@@ -157,7 +159,7 @@ describe('maybeCronExecutorRecovery', () => {
   it('attempts exhausted → circuit open + terminal evidence + sink.report', async () => {
     const sinkReport = vi.fn().mockResolvedValue(undefined);
     makeFailureSink.mockReturnValue({ report: sinkReport });
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
     spawnDaemon.mockRejectedValue(new Error('fail'));
 
     let next: any = {};
@@ -182,7 +184,7 @@ describe('maybeCronExecutorRecovery', () => {
   it('sink throws → evidence retained + delivery retried next tick', async () => {
     const sinkReport = vi.fn().mockRejectedValueOnce(new Error('contract fs down'));
     makeFailureSink.mockReturnValue({ report: sinkReport });
-    pm = makeMockPm({ getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'PID 123 not alive', pid: 123 }) });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
     spawnDaemon.mockRejectedValue(new Error('fail'));
 
     let next: any = {};

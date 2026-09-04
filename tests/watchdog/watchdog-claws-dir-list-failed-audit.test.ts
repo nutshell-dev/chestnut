@@ -22,6 +22,7 @@ import { makeMockAudit } from '../helpers/audit.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { setTimeout as setTimeoutP } from 'timers/promises';
 import { getChestnutFs, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
+import { aliveLiveness } from '../helpers/liveness-fixtures.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -111,7 +112,8 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
 
   async function runLoopForOneTick(): Promise<void> {
     const mockPm = {
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
+      liveness: vi.fn().mockReturnValue(aliveLiveness()),
+      isAlive: vi.fn().mockReturnValue(true),
       spawn: vi.fn().mockResolvedValue(9999),
       stop: vi.fn().mockResolvedValue(undefined),
     } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;

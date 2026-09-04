@@ -16,6 +16,7 @@ import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-p
 import { readWorkspaceWatchdogConfig } from '../../src/watchdog/workspace-config.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { setTimeout as setTimeoutP } from 'timers/promises';
+import { aliveLiveness } from '../helpers/liveness-fixtures.js';
 
 vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
@@ -82,7 +83,8 @@ describe('watchdog-shutdown-guard', () => {
       });
 
       const mockPm = {
-        getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
+        liveness: vi.fn().mockReturnValue(aliveLiveness()),
+        isAlive: vi.fn().mockReturnValue(true),
         spawn: vi.fn().mockResolvedValue(9999),
         stop: vi.fn().mockResolvedValue(undefined),
       } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;
@@ -153,7 +155,8 @@ describe('handler-idempotent-install', () => {
       });
 
       const mockPm = {
-        getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
+        liveness: vi.fn().mockReturnValue(aliveLiveness()),
+        isAlive: vi.fn().mockReturnValue(true),
         spawn: vi.fn().mockResolvedValue(9999),
         stop: vi.fn().mockResolvedValue(undefined),
       } as unknown as import('../../src/foundation/process-manager/index.js').ProcessManager;

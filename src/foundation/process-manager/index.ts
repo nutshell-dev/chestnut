@@ -13,6 +13,8 @@ export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
  */
 
 export { ProcessManager } from './manager.js';
+// phase 1773: LivenessResult 展示/audit 纯渲染投影（决策必须走 discriminant）
+export { describeLiveness } from './alive.js';
 export { ProcessSpawnConflictError } from './types.js';
 export type { ProcessSpawnConflictReason } from './types.js';
 // Phase 1464 Step B: Daemon spawn specification capability 消费通用 SpawnOptions type

@@ -38,6 +38,8 @@ import { createProcessManagerForCLI } from '../foundation/process-manager/index.
 import { ProcessSpawnConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS, WATCHDOG_FILE_ROUTING } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
+import { describeLiveness } from '../foundation/process-manager/index.js';
+import type { LivenessResult } from '../foundation/process-manager/index.js';
 
 import { createDaemonSpawnOptions } from '../daemon/index.js';
 
@@ -356,11 +358,11 @@ async function attemptMotionRestart(
   pm: ReturnType<typeof createProcessManagerForCLI>,
   fsFactory: (baseDir: string) => FileSystem,
   audit: AuditLog,
-  status: ReturnType<ReturnType<typeof createProcessManagerForCLI>['getAliveStatus']>,
+  status: LivenessResult,
 ): Promise<MotionSpawnOutcome> {
-  log(fsFactory, `[watchdog] motion down (${status.reason}), restarting...`);
+  log(fsFactory, `[watchdog] motion down (${describeLiveness(status)}), restarting...`);
   // phase 601: 裸 MOTION_CLAW_ID 改 key=value 形态 + 加 reason col、与其他 watchdog emit 对齐
-  audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, `claw=${MOTION_CLAW_ID}`, `reason=${status.reason}`);
+  audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, `claw=${MOTION_CLAW_ID}`, `reason=${describeLiveness(status)}`);
   // phase 430 Step B: 删除重复 log call (history merge artifact、motion-down 写两遍)
 
   try {
@@ -495,17 +497,17 @@ export async function runWatchdogLoop(
   while (!stopped) {
     const now = Date.now();
     // 1. Check motion liveness
-    const status = pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID));
+    const status = pm.liveness(resolveClawDaemonDir(MOTION_CLAW_ID));
 
     // watchdog_check: 枚举所有存活进程
     aliveIds = [];
     presentClawIds = [];
-    if (status.alive) aliveIds.push(MOTION_CLAW_ID);
+    if (status.kind === 'alive') aliveIds.push(MOTION_CLAW_ID);
     const fs = getChestnutFs(fsFactory);
     try {
       for (const rawClawId of enumerateClaws(fs, 'claws')) {
         presentClawIds.push(rawClawId);
-        if (pm.getAliveStatus(resolveClawDaemonDir(makeClawId(rawClawId))).alive) aliveIds.push(rawClawId);
+        if (pm.isAlive(resolveClawDaemonDir(makeClawId(rawClawId)))) aliveIds.push(rawClawId);
       }
     } catch (err) {
       if (!isFileNotFound(err)) {
@@ -530,7 +532,9 @@ export async function runWatchdogLoop(
 
     const intervalMs = getWatchdogConfig(fsFactory).interval_ms;
     const prior = motionRestartStateAPI.snapshot();
-    const decision = decideMotionRestart(prior, status.alive, now, maxRestart);
+    // phase 1773: restart 收窄为 dead only——absent/malformed/probe_unavailable 不按 dead 重启
+    // （probe_unavailable 下重启可能 double-spawn；frozen 设计 risk 条款）
+    const decision = decideMotionRestart(prior, status.kind !== 'dead', now, maxRestart);
     motionRestartStateAPI.replace(decision.state);
 
     let nextSleepMs = intervalMs;

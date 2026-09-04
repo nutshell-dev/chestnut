@@ -36,7 +36,7 @@ describe('createProcessManagerForCLI', () => {
   it('返回值实现 ProcessManager 接口', () => {
     const baseDir = freshDir();
     const pm = createProcessManagerForCLI({ fsFactory, baseDir });
-    expect(typeof pm.getAliveStatus).toBe('function');
+    expect(typeof pm.liveness).toBe('function');
   });
 
   it('每次调用返回新实例（无缓存）', () => {
@@ -51,8 +51,8 @@ describe('createProcessManagerForCLI', () => {
     const manual = createAgentProcessManager({ fsFactory, baseDir: dir }, createSystemAudit(fs, dir));
     // 工厂路径
     const factory = createProcessManagerForCLI({ fsFactory, baseDir: dir });
-    // 接口等价：同一 clawId 查询同一 PID（均为不存在）
-    expect(manual.getAliveStatus('nonexistent')).toEqual(factory.getAliveStatus('nonexistent'));
+    // 接口等价：同一 clawId 查询同一结果（均为不存在）
+    expect(manual.liveness('nonexistent')).toEqual(factory.liveness('nonexistent'));
   });
 });
 

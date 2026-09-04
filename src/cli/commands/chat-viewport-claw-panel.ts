@@ -79,7 +79,8 @@ interface RescanClawsDirDeps {
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
   pm: {
     inspectSpawning: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => { status: string; record?: { generation_id: string } };
-    getAliveStatus: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => { alive: boolean; reason: string; pid?: number };
+    // phase 1773: boolean convenience 注入（单一 liveness probe 的单行投影）
+    isAlive: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => boolean;
   };
 }
 
@@ -111,8 +112,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
             } else if (spawning.status === 'malformed') {
               t.daemonStatus = 'error';
             } else {
-              const status = deps.pm.getAliveStatus(daemonDir);
-              alive = status.alive;
+              alive = deps.pm.isAlive(daemonDir);
               t.daemonStatus = alive ? 'running' : 'stopped';
             }
           } catch {

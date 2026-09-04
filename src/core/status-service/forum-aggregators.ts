@@ -16,7 +16,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessManager, describeLiveness } from '../../foundation/process-manager/index.js';
 import { ProcessListUnavailable } from '../../foundation/process-exec/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
@@ -220,32 +220,38 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
   };
 
   // ── System: motion ──
-  const motionStatus = deps.pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID));
+  // phase 1773: liveness discriminant；probe_unavailable/malformed 不伪装 alive
+  const motionLiveness = deps.pm.liveness(resolveClawDaemonDir(MOTION_CLAW_ID));
+  const motionAlive = motionLiveness.kind === 'alive';
+  // pid evidence：alive/dead/probe_unavailable 携带 pid（dead 亦计入 trackedPids，同旧行为）
+  const motionPid = motionLiveness.kind === 'absent' || motionLiveness.kind === 'malformed'
+    ? undefined
+    : motionLiveness.pid;
   const motionFs = deps.fsFactory(deps.motionDir);
   const motion: SystemComponentView = {
-    alive: motionStatus.alive,
-    pid: motionStatus.pid,
-    reason: motionStatus.reason,
+    alive: motionAlive,
+    pid: motionPid,
+    reason: describeLiveness(motionLiveness),
     uptimeMs:
-      motionStatus.alive && motionStatus.pid !== undefined
-        ? computeProcessUptimeMs(motionStatus.pid, nowMs, deps.getStartTime)
+      motionAlive && motionPid !== undefined
+        ? computeProcessUptimeMs(motionPid, nowMs, deps.getStartTime)
         : undefined,
-    inboxUnread: motionStatus.alive ? await computeClawInboxUnread(motionFs, deps.audit, MOTION_CLAW_ID) : undefined,
+    inboxUnread: motionAlive ? await computeClawInboxUnread(motionFs, deps.audit, MOTION_CLAW_ID) : undefined,
   };
 
   // ── Active claws ──
   const activeClaws: ActiveClawView[] = [];
   let totalClawCount = 0;
   const trackedPids: number[] = [];
-  if (motionStatus.pid !== undefined) trackedPids.push(motionStatus.pid);
+  if (motionPid !== undefined) trackedPids.push(motionPid);
 
   const allClawIds = deps.clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
   totalClawCount = allClawIds.length;
 
   for (const clawId of allClawIds) {
     try {
-      const s = deps.pm.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId)));
-      if (!s.alive || s.pid === undefined) continue;
+      const s = deps.pm.liveness(resolveClawDaemonDir(makeClawId(clawId)));
+      if (s.kind !== 'alive') continue;
       trackedPids.push(s.pid);
       const location = deps.clawTopology.resolve(makeClawId(clawId));
       if (location.kind !== 'local') continue;

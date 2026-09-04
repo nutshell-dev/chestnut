@@ -14,6 +14,7 @@ import { streamCommand, parseStartMode } from '../../../src/cli/commands/claw-st
 import type { StreamReader } from '../../../src/foundation/stream/index.js';
 import { CLI_AUDIT_EVENTS } from '../../../src/cli/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import type { LivenessResult } from '../../../src/foundation/process-manager/index.js';
 import { makeClawCommandDeps, type FakeClawCommandDeps } from '../../helpers/claw-command-deps.js';
 
 const fsFactory = (dir: string) => ({ baseDir: dir }) as unknown as ReturnType<FakeClawCommandDeps['fsFactory']>;
@@ -32,7 +33,8 @@ const shutdownMocks = vi.hoisted(() => {
     write: vi.fn<(type: string, ...cols: (string | number)[]) => void>(),
     message: vi.fn<(s: string) => string>(),
   };
-  const aliveStatus = { value: { alive: false, reason: 'not_running' as const } };
+  // phase 1773: typed liveness union — 默认 daemon not running（旧 {alive:false,'not_running'}）
+  const aliveStatus = { value: { kind: 'dead', pid: 12345 } as LivenessResult };
   const procExec = {
     isAlive: vi.fn<(pid: number) => boolean>(),
     isPidArgvMatching: vi.fn<(pid: number, name: string) => boolean>(),
@@ -75,7 +77,7 @@ vi.mock('../../../src/foundation/audit/index.js', () => ({
 
 vi.mock('../../../src/foundation/process-manager/index.js', () => ({
   createProcessManagerForCLI: vi.fn(() => ({
-    getAliveStatus: vi.fn(() => shutdownMocks.aliveStatus.value),
+    liveness: vi.fn(() => shutdownMocks.aliveStatus.value),
   })),
 }));
 
@@ -182,7 +184,7 @@ describe('streamCommand shutdown owner', () => {
     shutdownMocks.audit.write.mockReset();
     shutdownMocks.audit.message.mockReset();
     shutdownMocks.audit.message.mockImplementation((s: string) => s);
-    shutdownMocks.aliveStatus.value = { alive: false, reason: 'not_running' };
+    shutdownMocks.aliveStatus.value = { kind: 'dead', pid: 12345 };
     shutdownMocks.procExec.isAlive.mockReset();
     shutdownMocks.procExec.isAlive.mockReturnValue(true);
     shutdownMocks.procExec.isPidArgvMatching.mockReset();
@@ -246,7 +248,7 @@ describe('streamCommand shutdown owner', () => {
   });
 
   it('daemon-dead emits one daemon_stopped line, stop once, exit 1', async () => {
-    shutdownMocks.aliveStatus.value = { alive: true, reason: 'running', pid: 12345 };
+    shutdownMocks.aliveStatus.value = { kind: 'alive', pid: 12345 };
     vi.useFakeTimers();
     try {
       await streamCommand(commandDeps, 'test-claw');

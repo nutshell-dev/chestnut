@@ -11,7 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { signalCleanStop } from '../../../src/foundation/process-manager/signal-clean-stop.js';
 import { makeDaemonDir } from '../../../src/foundation/process-manager/index.js';
-import { getAliveStatus } from '../../../src/foundation/process-manager/alive.js';
+import { liveness } from '../../../src/foundation/process-manager/alive.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { ProcessGenerationStateError, ProcessSpawnConflictError, makeDaemonDir as makeDaemonDirFromTypes, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
@@ -55,10 +55,9 @@ describe('signal-clean-stop', () => {
 });
 
 /**
- * Phase 912 / Step E — alive.ts conservative liveness verdicts via generation.
- *
- * Verifies that EPERM (process exists but cannot be signalled) is treated as
- * alive, preventing duplicate daemon startup.
+ * Phase 1773 — liveness typed owner：EPERM（process exists but cannot be signalled）
+ * 交付 probe_unavailable、不再保守伪装 alive（probe 异常由 caller 显式决策，
+ * phase 912 的 alive=true 保守语义已随 {alive,reason} 旧协议移除）。
  */
 describe('alive-conservative', () => {
   let lastTempDir: string;
@@ -89,27 +88,31 @@ describe('alive-conservative', () => {
     } as ProcessManagerContext;
   }
 
-  describe('getAliveStatus conservative verdicts (phase 912)', () => {
+  describe('liveness probe verdicts (phase 1773)', () => {
     afterEach(() => {
       if (lastTempDir) {
         cleanupTempDirSync(lastTempDir);
         lastTempDir = '';
       }
     });
-    it('returns alive=true on EPERM (process exists, cannot probe)', () => {
+    it('returns probe_unavailable on EPERM (phase 1773 probe 不伪装 alive)', () => {
       const tempDir = makeTempDir();
       const daemonDir = makeDaemonDirAt(tempDir, 'claws', 'epid-claw');
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-epid', pid: 12345 });
 
+      const probeErr = new Error('Operation not permitted') as NodeJS.ErrnoException;
+      probeErr.code = 'EPERM';
       const l1IsAlive = vi.fn().mockImplementation(() => {
-        const err = new Error('Operation not permitted') as NodeJS.ErrnoException;
-        err.code = 'EPERM';
-        throw err;
+        throw probeErr;
       });
 
-      const result = getAliveStatus(makeCtx(tempDir, { l1IsAlive }), daemonDir);
-      expect(result.alive).toBe(true);
-      expect(result.reason).toContain('EPERM');
+      const result = liveness(makeCtx(tempDir, { l1IsAlive }), daemonDir);
+      // phase 1773: probe 异常不再保守伪装 alive，交付 probe_unavailable 由 caller 决策
+      expect(result.kind).toBe('probe_unavailable');
+      if (result.kind === 'probe_unavailable') {
+        expect(result.pid).toBe(12345);
+        expect(result.error).toBe(probeErr); // error identity 保留
+      }
     });
   });
 });

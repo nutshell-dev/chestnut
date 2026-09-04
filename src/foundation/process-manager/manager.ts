@@ -71,10 +71,6 @@ export class ProcessManager {
   liveness(daemonDir: DaemonDir): LivenessResult { return aliveOps.liveness(this._ctx, daemonDir); }
   // convenience fail-closed：仅 kind==='alive'，单行投影不得二次 probe
   isAlive(daemonDir: DaemonDir): boolean { return this.liveness(daemonDir).kind === 'alive'; }
-  // @deprecated phase 1773 Step A 过渡适配器，Step B 删（旧 {alive, reason} 表面）
-  getAliveStatus(daemonDir: DaemonDir): { alive: boolean; reason: string; pid?: number } {
-    return aliveOps.getAliveStatus(this._ctx, daemonDir);
-  }
   // phase 1771: 公开 typed ReadinessResult（禁 boolean 压平，risk 条款）
   readiness(daemonDir: DaemonDir): ReadinessResult { return readyOps.readiness(this._ctx, daemonDir); }
   // convenience fail-closed：仅 kind==='ready'，不得承载其它状态判断
@@ -102,7 +98,7 @@ export class ProcessManager {
   }
   /**
    * Phase 1282 Step A: 「确保 daemon ready」单一能力，封装 precheck/spawn/conflict/join。
-   * 调用方不得再组合 getAliveStatus+spawn（TOCTOU）；合法 conflict 自动 join exact winner。
+   * 调用方不得再组合 liveness 判断 + spawn（TOCTOU）；合法 conflict 自动 join exact winner。
    */
   ensureRunning(daemonDir: DaemonDir, options: SpawnOptions): Promise<EnsureRunningOutcome> {
     return ensureRunningOp(this._ctx, daemonDir, options);

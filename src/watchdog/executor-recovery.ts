@@ -211,9 +211,9 @@ export async function maybeCronExecutorRecovery(
   for (const rawClawId of clawNames) {
     const clawId = makeClawId(rawClawId);
     const daemonDir = resolveClawDaemonDir(clawId);
-    const status = pm.getAliveStatus(daemonDir);
+    const status = pm.liveness(daemonDir);
 
-    if (status.alive) {
+    if (status.kind === 'alive') {
       // 恢复存活：清 attempt/circuit + 删 evidence。
       if (nextMap[rawClawId]?.status !== 'closed') {
         audit.write(
@@ -245,9 +245,10 @@ export async function maybeCronExecutorRecovery(
       continue;
     }
 
-    // 只恢复「曾有 active generation（pid 事实存在）但当前进程已死」的 daemon。
-    // 无 active generation = 从未启动过 / 已正常退役，watchdog 不主动起新 daemon。
-    if (status.pid === undefined) {
+    // phase 1773: 只恢复 probe 确认已死（dead）的 daemon——absent（从未启动/已退役）、
+    // malformed（证据损坏）、probe_unavailable（probe 系统故障）均不恢复；
+    // probe_unavailable ≠ dead，误判会 double-spawn（frozen 设计 risk 条款）。
+    if (status.kind !== 'dead') {
       continue;
     }
 

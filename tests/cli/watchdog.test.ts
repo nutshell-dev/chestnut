@@ -110,6 +110,7 @@ import { createProcessManagerForCLI } from '../../src/foundation/process-manager
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+import { aliveLiveness, deadLiveness } from '../helpers/liveness-fixtures.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -524,7 +525,9 @@ describe('runWatchdogLoop', () => {
     });
 
     mockPm = {
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: '' }),
+      // phase 1773: tick 同时走 liveness(motion) + isAlive(per claw)
+      liveness: vi.fn().mockReturnValue(aliveLiveness()),
+      isAlive: vi.fn().mockReturnValue(false),
       spawn: vi.fn().mockResolvedValue(9999),
       stop: vi.fn().mockResolvedValue(undefined),
     } as unknown as ProcessManager;
@@ -581,7 +584,7 @@ describe('runWatchdogLoop', () => {
   });
 
   it('writes watchdog_restart_triggered when motion is down', async () => {
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.liveness).mockReturnValue(deadLiveness());
     vi.mocked(mockPm.stop).mockResolvedValue(undefined);
 
     await runLoopForOneTick();
@@ -593,7 +596,7 @@ describe('runWatchdogLoop', () => {
   });
 
   it('writes process_spawn_failed when restart fails', async () => {
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.liveness).mockReturnValue(deadLiveness());
     vi.mocked(mockPm.stop).mockResolvedValue(undefined);
     vi.mocked(mockPm.spawn).mockRejectedValue(new Error('spawn error'));
 
@@ -605,7 +608,7 @@ describe('runWatchdogLoop', () => {
   });
 
   it('normal tick: motion alive → no restart audit events', async () => {
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: '' });
+    vi.mocked(mockPm.liveness).mockReturnValue(aliveLiveness());
 
     await runLoopForOneTick();
 
@@ -616,7 +619,7 @@ describe('runWatchdogLoop', () => {
   });
 
   it('phase 1164: spawn success awaits stability; next tick down accumulates attempts', async () => {
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.liveness).mockReturnValue(deadLiveness());
     vi.mocked(mockPm.stop).mockResolvedValue(undefined);
     vi.mocked(mockPm.spawn).mockResolvedValue(9999);
 
@@ -637,7 +640,7 @@ describe('runWatchdogLoop', () => {
   });
 
   it('phase 1164: failed spawn accumulates attempt count without resetting', async () => {
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.liveness).mockReturnValue(deadLiveness());
     vi.mocked(mockPm.stop).mockResolvedValue(undefined);
     vi.mocked(mockPm.spawn).mockRejectedValue(new Error('spawn error'));
 
@@ -652,7 +655,7 @@ describe('runWatchdogLoop', () => {
   });
 
   it('phase 1235: ProcessGenerationStateError 走 failed/backoff + PROCESS_SPAWN_FAILED（不穿 catch 误分类）', async () => {
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.liveness).mockReturnValue(deadLiveness());
     vi.mocked(mockPm.stop).mockResolvedValue(undefined);
     vi.mocked(mockPm.spawn).mockRejectedValue(
       new ProcessGenerationStateError(makeDaemonDir('motion'), 'spawning', 'inspect', new Error('malformed')),
@@ -674,7 +677,7 @@ describe('runWatchdogLoop', () => {
   });
 
   it('phase 1235: ProcessSpawnConflictError 才清零 backoff（另一实例是合法 winner）', async () => {
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.liveness).mockReturnValue(deadLiveness());
     vi.mocked(mockPm.stop).mockResolvedValue(undefined);
     vi.mocked(mockPm.spawn).mockRejectedValue(
       new ProcessSpawnConflictError(makeDaemonDir('motion'), 'spawn_in_progress', 'gen-winner'),
@@ -697,7 +700,7 @@ describe('runWatchdogLoop', () => {
       awaitingStability: false,
     });
 
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: false, reason: 'no_pid' });
+    vi.mocked(mockPm.liveness).mockReturnValue(deadLiveness());
 
     await runLoopForOneTick();
 
@@ -723,7 +726,7 @@ describe('runWatchdogLoop', () => {
       awaitingStability: true,
     });
 
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: '' });
+    vi.mocked(mockPm.liveness).mockReturnValue(aliveLiveness());
 
     await runLoopForOneTick();
 
@@ -745,7 +748,7 @@ describe('runWatchdogLoop', () => {
       openedAt: 1_000,
     });
 
-    vi.mocked(mockPm.getAliveStatus).mockReturnValue({ alive: true, reason: '' });
+    vi.mocked(mockPm.liveness).mockReturnValue(aliveLiveness());
 
     await runLoopForOneTick();
 

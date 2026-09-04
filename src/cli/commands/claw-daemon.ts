@@ -20,7 +20,8 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createDaemonSpawnOptions } from '../../daemon/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
-export type DaemonPM = Pick<ProcessManager, 'getAliveStatus' | 'spawn'>;
+// phase 1773: liveness typed protocol——boolean convenience（单一 probe 的单行投影）
+export type DaemonPM = Pick<ProcessManager, 'isAlive' | 'spawn'>;
 
 export interface ClawDaemonDeps extends ClawCommandDeps {
   /** Test seam — when provided, skips real ProcessManager construction. */
@@ -44,7 +45,7 @@ export async function clawDaemonCommand(
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
   const clawId = makeClawId(name);
-  if (pm.getAliveStatus(resolveClawDaemonDir(clawId)).alive) {
+  if (pm.isAlive(resolveClawDaemonDir(clawId))) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }

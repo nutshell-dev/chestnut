@@ -79,9 +79,10 @@ export async function streamCommand(
   let initialDaemonPid: number | null = null;
   try {
     const daemonDir = resolveClawDaemonDir(makeClawId(name));
-    const { alive, pid } = pm.getAliveStatus(daemonDir);
+    const daemonLiveness = pm.liveness(daemonDir);
     // phase 523 (review-round4 CLI M): argv-verify + alive 双校验、PID-reuse 防 tail 错进程
-    if (alive && pid !== undefined && isAlive(pid) && isPidArgvMatching(pid, name)) initialDaemonPid = pid;
+    // phase 1773: probe_unavailable/malformed 不伪装 alive（fail-closed warn）
+    if (daemonLiveness.kind === 'alive' && isAlive(daemonLiveness.pid) && isPidArgvMatching(daemonLiveness.pid, name)) initialDaemonPid = daemonLiveness.pid;
     else process.stderr.write(`[stream] warning: daemon for "${name}" not running, tailing existing file only\n`);
   } catch {
     // silent: liveness probe failure is non-fatal; degrade to warn

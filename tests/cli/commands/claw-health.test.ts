@@ -51,7 +51,7 @@ vi.mock('../../../src/foundation/audit/index.js', async (importOriginal) => ({
 }));
 
 vi.mock('../../../src/foundation/process-manager/factories.js', () => ({
-  createProcessManagerForCLI: vi.fn((deps: any) => ({ getAliveStatus: vi.fn() })),
+  createProcessManagerForCLI: vi.fn((deps: any) => ({ isAlive: vi.fn() })),
 }));
 
 describe('claw-health', () => {
@@ -98,7 +98,7 @@ describe('claw-health', () => {
 
   it('displays running status with inbox/outbox counts', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }),
+      isAlive: vi.fn().mockReturnValue(true),
     } as any);
 
     vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
@@ -127,7 +127,7 @@ describe('claw-health', () => {
 
   it('reports stopped status and -1 inbox when list fails (Result error)', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+      isAlive: vi.fn().mockReturnValue(false),
     } as any);
 
     vi.mocked(fs.readdirSync).mockImplementation(() => {
@@ -148,7 +148,7 @@ describe('claw-health', () => {
 
   it('reports stopped status and 0 pending when dirs are missing', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+      isAlive: vi.fn().mockReturnValue(false),
     } as any);
 
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
@@ -166,7 +166,7 @@ describe('claw-health', () => {
 
   it('reports active contract status when contract subdir has directories', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }),
+      isAlive: vi.fn().mockReturnValue(true),
     } as any);
 
     vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
@@ -191,7 +191,7 @@ describe('claw-health', () => {
 
   it('outputs JSON when --json flag is passed', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }),
+      isAlive: vi.fn().mockReturnValue(true),
     } as any);
 
     vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
@@ -219,7 +219,7 @@ describe('claw-health', () => {
   describe('phase 906 Step B3: 3 catch narrow ENOENT', () => {
     it('inbox ENOENT silent — 0 throw', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
-        getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+        isAlive: vi.fn().mockReturnValue(false),
       } as any);
 
       vi.mocked(fs.readdirSync).mockImplementation(() => {
@@ -234,7 +234,7 @@ describe('claw-health', () => {
 
     it('inbox EACCES → silent (lightweight query helper swallows)', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
-        getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+        isAlive: vi.fn().mockReturnValue(false),
       } as any);
 
       vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
@@ -252,7 +252,7 @@ describe('claw-health', () => {
 
     it('outbox EACCES → silent (lightweight query helper returns Result error)', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
-        getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+        isAlive: vi.fn().mockReturnValue(false),
       } as any);
 
       vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
@@ -275,7 +275,7 @@ describe('claw-health', () => {
 
     it('contract sub-dir EACCES → silent (hasActiveContract swallows)', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
-        getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+        isAlive: vi.fn().mockReturnValue(false),
       } as any);
 
       vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
@@ -296,7 +296,7 @@ describe('claw-health', () => {
 
     it('contract scan ENOENT silent — 0 throw', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
-        getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+        isAlive: vi.fn().mockReturnValue(false),
       } as any);
 
       vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {

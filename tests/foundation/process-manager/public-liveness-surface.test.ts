@@ -1,8 +1,8 @@
 /**
  * Phase 1382: ProcessManager exposes one directory-liveness query.
  *
- * `getAliveStatus()` is the canonical query. Boolean consumers project its
- * `alive` field; the owner must not grow a second wrapper or context seam.
+ * `liveness()` is the canonical typed query; `isAlive()` is its single-line
+ * boolean projection. The owner must not grow a second wrapper or context seam.
  * L1 process-exec PID liveness and UI state named `isAlive` are out of scope.
  */
 import * as fs from 'node:fs';
@@ -46,29 +46,29 @@ describe('ProcessManager public liveness surface (phase 1382, ratchet phase 1773
     expect(types).not.toMatch(/^\s*isAlive\?:\s*\(daemonDir:\s*DaemonDir\)/m);
   });
 
-  it('production callers do not consume a ProcessManager isAlive wrapper', () => {
+  // phase 1773: boolean convenience 是 sanctioned 单行投影；本 ratchet 改为「barrel 唯一门」——
+  // 生产 caller 不得 deep import owner 模块（process-manager/alive.js 等）绕开 barrel 表面
+  it('production callers reach liveness only through the process-manager barrel', () => {
     const violations = walkTs(SRC_ROOT)
       .filter((file) => !file.startsWith(`${PROCESS_MANAGER_ROOT}${path.sep}`))
       .flatMap((file) => {
         const source = fs.readFileSync(file, 'utf8');
-        const usesDirectoryWrapper = /\.isAlive\s*\(\s*resolveClawDaemonDir\s*\(/.test(source);
-        const narrowsToWrapper = /Pick<ProcessManager,\s*['"]isAlive['"]/.test(source);
-        return usesDirectoryWrapper || narrowsToWrapper
-          ? [path.relative(PROJECT_ROOT, file)]
-          : [];
+        const deepOwnerImport = /from\s+['"][^'"]*process-manager\/(alive|generation|ready|stop|spawn)\.js['"]/.test(source);
+        return deepOwnerImport ? [path.relative(PROJECT_ROOT, file)] : [];
       });
 
     expect(violations).toEqual([]);
   });
 
-  it('scanner rejects old wrapper forms without matching L1 PID probes or view state', () => {
-    expect('.isAlive(resolveClawDaemonDir(makeClawId(name)))').toMatch(
-      /\.isAlive\s*\(\s*resolveClawDaemonDir\s*\(/,
+  it('scanner rejects deep owner imports and matches barrel-only consumption', () => {
+    expect("import { describeLiveness } from '../foundation/process-manager/alive.js';").toMatch(
+      /from\s+['"][^'"]*process-manager\/(alive|generation|ready|stop|spawn)\.js['"]/,
     );
-    expect("type PM = Pick<ProcessManager, 'isAlive' | 'spawn'>").toMatch(
-      /Pick<ProcessManager,\s*['"]isAlive['"]/,
+    expect("import { describeLiveness } from '../foundation/process-manager/index.js';").not.toMatch(
+      /from\s+['"][^'"]*process-manager\/(alive|generation|ready|stop|spawn)\.js['"]/,
     );
-    expect('isAlive(pid)').not.toMatch(/\.isAlive\s*\(\s*resolveClawDaemonDir\s*\(/);
-    expect('isAlive: boolean').not.toMatch(/\.isAlive\s*\(\s*resolveClawDaemonDir\s*\(/);
+    expect("import { liveness } from './alive.js';").not.toMatch(
+      /from\s+['"][^'"]*process-manager\/(alive|generation|ready|stop|spawn)\.js['"]/,
+    );
   });
 });

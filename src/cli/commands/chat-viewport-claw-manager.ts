@@ -21,7 +21,8 @@ interface ClawManagerDeps {
   fs: FileSystem;
   pm: {
     inspectSpawning: (daemonDir: DaemonDir) => { status: string; record?: { generation_id: string } };
-    getAliveStatus: (daemonDir: DaemonDir) => { alive: boolean; reason: string; pid?: number };
+    // phase 1773: boolean convenience 注入（单一 liveness probe 的单行投影）
+    isAlive: (daemonDir: DaemonDir) => boolean;
   };
   audit: AuditLog;
   isMotion: boolean;
@@ -266,7 +267,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
           track.daemonStatus = 'error';
           track.isAlive = false;
         } else {
-          const { alive } = pm.getAliveStatus(daemonDir);
+          const alive = pm.isAlive(daemonDir);
           track.isAlive = alive;
           track.daemonStatus = alive ? 'running' : 'stopped';
         }

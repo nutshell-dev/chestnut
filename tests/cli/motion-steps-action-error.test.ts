@@ -20,7 +20,7 @@ const indexSource = fs.readFileSync(indexPath, 'utf-8');
 // Hoisted mock state
 // ============================================================================
 const mockPmState = vi.hoisted(() => ({
-  getAliveStatus: vi.fn(),
+  isAlive: vi.fn(),
   stop: vi.fn(),
 }));
 
@@ -94,14 +94,14 @@ describe('phase 922: motion stop failed branch exitCode', () => {
   // phase 355 C2 (review-2026-06-13): 从 console + exitCode 改 throw CliError、
   // 让 wrapper 即刻退出而非 process.exitCode race；旧期望相应更新。
   it('pm.stop returns failed → throw CliError with ✗ + code=1', async () => {
-    mockPmState.getAliveStatus.mockReturnValue({ alive: true, reason: 'test alive' });
+    mockPmState.isAlive.mockReturnValue(true);
     mockPmState.stop.mockResolvedValue({ kind: 'failed', stage: 'signal', reason: 'kill ESRCH' });
 
     await expect(stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } })).rejects.toThrow(/Failed to stop Motion/);
   });
 
   it('pm.stop returns stopped → console emits ✓ + process.exitCode 不变', async () => {
-    mockPmState.getAliveStatus.mockReturnValue({ alive: true, reason: 'test alive' });
+    mockPmState.isAlive.mockReturnValue(true);
     mockPmState.stop.mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' });
 
     await stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } });
@@ -116,7 +116,7 @@ describe('phase 922: motion stop failed branch exitCode', () => {
       fsFactory,
       rootConfig: { loadGlobal: () => { throw sentinel; } },
     })).rejects.toBe(sentinel);
-    expect(mockPmState.getAliveStatus).not.toHaveBeenCalled();
+    expect(mockPmState.isAlive).not.toHaveBeenCalled();
     expect(mockPmState.stop).not.toHaveBeenCalled();
   });
 });

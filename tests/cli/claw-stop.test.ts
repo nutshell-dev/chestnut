@@ -70,7 +70,7 @@ describe('claw-stop', () => {
 
   it('stop success → clean-stop marker kept + success audit', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }),
+      isAlive: vi.fn().mockReturnValue(true),
       stop: vi.fn().mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' }),
     } as any);
 
@@ -91,7 +91,7 @@ describe('claw-stop', () => {
 
   it('stop failure → clean-stop marker removed + CliError still thrown（含 stage 证据）', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }),
+      isAlive: vi.fn().mockReturnValue(true),
       stop: vi.fn().mockResolvedValue({ kind: 'failed', stage: 'signal', reason: 'kill ESRCH' }),
     } as any);
 
@@ -120,7 +120,7 @@ describe('claw-stop', () => {
   // phase 1769: not_running 是竞态终局（alive 检查后 generation 消失），非失败
   it('stop not_running（race）→ 不 throw、status=not_running audit', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: true, reason: 'test alive' }),
+      isAlive: vi.fn().mockReturnValue(true),
       stop: vi.fn().mockResolvedValue({ kind: 'not_running' }),
     } as any);
 
@@ -135,7 +135,7 @@ describe('claw-stop', () => {
 
   it('not running → no marker write, no cleanup, resolves', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      getAliveStatus: vi.fn().mockReturnValue({ alive: false, reason: 'test stopped' }),
+      isAlive: vi.fn().mockReturnValue(false),
       stop: vi.fn(),
     } as any);
 

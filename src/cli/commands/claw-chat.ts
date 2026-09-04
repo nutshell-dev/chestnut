@@ -33,7 +33,7 @@ export async function chatCommand(deps: ClawCommandDeps, name: string): Promise<
       const baseDir = getChestnutRoot();
       const pm = createProcessManagerForCLI({ ...deps, baseDir });
       const clawId = makeClawId(name);
-      if (!pm.getAliveStatus(resolveClawDaemonDir(clawId)).alive) {
+      if (!pm.isAlive(resolveClawDaemonDir(clawId))) {
         console.log(`Starting Claw "${name}" daemon...`);
         // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner
         const pid = await pm.spawn(resolveClawDaemonDir(clawId), createDaemonSpawnOptions({
