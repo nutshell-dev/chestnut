@@ -70,9 +70,9 @@ describe('ProcessManager', () => {
   });
 
   describe('stop', () => {
-    it('should return false when no active generation exists', async () => {
+    it('should return not_running when no active generation exists', async () => {
       const result = await processManager.stop(testClawDaemonDir(tempDir, 'nonexistent-claw'));
-      expect(result).toBe(false);
+      expect(result).toEqual({ kind: 'not_running' });
     });
 
     it('probe 不删 stale generation（phase 879 M#1 单一职责）', async () => {
@@ -90,7 +90,7 @@ describe('ProcessManager', () => {
       writeActiveGenerationSync(daemonDir, { generationId: 'gen-2', pid: DEAD_PID });
 
       const result = await processManager.stop(daemonDir);
-      expect(result).toBe(true);
+      expect(result).toMatchObject({ kind: 'stopped', via: 'already_dead' });
 
       // active generation 应该被 stop 处置到 retired
       expect(fs.existsSync(path.join(daemonDir, 'status', 'process', 'active', 'generation.json'))).toBe(false);

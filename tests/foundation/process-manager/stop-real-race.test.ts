@@ -124,7 +124,7 @@ describe('stop real process race (Phase 1204 Step G)', () => {
 
     const result = await stopProcess({ ...ctx, l1IsAlive }, daemonDir);
 
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'stopped' });
     expect(defaultL1IsAlive(pid, childStartTime)).toBe(false);
     expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);

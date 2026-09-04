@@ -92,7 +92,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
 
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'stopped', via: 'already_dead' });
     expect(ctx.kill).not.toHaveBeenCalled();
     expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
@@ -113,7 +113,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
 
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'stopped', via: 'sigterm', pid: FAKE_LIVE_PID });
     expect(ctx.kill).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
     expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
@@ -134,7 +134,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     await vi.runAllTimersAsync();
     const result = await resultPromise;
 
-    expect(result).toBe(false);
+    expect(result).toMatchObject({ kind: 'failed', stage: 'survived_sigkill' });
     expect(events.some((event) => (
       event[0] === PROCESS_MANAGER_AUDIT_EVENTS.STOP_PROCESS_SURVIVED_SIGKILL
     ))).toBe(true);
@@ -161,7 +161,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const ctx = makeCtx(audit);
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(true);
+    expect(result).toEqual({ kind: 'intent_recorded' });
     expect(ctx.kill).not.toHaveBeenCalled();
     const intentsDir = getStopIntentsDir(daemonDir);
     const intentFiles = await fs.readdir(intentsDir);
@@ -171,7 +171,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     expect(intentEvents).toHaveLength(1);
   });
 
-  it('returns false idempotently when no generation or pidfile exists', async () => {
+  it('returns not_running idempotently when no generation or pidfile exists', async () => {
     const { audit, events } = makeAudit();
     const clawId = 'stop-idempotent';
     const daemonDir = testClawDaemonDir(tempDir, clawId);
@@ -179,11 +179,11 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const ctx = makeCtx(audit);
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(false);
+    expect(result).toEqual({ kind: 'not_running' });
     expect(ctx.kill).not.toHaveBeenCalled();
   });
 
-  it('returns false on malformed active generation', async () => {
+  it('returns failed(target_lookup) on malformed active generation', async () => {
     const { audit, events } = makeAudit();
     const clawId = 'stop-malformed';
     const daemonDir = testClawDaemonDir(tempDir, clawId);
@@ -194,7 +194,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const ctx = makeCtx(audit);
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(false);
+    expect(result).toMatchObject({ kind: 'failed', stage: 'target_lookup' });
     expect(ctx.kill).not.toHaveBeenCalled();
   });
 
@@ -241,7 +241,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
 
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'stopped', via: 'sigterm' });
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
     expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);
@@ -275,7 +275,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
     const ctx = makeCtx(audit);
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(false);
+    expect(result).toMatchObject({ kind: 'failed', stage: 'target_lookup' });
     expect(ctx.kill).not.toHaveBeenCalled();
   });
 
@@ -305,7 +305,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
 
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'stopped', via: 'already_dead' });
     expect(ctx.kill).not.toHaveBeenCalled();
     expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
@@ -345,7 +345,7 @@ describe('stopProcess generation authority (Phase 1204 Step D)', () => {
 
     const result = await stopProcess(ctx, daemonDir);
 
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'stopped', via: 'already_dead' });
     expect(nodeFs.existsSync(getActiveDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
     expect(nodeFs.existsSync(getRetiredDirFor(daemonDir, generationId))).toBe(true);

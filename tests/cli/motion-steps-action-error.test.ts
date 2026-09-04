@@ -93,16 +93,16 @@ describe('phase 922: motion stop failed branch exitCode', () => {
 
   // phase 355 C2 (review-2026-06-13): 从 console + exitCode 改 throw CliError、
   // 让 wrapper 即刻退出而非 process.exitCode race；旧期望相应更新。
-  it('pm.stop returns false → throw CliError with ✗ + code=1', async () => {
+  it('pm.stop returns failed → throw CliError with ✗ + code=1', async () => {
     mockPmState.getAliveStatus.mockReturnValue({ alive: true, reason: 'test alive' });
-    mockPmState.stop.mockResolvedValue(false);
+    mockPmState.stop.mockResolvedValue({ kind: 'failed', stage: 'signal', reason: 'kill ESRCH' });
 
     await expect(stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } })).rejects.toThrow(/Failed to stop Motion/);
   });
 
-  it('pm.stop returns true → console emits ✓ + process.exitCode 不变', async () => {
+  it('pm.stop returns stopped → console emits ✓ + process.exitCode 不变', async () => {
     mockPmState.getAliveStatus.mockReturnValue({ alive: true, reason: 'test alive' });
-    mockPmState.stop.mockResolvedValue(true);
+    mockPmState.stop.mockResolvedValue({ kind: 'stopped', pid: 123, via: 'sigterm' });
 
     await stopCommand({ fsFactory, rootConfig: { loadGlobal: vi.fn() } });
 
@@ -126,7 +126,7 @@ describe('phase 922 + phase 355 C2: motion.ts failed branch 源码结构验证',
 
   // phase 355 C2: failed branch 改 throw CliError、不再 console.log + exitCode
   it('stop failed branch throws CliError with ✗ sentinel + code=1', () => {
-    expect(motionSource).toContain("throw new CliError('✗ Failed to stop Motion', 1)");
+    expect(motionSource).toContain("throw new CliError(`✗ Failed to stop Motion (stage=${outcome.stage}): ${outcome.reason}`, 1)");
   });
 
   it('stop failed branch 不再用 process.exitCode（phase 355 C2 决策）', () => {
