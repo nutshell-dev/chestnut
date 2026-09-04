@@ -276,6 +276,20 @@ export async function computeForumStatusView(deps: ForumStatusDeps): Promise<For
     trackedPids,
   });
 
+  // phase 1761: 聚合完成/降级观察动作归 StatusService owner
+  // （STATUS-AUDIT-TRIGGER-SEMANTICS-IN-CLI）——CLI 不再依据 view variant 触发 L5 事件。
+  // audit.write 失败向上传播、由调用方观察（owner 不静默吞没写入故障）。
+  const okCount = activeClaws.filter(c => c.status === 'ok').length;
+  deps.audit.write(STATUS_AUDIT_EVENTS.FORUM_STATUS, `claws=${okCount}`, `total=${totalClawCount}`);
+  for (const c of activeClaws) {
+    if (c.status === 'error') {
+      deps.audit.write(STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR, `claw=${c.name}`, `error=${c.error}`);
+    }
+  }
+  if (orphans.error) {
+    deps.audit.write(STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR, `error=${orphans.error}`);
+  }
+
   return {
     timestamp,
     system: { watchdog, motion },

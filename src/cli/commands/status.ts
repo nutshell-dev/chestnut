@@ -6,7 +6,8 @@
  * 每个 active claw 三行（uptime / last activity / inbox unread）
  *
  * 实现层：本命令仅装配 deps + 调 L5.StatusService.computeForumStatusView +
- * formatForumStatusView。所有数据 view + 文本格式归 status-service 模块 own。
+ * formatForumStatusView。所有数据 view + 文本格式归 status-service 模块 own；
+ * phase 1761：FORUM_* audit 触发语义亦归 owner（CLI 只消费结果并格式化）。
  */
 
 import * as path from 'path';
@@ -28,7 +29,6 @@ import {
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { STATUS_AUDIT_EVENTS } from '../../core/status-service/index.js';
 
 interface StatusCommandDeps {
   fsFactory(baseDir: string): FileSystem;
@@ -69,17 +69,6 @@ export async function statusCommand(deps: StatusCommandDeps): Promise<void> {
     daemonEntryPath,
     audit,
   });
-
-  const okCount = view.activeClaws.filter(c => c.status === 'ok').length;
-  audit.write(STATUS_AUDIT_EVENTS.FORUM_STATUS, `claws=${okCount}`, `total=${view.totalClawCount}`);
-
-  const errorClaws = view.activeClaws.filter((c): c is Extract<typeof c, { status: 'error' }> => c.status === 'error');
-  for (const c of errorClaws) {
-    audit.write(STATUS_AUDIT_EVENTS.FORUM_CLAW_ERROR, `claw=${c.name}`, `error=${c.error}`);
-  }
-  if (view.orphans.error) {
-    audit.write(STATUS_AUDIT_EVENTS.FORUM_ORPHAN_ERROR, `error=${view.orphans.error}`);
-  }
 
   for (const line of formatForumStatusView(view)) {
     console.log(line);
