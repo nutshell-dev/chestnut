@@ -74,7 +74,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
     const fs = makeFs({
       'audit.tsv': `${ts}\tseq=2\ttool_call\tname=read\n`,
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(2 * 60 * 1000);
   });
 
@@ -85,7 +85,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
       'tick.tsv': `${tickTs}\tseq=2\tdaemon_liveness_heartbeat\n`,
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(2 * 60 * 1000);
   });
 
@@ -98,7 +98,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'tick.tsv': `${tickTs}\tseq=2\tdaemon_liveness_heartbeat\n`,
       'viewport.tsv': `${viewportTs}\tseq=3\tviewport_render\n`,
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(1 * 60 * 1000);
   });
 
@@ -109,7 +109,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
       'viewport.tsv': `${viewportTs}\tseq=3\tviewport_render\n`,
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(90 * 1000);
   });
 
@@ -119,7 +119,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
       'tick.tsv': 'this-is-not-a-valid-audit-line\n',
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(2 * 60 * 1000);
   });
 
@@ -128,13 +128,13 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'audit.tsv': '',
       'tick.tsv': '',
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBeUndefined();
   });
 
   it('empty baseDir → undefined', () => {
     const fs = makeFs({});
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBeUndefined();
   });
 
@@ -143,7 +143,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
     const fs = makeFs({
       'tick.tsv': `${tickTs}\tseq=1\tdaemon_liveness_heartbeat\n`,
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(2 * 60 * 1000);
   });
 
@@ -154,7 +154,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
       'tick.tsv': `${tickTs}\tseq=2\tdaemon_liveness_heartbeat\n`,
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     // maxTs = tickTs (future), elapsed = NOW - future < 0 → clamped to 0
     expect(v).toBe(0);
   });
@@ -165,7 +165,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
       'audit.tsv.bak': '2026-05-30T13:00:00Z\tseq=0\told\n',
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(2 * 60 * 1000);
   });
 
@@ -176,7 +176,7 @@ describe('computeClawLastActivityAgoMs multi-file aware (phase 172)', () => {
       'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
       'tick.20260530.tsv': `${archiveTs}\tseq=1\tdaemon_liveness_heartbeat\n`,
     });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(2 * 60 * 1000);
   });
 });

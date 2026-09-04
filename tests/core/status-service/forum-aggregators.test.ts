@@ -170,12 +170,15 @@ describe('computeClawLastActivityAgoMs', () => {
 
   it('returns undefined when audit.tsv does not exist', () => {
     const fs = makeFs({});
-    expect(computeClawLastActivityAgoMs(fs, NOW)).toBeUndefined();
+    // phase 1759: 文件不存在 = 正常无活动（complete），非读取故障
+    const r = computeClawLastActivityAgoMs(fs, NOW);
+    expect(r.kind).toBe('complete');
+    expect(r.agoMs).toBeUndefined();
   });
 
   it('returns undefined for empty audit.tsv', () => {
     const fs = makeFs({ 'audit.tsv': '' });
-    expect(computeClawLastActivityAgoMs(fs, NOW)).toBeUndefined();
+    expect(computeClawLastActivityAgoMs(fs, NOW).agoMs).toBeUndefined();
   });
 
   it('parses last line timestamp and returns elapsed ms', () => {
@@ -186,18 +189,18 @@ describe('computeClawLastActivityAgoMs', () => {
       '', // trailing newline
     ].join('\n');
     const fs = makeFs({ 'audit.tsv': content });
-    const v = computeClawLastActivityAgoMs(fs, NOW);
+    const v = computeClawLastActivityAgoMs(fs, NOW).agoMs;
     expect(v).toBe(2 * 60 * 1000);
   });
 
   it('returns undefined when last line has unparseable timestamp', () => {
     const fs = makeFs({ 'audit.tsv': 'garbage-no-tab-no-iso\n' });
-    expect(computeClawLastActivityAgoMs(fs, NOW)).toBeUndefined();
+    expect(computeClawLastActivityAgoMs(fs, NOW).agoMs).toBeUndefined();
   });
 
   it('returns 0 when last activity is in the future (clock skew)', () => {
     const fs = makeFs({ 'audit.tsv': `2026-05-30T15:00:00Z\tseq=1\tfuture\n` });
-    expect(computeClawLastActivityAgoMs(fs, NOW)).toBe(0);
+    expect(computeClawLastActivityAgoMs(fs, NOW).agoMs).toBe(0);
   });
 });
 
@@ -531,5 +534,135 @@ describe('formatForumStatusView', () => {
       orphans: { watchdog: [], daemon: [], error: 'process list unavailable' },
     });
     expect(lines).toContain('  ⚠ orphan detection unavailable: process list unavailable');
+  });
+});
+
+// ── phase 1759: last-activity read failure evidence ─────────────────────────
+
+describe('phase 1759: computeClawLastActivityAgoMs degraded result', () => {
+  const NOW = Date.parse('2026-05-30T14:00:00Z');
+
+  function errnoErr(code: string): NodeJS.ErrnoException {
+    return Object.assign(new Error(code), { code });
+  }
+
+  it('returns degraded with partial agoMs + per-file evidence when one file stat fails', () => {
+    const auditTs = '2026-05-30T13:58:00Z';
+    const tickTs = '2026-05-30T13:30:00Z';
+    const base = makeFs({
+      'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
+      'tick.tsv': `${tickTs}\tseq=2\tdaemon_liveness_heartbeat\n`,
+    });
+    const failing: FileSystem = {
+      ...base,
+      statSync: ((p: string) => {
+        if (p === 'tick.tsv') throw errnoErr('EACCES');
+        return base.statSync(p);
+      }) as FileSystem['statSync'],
+    };
+
+    const r = computeClawLastActivityAgoMs(failing, NOW);
+
+    expect(r.kind).toBe('degraded');
+    if (r.kind === 'degraded') {
+      // 部分结果保留：可读 audit.tsv 的 max ts 仍展示
+      expect(r.agoMs).toBe(2 * 60 * 1000);
+      expect(r.failures).toHaveLength(1);
+      expect(r.failures[0].file).toBe('tick.tsv');
+      expect(r.failures[0].error).toContain('EACCES');
+    }
+  });
+
+  it('returns degraded with agoMs undefined when all files fail (distinguishable from complete no-activity)', () => {
+    const base = makeFs({ 'audit.tsv': '2026-05-30T13:58:00Z\tseq=1\tboot\tx=1\n' });
+    const failing: FileSystem = {
+      ...base,
+      readBytesSync: (() => {
+        throw errnoErr('EIO');
+      }) as FileSystem['readBytesSync'],
+    };
+
+    const r = computeClawLastActivityAgoMs(failing, NOW);
+
+    expect(r.kind).toBe('degraded');
+    if (r.kind === 'degraded') {
+      expect(r.agoMs).toBeUndefined();
+      expect(r.failures).toHaveLength(1);
+      expect(r.failures[0].file).toBe('audit.tsv');
+      expect(r.failures[0].error).toContain('EIO');
+    }
+  });
+
+  it('file vanished between list and read (existsSync false) is skipped, not a failure', () => {
+    const auditTs = '2026-05-30T13:58:00Z';
+    const base = makeFs({
+      'audit.tsv': `${auditTs}\tseq=1\tboot\tx=1\n`,
+      'tick.tsv': '2026-05-30T13:30:00Z\tseq=2\tdaemon_liveness_heartbeat\n',
+    });
+    // listAuditFiles 从目录 listing 发现 tick.tsv；existsSync false 模拟 list 与 read 之间
+    // 文件消失（TOCTOU）——跳过、不计入 failures。
+    const vanishing: FileSystem = {
+      ...base,
+      existsSync: ((p: string) => (p === 'tick.tsv' ? false : base.existsSync(p))) as FileSystem['existsSync'],
+    };
+
+    const r = computeClawLastActivityAgoMs(vanishing, NOW);
+
+    expect(r).toEqual({ kind: 'complete', agoMs: 2 * 60 * 1000 });
+  });
+
+  it('complete result carries kind complete and no failures when all readable', () => {
+    const fs = makeFs({ 'audit.tsv': '2026-05-30T13:58:00Z\tseq=1\tboot\tx=1\n' });
+    const r = computeClawLastActivityAgoMs(fs, NOW);
+    expect(r).toEqual({ kind: 'complete', agoMs: 2 * 60 * 1000 });
+  });
+
+  it('formatter renders degraded evidence as warning lines (not flattened)', () => {
+    const lines = formatForumStatusView({
+      timestamp: '2026-05-30T14:23:07.000Z',
+      system: {
+        watchdog: { alive: false, pid: undefined, reason: 'stopped' },
+        motion: { alive: false, pid: undefined, reason: 'stopped' },
+      },
+      activeClaws: [
+        {
+          status: 'ok',
+          name: 'alpha',
+          pid: 4242,
+          uptimeMs: 60_000,
+          lastActivityAgoMs: 2 * 60_000,
+          lastActivityReadFailures: [{ file: 'tick.tsv', error: 'EACCES: EACCES' }],
+          inboxUnread: 0,
+        },
+      ],
+      totalClawCount: 1,
+      orphans: { watchdog: [], daemon: [] },
+    });
+    expect(lines).toContain('    last activity   2m ago');
+    expect(lines).toContain('    ⚠ last activity degraded: 1 audit file(s) unreadable');
+    expect(lines).toContain('      - tick.tsv: EACCES: EACCES');
+  });
+
+  it('formatter renders no degraded lines for complete activity', () => {
+    const lines = formatForumStatusView({
+      timestamp: '2026-05-30T14:23:07.000Z',
+      system: {
+        watchdog: { alive: false, pid: undefined, reason: 'stopped' },
+        motion: { alive: false, pid: undefined, reason: 'stopped' },
+      },
+      activeClaws: [
+        {
+          status: 'ok',
+          name: 'alpha',
+          pid: 4242,
+          uptimeMs: 60_000,
+          lastActivityAgoMs: 2 * 60_000,
+          inboxUnread: 0,
+        },
+      ],
+      totalClawCount: 1,
+      orphans: { watchdog: [], daemon: [] },
+    });
+    expect(lines.some(l => l.includes('degraded'))).toBe(false);
   });
 });
