@@ -702,6 +702,7 @@
       "daemon_loop_interrupt_poller_recovery_failed",
       "daemon_shutdown_reentry_suppressed",
       "daemon_startup_check_io_error",
+      "daemon_startup_check_retry",
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
       "snapshot_commit_failed",

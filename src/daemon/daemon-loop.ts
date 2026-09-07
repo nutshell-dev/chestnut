@@ -21,7 +21,7 @@ import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
-import { shouldEmitStartupCheck } from './startup-check.js';
+import { hasPendingStartupCheck, shouldEmitStartupCheck } from './startup-check.js';
 import {
   INTERRUPT_POLL_MAX_ERRORS,
   INTERRUPT_POLL_RECOVERY_BACKOFF_MS,
@@ -32,6 +32,75 @@ import type { EventLoop } from '../core/event-loop/index.js';
 /** motion 专用扩展（claw daemon 整体省略此组） */
 interface DaemonMotionExtensions {
   heartbeat?: Heartbeat;
+}
+
+/**
+ * phase 1794: startup check typed delivery outcome（daemon-owned）。
+ * 仅 timestamp 持久化与 inbox 投递均确认才 `fired`；任一阶段失败返回
+ * `pending_retry`（stage + 原始 error 证据），下 tick 重试——不再以进程
+ * boolean 作先行锁抑制重试。`not_eligible` 保留原 once-per-process 语义。
+ */
+export type StartupCheckOutcome =
+  | { kind: 'fired'; timestampMs: number }
+  | { kind: 'not_eligible' }
+  | { kind: 'pending_retry'; stage: 'timestamp' | 'notify'; error: string };
+
+export interface StartupCheckDeliveryDeps {
+  agentFs: FileSystem;
+  clawFs: FileSystem;
+  agentDir: string;
+  audit: AuditLog;
+}
+
+/**
+ * phase 1794: startup check 两阶段提交（eligible → timestamp_committed → inbox_committed）。
+ *
+ * - timestamp 已提交但 notify 未确认时保留 tsCommittedMs：下 tick 只重试 notify，
+ *   不重写 timestamp（防 cooldown 基线漂移）；重试 bypass eligibility 重评估
+ *   （startup_check_ts 刚提交、cooldown 必未过，重评估会把 pending_retry 误判为 not_eligible）。
+ * - notifyInbox 内部 best-effort 不抛出（INBOX_WRITE_FAILED 已由其 audit）——
+ *   notify 阶段结果以 inbox owner dedup identity 做 post-condition：pending 无
+ *   `_startup_check_` 文件 = 未投递 → pending_retry；已存在（含上轮写盘后抛错）→ 去重不重复发。
+ *   hasPendingStartupCheck I/O 错误 fail-closed 返回 true（宁不重发、可能漏重试一拍），
+ *   与 owner dedup 语义一致。
+ */
+export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
+  deliver: () => StartupCheckOutcome;
+} {
+  const { agentFs, clawFs, agentDir, audit } = deps;
+  let tsCommittedMs: number | null = null;
+
+  const deliver = (): StartupCheckOutcome => {
+    if (tsCommittedMs === null) {
+      if (!shouldEmitStartupCheck(agentFs, audit)) return { kind: 'not_eligible' };
+      const tsMs = Date.now();
+      try {
+        agentFs.ensureDirSync(STATUS_SUBDIR);
+        agentFs.writeAtomicSync(path.join(STATUS_SUBDIR, 'startup_check_ts'), String(tsMs));
+      } catch (err) {
+        return { kind: 'pending_retry', stage: 'timestamp', error: formatErr(err) };
+      }
+      tsCommittedMs = tsMs;
+    }
+    // dedup identity 命中（首轮 eligibility 已查 / 重试轮防重复投递）→ 直接 fired
+    if (hasPendingStartupCheck(agentFs, audit)) {
+      return { kind: 'fired', timestampMs: tsCommittedMs };
+    }
+    notifyInbox(clawFs, {
+      inboxDir: path.join(agentDir, 'inbox', 'pending'),
+      type: 'startup_check',
+      source: 'daemon',
+      priority: 'high',
+      body: 'System startup. Please review active contracts and resume execution.',
+    }, audit);
+    // post-condition：dedup identity 确认投递（notifyInbox 不抛出、只能靠证据核实）
+    if (!hasPendingStartupCheck(agentFs, audit)) {
+      return { kind: 'pending_retry', stage: 'notify', error: 'startup_check pending message absent after notifyInbox' };
+    }
+    return { kind: 'fired', timestampMs: tsCommittedMs };
+  };
+
+  return { deliver };
 }
 
 interface DaemonLoopOptions {
@@ -63,7 +132,16 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const agentFs = fsFactory(agentDir);
   let stopped = false;
   let stopping = false;
+  // phase 1794: 两阶段提交——双成功才置 fired；not_eligible 保留原 once-per-process
+  // 语义（单独 latch）；pending_retry 不置任何 latch、下 tick 重试。
   let startupFired = false;
+  let startupChecked = false;
+  const startupDelivery = createStartupCheckDelivery({
+    agentFs,
+    clawFs: fsFactory(path.join(agentDir, '..')),
+    agentDir,
+    audit,
+  });
   let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // phase 1154 r+ derive: 60s liveness 心跳（B + 心跳混合方案）
@@ -99,19 +177,19 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
 
   const promise = (async () => {
     while (!stopped) {
-      // Startup single-fire: has active contract + inbox is empty → trigger once in-process（写 status/startup_check_ts + notifyInbox 落 inbox 文件，两处磁盘写）
-      if (!startupFired) {
-        startupFired = true;
-        if (shouldEmitStartupCheck(agentFs, audit)) {
-          agentFs.ensureDirSync(STATUS_SUBDIR);
-          agentFs.writeAtomicSync(path.join(STATUS_SUBDIR, 'startup_check_ts'), String(Date.now()));
-          notifyInbox(fsFactory(path.join(agentDir, '..')), {
-            inboxDir: path.join(agentDir, 'inbox', 'pending'),
-            type: 'startup_check',
-            source: 'daemon',
-            priority: 'high',
-            body: 'System startup. Please review active contracts and resume execution.',
-          }, audit);
+      // phase 1794: Startup 两阶段投递——typed outcome；失败阶段留证据、下 tick 重试
+      if (!startupFired && !startupChecked) {
+        const delivery = startupDelivery.deliver();
+        if (delivery.kind === 'fired') {
+          startupFired = true;
+        } else if (delivery.kind === 'not_eligible') {
+          startupChecked = true;
+        } else {
+          audit.write(
+            DAEMON_AUDIT_EVENTS.STARTUP_CHECK_RETRY,
+            `stage=${delivery.stage}`,
+            `error=${delivery.error}`,
+          );
         }
       }
 
