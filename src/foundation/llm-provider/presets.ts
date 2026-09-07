@@ -6,6 +6,24 @@
 export type ApiFormat = 'anthropic' | 'openai' | 'gemini';
 type AuthMethod = 'api_key';
 
+/**
+ * phase 1793: LLMProvider-owned typed error（unknown-preset-generic-error 治理）。
+ *
+ * 保留原始 preset id 与不可变 available ids，caller 可 instanceof 机械区分
+ * 用户配置错误与 provider 内部故障，无需字符串反解析。
+ * owner-local type：仅在真实 caller 需要机械区分时才经 barrel 暴露（Step A 风险条）。
+ */
+export class UnknownPresetError extends Error {
+  readonly presetId: string;
+  readonly availablePresetIds: readonly string[];
+  constructor(presetId: string, availablePresetIds: readonly string[]) {
+    super(`Unknown provider preset "${presetId}". Available presets: ${availablePresetIds.join(', ')}`);
+    this.name = 'UnknownPresetError';
+    this.presetId = presetId;
+    this.availablePresetIds = Object.freeze([...availablePresetIds]);
+  }
+}
+
 interface ProviderPreset {
   id: string;
   displayName: string;
@@ -158,10 +176,9 @@ export const PRESETS: Record<string, ProviderPreset> = {
 export function resolvePreset(id: string): ProviderPreset {
   const preset = PRESETS[id];
   if (!preset) {
-    const available = Object.keys(PRESETS).join(', ');
-    throw new Error(
-      `Unknown provider preset "${id}". Available presets: ${available}`
-    );
+    // phase 1793: typed error；available 由 PRESETS 单源派生，caller 不得重算。
+    // 保留 Object.keys 既有顺序 —— message 字节兼容（既有断言/展示 0 漂移）。
+    throw new UnknownPresetError(id, Object.keys(PRESETS));
   }
   return preset;
 }
