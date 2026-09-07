@@ -182,6 +182,7 @@ export const CLAW_COMMAND_CATALOG = [
     group: 'observation',
     form: 'instance',
     summary: 'List recorded LLM call steps for the claw',
+    options: [{ flag: '--no-hint', desc: 'Suppress step <n> usage hint' }],
     examples: ['chestnut claw alice steps'],
   },
   {
@@ -202,6 +203,7 @@ export const CLAW_COMMAND_CATALOG = [
       { flag: '--contract <contractId>', desc: 'Contract ID', required: true },
       // phase 1484: N or N.x form, aligned with `claw step N.x`
       { flag: '--step <n>', desc: 'Show full content of step N or N.x (e.g. 5 or 5.a)' },
+      { flag: '--no-hint', desc: 'Suppress step <n> usage hint' },
     ],
     examples: [
       'chestnut claw alice trace --contract C-123',
@@ -222,7 +224,11 @@ export const CLAW_COMMAND_CATALOG = [
     group: 'discovery',
     form: 'flat',
     summary: 'List all claws in the workspace',
-    options: [{ flag: '--json', desc: 'Output as JSON (machine-readable)' }],
+    options: [
+      { flag: '--json', desc: 'Output as JSON (machine-readable)' },
+      // phase 1798: router 私有 option 收敛进 catalog（原仅 router 字面、help 不可见）
+      { flag: '--summary', desc: 'Output as structured summary (for agent consumption)' },
+    ],
     examples: ['chestnut claw list', 'chestnut claw list --json'],
   },
   {
@@ -255,4 +261,34 @@ export const CLAW_INSTANCE_COMMAND_IDS = CLAW_COMMAND_CATALOG
 /** 按 id 查 command spec（大小写敏感）。未注册返回 undefined。 */
 export function getClawCommandSpec(id: string): ClawCommandSpec | undefined {
   return CLAW_COMMAND_CATALOG.find((spec) => spec.id === id);
+}
+
+/**
+ * option 注册投影面（commander 结构子集；CLIProtocol 零实现依赖、不 import commander）。
+ */
+export interface ClawOptionRegistrar {
+  option(flag: string, desc: string): unknown;
+  requiredOption(flag: string, desc: string): unknown;
+}
+
+/**
+ * phase 1798: catalog options → parser 注册投影（router 单源消费路径，禁止 router
+ * 私有 option 裸字面造成 catalog↔parser 漂移）。未知 id = catalog invariant 破坏，fail-fast。
+ *
+ * 注：`defaultValue` 是 help 展示字面、不投影为 commander default；有真实运行时
+ * default / fn parser 的 verb（send/outbox/read 等）暂留 router 字面注册，
+ * catalog↔router 一致性由 cli-command-catalog-parity 测试守 router→catalog 方向。
+ */
+export function applyClawCommandOptions(parser: ClawOptionRegistrar, id: string): void {
+  const spec = getClawCommandSpec(id);
+  if (!spec) {
+    throw new Error(`unknown claw command id in catalog: ${id}`);
+  }
+  for (const opt of spec.options ?? []) {
+    if (opt.required === true) {
+      parser.requiredOption(opt.flag, opt.desc);
+    } else {
+      parser.option(opt.flag, opt.desc);
+    }
+  }
 }

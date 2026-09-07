@@ -50,6 +50,7 @@ import { psCommand } from './claw-ps.js';
 import {
   CLAW_INSTANCE_COMMAND_IDS,
   DEFAULT_OUTBOX_READ_LIMIT,
+  applyClawCommandOptions,
   renderClawHelp,
   renderClawCommandHelp,
   type ClawInstanceCommandId,
@@ -148,11 +149,10 @@ export async function dispatchClawSubcommand(
     return;
   }
 
-  // Path 1: `claw list [--json|--summary]`
+  // Path 1: `claw list [--json|--summary]`（phase 1798: option 注册经 catalog 投影单源）
   if (subject === 'list') {
     const parser = makeVerbParser('status'); // dummy name for option parsing
-    parser.option('--json', 'Output as JSON (machine-readable)');
-    parser.option('--summary', 'Output as structured summary (for agent consumption)');
+    applyClawCommandOptions(parser, 'list');
     try {
       parser.parse(args, { from: 'user' });
     } catch (err) {
@@ -366,7 +366,7 @@ async function runLs(deps: RouterDeps, name: string, args: string[]): Promise<vo
 
 async function runSteps(deps: RouterDeps, name: string, args: string[]): Promise<void> {
   const parser = makeVerbParser('steps');
-  parser.option('--no-hint', 'Suppress step <n> usage hint');
+  applyClawCommandOptions(parser, 'steps');
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
@@ -397,10 +397,8 @@ async function runDaemon(deps: RouterDeps, name: string, args: string[]): Promis
 
 async function runTrace(deps: RouterDeps, name: string, args: string[]): Promise<void> {
   const parser = makeVerbParser('trace');
-  parser.requiredOption('--contract <contractId>', 'Contract ID');
-  // phase 1484: --step 接 string (N or N.x form) / 解析推到 clawTraceCommand 与 claw step N.x 同源
-  parser.option('--step <n>', 'Show full content of step N or N.x (e.g. 5 or 5.a)');
-  parser.option('--no-hint', 'Suppress step <n> usage hint');
+  // phase 1798: --contract(required)/--step/--no-hint 全部经 catalog 投影
+  applyClawCommandOptions(parser, 'trace');
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {

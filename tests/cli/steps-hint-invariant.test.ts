@@ -361,11 +361,13 @@ describe('commander --no-hint flag wire structure', () => {
   });
 
   it('claw router runSteps registers --no-hint and translates opts.hint === false', () => {
-    expect(routerSource).toContain("parser.option('--no-hint',");
+    // phase 1798: --no-hint 注册迁 catalog 投影（applyClawCommandOptions），
+    // catalog spec 侧由 cli-command-catalog-parity 测试锁 flag 字面
     const stepsIdx = routerSource.indexOf("function runSteps(");
     expect(stepsIdx).toBeGreaterThan(-1);
     // phase 687 Step D: window 600 → 800、容纳 catch 块加 { cause: err } 后的字符增长（audit T3.11）
     const block = routerSource.slice(stepsIdx, stepsIdx + 800);
+    expect(block).toContain("applyClawCommandOptions(parser, 'steps')");
     expect(block).toContain('opts.hint === false');
   });
 
@@ -374,7 +376,8 @@ describe('commander --no-hint flag wire structure', () => {
     expect(traceIdx).toBeGreaterThan(-1);
     // phase 687 Step D: window 900 → 1100、容纳 catch 块加 { cause: err } 后的字符增长（audit T3.11）
     const block = routerSource.slice(traceIdx, traceIdx + 1100);
-    expect(block).toContain("parser.option('--no-hint',");
+    // phase 1798: --contract/--step/--no-hint 经 catalog 投影单源注册
+    expect(block).toContain("applyClawCommandOptions(parser, 'trace')");
     expect(block).toContain('opts.hint === false');
   });
 });

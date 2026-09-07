@@ -19,6 +19,8 @@ export {
   CLAW_INSTANCE_COMMAND_IDS,
   DEFAULT_OUTBOX_READ_LIMIT,
   getClawCommandSpec,
+  applyClawCommandOptions,
+  type ClawOptionRegistrar,
   type ClawCommandId,
   type ClawInstanceCommandId,
 } from './claw-command-catalog.js';
