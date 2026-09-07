@@ -4,6 +4,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+import type { OutboxPeekResult } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -26,6 +27,12 @@ function makeMsg(content: string, ts: string, priority: OutboxMessage['priority'
     timestamp: ts,
     priority,
   };
+}
+
+function makeErrno(code: string, message: string): NodeJS.ErrnoException {
+  const e = new Error(message) as NodeJS.ErrnoException;
+  e.code = code;
+  return e;
 }
 
 describe('OutboxReader.peekLastOutboxPending', () => {
@@ -52,14 +59,26 @@ describe('OutboxReader.peekLastOutboxPending', () => {
     await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  it('returns null when pending empty', async () => {
-    expect(await reader.peekLastOutboxPending(clawDir)).toBeNull();
+  /** Proxy fs overriding one method; all others delegate (phase 931 既有 pattern)。 */
+  function wrapFs(overrides: Record<string, unknown>): NodeFileSystem {
+    return new Proxy(fs, {
+      get(target, prop) {
+        if (prop in overrides) return overrides[prop as string];
+        return (target as unknown as Record<string, unknown>)[prop as string];
+      },
+    }) as unknown as NodeFileSystem;
+  }
+
+  it('returns empty when pending empty', async () => {
+    const result = await reader.peekLastOutboxPending(clawDir);
+    expect(result).toEqual({ kind: 'empty' } satisfies OutboxPeekResult);
     expect(auditEvents.filter(e => String(e[0]).includes('peek_failed'))).toEqual([]);
   });
 
-  it('returns null when pending dir missing', async () => {
+  it('returns empty when pending dir missing', async () => {
     await fsAsync.rm(pendingDir, { recursive: true });
-    expect(await reader.peekLastOutboxPending(clawDir)).toBeNull();
+    const result = await reader.peekLastOutboxPending(clawDir);
+    expect(result).toEqual({ kind: 'empty' } satisfies OutboxPeekResult);
   });
 
   it('returns latest message by filename sort order', async () => {
@@ -74,9 +93,10 @@ describe('OutboxReader.peekLastOutboxPending', () => {
       encodeOutbox(makeMsg('LATER', '2026-06-04T11:00:00Z')),
     );
     const result = await reader.peekLastOutboxPending(clawDir);
-    expect(result).not.toBeNull();
-    expect(result?.message.content).toBe('LATER');
-    expect(result?.filename).toBe(`${t2}_normal_bbb.md`);
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') throw new Error('unreachable');
+    expect(result.message.content).toBe('LATER');
+    expect(result.filename).toBe(`${t2}_normal_bbb.md`);
   });
 
   it('filters non-.md files in last-pick', async () => {
@@ -87,21 +107,25 @@ describe('OutboxReader.peekLastOutboxPending', () => {
     );
     await fsAsync.writeFile(path.join(pendingDir, 'zzz_garbage.tmp'), 'noise');
     const result = await reader.peekLastOutboxPending(clawDir);
-    expect(result?.message.content).toBe('hello');
+    expect(result.kind).toBe('found');
+    if (result.kind !== 'found') throw new Error('unreachable');
+    expect(result.message.content).toBe('hello');
   });
 
-  it('returns null + audit on decode failure', async () => {
+  it('failed stage=decode + audit on decode failure（原始 error/path 保留）', async () => {
     const t1 = '1717480000000';
-    await fsAsync.writeFile(
-      path.join(pendingDir, `${t1}_normal_aaa.md`),
-      'NOT VALID YAML/FRONTMATTER',
-    );
+    const filePath = path.join(pendingDir, `${t1}_normal_aaa.md`);
+    await fsAsync.writeFile(filePath, 'NOT VALID YAML/FRONTMATTER');
     const result = await reader.peekLastOutboxPending(clawDir);
-    expect(result).toBeNull();
-    expect(auditEvents.some(e => String(e[0]).includes('peek_failed'))).toBe(true);
+    expect(result.kind).toBe('failed');
+    if (result.kind !== 'failed') throw new Error('unreachable');
+    expect(result.stage).toBe('decode');
+    expect(result.path).toBe(filePath);
+    expect(result.error).toBeInstanceOf(Error);
+    expect(auditEvents.some(e => String(e[0]).includes('peek_failed') && String(e).includes('stage=decode'))).toBe(true);
   });
 
-  it('returns null + audit when file unexpectedly gone (race with consumer)', async () => {
+  it('failed stage=read + audit when file unexpectedly gone (race with consumer)', async () => {
     const t1 = '1717480000000';
     const filename = `${t1}_normal_aaa.md`;
     await fsAsync.writeFile(
@@ -118,7 +142,34 @@ describe('OutboxReader.peekLastOutboxPending', () => {
       return list;
     };
     const result = await reader.peekLastOutboxPending(clawDir);
-    expect(result).toBeNull();
+    expect(result.kind).toBe('failed');
+    if (result.kind !== 'failed') throw new Error('unreachable');
+    expect(result.stage).toBe('read');
+    expect(result.path).toBe(path.join(pendingDir, filename));
     expect(auditEvents.some(e => String(e[0]).includes('peek_failed') && String(e).includes('stage=read'))).toBe(true);
+  });
+
+  it('failed stage=list + audit on list failure（phase 1784：不再压平为 empty/null）', async () => {
+    await fsAsync.writeFile(
+      path.join(pendingDir, '1717480000000_normal_aaa.md'),
+      encodeOutbox(makeMsg('x', '2026-06-04T10:00:00Z')),
+    );
+    const boom = makeErrno('EACCES', 'list denied');
+    const errFs = wrapFs({
+      list: async (dir: string) => {
+        if (dir === pendingDir) throw boom;
+        return fs.list(dir);
+      },
+    });
+    const { audit, events } = makeAudit();
+    const errReader = new OutboxReader(errFs, audit);
+
+    const result = await errReader.peekLastOutboxPending(clawDir);
+    expect(result.kind).toBe('failed');
+    if (result.kind !== 'failed') throw new Error('unreachable');
+    expect(result.stage).toBe('list');
+    expect(result.path).toBe(pendingDir);
+    expect(result.error).toBe(boom);
+    expect(events.some(e => String(e[0]).includes('peek_failed') && String(e).includes('stage=list'))).toBe(true);
   });
 });

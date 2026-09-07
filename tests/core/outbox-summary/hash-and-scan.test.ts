@@ -269,16 +269,41 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
     resolveSpy.mockRestore();
   });
 
-  it('marks claw as failed when peek returns null after list succeeds', async () => {
+  it('marks claw as failed when peek snapshot is empty after list succeeds (consumer race)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
 
     const peekFailingReader = {
       listClawOutboxPending: async (clawDir: string) => outboxReader.listClawOutboxPending(clawDir),
-      peekLastOutboxPending: vi.fn().mockResolvedValue(null),
+      // phase 1784: typed peek —— list 非空但 peek empty = 不一致快照，不当空队列
+      peekLastOutboxPending: vi.fn().mockResolvedValue({ kind: 'empty' }),
     } as unknown as OutboxReader;
 
     const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader: peekFailingReader });
+    expect(state.counts).toEqual({});
+    expect(state.file_set).toEqual([]);
+    expect(state.previews).toEqual({});
+    expect(state.failed_claws).toEqual(['clawA']);
+    expect(state.incomplete).toBe(true);
+  });
+
+  it('marks claw as failed when peek returns typed failed（phase 1784：failure 不得当空队列）', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
+
+    const boom = new Error('decode boom');
+    const peekFailingReader = {
+      listClawOutboxPending: async (clawDir: string) => outboxReader.listClawOutboxPending(clawDir),
+      peekLastOutboxPending: vi.fn().mockResolvedValue({
+        kind: 'failed',
+        stage: 'decode',
+        path: path.join(root, 'claws/clawA/outbox/pending/a1.md'),
+        error: boom,
+      }),
+    } as unknown as OutboxReader;
+
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader: peekFailingReader });
+    // failed 不压平为空队列：不计数、不入 file_set/previews，记 failed_claws + incomplete
     expect(state.counts).toEqual({});
     expect(state.file_set).toEqual([]);
     expect(state.previews).toEqual({});

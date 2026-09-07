@@ -34,6 +34,21 @@ type ClaimResult =
   | { status: 'io_error'; error: string }
   | { status: 'claimed'; claimPath: string; filename: string; content: string };
 
+/**
+ * Phase 1784: typed outbox peek outcome.
+ *
+ * peek 必须区分真正 empty 与 list/read/decode failure，不得以 null 压平系统故障：
+ * - `empty`：pending 空或目录缺失（合法空态）。
+ * - `found`：最新 pending entry（filename 字典序 == 时间序）。
+ * - `failed`：list/read/decode 首个失败，携带 stage、path（list 阶段为 pending
+ *   dir）与原始 error；caller 必须显式处理（如 failed_claws + incomplete），不得
+ *   当空队列降级展示。
+ */
+export type OutboxPeekResult =
+  | { kind: 'empty' }
+  | { kind: 'found'; filename: string; message: OutboxMessage }
+  | { kind: 'failed'; stage: 'list' | 'read' | 'decode'; path: string; error: unknown };
+
 export class OutboxReader {
   constructor(
     private readonly fs: FileSystem,
@@ -457,22 +472,29 @@ export class OutboxReader {
    * Use case: outbox-summary motion notification — show preview of each claw's latest
    * unread message.
    *
-   * Failure modes (all silent → return null + audit):
-   *  - pending dir missing → null
-   *  - list failure (perms/IO) → null + audit
-   *  - read failure (race with consumer) → null + audit
-   *  - decode failure (malformed) → null + audit
+   * Phase 1784: typed outcome — 真正 empty（pending 空 / 目录缺失）与 list/read/decode
+   * 系统故障必须可区分，不得以 null 压平：
+   *  - empty：合法空态，无 audit
+   *  - failed：携带 stage/path/原始 error（audit 保留），caller 必须显式处理，
+   *    不得当空队列降级展示
    *
    * @param clawDir absolute path to a claw root
-   * @returns null if pending empty / any failure, else { filename, message }
    */
-  async peekLastOutboxPending(
-    clawDir: string,
-  ): Promise<{ filename: string; message: OutboxMessage } | null> {
-    const filenames = await this.listClawOutboxPending(clawDir);
-    if (filenames.length === 0) return null;
-    const latest = filenames[filenames.length - 1];
+  async peekLastOutboxPending(clawDir: string): Promise<OutboxPeekResult> {
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+    let filenames: string[];
+    try {
+      filenames = await this.listClawOutboxPending(clawDir);
+    } catch (err) {
+      emitOutboxPeekFailed(this.audit, {
+        file: pendingDir,
+        stage: 'list',
+        reason: formatErr(err),
+      });
+      return { kind: 'failed', stage: 'list', path: pendingDir, error: err };
+    }
+    if (filenames.length === 0) return { kind: 'empty' };
+    const latest = filenames[filenames.length - 1];
     const filePath = path.join(pendingDir, latest);
     let raw: string;
     try {
@@ -483,7 +505,7 @@ export class OutboxReader {
         stage: 'read',
         reason: formatErr(err),
       });
-      return null;
+      return { kind: 'failed', stage: 'read', path: filePath, error: err };
     }
     let message: OutboxMessage;
     try {
@@ -494,8 +516,8 @@ export class OutboxReader {
         stage: 'decode',
         reason: formatErr(err),
       });
-      return null;
+      return { kind: 'failed', stage: 'decode', path: filePath, error: err };
     }
-    return { filename: latest, message };
+    return { kind: 'found', filename: latest, message };
   }
 }

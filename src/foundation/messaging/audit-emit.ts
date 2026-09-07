@@ -289,7 +289,7 @@ export function emitOutboxListFailed(
 // ─── OUTBOX_PEEK_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxPeekFailed(
   audit: AuditLog,
-  opts: { file: string; stage: 'read' | 'decode'; reason: string },
+  opts: { file: string; stage: 'list' | 'read' | 'decode'; reason: string },
 ): void {
   audit.write(
     MESSAGING_AUDIT_EVENTS.OUTBOX_PEEK_FAILED,

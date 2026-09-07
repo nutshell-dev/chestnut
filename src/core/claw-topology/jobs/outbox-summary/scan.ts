@@ -63,16 +63,20 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
       if (files.length === 0) continue;
 
       const last = await outboxReader.peekLastOutboxPending(location.clawDir);
-      if (!last) {
-        // List succeeded but peek returned null — incomplete snapshot.
-        // Mark this claw as failed rather than silently producing partial data.
-        failedClaws.push(clawId);
-        continue;
+      // phase 1784: typed peek outcome —— `found` 才入快照；`failed`（list/read/decode
+      // 系统故障）与 `empty`（list 非空但 peek 快照已空 = consumer race 不一致快照）
+      // 都不得当空队列，记 failed_claws + incomplete（fail-closed 延续 phase 938）。
+      switch (last.kind) {
+        case 'found':
+          counts[clawId] = files.length;
+          for (const f of files) fileSet.push(`${clawId}:${f}`);
+          previews[clawId] = truncatePreview(last.message.content);
+          break;
+        case 'empty':
+        case 'failed':
+          failedClaws.push(clawId);
+          break;
       }
-
-      counts[clawId] = files.length;
-      for (const f of files) fileSet.push(`${clawId}:${f}`);
-      previews[clawId] = truncatePreview(last.message.content);
     } catch (err) {
       if (signal?.aborted) throw makeExternalAbortError(signal.reason as AbortReason | undefined);
       // phase 938: fail-closed — record the failed claw and mark summary incomplete.

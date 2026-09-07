@@ -61,8 +61,10 @@ describe('migration: legacy uuid8 filenames remain readable (Phase 1230)', () =>
     const { OutboxReader } = await import('../../../src/foundation/messaging/outbox-reader.js');
     const reader = new OutboxReader(nfs, audit as any);
     const latest = await reader.peekLastOutboxPending(testDir);
-    expect(latest).not.toBeNull();
-    expect(latest!.message.content).toBe('Legacy outbox body');
+    // phase 1784: typed peek outcome
+    expect(latest.kind).toBe('found');
+    if (latest.kind !== 'found') throw new Error('unreachable');
+    expect(latest.message.content).toBe('Legacy outbox body');
   });
 
   it('new writer filename does not collide with legacy uuid8 filename', async () => {

@@ -13,6 +13,8 @@ export { MESSAGING_INBOX_MESSAGE_TYPES } from './inbox-formatters.js';
 
 // phase 42: outbox 读侧（业主入口、用于聚合查询如 outbox-summary 未读计数）
 export { OutboxReader } from './outbox-reader.js';
+// phase 1784: outbox peek typed outcome — empty 与 list/read/decode failure 可区分
+export type { OutboxPeekResult } from './outbox-reader.js';
 
 export { InboxWriter, makeInboxPath } from './inbox-writer.js';
 export type { InboxMessageOptionsBase } from './inbox-writer.js';
