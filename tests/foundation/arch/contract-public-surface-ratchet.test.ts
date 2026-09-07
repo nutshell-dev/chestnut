@@ -4,6 +4,10 @@ import * as path from 'node:path';
 
 const REMOVED_EXPORTS = [
   'ContractSystemDeps',
+  // phase 1792 Step B (CT-D1)：owner-internal verification/lifecycle 类型
+  // （manager.ts 内部使用；tests 经 deep import 消费，无 barrel 合法 caller）
+  'ContractExecutionFailure',
+  'LifecycleCommitOutcome',
 ] as const;
 
 function walkTs(dir: string): string[] {
@@ -14,7 +18,7 @@ function walkTs(dir: string): string[] {
   });
 }
 
-describe('phase 1349: ContractSystem public surface ratchet', () => {
+describe('phase 1349 + 1792: ContractSystem public surface ratchet', () => {
   const contractDir = path.join(process.cwd(), 'src/core/contract');
   const barrelPath = path.join(contractDir, 'index.ts');
 
