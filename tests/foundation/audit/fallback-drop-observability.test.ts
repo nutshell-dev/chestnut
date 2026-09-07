@@ -11,6 +11,10 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     writeFileSync: vi.fn(),
+    // phase 1785: 默认 fsync 成功（既有用例走 durable 路径）；retention 用例各自覆盖 fsyncSync 行为
+    openSync: vi.fn(() => 9999),
+    fsyncSync: vi.fn(),
+    closeSync: vi.fn(),
   };
 });
 

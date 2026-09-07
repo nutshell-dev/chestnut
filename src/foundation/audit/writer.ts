@@ -70,6 +70,94 @@ function ensureExitHandler(): void {
   process.on('exit', dumpFallback);
 }
 
+/**
+ * Phase 1785: fallback dump typed outcome。
+ * - `durable`：write + fsync 均确认，允许清空内存副本与 drop counters。
+ * - `pending_retry`：文件已写出（page-cache 可见）但 fsync 未确认——batch 内存副本
+ *   保留在 retention slot、path/error 留证，bounded retry 同 path fsync（绝不重复 dump，
+ *   reconcile 回放会致双份、与 phase 1765 主文件 sync 失败同边界语义）。
+ * - `failed_retained`：write 失败（batch 已回 buffer）或 fsync bounded retry 耗尽——
+ *   batch 证据保留（buffer / slot），不再自动重试防风暴。
+ */
+export type FallbackDumpResult =
+  | { kind: 'durable'; path: string }
+  | { kind: 'pending_retry'; path: string; error: unknown; entries: number }
+  | { kind: 'failed_retained'; error: unknown; entries: number };
+
+/**
+ * phase 1785: 单 batch retention 状态机（内存有界：slot 仅 1 个 batch，
+ * batch ≤ FALLBACK_BUFFER_CAP；retry 有界：FALLBACK_FSYNC_MAX_ATTEMPTS 次自动
+ * 重试，耗尽转 failed_retained 后仅在新 push/exit/dispose 触发的机会性重试）。
+ */
+interface RetainedFallbackDump {
+  path: string;
+  entries: FallbackEntry[];
+  error: unknown;
+  attempts: number;         // 已执行 fsync 次数（初次失败 = 1）
+  dropsRecorded: number;    // 该 dump frontmatter 已记录的 drop 数（追认耐久后从计数器核销）
+  state: 'pending_retry' | 'failed_retained';
+}
+let retainedDump: RetainedFallbackDump | null = null;
+const FALLBACK_FSYNC_MAX_ATTEMPTS = 3;
+
+function fsyncFileSync(filePath: string): void {
+  const fd = nodeFs.openSync(filePath, 'r+');
+  try {
+    nodeFs.fsyncSync(fd);
+  } finally {
+    nodeFs.closeSync(fd);
+  }
+}
+
+/**
+ * phase 1785: retention slot 重试。
+ * 返回 null = slot 已清空（无 retained / 追认耐久 / 文件消失已回 buffer），可继续正常 dump；
+ * 返回 outcome = slot 仍占用，本轮不再 dump 新 batch（不制造更多未确认文件）。
+ */
+function retryRetainedDump(): FallbackDumpResult | null {
+  if (!retainedDump) return null;
+  try {
+    fsyncFileSync(retainedDump.path);
+  } catch (retryErr) {
+    const code = (retryErr as NodeJS.ErrnoException)?.code;
+    if (retryErr instanceof FileNotFoundError || code === 'ENOENT') {
+      // 原 dump 文件被外部删除 → 该文件不可能再被 reconcile 回放，entries 回 buffer
+      // 走正常 dump 重写（非重复 dump）
+      const lost = retainedDump;
+      retainedDump = null;
+      pendingFallback.unshift(...lost.entries);
+      console.error(
+        `[AUDIT CRITICAL] fallback dump file vanished before durability confirm: path=${lost.path} entries=${lost.entries.length} — entries restored to buffer for re-dump`,
+      );
+      return null;
+    }
+    retainedDump.attempts++;
+    if (retainedDump.attempts >= FALLBACK_FSYNC_MAX_ATTEMPTS) {
+      retainedDump.state = 'failed_retained';
+      console.error(
+        `[AUDIT CRITICAL] fallback fsync retries exhausted: path=${retainedDump.path} entries=${retainedDump.entries.length} reason=${formatErr(retryErr)} — durability unconfirmed; batch retained in memory + file remains for next-boot reconcile`,
+      );
+      // failed_retained: 不再自动 schedule（防重试风暴）；新 push / exit / dispose 时机会性重试
+      return { kind: 'failed_retained', error: retryErr, entries: retainedDump.entries.length };
+    }
+    // pending_retry: 自动重试（bounded by FALLBACK_FSYNC_MAX_ATTEMPTS）
+    ensurePeriodicFlush();
+    return { kind: 'pending_retry', path: retainedDump.path, error: retryErr, entries: retainedDump.entries.length };
+  }
+  // fsync 追认成功 → 清空内存副本；核销该 dump 已记录的 drop metadata（其后新 drop 不丢）
+  const recovered = retainedDump;
+  retainedDump = null;
+  dropCountSinceLastDump = Math.max(0, dropCountSinceLastDump - recovered.dropsRecorded);
+  if (dropCountSinceLastDump === 0) {
+    firstDropTs = null;
+    lastDropTs = null;
+  }
+  console.error(
+    `[AUDIT WARNING] fallback fsync recovered: path=${recovered.path} entries=${recovered.entries.length} attempts=${recovered.attempts}`,
+  );
+  return null;
+}
+
 function pushFallback(line: string, origin: string): void {
   if (pendingFallback.length >= FALLBACK_BUFFER_CAP) {
     pendingFallback.shift();   // FIFO drop-oldest (phase 586 D1.b ratify 不动)
@@ -104,53 +192,66 @@ function ensurePeriodicFlush(): void {
   flushMaxLatencyTimer.unref();
 }
 
-function dumpFallback(): void {
-  if (pendingFallback.length === 0 && dropCountSinceLastDump === 0) return;
+/**
+ * phase 1785: 返回 typed outcome（timer/exit 老 caller 忽略返回值，行为兼容）。
+ * retention slot 占用期间不 dump 新 batch（pendingFallback 由 FALLBACK_BUFFER_CAP 兜底有界）。
+ */
+function dumpFallback(): FallbackDumpResult | null {
+  const retainedOutcome = retryRetainedDump();
+  if (retainedOutcome) return retainedOutcome;
+
+  if (pendingFallback.length === 0 && dropCountSinceLastDump === 0) return null;
   const batch = pendingFallback.splice(0); // atomic: clear + capture
   // phase 1380: drop metadata frontmatter (旧文件无此行、reconcile parser 兼容)
   const dropFrontmatter = dropCountSinceLastDump > 0
     ? `${FALLBACK_FRONTMATTER_PREFIX}${dropCountSinceLastDump} drop_count_total=${dropCountTotal} first_drop_ts=${firstDropTs} last_drop_ts=${lastDropTs}\n`
     : '';
-  let written = false;
+  const dropsRecorded = dropCountSinceLastDump;
+  const fallbackPath = `${getFallbackDir()}/chestnut-audit-fallback-${process.pid}-${Date.now()}.tsv`;
+  // origin 作 synthetic col 0 prepend / esc(origin) 防 tab 污染
+  const body = batch
+    .map(e => `${esc(e.origin)}\t${e.line}`)
+    .join('');
   try {
-    const fallbackPath = `${getFallbackDir()}/chestnut-audit-fallback-${process.pid}-${Date.now()}.tsv`;
-    // origin 作 synthetic col 0 prepend / esc(origin) 防 tab 污染
-    const body = batch
-      .map(e => `${esc(e.origin)}\t${e.line}`)
-      .join('');
     nodeFs.writeFileSync(fallbackPath, dropFrontmatter + body);
-    written = true;
-    try {
-      const fd = nodeFs.openSync(fallbackPath, 'r+');
-      try {
-        nodeFs.fsyncSync(fd);
-      } finally {
-        nodeFs.closeSync(fd);
-      }
-    } catch (syncErr) {
-      // fsync best-effort: data already written, durability warning only
-      const reason = formatErr(syncErr);
-      console.error(
-        `[AUDIT WARNING] fallback fsync failed: path=${fallbackPath} reason=${reason}`,
-      );
-    }
-    // phase 1380: 成功 dump 后 reset since-last，total 维持
-    dropCountSinceLastDump = 0;
-    firstDropTs = null;
-    lastDropTs = null;
   } catch (err) {
     // write 失败：恢复 entries 到 buffer（best-effort、顺序非关键）
-    if (!written) {
-      pendingFallback.unshift(...batch);
-      // drop counter 不动（dropCountSinceLastDump 维持、下次 dump 重试 frontmatter）
-    }
+    pendingFallback.unshift(...batch);
+    // drop counter 不动（dropCountSinceLastDump 维持、下次 dump 重试 frontmatter）
     const reason = formatErr(err);
     console.error(
       `[AUDIT CRITICAL] fallback dump failed: reason=${reason} pending=${pendingFallback.length}`,
     );
     // phase 367: 失败重试：重新 schedule timer
     if (pendingFallback.length > 0) ensurePeriodicFlush();
+    return { kind: 'failed_retained', error: err, entries: batch.length };
   }
+  try {
+    fsyncFileSync(fallbackPath);
+  } catch (syncErr) {
+    // phase 1785: fsync 失败不再「warning 后清空」——batch 内存副本 + path + 原始 error
+    // 保留进 retention slot（pending_retry），drop counters 不 reset（metadata 耐久未确认）；
+    // bounded retry 见 retryRetainedDump（同 path fsync，绝不重复 dump）。
+    const reason = formatErr(syncErr);
+    retainedDump = {
+      path: fallbackPath,
+      entries: batch,
+      error: syncErr,
+      attempts: 1,
+      dropsRecorded,
+      state: 'pending_retry',
+    };
+    console.error(
+      `[AUDIT WARNING] fallback fsync failed: path=${fallbackPath} reason=${reason} — batch retained (pending_retry), no re-dump`,
+    );
+    ensurePeriodicFlush();
+    return { kind: 'pending_retry', path: fallbackPath, error: syncErr, entries: batch.length };
+  }
+  // phase 1380: 成功 dump 后 reset since-last，total 维持
+  dropCountSinceLastDump = 0;
+  firstDropTs = null;
+  lastDropTs = null;
+  return { kind: 'durable', path: fallbackPath };
 }
 
 /**
@@ -326,8 +427,8 @@ export class AuditWriter implements AuditLog {
     }
   }
 
-  dispose(): void {
-    dumpFallback();
+  dispose(): FallbackDumpResult | null {
+    return dumpFallback();
   }
 
   preview(s: string): string { return clipPreview(s); }
@@ -450,6 +551,7 @@ export function _resetFallbackForTest(): void {
     throw new Error('_resetFallbackForTest is for tests only');
   }
   pendingFallback.length = 0;
+  retainedDump = null;  // phase 1785: retention slot 同步复位
   exitHandlerInstalled = false;
   overflowMetaEmitted = false;
   // phase 1380: reset drop counters for test isolation
