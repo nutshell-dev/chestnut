@@ -511,6 +511,16 @@ export const AUDIT_FILE_STEM = AUDIT_FILE.replace(/\.tsv$/, '');
 // Assembly 装配期 aggregate 各 owner 声明、注入 Snapshot ctor (per architecture §29)
 export const AUDIT_SNAPSHOT_IGNORE: readonly string[] = [AUDIT_FILE];
 
+/**
+ * phase 1801: daily rotation probe typed outcome。
+ * ENOENT→absent（正常缺失）；其余 I/O（EACCES/EIO/decode）→failed（stage/path/error 证据）；
+ * 成功→found。系统故障不得折叠为正常空状态（rotation/prune 静默停用）。
+ */
+type RotationProbe<T> =
+  | { kind: 'found'; value: T }
+  | { kind: 'absent' }
+  | { kind: 'failed'; stage: 'read_first_line' | 'list_archives'; path: string; error: string };
+
 export class AuditWriter implements AuditLog {
   readonly __brand = 'AuditLog' as const;
   private readonly maxBytes: number | null;
@@ -596,7 +606,14 @@ export class AuditWriter implements AuditLog {
    */
   private rotateByDayIfNeeded(): void {
     try {
-      const fileDate = this.readFirstLineDate(this.filePath);
+      // phase 1801: typed probe——系统故障（EACCES/EIO）不再折叠为 null
+      // （null 会被当作「无日期」而静默停用本轮 rotation/prune）。
+      const probe = this.readFirstLineDate(this.filePath);
+      if (probe.kind === 'failed') {
+        this.reportRotationProbeFailure(probe);
+        return;
+      }
+      const fileDate = probe.kind === 'found' ? probe.value : null;
       const today = formatDateYyyyMmDd(new Date());
       // 无论是否归档，都先 prune 过期归档（兼容空文件/首次写路径）。
       this.pruneOldArchives(today);
@@ -618,17 +635,31 @@ export class AuditWriter implements AuditLog {
     }
   }
 
-  /** 读文件首行 ISO 日期前缀；文件不存在/空/无日期时返回 null。 */
-  private readFirstLineDate(filePath: string): string | null {
+  /**
+   * phase 1801: rotation probe 失败证据——受限 console 边界（audit 自身故障路径，
+   * 禁递归写 audit.tsv；与 phase 1788 AuditFailureReporter 同一边界决策）。
+   */
+  private reportRotationProbeFailure(probe: Extract<RotationProbe<unknown>, { kind: 'failed' }>): void {
+    console.error(`[AUDIT CRITICAL] daily rotation probe failed: stage=${probe.stage} path=${probe.path} reason=${probe.error}`);
+  }
+
+  /**
+   * 读文件首行 ISO 日期前缀。phase 1801 typed probe：ENOENT→absent；
+   * 其余 I/O 错误（EACCES/EIO/decode）→failed（stage/path/error）；
+   * 成功但首行无日期前缀→found(null)（不归档、但 prune 照常）。
+   */
+  private readFirstLineDate(filePath: string): RotationProbe<string | null> {
     try {
       const buf = this.fs.readBytesSync(filePath, 0, 64);
       const text = buf.toString('utf8');
       const nl = text.indexOf('\n');
       const firstLine = nl === -1 ? text : text.slice(0, nl);
       const m = firstLine.match(/^(\d{4}-\d{2}-\d{2})/);
-      return m ? m[1] : null;
-    } catch {
-      return null;
+      return { kind: 'found', value: m ? m[1] : null };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (err instanceof FileNotFoundError || code === 'ENOENT') return { kind: 'absent' };
+      return { kind: 'failed', stage: 'read_first_line', path: filePath, error: formatErr(err) };
     }
   }
 
@@ -645,7 +676,12 @@ export class AuditWriter implements AuditLog {
     let entries: import('../fs/index.js').FileEntry[];
     try {
       entries = this.fs.listSync(dir);
-    } catch {
+    } catch (err) {
+      // phase 1801: ENOENT（目录缺席=无归档可 prune）静默；其余 I/O 错误保留证据、
+      // 本轮 prune 跳过但不折叠为正常空状态（原裸 catch return 会把 EACCES 压成「无归档」）。
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (err instanceof FileNotFoundError || code === 'ENOENT') return;
+      this.reportRotationProbeFailure({ kind: 'failed', stage: 'list_archives', path: dir, error: formatErr(err) });
       return;
     }
     for (const entry of entries) {
