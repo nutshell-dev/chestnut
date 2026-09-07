@@ -125,6 +125,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const inboxReader = {
       init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
+        kind: 'complete' as const,  // phase 1782: typed InboxDeliveryResult
         entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/a.md')],
         handles: [mkHandle('/p/a.md')],
       }),
@@ -160,6 +161,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const inboxReader = {
       init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
+        kind: 'complete' as const,  // phase 1782: typed InboxDeliveryResult
         entries: [
           mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/reload.md'),
           mkEntry('user_chat', '/p/chat.md', 'hi'),
@@ -191,6 +193,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const inboxReader = {
       init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
+        kind: 'complete' as const,  // phase 1782: typed InboxDeliveryResult
         entries: [
           mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/r1.md'),
           mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/r2.md'),
@@ -224,6 +227,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const inboxReader = {
       init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
+        kind: 'complete' as const,  // phase 1782: typed InboxDeliveryResult
         entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/a.md')],
         handles: [mkHandle('/p/a.md')],
       }),
@@ -253,6 +257,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const inboxReader = {
       init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
+        kind: 'complete' as const,  // phase 1782: typed InboxDeliveryResult
         entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/a.md')],
         handles: [mkHandle('/p/a.md')],
       }),

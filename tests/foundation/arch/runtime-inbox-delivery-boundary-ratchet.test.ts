@@ -26,10 +26,12 @@ describe('phase 1365: Runtime inbox delivery boundary', () => {
     ]) {
       expect(body).toContain(`${member}(`);
     }
-    expect(source).toContain('drainAndDeliver(): Promise<InboxDeliveryBatch>');
+    expect(source).toContain('drainAndDeliver(): Promise<InboxDeliveryResult>');
     expect(source).toContain('export class InboxReader implements InboxDeliverySession');
     expect(barrel).toContain('InboxDeliverySession');
     expect(barrel).toContain('InboxDeliveryBatch');
+    // phase 1782: typed delivery outcome（claim/move partial failure evidence）
+    expect(barrel).toContain('InboxDeliveryResult');
   });
 
   it('Runtime dependencies and state consume only the delivery session', () => {

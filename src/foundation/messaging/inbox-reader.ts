@@ -134,6 +134,28 @@ export interface InboxDeliveryBatch {
 }
 
 /**
+ * Phase 1782: typed delivery batch outcome.
+ *
+ * claim/move 中途失败必须显式携带停止原因 + 已处理/未处理 evidence，
+ * 不得把 partial batch 压平为完整成功：
+ * - `complete`：pending entries 全部 claim 并 move 到 inflight/。
+ * - `partial_failure`：claim（pending 读取/quarantine，此前以异常穿越 drain
+ *   边界）或 move（→ inflight/，此前 break 后伪装完整成功）首个失败即停止；
+ *   携带 stage、entry identity（list 级失败缺省）、原始 error 与已 claim 的
+ *   entries/handles。已交付 handles 仍可正常 ack/nack/markMisrouted；未处理
+ *   entries 留在 pending/（不丢、不重复 claim），caller 必须显式处理（audit
+ *   /降级继续），下轮 drain 幂等重试。
+ */
+export type InboxDeliveryResult =
+  | (InboxDeliveryBatch & { readonly kind: 'complete' })
+  | (InboxDeliveryBatch & {
+      readonly kind: 'partial_failure';
+      readonly stage: 'claim' | 'move';
+      readonly entry?: string;
+      readonly error: unknown;
+    });
+
+/**
  * Minimal session used by an inbox delivery consumer.
  *
  * Messaging owns observation, claim, settlement, and quarantine semantics;
@@ -141,7 +163,7 @@ export interface InboxDeliveryBatch {
  */
 export interface InboxDeliverySession {
   init(): Promise<InboxInitResult>;
-  drainAndDeliver(): Promise<InboxDeliveryBatch>;
+  drainAndDeliver(): Promise<InboxDeliveryResult>;
   ack(handle: InboxHandle): Promise<void>;
   nack(handle: InboxHandle, reason?: string): Promise<void>;
   markMisrouted(handle: InboxHandle): Promise<void>;
@@ -717,8 +739,28 @@ export class InboxReader implements InboxDeliverySession {
    * Returns both decoded entries and handles for subsequent ack/nack.
    * Crash before ack → init() reconcile moves inflight/ back to pending/.
    */
-  async drainAndDeliver(): Promise<InboxDeliveryBatch> {
-    const { entries, transientErrors, permanentErrors } = await this.drainInbox();
+  async drainAndDeliver(): Promise<InboxDeliveryResult> {
+    // claim 阶段（pending 读取 + malformed/duplicate quarantine）失败：尚未 claim
+    // 任何 entry；typed evidence 交 caller，不再以异常穿越 drain 边界。
+    let drain: DrainInboxResult;
+    try {
+      drain = await this.drainInbox();
+    } catch (err) {
+      // silent: 错误不吞 —— 源头已 audit（inbox_list_failed / inbox_failed），此处将
+      // 原始 error 作为 typed partial_failure evidence 返回 caller（runtime 再 audit
+      // runtime_inbox_drain_failed），替代原先的异常穿越。
+      return {
+        kind: 'partial_failure',
+        entries: [],
+        handles: [],
+        transientErrors: 0,
+        permanentErrors: 0,
+        stage: 'claim',
+        entry: err instanceof InboxMoveFailed ? path.basename(err.filePath) : undefined,
+        error: err,
+      };
+    }
+    const { entries, transientErrors, permanentErrors } = drain;
     const handles: InboxHandle[] = [];
     const deliveredEntries: InboxEntry[] = [];
 
@@ -739,8 +781,19 @@ export class InboxReader implements InboxDeliverySession {
           errorCode: classifyErrno(err),
           reason,
         });
-        // Stop delivering at first move failure; remaining stay in pending/
-        break;
+        // Phase 1782: 首个 move 失败即停止并返回 typed partial_failure ——
+        // 已 claim entries/handles 保留 evidence，失败及后续 entries 留在
+        // pending/（不丢、不重复 claim），不再压平为完整成功。
+        return {
+          kind: 'partial_failure',
+          entries: deliveredEntries,
+          handles,
+          transientErrors,
+          permanentErrors,
+          stage: 'move',
+          entry: fileName,
+          error: err,
+        };
       }
 
       // mtime update is best-effort; failure does not invalidate the delivery
@@ -761,7 +814,7 @@ export class InboxReader implements InboxDeliverySession {
       deliveredEntries.push({ message: entry.message, filePath: inflightPath });
     }
 
-    return { entries: deliveredEntries, handles, transientErrors, permanentErrors };
+    return { kind: 'complete', entries: deliveredEntries, handles, transientErrors, permanentErrors };
   }
 
   /** Acknowledge handle: move from inflight/ to done/ */
