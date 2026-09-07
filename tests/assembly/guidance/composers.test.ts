@@ -10,7 +10,7 @@ import { registerAllMotionGuidance } from '../../../src/assembly/guidance/compos
 import { clawOutboxSummaryGuidanceBinding } from '../../../src/assembly/guidance/bindings/claw-outbox-summary.js';
 import { contractEventsGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-events.js';
 import { contractCancelledGuidanceBinding } from '../../../src/assembly/guidance/bindings/contract-cancelled.js';
-import { registerCliGuidance, type CliGuidanceInput } from '../../../src/cli-protocol/index.js';
+import { registerCliGuidance, createCliSafeToken, type CliGuidanceInput } from '../../../src/cli-protocol/index.js';
 import { OutboxSummaryGuidanceDecodeError } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
 import {
   ContractEventsGuidanceDecodeError,
@@ -248,8 +248,8 @@ describe('phase 63+190+198 + phase 1262 + phase 1267: contract_cancelled typed b
       env('contract_cancelled', v1CancelledMeta([{ claw: 'worker', contract: 'c1' }]), 'system'));
     expect(contractCancelledGuidanceBinding.toDocument(state)).toEqual({
       lines: [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: 'worker', contractId: 'c1' } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: 'worker', contractId: 'c1' } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken('worker'), contractId: createCliSafeToken('c1') } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken('worker'), contractId: createCliSafeToken('c1') } },
       ],
     });
   });
@@ -287,8 +287,8 @@ describe('phase 63+190+198 + phase 1262 + phase 1267: contract_cancelled typed b
     expect(contractCancelledGuidanceBinding.toDocument(state)).toEqual({
       truncation: { total: 12, shown: 10, subject: 'contract-cancellations' },
       lines: refs.slice(0, 10).flatMap(r => [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: r.claw, contractId: r.contract } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: r.claw, contractId: r.contract } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken(r.claw), contractId: createCliSafeToken(r.contract) } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken(r.claw), contractId: createCliSafeToken(r.contract) } },
       ]),
     });
   });
@@ -426,8 +426,8 @@ describe('phase 205 + phase 1261 + phase 1266: contract-events typed binding', (
       env('contract_events', v1EventsMeta([{ claw: 'motion', contract: 'abc-123' }]), 'system'));
     expect(contractEventsGuidanceBinding.toDocument(state)).toEqual({
       lines: [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: 'motion', contractId: 'abc-123' } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: 'motion', contractId: 'abc-123' } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken('motion'), contractId: createCliSafeToken('abc-123') } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken('motion'), contractId: createCliSafeToken('abc-123') } },
       ],
     });
   });
@@ -493,8 +493,8 @@ describe('phase 205 + phase 1261 + phase 1266: contract-events typed binding', (
     expect(contractEventsGuidanceBinding.toDocument(state)).toEqual({
       truncation: { total: 12, shown: 10, subject: 'contract-events' },
       lines: refs.slice(0, 10).flatMap(r => [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: r.claw, contractId: r.contract } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: r.claw, contractId: r.contract } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken(r.claw), contractId: createCliSafeToken(r.contract) } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken(r.claw), contractId: createCliSafeToken(r.contract) } },
       ]),
     });
   });

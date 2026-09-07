@@ -31,6 +31,7 @@
 
 import {
   defineCliGuidanceBinding,
+  createCliSafeToken,
   type CliGuidanceBinding,
   type CliGuidanceDocument,
   type CliGuidanceDocumentLine,
@@ -57,8 +58,8 @@ export const contractCancelledGuidanceBinding: CliGuidanceBinding<ContractCancel
         ? { total: state.contractRefs.length, shown: MAX_BATCH_RENDER, subject: 'contract-cancellations' }
         : undefined,
       lines: refs.flatMap((ref): CliGuidanceDocumentLine[] => [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: ref.clawId, contractId: ref.contractId } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: ref.clawId, contractId: ref.contractId } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken(ref.clawId), contractId: createCliSafeToken(ref.contractId) } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken(ref.clawId), contractId: createCliSafeToken(ref.contractId) } },
       ]),
     };
   },

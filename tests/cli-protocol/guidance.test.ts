@@ -26,6 +26,7 @@ import {
   type CliGuidanceBinding,
   defineCliGuidanceBinding,
   registerCliGuidance,
+  createCliSafeToken,
 } from '../../src/cli-protocol/index.js';
 
 const clawA: CliGuidanceTarget = { kind: 'claw', id: 'clawA' };
@@ -39,8 +40,8 @@ const ALL_ACTIONS = [
   { kind: 'claw.outbox', target: clawA, limit: 4 },
   // phase 1754 Step B：重复 outbox summary 的逐 claw skip 指引（scope 恒 --all）
   { kind: 'claw.outbox-skip', target: clawA },
-  { kind: 'claw.trace', clawId: 'clawA', contractId: 'c1' },
-  { kind: 'contract.show', clawId: 'clawA', contractId: 'c1' },
+  { kind: 'claw.trace', clawId: createCliSafeToken('clawA'), contractId: createCliSafeToken('c1') },
+  { kind: 'contract.show', clawId: createCliSafeToken('clawA'), contractId: createCliSafeToken('c1') },
 ] as const satisfies readonly CliGuidanceAction[];
 
 const ALL_LABELS = [
@@ -100,24 +101,22 @@ describe('phase 1263 Step A: renderCliGuidanceAction', () => {
   });
 
   it('claw.trace 渲染 subject-first trace + --contract', () => {
-    expect(renderCliGuidanceAction({ kind: 'claw.trace', clawId: 'worker', contractId: 'c1' }))
+    expect(renderCliGuidanceAction({ kind: 'claw.trace', clawId: createCliSafeToken('worker'), contractId: createCliSafeToken('c1') }))
       .toBe('chestnut claw worker trace --contract c1');
   });
 
   it('contract.show 渲染 verb-first show + -c / --contract', () => {
-    expect(renderCliGuidanceAction({ kind: 'contract.show', clawId: 'worker', contractId: 'c1' }))
+    expect(renderCliGuidanceAction({ kind: 'contract.show', clawId: createCliSafeToken('worker'), contractId: createCliSafeToken('c1') }))
       .toBe('chestnut contract show -c worker --contract c1');
   });
 
-  it('空真实 id / 空 contract id → fail-fast throw（不静默默认）', () => {
+  it('空真实 id → fail-fast throw（不静默默认）', () => {
     expect(() => renderCliGuidanceAction({ kind: 'claw.steps', target: { kind: 'claw', id: '' } }))
       .toThrowError(CliGuidanceRenderError);
-    expect(() => renderCliGuidanceAction({ kind: 'claw.trace', clawId: '', contractId: 'c1' }))
-      .toThrowError(CliGuidanceRenderError);
-    expect(() => renderCliGuidanceAction({ kind: 'claw.trace', clawId: 'worker', contractId: '' }))
-      .toThrowError(CliGuidanceRenderError);
-    expect(() => renderCliGuidanceAction({ kind: 'contract.show', clawId: 'worker', contractId: '' }))
-      .toThrowError(CliGuidanceRenderError);
+  });
+
+  it('phase 1796: 空 / 非法 token 在 factory 构造期 fail-fast（renderer 只接受 CliSafeToken brand）', () => {
+    expect(() => createCliSafeToken('')).toThrowError(CliGuidanceRenderError);
   });
 
   it('limit 0 / 负数 / NaN / 非整数 → fail-fast throw（不 clamp、不默认）', () => {
@@ -186,8 +185,8 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
   it('trace-contract / show-contract 裸 invocation 行（无 label 前缀、无 leading space）', () => {
     const doc: CliGuidanceDocument = {
       lines: [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: 'motion', contractId: 'abc-123' } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: 'motion', contractId: 'abc-123' } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken('motion'), contractId: createCliSafeToken('abc-123') } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken('motion'), contractId: createCliSafeToken('abc-123') } },
       ],
     };
     expect(renderCliGuidanceDocument(doc)).toBe(
@@ -200,8 +199,8 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
     const lines: CliGuidanceDocumentLine[] = [];
     for (let i = 0; i < 10; i++) {
       lines.push(
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: `worker-${i}`, contractId: `c${i}` } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: `worker-${i}`, contractId: `c${i}` } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken(`worker-${i}`), contractId: createCliSafeToken(`c${i}`) } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken(`worker-${i}`), contractId: createCliSafeToken(`c${i}`) } },
       );
     }
     const text = renderCliGuidanceDocument({
@@ -217,7 +216,7 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
     const doc: CliGuidanceDocument = {
       truncation: { total: 12, shown: 1, subject: 'contract-cancellations' },
       lines: [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: 'claw0', contractId: 'c0' } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken('claw0'), contractId: createCliSafeToken('c0') } },
       ],
     };
     expect(renderCliGuidanceDocument(doc)).toBe(
@@ -232,7 +231,7 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
   it('非法 truncation → fail-fast throw（负数 / shown > total / lines 数与 shown 冲突）', () => {
     const line: CliGuidanceDocumentLine = {
       label: 'trace-contract',
-      action: { kind: 'claw.trace', clawId: 'claw0', contractId: 'c0' },
+      action: { kind: 'claw.trace', clawId: createCliSafeToken('claw0'), contractId: createCliSafeToken('c0') },
     };
     expect(() => renderCliGuidanceDocument({
       truncation: { total: -1, shown: 1, subject: 'contract-events' },

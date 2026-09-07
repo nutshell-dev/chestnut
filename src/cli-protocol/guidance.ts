@@ -45,8 +45,8 @@ export type CliGuidanceAction =
   | { readonly kind: 'claw.steps'; readonly target: CliGuidanceTarget }
   | { readonly kind: 'claw.outbox'; readonly target: CliGuidanceTarget; readonly limit: number }
   | { readonly kind: 'claw.outbox-skip'; readonly target: CliGuidanceTarget }
-  | { readonly kind: 'claw.trace'; readonly clawId: string; readonly contractId: string }
-  | { readonly kind: 'contract.show'; readonly clawId: string; readonly contractId: string };
+  | { readonly kind: 'claw.trace'; readonly clawId: CliSafeToken; readonly contractId: CliSafeToken }
+  | { readonly kind: 'contract.show'; readonly clawId: CliSafeToken; readonly contractId: CliSafeToken };
 
 /**
  * closed label union — 语义 presentation role，不取 owner variant 名
@@ -117,6 +117,27 @@ export class CliGuidanceRenderError extends Error {
   }
 }
 
+/**
+ * phase 1796: CLI-safe token brand + factory（cli-protocol-guidance-token-undervalidated）。
+ * 单行 invocation operand token 的构造期校验：空 / 空白 / 控制字符 / 前导 `-`
+ * （option-like，会被 CLI parser 误读为 flag）fail-fast；renderer 只接受 brand、
+ * 不再接受裸 string（不复制业务 identity 规则——业务 id charset 归 owner codec，
+ * 本 brand 只守 CLI 单行安全）。
+ */
+declare const cliSafeTokenBrand: unique symbol;
+export type CliSafeToken = string & { readonly [cliSafeTokenBrand]: true };
+
+const CLI_SAFE_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function createCliSafeToken(raw: string): CliSafeToken {
+  if (!CLI_SAFE_TOKEN_RE.test(raw)) {
+    throw new CliGuidanceRenderError(
+      `cli guidance token must be CLI-safe (alnum start, [A-Za-z0-9._-]*), got ${JSON.stringify(raw)}`,
+    );
+  }
+  return raw as CliSafeToken;
+}
+
 function requireNonEmptyId(value: string, what: string): string {
   if (value.length === 0) {
     throw new CliGuidanceRenderError(`cli guidance ${what} must be a non-empty string`);
@@ -173,9 +194,10 @@ export function renderCliGuidanceAction(action: CliGuidanceAction): string {
       // phase 1754 Step B：scope 恒 --all（variant 名即冻结该语义、无 limit variant）。
       return `${renderClawInvocation(renderCliGuidanceTarget(action.target), 'outbox-skip')} --all`;
     case 'claw.trace':
-      return `${renderClawInvocation(requireNonEmptyId(action.clawId, 'trace clawId'), 'trace')} --contract ${requireNonEmptyId(action.contractId, 'trace contractId')}`;
+      // phase 1796: clawId/contractId 是 CliSafeToken brand（构造期已校验），renderer 不再重验裸 string
+      return `${renderClawInvocation(action.clawId, 'trace')} --contract ${action.contractId}`;
     case 'contract.show':
-      return `${CONTRACT_COMMANDS.SHOW} -c ${requireNonEmptyId(action.clawId, 'show clawId')} --contract ${requireNonEmptyId(action.contractId, 'show contractId')}`;
+      return `${CONTRACT_COMMANDS.SHOW} -c ${action.clawId} --contract ${action.contractId}`;
     default: {
       const exhaustive: never = action;
       return exhaustive;

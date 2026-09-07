@@ -29,6 +29,7 @@
 
 import {
   defineCliGuidanceBinding,
+  createCliSafeToken,
   type CliGuidanceBinding,
   type CliGuidanceDocument,
   type CliGuidanceDocumentLine,
@@ -56,8 +57,8 @@ export const contractEventsGuidanceBinding: CliGuidanceBinding<ContractEventsGui
         ? { total: state.contractRefs.length, shown: MAX_PAIR_RENDER, subject: 'contract-events' }
         : undefined,
       lines: refs.flatMap((ref): CliGuidanceDocumentLine[] => [
-        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: ref.clawId, contractId: ref.contractId } },
-        { label: 'show-contract', action: { kind: 'contract.show', clawId: ref.clawId, contractId: ref.contractId } },
+        { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken(ref.clawId), contractId: createCliSafeToken(ref.contractId) } },
+        { label: 'show-contract', action: { kind: 'contract.show', clawId: createCliSafeToken(ref.clawId), contractId: createCliSafeToken(ref.contractId) } },
       ]),
     };
   },

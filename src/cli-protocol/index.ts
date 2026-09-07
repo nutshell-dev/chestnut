@@ -49,4 +49,6 @@ export {
   type CliGuidanceBinding,
   defineCliGuidanceBinding,
   registerCliGuidance,
+  createCliSafeToken,
+  type CliSafeToken,
 } from './guidance.js';
