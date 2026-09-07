@@ -26,6 +26,8 @@ export type {
 } from './inbox-reader.js';
 export { PendingViewError } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
+// phase 1781: init typed recovery outcome — runtime caller 显式处理 degraded
+export type { InboxInitResult } from './types.js';
 export { PRIORITY_ORDER } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 

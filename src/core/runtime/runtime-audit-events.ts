@@ -27,6 +27,8 @@ export const RUNTIME_AUDIT_EVENTS = {
   INBOX_DRAIN_ERRORS: 'runtime_inbox_drain_errors',
   // INITIALIZE phase failures (phase 454: 替代 Runtime 借 ASSEMBLE_FAILED)
   INBOX_INIT_FAILED: 'runtime_inbox_init_failed',
+  // phase 1781: init reconcile 返回 degraded（list/read/move 失败已留证据）——显式降级继续，不伪造 ready
+  INBOX_INIT_DEGRADED: 'runtime_inbox_init_degraded',
   SESSION_REPAIR_FAILED: 'runtime_session_repair_failed',
   // phase 521: regime switch audit event
   REGIME_SWITCH: 'regime_switch',
@@ -86,6 +88,7 @@ export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   runtime_inbox_ack_failed: 'audit',
   runtime_inbox_nack_failed: 'audit',
   runtime_inbox_drain_errors: 'audit',
+  runtime_inbox_init_degraded: 'audit',  // phase 1781
   runtime_maybe_audit_step_failed: 'audit',
   runtime_turn_contract_id_cache_failed: 'audit',
   runtime_reactive_trim_triggered: 'audit',  // phase 690

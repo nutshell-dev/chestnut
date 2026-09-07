@@ -18,7 +18,7 @@ import { formatErr } from "../node-utils/index.js";
 import { newShortUuid } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import type { InboxMessage, InboxHandle } from '../messaging/types.js';
+import type { InboxMessage, InboxHandle, InboxInitResult } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
 import { decodeInbox } from './codec-inbox.js';
@@ -140,7 +140,7 @@ export interface InboxDeliveryBatch {
  * consumers do not need the reader's legacy mutation or dedup-query surface.
  */
 export interface InboxDeliverySession {
-  init(): Promise<void>;
+  init(): Promise<InboxInitResult>;
   drainAndDeliver(): Promise<InboxDeliveryBatch>;
   ack(handle: InboxHandle): Promise<void>;
   nack(handle: InboxHandle, reason?: string): Promise<void>;
@@ -222,15 +222,22 @@ export class InboxReader implements InboxDeliverySession {
     return normalized;
   }
 
-  /** Ensure inbox directories exist + reconcile orphaned inflight files */
-  async init(): Promise<void> {
+  /**
+   * Ensure inbox directories exist + reconcile orphaned inflight files.
+   *
+   * phase 1781: 返回 typed recovery outcome —— reconcile list/read/move 失败
+   * 返回 `degraded`（携带阶段/entry identity/原始 error），不得伪装为 ready；
+   * 目录创建与 stage 恢复失败依旧 throw（显式失败）。
+   */
+  async init(): Promise<InboxInitResult> {
     await this.fs.ensureDir(this.pendingDir);
     await this.fs.ensureDir(this.doneDir);
     await this.fs.ensureDir(this.failedDir);
     await this.fs.ensureDir(this.inflightDir);
     await this.fs.ensureDir(this.misroutedDir);  // phase 442
-    await this._reconcileInflight();
+    const outcome = await this._reconcileInflight();
     await this._recoverStaged();  // phase 1021: recover crash-leftover stage files
+    return outcome;
   }
 
   /**
@@ -239,13 +246,18 @@ export class InboxReader implements InboxDeliverySession {
    *
    * Phase 930: inflight filenames carry a claim lease `{pid}_{startTime}_{originalName}`.
    * Only stale claims (owner process not alive) are reclaimed.
+   *
+   * Phase 1781: 失败不静默——list 失败即 degraded；read(move-stat)/move 失败记录首个
+   * 失败（保留 entry identity 与原始 error）后继续处置其余 entry（各自独立、
+   * _restoreToPending 幂等冲突感知，重试不会重复 disposition），未恢复 entry
+   * 留在 inflight/ 原处。
    */
-  private async _reconcileInflight(): Promise<void> {
+  private async _reconcileInflight(): Promise<InboxInitResult> {
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.inflightDir, { includeDirs: false });
     } catch (err) {
-      if (isFileNotFound(err)) return;
+      if (isFileNotFound(err)) return { kind: 'ready', recovered: 0 };
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.inflightDir,
@@ -253,12 +265,14 @@ export class InboxReader implements InboxDeliverySession {
         errorCode: classifyErrno(err),
         reason,
       });
-      return;
+      return { kind: 'degraded', stage: 'list', error: err, recovered: 0 };
     }
 
     const CLAIM_RE = /^(\d+)_([0-9a-f]+)_(.+\.md)$/i;
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
     let revertedCount = 0;
+    // 首个失败证据（entry identity + 原始 error）；其余 entry 继续处置
+    let firstFailure: { stage: 'read' | 'move'; entry: string; error: unknown } | null = null;
 
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
@@ -281,6 +295,7 @@ export class InboxReader implements InboxDeliverySession {
             errorCode: classifyErrno(err),
             reason: formatErr(err),
           });
+          firstFailure ??= { stage: 'read', entry: entry.name, error: err };
           continue;
         }
         if (Date.now() - mtime >= STALE_THRESHOLD_MS) {
@@ -305,7 +320,17 @@ export class InboxReader implements InboxDeliverySession {
               shouldReclaim = true;
             }
           } catch (statErr) {
-            if (!isFileNotFound(statErr)) throw statErr;
+            if (!isFileNotFound(statErr)) {
+              // phase 1781: read 失败不再 throw 中断整批 —— 记录证据、该 entry 留 inflight/
+              emitInboxMoveFailed(this.audit, {
+                file: entry.name,
+                op: 'reconcile_stat',
+                errorCode: classifyErrno(statErr),
+                reason: formatErr(statErr),
+              });
+              firstFailure ??= { stage: 'read', entry: entry.name, error: statErr };
+              continue;
+            }
             // File vanished — reclaim is safe (nothing to move, will fail silently below).
             shouldReclaim = true;
           }
@@ -328,6 +353,7 @@ export class InboxReader implements InboxDeliverySession {
           errorCode: classifyErrno(err),
           reason,
         });
+        firstFailure ??= { stage: 'move', entry: entry.name, error: err };
       }
     }
 
@@ -339,6 +365,17 @@ export class InboxReader implements InboxDeliverySession {
         reason: 'startup_reconcile',
       });
     }
+
+    if (firstFailure) {
+      return {
+        kind: 'degraded',
+        stage: firstFailure.stage,
+        entry: firstFailure.entry,
+        error: firstFailure.error,
+        recovered: revertedCount,
+      };
+    }
+    return { kind: 'ready', recovered: revertedCount };
   }
 
   /**

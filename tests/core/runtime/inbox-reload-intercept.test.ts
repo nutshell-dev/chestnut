@@ -123,7 +123,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const llm = { reloadConfig: reloadFn };
     const reloader = vi.fn(() => stubCfg);
     const inboxReader = {
-      init: vi.fn(),
+      init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
         entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/a.md')],
         handles: [mkHandle('/p/a.md')],
@@ -158,7 +158,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const registry = createInboxMessageTypeRegistry();
     registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
     const inboxReader = {
-      init: vi.fn(),
+      init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
         entries: [
           mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/reload.md'),
@@ -189,7 +189,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const llm = { reloadConfig: reloadFn };
     const reloader = vi.fn(() => stubCfg);
     const inboxReader = {
-      init: vi.fn(),
+      init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
         entries: [
           mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/r1.md'),
@@ -222,7 +222,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const reloadFn = vi.fn();
     const llm = { reloadConfig: reloadFn };
     const inboxReader = {
-      init: vi.fn(),
+      init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
         entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/a.md')],
         handles: [mkHandle('/p/a.md')],
@@ -251,7 +251,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     const llm = { reloadConfig: reloadFn };
     const reloader = vi.fn(() => { throw new Error('disk read failed'); });
     const inboxReader = {
-      init: vi.fn(),
+      init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
       drainAndDeliver: vi.fn().mockResolvedValue({
         entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/a.md')],
         handles: [mkHandle('/p/a.md')],

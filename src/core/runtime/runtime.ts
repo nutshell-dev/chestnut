@@ -194,7 +194,19 @@ export class Runtime {
     this.sessionManager = deps.sessionManager;
     this.inboxReader = deps.inboxReader;
     try {
-      await this.inboxReader.init();
+      const initResult = await this.inboxReader.init();
+      if (initResult.kind === 'degraded') {
+        // phase 1781: reconcile 失败显式降级——保留 stage/entry/原始 error 证据，
+        // 未恢复 entry 留在 inflight/（不丢不重复处置），下次启动幂等重试；启动继续。
+        auditError(
+          this.auditWriter,
+          RUNTIME_AUDIT_EVENTS.INBOX_INIT_DEGRADED,
+          initResult.error,
+          `stage=${initResult.stage}`,
+          ...(initResult.entry !== undefined ? [`entry=${initResult.entry}`] : []),
+          `recovered=${initResult.recovered}`,
+        );
+      }
     } catch (e) {
       auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.INBOX_INIT_FAILED, e);
       throw e;

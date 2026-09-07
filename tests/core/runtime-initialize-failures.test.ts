@@ -145,6 +145,47 @@ describe('Runtime.initialize() failure audits', () => {
     await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
+  it('inboxReader.init degraded result audits runtime_inbox_init_degraded and does not throw (phase 1781)', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+    const clawDir = path.join(tmpdir(), `runtime-fail-test-${randomUUID()}`, 'claws', 'test');
+    await fs.mkdir(clawDir, { recursive: true });
+
+    const deps = await makeDeps(clawDir);
+    const auditSpy = vi.spyOn(deps.auditWriter, 'write');
+
+    // Mock inboxReader.init to return typed degraded (reconcile move failure evidence)
+    const degradedError = new Error('EIO: move failed');
+    vi.spyOn(deps.inboxReader, 'init').mockResolvedValue({
+      kind: 'degraded',
+      stage: 'move',
+      entry: '99999_0_msg-x.md',
+      error: degradedError,
+      recovered: 2,
+    });
+
+    const mocks = minimalMocks();
+    const runtime = new Runtime({
+      clawId: 'test-claw',
+      clawDir,
+      llmConfig: { primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' }, maxAttempts: 1, retryDelayMs: 0 },
+      dependencies: { ...deps, ...mocks } as any,
+    });
+
+    // degraded 不阻断启动（显式降级继续），但不得伪造 ready、必须留证据
+    await expect(runtime.initialize()).resolves.not.toThrow();
+
+    const degradedCall = auditSpy.mock.calls.find(c => c[0] === 'runtime_inbox_init_degraded');
+    expect(degradedCall).toBeDefined();
+    expect(degradedCall!.some(col => String(col).includes('stage=move'))).toBe(true);
+    expect(degradedCall!.some(col => String(col).includes('entry=99999_0_msg-x.md'))).toBe(true);
+    expect(degradedCall!.some(col => String(col).includes('EIO'))).toBe(true);
+    // 不得走 init_failed（那是 throw 路径）
+    expect(auditSpy.mock.calls.find(c => c[0] === 'runtime_inbox_init_failed')).toBeUndefined();
+
+    // Cleanup
+    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  });
+
   it('snapshot.commit session-repair failure writes snapshot_commit_failed and does not throw', async () => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const clawDir = path.join(tmpdir(), `runtime-fail-test-${randomUUID()}`, 'claws', 'test');

@@ -49,3 +49,22 @@ export type InboxHandle = {
   readonly originalFileName: string;
   readonly [InboxHandleBrand]: true;
 };
+
+/**
+ * Phase 1781: inbox init recovery outcome.
+ *
+ * init() 的 startup reconcile（inflight → pending 恢复）失败不得伪装为成功初始化：
+ * - `ready`：恢复扫描完成（含零恢复），`recovered` = 实际恢复条数。
+ * - `degraded`：list/read/move 任一失败；携带首个失败的阶段、entry identity
+ *   （inflight 内文件名，list 阶段失败时缺省）与原始 error。未恢复 entry 保留在
+ *   inflight/ 原处（不丢、不重复处置），caller 必须显式处理（audit/降级继续或失败）。
+ */
+export type InboxInitResult =
+  | { kind: 'ready'; recovered: number }
+  | {
+      kind: 'degraded';
+      stage: 'list' | 'read' | 'move';
+      entry?: string;
+      error: unknown;
+      recovered: number;
+    };
