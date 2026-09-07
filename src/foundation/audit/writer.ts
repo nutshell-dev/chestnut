@@ -268,7 +268,34 @@ function dumpFallback(): FallbackDumpResult | null {
  */
 const FRONTMATTER_RE = /^# drop_count_since_last_dump=(\d+) drop_count_total=(\d+) first_drop_ts=(\d+) last_drop_ts=(\d+)$/;
 
-export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
+/**
+ * Phase 1786: reconcile 行级 typed evidence。
+ * 无 tab 分隔符的 fallback 行不得静默跳过 —— `malformed` 携带 dump path、行号
+ * （1-based 原始文件行号）、raw 原文与原因；存在 malformed 时 reconcile 结果非
+ * 成功且原 dump 保留不删。
+ */
+export type ReconcileLine =
+  | { kind: 'valid'; origin: string; line: string }
+  | { kind: 'malformed'; path: string; lineNo: number; raw: string; reason: string };
+
+export type ReconcileMalformedLine = Extract<ReconcileLine, { kind: 'malformed' }>;
+
+/**
+ * Phase 1786: reconcile outcome。
+ * `ok` 仅当所有 dump 完整回放并删除、且零 malformed 行；任何 retained dump 或
+ * malformed evidence 都使结果非成功（caller/测试可断言，证据同时 console.error 留痕）。
+ */
+export interface FallbackReconcileResult {
+  readonly ok: boolean;
+  /** 匹配 fallback pattern 的 dump 总数 */
+  readonly scanned: number;
+  /** 保留未删的 dump 数（失败 origin 重写 / malformed 保留 / 读取失败跳过） */
+  readonly retained: number;
+  readonly malformed: ReconcileMalformedLine[];
+}
+
+export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackReconcileResult> {
+  const result = { scanned: 0, retained: 0, malformed: [] as ReconcileMalformedLine[] };
   const tmp = getFallbackDir();
   const pattern = /^chestnut-audit-fallback-\d+-\d+\.tsv$/;
   // phase 1115 Step A: tmpdir 操作走 raw node:fs（与 dumpFallback 写路径同 boundary、phase 1214 ratify）——
@@ -278,10 +305,11 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
     names = nodeFs.readdirSync(tmp);
   } catch (listErr) {
     console.error(`[AUDIT WARNING] reconcile fallback list failed: tmp=${tmp} reason=${formatErr(listErr)}`);
-    return;
+    return { ok: false, ...result };
   }
   for (const name of names) {
     if (!pattern.test(name)) continue;
+    result.scanned += 1;
     const dumpPath = `${tmp}/${name}`;
     try {
       const content = nodeFs.readFileSync(dumpPath, 'utf8');
@@ -298,10 +326,24 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
         }
       }
       const byOrigin = new Map<string, string[]>();
-      for (const line of allLines) {
+      // phase 1786: 无 tab 的行不再静默跳过 —— typed malformed evidence（path/行号/raw/原因），
+      // 存在 malformed 时本 dump 不删除、raw 行原文回写 quarantine 保留下轮重试。
+      const malformedLines: ReconcileMalformedLine[] = [];
+      const lineNoBase = frontmatterRaw !== null ? 2 : 1;  // frontmatter 占第 1 行
+      for (let i = 0; i < allLines.length; i++) {
+        const line = allLines[i];
         if (!line) continue;
         const tabIdx = line.indexOf('\t');
-        if (tabIdx === -1) continue;
+        if (tabIdx === -1) {
+          malformedLines.push({
+            kind: 'malformed',
+            path: dumpPath,
+            lineNo: lineNoBase + i,
+            raw: line,
+            reason: 'missing origin tab separator',
+          });
+          continue;
+        }
         const origin = line.slice(0, tabIdx);
         const rest = line.slice(tabIdx + 1);
         let lines = byOrigin.get(origin);
@@ -336,13 +378,23 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
         }
       }
       // phase 1115 Step B: 完全成功才删 dump；失败 origin 重写回 dump 供下轮重试。
-      if (failedOrigins.size === 0) {
+      // phase 1786: 存在 malformed 行同样不得删 dump（否则会丢唯一证据）——
+      // raw 原文回写 quarantine，证据进 result.malformed + console.error。
+      if (failedOrigins.size === 0 && malformedLines.length === 0) {
         nodeFs.unlinkSync(dumpPath);
       } else {
+        result.retained += 1;
+        result.malformed.push(...malformedLines);
+        if (malformedLines.length > 0) {
+          console.error(
+            `[AUDIT WARNING] reconcile fallback malformed lines retained: dump=${dumpPath} count=${malformedLines.length} lines=${malformedLines.map(m => `#${m.lineNo}`).join(',')} — dump kept (not deleted) as final evidence`,
+          );
+        }
         try {
           const body = [...failedOrigins]
             .map(([origin, lines]) => lines.map(line => `${esc(origin)}\t${line}\n`).join(''))
-            .join('');
+            .join('')
+            + malformedLines.map(m => `${m.raw}\n`).join('');
           const next = `${dumpPath}.next`;
           await nodeFsPromises.writeFile(next, (frontmatterRaw ?? '') + body);
           try {
@@ -359,9 +411,11 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
     } catch (dumpErr) {
       // phase 426 Step A (review medium silent-catch): outer dump 解析失败 (corrupt /
       // PermissionError on read)；console.error 留痕、下轮 reconcile 重试。
+      result.retained += 1;
       console.error(`[AUDIT WARNING] reconcile fallback dump skipped: dumpPath=${dumpPath} reason=${formatErr(dumpErr)}`);
     }
   }
+  return { ok: result.retained === 0, ...result };
 }
 
 /** audit.tsv 相对路径 */

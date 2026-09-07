@@ -42,6 +42,8 @@ export { makeTraceId } from './types.js';
 export { encodeAuditArtifact, encodeAuditLoss } from './artifact.js';
 
 export { AUDIT_FILE, AUDIT_FILE_STEM, reconcileFallbackDumps } from './writer.js';
+// phase 1786: reconcile malformed line typed evidence / outcome
+export type { ReconcileLine, ReconcileMalformedLine, FallbackReconcileResult } from './writer.js';
 
 // Phase 1288 Step B: audit namespace layout / config store / migration journal
 // （模块外消费一律经本 barrel；layout.ts 禁止 deep import）
