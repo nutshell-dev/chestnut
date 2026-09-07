@@ -10,7 +10,7 @@ import { ClawIdResolveError, type ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
-import { makeExternalAbortError, type AbortReason } from '../../foundation/llm-provider/index.js';
+import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
 
 /** phase 520: motionClawId DI 删除（caller 不再传）、agent-tools 直 import 自家 const */
 interface CrossClawToolDeps {
@@ -94,7 +94,7 @@ export function createCrossClawReadTool(deps: CrossClawToolDeps): Tool {
         return readTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
-          throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+          throw makeExternalAbortError(ctx.signal?.reason);
         }
         ctx.auditWriter?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,
@@ -154,7 +154,7 @@ export function createCrossClawLsTool(deps: CrossClawToolDeps): Tool {
         return lsTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
-          throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+          throw makeExternalAbortError(ctx.signal?.reason);
         }
         ctx.auditWriter?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,
@@ -237,7 +237,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
         const rawText = args.text as string;
         for (const clawId of clawIds) {
           if (ctx.signal?.aborted) {
-            throw makeExternalAbortError(ctx.signal.reason as AbortReason | undefined);
+            throw makeExternalAbortError(ctx.signal.reason);
           }
           try {
             const location = deps.topology.resolve(clawId);
@@ -247,7 +247,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
             results.push({ clawId, result });
           } catch (err) {
             if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
-              throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+              throw makeExternalAbortError(ctx.signal?.reason);
             }
             ctx.auditWriter?.write(
               CLAW_TOPOLOGY_AUDIT_EVENTS.BROADCAST_CLAW_SKIPPED,
@@ -277,7 +277,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
         return searchTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
-          throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+          throw makeExternalAbortError(ctx.signal?.reason);
         }
         ctx.auditWriter?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,

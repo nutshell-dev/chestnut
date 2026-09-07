@@ -1,5 +1,5 @@
 import { formatErr } from "../../../foundation/node-utils/index.js";
-import { makeExternalAbortError, type AbortReason } from '../../../foundation/llm-provider/index.js';
+import { makeExternalAbortError } from '../../../foundation/llm-provider/index.js';
 /**
  * @module L4.ClawTopology.NotifyClaw
  * notify_claw tool - motion 视角、向 target claw inbox 直接发消息（指挥型 push 模型）
@@ -122,7 +122,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
         });
       } catch (error) {
         if (ctx.signal?.aborted) {
-          throw makeExternalAbortError(ctx.signal.reason as AbortReason | undefined);
+          throw makeExternalAbortError(ctx.signal.reason);
         }
         const reason = formatErr(error);
         deps.audit.write(

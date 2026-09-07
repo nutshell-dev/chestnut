@@ -88,36 +88,29 @@ export function classifyFetchAbortError(
     return null;
   }
   if (externalSignal?.aborted) {
-    return makeExternalAbortError(externalSignal.reason as AbortReason | undefined);
+    return makeExternalAbortError(externalSignal.reason);
   }
   return new LLMTimeoutError(providerName, timeoutMs);
 }
 
 /**
- * Abort reason carried through external signal.
- * Distinguishes user_abort / idle_timeout / priority_inbox / turn_timeout / external (plain).
- */
-export type AbortReason =
-  | { type: 'user' }
-  | { type: 'idle_timeout'; ms: number }
-  | { type: 'step_yield' }
-  | { type: 'turn_timeout'; ms: number }
-  | { type: 'tool_timeout'; ms: number }
-  | { type: 'external'; original?: unknown };
-
-/**
- * Construct the standard "Execution aborted" error used for both
- * fetch-based external signal aborts and SDK-based APIUserAbortError.
+ * phase 1802: Abort reason 是上层业务的 opaque evidence —— L1 只承载、不枚举。
  *
- * Optional `reason` propagates abort context to consumers (e.g. SubAgent
- * catch block can classify turn_interrupted cause).
+ * reason 词汇（user/step_yield/turn_timeout/tool_timeout/…）由发起业务 owner 各自定义
+ * 并在边界映射（如 SubAgent timeout-controller → ToolTimeoutError/UserInterrupt）；
+ * provider 仅检查 signal.aborted 与原样透传 signal.reason，不对 reason 做业务裁决。
  */
 export class ExternalAbortError extends Error {
-  constructor(readonly abortReason?: AbortReason) {
-    const tail = abortReason
-      ? (abortReason.type === 'idle_timeout' || abortReason.type === 'turn_timeout'
-          ? ` (cause=${abortReason.type}, ms=${abortReason.ms})`
-          : ` (cause=${abortReason.type})`)
+  constructor(readonly abortReason?: unknown) {
+    // 结构化格式化（duck-typing，零上层词汇枚举）：{type: string, ms?: number}
+    // 形状的 reason 产出与旧枚举实现字节兼容的 message。
+    const r = abortReason;
+    const type = r && typeof r === 'object' && 'type' in r && typeof (r as { type: unknown }).type === 'string'
+      ? (r as { type: string }).type : undefined;
+    const ms = r && typeof r === 'object' && 'ms' in r && typeof (r as { ms: unknown }).ms === 'number'
+      ? (r as { ms: number }).ms : undefined;
+    const tail = type !== undefined
+      ? (ms !== undefined ? ` (cause=${type}, ms=${ms})` : ` (cause=${type})`)
       : '';
     super(`Execution aborted${tail}`);
     this.name = 'AbortError';
@@ -125,7 +118,7 @@ export class ExternalAbortError extends Error {
   }
 }
 
-export function makeExternalAbortError(reason?: AbortReason): ExternalAbortError {
+export function makeExternalAbortError(reason?: unknown): ExternalAbortError {
   const validReason = reason && typeof reason === 'object' && 'type' in reason && typeof (reason as { type: unknown }).type === 'string' ? reason : undefined;
   return new ExternalAbortError(validReason);
 }

@@ -7,7 +7,7 @@
  */
 
 import type { LLMResponse, TextBlock, ThinkingBlock, ToolUseBlock, ProviderStreamChunk } from '../llm-provider/index.js';
-import { makeExternalAbortError, type AbortReason } from '../llm-provider/index.js';
+import { makeExternalAbortError } from '../llm-provider/index.js';
 
 /**
  * AbortSignal-aware delay.
@@ -17,13 +17,13 @@ import { makeExternalAbortError, type AbortReason } from '../llm-provider/index.
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(makeExternalAbortError(signal?.reason as AbortReason | undefined));
+      reject(makeExternalAbortError(signal?.reason));
       return;
     }
     let timer: ReturnType<typeof setTimeout>;
     const onAbort = () => {
       clearTimeout(timer);
-      reject(makeExternalAbortError(signal?.reason as AbortReason | undefined));
+      reject(makeExternalAbortError(signal?.reason));
     };
     timer = setTimeout(() => {
       signal?.removeEventListener('abort', onAbort);

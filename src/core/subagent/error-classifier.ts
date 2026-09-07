@@ -48,11 +48,14 @@ export function classifyAndAuditError(opts: ClassifyErrorOptions): void {
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');
   } else if (error instanceof ExternalAbortError) {
     const cause = error.abortReason;
+    // phase 1802: abortReason 是 opaque evidence —— 结构提取 type（如有），不依赖 L1 枚举
+    const causeType = cause && typeof cause === 'object' && 'type' in cause && typeof (cause as { type: unknown }).type === 'string'
+      ? (cause as { type: string }).type : undefined;
     safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'external', message: errMsg });
     auditWriter.write(
       REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED,
       'cause=external',
-      ...(cause ? [`type=${cause.type}`] : []),
+      ...(causeType ? [`type=${causeType}`] : []),
     );
   } else {
     safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_ERROR, error: errMsg });

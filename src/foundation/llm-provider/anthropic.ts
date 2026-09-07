@@ -7,8 +7,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type {
   LLMResponse,
-  ContentBlock,
-} from './types.js';
+  ContentBlock } from './types.js';
 import {
   LLMError,
   LLMRateLimitError,
@@ -18,17 +17,15 @@ import {
   LLMModelNotFoundError,
   LLMEmptyResponseError,
   LLMOutputBudgetExceededError,
-  LLMContextExceededError,
-} from './errors.js';
+  LLMContextExceededError } from './errors.js';
 import { parseRetryAfter, parseOutputBudgetError } from './_helpers.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
-  ProviderStreamChunk,
-} from './types.js';
+  ProviderStreamChunk } from './types.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
-import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
+import { makeExternalAbortError } from './abort-helper.js';
 import { assertContentBlocks } from './_block-guards.js';
 import { serializeProviderRequest } from './request-unicode.js';
 
@@ -132,7 +129,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     // 其他类 SDK 错误不走此分支。不再显式检查 options.signal，依赖 SDK 自身语义。
     // 若未来 SDK 语义漂移（例如非 user abort 也标此名），这里会误分类为 external abort。
     if (errName === 'APIUserAbortError') {
-      return makeExternalAbortError(signal?.reason as AbortReason | undefined);
+      return makeExternalAbortError(signal?.reason);
     }
     // Propagate external abort errors already converted by parseSDKStream or other layers.
     if ((error as Error).name === 'AbortError') {
@@ -358,7 +355,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
 
     for await (const event of stream) {
       if (signal?.aborted) {
-        throw makeExternalAbortError(signal.reason as AbortReason | undefined);
+        throw makeExternalAbortError(signal.reason);
       }
       if (event.type === 'content_block_start') {
         const block = event.content_block;

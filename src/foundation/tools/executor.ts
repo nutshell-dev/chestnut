@@ -9,8 +9,7 @@ import { formatErr } from "../node-utils/index.js";
 import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
-  ToolTimeoutError,
-} from './errors.js';
+  ToolTimeoutError } from './errors.js';
 import type { ExecContext } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
@@ -19,15 +18,16 @@ import type { FileSystem } from '../fs/index.js';
 
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
-import type { AbortReason } from '../llm-provider/index.js';
 import { DEFAULT_TOOL_TIMEOUT_MS, TOOL_EXEC_CLEANUP_BUDGET_MS } from './constants.js';
+
+/** phase 1802: tool 执行 owner 自定义的 abort reason（L1 只承载 opaque evidence） */
+type ToolTimeoutAbortReason = { type: 'tool_timeout'; ms: number };
 import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 import type {
   ToolRegistry,
   ExecuteOptions,
   IToolExecutor,
-  ToolExecutorOptions,
-} from './types.js';
+  ToolExecutorOptions } from './types.js';
 
 const CALLER_SNAPSHOT_ACCESS_GATE_SITE =
   'site=tools/executor:caller_snapshot_access_gate';
@@ -48,8 +48,7 @@ export type {
   ToolRegistry,
   ExecuteOptions,
   IToolExecutor,
-  ToolExecutorOptions,
-} from './types.js';
+  ToolExecutorOptions } from './types.js';
 
 function toSafeNumber(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number(String(v));
@@ -109,7 +108,7 @@ export class ToolExecutorImpl implements IToolExecutor {
 
     // 4. Execute with timeout using Promise.race (sync path)
     const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort({ type: 'tool_timeout', ms: timeoutMs } satisfies AbortReason), timeoutMs);
+    const timeoutId = setTimeout(() => timeoutController.abort({ type: 'tool_timeout', ms: timeoutMs } satisfies ToolTimeoutAbortReason), timeoutMs);
 
     const upstreamSignals = ctx.signal ? [ctx.signal] : [];
     const mergedSignal = upstreamSignals.length === 0

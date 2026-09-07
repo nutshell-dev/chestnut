@@ -10,15 +10,12 @@ export type {
   LLMCallOptions,
   ProviderStreamChunk,
   ProviderAdapter,
-  AuditSink,
-} from './types.js';
+  AuditSink } from './types.js';
 
 export {
   withCombinedAbortSignal,
-  type AbortReason,
   makeExternalAbortError,
-  ExternalAbortError,
-} from './abort-helper.js';
+  ExternalAbortError } from './abort-helper.js';
 export { PRESETS, resolvePreset } from './presets.js';
 
 export type { ProviderWireMessage, LLMResponse, ContentBlock, ToolUseBlock, ToolResultBlock, ToolDefinition, ThinkingBlock, JSONSchema7, TextBlock } from './types.js';
@@ -27,8 +24,7 @@ export { LLMInvalidRequestError } from './request-unicode.js';
 export {
   estimateTextTokens,
   estimateMessagesTokens,
-  estimateToolsTokens,
-} from './token-estimator.js';
+  estimateToolsTokens } from './token-estimator.js';
 
 // phase 691 Step A: ToolUseId 物理位置从 tool-protocol（L2b）迁回 L1 LLMProvider canonical owner
 // SoT: Anthropic LLM protocol (tool_use block id) — 与 L1 protocol primitive 同语义层

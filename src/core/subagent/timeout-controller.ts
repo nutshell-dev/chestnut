@@ -14,8 +14,20 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
-import { makeExternalAbortError, type AbortReason } from '../../foundation/llm-provider/index.js';
+import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
+
+/**
+ * phase 1802: SubAgent 超时 owner 自定义的 abort reason（发起业务 owner 持有词汇，
+ * L1 provider 只作 opaque evidence 承载）。turn/idle 由本控制器发起；user/step_yield
+ * 由 Runtime 发起、本边界负责映射到 typed interrupt。
+ */
+type TurnTimerAbortReason =
+  | { type: 'turn_timeout'; ms: number }
+  | { type: 'idle_timeout'; ms: number };
+
+/** 边界读取形态：外部 envelope 只作结构识别（type/ms），L1 不枚举上层 universe */
+type AbortEnvelope = { type?: unknown; ms?: unknown };
 
 interface TimeoutControllerOptions {
   timeoutMs: number;
@@ -36,7 +48,7 @@ interface TimeoutControllerHandle {
 export function createTimeoutController(opts: TimeoutControllerOptions): TimeoutControllerHandle {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
-    controller.abort({ type: 'turn_timeout', ms: opts.timeoutMs } satisfies AbortReason);
+    controller.abort({ type: 'turn_timeout', ms: opts.timeoutMs } satisfies TurnTimerAbortReason);
   }, opts.timeoutMs);
 
   let idleTimerId: ReturnType<typeof setTimeout> | undefined;
@@ -47,7 +59,7 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
           try {
             opts.onIdleTimeout?.();
           } catch { /* silent: callback failure must not block abort */ }
-          controller.abort({ type: 'idle_timeout', ms: opts.idleTimeoutMs! } satisfies AbortReason);
+          controller.abort({ type: 'idle_timeout', ms: opts.idleTimeoutMs! } satisfies TurnTimerAbortReason);
         }, opts.idleTimeoutMs!);
       }
     : undefined;
@@ -62,10 +74,11 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     const rejectForAbort = () => {
-      const r = controller.signal.reason as AbortReason | undefined;
-      if (r?.type === 'turn_timeout') {
+      const r = controller.signal.reason as AbortEnvelope | undefined;
+      // 自产 turn/idle reason 恒带 number ms（TurnTimerAbortReason），typeof 守卫仅收窄
+      if (r?.type === 'turn_timeout' && typeof r.ms === 'number') {
         reject(new ToolTimeoutError('subagent_run', r.ms));
-      } else if (r?.type === 'idle_timeout') {
+      } else if (r?.type === 'idle_timeout' && typeof r.ms === 'number') {
         reject(new IdleTimeoutSignal(r.ms));
       } else if (r?.type === 'user') {
         reject(new UserInterrupt());
@@ -79,7 +92,7 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
     else controller.signal.addEventListener('abort', rejectForAbort, { once: true });
   });
   timeoutPromise.catch((e) => {
-    const reason = controller.signal.reason as AbortReason | undefined;
+    const reason = controller.signal.reason as AbortEnvelope | undefined;
     if (reason?.type !== 'turn_timeout') return;
     opts.auditWriter.write(
       SUBAGENT_AUDIT_EVENTS.TIMEOUT_REJECTION,

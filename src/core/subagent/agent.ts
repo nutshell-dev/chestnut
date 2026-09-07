@@ -14,10 +14,8 @@ import {
   ExternalAbortError,
   isAbortError,
   makeExternalAbortError,
-  type AbortReason,
   type ToolDefinition,
-  type ToolUseId,
-} from '../../foundation/llm-provider/index.js';
+  type ToolUseId } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 
 import type { Message } from '../../foundation/dialog-store/index.js';
@@ -356,7 +354,7 @@ export class SubAgent {
       const classifiedError = timeout.signal.aborted
         && isAbortError(error)
         && !(error instanceof ExternalAbortError)
-        ? makeExternalAbortError(timeout.signal.reason as AbortReason | undefined)
+        ? makeExternalAbortError(timeout.signal.reason)
         : error;
       const errMsg = formatErr(classifiedError);
       await this.appendToLog(`=== Error: ${errMsg} ===\n`);

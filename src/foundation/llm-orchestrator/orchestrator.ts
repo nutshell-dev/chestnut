@@ -12,8 +12,7 @@ import {
   LLMAllProvidersFailedError,
   classifyLLMError,
   getUserActionHint,
-  getRetryAfterSec,
-} from './errors.js';
+  getRetryAfterSec } from './errors.js';
 // Phase 186: ContextTrimExhaustedError from L4 ContextManager — we avoid direct L2→L4 import
 // per architecture layer rules, and duck-type via error.name instead of instanceof.
 const CONTEXT_TRIM_EXHAUSTED_ERROR_NAME = 'ContextTrimExhaustedError';
@@ -23,12 +22,11 @@ import type {
   LLMCallOptions,
   LLMEventSink,
   LLMOrchestrator,
-  LLMStreamChunk,
-} from './types.js';
+  LLMStreamChunk } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { LLMCircuitBreakerOpenError } from './errors.js';
 import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig } from '../llm-provider/index.js';
-import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
+import { makeExternalAbortError, withCombinedAbortSignal } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
 import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
@@ -218,7 +216,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
-      if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+      if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
 
       const hardTimeoutMs = options.hardTimeoutMs;
       let providerSignal: AbortSignal | undefined;
@@ -246,7 +244,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         lastError = error as Error;
 
         if (options.signal?.aborted) {
-          throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+          throw makeExternalAbortError(options.signal.reason);
         }
         if (lastError.name === 'AbortError' && hardSignal?.aborted) throw lastError;
         if (lastError.name === 'AbortError' && !hardSignal?.aborted) throw lastError;
@@ -347,7 +345,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       // to be attempted. Emitting before filtering sticky/open fallbacks made
       // the forensic payload point at a provider that never ran.
       for (let i = 0; i < this.fallbacks.length; i++) {
-        if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+        if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
         if (stickyFb && this.fallbacks[i].name === stickyFb.name) continue;
         if (isBreakerOpen(i + 1)) {
           failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name) });
@@ -420,7 +418,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
     try {
     for (let pi = 0; pi < providers.length; pi++) {
-      if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+      if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
       const { adapter, breakerIndex } = providers[pi];
 
       if (!adapter.stream) {
@@ -537,7 +535,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           const isUserAbort = options.signal?.aborted;
           const isIdleTimeout = idleCtrl?.signal.aborted && !isUserAbort;
 
-          if (isUserAbort) throw makeExternalAbortError(options.signal?.reason as AbortReason | undefined);
+          if (isUserAbort) throw makeExternalAbortError(options.signal?.reason);
 
           if (isIdleTimeout) {
             // ⚓4 ε ratified by phase 628 user binary: probe-then-decide
@@ -554,11 +552,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             const probe = await this._minimalProbe(adapter, probeTimeoutMs, options.signal);
             if (options.signal?.aborted) {
               // user abort overrides probe result — stop immediately instead of failover/retry
-              throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+              throw makeExternalAbortError(options.signal.reason);
             }
             if (probe.ok) {
               if (options.signal?.aborted) {
-                throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+                throw makeExternalAbortError(options.signal.reason);
               }
               this.events.emit({
                 type: 'stream_idle_probe_succeeded',
@@ -576,7 +574,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             }
             if (probe.reason === 'auth_or_model') {
               if (options.signal?.aborted) {
-                throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+                throw makeExternalAbortError(options.signal.reason);
               }
               // probe auth/model 错 = 用户配置问题 / throw 给 caller decide
               throw probe.error;
@@ -927,7 +925,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           fbMerged.cleanup();
           // User abort takes priority over any provider-internal signal
           if (options.signal?.aborted) {
-            throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+            throw makeExternalAbortError(options.signal.reason);
           }
           if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
           const e = err as Error;
@@ -962,7 +960,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         // phase 991 B.2: drain loop user-abort early-exit guard
         for await (const chunk of primaryIter) {
           if (options.signal?.aborted) {
-            throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+            throw makeExternalAbortError(options.signal.reason);
           }
           if (chunk.type === 'done') receivedDone = true;
           yield chunk;
@@ -970,7 +968,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       } catch (err) {
         // User abort is not a provider failure — don't trip breaker or emit stream_reset
         if (options.signal?.aborted) {
-          throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+          throw makeExternalAbortError(options.signal.reason);
         }
         this.breakers[0]?.onFailure(classifyLLMError(err));
         this.events.emit({
@@ -1034,7 +1032,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       } else {
         // A-error (含 AbortError from primaryCtrl.abort propagated to iterator)
         if (options.signal?.aborted) {
-          throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+          throw makeExternalAbortError(options.signal.reason);
         }
         const primaryErr = aResult.error;
         const primaryErrClass = classifyLLMError(primaryErr);
@@ -1062,7 +1060,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     if (winner.winner === 'A-error') {
       const bResult = await trackBPromise;
       if (options.signal?.aborted) {
-        throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+        throw makeExternalAbortError(options.signal.reason);
       }
       if (bResult.winner === 'B') {
         primaryCtrl.abort();
@@ -1083,7 +1081,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       // 双失败
       // phase 991 B.3: primary breaker accounting mirror line 715 single-fail
       if (options.signal?.aborted) {
-        throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+        throw makeExternalAbortError(options.signal.reason);
       }
       this.breakers[0]?.onFailure(classifyLLMError(winner.error));
       try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
@@ -1105,7 +1103,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         // phase 991 B.2: drain loop user-abort early-exit guard
         for await (const chunk of primaryIter) {
           if (options.signal?.aborted) {
-            throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+            throw makeExternalAbortError(options.signal.reason);
           }
           if (chunk.type === 'done') receivedDone = true;
           yield chunk;
@@ -1113,7 +1111,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       } catch (err) {
         // User abort is not a provider failure — don't trip breaker or emit stream_reset
         if (options.signal?.aborted) {
-          throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+          throw makeExternalAbortError(options.signal.reason);
         }
         this.breakers[0]?.onFailure(classifyLLMError(err));
         this.events.emit({
@@ -1150,7 +1148,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     // 双失败
     // phase 991 B.3: primary breaker accounting mirror line 715 single-fail
     if (options.signal?.aborted) {
-      throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+      throw makeExternalAbortError(options.signal.reason);
     }
     this.breakers[0]?.onFailure(classifyLLMError(aResult.error));
     try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }

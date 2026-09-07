@@ -18,7 +18,7 @@ import type { ClawId } from '../../../../foundation/claw-identity/index.js';
 import { computeHash } from './hash.js';
 import { PREVIEW_MAX_CHARS } from './types.js';
 import type { OutboxSummaryState } from './types.js';
-import { makeExternalAbortError, type AbortReason } from '../../../../foundation/llm-provider/index.js';
+import { makeExternalAbortError } from '../../../../foundation/llm-provider/index.js';
 
 interface ScanDeps {
   /** phase 259: caller (装配期) 注入的 claw topology */
@@ -31,7 +31,7 @@ interface ScanDeps {
 
 export function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw makeExternalAbortError(signal.reason as AbortReason | undefined);
+    throw makeExternalAbortError(signal.reason);
   }
 }
 
@@ -42,7 +42,7 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
   try {
     clawIds = clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
   } catch (err) {
-    if (signal?.aborted) throw makeExternalAbortError(signal.reason as AbortReason | undefined);
+    if (signal?.aborted) throw makeExternalAbortError(signal.reason);
     if (isFileNotFound(err)) return emptyState();
     throw err;
   }
@@ -78,7 +78,7 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
           break;
       }
     } catch (err) {
-      if (signal?.aborted) throw makeExternalAbortError(signal.reason as AbortReason | undefined);
+      if (signal?.aborted) throw makeExternalAbortError(signal.reason);
       // phase 938: fail-closed — record the failed claw and mark summary incomplete.
       failedClaws.push(clawId);
     }
