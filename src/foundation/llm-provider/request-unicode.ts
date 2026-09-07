@@ -12,11 +12,17 @@ import {
 } from '../node-utils/index.js';
 import { LLMError } from './errors.js';
 
+/**
+ * phase 1795: 循环引用与非法 Unicode 分 reason（循环误分类治理）。
+ * `circular_reference` = active-path 重复访问；malformed Unicode 仍归 `invalid_unicode`。
+ */
+type InvalidRequestReason = 'invalid_unicode' | 'circular_reference' | 'provider_json_parse_rejected';
+
 export class LLMInvalidRequestError extends LLMError {
   readonly code = 'LLM_INVALID_REQUEST' as const;
   constructor(
     readonly provider: string,
-    readonly reason: 'invalid_unicode' | 'provider_json_parse_rejected',
+    readonly reason: InvalidRequestReason,
     readonly valuePath?: string,
     readonly codeUnitIndex?: number,
   ) {
@@ -53,7 +59,8 @@ function assertRequestStrings(
   }
   if (value === null || typeof value !== 'object') return;
   if (seen.has(value)) {
-    throw new LLMInvalidRequestError(provider, 'invalid_unicode', path);
+    // phase 1795: active-path 重复 = 循环引用，真实原因不再压成 invalid_unicode
+    throw new LLMInvalidRequestError(provider, 'circular_reference', path);
   }
   seen.add(value);
   if (Array.isArray(value)) {
