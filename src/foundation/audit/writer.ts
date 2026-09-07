@@ -314,7 +314,47 @@ export interface FallbackReconcileResult {
   readonly dumps: FallbackDumpReconcileOutcome[];
 }
 
-export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackReconcileResult> {
+/**
+ * Phase 1788: audit 自观察失败的受限 secondary channel。
+ *
+ * `audit_fallback_dropped` 事件的 append/sync 失败不得空 catch 吞掉 —— 进入
+ * bounded reporter（默认 console 边界），保留原始 error 与 drop metadata
+ * （entries = 该事件报告的 drop 条数）。
+ *
+ * 递归边界：reporter 实现禁止再次调用 AuditWriter / audit append；reporter
+ * 自身抛错时只允许最后一道同步 console.error，不再上抛。
+ */
+export type AuditFailureReporter = (failure: {
+  kind: 'drop_event_write_failed';
+  error: unknown;
+  entries: number;
+}) => void;
+
+/** 默认 reporter：同步 console 边界（不递归 audit）。 */
+const consoleFailureReporter: AuditFailureReporter = (failure) => {
+  console.error(
+    `[AUDIT WARNING] audit fallback drop event write failed: kind=${failure.kind} entries=${failure.entries} reason=${formatErr(failure.error)}`,
+  );
+};
+
+/** 调 reporter 并兜底其自身失败（最后一道 console 边界，保留原 failure）。 */
+function reportAuditFailure(
+  reporter: AuditFailureReporter,
+  failure: Parameters<AuditFailureReporter>[0],
+): void {
+  try {
+    reporter(failure);
+  } catch (reporterErr) {
+    console.error(
+      `[AUDIT WARNING] audit failure reporter threw: reason=${formatErr(reporterErr)} — original failure: kind=${failure.kind} entries=${failure.entries} reason=${formatErr(failure.error)}`,
+    );
+  }
+}
+
+export async function reconcileFallbackDumps(
+  fs: FileSystem,
+  reportFailure: AuditFailureReporter = consoleFailureReporter,
+): Promise<FallbackReconcileResult> {
   const result = { scanned: 0, retained: 0, malformed: [] as ReconcileMalformedLine[] };
   const dumps: FallbackDumpReconcileOutcome[] = [];
   const tmp = getFallbackDir();
@@ -395,8 +435,17 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackRe
             const dropLine = `audit_fallback_dropped\torigin=${origin}\tdrop_count=${dropMeta.since}\tdrop_count_total=${dropMeta.total}\tfirst_drop_ts=${dropMeta.first}\tlast_drop_ts=${dropMeta.last}\n`;
             try {
               await fs.appendSync(origin, dropLine);
-              try { fs.syncSync(origin); } catch (_) { /* silent: fsync best-effort */ }
-            } catch (_) { /* silent: per-origin best-effort */ }
+              fs.syncSync(origin);
+            } catch (dropWriteErr) {
+              // phase 1788: drop event append/sync 失败不再空 catch —— 受限
+              // secondary channel（默认 console 边界、不递归 audit），保留原始
+              // error 与 drop metadata；主回放已持久化，此处仅观察性事件。
+              reportAuditFailure(reportFailure, {
+                kind: 'drop_event_write_failed',
+                error: dropWriteErr,
+                entries: dropMeta.since,
+              });
+            }
           }
         } catch (perOriginErr) {
           // phase 426 Step A (review medium silent-catch): inner 失败可能 PermissionError /
