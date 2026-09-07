@@ -63,6 +63,8 @@ export {
 
 // phase 743: parseFrontmatterFrame barrel 导出，SkillSystem 等消费者不再 deep import
 export { parseFrontmatterFrame } from './frontmatter-frame.js';
+// phase 1777 Step C: EventLoop quota gate 判 pending 新 user 消息（from/timestamp 读 meta）
+export { decodeInbox } from './codec-inbox.js';
 export type {
   MessageFormatter,
   InboxMessageRenderingResolver,

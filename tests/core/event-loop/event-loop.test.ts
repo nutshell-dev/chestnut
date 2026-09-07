@@ -12,7 +12,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from '../../../src/core/event-loop/audit-events.js';
-import { LLM_MAX_RETRIES, LLM_RETRY_INITIAL_DELAY_MS } from '../../../src/core/event-loop/constants.js';
+import { LLM_MAX_RETRIES, LLM_QUOTA_INITIAL_DELAY_MS, LLM_RETRY_INITIAL_DELAY_MS } from '../../../src/core/event-loop/constants.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
@@ -23,7 +23,7 @@ import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js'
 import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { InboxHandle, InboxMessage } from '../../../src/foundation/messaging/types.js';
-import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
+import { decodeInbox, encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 
 vi.mock('../../../src/core/event-loop/constants.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
@@ -1834,6 +1834,161 @@ describe('EventLoop.run', () => {
     expect(noticeEvents[0]).toMatchObject({ stage: 'cooldown', errorClass: 'quota' });
     // 消息保持 pending：未 ack（nack 后仍在 inbox，probe 成功前不排空）
     expect(ackHandles).not.toHaveBeenCalled();
+  });
+
+  // ----- phase 1777 Step B/C/D: quota 曲线缩短（2min/8min）+ 新 user 消息即时探测（防旋转门） -----
+
+  function writePendingInboxMessage(opts: { id: string; from: string; timestamp: string }): void {
+    require('fs').writeFileSync(
+      path.join(inboxPendingDir, `${opts.id}.md`),
+      encodeInbox({
+        id: opts.id,
+        type: 'user_chat',
+        from: opts.from,
+        to: 'test-claw',
+        content: 'hello',
+        priority: 'normal',
+        timestamp: opts.timestamp,
+      }),
+    );
+  }
+
+  const readWaitingScheduledAt = (): string =>
+    (readRetryState()!.waiting as Record<string, unknown>).scheduledAt as string;
+
+  it('phase 1777 Step B: quota 曲线真实常量缩短为 2min 起、cap 8min', async () => {
+    const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>(
+      '../../../src/core/event-loop/constants.js',
+    );
+    expect(actual.LLM_QUOTA_INITIAL_DELAY_MS).toBe(120_000);
+    expect(actual.LLM_QUOTA_MAX_DELAY_MS).toBe(480_000);
+  });
+
+  it('phase 1777 Step C: quota waiting 期间新 user 消息（ts>scheduledAt）→ 立即 release 并 probe 成功', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    let call = 0;
+    const { runtime, processTurn, ackHandles, computeTurnRequestFingerprint } = makeRecoverableRuntime(
+      quotaErr(),
+      'fp-A',
+      async () => {
+        call++;
+        return call >= 2 ? makeTurnResult('success') : makeTurnResult('failed', { error: quotaErr() });
+      },
+    );
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();  // quota schedule delay=10（mocked 初值）
+
+    // waiting 调度后新到真人消息
+    const scheduledAt = readWaitingScheduledAt();
+    writePendingInboxMessage({
+      id: 'user-new',
+      from: 'user',
+      timestamp: new Date(Date.parse(scheduledAt) + 1000).toISOString(),
+    });
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(5);  // 远未到 resumeAt（+10ms）
+    // 已即时 probe 且成功 ack——恢复延迟归零，不依赖 deadline
+    expect(processTurn).toHaveBeenCalledTimes(2);
+    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+
+    // released audit、waiting 清空、曲线重置回初值（用户驱动探测 = 新恢复尝试，拍板语义）
+    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(true);
+    expect(readRetryState()!.waiting).toBeNull();
+    expect(readRetryState()!.llmQuotaDelayMs).toBe(LLM_QUOTA_INITIAL_DELAY_MS);  // mocked = 10
+    // 即时探测场景不发 quota_notice
+    expect(audit.entries.some(e => e.some(c => String(c) === 'action=quota_notice'))).toBe(false);
+  });
+
+  it('phase 1777 Step C: 即时探测失败 → 按曲线从初值重新调度（release 重置曲线语义）', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();  // schedule delay=10，曲线 →20
+
+    const scheduledAt = readWaitingScheduledAt();
+    writePendingInboxMessage({
+      id: 'user-new',
+      from: 'user',
+      timestamp: new Date(Date.parse(scheduledAt) + 1000).toISOString(),
+    });
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(5);  // 未到期已即时 probe（release 不依赖 deadline）
+    expect(processTurn).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(100);
+    await run2;
+
+    // probe 失败 → 重新 schedule：delay 从初值起（release 重置曲线），再翻倍
+    const scheduled = cooldownScheduled(audit);
+    expect(scheduled.length).toBe(2);
+    expect(scheduled[1].some(c => String(c) === `cooldown_ms=${LLM_QUOTA_INITIAL_DELAY_MS}`)).toBe(true);
+    expect(readRetryState()!.llmQuotaDelayMs).toBe(LLM_QUOTA_INITIAL_DELAY_MS * 2);  // mocked 10→20
+    expect(readRetryState()!.llmRetryCount).toBe(0);  // quota 仍不进 retry 预算
+  });
+
+  it('phase 1777 Step D 防旋转门：waiting 前已 pending 的 user 消息（ts<scheduledAt，失败回滚形态）不触发即时探测', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();  // quota schedule delay=10
+
+    // 失败回滚消息：timestamp 早于 scheduledAt（nack 回原文件保留原 timestamp）
+    const scheduledAt = readWaitingScheduledAt();
+    writePendingInboxMessage({
+      id: 'user-rolled-back',
+      from: 'user',
+      timestamp: new Date(Date.parse(scheduledAt) - 1000).toISOString(),
+    });
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(5);  // 未到期：不即时 probe
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(100);  // 越过 resumeAt → 到期一次 probe
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(2);  // 仅到期 probe，无即时探测循环
+    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(false);
+    const notices = audit.entries.filter(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=quota_notice'));
+    expect(notices.length).toBeGreaterThanOrEqual(1);  // 仍发 notice
+  });
+
+  it('phase 1777 Step D：waiting 期间系统消息（from=system，ts>scheduledAt）不触发即时探测', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
+    const eventLoop = makeEventLoop(runtime, audit);
+
+    await eventLoop.run();  // quota schedule delay=10
+
+    // 系统消息：timestamp 新但 from 非 user（判据 from==='user' 不满足）
+    const scheduledAt = readWaitingScheduledAt();
+    writePendingInboxMessage({
+      id: 'sys-new',
+      from: 'system',
+      timestamp: new Date(Date.parse(scheduledAt) + 1000).toISOString(),
+    });
+    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
+    const run2 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(5);  // 未到期：系统消息不放行
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(100);  // 到期一次 probe
+    await run2;
+
+    expect(processTurn).toHaveBeenCalledTimes(2);
+    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(false);
+    const notices = audit.entries.filter(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=quota_notice'));
+    expect(notices.length).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -38,13 +38,15 @@ export const LLM_RETRY_MAX_DELAY_MS = 300_000;
 export const LLM_COOLDOWN_MS = 300_000;
 
 /**
- * phase 1776 Step C: quota（配额时间窗）独立退避曲线（ms）。
- * Derivation: 10min 起、每次 probe 失败翻倍（20/40）、cap 60min——5h 服务窗内
- * 至多 5-6 次 probe（用户拍板值）；quota 不进 retry 预算（llmRetryCount 不消耗）、
- * 指纹变化不释放（内容与时间窗无关）。
+ * phase 1776 Step C + phase 1777 Step B: quota（配额时间窗）独立退避曲线（ms）。
+ * Derivation: 2min 起、每次 probe 失败翻倍（4/8）、cap 8min——恢复检测最坏 8min
+ * （原 10min 起 cap 60min，1777 用户拍板缩短：配额恢复后应尽快继续）；quota
+ * 拒绝不耗配额 token、快速失败，分钟级探测成本可接受（每小时 ≤15 次失败请求；
+ * 若仍嫌频繁可放宽备选 300s/900s）；quota 不进 retry 预算（llmRetryCount 不消耗）、
+ * 指纹变化不释放（内容与时间窗无关，1777 Step C 例外：waiting 期间新 user 消息放行一次探测）。
  */
-export const LLM_QUOTA_INITIAL_DELAY_MS = 600_000;
-export const LLM_QUOTA_MAX_DELAY_MS = 3_600_000;
+export const LLM_QUOTA_INITIAL_DELAY_MS = 120_000;
+export const LLM_QUOTA_MAX_DELAY_MS = 480_000;
 
 /** LLM retry state 持久化文件名 */
 export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;

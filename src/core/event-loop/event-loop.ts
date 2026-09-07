@@ -45,10 +45,9 @@ import {
   getUserActionHint,
 } from '../../foundation/llm-orchestrator/index.js';
 import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
-import type { InboxHandle } from '../../foundation/messaging/index.js';
+import type { InboxHandle, InboxMessage } from '../../foundation/messaging/index.js';
 import { LLMInvalidRequestError, LLMRateLimitError, type Message } from '../../foundation/llm-provider/index.js';
-import { PendingViewError } from '../../foundation/messaging/index.js';
-import { notifyInbox } from '../../foundation/messaging/index.js';
+import { PendingViewError, decodeInbox, notifyInbox } from '../../foundation/messaging/index.js';
 import {
   createExecutionRecoveryController,
   createExecutionRecoveryStore,
@@ -74,7 +73,7 @@ export class EventLoop {
   // LLM failure retry state
   private llmRetryCount = 0;
   private llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
-  // phase 1776 Step C: quota 退避曲线当前值（10min 起翻倍 cap 60min），不进 retry 预算。
+  // phase 1776 Step C + 1777 Step B: quota 退避曲线当前值（2min 起翻倍 cap 8min），不进 retry 预算。
   private llmQuotaDelayMs = LLM_QUOTA_INITIAL_DELAY_MS;
   // Phase 1268 Step B: 已决定的 retry/cooldown 等待（决定即落盘，restart 按 resumeAt 恢复）
   private llmRetryWaiting?: LLMRetryWaitingState;
@@ -415,6 +414,13 @@ export class EventLoop {
         this._releaseLlmRetryWaiting(waiting, fingerprint);
         return 'proceed';
       }
+      // phase 1777 Step C: quota 豁免的例外——waiting 期间新到 from=user 消息
+      // → 立即放行一次探测（用户主动时恢复延迟归零）；失败回滚消息（timestamp
+      // 早于 scheduledAt）与系统消息不满足判据（防旋转门，见 _hasNewUserMessageSince）。
+      if (await this._hasNewUserMessageSince(waiting.scheduledAt)) {
+        this._releaseLlmRetryWaiting(waiting, fingerprint);
+        return 'proceed';
+      }
     }
 
     while (!this.stopped) {
@@ -466,6 +472,14 @@ export class EventLoop {
           this._releaseLlmRetryWaiting(waiting, fingerprint);
           return 'proceed';
         }
+        // phase 1777 Step C: quota 豁免的例外（判据与防旋转门同 pre-loop 分支）——
+        // 新 user 消息到达 → release + proceed 放行一次探测。release 走既有
+        // _releaseLlmRetryWaiting（重置退避曲线回初值）：用户驱动的探测视为新的
+        // 恢复尝试，失败后再按曲线从初值起等（1777 Step C 拍板语义）。
+        if (await this._hasNewUserMessageSince(waiting.scheduledAt)) {
+          this._releaseLlmRetryWaiting(waiting, fingerprint);
+          return 'proceed';
+        }
         // phase 1776 Step C: quota 指纹豁免——新消息收 quota 提示（不释放、不真发），继续等 deadline。
         this._notifyQuotaWaiting(waiting);
       }
@@ -497,6 +511,43 @@ export class EventLoop {
       `new=${newFingerprint}`,
     );
     this._writeLlmRetryWaitingStream(waiting, 'released', 0);
+  }
+
+  /**
+   * phase 1777 Step C: quota waiting 期间是否有「调度后新到」的 from=user 消息。
+   * 判据（防旋转门核心，任一放宽都会重演 1776 事故形态）：
+   * - from === 'user'：真人驱动才放行（系统/broadcast 消息不触发）；
+   * - timestamp > scheduledAt：waiting 调度时刻之后新写入的消息才放行——
+   *   quota 失败被 nack 回 pending 的那条消息保留原 timestamp（早于 scheduledAt），
+   *   不满足判据，probe 失败不会驱动无限即时探测。
+   * 经 loopFs 直读 pending 目录（复用 waitForInbox 同款入口，不新增 runtime 接口）。
+   * 读失败/损坏文件按「无新消息」处理（维持 notice 语义，drain 侧有 quarantine 责任）。
+   */
+  private async _hasNewUserMessageSince(scheduledAtIso: string): Promise<boolean> {
+    const sinceMs = Date.parse(scheduledAtIso);
+    let entries: Array<{ name: string }>;
+    try {
+      entries = this.loopFs.listSync(this.inboxPendingDir, { includeDirs: false });
+    } catch {
+      return false;
+    }
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.md')) continue;
+      let raw: string;
+      try {
+        raw = this.loopFs.readSync(path.join(this.inboxPendingDir, entry.name));
+      } catch {
+        continue;  // 竞态删除（drain 搬移中）跳过该条
+      }
+      let msg: InboxMessage;
+      try {
+        msg = decodeInbox(raw);
+      } catch {
+        continue;  // 损坏文件不阻断判定
+      }
+      if (msg.from === 'user' && Date.parse(msg.timestamp) > sinceMs) return true;
+    }
+    return false;
   }
 
   /**
