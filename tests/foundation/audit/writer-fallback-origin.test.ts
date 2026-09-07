@@ -288,3 +288,79 @@ describe('reconcileFallbackDumps — malformed line retention (phase 1786)', () 
     expect(appended.get('/test/a.tsv')).toBe('2026-09-07T10:00:00.000Z\tevt_a\tcol1\n');
   });
 });
+
+/**
+ * Phase 1787: reconcile origin sync 失败（append 已写入、耐久未确认）必须参与 delete gate——
+ * 阻止 dump 删除、lines 重写回 dump 保留下轮证据，typed per-origin stage 证据进 result.dumps。
+ */
+describe('reconcileFallbackDumps — phase 1787 sync failure delete gate', () => {
+  let dumpDir: string;
+
+  beforeEach(async () => {
+    _resetFallbackForTest();
+    // 独立 reconcile 扫描目录（与 phase 1786 同 mockTmpdir 重定向 pattern）
+    dumpDir = await nodeFsPromises.mkdtemp(`${realTmpdir()}/chestnut-reconcile-1787-`);
+    mockTmpdir.mockImplementation(() => dumpDir);
+  });
+
+  afterEach(async () => {
+    mockTmpdir.mockImplementation(() => realTmpdir());
+    try { await nodeFsPromises.rm(dumpDir, { recursive: true, force: true }); } catch { /* silent: test cleanup */ }
+    vi.restoreAllMocks();
+  });
+
+  it('origin sync 失败 → 阻止 dump 删除 + 该 origin 行重写回 dump + typed failed{stage:sync} 报告', async () => {
+    const consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dumpPath = `${dumpDir}/chestnut-audit-fallback-111-222.tsv`;
+    await nodeFsPromises.writeFile(dumpPath, '/ok/a.tsv\tevt_a\tcol\n/bad/b.tsv\tevt_b\tcol\n');
+    const syncErr = new Error('EIO fsync');
+    const mockFs = {
+      appendSync: vi.fn(async () => {}),
+      syncSync: vi.fn((p: string) => { if (p === '/bad/b.tsv') throw syncErr; }),
+    } as unknown as FileSystem;
+
+    const result = await reconcileFallbackDumps(mockFs);
+
+    // 1786 aggregate：非成功 + retained
+    expect(result.ok).toBe(false);
+    expect(result.scanned).toBe(1);
+    expect(result.retained).toBe(1);
+    // 1787 per-dump typed outcome：deleted=false + per-origin stage 证据（成功 origin 不掩盖失败 origin）
+    expect(result.dumps).toHaveLength(1);
+    const report = result.dumps[0]!;
+    expect(report.path).toBe(dumpPath);
+    expect(report.deleted).toBe(false);
+    expect(report.origins).toContainEqual({ kind: 'durable', origin: '/ok/a.tsv' });
+    expect(report.origins).toContainEqual({ kind: 'failed', origin: '/bad/b.tsv', stage: 'sync', error: syncErr });
+
+    // 唯一未确认耐久证据未删除；重写后只留 sync-failed origin 行
+    expect(nodeFs.existsSync(dumpPath)).toBe(true);
+    const remaining = nodeFs.readFileSync(dumpPath, 'utf8');
+    expect(remaining).toContain('/bad/b.tsv');
+    expect(remaining).not.toContain('/ok/a.tsv');
+
+    // console 证据留痕（reconcile 自身不可递归走 audit）
+    expect(consoleErrSpy.mock.calls.some(c => String(c[0]).includes('reconcile fallback fsync failed'))).toBe(true);
+    consoleErrSpy.mockRestore();
+  });
+
+  it('全部 origin durable → dump 删除 + typed deleted 报告', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dumpPath = `${dumpDir}/chestnut-audit-fallback-333-444.tsv`;
+    await nodeFsPromises.writeFile(dumpPath, '/ok/a.tsv\tevt_a\tcol\n');
+    const mockFs = {
+      appendSync: vi.fn(async () => {}),
+      syncSync: vi.fn(),
+    } as unknown as FileSystem;
+
+    const result = await reconcileFallbackDumps(mockFs);
+
+    expect(result.ok).toBe(true);
+    expect(result.dumps).toEqual([{
+      path: dumpPath,
+      deleted: true,
+      origins: [{ kind: 'durable', origin: '/ok/a.tsv' }],
+    }]);
+    expect(nodeFs.existsSync(dumpPath)).toBe(false);
+  });
+});

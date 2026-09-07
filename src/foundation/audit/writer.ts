@@ -281,9 +281,28 @@ export type ReconcileLine =
 export type ReconcileMalformedLine = Extract<ReconcileLine, { kind: 'malformed' }>;
 
 /**
+ * Phase 1787: reconcile per-origin typed result。
+ * `durable` = append + sync 均确认；`failed` 区分 stage（append 未写入 / sync 写入但耐久未确认）。
+ * 任一 failed origin 均参与 delete gate（成功 origin 不得掩盖失败 origin）。
+ */
+export type FallbackOriginResult =
+  | { kind: 'durable'; origin: string }
+  | { kind: 'failed'; origin: string; stage: 'append' | 'sync'; error: unknown };
+
+/** phase 1787: 单 dump 的 reconcile 结局——deleted=false 即证据保留（下轮重试）。 */
+export interface FallbackDumpReconcileOutcome {
+  path: string;
+  deleted: boolean;
+  origins: FallbackOriginResult[];
+  /** dump 级失败（read/parse/corrupt）——未删除、下轮重试 */
+  error?: unknown;
+}
+
+/**
  * Phase 1786: reconcile outcome。
  * `ok` 仅当所有 dump 完整回放并删除、且零 malformed 行；任何 retained dump 或
  * malformed evidence 都使结果非成功（caller/测试可断言，证据同时 console.error 留痕）。
+ * phase 1787: `dumps` 携带 per-dump 结局与 per-origin stage 证据。
  */
 export interface FallbackReconcileResult {
   readonly ok: boolean;
@@ -292,10 +311,12 @@ export interface FallbackReconcileResult {
   /** 保留未删的 dump 数（失败 origin 重写 / malformed 保留 / 读取失败跳过） */
   readonly retained: number;
   readonly malformed: ReconcileMalformedLine[];
+  readonly dumps: FallbackDumpReconcileOutcome[];
 }
 
 export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackReconcileResult> {
   const result = { scanned: 0, retained: 0, malformed: [] as ReconcileMalformedLine[] };
+  const dumps: FallbackDumpReconcileOutcome[] = [];
   const tmp = getFallbackDir();
   const pattern = /^chestnut-audit-fallback-\d+-\d+\.tsv$/;
   // phase 1115 Step A: tmpdir 操作走 raw node:fs（与 dumpFallback 写路径同 boundary、phase 1214 ratify）——
@@ -305,7 +326,7 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackRe
     names = nodeFs.readdirSync(tmp);
   } catch (listErr) {
     console.error(`[AUDIT WARNING] reconcile fallback list failed: tmp=${tmp} reason=${formatErr(listErr)}`);
-    return { ok: false, ...result };
+    return { ok: false, dumps, ...result };
   }
   for (const name of names) {
     if (!pattern.test(name)) continue;
@@ -351,15 +372,22 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackRe
         lines.push(rest);
       }
       const failedOrigins = new Map<string, string[]>();
+      const originResults: FallbackOriginResult[] = [];
       for (const [origin, lines] of byOrigin) {
         try {
           await fs.appendSync(origin, lines.join('\n') + '\n');
           // phase 1374 sub-4: ensure recovery data is truly persisted (fsync)
           try {
             fs.syncSync(origin);
+            originResults.push({ kind: 'durable', origin });
           } catch (syncErr) {
+            // phase 1787: sync 失败 = 耐久未确认——计入 failed origin 参与 delete gate，
+            // lines 重写回 dump 保留下轮证据（若原 append 实际耐久，下轮回放会产生重复行：
+            // 取「宁重复不丢失」与 phase 1115 Step B 同一边界权衡，禁止删除唯一未确认证据）。
             const reason = formatErr(syncErr);
             console.error(`[AUDIT WARNING] reconcile fallback fsync failed: origin=${origin} reason=${reason}`);
+            originResults.push({ kind: 'failed', origin, stage: 'sync', error: syncErr });
+            failedOrigins.set(origin, lines);
           }
           // phase 1380: drop metadata audit emit per origin
           if (dropMeta && dropMeta.since > 0) {
@@ -374,14 +402,16 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackRe
           // phase 426 Step A (review medium silent-catch): inner 失败可能 PermissionError /
           // 文件被删；console.error 留痕、不依赖 audit 防递归 (我们正在 reconcile audit 自身)。
           failedOrigins.set(origin, lines);
+          originResults.push({ kind: 'failed', origin, stage: 'append', error: perOriginErr });
           console.error(`[AUDIT WARNING] reconcile fallback per-origin write failed: origin=${origin} reason=${formatErr(perOriginErr)}`);
         }
       }
-      // phase 1115 Step B: 完全成功才删 dump；失败 origin 重写回 dump 供下轮重试。
+      // phase 1115 Step B + phase 1787: 全部 origin durable（append/sync 均确认）才删 dump；
       // phase 1786: 存在 malformed 行同样不得删 dump（否则会丢唯一证据）——
       // raw 原文回写 quarantine，证据进 result.malformed + console.error。
       if (failedOrigins.size === 0 && malformedLines.length === 0) {
         nodeFs.unlinkSync(dumpPath);
+        dumps.push({ path: dumpPath, deleted: true, origins: originResults });
       } else {
         result.retained += 1;
         result.malformed.push(...malformedLines);
@@ -407,15 +437,17 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<FallbackRe
           // 重写失败 → 原 dump 保留全量、下轮重试（best-effort 边界）
         }
         console.error(`[AUDIT WARNING] reconcile fallback dump kept for retry: dumpPath=${dumpPath} failed_origins=${failedOrigins.size}`);
+        dumps.push({ path: dumpPath, deleted: false, origins: originResults });
       }
     } catch (dumpErr) {
       // phase 426 Step A (review medium silent-catch): outer dump 解析失败 (corrupt /
       // PermissionError on read)；console.error 留痕、下轮 reconcile 重试。
       result.retained += 1;
       console.error(`[AUDIT WARNING] reconcile fallback dump skipped: dumpPath=${dumpPath} reason=${formatErr(dumpErr)}`);
+      dumps.push({ path: dumpPath, deleted: false, origins: [], error: dumpErr });
     }
   }
-  return { ok: result.retained === 0, ...result };
+  return { ok: result.retained === 0, dumps, ...result };
 }
 
 /** audit.tsv 相对路径 */
