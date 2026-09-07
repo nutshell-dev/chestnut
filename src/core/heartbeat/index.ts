@@ -7,7 +7,9 @@
  *
  * 业务语义独立：周期触发（timer）≠ 事件驱动循环（runtime）。
  */
-export { Heartbeat, createHeartbeat } from './heartbeat.js';
+export { Heartbeat, createHeartbeat, createHeartbeatCursorStore } from './heartbeat.js';
+// phase 1791: cursor 持久化契约（重启恢复 due 基线 / degraded 可观察）
+export type { HeartbeatCursor, CursorRead, HeartbeatCursorStore } from './heartbeat.js';
 // phase 1414: 业主自管 'heartbeat' inbox 消息 formatter
 export { createHeartbeatInboxFormatter } from './inbox-formatter.js';
 export { HEARTBEAT_FILE_ROUTING } from './audit-events.js';

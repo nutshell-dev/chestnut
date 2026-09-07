@@ -11,7 +11,7 @@ import { AUDIT_FILE, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../foundation/audit
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
-import { createHeartbeat, type Heartbeat } from '../core/heartbeat/index.js';
+import { createHeartbeat, createHeartbeatCursorStore, type Heartbeat } from '../core/heartbeat/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import { createCronRunner, parseSchedule, type CronJob, type CronRunner } from '../foundation/cron/index.js';
 // phase 1242 Step A: AuditLog 只暴露 monitor capability；Assembly 负责 CronJob descriptor 组合
@@ -146,7 +146,15 @@ export async function createMotionAddons(
         audit: auditWriter,
         inboxReader,
         notifyInbox: (msg) => routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+        // phase 1791: Heartbeat-owned 单 cursor 文件（motion claw 根），装配期注入路径
+        cursorStore: createHeartbeatCursorStore(systemFs, 'heartbeat-cursor.json'),
       });
+      // phase 1791: 显式恢复点 —— 重启后从 cursor 重建 due 基线；恢复状态必须显式处理
+      const cursorRead = await heartbeat.initialize();
+      if (cursorRead.kind === 'malformed' || cursorRead.kind === 'unavailable') {
+        // Heartbeat 已 audit CURSOR_DEGRADED（stage/error 保留）；安全策略 = 从 now
+        // 重建等满 interval，装配期降级继续（不阻塞 daemon 启动、不重复 audit）。
+      }
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=heartbeat`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: Heartbeat construct failed: ${formatErr(e)}`, { cause: e });

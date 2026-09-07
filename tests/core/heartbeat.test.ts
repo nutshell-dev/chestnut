@@ -10,7 +10,7 @@ import { makeChestnutRoot } from '../../src/core/claw-topology/claw-instance-pat
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Heartbeat } from '../../src/core/heartbeat/index.js';
+import { Heartbeat, createHeartbeatCursorStore } from '../../src/core/heartbeat/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -31,6 +31,8 @@ function createTestHeartbeat(tempDir: string, intervalSec?: number): Heartbeat {
     audit,
     inboxReader,
     notifyInbox: (msg) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
+    // phase 1791: cursor store 必填（motion claw 根下单文件）
+    cursorStore: createHeartbeatCursorStore(nodeFs, 'motion/heartbeat-cursor.json'),
   });
 }
 
@@ -219,6 +221,7 @@ describe('Heartbeat', () => {
         inboxReader,
         notifyInbox: (msg) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
         now: () => clock.now,
+        cursorStore: createHeartbeatCursorStore(nodeFs, 'motion/heartbeat-cursor.json'),
       });
     }
 

@@ -27,7 +27,8 @@ const mockCronRunner = {
   start: vi.fn(),
   stop: vi.fn(),
 };
-const mockHeartbeat = {};
+// phase 1791: mock 补显式恢复点（装配期 initialize() 恢复 due 基线；缺省 absent=首次启动）
+const mockHeartbeat = { initialize: vi.fn(async () => ({ kind: 'absent' as const })) };
 
 // phase 1260 Step B: capture ContractSystem instances for direct-attach assertions
 const capturedContractManagers: Array<{ setOnNotify: ReturnType<typeof vi.fn> }> = [];
