@@ -656,7 +656,7 @@ describe('EventLoop.run', () => {
     )).toBe(true);
   });
 
-  it('blocked delete ENOENT releases and emits released audit once', async () => {
+  it('phase 1778 startup probe: blocked cleared at initialize (ENOENT-tolerant delete), first run drains, startup_probe audit once', async () => {
     const audit = createMockAudit();
     seedBlockedState({
       version: 2,
@@ -696,23 +696,22 @@ describe('EventLoop.run', () => {
       peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
     } as unknown as Runtime;
 
-    const eventLoop = new EventLoop({
-      runtime: runtime as Runtime,
-      fsFactory,
-      agentDir,
-      clawId: 'test-claw',
-      audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+    // deleteSync 一律 ENOENT：模拟状态文件在 initialize 清除前已被外部清理——
+    // ENOENT 视为已清除（既有容忍语义），启动探测照常放行首轮 drain。
+    const eventLoop = makeEventLoopWithFsOverrides(runtime, audit, {
+      deleteSync: vi.fn(() => {
+        const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      }),
     });
     await eventLoop.initialize();
-
-    // 模拟状态文件在 initialize 之后、run 之前被外部清理；_clearLlmRequestBlockedState 应视为已删除成功
-    require('fs').unlinkSync(path.join(agentDir, 'status', 'llm-request-blocked-state.json'));
 
     await eventLoop.run();
 
     expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED).length).toBe(1);
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE).length).toBe(1);
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED)).toBe(false);
   });
 
   it('retry limit blocks current failed request before another trim', async () => {
@@ -737,7 +736,7 @@ describe('EventLoop.run', () => {
     expect(blocked!.maxAttempts).toBe(LLM_MAX_RETRIES);
   });
 
-  it('restarts recover retry_exhausted blocked state and time does not release it', async () => {
+  it('phase 1778 startup probe: restart clears blocked（干预信号）→ 同 fingerprint 首轮 probe 成功 ack、blocked 不再现', async () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
     seedBlockedState({
@@ -750,6 +749,73 @@ describe('EventLoop.run', () => {
     });
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
+    const ackHandles = vi.fn().mockResolvedValue(undefined);
+    let drainCall = 0;
+    const runtime = {
+      drainInbox: vi.fn().mockImplementation(async () => {
+        drainCall++;
+        if (drainCall === 1) {
+          return {
+            injected: [{ role: 'user', content: 'hi' } as Message],
+            sources: [{ text: 'hi', type: 'user_chat' }],
+            count: 1,
+            infos: [] as InboxMessage[],
+            addressedHandles: ['handle-1'],
+          };
+        }
+        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles,
+      nackHandles: vi.fn().mockResolvedValue(undefined),
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      // 同 provider 换 key / 配额恢复场景：fingerprint 不变（释放条件不满足，1778 前只能删文件）
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('stable-fp'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    // 启动探测：blocked 已清除（同指纹也不再 fail-closed）+ audit 记录 + 文件落盘删除
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE).length).toBe(1);
+    expect(readBlockedState()).toBeUndefined();
+
+    const run1 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run1;
+
+    // 首轮正常 drain probe：恢复已生效 → 成功 ack，无 gate 阻断
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE)).toBe(false);
+  });
+
+  it('phase 1778 startup probe 失败按新代码分类重建：quota → waiting；permanent → blocked 文件重现并再挡', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    seedBlockedState({
+      version: 2,
+      reason: 'permanent_provider_error',
+      requestFingerprint: 'stable-fp',
+      userActionHint: null,
+      message: 'provider auth error (stale)',
+      blockedAt: new Date().toISOString(),
+    });
+
+    const quotaError = new Error("You've reached your 5-hour usage limit.");
+    const authError = new LLMAuthError('openai', 401, 'invalid key');
+    let call = 0;
+    const processTurn = vi.fn().mockImplementation(async () => {
+      call++;
+      // 第 1 次（启动探测）：配额仍未恢复；第 2 次（到期 probe）：换了 key 但 auth 仍错
+      return makeTurnResult('failed', { error: call === 1 ? quotaError : authError });
+    });
     const runtime = {
       drainInbox: vi.fn().mockResolvedValue({
         injected: [{ role: 'user', content: 'hi' } as Message],
@@ -774,21 +840,78 @@ describe('EventLoop.run', () => {
     const eventLoop = makeEventLoop(runtime, audit);
     await eventLoop.initialize();
 
-    // 300s 推进不会解除 blocked
+    // 启动探测清除 blocked → 首轮 probe 失败（quota）→ 进 quota waiting（1777 曲线），不重建 permanent blocked
     const run1 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(300_000);
+    await vi.advanceTimersByTimeAsync(100);
     await run1;
 
-    expect(processTurn).not.toHaveBeenCalled();
-    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(1);
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(readBlockedState()).toBeUndefined();
+    expect(readRetryState()!.waiting).toMatchObject({ kind: 'cooldown', errorClass: 'quota' });
+    expect(readRetryState()!.llmRetryCount).toBe(0);
 
-    // 再次 run 仍 blocked
+    // 到期 probe（quota waiting 到期仅一次）→ permanent/auth 失败 → 重建 blocked 文件
     const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(300_000);
+    await vi.advanceTimersByTimeAsync(100);
     await run2;
 
-    expect(processTurn).not.toHaveBeenCalled();
-    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(2);
+    expect(processTurn).toHaveBeenCalledTimes(2);
+    const rebuilt = readBlockedState();
+    expect(rebuilt).toBeDefined();
+    expect(rebuilt!.reason).toBe('permanent_provider_error');
+    expect(rebuilt!.requestFingerprint).toBe('stable-fp');
+
+    // gate 同指纹再挡：后续 tick 不真发（启动探测每进程仅一次，不循环）
+    const run3 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run3;
+
+    expect(processTurn).toHaveBeenCalledTimes(2);
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(1);
+  });
+
+  it('phase 1778 startup probe: 无 blocked 启动不受影响（无探测 audit、行为不变）', async () => {
+    vi.useFakeTimers();
+    const audit = createMockAudit();
+    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
+    let drainCall = 0;
+    const runtime = {
+      drainInbox: vi.fn().mockImplementation(async () => {
+        drainCall++;
+        if (drainCall === 1) {
+          return {
+            injected: [{ role: 'user', content: 'hi' } as Message],
+            sources: [{ text: 'hi', type: 'user_chat' }],
+            count: 1,
+            infos: [] as InboxMessage[],
+            addressedHandles: ['handle-1'],
+          };
+        }
+        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
+      }),
+      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
+      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
+      getMessages: vi.fn().mockResolvedValue([] as Message[]),
+      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
+      processTurn,
+      ackHandles: vi.fn().mockResolvedValue(undefined),
+      nackHandles: vi.fn().mockResolvedValue(undefined),
+      reactiveTrim: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn(),
+      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp-1'),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+    } as unknown as Runtime;
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.initialize();
+
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE)).toBe(false);
+
+    const run1 = eventLoop.run();
+    await vi.advanceTimersByTimeAsync(100);
+    await run1;
+
+    expect(processTurn).toHaveBeenCalledTimes(1);
   });
 
   it('LLMInvalidRequestError enters request blocked gate and blocks same fingerprint ticks', async () => {
@@ -1122,7 +1245,7 @@ describe('EventLoop.run', () => {
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(false);
   });
 
-  it('legacy v1 context-blocked-state.json is migrated to v2 llm-request-blocked-state.json', async () => {
+  it('phase 1778: legacy v1 context-blocked-state.json 迁移 v2 后启动探测放行首轮 drain', async () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
     seedLegacyBlockedState({
@@ -1135,13 +1258,20 @@ describe('EventLoop.run', () => {
     });
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
+    let drainCall = 0;
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
+      drainInbox: vi.fn().mockImplementation(async () => {
+        drainCall++;
+        if (drainCall === 1) {
+          return {
+            injected: [{ role: 'user', content: 'hi' } as Message],
+            sources: [{ text: 'hi', type: 'user_chat' }],
+            count: 1,
+            infos: [] as InboxMessage[],
+            addressedHandles: ['handle-1'],
+          };
+        }
+        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
       }),
       getSystemPrompt: vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
@@ -1159,14 +1289,17 @@ describe('EventLoop.run', () => {
     const eventLoop = makeEventLoop(runtime, audit);
     await eventLoop.initialize();
 
+    // 迁移（v2 原子写 + legacy 删）→ 启动探测清除 v2 并放行首轮 drain（1778 语义）
+    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE).length).toBe(1);
+
     const run = eventLoop.run();
     await vi.advanceTimersByTimeAsync(100);
     await run;
 
-    expect(processTurn).not.toHaveBeenCalled();
-    const blocked = readBlockedState();
-    expect(blocked).toMatchObject({ version: 2, reason: 'no_progress', requestFingerprint: 'legacy-fp' });
+    expect(processTurn).toHaveBeenCalledTimes(1);
+    // legacy 已删；v2 被启动探测清除（恢复语义：放行一次验证而非跨重启静默）
     expect(require('fs').existsSync(path.join(agentDir, 'status', 'context-blocked-state.json'))).toBe(false);
+    expect(readBlockedState()).toBeUndefined();
   });
 
   function makePostDrainRuntime(

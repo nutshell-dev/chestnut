@@ -673,6 +673,7 @@
       "eventloop_context_blocked_gate",
       "eventloop_context_blocked_peek_failed",
       "eventloop_context_blocked_released",
+      "eventloop_context_blocked_startup_probe",
       "eventloop_cooldown",
       "eventloop_execution_recovery_delivery_failed",
       "eventloop_execution_recovery_failure_delivered",

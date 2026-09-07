@@ -15,6 +15,8 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   CONTEXT_BLOCKED_PEEK_FAILED: 'eventloop_context_blocked_peek_failed',
   /** Phase 1154: request blocked 状态因 fingerprint 变化解除 */
   CONTEXT_BLOCKED_RELEASED: 'eventloop_context_blocked_released',
+  /** phase 1778: 启动 = 干预信号——initialize 清除 blocked 放行一次探测 */
+  CONTEXT_BLOCKED_STARTUP_PROBE: 'eventloop_context_blocked_startup_probe',
   /** Phase 1158: post-drain pipeline 异常后 nack 恢复并审计 */
   POST_DRAIN_FAILURE_RECOVERED: 'eventloop_post_drain_failure_recovered',
   /** Phase 1396 Step E: 检测到执行停滞，向自身 inbox enqueue 高优 resume（attempt 已落盘） */

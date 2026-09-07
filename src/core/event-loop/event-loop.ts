@@ -112,12 +112,40 @@ export class EventLoop {
   }
 
   /**
-   * 启动时恢复：先加载/校验 LLM-request blocked state（事实阻断不随 clean-stop 消失），
-   * 再加载 LLM retry state（clean stop 后跳过，保持默认值）。
+   * 启动时恢复：先加载/校验 LLM-request blocked state，再按 phase 1778 启动探测
+   * 语义清除（启动 = 干预信号，放行一次探测）；最后加载 LLM retry state
+   * （clean stop 后跳过，保持默认值）。
    */
   async initialize(): Promise<void> {
     this.audit.write(EVENTLOOP_AUDIT_EVENTS.ITERATION, `context=initialize`, `claw_id=${this.clawId}`);
     await this._loadLlmRequestBlockedState();
+    // phase 1778: 启动 = 干预信号——存在 blocked 时放行一次探测（清除后首轮
+    // drain 正常执行；失败由失败路径按新代码分类重建 blocked/waiting）。
+    // 理由：blocked 释放条件只有 fingerprint 变——同 provider 换 key 不在
+    // fingerprint 组成里、手动重启也不构成释放，用户手动操作（改 key/重启/
+    // 等配额恢复）后系统必须有机会验证，而非只能删状态文件或发新消息。
+    // 循环风险已论证：probe 失败 → blocked/waiting 重建，daemon 不崩，
+    // watchdog 不会因 LLM 失败重启 → 无循环。
+    if (this.llmRequestBlocked) {
+      const previous = this.llmRequestBlocked;
+      let cleared = false;
+      try {
+        this._clearLlmRequestBlockedState();
+        cleared = true;
+      } catch {
+        // silent: 清除失败已由 _clearLlmRequestBlockedState 内部 FATAL 审计暴露——
+        // fail-closed 保留 blocked（文件与内存均未被清），首轮 gate 仍 fail-closed。
+      }
+      if (cleared) {
+        // 独立事件（非 CONTEXT_BLOCKED_RELEASED）：启动探测与 fingerprint 变化释放
+        // 可区分；无 new fingerprint 列——清除后首轮按当前事实 drain。
+        this.audit.write(
+          EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE,
+          `old=${previous.requestFingerprint}`,
+          `reason=${previous.reason}`,
+        );
+      }
+    }
     const consumeMarker = (fs: FileSystem): boolean => {
       try {
         if (!fs.existsSync('clean-stop')) return false;
