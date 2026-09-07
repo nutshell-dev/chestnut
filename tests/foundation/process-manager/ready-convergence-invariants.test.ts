@@ -133,3 +133,31 @@ describe('ready convergence single-owner architecture (phase 1282 Step C)', () =
     expect(indexSrc).not.toContain('awaitReadyConvergence');
   });
 });
+
+describe('phase 1775: winner probe failure 终局分类 invariants', () => {
+  const ensureSrc = fs.readFileSync(path.join(PM_DIR, 'ensure-running.ts'), 'utf-8');
+  const typesSrc = fs.readFileSync(path.join(PM_DIR, 'types.ts'), 'utf-8');
+
+  it('probe 异常不压平为 dead：ensure-running 持有三分支 probeWinnerAlive（alive/dead/unavailable）', () => {
+    expect(ensureSrc).toContain("kind: 'unavailable'");
+    // ESRCH = 死亡终局（对齐 1773 liveness owner）；非 ESRCH 保留原始 error identity
+    expect(ensureSrc).toMatch(/catch \(error\)[\s\S]*?ESRCH[\s\S]*?\{ kind: 'unavailable', error \}/);
+  });
+
+  it('winner_probe_unavailable 是独立 reason：不归 winner_died、precheck fail-closed 不 spawn', () => {
+    expect(typesSrc).toMatch(/ProcessWinnerConvergenceReason =\s*\n\s*\| 'winner_died'\s*\n\s*\| 'winner_probe_unavailable'/);
+    expect(ensureSrc).toContain("'winner_probe_unavailable'");
+    // precheck 段（readyActivePid → WinnerProbeResult 定义之间）含 unavailable 分支且不含 spawnProcess
+    const precheckSegment = ensureSrc.slice(
+      ensureSrc.indexOf('function readyActivePid'),
+      ensureSrc.indexOf('type WinnerProbeResult'),
+    );
+    expect(precheckSegment).toContain('winner_probe_unavailable');
+    expect(precheckSegment).not.toContain('spawnProcess');
+  });
+
+  it('不再存在 boolean probeAlive 折叠 helper（catch 吞错返回裸 false）', () => {
+    expect(ensureSrc).not.toContain('function probeAlive');
+    expect(ensureSrc).not.toMatch(/catch \{\s*return false;/);
+  });
+});

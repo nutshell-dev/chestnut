@@ -180,7 +180,9 @@ export type LivenessResult =
  * Phase 1282 Step A: join foreign winner 收敛失败的 typed reason（discriminant）。
  * caller 不解析 message、reason 编译期可检。
  *
- * - winner_died:     spawning 内 winner 进程已死（PID 事实存在但 liveness 失败）
+ * - winner_died:              spawning/active 内 winner 进程已死（PID 事实存在但 liveness 失败/ESRCH）
+ * - winner_probe_unavailable: phase 1775 新增：probe 系统故障（EPERM/未知错误）≠ winner 死亡；
+ *                             原始 error 保留为 cause，caller 不得归类 died（误判 dead → double-spawn）
  * - winner_failed:   winner generation 写了 failure 事实
  * - winner_retired:  winner generation 已被 retire（保留磁盘位置）
  * - winner_replaced: spawning/active slot 被另一 generation 占据；不得跟随新 winner
@@ -189,6 +191,7 @@ export type LivenessResult =
  */
 export type ProcessWinnerConvergenceReason =
   | 'winner_died'
+  | 'winner_probe_unavailable'
   | 'winner_failed'
   | 'winner_retired'
   | 'winner_replaced'
@@ -212,8 +215,10 @@ export class ProcessWinnerConvergenceError extends Error {
     reason: ProcessWinnerConvergenceReason,
     generationId: string,
     message?: string,
+    // phase 1775：probe 系统故障等场景保留原始 error identity（evidence），不压进 message 丢失
+    options?: { cause?: unknown },
   ) {
-    super(message ?? `Winner generation ${generationId} for "${daemonDir}" did not converge to ready (${reason})`);
+    super(message ?? `Winner generation ${generationId} for "${daemonDir}" did not converge to ready (${reason})`, options);
     this.name = 'ProcessWinnerConvergenceError';
     this.daemonDir = daemonDir;
     this.reason = reason;

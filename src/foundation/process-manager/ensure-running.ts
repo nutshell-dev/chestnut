@@ -11,8 +11,9 @@
  *   2. spawn      — 无 winner → 本方走既有 spawnProcess（含全部 precheck/commit）
  *   3. join       — 合法 ProcessSpawnConflictError（active_owner / spawn_in_progress /
  *                   commit_lost）→ 等待 error 携带的 exact generation 收敛：
- *                   ready → joined；died / failed / retired / replaced / vanished →
- *                   typed ProcessWinnerConvergenceError（不静默吞 conflict、不跟随新 winner）
+ *                   ready → joined；died / probe_unavailable / failed / retired /
+ *                   replaced / vanished → typed ProcessWinnerConvergenceError
+ *                   （不静默吞 conflict、不跟随新 winner）
  *
  * join 只依据磁盘事实（generation 位置 + PID/ready/failure 记录 + liveness probe）
  * 收敛，不依赖内存 promise 或固定 sleep 猜成功；与 spawn 共用同一 BOOT_DEADLINE_MS
@@ -23,6 +24,7 @@ import {
   isAlive as defaultL1IsAlive,
   makeProcessStartTime,
 } from '../process-exec/index.js';
+import { formatErr } from '../node-utils/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { BOOT_DEADLINE_MS } from './constants.js';
 import {
@@ -104,20 +106,55 @@ function readyActivePid(
   if (ready.status !== 'ok' || ready.record.generation_id !== generationId) return undefined;
   if (pid.record.pid !== ready.record.pid) return undefined;
 
-  return probeAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time)
-    ? pid.record.pid
-    : undefined;
+  const probe = probeWinnerAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time);
+  if (probe.kind === 'unavailable') {
+    // phase 1775 precheck fail-closed：probe 系统故障 ≠ winner 死亡——无法确认
+    // not-ready 时继续 spawn 有 double-spawn 风险，直接 typed 失败（保留原始 error）。
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `generation=${generationId}`,
+      `reason=winner_probe_unavailable`,
+      `detail=${ctx.audit.message(`precheck probe unavailable: ${formatErr(probe.error)}`)}`,
+    );
+    throw new ProcessWinnerConvergenceError(
+      daemonDir,
+      'winner_probe_unavailable',
+      generationId,
+      `Active winner generation ${generationId} for "${daemonDir}" readiness probe unavailable (winner_probe_unavailable: ${formatErr(probe.error)})`,
+      { cause: probe.error },
+    );
+  }
+  return probe.kind === 'alive' ? pid.record.pid : undefined;
 }
 
-/** liveness 直探（同 ready.ts 约定：probe 抛错按不存活处理，不升级为状态损坏）。 */
-function probeAlive(ctx: ProcessManagerContext, pid: number, startTime?: string): boolean {
+/**
+ * phase 1775：winner liveness probe 三分支（owner-local，不 export）。
+ * - alive：probe 返回 true；
+ * - dead：probe 返回 false，或抛 ESRCH（pid 已消失 = 死亡终局，同 phase 1773 liveness owner）；
+ * - unavailable：非 ESRCH 异常（EPERM/未知错误）保留原始 error identity——probe 系统故障
+ *   ≠ winner 死亡；压平为 dead 会导致错误接管/foreign winner 实际存活时 double-spawn。
+ */
+type WinnerProbeResult =
+  | { kind: 'alive' }
+  | { kind: 'dead' }
+  | { kind: 'unavailable'; error: unknown };
+
+function probeWinnerAlive(ctx: ProcessManagerContext, pid: number, startTime?: string): WinnerProbeResult {
   try {
     return (ctx.l1IsAlive ?? defaultL1IsAlive)(
       pid,
       startTime !== undefined ? makeProcessStartTime(startTime) : undefined,
-    );
-  } catch {
-    return false;
+    )
+      ? { kind: 'alive' }
+      : { kind: 'dead' };
+  } catch (error) {
+    // ESRCH = pid 已消失（死亡终局，同 phase 1773 liveness owner 约定）
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+      return { kind: 'dead' };
+    }
+    // 其他 probe 异常 = 系统故障不压平：保留原始 error identity（≠ winner 死亡）
+    return { kind: 'unavailable', error };
   }
 }
 
@@ -127,9 +164,11 @@ function probeAlive(ctx: ProcessManagerContext, pid: number, startTime?: string)
  * 每轮按 generation 单向 move 方向（spawning → active → retired）从上游向下游
  * 读取位置与事实，避免「spawning 已 move 走、active 尚未读取」的双 none 误判：
  *   - spawning/<expected>：failure → winner_failed；ready 已写但进程死 → winner_died；
+ *     probe 系统故障（非 ESRCH）→ winner_probe_unavailable（phase 1775，不归 died）；
  *     PID/ready 未齐属合法窗口 → 继续等待（不把「PID 事实稍后到达」当损坏）
  *   - active/<expected>：三事实交叉验证 + liveness 通过 → joined；
- *     事实齐但进程死 → winner_died；事实未齐（move 中途瞬时视角）→ 继续等待
+ *     事实齐但进程死 → winner_died；probe 系统故障 → winner_probe_unavailable；
+ *     事实未齐（move 中途瞬时视角）→ 继续等待
  *   - retired/<expected>：带 failure 事实 → winner_failed，否则 → winner_retired
  *   - spawning/active 被其他 generation 占据 → winner_replaced（不得跟随新 winner）
  *   - 任何 slot 都无此 generation → winner_vanished（异常终局，显式失败）
@@ -141,7 +180,7 @@ async function joinWinner(
 ): Promise<EnsureRunningOutcome> {
   const joinStart = Date.now();
 
-  const fail = (reason: ProcessWinnerConvergenceReason, detail: string): never => {
+  const fail = (reason: ProcessWinnerConvergenceReason, detail: string, cause?: unknown): never => {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED,
       `daemon_dir=${daemonDir}`,
@@ -154,6 +193,7 @@ async function joinWinner(
       reason,
       generationId,
       `Winner generation ${generationId} for "${daemonDir}" did not converge to ready (${reason}: ${detail})`,
+      cause !== undefined ? { cause } : undefined,
     );
   };
 
@@ -182,12 +222,20 @@ async function joinWinner(
         throw new ProcessGenerationStateError(daemonDir, 'spawning', 'inspect', ready.cause);
       }
       if (ready.status === 'ok') {
-        // child 已写 ready、activate 即将发生；进程必须仍存活，否则是死 winner
+        // child 已写 ready、activate 即将发生；probe 系统故障（非 ESRCH）不归 winner_died
+        const probe = probeWinnerAlive(
+          ctx,
+          ready.record.pid,
+          ready.record.start_time ?? (pid.status === 'ok' ? pid.record.start_time : undefined),
+        );
+        if (probe.kind === 'unavailable') {
+          fail('winner_probe_unavailable', `winner probe unavailable: ${formatErr(probe.error)}`, probe.error);
+        }
         const alive =
           pid.status === 'ok' &&
           pid.record.generation_id === generationId &&
           pid.record.pid === ready.record.pid &&
-          probeAlive(ctx, ready.record.pid, ready.record.start_time ?? pid.record.start_time);
+          probe.kind === 'alive';
         if (!alive) {
           fail('winner_died', 'winner wrote ready fact in spawning but process is not alive');
         }
@@ -216,7 +264,13 @@ async function joinWinner(
         ready.record.generation_id === generationId &&
         pid.record.pid === ready.record.pid
       ) {
-        if (!probeAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time)) {
+        // phase 1775：probe 系统故障（非 ESRCH）不归 winner_died——误判 dead 会
+        // 在 foreign winner 实际存活时触发 respawn/double-spawn。
+        const probe = probeWinnerAlive(ctx, pid.record.pid, pid.record.start_time ?? ready.record.start_time);
+        if (probe.kind === 'unavailable') {
+          fail('winner_probe_unavailable', `winner probe unavailable: ${formatErr(probe.error)}`, probe.error);
+        }
+        if (probe.kind === 'dead') {
           fail('winner_died', 'winner active facts complete but process is not alive');
         }
         ctx.audit.write(

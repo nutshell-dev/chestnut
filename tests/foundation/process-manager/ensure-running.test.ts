@@ -4,7 +4,8 @@
  *  - spawned：无 winner → 本方 spawn 成功
  *  - joined：三种合法 conflict（active_owner / spawn_in_progress / commit_lost）
  *    等待 exact foreign winner 至 ready，不自行二次 spawn
- *  - typed convergence failure：winner_died / winner_failed / winner_retired /
+ *  - typed convergence failure：winner_died / winner_probe_unavailable（phase 1775：probe
+ *    系统故障 ≠ winner 死亡）/ winner_failed / winner_retired /
  *    winner_replaced / winner_vanished，均携带 expected generation
  *  - malformed 持久状态沿 ProcessGenerationStateError fail-closed，不降级为 conflict
  *  - 两个并发 ensureRunning 恰一 spawn 一 join
@@ -294,6 +295,150 @@ describe('ensureRunning', () => {
     expect(err.reason).toBe('winner_died');
     expect(err.generationId).toBe(generationId);
     expect(events.some((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED)).toBe(true);
+  });
+
+  // ----- phase 1775: winner probe failure 终局分类（probe 系统故障 ≠ winner 死亡） -----
+
+  function epermError(): NodeJS.ErrnoException {
+    const err = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
+    err.code = 'EPERM';
+    return err;
+  }
+
+  function esrchError(): NodeJS.ErrnoException {
+    const err = new Error('ESRCH: no such process') as NodeJS.ErrnoException;
+    err.code = 'ESRCH';
+    return err;
+  }
+
+  it('phase 1775: precheck probe unavailable（EPERM）→ winner_probe_unavailable，fail-closed 不 spawn', async () => {
+    const { audit, events } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'ensure-precheck-unavailable');
+    const generationId = randomUUID();
+    writeActiveGenerationSync(daemonDir, { generationId, pid: process.pid });
+
+    const injected = epermError();
+    const ctx = defaultCtx(nodeFs, audit, { l1IsAlive: vi.fn().mockImplementation(() => { throw injected; }) });
+    const err = await ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-precheck-unavailable')).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ProcessWinnerConvergenceError);
+    expect(err.reason).toBe('winner_probe_unavailable');
+    expect(err.generationId).toBe(generationId);
+    // 原始 error identity 保留（不压进 message 丢失）
+    expect(err.cause).toBe(injected);
+    // fail-closed：不得继续 spawn（无法确认 not-ready 时 spawn 有 double-spawn 风险）
+    expect(ctx.spawnDetached).not.toHaveBeenCalled();
+    const failed = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed).toContain('reason=winner_probe_unavailable');
+    expect(failed).not.toContain('reason=winner_died');
+  });
+
+  it('phase 1775: probe ESRCH 归类 dead（join active 分支，对齐 1773 liveness owner）→ winner_died', async () => {
+    const { audit, events } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'ensure-esrch-is-dead');
+    const generationId = randomUUID();
+    // active owner 存活但尚未 ready：precheck 不探（ready 事实缺失）；
+    // spawn 的 conflict 探测（spawn.ts L90 直探无 catch）由 winner 补 ready 后触发 conflict；
+    // join active 分支 probe 抛 ESRCH → 死亡终局 → winner_died。
+    const dir = getActiveDir(daemonDir);
+    fsSync.mkdirSync(dir, { recursive: true });
+    fsSync.writeFileSync(path.join(dir, 'generation.json'), JSON.stringify({
+      schema_version: 1, generation_id: generationId, daemon_dir: daemonDir,
+      parent_pid: process.pid, created_at: new Date().toISOString(),
+    }), 'utf-8');
+    fsSync.writeFileSync(path.join(dir, 'pid.json'), JSON.stringify({
+      schema_version: 1, generation_id: generationId, pid: process.pid,
+      created_at: new Date().toISOString(),
+    }), 'utf-8');
+
+    const realL1 = vi.fn().mockImplementation(() => {
+      if (!fsSync.existsSync(path.join(dir, READY_FILE))) {
+        fsSync.writeFileSync(path.join(dir, READY_FILE), JSON.stringify({
+          schema_version: 1, generation_id: generationId, pid: process.pid,
+          created_at: new Date().toISOString(),
+        }), 'utf-8');
+        return true;
+      }
+      throw esrchError();
+    });
+    const ctx = defaultCtx(nodeFs, audit, { l1IsAlive: realL1 });
+    const err = await ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-esrch-is-dead')).catch((e) => e);
+
+    // ESRCH = pid 已消失（死亡终局），按 winner_died 交付而非 probe_unavailable
+    expect(err).toBeInstanceOf(ProcessWinnerConvergenceError);
+    expect(err.reason).toBe('winner_died');
+    expect(err.generationId).toBe(generationId);
+    const failed = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed).toContain('reason=winner_died');
+  });
+
+  it('phase 1775: join spawning 分支 probe unavailable → winner_probe_unavailable（保留 error identity）', async () => {
+    const { audit, events } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'ensure-join-spawning-unavailable');
+    const generationId = randomUUID();
+    writeSpawningGenerationSync(daemonDir, { generationId, pid: process.pid });
+    await fs.writeFile(path.join(getSpawningDir(daemonDir), READY_FILE), JSON.stringify({
+      schema_version: 1, generation_id: generationId, pid: process.pid,
+      created_at: new Date().toISOString(),
+    }), 'utf-8');
+
+    const injected = epermError();
+    const ctx = defaultCtx(nodeFs, audit, { l1IsAlive: vi.fn().mockImplementation(() => { throw injected; }) });
+    const err = await ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-spawning-unavailable')).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ProcessWinnerConvergenceError);
+    expect(err.reason).toBe('winner_probe_unavailable');
+    expect(err.generationId).toBe(generationId);
+    expect(err.cause).toBe(injected);
+    const failed = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed).toContain('reason=winner_probe_unavailable');
+    expect(failed).not.toContain('reason=winner_died');
+  });
+
+  it('phase 1775: join active 分支 probe unavailable → winner_probe_unavailable（不触发 respawn/double-spawn）', async () => {
+    const { audit, events } = makeAudit();
+    const daemonDir = testClawDaemonDir(tempDir, 'ensure-join-active-unavailable');
+    const generationId = randomUUID();
+    // active owner 存活但尚未 ready：precheck 不探（ready 事实缺失），spawn 的 conflict 探测时 winner 补 ready
+    const dir = getActiveDir(daemonDir);
+    fsSync.mkdirSync(dir, { recursive: true });
+    fsSync.writeFileSync(path.join(dir, 'generation.json'), JSON.stringify({
+      schema_version: 1, generation_id: generationId, daemon_dir: daemonDir,
+      parent_pid: process.pid, created_at: new Date().toISOString(),
+    }), 'utf-8');
+    fsSync.writeFileSync(path.join(dir, 'pid.json'), JSON.stringify({
+      schema_version: 1, generation_id: generationId, pid: process.pid,
+      created_at: new Date().toISOString(),
+    }), 'utf-8');
+
+    const injected = epermError();
+    const realL1 = vi.fn().mockImplementation(() => {
+      if (!fsSync.existsSync(path.join(dir, READY_FILE))) {
+        // winner child 补 ready 事实（首次 probe = spawn conflict 探测），随后 probe 持续系统故障
+        fsSync.writeFileSync(path.join(dir, READY_FILE), JSON.stringify({
+          schema_version: 1, generation_id: generationId, pid: process.pid,
+          created_at: new Date().toISOString(),
+        }), 'utf-8');
+        return true;
+      }
+      throw injected;
+    });
+    const ctx = defaultCtx(nodeFs, audit, { l1IsAlive: realL1 });
+
+    const err = await ensureRunning(ctx, daemonDir, spawnOptionsFor(tempDir, 'ensure-join-active-unavailable')).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ProcessWinnerConvergenceError);
+    expect(err.reason).toBe('winner_probe_unavailable');
+    expect(err.generationId).toBe(generationId);
+    expect(err.cause).toBe(injected);
+    expect(ctx.spawnDetached).not.toHaveBeenCalled();
+    const failed = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ENSURE_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed).toContain('reason=winner_probe_unavailable');
+    expect(failed).not.toContain('reason=winner_died');
   });
 
   it('fails winner_failed with preserved reason when winner records failure fact', async () => {
