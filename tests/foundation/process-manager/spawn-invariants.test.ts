@@ -39,10 +39,13 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
 });
 
-// phase 1779: orphan cleanup 故障注入——findProcessesDetailed 经 hoisted impl 可控；
-// impl 为 undefined 时 call-through 真实实现（既有用例的 pgrep 行为不变）。
+// phase 1779: orphan cleanup 故障注入——findProcessesDetailed 经 hoisted impl 可控。
+// 默认确定性空列表（无 orphan）：phase 1779 后 enumerate 是 fail-closed spawn gate，
+// call-through 真实 pgrep 会让无 pgrep/受限环境下全部 happy-path 用例以
+// ProcessListUnavailable 误失败（2026-09-07 验证事故）。需要真实枚举的用例
+// 显式置 undefined（call-through 真实实现）。
 const orphanFind = vi.hoisted(() => ({
-  impl: undefined as undefined | (() => Array<{ pid: number; command: string }>),
+  impl: (() => []) as undefined | (() => Array<{ pid: number; command: string }>),
 }));
 vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
@@ -646,7 +649,7 @@ describe('spawn', () => {
     });
 
     afterEach(async () => {
-      orphanFind.impl = undefined;
+      orphanFind.impl = () => [];  // 恢复默认（确定性空列表）
       await cleanupTempDir(tempDir);
     });
 

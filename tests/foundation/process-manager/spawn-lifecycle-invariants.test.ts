@@ -31,9 +31,12 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
 });
 
 // phase 1779: cleanup 后 identity 边界测试需控制 orphan 复列——findProcessesDetailed
-// 经 hoisted impl 可控；impl 为 undefined 时 call-through 真实实现（既有用例不变）。
+// 经 hoisted impl 可控。默认确定性空列表（无 orphan）：phase 1779 后 enumerate 是
+// fail-closed spawn gate，call-through 真实 pgrep 会让无 pgrep/受限环境下全部
+// happy-path 用例以 ProcessListUnavailable 误失败（2026-09-07 验证事故）。
+// 需要真实枚举的用例显式置 undefined（call-through 真实实现）。
 const orphanFind = vi.hoisted(() => ({
-  impl: undefined as undefined | (() => Array<{ pid: number; command: string }>),
+  impl: (() => []) as undefined | (() => Array<{ pid: number; command: string }>),
 }));
 vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
@@ -383,7 +386,7 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     expect(pid).toBe(FAKE_LIVE_PID);
     expect(killSpy).toHaveBeenCalledWith(REUSED_PID, 'TERM');
     expect(events.map((e) => e[0])).not.toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
-    orphanFind.impl = undefined;
+    orphanFind.impl = () => [];  // 恢复默认（确定性空列表）
   });
 
   it('phase 1779: command 无 daemonDir token 的进程不 kill 不 verify（sibling 误伤边界）→ not_needed 放行', async () => {
@@ -406,6 +409,6 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     expect(killSpy).not.toHaveBeenCalled();  // sibling 未被误杀
     expect(events.map((e) => e[0])).toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_MATCH_SKIPPED);
     expect(events.map((e) => e[0])).not.toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
-    orphanFind.impl = undefined;
+    orphanFind.impl = () => [];  // 恢复默认（确定性空列表）
   });
 });
