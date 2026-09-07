@@ -13,7 +13,7 @@ import { createClawPermissionChecker } from '../../src/core/permissions/claw-per
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createOutboxWriter, type OutboxWriter } from '../../src/foundation/messaging/index.js';
-import { makeAudit } from '../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
 describe('Builtin Tools (slow outliers)', () => {
@@ -37,7 +37,7 @@ describe('Builtin Tools (slow outliers)', () => {
       profile: 'full',
       fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
     });
   });
 

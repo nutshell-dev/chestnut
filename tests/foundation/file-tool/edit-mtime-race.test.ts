@@ -12,6 +12,7 @@ import * as path from 'path';
 import { editTool } from '../../../src/foundation/file-tool/edit.js';
 import { multiEditTool } from '../../../src/foundation/file-tool/multi_edit.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { makeMockAudit } from '../../helpers/audit.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -33,7 +34,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: realFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
     });
   });
 
@@ -73,7 +74,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
     });
 
     const result = await editTool.execute({
@@ -118,7 +119,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
     });
 
     const result = await multiEditTool.execute({

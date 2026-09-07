@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { makeMockAudit } from '../../helpers/audit.js';
 import { PathNotInClawSpaceError } from '../../../src/core/permissions/errors.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
@@ -28,7 +29,7 @@ describe('claw-permissions symlink escape (phase 951)', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  const makeChecker = () => createClawPermissionChecker({ clawDir, fs: new NodeFileSystem({ baseDir: clawDir }) });
+  const makeChecker = () => createClawPermissionChecker({ audit: makeMockAudit(), clawDir, fs: new NodeFileSystem({ baseDir: clawDir }) });
 
   it.skipIf(process.platform === 'win32')(
     'rejects symlink-via-escape (readAccess)',

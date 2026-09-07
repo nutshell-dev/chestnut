@@ -7,6 +7,7 @@ import * as path from 'path';
 
 import { editCommit } from '../../../src/foundation/file-tool/edit-commit.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { makeMockAudit } from '../../helpers/audit.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -38,7 +39,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
     });
   });
 
@@ -103,7 +104,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       auditWriter,
     });
 
@@ -156,7 +157,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       auditWriter,
     });
 
@@ -219,7 +220,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       auditWriter,
     });
 
@@ -276,7 +277,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       auditWriter,
     });
 
@@ -320,7 +321,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       auditWriter,
     });
 

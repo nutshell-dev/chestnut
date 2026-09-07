@@ -77,6 +77,12 @@ const BASE_WRITABLE_PATHS = [
   'logs',
 ];
 
+/**
+ * Phase 1783: 权限 deny / non-strict bypass 事件必须可观察——factory 只要求最小
+ * audit write capability（不依赖完整 AuditLog，不引入 CLI/装配语义）。
+ */
+export type PermissionAuditSink = Pick<AuditLog, 'write'>;
+
 interface ClawPermissionOptions {
   /** Base directory for the claw */
   clawDir: string;
@@ -87,8 +93,12 @@ interface ClawPermissionOptions {
   /** Whether to enforce strict mode (default: true) */
   strict?: boolean;
 
-  /** Optional audit log for permission events */
-  audit?: AuditLog;
+  /**
+   * Required audit sink for permission events (phase 1783)。
+   * deny 与 non-strict bypass 属安全事件，不允许 optional silent path——
+   * 缺失 sink 在 createClawPermissionChecker 构造时显式抛错。
+   */
+  audit: PermissionAuditSink;
 
   /** FileSystem for path resolution (symlink traversal guard) */
   fs?: FileSystem;
@@ -184,7 +194,8 @@ function checkReadPermission(
   // Non-strict mode allows everything
   if (!strict) {
     // phase 713: raw msg 改 key= prefix、forensic 解析可 join reason 维度
-    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED, 'reason=non_strict_mode_bypass');
+    // phase 1783: audit 必需 sink，非 optional chaining
+    audit.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED, 'reason=non_strict_mode_bypass');
     return;
   }
 
@@ -197,7 +208,7 @@ function checkReadPermission(
   }
 
   // Denied
-  options.audit?.write(
+  options.audit.write(
     PERMISSION_AUDIT_EVENTS.READ_PATH_OUTSIDE_CLAW_SPACE,
     `path=${targetPath}`,
     `clawDir=${clawDir}`,
@@ -224,7 +235,8 @@ function checkWritePermission(
   // Non-strict mode allows everything
   if (!strict) {
     // phase 713: raw msg 改 key= prefix、forensic 解析可 join reason 维度
-    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED, 'reason=non_strict_mode_bypass');
+    // phase 1783: audit 必需 sink，非 optional chaining
+    audit.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED, 'reason=non_strict_mode_bypass');
     return;
   }
 
@@ -240,7 +252,7 @@ function checkWritePermission(
 
     // Check system paths (read-only)
     if (isSystemPath) {
-      options.audit?.write(
+      options.audit.write(
         PERMISSION_AUDIT_EVENTS.WRITE_SYSTEM_READONLY,
         `path=${targetPath}`,
       );
@@ -256,7 +268,7 @@ function checkWritePermission(
     // 至此 isSystemPath=false（上方 throw 已 cover true）+ isWritablePath=false
     // （上方 return 已 cover true）—— 原 `if (!isSystemPath && !isWritablePath)` 永真、
     // 后跟 unreachable return —— 删冗余条件、直接 throw。
-    options.audit?.write(
+    options.audit.write(
       PERMISSION_AUDIT_EVENTS.WRITE_OUTSIDE_ALLOWLIST,
       `path=${targetPath}`,
     );
@@ -264,7 +276,7 @@ function checkWritePermission(
   }
 
   // Denied
-  options.audit?.write(
+  options.audit.write(
     PERMISSION_AUDIT_EVENTS.WRITE_PATH_OUTSIDE_CLAW_SPACE,
     `path=${targetPath}`,
     `clawDir=${clawDir}`,
@@ -278,6 +290,13 @@ function checkWritePermission(
 export function createClawPermissionChecker(
   options: ClawPermissionOptions,
 ): PermissionChecker {
+  // phase 1783: deny / non-strict bypass 事件必须可观察——audit sink 是装配期必需
+  // 契约；缺失（含 JS / as any 绕过编译期）在构造时显式失败，不留 optional silent path。
+  if (!options.audit || typeof options.audit.write !== 'function') {
+    throw new Error(
+      'createClawPermissionChecker: audit sink is required — permission deny/bypass events must be observable',
+    );
+  }
   return {
     checkRead: (targetPath: string) => checkReadPermission(targetPath, options),
     checkWrite: (targetPath: string) => checkWritePermission(targetPath, options),

@@ -18,7 +18,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createOutboxWriter, OutboxWriter } from '../../../src/foundation/messaging/index.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { ToolExecutorImpl } from '../../../src/foundation/tools/executor.js';
-import { makeAudit } from '../../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 function isAlivePid(pid: number): boolean {
@@ -50,7 +50,7 @@ describe('exec tool real timeout', () => {
       profile: 'full',
       fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       auditWriter: audit.audit,
     });
   });

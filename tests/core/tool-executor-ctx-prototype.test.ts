@@ -13,7 +13,7 @@ import { readTool, lsTool, searchTool } from '../../src/foundation/file-tool/ind
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { makeAudit } from '../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../helpers/audit.js';
 import { MOTION_CLAW_ID } from '../../src/core/claw-topology/index.js';
 import * as fsp from 'fs/promises';
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
@@ -59,7 +59,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
       fs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       auditWriter: makeAudit().audit,
-      permissionChecker: createClawPermissionChecker({ clawDir: tmpDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tmpDir, strict: true }),
     });
   }
 
@@ -125,7 +125,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
       fs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       auditWriter: makeAudit().audit,
-      permissionChecker: createClawPermissionChecker({ clawDir: tmpDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tmpDir, strict: true }),
     });
     const result = await executor.execute({
       toolName: 'read',

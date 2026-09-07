@@ -27,7 +27,7 @@ import { FILE_TOOL_AUDIT_EVENTS } from '../../../src/foundation/file-tool/audit-
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { makeAudit } from '../../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
 
 /**
  * Mtime tick guard (15ms): 等 OS mtime 精度 tick 跨过、保 fs.stat 看到 mtime 变化.
@@ -52,7 +52,7 @@ async function makeCtx(clawDir: string, persist: boolean): Promise<E2eCtx> {
     profile: 'full',
     fs: nfs,
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-    permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
+    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
     auditWriter: audit.audit,
     persistReadFileState: persist,
     maxSteps: 20,

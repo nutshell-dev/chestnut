@@ -37,7 +37,7 @@ import type { DialogStore } from '../../../src/foundation/dialog-store/index.js'
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { makeAudit } from '../../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
 
 interface E2eCtx {
   ctx: ExecContextImpl;
@@ -56,7 +56,7 @@ async function makeCtx(clawDir: string): Promise<E2eCtx> {
     profile: 'full',
     fs: nfs,
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-    permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
+    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
     auditWriter: audit.audit,
     persistReadFileState: true,
     maxSteps: 20,

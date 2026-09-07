@@ -13,6 +13,7 @@ import { searchTool } from '../../../src/foundation/file-tool/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { makeMockAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { SEARCH_PREVIEW_LIMIT } from '../../../src/foundation/file-tool/constants.js';
 
@@ -25,7 +26,7 @@ function makeCtx(clawDir: string) {
     syncDir: path.join(clawDir, 'tasks/sync'),
     profile: 'full',
     fs: mockFs,
-    permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
+    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
   });
 }
 

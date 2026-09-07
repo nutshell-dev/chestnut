@@ -19,7 +19,7 @@ import { CLAWSPACE_DIR } from '../../../src/foundation/claw-identity/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { READ_STATE_FILE } from '../../../src/foundation/file-tool/file-state-persist.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { makeAudit } from '../../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
 
 interface TestTopology {
   resolve: (clawId: string) => { kind: 'local'; clawDir: string };
@@ -56,7 +56,7 @@ describe('cross-claw read-state persistence ratchet (Phase 1229 Step B)', () => 
       profile: 'full',
       fs: motionFs,
       fsFactory,
-      permissionChecker: createClawPermissionChecker({ clawDir: motionDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: motionDir, strict: true }),
       auditWriter: audit.audit,
       persistReadFileState: true,
       maxSteps: 20,

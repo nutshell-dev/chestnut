@@ -24,7 +24,7 @@ import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
-import { makeAudit } from '../helpers/audit.js';
+import { makeAudit, makeMockAudit } from '../helpers/audit.js';
 
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
@@ -63,7 +63,7 @@ describe('Builtin Tools', () => {
       profile: 'full',
       fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
     });
 
   });
@@ -878,7 +878,7 @@ describe('Builtin Tools', () => {
         fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         signal: controller.signal,
-        permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       });
 
       const result = await execTool.execute({ command: 'echo should-not-run' }, abortCtx);
@@ -912,7 +912,7 @@ describe('Builtin Tools', () => {
         profile: 'full',
         fs: mockFs,
         fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-        permissionChecker: createClawPermissionChecker({ clawDir: path.join(tempDir, 'nonexistent-dir-xyz'), strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: path.join(tempDir, 'nonexistent-dir-xyz'), strict: true }),
       });
 
       const result = await execTool.execute({ command: 'echo hi' }, missingDirCtx);
@@ -958,7 +958,7 @@ describe('Builtin Tools', () => {
         callerType: 'spawn_subagent',
         fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-        permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       });
       const result = await execTool.execute({ command: 'pwd' }, subagentCtx);
       expect(result.success).toBe(true);
@@ -979,7 +979,7 @@ describe('Builtin Tools', () => {
         callerType: 'spawn_subagent',
         fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-        permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       });
 
       const result = await writeTool.execute(
@@ -1003,7 +1003,7 @@ describe('Builtin Tools', () => {
         callerType: 'spawn_subagent',
         fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-        permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       });
 
       const result = await writeTool.execute(
@@ -1065,7 +1065,7 @@ describe('Builtin Tools', () => {
         fs: mockFs,
         fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         outboxWriter,
-        permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
       });
 
       const spawnToolWithTaskSystem = createSpawnTool({ taskSystem: { schedule: mockSchedule }, subagentMaxSteps: 42 });

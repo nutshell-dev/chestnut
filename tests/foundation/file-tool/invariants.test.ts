@@ -18,6 +18,7 @@ import { promises as fs } from 'fs';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { makeMockAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 
@@ -126,7 +127,7 @@ describe('search-signal-observance', () => {
         syncDir: path.join(clawDir, 'tasks/sync'),
         profile: 'full',
         fs: mockFs,
-        permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
       });
 
       const result = await searchTool.execute(
@@ -156,7 +157,7 @@ describe('search-signal-observance', () => {
         profile: 'full',
         fs: mockFs,
         signal: controller.signal,
-        permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
       });
 
       const result = await searchTool.execute(
