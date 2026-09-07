@@ -27,6 +27,8 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   EXECUTION_RECOVERY_FAILURE_DELIVERED: 'eventloop_execution_recovery_failure_delivered',
   /** Phase 1396 Step E: failure 交付失败，保留 record 下 tick 重试交付 */
   EXECUTION_RECOVERY_DELIVERY_FAILED: 'eventloop_execution_recovery_delivery_failed',
+  /** Phase 1803 Step B: failure 交付被永久拒绝（rejected），保留 record 证据并上抛 */
+  EXECUTION_RECOVERY_DELIVERY_REJECTED: 'eventloop_execution_recovery_delivery_rejected',
 } as const;
 
 export const LOOP_ITERATION_TYPES = {

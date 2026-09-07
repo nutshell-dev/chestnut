@@ -528,19 +528,39 @@ export interface ContractExecutionFailure {
  * watchdog) to report execution failure. Implemented by ContractSystem; this is
  * the only path through which execution failure becomes a terminal state.
  *
- * Phase 1398 Step B: resolve/reject is the only reporter-visible result.
- * Contract lifecycle outcomes (committed / already_committed / lost_to_state /
- * retryable_failure) never cross this boundary: resolve means every relevant
- * active contract reached a terminal winner; reject means the report is not
- * closed this round and the reporter keeps its evidence and retries.
+ * Phase 1803 Step B: 返回 exhaustive ExecutionFailureReportOutcome。
+ * Contract lifecycle outcome（committed / already_committed / lost_to_state /
+ * retryable_failure）的细节不跨此边界，只折叠为三态 ack。
  */
+/**
+ * Phase 1803 Step B: typed report outcome——Promise<void> 的 resolve/reject 不再
+ * 承载 ack/retry 语义。三态显式区分：
+ * - committed：每个相关 active contract 已达成 terminal winner（含
+ *   already_committed / lost_to_state）或本轮无 active contract——交付闭合，
+ *   报告方可以闭合/标记证据。
+ * - retryable：本轮未闭合（lifecycle retryable_failure），报告方保留证据并
+ *   按自身节奏重试；error 携带原始 cause，不得吞掉。
+ * - rejected：报告被永久拒绝（如 executor identity mismatch），重试无意义；
+ *   报告方保留证据并以可观测方式上抛，不得静默吞掉。
+ *
+ * 意外异常（fs 故障等）仍以 promise rejection 上抛，不并入本联合——caller
+ * 的 catch 是防御性兜底，不是第三态的别名。
+ */
+export type ExecutionFailureReportOutcome =
+  | { kind: 'committed' }
+  | { kind: 'retryable'; error: string }
+  | { kind: 'rejected'; reason: string };
+
+/** Phase 1803 Step B: report 输入单源（sink 接口与 consumer 结构镜像共用）。 */
+export interface ExecutionFailureReportInput {
+  executorId: string;
+  producer: string;
+  reason: string;
+  evidenceRef: string;
+}
+
 export interface ExecutionFailureSink {
-  report(input: {
-    executorId: string;
-    producer: string;
-    reason: string;
-    evidenceRef: string;
-  }): Promise<void>;
+  report(input: ExecutionFailureReportInput): Promise<ExecutionFailureReportOutcome>;
 }
 
 /** Runtime-owned lifecycle view of ContractSystem. */

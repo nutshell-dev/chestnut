@@ -42,6 +42,8 @@ export {
   // Phase 1396 Step D: ContractSystem-owned failed terminal state public intake
   type ContractFailure,
   type ExecutionFailureSink,
+  type ExecutionFailureReportInput,
+  type ExecutionFailureReportOutcome,
   ContractCreatePolicyViolationError,
   makeContractId,
 } from './types.js';

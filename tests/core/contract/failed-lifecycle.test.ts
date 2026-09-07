@@ -12,7 +12,6 @@ import * as fs from 'fs/promises';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import type { ContractNotification } from '../../../src/core/contract/notification.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { ToolError } from '../../../src/foundation/tools/index.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
@@ -230,7 +229,7 @@ describe('Phase 1396 Step D: boot reconcile replays failed intents', () => {
   });
 });
 
-describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void> 收口)', () => {
+describe('Phase 1803 Step B: ContractSystem.failActiveForExecutor (typed ReportOutcome 收口)', () => {
   let fx: Fixture;
 
   beforeEach(async () => {
@@ -256,10 +255,10 @@ describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void>
     }));
   }
 
-  it('resolves undefined when the executor has no active contract', async () => {
+  it('returns committed when the executor has no active contract', async () => {
     await expect(
       fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ kind: 'committed' });
   });
 
   it('fails every active contract of the executor in deterministic (sorted id) order', async () => {
@@ -271,7 +270,7 @@ describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void>
 
     await expect(
       fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ kind: 'committed' });
 
     // Deterministic enumeration: intents land in sorted contract-id order.
     const intentPersistedOrder = fx.auditWrite.mock.calls
@@ -289,17 +288,17 @@ describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void>
     const contractId = await createActive('Stable');
     const input = { executorId: EXECUTOR_ID, failure: FAILURE };
 
-    await expect(fx.manager.failActiveForExecutor(input)).resolves.toBeUndefined();
+    await expect(fx.manager.failActiveForExecutor(input)).resolves.toEqual({ kind: 'committed' });
     // 重试：contract 已归档、不再枚举 → 不产生新 intent。
-    await expect(fx.manager.failActiveForExecutor(input)).resolves.toBeUndefined();
+    await expect(fx.manager.failActiveForExecutor(input)).resolves.toEqual({ kind: 'committed' });
 
     expect(await countIntentFiles(contractId)).toBe(1);
     expect(failedAuditCalls(fx)).toHaveLength(1);
     expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(1);
   });
 
-  it('rejects when the terminal rename is retryable, keeps the intent, and the retry closes the same intent', async () => {
-    // 注入 moveDir 失败：rename 失败、contract 仍 active → retryable → reject。
+  it('returns retryable when the terminal rename is retryable, keeps the intent, and the retry closes the same intent', async () => {
+    // 注入 moveDir 失败：rename 失败、contract 仍 active → retryable outcome。
     const failMoves = { current: true };
     class FlakyMoveFs extends NodeFileSystem {
       override async moveDir(fromPath: string, toPath: string): Promise<void> {
@@ -315,15 +314,17 @@ describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void>
     const contractId = await createActive('Retryable');
     const input = { executorId: EXECUTOR_ID, failure: FAILURE };
 
-    await expect(fx.manager.failActiveForExecutor(input)).rejects.toThrow(ToolError);
+    const retryableOutcome = await fx.manager.failActiveForExecutor(input);
+    expect(retryableOutcome.kind).toBe('retryable');
+    expect((retryableOutcome as { error: string }).error).toContain('mock move failure');
     // intent 已持久化（at-least-once 证据在 ContractSystem 侧），contract 仍 active。
     expect(await countIntentFiles(contractId)).toBe(1);
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'active', contractId))).toBe(true);
     expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(0);
 
-    // 重试同一失败事实：稳定 requestId 复用同一 intent，成功闭合后 resolve。
+    // 重试同一失败事实：稳定 requestId 复用同一 intent，成功闭合后 committed。
     failMoves.current = false;
-    await expect(fx.manager.failActiveForExecutor(input)).resolves.toBeUndefined();
+    await expect(fx.manager.failActiveForExecutor(input)).resolves.toEqual({ kind: 'committed' });
     expect(await countIntentFiles(contractId)).toBe(1);
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'failed', contractId))).toBe(true);
   });
@@ -348,10 +349,10 @@ describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void>
     const sorted = [id1, id2].sort();
     partial.failFor = sorted[0];
 
-    // 第一个（sorted 序）retryable：reject，但第二个仍被处理并归档。
+    // 第一个（sorted 序）retryable：retryable outcome，但第二个仍被处理并归档。
     await expect(
       fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
-    ).rejects.toThrow(ToolError);
+    ).resolves.toMatchObject({ kind: 'retryable' });
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'active', sorted[0]))).toBe(true);
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'failed', sorted[1]))).toBe(true);
     expect(await countIntentFiles(sorted[0])).toBe(1);
@@ -361,7 +362,7 @@ describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void>
     failMoves.current = false;
     await expect(
       fx.manager.failActiveForExecutor({ executorId: EXECUTOR_ID, failure: FAILURE }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ kind: 'committed' });
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'failed', sorted[0]))).toBe(true);
     expect(await countIntentFiles(sorted[0])).toBe(1);
     expect(await countIntentFiles(sorted[1])).toBe(1);
@@ -369,12 +370,12 @@ describe('Phase 1398 Step B: ContractSystem.failActiveForExecutor (Promise<void>
     expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(2);
   });
 
-  it('rejects foreign executor ids without touching local contracts', async () => {
+  it('returns rejected for foreign executor ids without touching local contracts', async () => {
     const contractId = await createActive('Local');
 
-    await expect(
-      fx.manager.failActiveForExecutor({ executorId: 'other-executor', failure: FAILURE }),
-    ).rejects.toThrow(ToolError);
+    const outcome = await fx.manager.failActiveForExecutor({ executorId: 'other-executor', failure: FAILURE });
+    expect(outcome.kind).toBe('rejected');
+    expect((outcome as { reason: string }).reason).toContain('other-executor');
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'active', contractId))).toBe(true);
     expect(fx.auditWrite.mock.calls.some((c: any[]) =>
       c[0] === CONTRACT_AUDIT_EVENTS.FAIL_EXECUTOR_MISMATCH,

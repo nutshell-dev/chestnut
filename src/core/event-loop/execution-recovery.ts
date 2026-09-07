@@ -237,11 +237,22 @@ export interface ExecutionActivitySnapshot {
 }
 
 /**
+ * Consumer-owned report outcome（结构镜像 contract.ExecutionFailureReportOutcome；
+ * 类型随消费者，event-loop 不 import contract 类型）。
+ *
+ * Phase 1803 Step B: 报告方依据三态 ack 管理交付证据：committed = terminal
+ * winner 已定，闭合证据；retryable = 本轮未闭合，保留证据下 tick 重试；
+ * rejected = 永久拒绝（如 identity mismatch），保留证据并以独立 audit 上抛。
+ * Contract lifecycle outcome 细节不可出现在本控制流。
+ */
+export type ExecutionRecoveryReportOutcome =
+  | { kind: 'committed' }
+  | { kind: 'retryable'; error: string }
+  | { kind: 'rejected'; reason: string };
+
+/**
  * Consumer-owned failure sink（结构兼容 contract.ExecutionFailureSink；
  * 接口随消费者，event-loop 不 import contract 类型）。
- *
- * Phase 1398 Step C: 报告方只依据 resolve/reject 管理交付证据；Contract
- * lifecycle outcome（committed / retryable_failure 等）不可出现在本控制流。
  */
 export interface ExecutionRecoveryFailureSink {
   report(input: {
@@ -249,7 +260,7 @@ export interface ExecutionRecoveryFailureSink {
     producer: string;
     reason: string;
     evidenceRef: string;
-  }): Promise<void>;
+  }): Promise<ExecutionRecoveryReportOutcome>;
 }
 
 interface ExecutionRecoveryControllerDeps {
@@ -348,21 +359,42 @@ export function createExecutionRecoveryController(
       }
 
       // attempts 耗尽：terminal evidence（attempts=max 的 record）已在上次 attempt
-      // 落盘 → 交付 sink。report resolve 即闭合（terminal winner 已确定）→ 删
-      // record；reject/抛错走 catch 保留 record 下 tick 重试交付，不重复恢复。
+      // 落盘 → 交付 sink。Phase 1803 Step B: 穷尽处理三态 ack——committed 闭合
+      // （terminal winner 已确定）→ 删 record；retryable 保留 record 下 tick 重试
+      // 交付；rejected 是永久拒绝，保留 record（证据）并以独立 audit 上抛（不
+      // 静默吞掉；下 tick 重报保持可观测，由上层修复 wiring）。意外 throw 走
+      // catch 防御性兜底，同 retryable 保留 record。
       try {
-        await failureSink.report({
+        const outcome = await failureSink.report({
           executorId: snapshot.executorId,
           producer: 'runtime',
           reason: 'agent_spontaneous_stall',
           evidenceRef: store.recordRef(contractId),
         });
-        store.delete(contractId);
-        audit.write(
-          EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED,
-          `contract=${contractId}`,
-          `attempts=${record.attempts}`,
-        );
+        switch (outcome.kind) {
+          case 'committed':
+            store.delete(contractId);
+            audit.write(
+              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED,
+              `contract=${contractId}`,
+              `attempts=${record.attempts}`,
+            );
+            break;
+          case 'retryable':
+            audit.write(
+              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED,
+              `contract=${contractId}`,
+              `reason=${outcome.error}`,
+            );
+            break;
+          case 'rejected':
+            audit.write(
+              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_REJECTED,
+              `contract=${contractId}`,
+              `reason=${outcome.reason}`,
+            );
+            break;
+        }
       } catch (err) {
         audit.write(
           EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED,

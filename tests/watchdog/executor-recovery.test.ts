@@ -157,7 +157,7 @@ describe('maybeCronExecutorRecovery', () => {
   });
 
   it('attempts exhausted → circuit open + terminal evidence + sink.report', async () => {
-    const sinkReport = vi.fn().mockResolvedValue(undefined);
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
     makeFailureSink.mockReturnValue({ report: sinkReport });
     pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
     spawnDaemon.mockRejectedValue(new Error('fail'));
@@ -199,9 +199,55 @@ describe('maybeCronExecutorRecovery', () => {
 
     // 下一 tick 仍 circuit-open → 重试交付（不重复 spawn）
     now.mockReturnValue(TIME_BASE + 500_000);
-    sinkReport.mockResolvedValue(undefined);
+    sinkReport.mockResolvedValue({ kind: 'committed' });
     next = await run(next);
     expect(sinkReport).toHaveBeenCalledTimes(2);
     expect(next[CLAW].sinkDelivered).toBe(true);
+  });
+
+  it('sink retryable outcome → evidence retained + delivery retried next tick（phase 1803）', async () => {
+    const sinkReport = vi.fn().mockResolvedValueOnce({ kind: 'retryable', error: 'not closed: fs busy' });
+    makeFailureSink.mockReturnValue({ report: sinkReport });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
+    spawnDaemon.mockRejectedValue(new Error('fail'));
+
+    let next: any = {};
+    for (let i = 0; i < 4; i++) {
+      now.mockReturnValue(TIME_BASE + i * 100_000);
+      next = await run(next);
+    }
+    expect(sinkReport).toHaveBeenCalledTimes(1);
+    expect(next[CLAW].sinkDelivered).toBeFalsy();
+    expect(readEvidence(CLAW)).not.toBeNull();
+    const failed = audit.entries.find(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed!.some(col => String(col).includes('not closed: fs busy'))).toBe(true);
+
+    // 下一 tick 仍 circuit-open → 重试交付成功
+    now.mockReturnValue(TIME_BASE + 500_000);
+    sinkReport.mockResolvedValue({ kind: 'committed' });
+    next = await run(next);
+    expect(sinkReport).toHaveBeenCalledTimes(2);
+    expect(next[CLAW].sinkDelivered).toBe(true);
+  });
+
+  it('sink rejected outcome → evidence retained + rejected audit，不标 delivered（phase 1803）', async () => {
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'rejected', reason: 'executor mismatch' });
+    makeFailureSink.mockReturnValue({ report: sinkReport });
+    pm = makeMockPm({ liveness: vi.fn().mockReturnValue(deadLiveness(123)) });
+    spawnDaemon.mockRejectedValue(new Error('fail'));
+
+    let next: any = {};
+    for (let i = 0; i < 4; i++) {
+      now.mockReturnValue(TIME_BASE + i * 100_000);
+      next = await run(next);
+    }
+    expect(sinkReport).toHaveBeenCalledTimes(1);
+    expect(next[CLAW].sinkDelivered).toBeFalsy();
+    expect(readEvidence(CLAW)).not.toBeNull();
+    expect(audit.entries.some(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERED)).toBe(false);
+    const rejected = audit.entries.find(e => e[0] === WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_REJECTED);
+    expect(rejected).toBeDefined();
+    expect(rejected!.some(col => String(col).includes('executor mismatch'))).toBe(true);
   });
 });

@@ -2210,7 +2210,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
   it('停滞 active contract：run() 向自身 inbox 写高优 resume event（不调 Runtime reentrant API）', async () => {
     const audit = createMockAudit();
-    const sinkReport = vi.fn().mockResolvedValue(undefined);
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
     const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
       failureSink: { report: sinkReport },
       probeActivity: async () => ({
@@ -2235,7 +2235,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
   it('attempts 耗尽：run() 经 failureSink 交付 agent_spontaneous_stall（EventLoop 不直接改 contract）', async () => {
     const audit = createMockAudit();
-    const sinkReport = vi.fn().mockResolvedValue(undefined);
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
     const lastActivityAt = Date.now() - 10 * RECOVERY_TIMEOUT_MS;
     // 预置 attempts=3 的 record（terminal evidence 已持久化）
     require('fs').mkdirSync(path.dirname(recordFilePath(CONTRACT_ID)), { recursive: true });
@@ -2265,7 +2265,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
   it('async task 在途：run() 不判 stall（不写 resume、不建 record）', async () => {
     const audit = createMockAudit();
-    const sinkReport = vi.fn().mockResolvedValue(undefined);
+    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
     const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
       failureSink: { report: sinkReport },
       probeActivity: async () => ({

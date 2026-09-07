@@ -228,7 +228,7 @@ vi.mock('../../src/core/contract/manager.js', () => {
       close: vi.fn().mockResolvedValue(undefined),
       registerCreatePolicy: vi.fn(),
       createSubmitSubtaskTool: vi.fn(() => ({ name: 'submit_subtask', profiles: ['full'] })),
-      failActiveForExecutor: vi.fn().mockResolvedValue(undefined),
+      failActiveForExecutor: vi.fn().mockResolvedValue({ kind: 'committed' }),
     };
     capturedContractSystems.push(instance);
     return instance;
@@ -752,8 +752,8 @@ describe('phase1396-execution-recovery-wiring', () => {
       evidenceRef: 'event-loop/execution-recovery/c-1.json',
     });
 
-    // Phase 1398 Step C: 适配器透传 Promise<void>，报告方只能看到 resolve/reject。
-    expect(reportResult).toBeUndefined();
+    // Phase 1803 Step B: 适配器透传 typed ReportOutcome。
+    expect(reportResult).toEqual({ kind: 'committed' });
     expect(contractManager.failActiveForExecutor).toHaveBeenCalledTimes(1);
     expect(contractManager.failActiveForExecutor).toHaveBeenCalledWith({
       executorId: 'motion',

@@ -305,22 +305,43 @@ export async function maybeCronExecutorRecovery(
             ? deps.makeFailureSink(rawClawId)
             : await makeContractFailureSink(fsFactory, rawClawId);
           try {
-            // Phase 1398 Step C: report resolve 即交付闭合（terminal winner 已确定）；
-            // reject/抛错走 catch 保留证据下 tick 重试，不解释 lifecycle outcome。
-            await sink.report({
+            // Phase 1803 Step B: 穷尽处理三态 ack——committed 交付闭合
+            // （terminal winner 已确定）；retryable 保留证据下 tick 重试；
+            // rejected 是永久拒绝（identity mismatch 等），保留证据并以独立
+            // audit 上抛（下 tick 重报保持可观测）。意外 throw 走 catch 兜底。
+            const outcome = await sink.report({
               executorId: rawClawId,
               producer: 'watchdog',
               reason: 'daemon_unavailable',
               evidenceRef: evidenceRef(rawClawId),
             });
-            openState.sinkDelivered = true;
-            const evidence = readEvidence(rootFs, rawClawId);
-            if (evidence) writeEvidence(rootFs, { ...evidence, sinkDelivered: true });
-            audit.write(
-              WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERED,
-              `claw=${rawClawId}`,
-              `attempts=${openState.consecutiveAttempts}`,
-            );
+            switch (outcome.kind) {
+              case 'committed': {
+                openState.sinkDelivered = true;
+                const evidence = readEvidence(rootFs, rawClawId);
+                if (evidence) writeEvidence(rootFs, { ...evidence, sinkDelivered: true });
+                audit.write(
+                  WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERED,
+                  `claw=${rawClawId}`,
+                  `attempts=${openState.consecutiveAttempts}`,
+                );
+                break;
+              }
+              case 'retryable':
+                audit.write(
+                  WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_FAILED,
+                  `claw=${rawClawId}`,
+                  `reason=${outcome.error}`,
+                );
+                break;
+              case 'rejected':
+                audit.write(
+                  WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_REJECTED,
+                  `claw=${rawClawId}`,
+                  `reason=${outcome.reason}`,
+                );
+                break;
+            }
           } catch (err) {
             audit.write(
               WATCHDOG_AUDIT_EVENTS.EXECUTOR_UNAVAILABLE_DELIVERY_FAILED,

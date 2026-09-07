@@ -83,7 +83,7 @@ import {
 import type { NotifyClawFn, VerificationGatewayResult, SyncCompletionGatewayResult } from './verification-types.js';
 import type { VerificationAttemptTransition } from './verification-transition-types.js';
 import type { ContractCorruptionEvidence } from './types.js';
-import type { ContractFailure, ContractExecutionFailure } from './types.js';
+import type { ContractFailure, ContractExecutionFailure, ExecutionFailureReportOutcome } from './types.js';
 import {
   runVerificationPipeline,
   runScriptVerification as runScriptVerificationFn,
@@ -1211,16 +1211,18 @@ export class ContractSystem implements ContractRuntimeLifecycle {
    * identity + failure fact，不得传 contract 路径或执行 rename。executorId 与
    * 本 claw 不一致时拒绝并留 audit（下层不得跨边界改写别的 executor 的资源）。
    *
-   * Phase 1398 Step B: 对外只有 resolve/reject。terminal winner 已确定
-   * （committed / already_committed / lost_to_state）或无 active contract →
-   * resolve undefined；任一 contract 本轮 retryable 或 executor mismatch →
-   * reject（ToolError），报告方保留证据后重试。单个 retryable 不阻断本轮其他
-   * active contract。相同 contract + executor + producer + reason +
-   * evidenceRef 派生稳定 requestId，at-least-once 重试复用同一 intent。
+   * Phase 1803 Step B: 对外返回 typed ExecutionFailureReportOutcome。
+   * terminal winner 已确定（committed / already_committed / lost_to_state）
+   * 或无 active contract → committed；任一 contract 本轮 retryable →
+   * retryable{error}（携带原始 cause），报告方保留证据后重试；executor
+   * mismatch → rejected{reason}（永久拒绝，重试无意义）。单个 retryable 不
+   * 阻断本轮其他 active contract。相同 contract + executor + producer +
+   * reason + evidenceRef 派生稳定 requestId，at-least-once 重试复用同一
+   * intent。意外异常（fs 故障等）仍以 rejection 上抛，不并入 outcome。
    */
   async failActiveForExecutor(
     input: ContractExecutionFailure,
-  ): Promise<void> {
+  ): Promise<ExecutionFailureReportOutcome> {
     if (input.executorId !== this.clawId) {
       this.audit.write(
         CONTRACT_AUDIT_EVENTS.FAIL_EXECUTOR_MISMATCH,
@@ -1228,9 +1230,10 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         `clawId=${this.clawId}`,
         `producer=${input.failure.producer}`,
       );
-      throw new ToolError(
-        `Execution failure report rejected: executor "${input.executorId}" does not own this ContractSystem (claw "${this.clawId}")`,
-      );
+      return {
+        kind: 'rejected',
+        reason: `Execution failure report rejected: executor "${input.executorId}" does not own this ContractSystem (claw "${this.clawId}")`,
+      };
     }
 
     const activeIds = await listPhysicalActiveContractIds({
@@ -1251,10 +1254,12 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       }
     }
     if (retryable !== null) {
-      throw new ToolError(
-        `Execution failure not closed this round: ${retryable.cause}`,
-      );
+      return {
+        kind: 'retryable',
+        error: `Execution failure not closed this round: ${retryable.cause}`,
+      };
     }
+    return { kind: 'committed' };
   }
 
   async isComplete(contractId: ContractId): Promise<boolean> {

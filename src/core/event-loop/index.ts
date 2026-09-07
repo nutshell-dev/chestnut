@@ -25,5 +25,6 @@ export type {
   ExecutionRecoveryController,
   ExecutionRecoveryFailureSink,
   ExecutionRecoveryRecord,
+  ExecutionRecoveryReportOutcome,
   ExecutionRecoveryStore,
 } from './execution-recovery.js';

@@ -62,6 +62,8 @@ export const WATCHDOG_AUDIT_EVENTS = {
   EXECUTOR_RECOVERY_SKIPPED: 'watchdog_executor_recovery_skipped',
   EXECUTOR_UNAVAILABLE_DELIVERED: 'watchdog_executor_unavailable_delivered',
   EXECUTOR_UNAVAILABLE_DELIVERY_FAILED: 'watchdog_executor_unavailable_delivery_failed',
+  /** Phase 1803 Step B: failure 交付被永久拒绝（rejected），保留证据并上抛 */
+  EXECUTOR_UNAVAILABLE_DELIVERY_REJECTED: 'watchdog_executor_unavailable_delivery_rejected',
 } as const;
 
 
