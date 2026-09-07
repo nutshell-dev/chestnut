@@ -798,6 +798,7 @@
       "lock_stale_recovered",
       "lockfile_cleanup_failed",
       "lockfile_read_failed",
+      "orphan_cleanup_blocked",
       "orphan_cleanup_partial",
       "orphan_match_skipped",
       "orphan_sigterm_failed",

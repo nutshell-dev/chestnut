@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { ProcessSpawnConflictError } from '../../../src/foundation/process-manager/types.js';
+import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
@@ -27,6 +28,20 @@ import { GENERATION_FILE, PID_FILE, getSpawningDir, getStopIntentsDir, getRetire
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
+});
+
+// phase 1779: cleanup 后 identity 边界测试需控制 orphan 复列——findProcessesDetailed
+// 经 hoisted impl 可控；impl 为 undefined 时 call-through 真实实现（既有用例不变）。
+const orphanFind = vi.hoisted(() => ({
+  impl: undefined as undefined | (() => Array<{ pid: number; command: string }>),
+}));
+vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
+  return {
+    ...actual,
+    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+  };
 });
 
 describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
@@ -45,10 +60,13 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  function makeCtx(overrides: Partial<ProcessManagerContext> = {}): ProcessManagerContext {
+  function makeCtx(
+    overrides: Partial<ProcessManagerContext> = {},
+    audit: ProcessManagerContext['audit'] = makeAudit().audit,
+  ): ProcessManagerContext {
     return {
       fs: nodeFs,
-      audit: makeAudit().audit,
+      audit,
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
       kill: vi.fn(),
@@ -333,5 +351,61 @@ describe('spawn lifecycle invariants (Phase 914 / 1204 Step B)', () => {
     // In this path the child was spawned, so the abort path kills it.
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
     expect(nodeFs.existsSync(getSpawningDir(daemonDir))).toBe(false);
+  });
+
+  // ----- phase 1779: cleanup 后 identity/liveness 边界 -----
+
+  it('phase 1779: verify 复核按 command identity 判定——pid 复用（同 pid 不同 command）不算存活 → clear 放行', async () => {
+    const { audit, events } = makeAudit();
+    const clawId = `test-claw-pid-reuse-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const REUSED_PID = 4321;
+    let calls = 0;
+    orphanFind.impl = () => {
+      calls++;
+      if (calls === 1) {
+        // enumerate：真 orphan（command 含 daemonDir token）
+        return [{ pid: REUSED_PID, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+      }
+      // verify 复列：同 pid 已被复用为无关进程（command 无 daemonDir token）→ identity 不匹配 = 已退场
+      return [{ pid: REUSED_PID, command: 'node /unrelated/worker.js' }];
+    };
+
+    const killSpy = vi.fn();
+    const ctx = makeCtx({ kill: killSpy }, audit);
+
+    const pid = await spawnProcess(ctx, daemonDir, {
+      command: 'node',
+      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+    });
+
+    expect(pid).toBe(FAKE_LIVE_PID);
+    expect(killSpy).toHaveBeenCalledWith(REUSED_PID, 'TERM');
+    expect(events.map((e) => e[0])).not.toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
+    orphanFind.impl = undefined;
+  });
+
+  it('phase 1779: command 无 daemonDir token 的进程不 kill 不 verify（sibling 误伤边界）→ not_needed 放行', async () => {
+    const { audit, events } = makeAudit();
+    const clawId = `test-claw-sibling-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    // 只返回 sibling 形态进程（command 无 daemonDir token）：枚举命中但二次过滤 skip
+    orphanFind.impl = () => [{ pid: 4321, command: 'node /fake/daemon-entry.js /other/claw-dir' }];
+
+    const killSpy = vi.fn();
+    const ctx = makeCtx({ kill: killSpy }, audit);
+
+    const pid = await spawnProcess(ctx, daemonDir, {
+      command: 'node',
+      args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+      logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+    });
+
+    expect(pid).toBe(FAKE_LIVE_PID);
+    expect(killSpy).not.toHaveBeenCalled();  // sibling 未被误杀
+    expect(events.map((e) => e[0])).toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_MATCH_SKIPPED);
+    expect(events.map((e) => e[0])).not.toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
+    orphanFind.impl = undefined;
   });
 });

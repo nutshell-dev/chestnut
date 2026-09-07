@@ -17,8 +17,9 @@ import { makeAudit } from '../../helpers/audit.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { DEAD_PID } from '../../helpers/dead-pid.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
-import { ProcessGenerationStateError, ProcessSpawnConflictError } from '../../../src/foundation/process-manager/types.js';
+import { ProcessGenerationStateError, ProcessOrphanCleanupError, ProcessSpawnConflictError } from '../../../src/foundation/process-manager/types.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { ProcessListUnavailable } from '../../../src/foundation/process-exec/index.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
 import {
@@ -36,6 +37,20 @@ import {
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
+});
+
+// phase 1779: orphan cleanup 故障注入——findProcessesDetailed 经 hoisted impl 可控；
+// impl 为 undefined 时 call-through 真实实现（既有用例的 pgrep 行为不变）。
+const orphanFind = vi.hoisted(() => ({
+  impl: undefined as undefined | (() => Array<{ pid: number; command: string }>),
+}));
+vi.mock('../../../src/foundation/process-manager/find.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/foundation/process-manager/find.js')>();
+  return {
+    ...actual,
+    findProcessesDetailed: (...args: Parameters<typeof actual.findProcessesDetailed>) =>
+      orphanFind.impl ? orphanFind.impl() : actual.findProcessesDetailed(...args),
+  };
 });
 
 
@@ -610,5 +625,165 @@ describe('spawn', () => {
     });
 
 
+  });
+
+  /**
+   * phase 1779: orphan cleanup failure spawn gate——
+   * process list 不可用 / SIGTERM 失败 / 存活复核失败均不 spawn；
+   * 仅 clear / not_needed 放行；blocked 保留 stage + 原始 error + 候选 pid evidence。
+   */
+  describe('orphan-cleanup-spawn-gate (phase 1779)', () => {
+    let tempDir: string;
+    let nodeFs: NodeFileSystem;
+
+    beforeEach(async () => {
+      vi.restoreAllMocks();
+      tempDir = await createTrackedTempDir('spawn-orphan-gate-');
+      await fs.mkdir(tempDir, { recursive: true });
+      nodeFs = new NodeFileSystem({ baseDir: tempDir });
+      vi.clearAllMocks();
+      orphanFind.impl = () => [];  // 默认无 orphan
+    });
+
+    afterEach(async () => {
+      orphanFind.impl = undefined;
+      await cleanupTempDir(tempDir);
+    });
+
+    function gateCtx(
+      audit: ProcessManagerContext['audit'],
+      overrides: Partial<ProcessManagerContext> = {},
+    ): ProcessManagerContext {
+      // kill 一律 mock：绝不向真实进程发信号
+      return defaultCtx(nodeFs, audit, { kill: vi.fn(), ...overrides });
+    }
+
+    function gateOpts(clawId: string) {
+      return {
+        command: 'node',
+        args: ['/fake/daemon-entry.js', clawId],
+        logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
+      };
+    }
+
+    it('process list 不可用 → ProcessOrphanCleanupError(stage=enumerate) + 0 spawn', async () => {
+      const { audit, events } = makeAudit();
+      const clawId = 'orphan-list-down';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+      const listErr = new ProcessListUnavailable('fake-pattern', new Error('pgrep ENOENT'));
+      orphanFind.impl = () => { throw listErr; };
+
+      const ctx = gateCtx(audit);
+      const err = await spawnProcess(ctx, daemonDir, gateOpts(clawId)).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ProcessOrphanCleanupError);
+      expect(err.stage).toBe('enumerate');
+      expect(err.cause).toBe(listErr);
+      expect(ctx.spawnDetached).not.toHaveBeenCalled();
+      const blocked = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
+      expect(blocked).toBeDefined();
+      expect(blocked).toContain('stage=enumerate');
+    });
+
+    it('SIGTERM 失败 → blocked(stage=signal) 保留 pid evidence + per-pid audit + 0 spawn', async () => {
+      const { audit, events } = makeAudit();
+      const clawId = 'orphan-term-fail';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+      const killErr = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
+      killErr.code = 'EPERM';
+      orphanFind.impl = () => [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+      const kill = vi.fn().mockImplementation(() => { throw killErr; });
+
+      const ctx = gateCtx(audit, { kill });
+      const err = await spawnProcess(ctx, daemonDir, gateOpts(clawId)).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ProcessOrphanCleanupError);
+      expect(err.stage).toBe('signal');
+      expect(err.cause).toBe(killErr);
+      expect(err.pids).toEqual([4321]);
+      expect(kill).toHaveBeenCalledWith(4321, 'TERM');
+      expect(ctx.spawnDetached).not.toHaveBeenCalled();
+      expect(events.map((e) => e[0])).toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED);
+      const blocked = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
+      expect(blocked).toBeDefined();
+      expect(blocked).toContain('stage=signal');
+      expect(blocked).toContain('pids=4321');
+    });
+
+    it('signal 后存活复核仍存活 → blocked(stage=verify) + 0 spawn', async () => {
+      const { audit, events } = makeAudit();
+      const clawId = 'orphan-survived';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+      // enumerate 与 verify 复列都返回同一 orphan（kill 成功但进程不退场）
+      orphanFind.impl = () => [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+
+      const ctx = gateCtx(audit);
+      const err = await spawnProcess(ctx, daemonDir, gateOpts(clawId)).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ProcessOrphanCleanupError);
+      expect(err.stage).toBe('verify');
+      expect(err.pids).toEqual([4321]);
+      expect(ctx.kill).toHaveBeenCalledWith(4321, 'TERM');
+      expect(ctx.spawnDetached).not.toHaveBeenCalled();
+      const blocked = events.find((e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
+      expect(blocked).toBeDefined();
+      expect(blocked).toContain('stage=verify');
+    });
+
+    it('存活复核 re-list 失败 → blocked(stage=verify) + 0 spawn', async () => {
+      const { audit } = makeAudit();
+      const clawId = 'orphan-verify-list-down';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+      const listErr = new ProcessListUnavailable('fake-pattern', new Error('pgrep ENOENT'));
+      let calls = 0;
+      orphanFind.impl = () => {
+        calls++;
+        if (calls === 1) return [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }];
+        throw listErr;
+      };
+
+      const ctx = gateCtx(audit);
+      const err = await spawnProcess(ctx, daemonDir, gateOpts(clawId)).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ProcessOrphanCleanupError);
+      expect(err.stage).toBe('verify');
+      expect(err.cause).toBe(listErr);
+      expect(err.pids).toEqual([4321]);  // 候选 evidence 保留
+      expect(ctx.spawnDetached).not.toHaveBeenCalled();
+    });
+
+    it('cleanup clear（signal 后复核退场）→ 正常 spawn', async () => {
+      const { audit, events } = makeAudit();
+      const clawId = 'orphan-clear';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+      let calls = 0;
+      orphanFind.impl = () => {
+        calls++;
+        // 第一次 enumerate 命中 orphan；grace 后 verify 复列已退场
+        return calls === 1 ? [{ pid: 4321, command: `node /fake/daemon-entry.js ${daemonDir}` }] : [];
+      };
+
+      const ctx = gateCtx(audit);
+      const pid = await spawnProcess(ctx, daemonDir, gateOpts(clawId));
+
+      expect(pid).toBe(process.pid);
+      expect(ctx.kill).toHaveBeenCalledWith(4321, 'TERM');
+      expect(ctx.spawnDetached).toHaveBeenCalledTimes(1);
+      expect(events.map((e) => e[0])).not.toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
+    });
+
+    it('无 orphan（not_needed）→ 正常 spawn、无 blocked audit', async () => {
+      const { audit, events } = makeAudit();
+      const clawId = 'orphan-none';
+      const daemonDir = testClawDaemonDir(tempDir, clawId);
+
+      const ctx = gateCtx(audit);
+      const pid = await spawnProcess(ctx, daemonDir, gateOpts(clawId));
+
+      expect(pid).toBe(process.pid);
+      expect(ctx.kill).not.toHaveBeenCalled();
+      expect(ctx.spawnDetached).toHaveBeenCalledTimes(1);
+      expect(events.map((e) => e[0])).not.toContain(PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED);
+    });
   });
 });

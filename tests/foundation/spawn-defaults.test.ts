@@ -17,11 +17,13 @@ vi.mock('child_process', async (importOriginal) => {
   return {
     ...actual,
     spawn: vi.fn(),
-    spawnSync: vi.fn().mockReturnValue({ stdout: '', stderr: '', status: 0 }),
+    // phase 1779: 不在 factory 里定实现——afterEach 的 restoreAllMocks 会 reset
+    // vi.fn()（mockRestore = 清空 mockReturnValue），统一在 beforeEach 里重设。
+    spawnSync: vi.fn(),
   };
 });
 
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { makeFakeSpawnedChild } from '../helpers/fake-spawned-child.js';
 
 describe('ProcessManager - spawn defaults', () => {
@@ -35,6 +37,12 @@ describe('ProcessManager - spawn defaults', () => {
     // Setup mock process（phase 1763: spawnDetached 提交点由 'spawn' 事件定义，
     // double 需自动交付 spawn 事件，见 makeFakeSpawnedChild）
     vi.mocked(spawn).mockImplementation(() => makeFakeSpawnedChild(FAKE_LIVE_PID) as any);
+
+    // phase 1779: pgrep 语义化 mock（exit 1 = 无匹配）——orphan enumerate 走真
+    // findByPattern；若 mock 被 reset 成 undefined，findByPattern 会抛
+    // ProcessListUnavailable，新 fail-closed gate 将阻断 spawn（旧 best-effort
+    // 降级会静默吞掉，恰好掩盖了 restoreAllMocks 的副作用）。
+    vi.mocked(spawnSync).mockReturnValue({ stdout: '', stderr: '', status: 1 });
 
     // Mock ready to skip the spawn convergence wait. Liveness uses the
     // injected/default L1 PID probe inside ProcessManager's spawn owner.

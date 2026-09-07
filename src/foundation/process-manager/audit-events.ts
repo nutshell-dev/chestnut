@@ -26,6 +26,7 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   STARTTIME_MISMATCH: 'starttime_mismatch', // ← NEW phase 1023 (PID-wrap detection)
   ORPHAN_SIGTERM_FAILED: 'orphan_sigterm_failed',
   ORPHAN_CLEANUP_PARTIAL: 'orphan_cleanup_partial', // ← NEW phase 1060
+  ORPHAN_CLEANUP_BLOCKED: 'orphan_cleanup_blocked', // ← phase 1779: cleanup 无法证明完成、spawn fail-closed
   ORPHAN_MATCH_SKIPPED: 'orphan_match_skipped', // ← phase 346 B2: clawId token-match miss、防误杀 sibling claw
   STOP_PROCESS_SURVIVED_SIGKILL: 'stop_process_survived_sigkill',
   PID_SPAWNING_RACE_AVOIDED: 'pid_spawning_race_avoided', // ← NEW phase 1009: spawning CAS 删除时内容已变，避免误删真实 PID

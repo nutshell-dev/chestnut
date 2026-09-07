@@ -1,7 +1,7 @@
 import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
-import { spawnDetached as defaultSpawnDetached, kill as defaultKill, ProcessListUnavailable } from '../process-exec/index.js';
+import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
 import { BOOT_DEADLINE_MS, DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
 import { awaitReadyConvergence } from './ready-convergence.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
@@ -23,7 +23,7 @@ import {
 import { shouldAbortSpawningForStop } from './stop.js';
 
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
-import { ProcessGenerationStateError, ProcessSpawnConflictError, type ProcessManagerContext } from './types.js';
+import { ProcessGenerationStateError, ProcessOrphanCleanupError, ProcessSpawnConflictError, type OrphanCleanupResult, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
 
 
@@ -37,7 +37,10 @@ const sleep = (ms: number): Promise<void> =>
  *
  * Pipeline (Phase 1204 Step E — generation 目录是排他原语，无 lock / pid:0 / legacy pidfile）：
  *   1. active precheck      — 有 active generation 且进程仍活 → ProcessSpawnConflictError(active_owner)
- *   2. orphan cleanup       — SIGTERM matching processes from previous run
+ *   2. orphan cleanup       — SIGTERM matching processes from previous run；
+ *                             cleanup 无法证明完成（list 不可用 / SIGTERM 失败 /
+ *                             存活复核失败）→ ProcessOrphanCleanupError fail-closed，不 spawn
+ *                             （phase 1779：旧进程重复风险未证明解除时禁止扩大冲突）
  *   3. spawning precheck    — 已有 spawning generation → ProcessSpawnConflictError(spawn_in_progress)
  *                             / malformed → ProcessGenerationStateError fail-closed
  *   4. generation commit    — candidate → spawning（move winner 才可 spawn）
@@ -54,6 +57,8 @@ const sleep = (ms: number): Promise<void> =>
  * @throws ProcessSpawnConflictError  if a live process already owns the daemon or another
  *                                    spawn generation holds spawning（合法竞争，含 reason +
  *                                    winner generation ID）
+ * @throws ProcessOrphanCleanupError   if orphan cleanup 无法证明完成（enumerate/signal/verify，
+ *                                    phase 1779 fail-closed，保留 stage + 原始 error + 候选 pid）
  * @throws ProcessGenerationStateError if active/spawning generation 持久状态 malformed
  *                                    （fail-closed，携带 location/operation/cause）
  * @throws Error                       if the child dies during boot before becoming ready
@@ -100,7 +105,24 @@ export async function spawnProcess(
     retireGeneration(ctx, daemonDir, { generationId: active.record.generation_id }, 'confirmed_dead', 'active');
   }
 
-  await cleanupOrphans(ctx, daemonDir, options);
+  // phase 1779 fail-closed gate：cleanup blocked（无法证明旧进程退场）→ 不 spawn。
+  // clear / not_needed 是仅有的安全终局。
+  const orphanCleanup = await cleanupOrphans(ctx, daemonDir, options);
+  if (orphanCleanup.kind === 'blocked') {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_BLOCKED,
+      `daemon_dir=${daemonDir}`,
+      `stage=${orphanCleanup.stage}`,
+      `pids=${orphanCleanup.pids.length > 0 ? orphanCleanup.pids.join(',') : 'unknown'}`,
+      `reason=${ctx.audit.message(formatErr(orphanCleanup.error))}`,
+    );
+    throw new ProcessOrphanCleanupError(
+      daemonDir,
+      orphanCleanup.stage,
+      orphanCleanup.error,
+      orphanCleanup.pids,
+    );
+  }
 
   // generation precheck：spawning 已被持 → typed conflict（不从异常猜 winner）；
   // malformed → fail-closed（不覆盖、不猜状态）。
@@ -186,31 +208,33 @@ export async function spawnProcess(
 
 /**
  * SIGTERM stale processes whose argv matches the new spawn target so they
- * don't race the new daemon. Failures are audited but never throw — orphan
- * cleanup is best-effort.
+ * don't race the new daemon.
+ *
+ * phase 1779：不再 best-effort——返回 typed outcome；调用方仅接受 clear/not_needed，
+ * blocked（enumerate/signal/verify 任一失败）必须阻止 spawn：旧进程重复风险未被
+ * 证明解除时禁止新 generation spawn。原始 error 与候选 pid evidence 全程保留，
+ * 不以 retry/sleep 掩盖失败、不降级 warning。
  */
 async function cleanupOrphans(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
   options: SpawnOptions,
-): Promise<void> {
+): Promise<OrphanCleanupResult> {
   const pattern = options.args.join(' ');
   // phase 346 B2 (review-2026-06-13): pgrep -f 用 regex-substring 匹配，
   // claw-a 会匹配 claw-abc / claw-a-1 等 prefix-collision claw → 误杀 sibling
   // daemon。先 detailed 列、再按 daemonDir token-match 二次过滤。
-  let processes: Array<{ pid: number; command: string }> = [];
+  let processes: Array<{ pid: number; command: string }>;
   try {
     processes = findProcessesDetailed(ctx, pattern);
   } catch (err) {
-    if (err instanceof ProcessListUnavailable) {
-      // 降级：孤儿清理跳过；spawn 继续
-      return;
-    }
-    throw err;
+    // phase 1779：process list 不可用 = 重复风险无法评估 → blocked 不 spawn
+    // （PROCESS_LIST_FAILED audit 已由 find.ts 写入后重抛）。
+    return { kind: 'blocked', stage: 'enumerate', error: err, pids: [] };
   }
 
+  const candidates: number[] = [];
   let sentAny = false;
-  let orphanFailCount = 0;
   let skippedMismatch = 0;
   for (const proc of processes) {
     // 二次过滤：command 必须含 daemonDir 作为独立 token、非 substring
@@ -225,32 +249,50 @@ async function cleanupOrphans(
       );
       continue;
     }
+    candidates.push(proc.pid);
     try {
       (ctx.kill ?? defaultKill)(proc.pid, 'TERM');
       sentAny = true;
     } catch (err) {
-      orphanFailCount++;
+      // phase 1779：SIGTERM 失败 → blocked（不 best-effort 继续 spawn——该 orphan
+      // 未被证明会退场，放行有 double-daemon 风险）。per-pid 证据 audit 保留。
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
         `daemon_dir=${daemonDir}`,
         `pid=${proc.pid}`,
         `reason=${formatErr(err)}`,
       );
+      return { kind: 'blocked', stage: 'signal', error: err, pids: candidates };
     }
   }
   // skippedMismatch 计数仅 audit、不计 failure（这些不是真 orphan、是 sibling）
   void skippedMismatch;
-  if (orphanFailCount > 0) {
-    ctx.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_PARTIAL,
-      `daemon_dir=${daemonDir}`,
-      `sent=${sentAny ? 'true' : 'false'}`,
-      `failed=${orphanFailCount}`,
-    );
+  if (!sentAny) {
+    return { kind: 'not_needed' };
   }
-  if (sentAny) {
-    await sleep(DAEMON_SHUTDOWN_GRACE_MS);
+
+  await sleep(DAEMON_SHUTDOWN_GRACE_MS);
+  // phase 1779 verify：signal 后按同一 identity（pid + daemonDir token command）复核
+  // 候选确已退场——pid 复用显示不同 command 不算存活（identity 不匹配 = 已退场）。
+  let survived: number[];
+  try {
+    survived = findProcessesDetailed(ctx, pattern)
+      .filter((p) => candidates.includes(p.pid) && commandContainsDaemonDirToken(p.command, daemonDir))
+      .map((p) => p.pid);
+  } catch (err) {
+    // 复核本身失败 = 重复风险无法证明解除 → blocked（PROCESS_LIST_FAILED
+    // audit 已由 find.ts 在重抛前写入，这里保留原始 error identity）
+    return { kind: 'blocked', stage: 'verify', error: err, pids: candidates };
   }
+  if (survived.length > 0) {
+    return {
+      kind: 'blocked',
+      stage: 'verify',
+      error: new Error(`orphan pids still alive after SIGTERM: ${survived.join(', ')}`),
+      pids: survived,
+    };
+  }
+  return { kind: 'clear', terminated: candidates.length };
 }
 
 /**

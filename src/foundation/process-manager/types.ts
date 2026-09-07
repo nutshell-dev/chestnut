@@ -131,6 +131,48 @@ export type StopFailureStage =
   | 'retire';          // retire 或 retired identity 校验失败
 
 /**
+ * phase 1779: orphan cleanup 的 typed outcome（spawn 的 fail-closed gate）。
+ * 旧进程重复风险未被证明解除时禁止新 generation spawn（`orphan-cleanup-failure-allows-spawn`）：
+ * - clear:      cleanup 已证明完成（terminated = 已 SIGTERM 且 signal 后复核退场的 orphan 数）
+ * - not_needed: 无匹配 orphan，无需 cleanup（重复风险不存在）
+ * - blocked:    enumerate（process list 不可用）/ signal（SIGTERM 失败）/ verify（signal 后
+ *               存活复核失败）——原始 error 与候选 pid evidence 保留，不降级 warning
+ */
+export type OrphanCleanupResult =
+  | { kind: 'clear'; terminated: number }
+  | { kind: 'not_needed' }
+  | { kind: 'blocked'; stage: OrphanCleanupStage; error: unknown; pids: number[] };
+
+export type OrphanCleanupStage = 'enumerate' | 'signal' | 'verify';
+
+/**
+ * phase 1779: orphan cleanup blocked 时 spawn 的 fail-closed typed failure。
+ * 原始 error 保留为 cause；候选 pid evidence 保留（caller 按 stage/discriminant 处理，
+ * 不解析 message）。
+ */
+export class ProcessOrphanCleanupError extends Error {
+  readonly daemonDir: DaemonDir;
+  readonly stage: OrphanCleanupStage;
+  readonly pids: readonly number[];
+  constructor(
+    daemonDir: DaemonDir,
+    stage: OrphanCleanupStage,
+    error: unknown,
+    pids: readonly number[] = [],
+    message?: string,
+  ) {
+    super(
+      message ?? `Orphan cleanup for "${daemonDir}" blocked at stage "${stage}" (${pids.length} candidate pid(s) unverified)`,
+      { cause: error },
+    );
+    this.name = 'ProcessOrphanCleanupError';
+    this.daemonDir = daemonDir;
+    this.stage = stage;
+    this.pids = pids;
+  }
+}
+
+/**
  * phase 1771 (Phase 1770 冻结设计): readiness owner 的公开 typed result。
  * 对外区分 not-ready 与 malformed/read/probe 系统故障，保留原始 evidence；
  * 不得将系统故障重新压平为 not_ready（risk 条款）。
