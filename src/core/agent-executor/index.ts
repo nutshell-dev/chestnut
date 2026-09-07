@@ -23,6 +23,5 @@ export {
 export type { StreamCallbacks } from './stream-callbacks.js';
 export { makeStepNumber } from './step-number.js';
 
-// phase 1321: agent-executor 自有 stream 事件 const（分层拆件）
-export { STREAM_AGENT_EVENTS } from './stream-events.js';
+// phase 1789: 跨层 stream 事件常量迁回语义 owner subagent/stream-events.ts（本模块不再持有 catalog）
 export { agentExecutorConfigSchema } from './config-schema.js';

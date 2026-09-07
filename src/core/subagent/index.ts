@@ -10,3 +10,7 @@ export { createPerTaskRegistry } from './registry-helper.js';
 export { TASKS_SYNC_SUBAGENT_DIR, TASKS_SUBAGENTS_DIR, SUBAGENT_SNAPSHOT_IGNORE } from './constants.js';
 
 export { SUBAGENT_FILE_ROUTING } from './audit-events.js';
+
+// phase 1789: agent turn 生命周期 wire 事件语义 owner（自 agent-executor 迁回）
+export { SUBAGENT_EVENTS } from './stream-events.js';
+export type { SubagentEvent } from './stream-events.js';

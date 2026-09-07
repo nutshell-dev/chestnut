@@ -16,7 +16,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
-import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
+import { SUBAGENT_EVENTS } from './stream-events.js';
 import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
@@ -81,7 +81,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
 
   const callbacks: PrimitiveStreamCallbacks = {
     onBeforeLLMCall: () => {
-      safeSwWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.LLM_START });
+      safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.LLM_START });
     },
     onTextDelta: (delta) => {
       safeSwWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.TEXT_DELTA, delta });
@@ -142,7 +142,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       );
       safeSwWrite({
         ts: Date.now(),
-        type: STREAM_AGENT_EVENTS.TOOL_RESULT,
+        type: SUBAGENT_EVENTS.TOOL_RESULT,
         name,
         tool_use_id: toolUseId,
         success: result.success,

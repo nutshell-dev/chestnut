@@ -5,18 +5,34 @@
  * stream 的 StreamEvent 已诚实化为协议基础（ts + type、payload unknown）；
  * 消费端（CLI）可 import 一切 → 全量 50 判别联合在此汇总：
  *   - 协议层 40：stream 的 STREAM_EVENT_NAMES + StreamEventMap（payload 单源在 stream）
- *   - 上层 10：agent-executor 6 / async-task-system 3 / assembly 1（payload 本地定义）
+ *   - 上层 10：agent turn 6（phase 1789 起经本地稳定 wire catalog、不导入业务 owner）
+ *     / async-task-system 3 / assembly 1（payload 本地定义）
  */
 
 import { STREAM_EVENT_NAMES, type StreamEventMap } from '../../foundation/stream/index.js';
-import { STREAM_AGENT_EVENTS } from '../../core/agent-executor/index.js';
 import { STREAM_TASK_EVENTS } from '../../core/async-task-system/index.js';
 import { ASSEMBLY_STREAM_EVENTS } from '../../assembly/index.js';
+
+/**
+ * phase 1789: 稳定 wire catalog——agent turn 生命周期 6 事件的字符串映射。
+ * CLI 不导入业务 owner（subagent SUBAGENT_EVENTS）；与 owner 的值一致性由
+ * tests/cli/stream-event-types.test.ts parity 断言守护。
+ */
+export const STREAM_WIRE_EVENTS = [
+  'turn_start',
+  'llm_start',
+  'tool_result',
+  'turn_end',
+  'turn_interrupted',
+  'turn_error',
+] as const;
+
+export type StreamWireEvent = (typeof STREAM_WIRE_EVENTS)[number];
 
 /** 全量 type 值联合（协议层 40 + 上层 10 = 50） */
 export type CliStreamEventType =
   | (typeof STREAM_EVENT_NAMES)[keyof typeof STREAM_EVENT_NAMES]
-  | (typeof STREAM_AGENT_EVENTS)[keyof typeof STREAM_AGENT_EVENTS]
+  | StreamWireEvent
   | (typeof STREAM_TASK_EVENTS)[keyof typeof STREAM_TASK_EVENTS]
   | (typeof ASSEMBLY_STREAM_EVENTS)[keyof typeof ASSEMBLY_STREAM_EVENTS];
 

@@ -1,7 +1,7 @@
 /**
  * @module L5.EventLoop.StreamCallbacks
  * @layer L5 服务层
- * @depends L2.AuditLog, L2.Stream, L3.AgentExecutor
+ * @depends L2.AuditLog, L2.Stream, L3.AgentExecutor, L3.SubAgent（phase 1789 事件 owner）
  * @consumers L5.EventLoop
  *
  * 装配层：将 ReAct 循环业务事件名映射为 stream.jsonl 的 StreamEvent 记录。
@@ -12,7 +12,7 @@ import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { EventLoopTraceSource } from './types.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
-import { STREAM_AGENT_EVENTS } from '../agent-executor/index.js';
+import { SUBAGENT_EVENTS } from '../subagent/index.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
 
@@ -34,7 +34,7 @@ export function createStreamCallbacks(
   let sendTracker = createSendContentTracker();
   return {
     onBeforeLLMCall: () => {
-      checkWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.LLM_START });
+      checkWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.LLM_START });
     },
     onThinkingDelta: (delta: string) => {
       checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.THINKING_DELTA, delta });
@@ -69,7 +69,7 @@ export function createStreamCallbacks(
       const summary = content.length <= STREAM_SUMMARY_MAX_CHARS ? content : content.slice(0, STREAM_SUMMARY_MAX_CHARS) + '…';
       checkWrite({
         ts: Date.now(),
-        type: STREAM_AGENT_EVENTS.TOOL_RESULT,
+        type: SUBAGENT_EVENTS.TOOL_RESULT,
         name,
         tool_use_id: toolUseId,
         success: result.success,
@@ -81,18 +81,18 @@ export function createStreamCallbacks(
     onTurnStart: (sources: Array<{ text: string; type: string }>) => {
       checkWrite({
         ts: Date.now(),
-        type: STREAM_AGENT_EVENTS.TURN_START,
+        type: SUBAGENT_EVENTS.TURN_START,
         sources: sources.length > 0 ? sources : undefined,
       });
     },
     onTurnEnd: () => {
-      checkWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_END });
+      checkWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_END });
     },
     onTurnError: (error: string) => {
-      checkWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_ERROR, error });
+      checkWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_ERROR, error });
     },
     onTurnInterrupted: (cause: string, message?: string) => {
-      checkWrite({ ts: Date.now(), type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED, cause, ...(message ? { message } : {}) });
+      checkWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause, ...(message ? { message } : {}) });
     },
     onProviderInfo: (info: { name: string; model: string; isFallback: boolean }) => {
       checkWrite({ ts: Date.now(), type: STREAM_EVENT_NAMES.PROVIDER_INFO, ...info });

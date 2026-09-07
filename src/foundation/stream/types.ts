@@ -13,7 +13,7 @@ export const STREAM_FILE = 'stream.jsonl';
  * 本 const 只含协议层事件（40）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 27
  * + 通用系统通知通道 1 + stream 自身 1。上层业务事件 const 归各语义模块（phase 1321 分层拆件，
  * 修复 M#1/M#3/M#5——stream 不再为不属于自己的业务语义负责）：
- *   - agent-executor STREAM_AGENT_EVENTS（6：turn_start/llm_start/tool_result/turn_end/turn_interrupted/turn_error）
+ *   - subagent SUBAGENT_EVENTS（6：turn_start/llm_start/tool_result/turn_end/turn_interrupted/turn_error；phase 1789 自 agent-executor 迁回语义 owner）
  *   - async-task-system STREAM_TASK_EVENTS（3：task_started/task_completed/task_attempt_start）
  *   - assembly ASSEMBLY_STREAM_EVENTS（1：daemon_started）
  * 写端一律引用 STREAM_EVENT_NAMES.X（禁裸字面量）；新增协议层事件类型先加此 const。

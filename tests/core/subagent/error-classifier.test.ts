@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { classifyAndAuditError } from '../../../src/core/subagent/error-classifier.js';
 import { REACT_LOOP_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import { ExternalAbortError } from '../../../src/foundation/llm-provider/index.js';
-import { STREAM_AGENT_EVENTS } from '../../../src/core/agent-executor/index.js';
+import { SUBAGENT_EVENTS } from '../../../src/core/subagent/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 describe('classifyAndAuditError', () => {
@@ -18,7 +18,7 @@ describe('classifyAndAuditError', () => {
     });
 
     expect(safeSwWrite).toHaveBeenCalledWith(expect.objectContaining({
-      type: STREAM_AGENT_EVENTS.TURN_INTERRUPTED,
+      type: SUBAGENT_EVENTS.TURN_INTERRUPTED,
       cause: 'external',
     }));
     expect(auditWriter.write).toHaveBeenCalledWith(
@@ -42,7 +42,7 @@ describe('classifyAndAuditError', () => {
     });
 
     expect(safeSwWrite).toHaveBeenCalledWith(expect.objectContaining({
-      type: STREAM_AGENT_EVENTS.TURN_ERROR,
+      type: SUBAGENT_EVENTS.TURN_ERROR,
     }));
     expect(auditWriter.write).toHaveBeenCalledWith(
       REACT_LOOP_AUDIT_EVENTS.TURN_ERROR,
