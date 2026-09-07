@@ -41,6 +41,8 @@ export function toProviderConfig(p: LLMProviderConfig): ProviderConfig {
     extraHeaders: p.extra_headers,
     dropThinkingBlocks: p.drop_thinking_blocks,
     apiFormat: preset.apiFormat,
+    // phase 1797: transport 传播 —— yaml 显式 > preset 单源默认 > factory 迁移默认(fetch+audit)
+    transport: p.transport ?? preset.transport,
     reasoningEffort: p.reasoning_effort,
   };
 }

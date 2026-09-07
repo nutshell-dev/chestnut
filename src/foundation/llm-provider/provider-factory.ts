@@ -4,6 +4,7 @@ import { CustomAnthropicAdapter } from './custom-anthropic.js';
 import { OpenAIAdapter } from './openai.js';
 import { GeminiAdapter } from './gemini.js';
 import { LLMError } from './errors.js';
+import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import type { LLMProvider } from './types.js';
 
 /**
@@ -40,7 +41,14 @@ export function createLLMProvider(config: ProviderConfig): LLMProvider {
 
   if (config.apiFormat === 'openai') return new OpenAIAdapter(config);
   if (config.apiFormat === 'gemini') return new GeminiAdapter(config);
-  // anthropic format: Claude models use SDK (native API), others use raw fetch
-  const isClaude = config.model.toLowerCase().includes('claude');
-  return isClaude ? new AnthropicAdapter(config) : new CustomAnthropicAdapter(config);
+  // phase 1797: anthropic format transport 由显式 discriminator 决定（model 名不参与路由）。
+  // 缺失 = 迁移默认 'fetch' + 可审计（旧 heuristic model.includes('claude') 已拆除）。
+  if (config.transport === undefined) {
+    config.auditLog?.write(
+      LLM_PROVIDER_AUDIT_EVENTS.TRANSPORT_DEFAULTED,
+      `provider=${config.name}`,
+      'transport=fetch',
+    );
+  }
+  return (config.transport ?? 'fetch') === 'sdk' ? new AnthropicAdapter(config) : new CustomAnthropicAdapter(config);
 }

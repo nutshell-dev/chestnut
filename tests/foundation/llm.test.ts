@@ -365,6 +365,7 @@ describe('LLM Service', () => {
       temperature: 0.7,
       timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
+      transport: 'sdk' as const,  // phase 1797: 显式 discriminator（旧靠 model 名 heuristic）
     };
 
     const fallbackConfig = {
@@ -376,6 +377,7 @@ describe('LLM Service', () => {
       temperature: 0.7,
       timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
+      transport: 'sdk' as const,  // phase 1797: 显式 discriminator
     };
 
     beforeEach(() => {

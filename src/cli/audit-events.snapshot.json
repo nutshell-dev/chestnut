@@ -754,7 +754,8 @@
       "llm_output_budget_adjusted",
       "llm_provider_assistant_empty_content_skipped",
       "llm_provider_tool_result_missing_id",
-      "llm_provider_tool_result_orphan_id"
+      "llm_provider_tool_result_orphan_id",
+      "llm_provider_transport_defaulted"
     ],
     "foundation_messaging_audit-events": [
       "inbox_body_oversize",

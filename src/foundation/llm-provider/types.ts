@@ -5,7 +5,7 @@
  * per interfaces/l1.md LLMProvider section: "本模块 own LLM 协议层 message、IO、tool definition type 单源"
  */
 
-import type { ApiFormat } from './presets.js';
+import type { ApiFormat, AnthropicTransport } from './presets.js';
 import type { ToolUseId } from './tool-use-id.js';
 
 // phase 692 Step A: 删 AuditLog import + re-export
@@ -167,6 +167,13 @@ export interface ProviderConfig {
 
   /** API format, resolved from preset */
   apiFormat: ApiFormat;
+
+  /**
+   * phase 1797: anthropic format 的 transport 显式 discriminator（sdk=AnthropicAdapter /
+   * fetch=CustomAnthropicAdapter）；仅 apiFormat='anthropic' 有意义。缺失 = 迁移默认
+   * 'fetch' + TRANSPORT_DEFAULTED audit，不按 model 名补全。
+   */
+  transport?: AnthropicTransport;
 
   /** Reasoning effort for OpenAI o-series models */
   reasoningEffort?: 'low' | 'medium' | 'high';
