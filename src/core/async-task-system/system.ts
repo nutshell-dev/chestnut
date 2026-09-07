@@ -72,6 +72,25 @@ interface TaskState {
   promise: Promise<void>;
 }
 
+/**
+ * Phase 1790: 取消业务语义 owner-local typed outcome（AT-D1 治理）。
+ *
+ * `cancelDetailed()` 每条路径 exhaustive 返回：
+ * - `cancelled`：终态（running settle / pending→failed / corrupt quarantine）。
+ * - `pending_notification_failure`：pending 通知失败 —— 任务保留 pending 不移动、
+ *   可重试，携带 path 与原始 error（formatErr）；不压成 cancelled。
+ * - `race_lost_to_dispatch`：pending move ENOENT = dispatch 已抢先，非终态。
+ * - `not_found`：ShortIdIndex/running/pending 均无（race / caller bug）。
+ *
+ * 不在联合内（语义不改写、维持 throw）：running settle timeout；pending→failed
+ * move 非 ENOENT 失败。
+ */
+export type CancelOutcome =
+  | { kind: 'cancelled'; from: 'running' | 'pending' | 'pending_corrupt' }
+  | { kind: 'pending_notification_failure'; taskId: FullTaskId; path: string; error: string }
+  | { kind: 'race_lost_to_dispatch'; taskId: FullTaskId }
+  | { kind: 'not_found'; taskId: TaskId };
+
 export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle {
   // Runtime execution handles only (abort controller + promise). This is NOT a memory view of
   // the running set; the fs running directory remains the authoritative running state.
@@ -1437,9 +1456,37 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   /**
-   * Cancel a running or pending task.
+   * Cancel a running or pending task — legacy compat wrapper.
+   *
+   * phase 1790: 兼容入口只做明确投影（legacy throw/void 语义逐路径保留）；
+   * typed 观察（含 pending_notification_failure）走 cancelDetailed()。
    */
   async cancel(taskId: TaskId): Promise<void> {
+    const outcome = await this.cancelDetailed(taskId);
+    switch (outcome.kind) {
+      case 'cancelled':
+        return;
+      case 'pending_notification_failure':
+        // legacy 语义：通知失败曾静默 void（任务留 pending 可重试）；typed evidence 见 outcome
+        return;
+      case 'race_lost_to_dispatch':
+        throw new Error(`Cancel race lost: task ${this.shortIdIndex.canonicalShortId(outcome.taskId) ?? this.shortIdIndex.deriveShortId(outcome.taskId)} already dispatched to running`);
+      case 'not_found':
+        throw new Error(`[INVARIANT VIOLATION] async-task-system: Task ${outcome.taskId} not found (race / caller bug)`);
+    }
+  }
+
+  /**
+   * phase 1790: typed 取消控制流 —— 每条路径 exhaustive 返回 CancelOutcome。
+   *
+   * 单写者顺序保持：`read/validate → sendFallbackResult → (失败: return
+   * pending_notification_failure，pending 保留不移动、携带原始 error) → move
+   * pending→failed → cancelled`。原始异常经结构化 outcome 与既有 audit 双记录。
+   *
+   * 语义不改写（不在联合内、维持 throw）：running settle timeout；pending→failed
+   * move 非 ENOENT 失败。
+   */
+  async cancelDetailed(taskId: TaskId): Promise<CancelOutcome> {
     const fullId = this._resolveFullTaskId(taskId);
     if (!fullId) {
       const violationMsg = `Task ${taskId} not found in ShortIdIndex (race / caller bug)`;
@@ -1450,7 +1497,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         `taskId=${taskId}`,
         `msg=${violationMsg}`,
       );
-      throw new Error(`[INVARIANT VIOLATION] async-task-system: ${violationMsg}`);
+      return { kind: 'not_found', taskId };
     }
     const shortId = this.shortIdIndex.canonicalShortId(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
 
@@ -1495,7 +1542,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         throw new Error(`Task cancellation timed out after ${CANCEL_SETTLE_TIMEOUT_MS}ms: ${shortId}`);
       }
       emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'running' });
-      return;
+      return { kind: 'cancelled', from: 'running' };
     }
 
     // 2. 再检查 pending（derive from fs）
@@ -1516,7 +1563,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         .catch(() => false);
       if (backupExists) {
         emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'pending_corrupt' });
-        return;
+        return { kind: 'cancelled', from: 'pending_corrupt' };
       }
 
       const fileExists = await this.fs.exists(pendingPath);
@@ -1531,7 +1578,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           `shortTaskId=${shortId}`,
           `msg=${violationMsg}`,
         );
-        throw new Error(`[INVARIANT VIOLATION] async-task-system: ${violationMsg}`);
+        return { kind: 'not_found', taskId };
       }
 
       // 从盘读出以决定是否 sendFallbackResult
@@ -1565,12 +1612,13 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       // no pending file to move and no race-lost. Emit CANCELLED and return.
       if (quarantined) {
         emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'pending_corrupt' });
-        return;
+        return { kind: 'cancelled', from: 'pending_corrupt' };
       }
 
       // Phase 906: notify BEFORE committing terminal state. If notification fails,
       // stay in pending so the dispatcher/recovery can retry.
       let notified = false;
+      let notifyError: string | undefined;
       if (task) {
         try {
           await this.sendFallbackResult(this.fs, this.auditWriter, task, { schema_version: 1, content: 'Task cancelled before execution', isError: true }, { writeInboxAsync: this.writeInboxAsync });
@@ -1579,18 +1627,20 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
             `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, ''
           ).catch(() => { /* silent: best-effort cleanup */ });
         } catch (e) {
+          notifyError = formatErr(e);
           emitMoveFailed(this.auditWriter, {
             fullTaskId: fullId,
             shortTaskId: shortId,
             context: 'cancel_notify_failed',
-            error: formatErr(e),
+            error: notifyError,
           });
         }
       }
 
       if (!notified && task) {
-        // Notification failed — keep in pending and retry next cancel/dispatch cycle.
-        return;
+        // phase 1790: 通知失败不再静默 void —— pending 保留（不移动、可重试），
+        // typed outcome 携带 taskId/path/原始 error；cancel_notify_failed audit 保留。
+        return { kind: 'pending_notification_failure', taskId: fullId, path: filePath, error: notifyError ?? 'unknown' };
       }
 
       // 文件：pending → failed
@@ -1626,11 +1676,12 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
         if (state) {
           state.abortController.abort();
         }
-        // Propagate failure so caller knows the cancel race was lost.
-        throw new Error(`Cancel race lost: task ${shortId} already dispatched to running`);
+        // phase 1790: race loss typed 返回（cancel() 兼容包装投影为 legacy throw）
+        return { kind: 'race_lost_to_dispatch', taskId: fullId };
       }
 
       emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'pending' });
+      return { kind: 'cancelled', from: 'pending' };
     } finally {
       this.cancellingIds.delete(fullId);
     }

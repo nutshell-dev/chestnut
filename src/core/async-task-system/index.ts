@@ -10,6 +10,8 @@ export {
  */
 
 export { AsyncTaskSystem, createAsyncTaskSystem } from './system.js';
+// phase 1790: 取消业务语义 owner typed outcome（pending 通知失败显式可观察）
+export type { CancelOutcome } from './system.js';
 export { PersistentShortIdIndex } from './short-id-index.js';
 export { validateTaskShape } from './task-corrupt-helpers.js';
 export { ASYNC_TASK_SYSTEM_INBOX_MESSAGE_TYPES } from './inbox-formatter.js';
