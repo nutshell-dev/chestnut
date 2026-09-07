@@ -30,9 +30,12 @@ export { PRIORITY_ORDER } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 // phase 1423 F4: dirs path const re-export — 跨模块 (daemon / core) 路径合成走 barrel。
+// phase 1780: INBOX_INFLIGHT_DIR / INBOX_MISROUTED_DIR 补 barrel（owner 常量单源）。
 // sister L2 foundation/paths.ts 内部 sister 保留 deep import (depcruise rule allowlist)。
 export {
   INBOX_PENDING_DIR,
+  INBOX_INFLIGHT_DIR,
+  INBOX_MISROUTED_DIR,
   INBOX_DONE_DIR,
   INBOX_FAILED_DIR,
   OUTBOX_PENDING_DIR,

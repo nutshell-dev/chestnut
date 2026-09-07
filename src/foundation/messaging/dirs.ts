@@ -6,6 +6,8 @@
 import * as path from 'path';
 
 export const INBOX_PENDING_DIR = 'inbox/pending';
+export const INBOX_INFLIGHT_DIR = 'inbox/inflight';
+export const INBOX_MISROUTED_DIR = 'inbox/misrouted';
 export const INBOX_DONE_DIR = 'inbox/done';
 export const INBOX_FAILED_DIR = 'inbox/failed';
 export const OUTBOX_PENDING_DIR = 'outbox/pending';

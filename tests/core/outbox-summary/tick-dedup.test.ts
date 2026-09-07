@@ -25,7 +25,7 @@ import { SUMMARY_INBOX_TYPE } from '../../../src/core/claw-topology/jobs/outbox-
 import { DEDUP_DONE_WINDOW_MS } from '../../../src/core/claw-topology/jobs/outbox-summary/dedup.js';
 import { decodeOutboxSummaryGuidance } from '../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
+import { InboxReader, InboxWriter, makeInboxPath, INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
@@ -99,7 +99,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'motion/inbox/pending'), { recursive: true });
     await fsAsync.mkdir(path.join(root, 'motion/inbox/done'), { recursive: true });
     await fsAsync.mkdir(path.join(root, 'motion/inbox/failed'), { recursive: true });
-    await fsAsync.mkdir(path.join(root, 'motion/inbox/inflight'), { recursive: true });
+    await fsAsync.mkdir(path.join(root, 'motion', INBOX_INFLIGHT_DIR), { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     ({ audit, events } = makeAudit());
     inboxReader = new InboxReader(
@@ -108,7 +108,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       path.join(root, 'motion/inbox/failed'),
       fs,
       audit,
-      path.join(root, 'motion/inbox/inflight'),
+      // phase 1780: inflight 省略 —— ctor 从 owner 常量（dirs.ts）按 pendingDir 同级派生
     );
     inboxWriter = InboxWriter.__internal_create(
       fs,

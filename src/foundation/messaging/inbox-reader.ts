@@ -43,6 +43,7 @@ import {
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { makeClawId } from '../claw-identity/index.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
+import { INBOX_INFLIGHT_DIR, INBOX_MISROUTED_DIR } from './dirs.js';
 
 // Phase 992: inbox-reader owns its transient-read error to avoid reaching into dialog-store internals.
 class InboxReadError extends Error {
@@ -169,10 +170,11 @@ export class InboxReader implements InboxDeliverySession {
     inflightDir?: string,
     misroutedDir?: string,
   ) {
-    // Default inflight dir derived from pending dir: pending/ → inflight/
-    this.inflightDir = inflightDir ?? pendingDir.replace(/\/pending\/?$/, '/inflight');
-    // phase 442: misrouted/ 同模式推导（pending/ → misrouted/）；fallback 仍为 pendingDir 兄弟
-    this.misroutedDir = misroutedDir ?? pendingDir.replace(/\/pending\/?$/, '/misrouted');
+    // phase 1780: inflight/misrouted 默认推导不再 regex 替换 pendingDir ——
+    // 叶子名单源 = owner 常量（dirs.ts），pendingDir 同级拼接。
+    this.inflightDir = inflightDir ?? path.join(path.dirname(pendingDir), path.basename(INBOX_INFLIGHT_DIR));
+    // phase 442: misrouted/ 同模式推导；fallback 仍为 pendingDir 兄弟
+    this.misroutedDir = misroutedDir ?? path.join(path.dirname(pendingDir), path.basename(INBOX_MISROUTED_DIR));
   }
 
   /**
@@ -1107,15 +1109,15 @@ export function createInboxReader(
   audit: AuditLog,
   baseDir: string,
 ): InboxReader {
-  // β 方案：三子目录名是 Messaging 模块不可变约定（phase148），工厂固定拼接。
-  // ctor 顺序 (pendingDir, doneDir, failedDir, fs, audit, inflightDir)，工厂内部适配。
+  // β 方案：子目录名是 Messaging 模块不可变约定（phase148），工厂固定拼接。
+  // ctor 顺序 (pendingDir, doneDir, failedDir, fs, audit, inflightDir?, misroutedDir?)。
+  // phase 1780: inflight/misrouted 不在工厂内联重复 —— 省略参数，由 ctor 按
+  // owner 常量（dirs.ts）从 pendingDir 同级派生，单一推导点。
   return new InboxReader(
     `${baseDir}/pending`,
     `${baseDir}/done`,
     `${baseDir}/failed`,
     fs,
     audit,
-    `${baseDir}/inflight`,
-    `${baseDir}/misrouted`,  // phase 442
   );
 }

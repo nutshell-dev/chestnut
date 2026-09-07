@@ -20,6 +20,8 @@ import { promises as fs } from 'fs';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
+// phase 1780: misrouted 路径走 owner 常量（messaging dirs.ts barrel），不内联复制
+import { INBOX_MISROUTED_DIR } from '../../src/foundation/messaging/index.js';
 import type { Message } from '../../src/foundation/llm-provider/types.js';
 import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
@@ -173,7 +175,7 @@ describe('Runtime DrainInbox', () => {
 
     it('messages with to: a different agent are skipped from injection', async () => {
       const doneDir = path.join(clawDir, 'inbox', 'done');
-      const misroutedDir = path.join(clawDir, 'inbox', 'misrouted');
+      const misroutedDir = path.join(clawDir, INBOX_MISROUTED_DIR);
 
       // Write two messages: one to this agent, one to a subagent
       await writePendingMsg(
