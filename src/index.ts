@@ -7,8 +7,10 @@
 // Types (canonical sources)
 export type {
   TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock,
-  ContentBlock, Message, ToolDefinition, LLMResponse, JSONSchema7,
+  ContentBlock, ToolDefinition, LLMResponse, JSONSchema7,
 } from './foundation/llm-provider/index.js';
+// phase 1800: canonical dialog Message 归 DialogStore（llm-provider 仅见 ProviderWireMessage）
+export type { Message } from './foundation/dialog-store/index.js';
 export type {
   DerivableStatus, SubtaskStatus, LastFailedFeedback,
   Contract,

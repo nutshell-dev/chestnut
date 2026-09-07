@@ -8,7 +8,7 @@
  * - 老 dialog 无 origin 字段时 isSystemMessage 返 false（不破现行 backward compat）
  */
 
-import type { Message } from '../llm-provider/index.js';
+import type { Message } from '../dialog-store/index.js';
 
 /** inbox-formatter 写入侧字面前缀常量、给 LLM 看 */
 export const SYSTEM_MESSAGE_PREFIX = '[system message';

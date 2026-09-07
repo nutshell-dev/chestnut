@@ -21,7 +21,8 @@ import type { Runtime, TurnResult } from '../../src/core/runtime/index.js';
 import type { Watcher, WatchEvent } from '../../src/foundation/file-watcher/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 import { LLMContextExceededError } from '../../src/foundation/llm-provider/index.js';
-import type { Message, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 import type { InboxHandle, InboxMessage } from '../../src/foundation/messaging/types.js';
 import { makeAudit, waitForNthAuditEvent } from '../helpers/audit.js';
 

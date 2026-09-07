@@ -17,7 +17,8 @@ import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import * as persistModule from '../../../src/foundation/file-tool/file-state-persist.js';
 import { READ_STATE_FILE } from '../../../src/foundation/file-tool/file-state-persist.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig() {

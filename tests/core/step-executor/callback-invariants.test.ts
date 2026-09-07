@@ -12,7 +12,8 @@ import { executeSingleTool } from '../../../src/core/step-executor/tool-executio
 import type { ExecContext, ToolResult } from '../../../src/foundation/tool-protocol/index.js';
 import { executeStep } from '../../../src/core/step-executor/step-executor.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { LLMResponse, Message } from '../../../src/foundation/llm-provider/types.js';
+import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../../src/foundation/tools/executor.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { parseToolInput } from '../../../src/core/step-executor/utils.js';

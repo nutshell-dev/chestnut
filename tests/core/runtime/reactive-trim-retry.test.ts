@@ -11,7 +11,8 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { LLMContextExceededError } from '../../../src/foundation/llm-provider/errors.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';

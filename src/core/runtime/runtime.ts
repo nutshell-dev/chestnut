@@ -11,7 +11,8 @@ import { randomHex, sha256Hex } from '../../foundation/node-utils/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import type { InboxMessageRenderingResolver } from '../../foundation/messaging/index.js';
 import { renderStandardInboxMessage } from '../../foundation/messaging/index.js';

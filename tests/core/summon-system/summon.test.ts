@@ -14,7 +14,8 @@ import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 

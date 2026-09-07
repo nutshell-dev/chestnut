@@ -16,7 +16,8 @@ import { randomUUID } from 'crypto';
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { ContextInjector } from '../../src/core/runtime/injector.js';
 import { createSkillSystem } from '../../src/foundation/skill-system/index.js';
-import type { Message } from '../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 import { makeSession } from '../helpers/session-fixtures.js';
 import type { SessionData } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';

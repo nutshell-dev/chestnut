@@ -46,7 +46,8 @@ import {
 } from '../../foundation/llm-orchestrator/index.js';
 import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxHandle, InboxMessage } from '../../foundation/messaging/index.js';
-import { LLMInvalidRequestError, LLMRateLimitError, type Message } from '../../foundation/llm-provider/index.js';
+import { LLMInvalidRequestError, LLMRateLimitError } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import { PendingViewError, decodeInbox, notifyInbox } from '../../foundation/messaging/index.js';
 import {
   createExecutionRecoveryController,

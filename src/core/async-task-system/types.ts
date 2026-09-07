@@ -4,7 +4,8 @@
  * Extracted in phase 1314 (cluster #3 of 5 cleanup roadmap).
  */
 
-import type { Message, ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

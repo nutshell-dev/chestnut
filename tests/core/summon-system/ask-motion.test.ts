@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { AskMotionTool } from '../../../src/core/summon-system/tools/ask-motion.js';
 import { createDialogStore } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { LLMAuthError, LLMTimeoutError } from '../../../src/foundation/llm-provider/errors.js';
 import { FileNotFoundError } from '../../../src/foundation/fs/index.js';
 

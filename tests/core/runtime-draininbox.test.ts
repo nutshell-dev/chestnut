@@ -22,7 +22,8 @@ import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 // phase 1780: misrouted 路径走 owner 常量（messaging dirs.ts barrel），不内联复制
 import { INBOX_MISROUTED_DIR } from '../../src/foundation/messaging/index.js';
-import type { Message } from '../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { UserInterrupt } from '../../src/core/step-executor/signals.js';

@@ -67,28 +67,16 @@ interface UnknownBlock {
 
 export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | UnknownBlock;
 
-export interface Message {
+/**
+ * phase 1800: Provider wire message —— LLM API 仅看 role + content。
+ *
+ * chestnut 内部元数据（origin/systemSubtype/addedAt/trimmed）不属于 wire 协议，
+ * 归 DialogStore canonical `Message`（phase 436 立、phase 421 ratify）；provider 边界
+ * 经 sanitizeForLLMCall 单向投影剥离，provider 类型面不再暴露上层元数据。
+ */
+export interface ProviderWireMessage {
   role: Role;
   content: ContentBlock[] | string;
-
-  // chestnut 内部元数据（LLM API 调用前 sanitize 剥离、API 仅看 role + content）
-  // phase 436 立、phase 421 ratify、phase C 消费 (24h 边界 + P3 子类型分流 + trimmed 已裁过判)
-
-  /** 仅 role='user' 时有意义；tool_result 不填（内部 block.type 已区分） */
-  origin?: 'user' | 'system';
-
-  /** = InboxMessage.type 字面单源、role='user' + origin='system' 时填 */
-  systemSubtype?: string;
-
-  /** 消息写入时刻 ISO（24h 边界判断依据、phase C ContextManager 消费） */
-  addedAt?: string;
-
-  /** phase C ContextManager 触发裁剪时填、本 Step 仅立 schema */
-  trimmed?: {
-    trimmedAt: string;
-    originalContentBytes: number;
-    timesTrimmed?: number;
-  };
 }
 
 export interface ToolDefinition {
@@ -230,8 +218,8 @@ export interface ProviderStreamChunk {
  * Options for a single LLM call
  */
 export interface LLMCallOptions {
-  /** Conversation messages */
-  messages: Message[];
+  /** Conversation messages（phase 1800: wire 类型；canonical 元数据由 caller 侧 DialogStore Message 承载） */
+  messages: ProviderWireMessage[];
 
   /** System prompt (optional) */
   system?: string;

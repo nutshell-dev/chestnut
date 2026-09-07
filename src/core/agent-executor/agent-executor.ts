@@ -8,7 +8,8 @@
  * l3_agent_executor.md §A.invariant-2; SessionStore 落盘 phase409 已迁 caller).
  */
 
-import type { Message, ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';

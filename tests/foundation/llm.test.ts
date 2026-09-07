@@ -9,14 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type {
-  LLMResponse,
-  Message,
-  ProviderAdapter,
-  ProviderConfig,
-  ProviderStreamChunk,
-  ToolDefinition
-} from '../../src/foundation/llm-provider/types.js';
+import type { LLMResponse, ProviderAdapter, ProviderConfig, ProviderStreamChunk, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 import { AnthropicAdapter } from '../../src/foundation/llm-provider/anthropic.js';
 import { CustomAnthropicAdapter } from '../../src/foundation/llm-provider/custom-anthropic.js';
 import { OpenAIAdapter } from '../../src/foundation/llm-provider/openai.js';

@@ -14,7 +14,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { createShadowTool } from '../../../src/core/shadow-system/index.js';
-import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';

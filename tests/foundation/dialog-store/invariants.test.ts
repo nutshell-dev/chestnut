@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { assertDialogShapeInvariants } from '../../../src/foundation/dialog-store/invariants.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';

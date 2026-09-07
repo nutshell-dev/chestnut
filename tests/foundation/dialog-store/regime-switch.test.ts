@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { DialogSessionLifecycle } from '../../../src/foundation/dialog-store/index.js';

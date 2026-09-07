@@ -19,7 +19,8 @@ import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 describe('re-entry-storm', () => {
   function makeMockAudit() {

@@ -3,14 +3,8 @@
  * phase 1190 三层分类裁剪策略：Tier 1 不裁 / Tier 2 尽量不裁 / Tier 3 可裁。
  */
 
-import type {
-  Message,
-  ContentBlock,
-  TextBlock,
-  ThinkingBlock,
-  ToolUseBlock,
-  ToolResultBlock,
-} from '../../foundation/llm-provider/index.js';
+import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
 import {

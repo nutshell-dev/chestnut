@@ -16,7 +16,8 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { promises as fsp } from 'fs';  // phase 281: hoist 2 dyn fs imports
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';

@@ -1,4 +1,5 @@
-import type { Message } from '../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 import type { Runtime } from '../../src/core/runtime/runtime.js';
 import type { StreamCallbacks } from '../../src/core/agent-executor/index.js';
 import type { TurnResult } from '../../src/core/runtime/types.js';

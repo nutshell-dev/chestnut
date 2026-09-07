@@ -6,7 +6,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { runReact } from '../../src/core/agent-executor/loop.js';
-import type { Message, ContentBlock, LLMResponse, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
+import type { ContentBlock, LLMResponse, ToolDefinition } from '../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../src/foundation/tool-protocol/index.js';
 import { makeExecContext } from '../helpers/exec-context.js';

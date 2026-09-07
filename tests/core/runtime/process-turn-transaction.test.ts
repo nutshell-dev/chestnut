@@ -12,7 +12,8 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import type { RuntimeOptions } from '../../../src/core/runtime/types.js';
-import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { UserInterrupt, IdleTimeoutSignal, PriorityInboxInterrupt } from '../../../src/core/step-executor/signals.js';
 
 class TransactionTestRuntime extends Runtime {

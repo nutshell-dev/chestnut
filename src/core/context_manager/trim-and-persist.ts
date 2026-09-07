@@ -3,7 +3,8 @@
  * 事件性裁剪 + 持久化同源（phase 421 ratify、phase 440 实施、phase 1153 区分 proactive/reactive）。
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
 import {
   estimateTextTokens,

@@ -5,7 +5,7 @@
  * 抽出自 store.ts、dialogstore-auditor §M-01 follow-up（SRP 拆分）。
  */
 
-import type { Message } from '../llm-provider/index.js';
+import type { Message } from './canonical-message.js';
 import type { AuditLog } from '../audit/index.js';
 import type { SessionData } from './types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sanitizeForLLMCall } from '../../../src/foundation/llm-provider/sanitize.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 describe('sanitizeForLLMCall', () => {
   it('strips chestnut internal metadata fields', () => {

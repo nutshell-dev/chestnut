@@ -19,7 +19,8 @@ export interface ToolResult {
   };
 }
 
-import type { Message, ToolDefinition } from '../llm-provider/index.js';
+import type { ToolDefinition } from '../llm-provider/index.js';
+import type { Message } from '../dialog-store/index.js';
 
 export interface CallerSnapshot {
   /** Caller's current system prompt (Prompt module output). */

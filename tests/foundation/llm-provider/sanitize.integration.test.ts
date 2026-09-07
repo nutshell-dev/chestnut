@@ -3,7 +3,8 @@ import { BaseAnthropicAdapter, type AnthropicRequestBody } from '../../../src/fo
 import { OpenAIAdapter } from '../../../src/foundation/llm-provider/openai.js';
 import { GeminiAdapter } from '../../../src/foundation/llm-provider/gemini.js';
 import { CustomAnthropicAdapter } from '../../../src/foundation/llm-provider/custom-anthropic.js';
-import type { Message, ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
+import type { ProviderConfig } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 const METADATA_FIELDS = ['origin', 'systemSubtype', 'addedAt', 'trimmed'] as const;
 

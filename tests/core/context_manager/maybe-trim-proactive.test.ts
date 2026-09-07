@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import {
   maybeTrimProactive,

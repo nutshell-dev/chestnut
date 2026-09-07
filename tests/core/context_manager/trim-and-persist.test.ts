@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { trimAndPersist, type TriggerKind } from '../../../src/core/context_manager/trim-and-persist.js';
 import { CONTEXT_TRIM_ARCHIVED } from '../../../src/core/context_manager/audit-events.js';
 import { buildProactiveTrimPolicy, buildReactiveTrimPolicy } from '../../../src/core/context_manager/trim-v2.js';
-import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 
 const NOW = 1_700_000_000_000;

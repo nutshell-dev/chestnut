@@ -21,7 +21,8 @@ import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestr
 import { LLMAuthError, LLMContextExceededError, LLMInvalidRequestError, LLMRateLimitError } from '../../../src/foundation/llm-provider/index.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
-import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { InboxHandle, InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { decodeInbox, encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 

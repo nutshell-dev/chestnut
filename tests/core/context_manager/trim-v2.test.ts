@@ -8,7 +8,8 @@ import {
 } from '../../../src/core/context_manager/trim-v2.js';
 import { estimateMessagesTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
 import { assertWellFormedUnicode } from '../../../src/foundation/node-utils/utf8.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 const NOW = 1_700_000_000_000; // 2023-11-14T22:13:20.000Z
 const RECENT_WINDOW_MS = 86_400_000;

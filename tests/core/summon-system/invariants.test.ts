@@ -21,7 +21,8 @@ import { SUMMON_AUDIT_EVENTS } from '../../../src/core/summon-system/audit-event
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/index.js';
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError } from '../../../src/core/summon-system/pending-retrospective.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';

@@ -3,7 +3,8 @@
  * 顺手裁触发：turn 入口判断「占用率 ≥ 0.75 AND 缓存已失效」、满足则调 trimAndPersist。
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import {
   estimateTextTokens,
   estimateMessagesTokens,

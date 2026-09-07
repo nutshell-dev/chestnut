@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeStep } from '../../../src/core/step-executor/step-executor.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 function createMockLLM() {
   return {

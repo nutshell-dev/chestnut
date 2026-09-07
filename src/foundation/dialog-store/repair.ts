@@ -5,7 +5,8 @@
  * 抽出自 store.ts、dialogstore-auditor §M-01 follow-up（SRP 拆分）。
  */
 
-import type { Message, ToolUseBlock, ToolResultBlock } from '../llm-provider/index.js';
+import type { ToolUseBlock, ToolResultBlock } from '../llm-provider/index.js';
+import type { Message } from './canonical-message.js';
 
 /**
  * Repair messages — 移除 trailing unpaired tool_use blocks 等。

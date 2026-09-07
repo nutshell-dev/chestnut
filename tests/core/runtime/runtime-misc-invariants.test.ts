@@ -14,7 +14,8 @@ import { promises as fs } from 'fs';
 import * as fsSync from 'fs';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { executeStep } from '../../../src/core/step-executor/step-executor.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { createMockLLMConfig } from '../_runtime-test-helpers.js';

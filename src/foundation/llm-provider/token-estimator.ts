@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { Tiktoken } from 'js-tiktoken';
-import type { Message, ContentBlock, ToolDefinition } from './types.js';
+import type { ProviderWireMessage, ContentBlock, ToolDefinition } from './types.js';
 
 /**
  * LLM token estimator (pre-call fallback)
@@ -83,7 +83,7 @@ function estimateContentBlockTokens(block: ContentBlock): number {
 }
 
 /** Estimate token count for a single message (含 per-message overhead) */
-function estimateMessageTokens(msg: Message): number {
+function estimateMessageTokens(msg: ProviderWireMessage): number {
   let total = PER_MESSAGE_OVERHEAD_TOKENS;
   if (typeof msg.content === 'string') {
     total += estimateTextTokens(msg.content);
@@ -96,7 +96,7 @@ function estimateMessageTokens(msg: Message): number {
 }
 
 /** Estimate token count for messages array */
-export function estimateMessagesTokens(messages: readonly Message[]): number {
+export function estimateMessagesTokens(messages: readonly ProviderWireMessage[]): number {
   let total = 0;
   for (const msg of messages) {
     total += estimateMessageTokens(msg);

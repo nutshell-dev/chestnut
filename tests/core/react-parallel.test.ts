@@ -10,7 +10,8 @@ import { ToolExecutorImpl } from '../../src/foundation/tools/executor.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import type { Tool, ToolResult, ExecContext } from '../../src/foundation/tool-protocol/index.js';
 import type { JSONSchema7 } from '../../src/foundation/llm-provider/types.js';
-import type { LLMResponse, Message } from '../../src/foundation/llm-provider/types.js';
+import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 
 // Mock LLM that returns multiple tool calls
 function createMockLLM(responses: LLMResponse[]) {

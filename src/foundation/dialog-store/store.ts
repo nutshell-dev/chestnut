@@ -15,7 +15,8 @@ import { formatErr } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 
-import type { Message, ToolUseBlock, ToolResultBlock } from '../llm-provider/index.js';
+import type { ToolUseBlock, ToolResultBlock } from '../llm-provider/index.js';
+import type { Message } from './canonical-message.js';
 import type {
   SessionData,
   LoadResult,

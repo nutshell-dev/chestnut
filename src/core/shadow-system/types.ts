@@ -1,5 +1,6 @@
 import type { ExecContext } from '../../foundation/tools/index.js';
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import type { SubAgentTaskScheduler, TaskId } from '../async-task-system/index.js';
 
 

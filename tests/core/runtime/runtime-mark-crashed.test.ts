@@ -18,7 +18,8 @@ import {
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/errors.js';
 
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 

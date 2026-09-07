@@ -3,7 +3,8 @@
  * Step type definitions — extracted from step-executor.ts
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext, IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';

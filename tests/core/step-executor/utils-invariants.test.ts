@@ -14,7 +14,8 @@ import {
   safeCallback,
   toToolResultBlock,
 } from '../../../src/core/step-executor/utils.js';
-import type { Message, LLMResponse } from '../../../src/foundation/llm-provider/types.js';
+import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { executeStep } from '../../../src/core/step-executor/step-executor.js';
 import { handleMaxTokensStop, handleToolUseStop } from '../../../src/core/step-executor/stop-handlers.js';
 import type { StepInput, LLMCallInfo, StepCallbacks } from '../../../src/core/step-executor/types.js';

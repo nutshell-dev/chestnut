@@ -1,7 +1,8 @@
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import type { SessionData } from '../../src/foundation/dialog-store/types.js';
-import type { Message } from '../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../src/foundation/dialog-store/index.js';
 
 /**
  * Test helper: build a SessionData literal with sane defaults + overrides.

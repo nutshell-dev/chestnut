@@ -7,6 +7,8 @@
  */
 
 export { DialogStore } from './store.js';
+// phase 1800: canonical dialog message（业务元数据 owner，自 llm-provider 迁入）
+export type { Message } from './canonical-message.js';
 // phase 483: audit-events barrel re-export
 export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 export { migrateAndValidateSession, validateSessionData } from './validate.js';

@@ -4,7 +4,8 @@ import {
   isSystemMessage,
   isUserMessage,
 } from '../../../src/foundation/messaging/system-message-helper.js';
-import type { Message } from '../../../src/foundation/llm-provider/types.js';
+
+import type { Message } from '../../../src/foundation/dialog-store/index.js';
 
 describe('SYSTEM_MESSAGE_PREFIX', () => {
   it('matches inbox-formatter output', () => {

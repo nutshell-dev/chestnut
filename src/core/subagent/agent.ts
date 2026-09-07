@@ -19,7 +19,8 @@ import {
   type ToolUseId,
 } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
-import type { Message } from '../../foundation/llm-provider/index.js';
+
+import type { Message } from '../../foundation/dialog-store/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, emitPartialAssistantDiscarded } from './audit-events.js';
