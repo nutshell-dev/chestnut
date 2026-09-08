@@ -22,8 +22,12 @@ export interface ClawTopology {
   resolve(clawId: ClawId): Location;
   /** 跨 claw 读文本 */
   read(clawId: ClawId, relPath: string): Promise<string>;
-  /** 跨 claw 读 JSON */
-  readJSON<T>(clawId: ClawId, relPath: string): Promise<T>;
+  /**
+   * 跨 claw 读 JSON。phase 1811 Step B（CT-D7）：返回 `unknown`——Topology 只
+   * 负责读取，不以泛型承诺未经验证的业务类型；schema 验证由资源业务 owner
+   * 在 caller 边界显式 decode（禁止 cast 伪验证）。
+   */
+  readJSON(clawId: ClawId, relPath: string): Promise<unknown>;
 }
 
 export class ClawIdResolveError extends Error {

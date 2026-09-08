@@ -69,9 +69,11 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
         throw new CrossClawReadError(clawId, relPath, err);
       }
     },
-    async readJSON<T>(clawId: ClawId, relPath: string): Promise<T> {
+    async readJSON(clawId: ClawId, relPath: string): Promise<unknown> {
       const content = await this.read(clawId, relPath);
-      return JSON.parse(content) as T;
+      // phase 1811 Step B: 不 cast——parse 结果以 unknown 交付，业务类型由
+      // caller 在 owner 边界经 schema/decoder 获得。
+      return JSON.parse(content) as unknown;
     },
   };
 }

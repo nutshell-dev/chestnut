@@ -69,7 +69,10 @@ describe('createClawTopology', () => {
     const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const text = await topology.read('beta', 'data.json');
     expect(text).toBe('{"hello":"world"}');
-    const obj = await topology.readJSON<{ hello: string }>('beta', 'data.json');
+    const raw = await topology.readJSON('beta', 'data.json');
+    // phase 1811：readJSON 返回 unknown，caller 边界显式 decode（示例：最小 guard）
+    expect(typeof raw).toBe('object');
+    const obj = raw as { hello?: unknown };
     expect(obj.hello).toBe('world');
   });
 
