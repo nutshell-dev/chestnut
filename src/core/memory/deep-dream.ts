@@ -15,11 +15,12 @@ import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE, DialogIOError } from '../
 import type { SessionData } from '../../foundation/dialog-store/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/index.js';
 
-import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { assertDreamStateShape } from './invariants.js';
 import { auditDeepDreamCrossSource } from './dream-cross-source-audit.js';
+import { loadDreamStateRaw, quarantineDreamStateRaw } from './dream-state-load.js';
+import type { DreamStateDegraded } from './dream-state-load.js';
 
 /**
  * Default max tokens for memory compression pass（deep-dream LLM call 上限）.
@@ -60,9 +61,12 @@ interface DreamStateData {
 }
 
 // Phase 1161: discriminated load result so callers can stop before discovery/LLM/output/save.
+// phase 1810 Step B: 新增 degraded——malformed（quarantine 证据）/ unavailable（未触文件），
+// 均不得隐式转 ready/default，caller 阻断本轮 run（不 save 覆盖原始 state）。
 type DeepDreamStateLoadResult =
   | { status: 'ready'; state: DreamStateData }
-  | { status: 'blocked'; reason: 'future_schema'; version: number };
+  | { status: 'blocked'; reason: 'future_schema'; version: number }
+  | { status: 'degraded'; degraded: DreamStateDegraded };
 
 function defaultDreamState(): DreamStateData {
   return {
@@ -171,8 +175,38 @@ function serializeSession(messages: Message[]): string {
 const DEEP_DREAM_STATE_FILE = '.deep-dream-state.json';
 
 function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): DeepDreamStateLoadResult {
-  try {
-    const raw = JSON.parse(clawFs.readSync(DEEP_DREAM_STATE_FILE)) as Record<string, unknown>;
+  // phase 1810 Step B: typed 四态 load（owner policy 归 dream-state-load.ts）
+  const loaded = loadDreamStateRaw(clawFs, DEEP_DREAM_STATE_FILE);
+  switch (loaded.kind) {
+    case 'absent':
+      // FileNotFoundError 首启良性 / silent
+      return ready(defaultDreamState());
+    case 'unavailable':
+      // IO 故障（EACCES 等）不隐式转 default：不读不写、不 quarantine，degraded 保留证据
+      audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
+        `step=load_state`,
+        `clawId=${clawId}`,
+        `cause=unavailable`,
+        `reason=${loaded.error}`,
+      );
+      return { status: 'degraded', degraded: { cause: 'unavailable', error: loaded.error } };
+    case 'malformed': {
+      // 损坏 state：先原子 quarantine raw（唯一后缀、不覆盖旧 raw），证据先于任何 reset；
+      // quarantine 失败原文件不动，绝不因隔离失败而覆盖原始 state。
+      const quarantine = quarantineDreamStateRaw(clawFs, DEEP_DREAM_STATE_FILE);
+      audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
+        `step=load_state`,
+        `clawId=${clawId}`,
+        `cause=malformed`,
+        `reason=${loaded.error}`,
+        quarantine.kind === 'quarantined'
+          ? `quarantine=${quarantine.path}`
+          : `quarantine=failed:${quarantine.error}`,
+      );
+      return { status: 'degraded', degraded: { cause: 'malformed', error: loaded.error, quarantine } };
+    }
+    case 'found': {
+      const raw = loaded.raw;
 
     // phase 926 + 1161: reject future schema versions (keep file, block this claw)
     const version = typeof raw.schema_version === 'number' ? raw.schema_version : 0;
@@ -199,18 +233,7 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): De
 
     // phase 1162 Step B: normalize v1/v2 state into current schema (pending outbox + filters)
     return ready(normalizeDreamState(raw, audit, clawId));
-  } catch (err) {
-    // FileNotFoundError 首启良性 / silent
-    if (err instanceof FileNotFoundError) {
-      return ready(defaultDreamState());
     }
-    // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
-    audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
-      `step=load_state`,
-      `clawId=${clawId}`,
-      `reason=${formatErr(err)}`,
-    );
-    return ready(defaultDreamState());
   }
 }
 
@@ -326,6 +349,17 @@ type ProcessResult =
 async function prepareDeepDreamRun(ctx: DreamRunContext): Promise<DreamRunPlan | null> {
   const today = new Date().toLocaleDateString('sv');
   const loaded = loadDreamState(ctx.clawFs, ctx.audit, ctx.clawId);
+  if (loaded.status === 'degraded') {
+    // phase 1810 Step B: 损坏/不可用 state 阻断本轮 run——不 discovery、不 LLM、不 save，
+    // 新 canonical state 只能由下一轮 absent 路径在证据保全后建立（显式 reset gate）。
+    ctx.audit.write(
+      MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB,
+      'step=blocked',
+      `clawId=${ctx.clawId}`,
+      `reason=state_${loaded.degraded.cause}`,
+    );
+    return null;
+  }
   if (loaded.status === 'blocked') {
     ctx.audit.write(
       MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB,

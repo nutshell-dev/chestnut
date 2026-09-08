@@ -216,37 +216,67 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       expect(fs.writeAtomicSync).toBeUndefined();
     });
 
-    it('corrupt JSON emits DEEP_DREAM_ERROR audit + returns ready default', () => {
-      const fs = makeMockFs(() => '{ corrupt');
+    it('corrupt JSON → degraded malformed + quarantine 保留 raw（phase 1810，不再隐式 default）', () => {
+      const moves: Array<[string, string]> = [];
+      const fs = {
+        readSync: vi.fn(() => '{ corrupt'),
+        existsSync: vi.fn(() => false),
+        moveSync: vi.fn((from: string, to: string) => { moves.push([from, to]); }),
+        writeAtomicSync: vi.fn(() => {}),
+      } as unknown as FileSystem;
       const audit = makeMockAudit();
 
       const result = __test_loadDreamState(fs, audit, clawId);
-      expect(result.status).toBe('ready');
-      if (result.status !== 'ready') throw new Error('expected ready');
-      expect(result.state).toEqual(defaultState);
+      expect(result.status).toBe('degraded');
+      if (result.status !== 'degraded') throw new Error('expected degraded');
+      expect(result.degraded.cause).toBe('malformed');
+      // 原子 quarantine：canonical → 唯一后缀，raw 原文保留
+      expect(moves).toEqual([['.deep-dream-state.json', '.deep-dream-state.json.corrupt-1']]);
+      if (result.degraded.cause !== 'malformed') throw new Error('expected malformed');
+      expect(result.degraded.quarantine).toEqual({
+        kind: 'quarantined',
+        path: '.deep-dream-state.json.corrupt-1',
+      });
+      // 本轮 run 不得 save 覆盖（load 阶段无 canonical 写入）
+      expect(fs.writeAtomicSync).not.toHaveBeenCalled();
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
       expect(call).toEqual(expect.arrayContaining([
         expect.stringMatching(/^step=load_state$/),
         expect.stringContaining(`clawId=${clawId}`),
+        expect.stringMatching(/^cause=malformed$/),
+        expect.stringMatching(/^quarantine=\.deep-dream-state\.json\.corrupt-1$/),
       ]));
     });
 
-    it('non-ENOENT IO error (EACCES) emits audit + returns ready default', () => {
-      const fs = makeMockFs(() => {
-        throw new Error('EACCES: permission denied');
-      });
+    it('non-ENOENT IO error (EACCES) → degraded unavailable，不 quarantine 不写文件（phase 1810）', () => {
+      const fs = {
+        readSync: vi.fn(() => { throw new Error('EACCES: permission denied'); }),
+        existsSync: vi.fn(() => false),
+        moveSync: vi.fn(),
+        writeAtomicSync: vi.fn(() => {}),
+      } as unknown as FileSystem;
       const audit = makeMockAudit();
 
       const result = __test_loadDreamState(fs, audit, clawId);
-      expect(result.status).toBe('ready');
-      if (result.status !== 'ready') throw new Error('expected ready');
-      expect(result.state).toEqual(defaultState);
+      expect(result.status).toBe('degraded');
+      if (result.status !== 'degraded') throw new Error('expected degraded');
+      expect(result.degraded).toEqual({
+        cause: 'unavailable',
+        error: 'EACCES: permission denied',
+      });
+      // unavailable 不触碰文件（不 quarantine、不 save）
+      expect(fs.moveSync).not.toHaveBeenCalled();
+      expect(fs.writeAtomicSync).not.toHaveBeenCalled();
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
-      expect(call.some((s: unknown) => typeof s === 'string' && s.includes('EACCES'))).toBe(true);
+      expect(call).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^step=load_state$/),
+        expect.stringMatching(/^cause=unavailable$/),
+        expect.stringContaining('EACCES'),
+      ]));
     });
   });
 

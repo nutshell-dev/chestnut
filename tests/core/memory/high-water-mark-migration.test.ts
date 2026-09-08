@@ -18,14 +18,23 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import { FileNotFoundError } from '../../../src/foundation/fs/types.js';
 
 function makeMockFs(contentMap: Record<string, string | Error>): FileSystem {
+  const files = new Map(Object.entries(contentMap));
   return {
     readSync: vi.fn((file: string) => {
-      const v = contentMap[file];
+      const v = files.get(file);
       if (v instanceof Error) throw v;
       if (v === undefined) throw new FileNotFoundError(file);
       return v;
     }),
     writeAtomicSync: vi.fn(() => {}),
+    // phase 1810: quarantine 语义（rename 唯一后缀），mock 随 move 同步 Map 视图
+    existsSync: vi.fn((file: string) => files.has(file)),
+    moveSync: vi.fn((from: string, to: string) => {
+      const v = files.get(from);
+      if (v === undefined) throw new FileNotFoundError(from);
+      files.delete(from);
+      files.set(to, v);
+    }),
   } as unknown as FileSystem;
 }
 
@@ -94,20 +103,24 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('损坏 JSON → 返默认值 0 + audit emit DEEP_DREAM_ERROR', () => {
+  it('损坏 JSON → degraded malformed + quarantine 保留 raw（phase 1810，不再隐式 default）', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({
       [__test_DEEP_DREAM_STATE_FILE]: 'not-json',
     });
 
     const result = __test_loadDreamState(fs, audit, 'test-claw');
-    expect(result.status).toBe('ready');
-    const { state } = result;
-
-    expect(state.lastProcessedDeepDreamAt).toBe(0);
-    expect(state.currentSessionDreamedDate).toBe('');
-    expect(state.schema_version).toBe(2);
-    expect(state.pendingNotifications).toEqual([]);
+    expect(result.status).toBe('degraded');
+    if (result.status !== 'degraded') throw new Error('expected degraded');
+    if (result.degraded.cause !== 'malformed') throw new Error('expected malformed');
+    expect(result.degraded.quarantine).toEqual({
+      kind: 'quarantined',
+      path: `${__test_DEEP_DREAM_STATE_FILE}.corrupt-1`,
+    });
+    // raw 原文已随 rename 保留在 quarantine 路径、canonical 不存在 → 不会被 save 覆盖
+    expect(fs.existsSync(__test_DEEP_DREAM_STATE_FILE)).toBe(false);
+    expect(fs.readSync(`${__test_DEEP_DREAM_STATE_FILE}.corrupt-1`)).toBe('not-json');
+    expect(fs.writeAtomicSync).not.toHaveBeenCalled();
     const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
   });
@@ -208,16 +221,25 @@ describe('random-dream legacy schema migration (phase 925)', () => {
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('损坏 JSON → 返默认值空数组 + audit emit RANDOM_DREAM_ERROR', () => {
+  it('损坏 JSON → degraded malformed + quarantine 保留 raw（phase 1810，不再隐式 default）', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({
       [__test_RANDOM_DREAM_STATE_FILE]: 'not-json',
     });
 
-    const { state } = __test_loadRandomDreamState(fs, audit);
+    const { state, degraded } = __test_loadRandomDreamState(fs, audit);
 
+    expect(degraded?.cause).toBe('malformed');
+    if (degraded?.cause !== 'malformed') throw new Error('expected malformed');
+    expect(degraded.quarantine).toEqual({
+      kind: 'quarantined',
+      path: `${__test_RANDOM_DREAM_STATE_FILE}.corrupt-1`,
+    });
+    // state 仅为占位 default（caller 见 degraded 必阻断，不得 save）
     expect(state.completedContractIds).toEqual([]);
-    expect(state.schema_version).toBe(2);
+    expect(fs.existsSync(__test_RANDOM_DREAM_STATE_FILE)).toBe(false);
+    expect(fs.readSync(`${__test_RANDOM_DREAM_STATE_FILE}.corrupt-1`)).toBe('not-json');
+    expect(fs.writeAtomicSync).not.toHaveBeenCalled();
     const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR);
   });

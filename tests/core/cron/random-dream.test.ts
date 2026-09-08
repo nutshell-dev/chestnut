@@ -459,23 +459,29 @@ Prompt: ...
       await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
     });
 
-    it('loadRandomDreamState parse 错时 audit RANDOM_DREAM_ERROR site=load_state 并返空（A.dream-state-io-silent random-dream 扩散 phase 597 / phase 216 col 名空间隔离）', async () => {
+    it('loadRandomDreamState parse 错时 quarantine raw + 阻断本轮 pulse（phase 1810，覆写 A.dream-state-io-silent 旧义：不再重置后继续）', async () => {
       // setup: 写入损坏 .random-dream-state.json
       await fs.writeFile(path.join(chestnutRoot, '.random-dream-state.json'), 'corrupted{', 'utf-8');
-
-      const dreamLog = `=== SubAgent ${taskId} started ===
-[DREAM_OUTPUT contract_id="contract-001"]
-跨 claw 共性洞见
-[/DREAM_OUTPUT]`;
-      await writeTaskCompletion(motionDir, taskId, dreamLog);
 
       await runRandomDream(makeOpts(chestnutRoot, motionDir));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         'cron_random_dream_error',
         'site=load_state',
+        'cause=malformed',
         expect.stringMatching(/^reason=/),
+        expect.stringMatching(/^quarantine=\.random-dream-state\.json\.corrupt-1$/),
       );
+      // 本轮 pulse 被 blocked（degraded gate）
+      expect(mockAudit.write).toHaveBeenCalledWith(
+        'cron_random_dream_job',
+        'step=blocked',
+        'reason=state_malformed',
+      );
+      // raw 原文随 quarantine 保留、canonical 不存在（不会被后续 save 覆盖）
+      const statePath = path.join(chestnutRoot, '.random-dream-state.json');
+      expect(fsSync.existsSync(statePath)).toBe(false);
+      expect(fsSync.readFileSync(`${statePath}.corrupt-1`, 'utf-8')).toBe('corrupted{');
     });
 
     it('loadRandomDreamState FileNotFoundError 时 silent 返空（首启良性）', async () => {

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { MOTION_CLAW_ID, type ClawTopology } from '../claw-topology/index.js';
-import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
@@ -23,6 +23,8 @@ import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from
  */
 const DEFAULT_PULSE_INTERVAL_MS = 30_000;
 import { auditRandomDreamCrossSource } from './dream-cross-source-audit.js';
+import { loadDreamStateRaw, quarantineDreamStateRaw } from './dream-state-load.js';
+import type { DreamStateDegraded } from './dream-state-load.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
@@ -118,6 +120,8 @@ interface RandomDreamState {
 interface RandomDreamLoadResult {
   state: RandomDreamState;
   blocked?: { reason: string; version: number };
+  /** phase 1810 Step B: malformed（已 quarantine）/ unavailable（未触文件）degraded 证据 */
+  degraded?: DreamStateDegraded;
 }
 
 // ─── Random Dream State I/O ──────────────────────────────────
@@ -185,17 +189,44 @@ function normalizeState(r: Record<string, unknown>, audit: AuditLog): RandomDrea
   };
 }
 
+function defaultRandomDreamState(): RandomDreamState {
+  return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
+}
+
 function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamLoadResult {
-  try {
-    const parsed: unknown = JSON.parse(fs.readSync(RANDOM_DREAM_STATE_FILE));
-    if (typeof parsed !== 'object' || parsed === null) {
+  // phase 1810 Step B: typed 四态 load（与 deep-dream 共用 owner policy，不复制逻辑）
+  const loaded = loadDreamStateRaw(fs, RANDOM_DREAM_STATE_FILE);
+  switch (loaded.kind) {
+    case 'absent':
+      // FileNotFoundError 首启良性 / silent
+      return { state: defaultRandomDreamState() };
+    case 'unavailable':
+      // IO 故障（EACCES 等）不隐式转 default：不读不写、不 quarantine，degraded 保留证据
       audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
-        `site=load_state_shape_invalid`,
-        `reason=state_not_object`,
-        `actual=${typeof parsed}`);
-      return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] } };
+        `site=load_state`,
+        `cause=unavailable`,
+        `reason=${loaded.error}`,
+      );
+      return { state: defaultRandomDreamState(), degraded: { cause: 'unavailable', error: loaded.error } };
+    case 'malformed': {
+      // 损坏 state：先原子 quarantine raw（唯一后缀、不覆盖旧 raw），证据先于任何 reset；
+      // quarantine 失败原文件不动，绝不因隔离失败而覆盖原始 state。
+      const quarantine = quarantineDreamStateRaw(fs, RANDOM_DREAM_STATE_FILE);
+      audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+        `site=load_state`,
+        `cause=malformed`,
+        `reason=${loaded.error}`,
+        quarantine.kind === 'quarantined'
+          ? `quarantine=${quarantine.path}`
+          : `quarantine=failed:${quarantine.error}`,
+      );
+      return {
+        state: defaultRandomDreamState(),
+        degraded: { cause: 'malformed', error: loaded.error, quarantine },
+      };
     }
-    const r = parsed as Record<string, unknown>;
+    case 'found': {
+      const r = loaded.raw;
 
     // phase 927: reject future schema versions (keep file, return blocked)
     const version = typeof r.schema_version === 'number' ? r.schema_version : 0;
@@ -228,17 +259,7 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamLoadR
     }
 
     return { state: normalizeState(r, audit) };
-  } catch (err) {
-    // FileNotFoundError 首启良性 / silent
-    if (err instanceof FileNotFoundError) {
-      return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] } };
     }
-    // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
-    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
-      `site=load_state`,
-      `reason=${formatErr(err)}`,
-    );
-    return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] } };
   }
 }
 
@@ -758,6 +779,12 @@ async function sweepLateSettlePending(
  */
 export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const loaded = loadRandomDreamState(opts.fs, opts.audit);
+  if (loaded.degraded) {
+    // phase 1810 Step B: 损坏/不可用 state 阻断本轮 pulse——不 schedule、不 save，
+    // 新 canonical state 只能由下一轮 absent 路径在证据保全后建立（显式 reset gate）。
+    opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=blocked`, `reason=state_${loaded.degraded.cause}`);
+    return;
+  }
   if (loaded.blocked) {
     opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=blocked`, `reason=${loaded.blocked.reason}`);
     return;

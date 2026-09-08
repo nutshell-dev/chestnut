@@ -105,7 +105,7 @@ describe('runDeepDream', () => {
     // ── Dream State I/O 错误处理（phase 561）────────────────────
 
     describe('Dream State I/O 错误处理（phase 561）', () => {
-      it('loadDreamState parse 错时 audit DEEP_DREAM_ERROR step=load_state 并返空（A.dream-state-io-silent）', async () => {
+      it('loadDreamState parse 错时 quarantine raw + 阻断本轮 run（phase 1810，覆写 A.dream-state-io-silent 旧义：不再重置后继续）', async () => {
         // 写损坏的 state 文件
         await fs.writeFile(path.join(clawDir, '.deep-dream-state.json'), 'corrupted{', 'utf-8');
         const session = makeSessionJson([
@@ -115,24 +115,30 @@ describe('runDeepDream', () => {
         const filename = `1000000000000_abcd1234.json`;
         await fs.writeFile(path.join(archiveDir, filename), session, 'utf-8');
 
-        mockLlmCall
-          .mockResolvedValueOnce(makeTextResponse('dream'))
-          .mockResolvedValueOnce(makeTextResponse('compressed'));
-
         await runDeepDream({ clawsDir: `${chestnutDir}/claws`, clawTopology: topology, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: chestnutDir }), audit: mockAudit, clawFsFactory, notifyClaw: mockNotifyClaw });
 
-        // audit 记录了 load_state 错误
+        // audit 记录了 load_state 错误（cause=malformed + quarantine 证据列）
         expect(mockAudit.write).toHaveBeenCalledWith(
           'cron_deep_dream_error',
           'step=load_state',
           expect.stringMatching(/^clawId=/),
+          'cause=malformed',
           expect.stringMatching(/^reason=.*corrupted/),
+          expect.stringMatching(/^quarantine=\.deep-dream-state\.json\.corrupt-1$/),
+        );
+        // 本轮 run 被 blocked（degraded gate）
+        expect(mockAudit.write).toHaveBeenCalledWith(
+          'cron_deep_dream_job',
+          'step=blocked',
+          expect.stringMatching(/^clawId=/),
+          'reason=state_malformed',
         );
 
-        // state 被重置后流程继续，archive 被处理
+        // run 阻断：不调用 LLM、不建立新 canonical state；raw 原文随 quarantine 保留
+        expect(mockLlmCall).not.toHaveBeenCalled();
         const statePath = path.join(clawDir, '.deep-dream-state.json');
-        const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
-        expect(state.lastProcessedDeepDreamAt).toBeGreaterThanOrEqual(parseInt(filename.split('_')[0], 10));
+        expect(fsSync.existsSync(statePath)).toBe(false);
+        expect(fsSync.readFileSync(`${statePath}.corrupt-1`, 'utf-8')).toBe('corrupted{');
       });
 
       it('loadDreamState FileNotFoundError 时 silent 返空（首启良性）', async () => {
