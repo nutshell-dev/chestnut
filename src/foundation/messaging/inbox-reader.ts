@@ -178,7 +178,23 @@ export class PendingViewError extends Error {
   }
 }
 
-export class InboxReader implements InboxDeliverySession {
+/**
+ * phase 1804: Messaging-owned pending cleanup typed outcome
+ * （Daemon heartbeat 清理归 owner；调用方不见目录/文件名/删除动作）。
+ */
+export type CleanupPendingResult =
+  | { kind: 'complete'; removed: number }
+  | { kind: 'partial'; removed: number; failures: readonly { messageId?: string; error: string }[] };
+
+/**
+ * 最小清理 capability（phase 1804）：只按解码后的 message type 清理 pending/，
+ * 不暴露通用 predicate 删除。
+ */
+export interface InboxMaintenance {
+  cleanupPendingByType(type: string): Promise<CleanupPendingResult>;
+}
+
+export class InboxReader implements InboxDeliverySession, InboxMaintenance {
   private readonly inflightDir: string;
   // phase 442: misroutedDir 隔离 to=<other_claw> 误投消息、与 done/failed 同级独立子目录
   private readonly misroutedDir: string;
@@ -1052,6 +1068,54 @@ export class InboxReader implements InboxDeliverySession {
       results.push(meta);
     }
     return results;
+  }
+
+  /**
+   * phase 1804: Messaging-owned pending cleanup（按解码 meta.type 匹配，不解析文件名 substring）。
+   *
+   * - 仅扫 pending/；解码失败/删除失败 → failure evidence + 保留文件（不静默删、不猜测）；
+   * - race（list 后文件被消费）→ 跳过不计 failure；
+   * - list 故障（非 ENOENT）→ partial{removed:0} + list 失败证据 + audit。
+   */
+  async cleanupPendingByType(type: string): Promise<CleanupPendingResult> {
+    let entries: { name: string }[];
+    try {
+      entries = await this.fs.list(this.pendingDir, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return { kind: 'complete', removed: 0 };
+      const reason = formatErr(err);
+      emitInboxListFailed(this.audit, {
+        dir: this.pendingDir,
+        op: 'cleanup',
+        errorCode: classifyErrno(err),
+        reason,
+      });
+      return { kind: 'partial', removed: 0, failures: [{ error: reason }] };
+    }
+
+    let removed = 0;
+    const failures: { messageId?: string; error: string }[] = [];
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.md')) continue;
+      const filePath = path.join(this.pendingDir, entry.name);
+      const meta = InboxWriter.readMeta(this.fs, filePath);
+      if (!meta.ok) {
+        if (meta.error.kind === 'not_found') continue;  // race：已被消费，非 failure
+        // 损坏消息无法解码 type → 保留文件 + evidence（不猜测、不误删）
+        failures.push({ error: `meta decode failed: kind=${meta.error.kind}` });
+        continue;
+      }
+      if (meta.value.type !== type) continue;
+      try {
+        await this.fs.delete(filePath);
+        removed++;
+      } catch (e) {
+        failures.push({ messageId: meta.value.id, error: formatErr(e) });
+      }
+    }
+    return failures.length > 0
+      ? { kind: 'partial', removed, failures }
+      : { kind: 'complete', removed };
   }
 
   /**

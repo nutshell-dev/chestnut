@@ -22,8 +22,7 @@ import { summarizeLastExit } from './last-exit-summary.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { getProcessStartTime, type ProcessStartTime } from '../foundation/process-exec/index.js';
-import { isFileNotFound } from '../foundation/fs/index.js';
-import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
+import { INBOX_PENDING_DIR, createInboxReader } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
@@ -189,16 +188,17 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     }
 
     // 清理残留心跳（上次 daemon 的遗留，重启后无需立即巡查）
-    try {
-      const entries = await preAssembleFs.list(INBOX_PENDING_DIR);
-      for (const entry of entries) {
-        if (entry.name.includes('_heartbeat_')) {
-          await preAssembleFs.delete(path.join(INBOX_PENDING_DIR, entry.name));
-        }
-      }
-    } catch (e) {
-      if (!isFileNotFound(e)) {
-        auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_HEARTBEAT_FAILED, `reason=${(e as Error).message}`);
+    // phase 1804: Messaging owner capability —— daemon 不见目录/文件名/删除动作；
+    // typed identity（解码 meta.type）替代 '_heartbeat_' 文件名 substring 判断。
+    {
+      const inboxMaintenance = createInboxReader(preAssembleFs, preAssembleAudit, path.join(dir, 'inbox'));
+      const cleanup = await inboxMaintenance.cleanupPendingByType('heartbeat');
+      if (cleanup.kind === 'partial') {
+        auditWriter.write(
+          DAEMON_AUDIT_EVENTS.CLEANUP_HEARTBEAT_FAILED,
+          `removed=${cleanup.removed}`,
+          `reason=${cleanup.failures.map(f => f.error).join('; ')}`,
+        );
       }
     }
 

@@ -28,6 +28,8 @@ export type {
 } from './inbox-reader.js';
 // phase 1782: delivery batch typed outcome — claim/move partial failure 不再压平为成功
 export type { InboxDeliveryResult } from './inbox-reader.js';
+// phase 1804: Messaging-owned pending cleanup（Daemon 不见目录/文件名/删除动作）
+export type { CleanupPendingResult, InboxMaintenance } from './inbox-reader.js';
 export { PendingViewError } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage, InboxMessage, Priority } from './types.js';
 // phase 1781: init typed recovery outcome — runtime caller 显式处理 degraded
