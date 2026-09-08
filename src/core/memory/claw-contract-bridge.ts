@@ -1,24 +1,17 @@
-import type { ContractId } from '../contract/index.js';
-import type { NotifyClawFn } from '../contract/index.js';
-import type { FileSystem } from '../../foundation/fs/index.js';
-import type { ToolRegistry } from '../../foundation/tools/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { ProgressData } from '../contract/index.js';
-import { createContractSystem } from '../contract/index.js';
-import { makeClawId } from '../../foundation/claw-identity/index.js';
-import { createSystemAudit } from '../../foundation/audit/index.js';
-import type { ContractSystem } from '../contract/index.js';
+import type { ContractId, ContractProgressReader, ProgressData } from '../contract/index.js';
+import { makeClawId, type ClawId } from '../../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 
 interface ClawContractBridgeDeps {
-  fsFactory: (baseDir: string) => FileSystem;
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
-  /** phase 104: pre-bound notifyClaw - caller (装配期) bind */
-  notifyClaw: NotifyClawFn;
-  llm: LLMOrchestrator;
-  toolRegistry: ToolRegistry;
-  toolTimeoutMs: number;
+  /**
+   * Phase 1807 Step B（MEMORY-CONTRACT-BRIDGE-OVERWIDE-ADAPTER）：装配层注入的
+   * per-claw reader 工厂。Memory 只缓存窄 capability，不再构造/持有完整
+   * ContractSystem——LLM、ToolRegistry、notify 与 audit 构造、close 生命
+   * 周期全部归 ContractSystem owner/装配层（工厂内部自由装配，Memory 不可见）。
+   */
+  createReader: (clawId: ClawId, clawDir: string) => Promise<ContractProgressReader>;
 }
 
 interface ClawContractBridge {
@@ -27,40 +20,24 @@ interface ClawContractBridge {
 }
 
 export function createClawContractBridge(deps: ClawContractBridgeDeps): ClawContractBridge {
-  const cache = new Map<string, ContractSystem>();
+  const cache = new Map<string, ContractProgressReader>();
 
   return {
     async getContractProgress(clawId: string, contractId: ContractId) {
-      let cs = cache.get(clawId);
-      if (!cs) {
+      let reader = cache.get(clawId);
+      if (!reader) {
         const location = deps.clawTopology.resolve(makeClawId(clawId));
         if (location.kind !== 'local') return null;
-        const cDir = location.clawDir;
-        const cFs = deps.fsFactory(cDir);
-        const cAudit = createSystemAudit(cFs, cDir);
-        // phase 1445 Step D：只读 getProgress 用途、故意不传 bootReconcile（不 init）
-        cs = await createContractSystem({
-          clawDir: cDir,
-          clawId: makeClawId(clawId),
-          fs: cFs,
-          audit: cAudit,
-          llm: deps.llm,
-          toolRegistry: deps.toolRegistry,
-          toolTimeoutMs: deps.toolTimeoutMs,
-          fsFactory: deps.fsFactory,
-          notifyClaw: deps.notifyClaw,
-        });
-        cache.set(clawId, cs);
+        // 只读 getProgress 用途；reader 由装配层工厂创建并缓存（每 claw 一个）。
+        reader = await deps.createReader(makeClawId(clawId), location.clawDir);
+        cache.set(clawId, reader);
       }
-      return cs.getProgress(contractId);
+      return reader.getProgress(contractId);
     },
 
     async dispose() {
-      // phase 517 B8: allSettled 兜底、单个 ContractSystem.close 失败不阻其他
-      // 模式与 manager.ts:1060 一致（_activeContractControllers termination）
-      await Promise.allSettled(
-        Array.from(cache.values()).map(cs => cs.close()),
-      );
+      // phase 1807：reader 生命周期（含底层 ContractSystem.close）归装配层——
+      // bridge 只丢弃缓存的 capability 引用，不触碰 close。
       cache.clear();
     },
   };

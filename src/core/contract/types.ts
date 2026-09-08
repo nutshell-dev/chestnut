@@ -569,3 +569,18 @@ export interface ContractRuntimeLifecycle {
   maybeAuditStep(currentStep: number): Promise<void>;
   close(): Promise<void>;
 }
+
+/**
+ * Phase 1807 Step B: ContractSystem-owned 窄 getProgress capability
+ * （MEMORY-CONTRACT-BRIDGE-OVERWIDE-ADAPTER）。
+ *
+ * 只读消费方（Memory random-dream 等）只注入本接口，不再构造/缓存完整
+ * ContractSystem——LLM、ToolRegistry、notifyClaw 与 close 生命周期均不泄漏给
+ * 消费方。reader 内部如何实现（含底层 manager 装配与 close）归 ContractSystem
+ * owner/装配层；corrupt 隔离（markCorrupted）等副作用仍在 owner 内部发生，
+ * progress 语义与 ContractSystem.getProgress 完全一致（单源，不引第二套
+ * schema）。
+ */
+export interface ContractProgressReader {
+  getProgress(id: ContractId): Promise<ProgressData | null>;
+}

@@ -8,6 +8,7 @@
 
 import { resolveChestnutRoot, routeNotifyClaw, routeNotifyClawAsync, getRelativeClawDir } from '../core/claw-topology/index.js';
 import { AUDIT_FILE, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../foundation/audit/index.js';
+import { createSystemAudit } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
@@ -22,6 +23,7 @@ import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { createClawContractBridge } from '../core/memory/index.js';
 import { createContractObserverJob } from '../core/contract/index.js';
+import { createContractSystem, type ContractSystem } from '../core/contract/index.js';
 import { createOutboxSummaryJob } from '../core/claw-topology/index.js';
 import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
@@ -180,18 +182,39 @@ export async function createMotionAddons(
     let memorySystem: MemorySystem | undefined;
     {
       // M#3: random-dream 读取 contract progress 走 ContractSystem API（phase 1104）
+      // phase 1807 Step B（MEMORY-CONTRACT-BRIDGE-OVERWIDE-ADAPTER）：Memory 只注入
+      // 窄 ContractProgressReader capability——per-claw ContractSystem 的构造、缓存
+      // 与 close 生命周期全部收口在装配层，不再泄漏 LLM/ToolRegistry/notifyClaw 给
+      // Memory。
+      const bridgeContractSystems: ContractSystem[] = [];
       const clawContractBridge = createClawContractBridge({
-        fsFactory,
         clawTopology: core.topology,  // phase 259
-        // phase 104: pre-bound notifyClaw
-        notifyClaw: (targetClawId, message) =>
-          routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
-        llm,
-        toolRegistry,
-        toolTimeoutMs,
+        createReader: async (targetClawId, targetClawDir) => {
+          const cFs = fsFactory(targetClawDir);
+          const cAudit = createSystemAudit(cFs, targetClawDir);
+          // phase 1445 Step D：只读 getProgress 用途、故意不传 bootReconcile（不 init）
+          const cs = await createContractSystem({
+            clawDir: targetClawDir,
+            clawId: targetClawId,
+            fs: cFs,
+            audit: cAudit,
+            llm,
+            toolRegistry,
+            toolTimeoutMs,
+            fsFactory,
+            // phase 104: pre-bound notifyClaw
+            notifyClaw: (notifyTarget, message) =>
+              routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, notifyTarget, message, auditWriter),
+          });
+          bridgeContractSystems.push(cs);
+          return { getProgress: (id) => cs.getProgress(id) };
+        },
       });
       disposeContractSystems = async () => {
+        // phase 517 B8: allSettled 兜底、单个 close 失败不阻其他（原 bridge.dispose
+        // 语义上移装配层）；bridge.dispose() 只清 capability 缓存引用。
         await clawContractBridge.dispose();
+        await Promise.allSettled(bridgeContractSystems.map(cs => cs.close()));
       };
 
       try {

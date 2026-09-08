@@ -435,7 +435,9 @@ describe('inbox-write-side-encap-invariant', () => {
       expect(outNotify).toContain('deep-dream.ts');
       expect(outNotify).toContain('result-delivery.ts');
       expect(outNotify).toContain('verification-notify.ts');
-      expect(outNotify).toContain('claw-contract-bridge.ts');
+      // phase 1807: claw-contract-bridge 不再持有 notifyClaw（Memory 只注入窄
+      // ContractProgressReader；notifyClaw 收口装配层 motion-addons.ts）
+      expect(outNotify).not.toContain('claw-contract-bridge.ts');
       expect(outNotify).toContain('async-exec-wrapper.ts');
       expect(outNotify).toContain('task-recovery.ts');
 
