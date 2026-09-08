@@ -18,4 +18,4 @@ export type {
 // 10 cross-module caller 走 barrel、不直 import permission.ts。
 // ============================================================================
 
-export type { PermissionChecker } from './permission.js';
+export type { PermissionChecker, GuardedWrite } from './permission.js';

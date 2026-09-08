@@ -39,7 +39,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: mockFs }),
     });
   });
 
@@ -56,6 +56,7 @@ describe('edit-commit coordinator', () => {
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
+      guardedWrite: await ctx.permissionChecker!.prepareWrite('clawspace/file.txt'),
       original: 'hello world',
       candidate: 'hi world',
       backupSource: 'edit_backup',
@@ -104,7 +105,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: mockFs }),
       auditWriter,
     });
 
@@ -113,6 +114,7 @@ describe('edit-commit coordinator', () => {
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
+      guardedWrite: await racedCtx.permissionChecker!.prepareWrite('clawspace/file.txt'),
       original: 'hello world',
       candidate: 'hi world',
       backupSource: 'edit_backup',
@@ -157,7 +159,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: mockFs }),
       auditWriter,
     });
 
@@ -166,6 +168,7 @@ describe('edit-commit coordinator', () => {
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
+      guardedWrite: await testCtx.permissionChecker!.prepareWrite('clawspace/file.txt'),
       original: 'hello world',
       candidate: 'hi world',
       backupSource: 'edit_backup',
@@ -220,7 +223,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: mockFs }),
       auditWriter,
     });
 
@@ -229,6 +232,7 @@ describe('edit-commit coordinator', () => {
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
+      guardedWrite: await testCtx.permissionChecker!.prepareWrite('clawspace/file.txt'),
       original: 'hello world',
       candidate: 'hi world',
       backupSource: 'edit_backup',
@@ -261,6 +265,7 @@ describe('edit-commit coordinator', () => {
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
+      guardedWrite: await ctx.permissionChecker!.prepareWrite('clawspace/file.txt'),
       original: 'hello world',
       candidate: 'hi world',
       backupSource: 'edit_backup',
@@ -277,7 +282,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: mockFs }),
       auditWriter,
     });
 
@@ -288,6 +293,7 @@ describe('edit-commit coordinator', () => {
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
+      guardedWrite: await testCtx.permissionChecker!.prepareWrite('clawspace/file.txt'),
       original: 'hello world',
       candidate: 'hey world',
       backupSource: 'edit_backup',
@@ -321,7 +327,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: mockFs }),
       auditWriter,
     });
 
@@ -330,6 +336,7 @@ describe('edit-commit coordinator', () => {
       tool: 'edit',
       path: 'file.txt',
       resolved: 'clawspace/file.txt',
+      guardedWrite: await testCtx.permissionChecker!.prepareWrite('clawspace/file.txt'),
       original: 'hello world',
       candidate: 'hi world',
       backupSource: 'edit_backup',

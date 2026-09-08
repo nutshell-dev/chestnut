@@ -76,6 +76,12 @@ describe('wireClawTopology', () => {
         checkRead: () => {},
         checkWrite: () => {},
         resolveAndCheck: (relPath: string) => relPath,
+        // phase 1817: PermissionChecker 新增 prepareWrite——mock 同步补齐
+        prepareWrite: async (relPath: string) => ({
+          target: relPath,
+          write: async () => {},
+          append: async () => {},
+        }),
       },
       ...overrides,
     } as ExecContext;

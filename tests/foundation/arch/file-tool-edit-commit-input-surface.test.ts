@@ -13,8 +13,10 @@ const barrelSource = readFileSync(
 describe('FileTool EditCommitInput deep surface', () => {
   it('keeps the input interface local behind editCommit', () => {
     expect(editCommitSource).not.toMatch(/export\s+interface\s+EditCommitInput\s*\{/);
+    // phase 1817: 输入新增 guardedWrite（GuardedWrite capability 绑定 canonical
+    // target，字段间有 doc comment）——字段集合锚定保留、字段间允许注释
     expect(editCommitSource).toMatch(
-      /(?:^|\n)interface\s+EditCommitInput\s*\{\s*\bctx:\s*ExecContext;\s*\btool:\s*EditCommitTool;\s*\bpath:\s*string;\s*\bresolved:\s*string;\s*\boriginal:\s*string;\s*\bcandidate:\s*string;\s*\bbackupSource:\s*EditCommitBackupSource;\s*\breplaced:\s*number;\s*\beditCount:\s*number;\s*\}/,
+      /(?:^|\n)interface\s+EditCommitInput\s*\{(?:(?!\n\})[\s\S])*?\bctx:\s*ExecContext;(?:(?!\n\})[\s\S])*?\btool:\s*EditCommitTool;(?:(?!\n\})[\s\S])*?\bpath:\s*string;(?:(?!\n\})[\s\S])*?\bresolved:\s*string;(?:(?!\n\})[\s\S])*?\bguardedWrite:\s*GuardedWrite;(?:(?!\n\})[\s\S])*?\boriginal:\s*string;(?:(?!\n\})[\s\S])*?\bcandidate:\s*string;(?:(?!\n\})[\s\S])*?\bbackupSource:\s*EditCommitBackupSource;(?:(?!\n\})[\s\S])*?\breplaced:\s*number;(?:(?!\n\})[\s\S])*?\beditCount:\s*number;\s*\}/,
     );
     expect(editCommitSource).toMatch(/(?:^|\n)\s*input:\s*EditCommitInput,/);
     expect(barrelSource).not.toMatch(/\bEditCommitInput\b/);

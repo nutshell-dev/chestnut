@@ -62,6 +62,10 @@ describe('createClawPermissionChecker', () => {
       const eaccesErr = Object.assign(new Error('permission denied'), { code: 'EACCES' });
       const mockFs = {
         resolve: vi.fn().mockImplementation(() => { throw eaccesErr; }),
+        // phase 1817: 构造期校验加宽（GuardedWrite 消费）——checkRead 不触达、占位即可
+        realpath: vi.fn(),
+        writeAtomic: vi.fn(),
+        append: vi.fn(),
       };
       const checker = createClawPermissionChecker({ audit: makeMockAudit(), clawDir: CLAW_DIR, fs: mockFs });
       expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(eaccesErr);
@@ -71,6 +75,10 @@ describe('createClawPermissionChecker', () => {
       const epermErr = Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
       const mockFs = {
         resolve: vi.fn().mockImplementation(() => { throw epermErr; }),
+        // phase 1817: 构造期校验加宽（GuardedWrite 消费）——checkRead 不触达、占位即可
+        realpath: vi.fn(),
+        writeAtomic: vi.fn(),
+        append: vi.fn(),
       };
       const checker = createClawPermissionChecker({ audit: makeMockAudit(), clawDir: CLAW_DIR, fs: mockFs });
       expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(epermErr);
@@ -80,6 +88,10 @@ describe('createClawPermissionChecker', () => {
       const erofsErr = Object.assign(new Error('read-only file system'), { code: 'EROFS' });
       const mockFs = {
         resolve: vi.fn().mockImplementation(() => { throw erofsErr; }),
+        // phase 1817: 构造期校验加宽（GuardedWrite 消费）——checkRead 不触达、占位即可
+        realpath: vi.fn(),
+        writeAtomic: vi.fn(),
+        append: vi.fn(),
       };
       const checker = createClawPermissionChecker({ audit: makeMockAudit(), clawDir: CLAW_DIR, fs: mockFs });
       expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(erofsErr);
@@ -89,6 +101,10 @@ describe('createClawPermissionChecker', () => {
       const enoentErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
       const mockFs = {
         resolve: vi.fn().mockImplementation(() => { throw enoentErr; }),
+        // phase 1817: 构造期校验加宽（GuardedWrite 消费）——checkRead 不触达、占位即可
+        realpath: vi.fn(),
+        writeAtomic: vi.fn(),
+        append: vi.fn(),
       };
       const checker = createClawPermissionChecker({ audit: makeMockAudit(), clawDir: CLAW_DIR, fs: mockFs });
       expect(() => checker.checkRead(`${CLAW_DIR}/memory/notes.md`)).toThrow(enoentErr);

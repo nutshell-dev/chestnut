@@ -77,11 +77,12 @@ export const writeTool: Tool = {
     }
 
     // Phase430: claw-space boundary check — caller autonomy
+    // Phase 1817: prepareWrite 绑定 canonical target——分类与后续 I/O 同一已验证目标
     const checker = ctx.permissionChecker;
     if (!checker) {
       throw new Error('FileTool.write: ctx.permissionChecker not injected (Assembly should inject via createClawPermissionChecker)');
     }
-    checker.resolveAndCheck(resolved, 'write');
+    const guarded = await checker.prepareWrite(resolved);
 
     // overwrite gate — phase 1430 hash + mtime + isFullRead, granular reason since phase 1457 followup
     if (!append) {
@@ -114,9 +115,9 @@ export const writeTool: Tool = {
 
       throwIfFileToolAborted(ctx.signal);
       if (append) {
-        await ctx.fs.append(resolved, content);
+        await guarded.append(content);
       } else {
-        await ctx.fs.writeAtomic(resolved, content);
+        await guarded.write(content);
         // overwrite 写成功 → 更新 readFileState（写入的就是新全文、isFullRead=true）
         const newStat = await ctx.fs.stat(resolved);
         recordWriteResult(ctx, resolved, content, newStat.mtime.getTime());

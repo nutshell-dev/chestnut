@@ -17,6 +17,9 @@
  * PermissionChecker capability shape现归ToolProtocol，Permissions只import协议type。
  * NodeFileSystem (L1) 0 PermissionChecker dep / 0 业务概念。
  * L4 caller (FileTool 等) 自治调 claw-permissions check 后 call fs。
+ * Phase 1817: write 路径改 prepareWrite——分类与 I/O 绑定同一 canonical target
+ * （symlink TOCTOU 治理），caller 不再 check 后拿裸 path 另行写 I/O；read 路径
+ * 仍 resolveAndCheck + caller 自读。
  */
 
 import * as path from 'path';
@@ -24,7 +27,7 @@ import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
 } from './errors.js';
-import { PathGuardError } from '../../foundation/fs/index.js';
+import { PathGuardError, isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { PERMISSION_AUDIT_EVENTS } from './audit-events.js';
@@ -39,7 +42,7 @@ import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 import { CLAWSPACE_DIR, CLAW_SPEC_FILE, CLAW_MEMORY_FILE, CLAW_IDENTITY_FILE, CLAW_USER_FILE, CLAW_SOUL_FILE } from '../../foundation/claw-identity/index.js';
 import { CONFIG_YAML_FILE } from '../claw-topology/index.js';
 import { DIALOG_DIR } from '../../foundation/dialog-store/index.js';
-import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
+import type { PermissionChecker, GuardedWrite } from '../../foundation/tool-protocol/index.js';
 
 
 /**
@@ -87,10 +90,12 @@ export type PermissionAuditSink = Pick<AuditLog, 'write'>;
  * phase 1818 (PERMISSIONS-FS-OPTIONAL-DISABLES-CANONICAL-GUARD): canonical 路径判定
  * 是安全不变量——checker 构造期必须接收 owner filesystem 的 canonical resolve capability
  * （NodeFileSystem.resolve = resolveAndCheck：`..` 穿越拒绝 + realpath symlink-escape guard），
- * 不允许退回 path.resolve 词法检查的弱 checker。实际消费仅 sync resolve 单方法，
- * 最小接口冻结为 Pick<FileSystem, 'resolve'>，不把完整 FileSystem 向上暴露。
+ * 不允许退回 path.resolve 词法检查的弱 checker。
+ * phase 1817 (PERMISSIONS-CHECK-IO-SYMLINK-TOCTOU): prepareWrite 额外消费 realpath
+ * （canonical target 判定）与 writeAtomic/append（GuardedWrite 绑定写）——最小接口加宽
+ * 为四方法 Pick，仍不把完整 FileSystem 向上暴露。
  */
-export type ClawPermissionFs = Pick<FileSystem, 'resolve'>;
+export type ClawPermissionFs = Pick<FileSystem, 'resolve' | 'realpath' | 'writeAtomic' | 'append'>;
 
 interface ClawPermissionOptions {
   /** Base directory for the claw */
@@ -232,6 +237,50 @@ function checkReadPermission(
 }
 
 /**
+ * Phase 1817: write 分类主体——对 claw-relative path 做 system-readonly / writable
+ * allowlist / deny-by-default 判定。checkWritePermission 与 prepareWrite 共用；
+ * relativePath 必须是判定实际作用的 target 的相对路径（prepareWrite 传 canonical
+ * target 的相对路径，保证分类与 I/O 同一目标）。
+ */
+function classifyWriteRelative(
+  relativePath: string,
+  targetPath: string,
+  options: ClawPermissionOptions
+): void {
+  const { systemPaths = SYSTEM_PATHS } = options;
+
+  // phase 1819: writable policy 单源 buildWritablePaths；outside_allowlist hint 由
+  // owner 注入真实 paths（含动态 taskSyncDirs），errors.ts 只格式化
+  const writablePaths = buildWritablePaths(options.taskSyncDirs);
+  const isSystemPath = matchesPathPatterns(relativePath, systemPaths);
+  const isWritablePath = matchesPathPatterns(relativePath, writablePaths);
+
+  // Check system paths (read-only)
+  if (isSystemPath) {
+    options.audit.write(
+      PERMISSION_AUDIT_EVENTS.WRITE_SYSTEM_READONLY,
+      `path=${targetPath}`,
+    );
+    throw new WriteOperationForbiddenError(targetPath, 'system_readonly');
+  }
+
+  // Check writable paths
+  if (isWritablePath) {
+    return;
+  }
+
+  // phase 446 (review): fallthrough deny-by-default。
+  // 至此 isSystemPath=false（上方 throw 已 cover true）+ isWritablePath=false
+  // （上方 return 已 cover true）—— 原 `if (!isSystemPath && !isWritablePath)` 永真、
+  // 后跟 unreachable return —— 删冗余条件、直接 throw。
+  options.audit.write(
+    PERMISSION_AUDIT_EVENTS.WRITE_OUTSIDE_ALLOWLIST,
+    `path=${targetPath}`,
+  );
+  throw new WriteOperationForbiddenError(targetPath, 'outside_allowlist', writablePaths);
+}
+
+/**
  * Check write permission for a path
  * @throws PathNotInClawSpaceError if path is outside claw space
  * @throws WriteOperationForbiddenError if path is system read-only or outside writable allowlist
@@ -242,7 +291,6 @@ function checkWritePermission(
 ): void {
   const {
     clawDir,
-    systemPaths = SYSTEM_PATHS,
     strict = true,
     audit,
   } = options;
@@ -259,35 +307,8 @@ function checkWritePermission(
   const relativePath = getRelativeToClaw(clawDir, targetPath, options.fs);
 
   if (relativePath !== null) {
-    const writablePaths = buildWritablePaths(options.taskSyncDirs);
-    const isSystemPath = matchesPathPatterns(relativePath, systemPaths);
-    const isWritablePath = matchesPathPatterns(relativePath, writablePaths);
-
-    // Check system paths (read-only)
-    if (isSystemPath) {
-      options.audit.write(
-        PERMISSION_AUDIT_EVENTS.WRITE_SYSTEM_READONLY,
-        `path=${targetPath}`,
-      );
-      throw new WriteOperationForbiddenError(targetPath, 'system_readonly');
-    }
-
-    // Check writable paths
-    if (isWritablePath) {
-      return;
-    }
-
-    // phase 446 (review): fallthrough deny-by-default。
-    // 至此 isSystemPath=false（上方 throw 已 cover true）+ isWritablePath=false
-    // （上方 return 已 cover true）—— 原 `if (!isSystemPath && !isWritablePath)` 永真、
-    // 后跟 unreachable return —— 删冗余条件、直接 throw。
-    options.audit.write(
-      PERMISSION_AUDIT_EVENTS.WRITE_OUTSIDE_ALLOWLIST,
-      `path=${targetPath}`,
-    );
-    // phase 1819: hint 携带当前实例真实 writablePaths（含动态 taskSyncDirs），
-    // 由 owner 注入、errors.ts 只格式化
-    throw new WriteOperationForbiddenError(targetPath, 'outside_allowlist', writablePaths);
+    classifyWriteRelative(relativePath, targetPath, options);
+    return;
   }
 
   // Denied
@@ -297,6 +318,35 @@ function checkWritePermission(
     `clawDir=${clawDir}`,
   );
   throw new PathNotInClawSpaceError(targetPath, clawDir);
+}
+
+/**
+ * Phase 1817: realpath with existing-ancestor fallback。
+ * 目标不存在（新建文件 / dangling symlink）时向上找最深存在的祖先 realpath 后拼回
+ * 剩余组件；dangling symlink 的 canonical 退化为词法路径（temp+rename 覆盖 symlink
+ * 本身，与既有语义一致）。ENOENT 以外的错误（ELOOP/EACCES/PathGuardError…）上抛。
+ */
+async function canonicalizeTarget(
+  fs: ClawPermissionFs,
+  absolutePath: string
+): Promise<string> {
+  let current = absolutePath;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = await fs.realpath(current);
+      return tail.length > 0 ? path.join(real, ...tail.reverse()) : real;
+    } catch (err) {
+      if (isFileNotFound(err)) {
+        const parent = path.dirname(current);
+        if (parent === current) throw err;
+        tail.push(path.basename(current));
+        current = parent;
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 /**
@@ -314,9 +364,17 @@ export function createClawPermissionChecker(
   }
   // phase 1818: canonical resolve capability 同样是构造期必需契约——缺失（含 JS / as any
   // 绕过编译期）显式失败，不构造退回词法 path.resolve 的弱 checker。
-  if (!options.fs || typeof options.fs.resolve !== 'function') {
+  // phase 1817: prepareWrite 还消费 realpath / writeAtomic / append（GuardedWrite 绑定
+  // 写）——一并构造期校验，不留运行时才 trip 的残缺 capability。
+  if (
+    !options.fs ||
+    typeof options.fs.resolve !== 'function' ||
+    typeof options.fs.realpath !== 'function' ||
+    typeof options.fs.writeAtomic !== 'function' ||
+    typeof options.fs.append !== 'function'
+  ) {
     throw new Error(
-      'createClawPermissionChecker: fs with canonical resolve is required — lexical path.resolve fallback is not a valid containment check',
+      'createClawPermissionChecker: fs with canonical resolve is required (phase 1817: realpath/writeAtomic/append 同属必需) — lexical path.resolve fallback is not a valid containment check',
     );
   }
   return {
@@ -355,6 +413,81 @@ export function createClawPermissionChecker(
       }
 
       return absolute;
+    },
+
+    /**
+     * Phase 1817: write 唯一入口——canonicalize → 对 canonical target 分类 →
+     * 返回绑定同一 target 的 GuardedWrite。symlink 在判定后改指不影响 I/O 目标；
+     * 指向 system-readonly / claw root 外的 symlink 在判定时即 deny（分类作用于
+     * canonical target 而非词法路径）。
+     *
+     * options.fs 由构造期必需契约保证（phase 1818），此处不再运行时复查。
+     */
+    async prepareWrite(relativePath: string): Promise<GuardedWrite> {
+      const fs = options.fs;
+      const { clawDir, strict = true, audit } = options;
+      const joined = path.join(clawDir, relativePath);
+
+      // FileSystem I/O 只接受 baseDir-relative path（absolute 一律 PathGuardError）——
+      // capability 绑 canonical target 的 claw-root-relative 形态；canonicalRel 是
+      // realpath 后的真实组件序列，写时经 baseDir 词法 join 后 realpath 仍回到同一
+      // canonical target（symlink 事后改指不影响）。
+      const bind = (target: string, relForFs: string): GuardedWrite => ({
+        target,
+        write: async (content: string): Promise<void> => {
+          await fs.writeAtomic(relForFs, content);
+        },
+        append: async (content: string): Promise<void> => {
+          await fs.append(relForFs, content);
+        },
+      });
+
+      // Non-strict mode allows everything（与 checkWrite 同：resolve 先跑、audit 后放行）
+      if (!strict) {
+        const absolute = fs.resolve(joined);
+        audit.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED, 'reason=non_strict_mode_bypass');
+        return bind(absolute, relativePath);
+      }
+
+      // canonicalize 双端（target + claw root）——macOS /var→/private/var 等 baseDir
+      // 自身含 symlink 的场景下词法 prefix 比对会误判，必须 canonical 双端比对。
+      let canonical: string;
+      let canonicalClaw: string;
+      try {
+        canonical = await canonicalizeTarget(fs, joined);
+        // claw root 同样走祖先 fallback——clawDir 尚未创建时 realpath 会 ENOENT
+        canonicalClaw = await canonicalizeTarget(fs, clawDir);
+      } catch (err) {
+        if (err instanceof PathGuardError) {
+          // symlink escape：canonical target 逃出 claw root
+          audit.write(
+            PERMISSION_AUDIT_EVENTS.WRITE_PATH_OUTSIDE_CLAW_SPACE,
+            `path=${joined}`,
+            `clawDir=${clawDir}`,
+          );
+          throw new PathNotInClawSpaceError(joined, clawDir);
+        }
+        throw err; // ELOOP/EACCES/EIO… — propagate
+      }
+
+      const canonicalRel =
+        canonical.startsWith(canonicalClaw + path.sep)
+          ? path.relative(canonicalClaw, canonical)
+          : null;
+
+      if (canonicalRel === null) {
+        audit.write(
+          PERMISSION_AUDIT_EVENTS.WRITE_PATH_OUTSIDE_CLAW_SPACE,
+          `path=${joined}`,
+          `clawDir=${clawDir}`,
+        );
+        throw new PathNotInClawSpaceError(joined, clawDir);
+      }
+
+      // 分类作用于 canonical target 的 claw-relative 路径——write 分类与实际 I/O
+      // 同一已验证目标。
+      classifyWriteRelative(canonicalRel, joined, options);
+      return bind(canonical, canonicalRel);
     },
   };
 }

@@ -87,7 +87,8 @@ export const multiEditTool: Tool = {
     if (!checker) {
       throw new Error('FileTool.multi_edit: ctx.permissionChecker not injected (Assembly should inject via createClawPermissionChecker)');
     }
-    checker.resolveAndCheck(resolved, 'write');
+    // Phase 1817: prepareWrite 绑定 canonical target——分类与 editCommit 写入同一已验证目标
+    const guarded = await checker.prepareWrite(resolved);
 
     // Edits array must not be empty
     if (!edits || edits.length === 0) {
@@ -192,6 +193,7 @@ export const multiEditTool: Tool = {
       tool: 'multi_edit',
       path: filePath,
       resolved,
+      guardedWrite: guarded,
       original,
       candidate: current,
       backupSource: 'multi_edit_backup',

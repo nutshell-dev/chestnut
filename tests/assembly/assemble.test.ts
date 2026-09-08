@@ -117,6 +117,9 @@ vi.mock('../../src/foundation/fs/node-fs.js', () => ({
     // phase 1818: createClawPermissionChecker 构造期必需 canonical resolve capability，
     // mock 亦须提供（词法 join 即可——本文件断言与 containment 无关）
     resolve: vi.fn((p: string) => (path.isAbsolute(p) ? p : path.join(baseDir, p))),
+    // phase 1817: GuardedWrite 消费 realpath/writeAtomic/append——构造期校验一并要求
+    realpath: vi.fn(async (p: string) => (path.isAbsolute(p) ? p : path.join(baseDir, p))),
+    append: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 

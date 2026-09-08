@@ -8,7 +8,7 @@ const read = (relative: string): string => fs.readFileSync(path.join(root, relat
 describe('PermissionChecker owner boundary (phase 1496)', () => {
   it('ToolProtocol remains the definition and named-export owner', () => {
     expect(read('src/foundation/tool-protocol/permission.ts')).toMatch(/export interface PermissionChecker/);
-    expect(read('src/foundation/tool-protocol/index.ts')).toMatch(/export type \{ PermissionChecker \}/);
+    expect(read('src/foundation/tool-protocol/index.ts')).toMatch(/export type \{ PermissionChecker, GuardedWrite \}/);
   });
 
   it('Permissions implementation does not re-export PermissionChecker', () => {
@@ -23,7 +23,7 @@ describe('PermissionChecker owner boundary (phase 1496)', () => {
 
   it('Permissions imports the owner type for the factory return signature', () => {
     const implementation = read('src/core/permissions/claw-permissions.ts');
-    expect(implementation).toMatch(/import type \{ PermissionChecker \} from '\.\.\/\.\.\/foundation\/tool-protocol\/index\.js';/);
+    expect(implementation).toMatch(/import type \{ PermissionChecker, GuardedWrite \} from '\.\.\/\.\.\/foundation\/tool-protocol\/index\.js';/);
     expect(implementation).toMatch(/\): PermissionChecker \{/);
   });
 });
@@ -33,7 +33,8 @@ describe('Permissions canonical guard 必需化（phase 1818）', () => {
 
   it('checker 构造期必须接收 canonical resolve capability（fs 非 optional）', () => {
     const src = impl();
-    expect(src).toMatch(/export type ClawPermissionFs = Pick<FileSystem, 'resolve'>;/);
+    // phase 1817: prepareWrite 消费 realpath/writeAtomic/append——最小接口加宽为四方法 Pick
+    expect(src).toMatch(/export type ClawPermissionFs = Pick<FileSystem, 'resolve' \| 'realpath' \| 'writeAtomic' \| 'append'>;/);
     expect(src).toMatch(/\n  fs: ClawPermissionFs;/);
     expect(src).not.toMatch(/\nfs\?:/);
   });

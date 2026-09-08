@@ -13,6 +13,7 @@
  */
 
 import type { ExecContext } from '../tools/index.js';
+import type { GuardedWrite } from '../tool-protocol/index.js';
 import { computeContentHash } from './file-hash.js';
 import { backupToSync } from './sync-backup.js';
 import { recordEditResult } from './file-state-manager.js';
@@ -26,6 +27,13 @@ interface EditCommitInput {
   tool: EditCommitTool;
   path: string;
   resolved: string;
+  /**
+   * Phase 1817: 写入必经 caller prepareWrite 返回的 capability——分类与原子写
+   * 作用于同一 canonical target（symlink TOCTOU 治理）；本模块不再用裸 resolved
+   * path 做写 I/O（conflict/verify 的读仍走 ctx.fs 词法路径，retarget 只会导致
+   * hash mismatch → fail-closed）。
+   */
+  guardedWrite: GuardedWrite;
   original: string;
   candidate: string;
   backupSource: EditCommitBackupSource;
@@ -66,7 +74,7 @@ type EditCommitResult =
 export async function editCommit(
   input: EditCommitInput,
 ): Promise<EditCommitResult> {
-  const { ctx, tool, path, resolved, original, candidate, backupSource, replaced, editCount } = input;
+  const { ctx, tool, path, resolved, guardedWrite, original, candidate, backupSource, replaced, editCount } = input;
   const beforeHash = computeContentHash(original);
   const candidateHash = computeContentHash(candidate);
 
@@ -107,8 +115,8 @@ export async function editCommit(
     } as EditCommitResult;
   }
 
-  // 4. Atomic write.
-  await ctx.fs.writeAtomic(resolved, candidate);
+  // 4. Atomic write — phase 1817: 经 GuardedWrite 绑定 canonical target，不用裸 path
+  await guardedWrite.write(candidate);
 
   // 5. Post-write verification.
   const committed = await ctx.fs.read(resolved);

@@ -79,11 +79,12 @@ export const editTool: Tool = {
     }
 
     // Phase430: claw-space boundary check — caller autonomy
+    // Phase 1817: prepareWrite 绑定 canonical target——分类与 editCommit 写入同一已验证目标
     const checker = ctx.permissionChecker;
     if (!checker) {
       throw new Error('FileTool.edit: ctx.permissionChecker not injected (Assembly should inject via createClawPermissionChecker)');
     }
-    checker.resolveAndCheck(resolved, 'write');
+    const guarded = await checker.prepareWrite(resolved);
 
     // phase 1456 P4: empty oldText is structurally invalid (would match nothing in a
     // useful way). Reject explicitly rather than silently failing with "0 matches".
@@ -162,6 +163,7 @@ export const editTool: Tool = {
       tool: 'edit',
       path: filePath,
       resolved,
+      guardedWrite: guarded,
       original: content,
       candidate: replaceResult.content,
       backupSource: 'edit_backup',
