@@ -26,7 +26,16 @@ export function safeCallback(
   try { fn(); }
   catch (err) {
     // silent: error forwarded via onSafeCallbackError callback (caller lifecycle audit)
-    callbacks?.onSafeCallbackError?.(label, err);
+    // phase 1812 Step B (SE-D5): 二级 reporter 受保护——reporter throw 不逃逸、
+    // 不覆盖首错、不阻断后续 audit 留证；reporter 失败走零递归 console 边界，
+    // 首错 / label / 二级 reporter error 三者均留证（不递归再报）。
+    try {
+      callbacks?.onSafeCallbackError?.(label, err);
+    } catch (reportErr) {
+      console.error( // console: 零递归 callback failure 边界——reporter 自身失败不能再走 audit/reporter（防递归），与 audit writer CRITICAL console 边界同决策
+        `[STEP-EXECUTOR CALLBACK-REPORT-FAILED] label=${label} first=${formatErr(err)} report=${formatErr(reportErr)}`,
+      );
+    }
     auditWriter?.write(
       STEP_EXECUTOR_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED,
       `label=${label}`,
