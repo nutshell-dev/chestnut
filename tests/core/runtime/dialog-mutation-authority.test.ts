@@ -103,7 +103,7 @@ function makeRuntime(mockDialogStore: DialogStore): { runtime: AuthorityTestRunt
       toolExecutor: {} as any,
       contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue(undefined) } as any,
       taskSystem: {
-        shutdown: vi.fn().mockResolvedValue(undefined),
+        shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
         initialize: vi.fn().mockResolvedValue(undefined),
         startDispatch: vi.fn(),
       } as any,
@@ -123,7 +123,7 @@ function makeRuntime(mockDialogStore: DialogStore): { runtime: AuthorityTestRunt
   // Inject internal fields that initialize() would normally set
   (runtime as any).initialized = true;
   (runtime as any).taskSystem = {
-    shutdown: vi.fn().mockResolvedValue(undefined),
+    shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
   };
   (runtime as any).llm = {
     close: vi.fn().mockResolvedValue(undefined),

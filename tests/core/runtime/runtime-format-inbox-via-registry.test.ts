@@ -78,7 +78,7 @@ function build(opts: MinOpts): TestRuntime {
       taskSystem: {
         initialize: vi.fn().mockResolvedValue(undefined),
         startDispatch: vi.fn(),
-        shutdown: vi.fn().mockResolvedValue(undefined),
+        shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
       } as any,
       skillRegistry: {} as any,
       permissionChecker: {} as any,

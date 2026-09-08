@@ -61,7 +61,7 @@ import {
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
-import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle } from './types.js';
+import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome } from './types.js';
 import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 
 
@@ -1755,16 +1755,22 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   /**
    * Abort all running tasks immediately.
    * Used by Runtime when shutdown timeout is hit (phase 1332 N4).
+   *
+   * Phase 1814 Step B（AT-D3）：返回 abort 请求证据（收到信号的句柄 identity），
+   * 不再 void——调用者可观察 abort 实际触及哪些任务。
    */
-  abort(): void {
+  abort(): AbortRequestOutcome {
+    const taskIds = Array.from(this.executingTasks.keys());
     for (const state of this.executingTasks.values()) {
       state.abortController.abort();
     }
+    return { kind: 'abort_requested', taskIds };
   }
 
-  async shutdown(timeoutMs: number = SHUTDOWN_DEFAULT_TIMEOUT_MS): Promise<boolean> {
+  async shutdown(timeoutMs: number = SHUTDOWN_DEFAULT_TIMEOUT_MS): Promise<TaskLifecycleOutcome> {
     // phase 546: 幂等 guard — disassemble 链 / 异常路径可能重入、防 abort 二次 + drain 重跑
-    if (this._shuttingDown) return false;
+    // phase 1814 Step B：重入以 typed kind 表达（原 boolean false 与 timeout 不可区分）。
+    if (this._shuttingDown) return { kind: 'already_shutting_down' };
     this._shuttingDown = true;
     this._signalWork();
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
@@ -1780,10 +1786,13 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     this.pendingWatcherHandle = undefined;
 
     // Signal all running tasks to stop
-    this.abort();
+    const requested = this.abort();
+    // phase 1814 Step B：shutdown 起点在途 identity——abort 后 _shuttingDown 阻止
+    // dispatch 新任务，map 只减不增；drain 后仍残留的 key = 未收敛 pending 证据，
+    // 消失的 key = 本次 shutdown 期间 settle 的 terminal 证据。
+    const initialIds = requested.taskIds;
 
     // Wait for all tasks with timeout
-    let timedOut = false;
     if (this.executingTasks.size > 0) {
       const promises = Array.from(this.executingTasks.values()).map(s => s.promise);
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1794,7 +1803,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
             timer = setTimeout(() => reject(new Error('Shutdown timeout')), timeoutMs);
           }),
         ]).catch(() => {
-          timedOut = true;
+          // phase 1814 Step B：timeout 仅留 audit 证据，是否未收敛由 drain 后
+          // 的 pending identity 决定（timedOut boolean 不再承载结果语义）。
           emitShutdownTimeout(this.auditWriter);
         });
       } finally {
@@ -1817,7 +1827,13 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     // 不再无条件 clear，保留未 settle 任务的句柄，让其完成时通过 finally 自清理。
     // executingTasks map 会随实例 GC 回收，无副作用。
 
-    return timedOut;
+    // phase 1814 Step B（AT-D3）：pending = drain 后仍未 settle 的内存句柄 identity
+    //（map key 即 FullTaskId、settle 后 finally 自删）；不得由此推断磁盘终态。
+    const pending = Array.from(this.executingTasks.keys());
+    const terminal = initialIds.filter(id => !this.executingTasks.has(id));
+    return pending.length === 0
+      ? { kind: 'converged', aborted: requested.taskIds.length, terminal }
+      : { kind: 'timed_out', pending, terminal };
   }
 }
 

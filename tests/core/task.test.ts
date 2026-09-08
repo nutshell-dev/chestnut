@@ -10,6 +10,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
+import type { TaskLifecycleOutcome } from '../../src/core/async-task-system/index.js';
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-writers.js';
 import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
@@ -125,7 +126,7 @@ function createAbortableHangingMockLLM(): LLMOrchestrator {
   } as unknown as LLMOrchestrator;
 }
 
-async function shutdownWithVirtualGrace(system: AsyncTaskSystem): Promise<boolean> {
+async function shutdownWithVirtualGrace(system: AsyncTaskSystem): Promise<TaskLifecycleOutcome> {
   // phase 1310: 放弃 fake timers，改为真实 timer 跑 shutdown(1)。
   // 原 fake-timer 方案在并发全量跑时会冻结飞行中的真实 timer（如 watcher close、
   // abort 传播链中的在途 setTimeout），导致 case 偶发 15s testTimeout。

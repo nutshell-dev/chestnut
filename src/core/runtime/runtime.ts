@@ -371,15 +371,24 @@ export class Runtime {
         );
       }
     }
-    const timedOut = await this.taskSystem.shutdown(120_000);
-    if (timedOut) {
-      // phase 1332 N4: timeout edge case abort path — ensure tasks are killed before llm.close
-      // 防 phase 1286 100M tokens cascade 后 task 长跑 1-2min / 子代理资源继承
-      this.taskSystem.abort();
-      this.auditWriter.write(
-        TASK_AUDIT_EVENTS.TASK_SHUTDOWN_TIMEOUT_HIT,
-        `timeout_ms=120000`,
-      );
+    const shutdownOutcome = await this.taskSystem.shutdown(120_000);
+    // phase 1814 Step B（AT-D3）：穷尽消费 union，不再 if(timedOut) 猜测。
+    switch (shutdownOutcome.kind) {
+      case 'timed_out': {
+        // phase 1332 N4: timeout edge case abort path — ensure tasks are killed before llm.close
+        // 防 phase 1286 100M tokens cascade 后 task 长跑 1-2min / 子代理资源继承
+        this.taskSystem.abort();
+        this.auditWriter.write(
+          TASK_AUDIT_EVENTS.TASK_SHUTDOWN_TIMEOUT_HIT,
+          `timeout_ms=120000`,
+          `pending=${shutdownOutcome.pending.join(',')}`,
+        );
+        break;
+      }
+      case 'converged':
+      case 'already_shutting_down':
+        // 已收敛（或重入幂等、由首个 shutdown 负责收敛）→ 无超时路径动作。
+        break;
     }
     // phase 324 H5: 关 ContractSystem、abort 仍活的 verifier AbortController 串、
     // await 其 termination promise。否则 SIGTERM 留 verifier LLM stream 泄漏

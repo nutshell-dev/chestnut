@@ -65,7 +65,7 @@ describe('stop-flush-barrier', () => {
           toolExecutor: {} as any,
           contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue(undefined) } as any,
           taskSystem: {
-            shutdown: vi.fn().mockResolvedValue(undefined),
+            shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
           } as any,
           contextInjector: {} as any,
           execContext: {} as any,
@@ -75,7 +75,7 @@ describe('stop-flush-barrier', () => {
 
       // Inject internal fields that initialize() would normally set
       (runtime as any).taskSystem = {
-        shutdown: vi.fn().mockResolvedValue(undefined),
+        shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
       };
       (runtime as any).llm = {
         close: vi.fn().mockImplementation(async () => {
@@ -309,7 +309,7 @@ describe('shutdown-timeout', () => {
           toolExecutor: {} as any,
           contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue(undefined) } as any,
           taskSystem: {
-            shutdown: deps.shutdownImpl ?? vi.fn().mockResolvedValue(undefined),
+            shutdown: deps.shutdownImpl ?? vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
             abort: deps.abortImpl ?? vi.fn(),
           } as any,
           contextInjector: {} as any,
@@ -320,7 +320,7 @@ describe('shutdown-timeout', () => {
 
       // Inject internal fields that initialize() would normally set
       (runtime as any).taskSystem = {
-        shutdown: deps.shutdownImpl ?? vi.fn().mockResolvedValue(undefined),
+        shutdown: deps.shutdownImpl ?? vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
         abort: deps.abortImpl ?? vi.fn(),
       };
       (runtime as any).llm = { close: vi.fn().mockResolvedValue(undefined) };
@@ -345,7 +345,7 @@ describe('shutdown-timeout', () => {
 
     it('shutdown timeout hit — abort path + TASK_SHUTDOWN_TIMEOUT_HIT audit', async () => {
       const abortImpl = vi.fn();
-      const shutdownImpl = vi.fn().mockResolvedValue(true);
+      const shutdownImpl = vi.fn().mockResolvedValue({ kind: 'timed_out', pending: ['task-pending-1'], terminal: [] });
 
       const { runtime, auditEvents } = makeRuntime({ shutdownImpl, abortImpl });
 
@@ -361,7 +361,7 @@ describe('shutdown-timeout', () => {
     });
 
     it('llm.close is called after shutdown even when timeout occurs', async () => {
-      const shutdownImpl = vi.fn().mockResolvedValue(true);
+      const shutdownImpl = vi.fn().mockResolvedValue({ kind: 'timed_out', pending: ['task-pending-1'], terminal: [] });
       const { runtime } = makeRuntime({ shutdownImpl });
 
       await runtime.stop();
@@ -427,7 +427,7 @@ describe('regime-switch-archive-fail', () => {
           toolExecutor: {} as any,
           contractManager: { loadPaused: vi.fn().mockResolvedValue(null) } as any,
           taskSystem: {
-            shutdown: vi.fn().mockResolvedValue(undefined),
+            shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
             initialize: vi.fn().mockResolvedValue(undefined),
             startDispatch: vi.fn(),
           } as any,
@@ -449,7 +449,7 @@ describe('regime-switch-archive-fail', () => {
       (runtime as any).toolRegistry = (runtime as any).options.dependencies.toolRegistry;
       (runtime as any).llm = { close: vi.fn().mockResolvedValue(undefined) };
       (runtime as any).taskSystem = {
-        shutdown: vi.fn().mockResolvedValue(undefined),
+        shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
       };
 
       mockDialogStore.archive.mockRejectedValue(new Error('disk full'));
@@ -476,7 +476,7 @@ describe('regime-switch-archive-fail', () => {
       (runtime as any).toolRegistry = (runtime as any).options.dependencies.toolRegistry;
       (runtime as any).llm = { close: vi.fn().mockResolvedValue(undefined) };
       (runtime as any).taskSystem = {
-        shutdown: vi.fn().mockResolvedValue(undefined),
+        shutdown: vi.fn().mockResolvedValue({ kind: 'converged', aborted: 0, terminal: [] }),
       };
       (runtime as any).lastIdentityHash = 'old-hash';
 

@@ -205,12 +205,33 @@ export interface PreparedSubAgentTaskScheduler {
   ): Promise<PreparedScheduleResult>;
 }
 
+/**
+ * Phase 1814 Step B（AT-D3）：shutdown/abort 生命周期 typed outcome。
+ *
+ * - `converged`：drain 后无未 settle 的内存执行句柄；`aborted` 为本次发出的
+ *   abort 信号数，`terminal` 为 shutdown 开始时在途、现已 settle 的句柄 identity。
+ * - `timed_out`：drain（含 grace）后仍有未 settle 句柄——`pending` 是未收敛
+ *   identity 证据。注意：pending 仅表示内存句柄未观察 settle，**不得**由
+ *   此推断磁盘终态（fs running 目录才是 running 权威状态）。
+ * - `already_shutting_down`：重入幂等（phase 546 guard），不重复 abort/drain。
+ */
+export type TaskLifecycleOutcome =
+  | { kind: 'converged'; aborted: number; terminal: readonly FullTaskId[] }
+  | { kind: 'timed_out'; pending: readonly FullTaskId[]; terminal: readonly FullTaskId[] }
+  | { kind: 'already_shutting_down' };
+
+/** Phase 1814 Step B（AT-D3）：abort 请求证据——发出信号的句柄 identity。 */
+export interface AbortRequestOutcome {
+  kind: 'abort_requested';
+  taskIds: readonly FullTaskId[];
+}
+
 /** Runtime-owned lifecycle view of the asynchronous task engine. */
 export interface AsyncTaskRuntimeLifecycle {
   initialize(): Promise<void>;
   startDispatch(): Promise<void>;
-  shutdown(timeoutMs?: number): Promise<boolean>;
-  abort(): void;
+  shutdown(timeoutMs?: number): Promise<TaskLifecycleOutcome>;
+  abort(): AbortRequestOutcome;
 }
 
 /**

@@ -21,6 +21,8 @@ export type {
   SubAgentTaskScheduler,
   PreparedSubAgentTaskScheduler,
   AsyncTaskRuntimeLifecycle,
+  TaskLifecycleOutcome,
+  AbortRequestOutcome,
   TaskId,
   FullTaskId,
   ShortTaskId,
