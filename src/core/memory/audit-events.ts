@@ -30,12 +30,20 @@ export const MEMORY_AUDIT_EVENTS = {
   DREAM_STATE_FUTURE_VERSION: 'memory_dream_state_future_version',             // NEW phase 926
 } as const;
 
+/** phase 1809 Step B: Memory audit event 值联合（routing key 类型单源）。 */
+export type MemoryAuditEvent = (typeof MEMORY_AUDIT_EVENTS)[keyof typeof MEMORY_AUDIT_EVENTS];
+
 /**
  * Phase 163 业主声明 file 归属（phase 122 §5.A + §6.7 + phase 159 模式）.
  *
  * 全 'audit'：业务事件归业务事件主 file（信噪比已通过 cron tick 分流改善）.
+ *
+ * phase 1809 Step B（MEMORY-AUDIT-ROUTING-INCOMPLETE）：key 收紧为
+ * MemoryAuditEvent——漏配（新增事件未补 routing）与幽灵 key（routing 引用
+ * 不存在的事件）均为编译期错误；双向 parity 运行时锚定见
+ * tests/foundation/arch/memory-audit-routing-parity.test.ts。
  */
-export const MEMORY_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
+export const MEMORY_FILE_ROUTING: Readonly<Record<MemoryAuditEvent, 'audit'>> = {
   cron_deep_dream_job: 'audit',
   cron_deep_dream_error: 'audit',
   deep_dream_call_failed: 'audit',
@@ -52,4 +60,9 @@ export const MEMORY_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   memory_random_dream_late_settle_pending: 'audit',
   memory_random_dream_late_settle_consumed: 'audit',
   memory_random_dream_late_settle_abandoned: 'audit',
+  memory_dream_invariant_violated: 'audit',        // phase 1809 补（phase 247 Step A 事件）
+  memory_dream_cross_source_mismatch: 'audit',     // phase 1809 补（phase 247 Step B 事件）
+  memory_dream_cross_source_skipped: 'audit',      // phase 1809 补（phase 247 Step B 事件）
+  memory_legacy_schema_migrated_reset: 'audit',    // phase 1809 补（phase 280 事件）
+  memory_dream_state_future_version: 'audit',      // phase 1809 补（phase 926 事件）
 } as const;
