@@ -317,5 +317,47 @@ describe('createClawPermissionChecker', () => {
       expect(writeErr.context?.reason).toBe('outside_allowlist');
       expect(writeErr.message).toContain('writable allowlist');
     });
+
+    // phase 1819: hint 由真实 policy instance 派生，不再手写镜像
+    it('outside_allowlist hint 携带真实 BASE policy paths（非手写镜像）', () => {
+      const checker = createClawPermissionChecker({ audit: makeMockAudit(), clawDir: CLAW_DIR, fs: new NodeFileSystem({ baseDir: CLAW_DIR }) });
+      let err: unknown;
+      try {
+        checker.checkWrite(`${CLAW_DIR}/docker-compose.yml`);
+      } catch (e) {
+        err = e;
+      }
+      const msg = (err as WriteOperationForbiddenError).message;
+      // 真实静态 policy 成员在 hint 中
+      expect(msg).toContain('MEMORY.md');
+      expect(msg).toContain('clawspace');
+      expect(msg).toContain('tasks/subagents');
+      // 镜像 drift 证据不复现：过宽的 'tasks/' 整目录不出现在 hint
+      expect(msg).not.toContain('tasks/,');
+      // 无动态注入时 hint 不含 tasks/sync/*
+      expect(msg).not.toContain('tasks/sync');
+    });
+
+    it('outside_allowlist hint 携带动态 taskSyncDirs（policy instance 派生）', () => {
+      const checker = createClawPermissionChecker({
+        audit: makeMockAudit(),
+        clawDir: CLAW_DIR,
+        fs: new NodeFileSystem({ baseDir: CLAW_DIR }),
+        taskSyncDirs: ['tasks/sync/exec', 'tasks/sync/write'],
+      });
+      let err: unknown;
+      try {
+        checker.checkWrite(`${CLAW_DIR}/docker-compose.yml`);
+      } catch (e) {
+        err = e;
+      }
+      const msg = (err as WriteOperationForbiddenError).message;
+      expect(msg).toContain('writable allowlist');
+      expect(msg).toContain('tasks/sync/exec');
+      expect(msg).toContain('tasks/sync/write');
+      // hint 段只含相对 policy 路径，不回显绝对 clawDir（targetPath 部分不受此限）
+      const hint = msg.split('writable allowlist')[1] ?? '';
+      expect(hint).not.toContain(CLAW_DIR);
+    });
   });
 });

@@ -48,3 +48,22 @@ describe('Permissions canonical guard 必需化（phase 1818）', () => {
     expect(src).toMatch(/canonical resolve is required/);
   });
 });
+
+describe('Permissions writable hint 单源化（phase 1819）', () => {
+  it('errors.ts 无手写 allowlist 镜像（hint 由 policy owner 注入）', () => {
+    const errors = read('src/core/permissions/errors.ts');
+    expect(errors).not.toMatch(/WRITABLE_ALLOWLIST_HINT/);
+    // 手写路径清单字面量不得残留（真实 policy 成员如 'memory' 不出现在 errors.ts）
+    expect(errors).not.toMatch(/'MEMORY\.md, memory/);
+    expect(errors).toMatch(/formatWritableAllowlist\(paths: readonly string\[\]\)/);
+  });
+
+  it('policy owner deny 构造携带真实 writablePaths（单源：buildWritablePaths）', () => {
+    const src = read('src/core/permissions/claw-permissions.ts');
+    expect(src).toMatch(/function buildWritablePaths\(taskSyncDirs\?:/);
+    expect(src).toMatch(/new WriteOperationForbiddenError\(targetPath, 'outside_allowlist', writablePaths\)/);
+    // BASE_WRITABLE_PATHS 保持模块私有（不公开、不经 barrel）
+    expect(src).not.toMatch(/export const BASE_WRITABLE_PATHS/);
+    expect(read('src/core/permissions/index.ts')).not.toMatch(/BASE_WRITABLE_PATHS/);
+  });
+});

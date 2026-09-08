@@ -121,12 +121,21 @@ interface ClawPermissionOptions {
 }
 
 /**
+ * phase 1819 (PERMISSIONS-WRITABLE-HINT-DUPLICATES-POLICY): 当前实例真实 writable policy
+ * 的单一来源（静态 base + 装配期注入 taskSyncDirs）。deny hint 与 allow 判定共用此结果，
+ * errors.ts 不再手写镜像。
+ */
+function buildWritablePaths(taskSyncDirs?: readonly string[]): readonly string[] {
+  return taskSyncDirs ? [...BASE_WRITABLE_PATHS, ...taskSyncDirs] : BASE_WRITABLE_PATHS;
+}
+
+/**
  * Check if relative path matches any of the patterns
  * Matches complete path components only (not substrings)
  */
 function matchesPathPatterns(
   relativePath: string,
-  patterns: string[]
+  patterns: readonly string[]
 ): boolean {
   const normalized = relativePath.replace(/\\/g, '/');
   const parts = normalized.split('/').filter(p => p.length > 0);
@@ -250,9 +259,7 @@ function checkWritePermission(
   const relativePath = getRelativeToClaw(clawDir, targetPath, options.fs);
 
   if (relativePath !== null) {
-    const writablePaths = options.taskSyncDirs
-      ? [...BASE_WRITABLE_PATHS, ...options.taskSyncDirs]
-      : BASE_WRITABLE_PATHS;
+    const writablePaths = buildWritablePaths(options.taskSyncDirs);
     const isSystemPath = matchesPathPatterns(relativePath, systemPaths);
     const isWritablePath = matchesPathPatterns(relativePath, writablePaths);
 
@@ -278,7 +285,9 @@ function checkWritePermission(
       PERMISSION_AUDIT_EVENTS.WRITE_OUTSIDE_ALLOWLIST,
       `path=${targetPath}`,
     );
-    throw new WriteOperationForbiddenError(targetPath, 'outside_allowlist');
+    // phase 1819: hint 携带当前实例真实 writablePaths（含动态 taskSyncDirs），
+    // 由 owner 注入、errors.ts 只格式化
+    throw new WriteOperationForbiddenError(targetPath, 'outside_allowlist', writablePaths);
   }
 
   // Denied
