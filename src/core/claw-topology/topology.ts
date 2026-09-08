@@ -2,6 +2,7 @@ import * as path from 'path';
 import { CLAWS_DIR, enumerateClaws } from '../../core/claw-topology/claw-instance-paths.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { makeClawId, CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { ClawTopology, ClawTopologyDeps } from './types.js';
 import { ClawIdResolveError, CrossClawReadError } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
@@ -61,6 +62,25 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
       const clawspaceRoot = path.resolve(path.join(location.clawDir, CLAWSPACE_DIR)) + path.sep;
       if (!absPath.startsWith(clawspaceRoot)) {
         throw new CrossClawReadError(clawId, relPath, 'path outside clawspace');
+      }
+      // phase 1813 Step B (CT-D6): canonical containment——词法 startsWith 只拦 '..'
+      // 穿越，拦不住 clawspace 内 symlink 外逃（NodeFileSystem 的 baseDir 级 guard 只看
+      // chestnutRoot 粒度、不管 clawspace）。读取前双端 realpath 比对，外逃必拒绝；
+      // ENOENT（目标或 ancestor 不存在）落既有 reader 错误路径透传，不误报 escape。
+      try {
+        const clawspaceReal = await fs.realpath(path.join(location.clawDir, CLAWSPACE_DIR));
+        const targetReal = await fs.realpath(absPath);
+        if (targetReal !== clawspaceReal && !targetReal.startsWith(clawspaceReal + path.sep)) {
+          throw new CrossClawReadError(clawId, relPath, 'symlink escape');
+        }
+      } catch (err) {
+        if (err instanceof CrossClawReadError) throw err;
+        if (!isFileNotFound(err)) {
+          // EACCES/ELOOP 等 canonical 观察失败：与 read 失败同语义上抛，不回退词法判断
+          audit?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED, `clawId=${clawId}`, `relPath=${relPath}`, `error=${String(err)}`);
+          throw new CrossClawReadError(clawId, relPath, err);
+        }
+        // ENOENT：由下方 fs.read 产出既有缺文件错误语义
       }
       try {
         return await fs.read(absPath);
