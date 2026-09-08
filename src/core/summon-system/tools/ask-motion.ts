@@ -69,6 +69,12 @@ export class AskMotionTool implements Tool {
       if (loadResult.source === 'io_error') {
         return { success: false, content: `Session load failed: ${loadResult.error}` };
       }
+      // phase 1816: 重试耗尽显式 unstable——不再静默降级普通 load 伪装成功，
+      // 不稳定的 motion 快照不得进入 LLM call（中段写入快照可能截断到错误边界）。
+      if (loadResult.source === 'unstable') {
+        this.cloneHistory.pop();
+        return { success: false, content: `Motion 会话读取未能确认稳定（${loadResult.attempts} 次尝试），请稍后重试。` };
+      }
       const { session } = loadResult;
 
       // Backward compat: still pass full messages until runAgent supports handoff marker resolution

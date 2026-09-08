@@ -15,6 +15,7 @@ export { migrateAndValidateSession, validateSessionData } from './validate.js';
 export type {
   SessionData,
   LoadResult,
+  StableLoadResult,
   DialogSaveSnapshot,
   DialogSessionLifecycle,
 } from './types.js';

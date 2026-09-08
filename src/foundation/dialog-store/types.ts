@@ -27,6 +27,16 @@ export type LoadResult =
   | { source: 'current' | 'archive' | 'empty'; session: SessionData }
   | { source: 'io_error'; error: string; session: null };
 
+/**
+ * phase 1816 (load-stable-exhaustion-downgrades): 稳定入口（loadStable /
+ * loadStableTurnBoundary）结果 = 普通 LoadResult + 显式 unstable 分支。
+ * mtime 一致性重试耗尽不得退回普通 load() 把无法确认稳定的状态伪装成成功——
+ * unstable 携带 attempts 证据、session 为 null，caller 必须 narrow 处理。
+ */
+export type StableLoadResult =
+  | LoadResult
+  | { source: 'unstable'; attempts: number; session: null };
+
 /** Dialog session snapshot accepted by the DialogStore persistence boundary. */
 export interface DialogSaveSnapshot {
   systemPrompt: string;

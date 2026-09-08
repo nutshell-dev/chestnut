@@ -159,4 +159,46 @@ describe('AskMotionTool', () => {
     expect(result.success).toBe(false);
     expect(result.content).toContain('[transient/');
   });
+
+  // phase 1816: loadStableTurnBoundary 耗尽返回 unstable——显式失败、不发起 LLM call、
+  // cloneHistory 回滚（下一次提问仍走 first-call 文案），不得把不稳定快照伪装成成功。
+  it('motion 快照 unstable 时显式失败且不调用 LLM、cloneHistory 不留污染', async () => {
+    const llmCalls: Array<{ messages: Array<{ role: string; content: unknown }> }> = [];
+    const llm = {
+      call: async (req: { messages: Array<{ role: string; content: unknown }> }) => {
+        llmCalls.push(req);
+        return { content: [{ type: 'text', text: 'answer-1' }], stop_reason: 'end_turn' };
+      },
+    } as unknown as LLMOrchestrator;
+
+    // 先 unstable、后稳定的 store stub
+    let unstable = true;
+    const store = {
+      loadStableTurnBoundary: async () => {
+        if (unstable) {
+          return { source: 'unstable' as const, attempts: 4, session: null };
+        }
+        return {
+          source: 'current' as const,
+          session: { systemPrompt: 'system prompt', messages: [], toolsForLLM: [] },
+        };
+      },
+    } as unknown as ReturnType<typeof createDialogStore>;
+
+    const tool = new AskMotionTool(llm, store);
+
+    const failed = await tool.execute({ question: 'q1' }, ctxStub);
+    expect(failed.success).toBe(false);
+    expect(failed.content).toContain('未能确认稳定');
+    expect(failed.content).toContain('4');
+    expect(llmCalls).toEqual([]);
+
+    // cloneHistory 已回滚：下一次成功调用的首条消息仍是 first-call 分身文案
+    unstable = false;
+    const ok = await tool.execute({ question: 'q2' }, ctxStub);
+    expect(ok.success).toBe(true);
+    expect(llmCalls.length).toBe(1);
+    const firstUser = llmCalls[0].messages[0];
+    expect(String(firstUser.content)).toContain('你是 Motion 的分身');
+  });
 });

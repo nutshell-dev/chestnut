@@ -20,6 +20,7 @@ import type { Message } from './canonical-message.js';
 import type {
   SessionData,
   LoadResult,
+  StableLoadResult,
   DialogSaveSnapshot,
   DialogSessionLifecycle,
 } from './types.js';
@@ -221,7 +222,7 @@ export class DialogStore implements DialogSessionLifecycle {
    * Load session with mtime consistency check.
    * phase 1102 r126: prevents reading incomplete session during concurrent save().
    */
-  async loadStable(maxRetries = LOAD_STABLE_DEFAULT_RETRIES): Promise<LoadResult> {
+  async loadStable(maxRetries = LOAD_STABLE_DEFAULT_RETRIES): Promise<StableLoadResult> {
     for (let i = 0; i <= maxRetries; i++) {
       let statBefore: { size: number; mtime: number } | null = null;
       try {
@@ -263,13 +264,14 @@ export class DialogStore implements DialogSessionLifecycle {
       }
     }
 
-    // Exceeded retries: fall back to plain load() — audit for observability
+    // phase 1816: 重试耗尽不再退回普通 load() 伪装成功——显式 unstable 交付，
+    // audit 证据保留（既有 CORRUPTED 事件），caller 必须 narrow 处理该分支。
     this.audit.write(
       DIALOG_AUDIT_EVENTS.CORRUPTED,
       'file=current.json',
       `reason=load_stable_exhausted_after_${maxRetries}_retries`,
     );
-    return this.load();
+    return { source: 'unstable', attempts: maxRetries + 1, session: null };
   }
 
   /**
@@ -288,9 +290,10 @@ export class DialogStore implements DialogSessionLifecycle {
    * Caller: cross-claw read of motion's dialog snapshot at LLM call time
    * (currently ask-motion.ts; future cross-claw readers can adopt this method).
    */
-  async loadStableTurnBoundary(maxRetries = LOAD_STABLE_DEFAULT_RETRIES): Promise<LoadResult> {
+  async loadStableTurnBoundary(maxRetries = LOAD_STABLE_DEFAULT_RETRIES): Promise<StableLoadResult> {
     const result = await this.loadStable(maxRetries);
-    if (result.source === 'io_error') {
+    // phase 1816: unstable（耗尽）与 io_error 同样直通——session 为 null 不得进入截断逻辑
+    if (result.source === 'io_error' || result.source === 'unstable') {
       return result;
     }
     const messages = result.session.messages;

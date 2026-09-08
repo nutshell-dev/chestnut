@@ -36,7 +36,12 @@ describe('phase 1184 loadStableTurnBoundary', () => {
       ],
       toolsForLLM: [],
     });
-    const { session } = await store.loadStableTurnBoundary();
+    const loadResult = await store.loadStableTurnBoundary();
+    // phase 1816: StableLoadResult 需 narrow——本组用例均为稳定读取成功路径
+    if (loadResult.source === 'io_error' || loadResult.source === 'unstable') {
+      throw new Error(`unexpected load result: ${loadResult.source}`);
+    }
+    const { session } = loadResult;
     expect(session.messages.length).toBe(3);  // 0 truncate
     expect(events.filter(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_BOUNDARY_TRUNCATED).length).toBe(0);
   });
@@ -61,7 +66,12 @@ describe('phase 1184 loadStableTurnBoundary', () => {
       ],
       toolsForLLM: [],
     });
-    const { session } = await store.loadStableTurnBoundary();
+    const loadResult = await store.loadStableTurnBoundary();
+    // phase 1816: StableLoadResult 需 narrow——本组用例均为稳定读取成功路径
+    if (loadResult.source === 'io_error' || loadResult.source === 'unstable') {
+      throw new Error(`unexpected load result: ${loadResult.source}`);
+    }
+    const { session } = loadResult;
     expect(session.messages.length).toBe(3);  // last assistant truncated
     const evt = events.find(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_BOUNDARY_TRUNCATED);
     expect(evt).toBeDefined();
@@ -83,7 +93,12 @@ describe('phase 1184 loadStableTurnBoundary', () => {
       ],
       toolsForLLM: [],
     });
-    const { session } = await store.loadStableTurnBoundary();
+    const loadResult = await store.loadStableTurnBoundary();
+    // phase 1816: StableLoadResult 需 narrow——本组用例均为稳定读取成功路径
+    if (loadResult.source === 'io_error' || loadResult.source === 'unstable') {
+      throw new Error(`unexpected load result: ${loadResult.source}`);
+    }
+    const { session } = loadResult;
     expect(session.messages.length).toBe(1);  // truncate to before unpaired tool_use
     const evt = events.find(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_BOUNDARY_TRUNCATED);
     expect(evt).toBeDefined();
@@ -109,7 +124,12 @@ describe('phase 1184 loadStableTurnBoundary', () => {
       ],
       toolsForLLM: [],
     });
-    const { session } = await store.loadStableTurnBoundary();
+    const loadResult = await store.loadStableTurnBoundary();
+    // phase 1816: StableLoadResult 需 narrow——本组用例均为稳定读取成功路径
+    if (loadResult.source === 'io_error' || loadResult.source === 'unstable') {
+      throw new Error(`unexpected load result: ${loadResult.source}`);
+    }
+    const { session } = loadResult;
     expect(session.messages.length).toBe(4);  // 0 truncate
     expect(events.filter(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_BOUNDARY_TRUNCATED).length).toBe(0);
   });
@@ -127,7 +147,12 @@ describe('phase 1184 loadStableTurnBoundary', () => {
       ],
       toolsForLLM: [],
     });
-    const { session } = await store.loadStableTurnBoundary();
+    const loadResult = await store.loadStableTurnBoundary();
+    // phase 1816: StableLoadResult 需 narrow——本组用例均为稳定读取成功路径
+    if (loadResult.source === 'io_error' || loadResult.source === 'unstable') {
+      throw new Error(`unexpected load result: ${loadResult.source}`);
+    }
+    const { session } = loadResult;
     expect(session.messages.length).toBe(1);
     const evt = events.find(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_BOUNDARY_TRUNCATED);
     expect(evt).toBeDefined();
