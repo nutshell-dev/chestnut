@@ -59,7 +59,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
       fs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       auditWriter: makeAudit().audit,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tmpDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tmpDir, strict: true, fs: new NodeFileSystem({ baseDir: tmpDir }) }),
     });
   }
 
@@ -125,7 +125,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
       fs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       auditWriter: makeAudit().audit,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tmpDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tmpDir, strict: true, fs: new NodeFileSystem({ baseDir: tmpDir }) }),
     });
     const result = await executor.execute({
       toolName: 'read',

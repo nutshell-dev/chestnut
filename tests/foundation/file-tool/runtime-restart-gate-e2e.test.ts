@@ -52,7 +52,7 @@ async function makeCtx(clawDir: string, persist: boolean): Promise<E2eCtx> {
     profile: 'full',
     fs: nfs,
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
     auditWriter: audit.audit,
     persistReadFileState: persist,
     maxSteps: 20,

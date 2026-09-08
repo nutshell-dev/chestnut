@@ -39,7 +39,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
     });
   });
 
@@ -104,7 +104,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       auditWriter,
     });
 
@@ -157,7 +157,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       auditWriter,
     });
 
@@ -220,7 +220,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       auditWriter,
     });
 
@@ -277,7 +277,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       auditWriter,
     });
 
@@ -321,7 +321,7 @@ describe('edit-commit coordinator', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       auditWriter,
     });
 

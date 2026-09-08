@@ -50,7 +50,7 @@ describe('exec tool real timeout', () => {
       profile: 'full',
       fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       auditWriter: audit.audit,
     });
   });

@@ -37,7 +37,7 @@ describe('edit tool', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
     });
 
   });
@@ -201,7 +201,7 @@ describe('edit tool', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       auditWriter,
     });
 

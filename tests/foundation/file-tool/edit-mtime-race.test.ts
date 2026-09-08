@@ -34,7 +34,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: realFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
     });
   });
 
@@ -74,7 +74,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
     });
 
     const result = await editTool.execute({
@@ -119,7 +119,7 @@ describe('edit content-hash conflict detection (phase 1109 Step C)', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'subagent',
       fs: racedFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
     });
 
     const result = await multiEditTool.execute({

@@ -40,7 +40,7 @@ describe('search tool — workspace-relative display (phase 776 + 1422)', () => 
       syncDir: path.join(clawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
     });
 
     const result = await searchTool.execute({ text: 'needle' }, ctx);
@@ -65,7 +65,7 @@ describe('search tool — workspace-relative display (phase 776 + 1422)', () => 
       syncDir: path.join(clawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
     });
 
     const result = await searchTool.execute({ text: 'needle', path: '..' }, ctx);
@@ -89,7 +89,7 @@ describe('search tool — workspace-relative display (phase 776 + 1422)', () => 
       syncDir: path.join(clawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
     });
 
     const result = await searchTool.execute({ text: 'needle' }, ctx);
@@ -114,7 +114,7 @@ describe('search tool — workspace-relative display (phase 776 + 1422)', () => 
       syncDir: path.join(clawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
     });
 
     const result = await searchTool.execute({ text: 'needle' }, ctx);

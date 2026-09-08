@@ -83,6 +83,15 @@ const BASE_WRITABLE_PATHS = [
  */
 export type PermissionAuditSink = Pick<AuditLog, 'write'>;
 
+/**
+ * phase 1818 (PERMISSIONS-FS-OPTIONAL-DISABLES-CANONICAL-GUARD): canonical 路径判定
+ * 是安全不变量——checker 构造期必须接收 owner filesystem 的 canonical resolve capability
+ * （NodeFileSystem.resolve = resolveAndCheck：`..` 穿越拒绝 + realpath symlink-escape guard），
+ * 不允许退回 path.resolve 词法检查的弱 checker。实际消费仅 sync resolve 单方法，
+ * 最小接口冻结为 Pick<FileSystem, 'resolve'>，不把完整 FileSystem 向上暴露。
+ */
+export type ClawPermissionFs = Pick<FileSystem, 'resolve'>;
+
 interface ClawPermissionOptions {
   /** Base directory for the claw */
   clawDir: string;
@@ -100,8 +109,12 @@ interface ClawPermissionOptions {
    */
   audit: PermissionAuditSink;
 
-  /** FileSystem for path resolution (symlink traversal guard) */
-  fs?: FileSystem;
+  /**
+   * Required canonical fs capability for path resolution（phase 1818）。
+   * symlink traversal guard 依赖 owner filesystem 的 canonical resolve——
+   * 缺失在 createClawPermissionChecker 构造时显式抛错，无 path.resolve 词法 fallback。
+   */
+  fs: ClawPermissionFs;
 
   /** Phase 1335: task sync directories injected at assembly time */
   taskSyncDirs?: readonly string[];
@@ -147,23 +160,16 @@ function matchesPathPatterns(
 function getRelativeToClaw(
   clawDir: string,
   targetPath: string,
-  fs?: FileSystem
+  fs: ClawPermissionFs
 ): string | null {
   try {
-    let resolvedClaw: string;
-    let resolvedTarget: string;
-
     // phase 324 C3: 始终用 options.clawDir 解析 claw root，不依赖 fs.resolve('.')。
     // 旧代码在 fs 由 chestnut-root-scoped factory 构造时（evolution-system / memory
     // 经 clawFsFactory），claw root 被取作更宽 root → containment 检查放过任意
     // <chestnutRoot>/* → 读隔离失效。
-    if (fs) {
-      resolvedClaw = fs.resolve(clawDir);
-      resolvedTarget = fs.resolve(targetPath);
-    } else {
-      resolvedClaw = path.resolve(clawDir);
-      resolvedTarget = path.resolve(targetPath);
-    }
+    // phase 1818: fs 为构造期必需 canonical capability，无 path.resolve 词法 fallback。
+    const resolvedClaw = fs.resolve(clawDir);
+    const resolvedTarget = fs.resolve(targetPath);
 
     if (
       resolvedTarget === resolvedClaw ||
@@ -297,6 +303,13 @@ export function createClawPermissionChecker(
       'createClawPermissionChecker: audit sink is required — permission deny/bypass events must be observable',
     );
   }
+  // phase 1818: canonical resolve capability 同样是构造期必需契约——缺失（含 JS / as any
+  // 绕过编译期）显式失败，不构造退回词法 path.resolve 的弱 checker。
+  if (!options.fs || typeof options.fs.resolve !== 'function') {
+    throw new Error(
+      'createClawPermissionChecker: fs with canonical resolve is required — lexical path.resolve fallback is not a valid containment check',
+    );
+  }
   return {
     checkRead: (targetPath: string) => checkReadPermission(targetPath, options),
     checkWrite: (targetPath: string) => checkWritePermission(targetPath, options),
@@ -310,11 +323,21 @@ export function createClawPermissionChecker(
       relativePath: string,
       operation: 'read' | 'write'
     ): string {
-      // phase 427 Step B (review medium permissions invariant): fs.resolve 优先 +
-      // path.resolve fallback、与 checkReadPermission/checkWritePermission 内 line 140-170
-      // 模式一致、virtual FS / rooted-fs 统一。
+      // phase 427 Step B (review medium permissions invariant): 始终经 owner fs
+      // canonical resolve（phase 1818: 无 path.resolve fallback）、virtual FS /
+      // rooted-fs 统一。
       const joined = path.join(options.clawDir, relativePath);
-      const absolute = options.fs ? options.fs.resolve(joined) : path.resolve(joined);
+      let absolute: string;
+      try {
+        absolute = options.fs.resolve(joined);
+      } catch (err) {
+        // phase 1818: canonical resolve 的 containment 拒绝（PathGuardError）不直接上抛——
+        // 下沉到 checkRead/checkWrite 单一 deny 点（getRelativeToClaw 的 PathGuardError→null
+        // 语义），保持 deny vocabulary（PathNotInClawSpaceError）与 deny audit 不变；
+        // 其余 I/O 类错误（EACCES/ENOENT/ELOOP…）继续上抛。
+        if (!(err instanceof PathGuardError)) throw err;
+        absolute = joined;
+      }
 
       if (operation === 'read') {
         checkReadPermission(absolute, options);

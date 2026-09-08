@@ -41,7 +41,7 @@ describe('Builtin Tools - status tool', () => {
       profile: 'full',
       fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
     });
   });
 
@@ -270,7 +270,7 @@ describe('Builtin Tools - status tool', () => {
         fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         auditWriter: auditWriter as any,
-        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       });
       const statusTool = createStatusTool({
         loadActive: vi.fn().mockRejectedValue(new Error('yaml parse error')),
@@ -296,7 +296,7 @@ describe('Builtin Tools - status tool', () => {
         fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         auditWriter: auditWriter as any,
-        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       });
       await statusTool.execute({}, ctxWithAudit);
 
@@ -326,7 +326,7 @@ describe('Builtin Tools - status tool', () => {
         fs: mockFs,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         auditWriter: auditWriter as any,
-        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: tempDir, strict: true, fs: new NodeFileSystem({ baseDir: tempDir }) }),
       });
       await statusTool.execute({}, ctxWithAudit);
 

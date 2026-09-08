@@ -102,12 +102,15 @@ vi.mock('../../src/foundation/stream/index.js', async (importOriginal) => {
 });
 
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
-  NodeFileSystem: vi.fn(() => ({
+  NodeFileSystem: vi.fn(({ baseDir }: { baseDir: string }) => ({
     ensureDir: vi.fn().mockResolvedValue(undefined),
     ensureDirSync: vi.fn(),
     existsSync: vi.fn(() => false),
     statSync: vi.fn(() => ({ size: 0 })),
     readBytesSync: vi.fn(() => Buffer.from('')),
+    // phase 1818: createClawPermissionChecker 构造期必需 canonical resolve capability，
+    // mock 亦须提供（词法 join 即可——本文件断言与 containment 无关）
+    resolve: vi.fn((p: string) => (path.isAbsolute(p) ? p : path.join(baseDir, p))),
   })),
 }));
 

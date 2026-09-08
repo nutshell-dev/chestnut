@@ -56,7 +56,7 @@ describe('cross-claw read-state persistence ratchet (Phase 1229 Step B)', () => 
       profile: 'full',
       fs: motionFs,
       fsFactory,
-      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: motionDir, strict: true }),
+      permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir: motionDir, strict: true, fs: new NodeFileSystem({ baseDir: motionDir }) }),
       auditWriter: audit.audit,
       persistReadFileState: true,
       maxSteps: 20,

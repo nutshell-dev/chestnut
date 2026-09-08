@@ -26,7 +26,7 @@ function makeCtx(clawDir: string) {
     syncDir: path.join(clawDir, 'tasks/sync'),
     profile: 'full',
     fs: mockFs,
-    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
   });
 }
 

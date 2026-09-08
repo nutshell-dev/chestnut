@@ -127,7 +127,7 @@ describe('search-signal-observance', () => {
         syncDir: path.join(clawDir, 'tasks/sync'),
         profile: 'full',
         fs: mockFs,
-        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
       });
 
       const result = await searchTool.execute(
@@ -157,7 +157,7 @@ describe('search-signal-observance', () => {
         profile: 'full',
         fs: mockFs,
         signal: controller.signal,
-        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true }),
+        permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: new NodeFileSystem({ baseDir: clawDir }) }),
       });
 
       const result = await searchTool.execute(
