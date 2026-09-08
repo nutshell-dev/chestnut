@@ -52,13 +52,22 @@ export const MESSAGING_AUDIT_EVENTS = {
   MESSAGING_MESSAGE_INVARIANT_VIOLATED: 'messaging_message_invariant_violated',
 } as const;
 
+/** phase 1821 Step B: Messaging audit event 值联合（routing key 类型单源）。 */
+export type MessagingAuditEvent = (typeof MESSAGING_AUDIT_EVENTS)[keyof typeof MESSAGING_AUDIT_EVENTS];
+
 
 /**
  * Phase 163 业主声明 file 归属（phase 122 §5.A + §6.7 + phase 159 模式）.
  *
  * 全 'audit'：业务事件归业务事件主 file（信噪比已通过 cron tick 分流改善）.
+ *
+ * phase 1821 Step B（audit-routing-catalog-drift）：key 收紧为
+ * MessagingAuditEvent——漏配（新增事件未补 routing）与幽灵 key（routing 引用
+ * 不存在的事件）均为编译期错误；双向 parity 运行时锚定见
+ * tests/foundation/arch/messaging-audit-routing-parity.test.ts。
+ * 顺带补漏：inbox_pending_source_cleanup_failed（事件在、routing 缺）。
  */
-export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
+export const MESSAGING_FILE_ROUTING: Readonly<Record<MessagingAuditEvent, 'audit'>> = {
   inbox_done: 'audit',
   inbox_written: 'audit',
   inbox_write_failed: 'audit',
@@ -72,6 +81,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   inbox_priority_unknown: 'audit',
   inbox_legacy_claw_id_field: 'audit',
   inbox_deduped: 'audit',
+  inbox_pending_source_cleanup_failed: 'audit',
   inbox_mark_done_failed: 'audit',
   inbox_reconcile: 'audit',
   inbox_nack: 'audit',
