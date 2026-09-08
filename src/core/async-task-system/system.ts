@@ -74,19 +74,30 @@ interface TaskState {
 
 /**
  * Phase 1790: 取消业务语义 owner-local typed outcome（AT-D1 治理）。
+ * Phase 1806: running 结算 typed 化（AT-D2 治理）。
  *
  * `cancelDetailed()` 每条路径 exhaustive 返回：
- * - `cancelled`：终态（running settle / pending→failed / corrupt quarantine）。
+ * - `running_cancelled`：running 任务取消 —— `settle` 保留 promise 结算三分支
+ *   （fulfilled / rejected 携带 formatErr error / timeout 携带 timeoutMs，不再压平、
+ *   不再 throw 旁路），`terminal` 表达磁盘终态收敛观察（converged / not_observed，
+ *   读不到不猜测）。
+ * - `cancelled`：pending 终态（pending→failed / corrupt quarantine）。
  * - `pending_notification_failure`：pending 通知失败 —— 任务保留 pending 不移动、
  *   可重试，携带 path 与原始 error（formatErr）；不压成 cancelled。
  * - `race_lost_to_dispatch`：pending move ENOENT = dispatch 已抢先，非终态。
  * - `not_found`：ShortIdIndex/running/pending 均无（race / caller bug）。
  *
- * 不在联合内（语义不改写、维持 throw）：running settle timeout；pending→failed
- * move 非 ENOENT 失败。
+ * 不在联合内（语义不改写、维持 throw）：pending→failed move 非 ENOENT 失败。
  */
+/** running cancel 的 promise 结算维度：rejection 保留原始 error，timeout 保留预算。 */
+export type RunningCancelSettle =
+  | { kind: 'fulfilled' }
+  | { kind: 'rejected'; error: string }
+  | { kind: 'timeout'; timeoutMs: number };
+
 export type CancelOutcome =
-  | { kind: 'cancelled'; from: 'running' | 'pending' | 'pending_corrupt' }
+  | { kind: 'running_cancelled'; taskId: FullTaskId; settle: RunningCancelSettle; terminal: 'converged' | 'not_observed' }
+  | { kind: 'cancelled'; from: 'pending' | 'pending_corrupt' }
   | { kind: 'pending_notification_failure'; taskId: FullTaskId; path: string; error: string }
   | { kind: 'race_lost_to_dispatch'; taskId: FullTaskId }
   | { kind: 'not_found'; taskId: TaskId };
@@ -1407,6 +1418,22 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   /**
+   * phase 1806: running cancel 后磁盘 terminal convergence 只读观察。
+   * converged = task 文件已在 done/ 或 failed/（move 落地）；仍在 running/（move
+   * 失败待 recovery）、或 fs 观察本身失败 → 一律 not_observed，不伪造终态。
+   */
+  private async _inspectTerminalConvergence(fullId: FullTaskId): Promise<'converged' | 'not_observed'> {
+    try {
+      if (await this.fs.exists(`${TASKS_QUEUES_DONE_DIR}/${fullId}.json`)) return 'converged';
+      if (await this.fs.exists(`${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`)) return 'converged';
+    } catch {
+      // silent: 观察失败不得升级成 converged，降级 not_observed（不猜测磁盘终态）
+      return 'not_observed';
+    }
+    return 'not_observed';
+  }
+
+  /**
    * Write terminalState into the task JSON before attempting the move.
    * If the move fails, recovery reads this field to correctly route the task.
    */
@@ -1464,6 +1491,14 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   async cancel(taskId: TaskId): Promise<void> {
     const outcome = await this.cancelDetailed(taskId);
     switch (outcome.kind) {
+      case 'running_cancelled':
+        // legacy 语义投影：fulfilled/rejected → void（rejection forensics 在 outcome.settle
+        // 与 CANCEL_PROMISE_REJECTED audit）；timeout → 维持原 throw 行为
+        if (outcome.settle.kind === 'timeout') {
+          const shortId = this.shortIdIndex.canonicalShortId(outcome.taskId) ?? this.shortIdIndex.deriveShortId(outcome.taskId);
+          throw new Error(`Task cancellation timed out after ${outcome.settle.timeoutMs}ms: ${shortId}`);
+        }
+        return;
       case 'cancelled':
         return;
       case 'pending_notification_failure':
@@ -1483,8 +1518,9 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
    * pending_notification_failure，pending 保留不移动、携带原始 error) → move
    * pending→failed → cancelled`。原始异常经结构化 outcome 与既有 audit 双记录。
    *
-   * 语义不改写（不在联合内、维持 throw）：running settle timeout；pending→failed
-   * move 非 ENOENT 失败。
+   * 语义不改写（不在联合内、维持 throw）：pending→failed move 非 ENOENT 失败。
+   * phase 1806：running settle timeout 已进入联合（settle.kind='timeout'），
+   * throw 投影只保留在 legacy cancel() wrapper。
    */
   async cancelDetailed(taskId: TaskId): Promise<CancelOutcome> {
     const fullId = this._resolveFullTaskId(taskId);
@@ -1506,26 +1542,26 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     if (state) {
       state.abortController.abort();
       let settleTimer: ReturnType<typeof setTimeout> | undefined;
-      const outcome = await Promise.race([
+      const settle = await Promise.race<RunningCancelSettle>([
         state.promise.then(
-          () => ({ kind: 'settled' } as const),
-          (error: unknown) => ({ kind: 'rejected', error } as const),
+          () => ({ kind: 'fulfilled' as const }),
+          (error: unknown) => ({ kind: 'rejected' as const, error: formatErr(error) }),
         ),
-        new Promise<{ kind: 'timeout' }>((resolve) => {
-          settleTimer = setTimeout(() => resolve({ kind: 'timeout' }), CANCEL_SETTLE_TIMEOUT_MS);
+        new Promise<RunningCancelSettle>((resolve) => {
+          settleTimer = setTimeout(() => resolve({ kind: 'timeout', timeoutMs: CANCEL_SETTLE_TIMEOUT_MS }), CANCEL_SETTLE_TIMEOUT_MS);
           settleTimer.unref?.();
         }),
       ]);
       if (settleTimer !== undefined) clearTimeout(settleTimer);
 
-      if (outcome.kind === 'rejected') {
+      if (settle.kind === 'rejected') {
         // abort 设计意是同步 cancel 不等 settle，但 reject content forensics 留痕
         // per feedback_silent_x_audit_kit (silent catch swallow → audit 注入)
         try {
           emitCancelPromiseRejected(this.auditWriter, {
             fullTaskId: fullId,
             shortTaskId: shortId,
-            error: formatErr(outcome.error),
+            error: settle.error,
           });
         } catch (innerErr) {
           // L2 audit writer recursion border: align `[AUDIT CRITICAL]` console.error pattern
@@ -1533,16 +1569,22 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           console.error(`[AUDIT CRITICAL] task cancel audit nested throw: fullTaskId=${fullId} shortTaskId=${shortId} reason=${formatErr(innerErr)}`);
         }
       }
-      if (outcome.kind === 'timeout') {
+      if (settle.kind === 'timeout') {
         emitCancelSettleTimeout(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
           timeoutMs: CANCEL_SETTLE_TIMEOUT_MS,
         });
-        throw new Error(`Task cancellation timed out after ${CANCEL_SETTLE_TIMEOUT_MS}ms: ${shortId}`);
+      } else {
+        emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'running' });
       }
-      emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'running' });
-      return { kind: 'cancelled', from: 'running' };
+      // phase 1806: settle 与 terminal convergence 两个正交维度 typed 交付，不再 throw 旁路
+      return {
+        kind: 'running_cancelled',
+        taskId: fullId,
+        settle,
+        terminal: await this._inspectTerminalConvergence(fullId),
+      };
     }
 
     // 2. 再检查 pending（derive from fs）

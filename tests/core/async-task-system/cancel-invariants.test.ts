@@ -362,7 +362,13 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
       promise,
     });
 
-    await system.cancel(taskId);
+    // phase 1806: typed outcome 主观察（settle.rejected 携带原始 error），audit side-effect 保留
+    const outcome = await system.cancelDetailed(taskId);
+    expect(outcome.kind).toBe('running_cancelled');
+    if (outcome.kind !== 'running_cancelled') throw new Error('unreachable');
+    expect(outcome.settle.kind).toBe('rejected');
+    if (outcome.settle.kind !== 'rejected') throw new Error('unreachable');
+    expect(outcome.settle.error).toContain('abort-cleanup-explosion');
 
     const cancelPromiseRejectedEvents = auditEvents.filter(
       (e) => e[0] === TASK_AUDIT_EVENTS.CANCEL_PROMISE_REJECTED,
@@ -409,7 +415,11 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
       promise,
     });
 
-    await system.cancel(taskId);
+    // phase 1806: typed outcome 主观察（settle.fulfilled），audit side-effect 保留
+    const outcome = await system.cancelDetailed(taskId);
+    expect(outcome.kind).toBe('running_cancelled');
+    if (outcome.kind !== 'running_cancelled') throw new Error('unreachable');
+    expect(outcome.settle).toEqual({ kind: 'fulfilled' });
 
     const cancelPromiseRejectedEvents = auditEvents.filter(
       (e) => e[0] === TASK_AUDIT_EVENTS.CANCEL_PROMISE_REJECTED,
@@ -438,10 +448,16 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
     (system as any).executingTasks.set(taskId, { abortController, promise });
 
     try {
-      const cancelPromise = system.cancel(taskId);
-      const rejection = expect(cancelPromise).rejects.toThrow(/cancellation timed out/);
+      // phase 1806: typed outcome 主观察（settle.timeout 携带 timeoutMs、不再 throw 旁路），audit side-effect 保留
+      const outcomePromise = system.cancelDetailed(taskId);
       await vi.advanceTimersByTimeAsync(CANCEL_SETTLE_TIMEOUT_MS);
-      await rejection;
+      const outcome = await outcomePromise;
+      expect(outcome).toEqual({
+        kind: 'running_cancelled',
+        taskId,
+        settle: { kind: 'timeout', timeoutMs: CANCEL_SETTLE_TIMEOUT_MS },
+        terminal: 'not_observed',
+      });
       expect(abortController.signal.aborted).toBe(true);
       expect(auditEvents).toContainEqual(expect.arrayContaining([
         TASK_AUDIT_EVENTS.CANCEL_SETTLE_TIMEOUT,
@@ -449,6 +465,12 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
         expect.stringContaining(`timeout_ms=${CANCEL_SETTLE_TIMEOUT_MS}`),
       ]));
       expect(auditEvents.some((e) => e[0] === TASK_AUDIT_EVENTS.CANCELLED)).toBe(false);
+
+      // legacy cancel() 投影：timeout 维持 throw
+      const legacyPromise = system.cancel(taskId);
+      const rejection = expect(legacyPromise).rejects.toThrow(/cancellation timed out/);
+      await vi.advanceTimersByTimeAsync(CANCEL_SETTLE_TIMEOUT_MS);
+      await rejection;
     } finally {
       (system as any).executingTasks.delete(taskId);
       vi.useRealTimers();
