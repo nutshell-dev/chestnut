@@ -16,6 +16,7 @@ import { createClawPermissionChecker } from '../../../src/core/permissions/claw-
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createOutboxWriter, OutboxWriter } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { ToolExecutorImpl } from '../../../src/foundation/tools/executor.js';
 import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
@@ -40,7 +41,7 @@ describe('exec tool real timeout', () => {
     tempDir = await createTempDir();
     await fs.mkdir(path.join(tempDir, 'clawspace'), { recursive: true });
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    const outboxWriter: OutboxWriter = createOutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit);
+    const outboxWriter: OutboxWriter = createOutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     const audit = makeAudit();
     auditEvents = audit.events;
     ctx = new ExecContextImpl({

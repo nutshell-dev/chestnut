@@ -29,6 +29,7 @@ import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 import { InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 
 const mockLlmCall = vi.fn();
 const mockLlmService = {
@@ -227,7 +228,7 @@ describe('deep-dream durable delivery (phase 1162 Step D)', () => {
     const pendingBody = 'already done body';
 
     // Seed a done message with matching delivery_id.
-    const writer = (InboxWriter as any).__internal_create(new NodeFileSystem({ baseDir: clawDir }), makeInboxPath(inboxDir.replace('/pending', '/done')), audit);
+    const writer = (InboxWriter as any).__internal_create(new NodeFileSystem({ baseDir: clawDir }), makeInboxPath(inboxDir.replace('/pending', '/done')), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     writer.writeSync({
       type: 'deep_dream',
       source: 'cron-dream',
@@ -268,7 +269,7 @@ describe('deep-dream durable delivery (phase 1162 Step D)', () => {
     const deliveryId = 'deep-dream:claw-a:0:none:failedhash';
     const pendingBody = 'failed but retried body';
 
-    const writer = (InboxWriter as any).__internal_create(new NodeFileSystem({ baseDir: clawDir }), makeInboxPath(inboxDir.replace('/pending', '/failed')), audit);
+    const writer = (InboxWriter as any).__internal_create(new NodeFileSystem({ baseDir: clawDir }), makeInboxPath(inboxDir.replace('/pending', '/failed')), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     writer.writeSync({
       type: 'deep_dream',
       source: 'cron-dream',
@@ -334,7 +335,7 @@ describe('deep-dream durable delivery (phase 1162 Step D)', () => {
 
     // Manually write the message to inbox as if it succeeded externally,
     // to simulate next-run dedup.
-    const writer = (InboxWriter as any).__internal_create(new NodeFileSystem({ baseDir: clawDir }), makeInboxPath(inboxDir), audit);
+    const writer = (InboxWriter as any).__internal_create(new NodeFileSystem({ baseDir: clawDir }), makeInboxPath(inboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     writer.writeSync({
       type: 'deep_dream',
       source: 'cron-dream',

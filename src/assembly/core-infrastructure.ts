@@ -26,7 +26,7 @@ import { ContractSystem, createContractSystem } from '../core/contract/index.js'
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
-import { createOutboxWriter, type OutboxWriter } from '../foundation/messaging/index.js';
+import { createOutboxWriter, type MessagingWriterLimits, type OutboxWriter } from '../foundation/messaging/index.js';
 import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { createAggregatedFileRouting } from './file-routing-aggregator.js';
@@ -58,6 +58,8 @@ export interface CoreInfraOutput {
   skillRegistry: SkillSystem;
   contractManager: ContractSystem;
   outboxWriter: OutboxWriter;
+  /** phase 1820: messaging writer wire-size 上限（globalConfig.messaging 注入，供 business-systems 的 inbox writer 复用） */
+  messagingLimits: MessagingWriterLimits;
   streamWriter: StreamWriter;
   isMotion: boolean;
   chestnutRoot: string;
@@ -275,9 +277,14 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     // 注册（依赖 AsyncTaskSystem 构造完成后才能提供 loadTask）。
 
     // --- L2: outboxWriter ---
+    // phase 1820: messaging writer wire-size 上限由配置 owner（globalConfig.messaging）
+    // 装配期注入；writer 不再读 env、不持默认值。limits 同时挂 output 供 business-systems 复用。
+    const messagingLimits: MessagingWriterLimits = {
+      bodyMaxBytes: globalConfig.messaging.body_max_bytes,
+    };
     let outboxWriter: OutboxWriter;
     try {
-      outboxWriter = createOutboxWriter(makeClawId(clawId), clawDir, systemFs, auditWriter);
+      outboxWriter = createOutboxWriter(makeClawId(clawId), clawDir, systemFs, auditWriter, messagingLimits);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=outbox_writer`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: OutboxWriter construct failed: ${formatErr(e)}`, { cause: e });
@@ -301,6 +308,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       skillRegistry,
       contractManager,
       outboxWriter,
+      messagingLimits,
       streamWriter,
       isMotion,
       chestnutRoot,

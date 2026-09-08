@@ -14,6 +14,7 @@ import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
 import { makeAudit, makeMockAudit } from '../helpers/audit.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
@@ -33,7 +34,7 @@ describe('Builtin Tools - status tool', () => {
     tempDir = await createTempDir();
     await fs.mkdir(path.join(tempDir, 'clawspace'), { recursive: true });
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    outboxWriter = createOutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit);
+    outboxWriter = createOutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,

@@ -12,6 +12,7 @@ import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
@@ -283,7 +284,7 @@ describe('Messaging', () => {
     beforeEach(async () => {
       tempDir = await createTempDir();
       mockFs = new NodeFileSystem({ baseDir: tempDir });
-      writer = createOutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit);
+      writer = createOutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     });
 
     afterEach(async () => {

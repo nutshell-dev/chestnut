@@ -18,6 +18,7 @@ import { viewportConfigSchema } from '../../cli-protocol/index.js';
 // config store；legacy 段读取/移除见 config-load.ts。
 import { streamConfigSchema } from '../../foundation/stream/index.js';
 import { agentExecutorConfigSchema } from '../../core/agent-executor/index.js';
+import { messagingConfigSchema } from '../../foundation/messaging/index.js';
 
 export function createGlobalConfigSchema() {
   return z.object({
@@ -29,6 +30,7 @@ export function createGlobalConfigSchema() {
     cron: cronConfigSchema.default({}),
     viewport: viewportConfigSchema.default({}),
     stream: streamConfigSchema.default({}),
+    messaging: messagingConfigSchema.default({}),
     // Future cross-field validation hook (currently 0 cross-field constraint):
     //   .refine((cfg) => <constraint>, { message: '...' })
   });

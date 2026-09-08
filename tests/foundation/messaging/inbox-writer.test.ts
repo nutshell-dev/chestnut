@@ -10,6 +10,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxWriter } from '../../../src/foundation/messaging/index.js';
 import { makeInboxPath } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
@@ -40,7 +41,7 @@ describe('InboxWriter', () => {
         auditCalls.push(`${type}:${cols.join(',')}`);
       },
     };
-    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit);
+    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   afterEach(async () => {
@@ -297,7 +298,7 @@ describe('InboxWriter boundary safety (phase 910)', () => {
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     const audit = { write() { /* noop */ } };
-    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit);
+    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   afterEach(async () => {

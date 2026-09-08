@@ -13,6 +13,7 @@ import { encodeOutbox } from './codec-outbox.js';
 import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import type { ClawId } from '../claw-identity/index.js';
+import type { MessagingWriterLimits } from './config-schema.js';
 
 
 /**
@@ -27,15 +28,9 @@ export interface OutboxWriteOptions {
 }
 
 // phase 430 Step E (review medium、inbox cap 对称): outbox message content 硬上限、防 disk DoS
-// Derivation: 64 KiB (与 INBOX_BODY_MAX_BYTES_DEFAULT 一致、统一上限) / outbox typical use
-// case (status report / result) ≤ 4KB / env CHESTNUT_OUTBOX_BODY_MAX_BYTES 覆盖.
-const OUTBOX_BODY_MAX_BYTES_DEFAULT = 64 * 1024;
-function getOutboxBodyMaxBytes(): number {
-  const raw = process.env.CHESTNUT_OUTBOX_BODY_MAX_BYTES;
-  if (!raw) return OUTBOX_BODY_MAX_BYTES_DEFAULT;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : OUTBOX_BODY_MAX_BYTES_DEFAULT;
-}
+// Derivation: 64 KiB 默认（与 inbox 统一上限）/ outbox typical use case (status report /
+// result) ≤ 4KB。phase 1820：上限数值归 messaging config-schema（配置 owner），
+// writer 构造期注入（MessagingWriterLimits），不再读 env、不持默认值。
 
 /** Branded outbox directory path — only makeOutboxPath() can construct. */
 declare const OutboxPathBrand: unique symbol;
@@ -56,11 +51,12 @@ export class OutboxWriter {
     private readonly outboxDir: OutboxPath,
     private readonly fs: FileSystem,
     private readonly audit: AuditLog,
+    private readonly limits: MessagingWriterLimits,
   ) {}
 
   /** Internal factory — only callable within the Messaging module. */
-  static __internal_create(clawId: ClawId, outboxDir: OutboxPath, fs: FileSystem, audit: AuditLog): OutboxWriter {
-    return new OutboxWriter(clawId, outboxDir, fs, audit);
+  static __internal_create(clawId: ClawId, outboxDir: OutboxPath, fs: FileSystem, audit: AuditLog, limits: MessagingWriterLimits): OutboxWriter {
+    return new OutboxWriter(clawId, outboxDir, fs, audit, limits);
   }
 
   /**
@@ -89,7 +85,7 @@ export class OutboxWriter {
       // phase 935: wire size limit covers the encoded payload (body + metadata)
       const content = encodeOutbox(message);
       const wireSize = Buffer.byteLength(content, 'utf-8');
-      const maxBytes = getOutboxBodyMaxBytes();
+      const maxBytes = this.limits.bodyMaxBytes;
       if (wireSize > maxBytes) {
         emitOutboxBodyOversize(this.audit, {
           clawId: this.clawId,
@@ -100,7 +96,7 @@ export class OutboxWriter {
           cap: maxBytes,
           contractId: options.metadata?.contract_id,
         });
-        throw new Error(`Outbox wire size ${wireSize} bytes exceeds cap ${maxBytes} (env CHESTNUT_OUTBOX_BODY_MAX_BYTES to override)`);
+        throw new Error(`Outbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
       }
 
       // Generate filename: {timestamp}_{type}_{messageUuid}.md
@@ -141,6 +137,7 @@ export function createOutboxWriter(
   clawDir: string,
   fs: FileSystem,
   audit: AuditLog,
+  limits: MessagingWriterLimits,
 ): OutboxWriter {
-  return OutboxWriter.__internal_create(clawId, makeOutboxPath(clawId, clawDir), fs, audit);
+  return OutboxWriter.__internal_create(clawId, makeOutboxPath(clawId, clawDir), fs, audit, limits);
 }

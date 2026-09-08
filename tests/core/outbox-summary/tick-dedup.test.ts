@@ -27,6 +27,7 @@ import { decodeOutboxSummaryGuidance } from '../../../src/core/claw-topology/job
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { InboxReader, InboxWriter, makeInboxPath, INBOX_INFLIGHT_DIR } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
@@ -114,6 +115,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       fs,
       makeInboxPath(path.join(root, 'motion/inbox/pending')),
       audit,
+      MESSAGING_WRITER_LIMITS_DEFAULT,
     );
     outboxReader = new OutboxReader(fs, audit);
     topology = createClawTopology({

@@ -13,6 +13,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import { makeInboxPath } from '../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
@@ -41,7 +42,7 @@ function readWrittenFile(): string {
 
 describe('yamlQuote — numeric extraFields', () => {
   it('integer values are written unquoted', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -54,7 +55,7 @@ describe('yamlQuote — numeric extraFields', () => {
   });
 
   it('float values are written unquoted', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -71,7 +72,7 @@ describe('yamlQuote — numeric extraFields', () => {
 
 describe('yamlQuote — boolean extraFields', () => {
   it('true/false are written unquoted', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -88,7 +89,7 @@ describe('yamlQuote — boolean extraFields', () => {
 
 describe('yamlQuote — string escaping', () => {
   it('backslash is escaped to \\\\', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -101,7 +102,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('double-quote is escaped to \\"', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -113,7 +114,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('newline in value is escaped to \\n', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -125,7 +126,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('carriage return in value is escaped to \\r', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -141,7 +142,7 @@ describe('yamlQuote — string escaping', () => {
 
 describe('writeInboxMessage atomic write', () => {
   it('leaves no .tmp file after write', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -152,7 +153,7 @@ describe('writeInboxMessage atomic write', () => {
   });
 
   it('final file has complete YAML frontmatter and body', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'ping',
       source: 'motion',
       priority: 'high',
@@ -172,7 +173,7 @@ describe('writeInboxMessage atomic write', () => {
 
 describe('readInboxFileMeta', () => {
   it('should return ok with meta for valid inbox file', () => {
-    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit).writeSync({
+    InboxWriter.__internal_create(mockFs, makeInboxPath(tmpDir), mockAudit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
       type: 'ping',
       source: 'motion',
       priority: 'high',

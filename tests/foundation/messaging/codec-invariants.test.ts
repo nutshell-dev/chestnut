@@ -20,6 +20,7 @@ import {
   InboxWriter,
   makeInboxPath,
 } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import type {
   InboxMessage,
   OutboxMessage,
@@ -78,7 +79,7 @@ describe('phase 1132 D.2: inbox-reader legacy claw_id audit', () => {
         auditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit);
+    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     reader = new InboxReader(
       path.join(testDir, 'inbox', 'pending'),
       path.join(testDir, 'inbox', 'done'),

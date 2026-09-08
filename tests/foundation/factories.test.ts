@@ -18,6 +18,7 @@ import {
   createInboxReader, createOutboxWriter,
   InboxReader, OutboxWriter,
 } from '../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 
@@ -46,7 +47,7 @@ describe('L2 factories — 行为契约', () => {
     expect(await createSnapshot(dir, fs, audit, [])).not.toBe(await createSnapshot(dir, fs, audit, []));
     expect(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1')).not.toBe(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1'));
     expect(createInboxReader(fs, audit, 'inbox')).not.toBe(createInboxReader(fs, audit, 'inbox'));
-    expect(createOutboxWriter('c1', dir, fs, audit)).not.toBe(createOutboxWriter('c1', dir, fs, audit));
+    expect(createOutboxWriter('c1', dir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT)).not.toBe(createOutboxWriter('c1', dir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT));
   });
 
   it('createInboxReader：baseDir 透传，五子目录固定拼 pending/inflight/done/failed/misrouted（结构断言）', async () => {
@@ -80,7 +81,7 @@ describe('L2 factories — 行为契约', () => {
 
   it('createOutboxWriter：clawDir 透传（消息落在 <clawDir>/outbox/pending/）', async () => {
     const { dir, fs, audit } = mkEnv();
-    const w = createOutboxWriter('c1', dir, fs, audit);
+    const w = createOutboxWriter('c1', dir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     const written = await w.write({ to: 'motion', type: 'question', content: 'hello world' });
     expect(written).toContain(path.join('outbox', 'pending'));
     const contents = await readFile(written, 'utf-8');

@@ -20,6 +20,8 @@ import {
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { assertMessageShape } from './invariants.js';
 import { sanitizeMessageIdentifier } from './sanitize.js';
+import type { MessagingWriterLimits } from './config-schema.js';
+
 type Result<T, E> =
   | { ok: true; value: T }
   | { ok: false; error: E };
@@ -27,15 +29,9 @@ import type { InboxMetaError } from './errors.js';
 import { isFileNotFound } from '../fs/index.js';
 
 // phase 429 Step A (review medium): inbox message body 硬上限、防 disk DoS / runaway bug
-// Derivation: 64 KiB = 65536 byte / 覆盖典型 inbox use case (大多 < 4KB) / LLM-generated
-// 长 review feedback 余量 / env CHESTNUT_INBOX_BODY_MAX_BYTES 覆盖.
-const INBOX_BODY_MAX_BYTES_DEFAULT = 64 * 1024;
-function getInboxBodyMaxBytes(): number {
-  const raw = process.env.CHESTNUT_INBOX_BODY_MAX_BYTES;
-  if (!raw) return INBOX_BODY_MAX_BYTES_DEFAULT;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : INBOX_BODY_MAX_BYTES_DEFAULT;
-}
+// Derivation: 64 KiB 默认 / 覆盖典型 inbox use case (大多 < 4KB) / LLM-generated 长 review
+// feedback 余量。phase 1820：上限数值归 messaging config-schema（配置 owner），
+// writer 构造期注入（MessagingWriterLimits），不再读 env、不持默认值。
 
 export type InboxMessageMeta = Record<string, string>;
 
@@ -66,11 +62,12 @@ export class InboxWriter {
     private readonly fs: FileSystem,
     private readonly inboxDir: InboxPath,
     private readonly audit: AuditLog,
+    private readonly limits: MessagingWriterLimits,
   ) {}
 
   /** Internal factory — only callable within the Messaging module. */
-  static __internal_create(fs: FileSystem, inboxDir: InboxPath, audit: AuditLog): InboxWriter {
-    return new InboxWriter(fs, inboxDir, audit);
+  static __internal_create(fs: FileSystem, inboxDir: InboxPath, audit: AuditLog, limits: MessagingWriterLimits): InboxWriter {
+    return new InboxWriter(fs, inboxDir, audit, limits);
   }
 
   /** async 写，atomic */
@@ -87,7 +84,7 @@ export class InboxWriter {
       // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
       const encoded = encodeInbox(msg, extraFields);
       const wireSize = Buffer.byteLength(encoded, 'utf-8');
-      const maxBytes = getInboxBodyMaxBytes();
+      const maxBytes = this.limits.bodyMaxBytes;
       if (wireSize > maxBytes) {
         emitInboxBodyOversize(this.audit, {
           source: msg.from,
@@ -184,7 +181,7 @@ export class InboxWriter {
     // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
     const encoded = encodeInbox(message, opts.extraFields);
     const wireSize = Buffer.byteLength(encoded, 'utf-8');
-    const maxBytes = getInboxBodyMaxBytes();
+    const maxBytes = this.limits.bodyMaxBytes;
     if (wireSize > maxBytes) {
       emitInboxBodyOversize(this.audit, {
         source: opts.source,

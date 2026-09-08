@@ -13,6 +13,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { INBOX_PENDING_DIR, resolveDlqDir } from '../../foundation/messaging/index.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
 import { InboxWriter, makeInboxPath } from '../../foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../foundation/messaging/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -167,5 +168,5 @@ export async function routeNotifyClawAsync(
     );
   }
 
-  InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit).writeSync(message);
+  InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(message);
 }

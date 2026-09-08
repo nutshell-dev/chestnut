@@ -11,6 +11,7 @@
 import * as path from 'path';
 import { InboxWriter, makeInboxPath } from './inbox-writer.js';
 import type { InboxMessageOptionsBase } from './inbox-writer.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from './config-schema.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
@@ -65,7 +66,7 @@ export function notifyClaw(
 
     if (dlqDir !== undefined) {
       try {
-        const fileName = InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit).writeSync({
+        const fileName = InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync({
           ...message,
           source: message.source ?? 'unknown',
         });
@@ -92,7 +93,7 @@ export function notifyClaw(
   }
 
   try {
-    InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit).writeSync(message);
+    InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(message);
   } catch {
     // InboxWriter.writeSync already audits INBOX_WRITE_FAILED.
     // This catch is a best-effort barrier against TUI raw-mode render pollution.
@@ -111,7 +112,7 @@ export async function writeInboxAsync(
   message: InboxMessage,
   audit: AuditLog,
 ): Promise<void> {
-  await InboxWriter.__internal_create(fs, makeInboxPath(inboxDir), audit).write(message);
+  await InboxWriter.__internal_create(fs, makeInboxPath(inboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).write(message);
 }
 
 /**
@@ -136,7 +137,7 @@ export function notifyInbox(
 ): void {
   try {
     const { inboxDir, ...rest } = opts;
-    InboxWriter.__internal_create(fs, makeInboxPath(inboxDir), audit).writeSync(rest);
+    InboxWriter.__internal_create(fs, makeInboxPath(inboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).writeSync(rest);
   } catch {
     // InboxWriter.writeSync 已 audit INBOX_WRITE_FAILED
     // 此处 catch 是防 TUI raw mode 渲染污染的 best-effort barrier

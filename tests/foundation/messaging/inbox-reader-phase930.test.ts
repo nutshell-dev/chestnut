@@ -9,6 +9,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter } from '../../../src/foundation/messaging/index.js';
 import { makeInboxPath } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../src/foundation/messaging/dirs.js';
@@ -37,7 +38,7 @@ describe('InboxReader phase 930', () => {
         auditCalls.push({ type, cols: cols.map(String) });
       },
     };
-    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit);
+    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     reader = new InboxReader(
       path.join(testDir, 'inbox', 'pending'),
       path.join(testDir, 'inbox', 'done'),

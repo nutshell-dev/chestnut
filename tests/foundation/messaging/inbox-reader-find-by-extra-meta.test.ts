@@ -4,6 +4,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 function makeAudit() {
@@ -38,7 +39,7 @@ describe('InboxReader.findByExtraMeta', () => {
     fs = new NodeFileSystem({ baseDir: root });
     const { audit } = makeAudit();
     reader = new InboxReader(pendingDir, doneDir, failedDir, fs, audit, inflightDir);
-    writer = InboxWriter.__internal_create(fs, makeInboxPath(pendingDir), audit);
+    writer = InboxWriter.__internal_create(fs, makeInboxPath(pendingDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   /**

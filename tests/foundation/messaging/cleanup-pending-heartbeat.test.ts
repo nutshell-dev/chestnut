@@ -17,6 +17,7 @@ import {
   makeInboxPath,
   INBOX_PENDING_DIR,
 } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { encodeInbox, decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -35,7 +36,7 @@ describe('cleanupPendingByType (phase 1804)', () => {
     await fsAsync.mkdir(pendingDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     const { audit } = makeAudit();
-    writer = InboxWriter.__internal_create(fs, makeInboxPath(INBOX_PENDING_DIR), audit);
+    writer = InboxWriter.__internal_create(fs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   afterEach(async () => {

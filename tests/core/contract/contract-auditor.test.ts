@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { ContractAuditor, parseVerdict } from '../../../src/core/contract/contract-auditor.js';
 import { InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
@@ -88,7 +89,7 @@ describe('ContractAuditor', () => {
   function makeAuditorAndAudit(verdictText: string) {
     const auditCtx = makeAudit();
     const inboxAudit = makeAudit();
-    inbox = InboxWriter.__internal_create(nfs, makeInboxPath('inbox/pending'), inboxAudit.audit);
+    inbox = InboxWriter.__internal_create(nfs, makeInboxPath('inbox/pending'), inboxAudit.audit, MESSAGING_WRITER_LIMITS_DEFAULT);
     const auditor = new ContractAuditor({
       audit: auditCtx.audit,
       fs: nfs,

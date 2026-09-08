@@ -10,6 +10,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxWriter, makeInboxPath, OutboxWriter } from '../../../src/foundation/messaging/index.js';
 import { makeOutboxPath } from '../../../src/foundation/messaging/outbox-writer.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { assertMessageShape } from '../../../src/foundation/messaging/invariants.js';
@@ -222,7 +223,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
           calls.push(`${type}:${cols.join(',')}`);
         },
       };
-      writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), a);
+      writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), a, MESSAGING_WRITER_LIMITS_DEFAULT);
     });
 
     afterEach(async () => {
@@ -289,7 +290,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
           calls.push(`${type}:${cols.join(',')}`);
         },
       };
-      writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), a);
+      writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), a, MESSAGING_WRITER_LIMITS_DEFAULT);
     });
 
     afterEach(async () => {
@@ -334,7 +335,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
           calls.push(`${type}:${cols.join(',')}`);
         },
       };
-      writer = OutboxWriter.__internal_create('claw-a', makeOutboxPath('claw-a', testDir), nfs, a);
+      writer = OutboxWriter.__internal_create('claw-a', makeOutboxPath('claw-a', testDir), nfs, a, MESSAGING_WRITER_LIMITS_DEFAULT);
     });
 
     afterEach(async () => {

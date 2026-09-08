@@ -10,6 +10,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter, makeInboxPath, OutboxWriter } from '../../../src/foundation/messaging/index.js';
 import { makeOutboxPath } from '../../../src/foundation/messaging/outbox-writer.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
@@ -73,7 +74,7 @@ describe('migration: legacy uuid8 filenames remain readable (Phase 1230)', () =>
     const legacyFile = `sender-000000123456789_high_${randomUUID().slice(0, 8)}.md`;
     await fs.writeFile(path.join(pendingDir, legacyFile), 'legacy', 'utf-8');
 
-    const writer = InboxWriter.__internal_create(nfs, makeInboxPath(pendingDir), audit as any);
+    const writer = InboxWriter.__internal_create(nfs, makeInboxPath(pendingDir), audit as any, MESSAGING_WRITER_LIMITS_DEFAULT);
     const msg: InboxMessage = {
       id: 'new-1', type: 'message', from: 'sender', to: 'claw',
       content: 'New', priority: 'high', timestamp: new Date().toISOString(),

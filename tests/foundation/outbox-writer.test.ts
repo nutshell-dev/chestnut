@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../src/foundation/messaging/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 import { makeAudit } from '../helpers/audit.js';
 import { decodeOutbox } from '../../src/foundation/messaging/codec-outbox.js';
@@ -33,7 +34,7 @@ describe('OutboxWriter', () => {
 
   it('write success creates file in outbox/pending/ and audits OUTBOX_SENT', async () => {
     const { audit, events } = makeAudit();
-    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
+    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     const filePath = await writer.write({
       type: 'response',
@@ -54,7 +55,7 @@ describe('OutboxWriter', () => {
 
   it('write with contract_id includes contract_id column in audit', async () => {
     const { audit, events } = makeAudit();
-    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
+    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     await writer.write({
       type: 'contract_update',
@@ -69,7 +70,7 @@ describe('OutboxWriter', () => {
 
   it('write failure audits OUTBOX_SEND_FAILED and throws', async () => {
     const { audit, events } = makeAudit();
-    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
+    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     // Mock writeAtomic to throw
     fs.writeAtomic = vi.fn(() => Promise.reject(new Error('disk full')));
@@ -83,7 +84,7 @@ describe('OutboxWriter', () => {
 
   it('creates outboxDir automatically when it does not exist', async () => {
     const { audit } = makeAudit();
-    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
+    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     await writer.write({ type: 'status_report', to: 'claw-b', content: 'OK' });
 
@@ -94,7 +95,7 @@ describe('OutboxWriter', () => {
 
   it('write uses a single UUID for envelope id and filename suffix', async () => {
     const { audit } = makeAudit();
-    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
+    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     const filePath = await writer.write({ type: 'question', to: 'claw-b', content: '?' });
     const basename = path.basename(filePath);
@@ -111,7 +112,7 @@ describe('OutboxWriter', () => {
   it('concurrent writes with frozen timestamp produce distinct files and no overwrites', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1234567890123);
     const { audit } = makeAudit();
-    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit);
+    const writer = createOutboxWriter('claw-a', tmpDir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
 
     const writes = Array.from({ length: 5 }, (_, i) =>
       writer.write({ type: 'report', to: 'claw-b', content: `report ${i}` }),

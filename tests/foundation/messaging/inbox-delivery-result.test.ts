@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter, InboxListFailed, InboxMoveFailed } from '../../../src/foundation/messaging/index.js';
 import { makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import type { InboxDeliveryResult, Priority } from '../../../src/foundation/messaging/index.js';
+import { MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -57,7 +58,7 @@ describe('InboxReader.drainAndDeliver() InboxDeliveryResult (phase 1782)', () =>
     await fsAsync.mkdir(inflightDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     const { audit } = makeAudit();
-    writer = InboxWriter.__internal_create(fs, makeInboxPath(INBOX_PENDING_DIR), audit);
+    writer = InboxWriter.__internal_create(fs, makeInboxPath(INBOX_PENDING_DIR), audit, MESSAGING_WRITER_LIMITS_DEFAULT);
   });
 
   afterEach(async () => {

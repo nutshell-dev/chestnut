@@ -85,6 +85,13 @@ export type {
 
 export { createInboxReader } from './inbox-reader.js';
 export { createOutboxWriter } from './outbox-writer.js';
+// phase 1820: messaging 自有 config schema（yaml `messaging.*` owner）+ writer limits capability
+export {
+  messagingConfigSchema,
+  MESSAGING_BODY_MAX_BYTES_DEFAULT,
+  MESSAGING_WRITER_LIMITS_DEFAULT,
+  type MessagingWriterLimits,
+} from './config-schema.js';
 
 export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 

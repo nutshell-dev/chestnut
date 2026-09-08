@@ -113,7 +113,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   const {
     fsFactory, systemFs, clawFs, clawDir, clawId, isMotion,
     auditWriter, llm, contractManager, toolRegistry, skillRegistry,
-    toolTimeoutMs, maxConcurrent, outboxWriter, maxSteps,
+    toolTimeoutMs, maxConcurrent, outboxWriter, maxSteps, messagingLimits,
   } = core;
   const { contributions } = input;
 
@@ -132,7 +132,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     ],
   });
   const selfInboxDir = path.join(clawDir, INBOX_PENDING_DIR);
-  const selfInbox = InboxWriter.__internal_create(systemFs, makeInboxPath(selfInboxDir), auditWriter);
+  const selfInbox = InboxWriter.__internal_create(systemFs, makeInboxPath(selfInboxDir), auditWriter, messagingLimits);
 
   // --- 9. AsyncTaskSystem（仅构造，不调 initialize / startDispatch；业务动作归 Runtime） ---
   // Phase 849: dual-key shortId ↔ fullId index
@@ -319,6 +319,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         systemFs,
         makeInboxPath(path.join(clawDir, INBOX_PENDING_DIR)),
         auditWriter,
+        messagingLimits,
       );
       const auditor = new ContractAuditor({
         audit: auditWriter,
