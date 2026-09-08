@@ -18,6 +18,7 @@
 import * as path from 'path';
 import { isFileNotFound } from '../fs/index.js';
 import type { FileSystem } from '../fs/index.js';
+import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 
 const INDEX_FILENAME = 'block-index.json';
 
@@ -60,7 +61,7 @@ export class BlockIdIndex {
         return;
       }
       auditWriter?.write(
-        'block_id_index_load_failed',
+        DIALOG_AUDIT_EVENTS.BLOCK_ID_INDEX_LOAD_FAILED,
         `reason=${String(e)}`,
       );
       this.shortToFull = new Map();

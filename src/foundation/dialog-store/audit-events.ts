@@ -31,4 +31,5 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_RECOVERY_FAILED: 'dialog_turn_recovery_failed',
   TURN_CLEANUP_FAILED: 'dialog_turn_cleanup_failed',
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
+  BLOCK_ID_INDEX_LOAD_FAILED: 'block_id_index_load_failed', // ← NEW phase 1822 (owner catalog registration)
 } as const;
