@@ -5,6 +5,7 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import type { CronRunner } from '../foundation/cron/index.js';
 import type { Gateway } from '../core/gateway/index.js';
+import type { ContractBridgeDisposeResult } from './contract-bridge-dispose.js';
 
 /** Assembly-private teardown handles. This type is deliberately absent from the barrel. */
 interface DisassemblyResources {
@@ -13,7 +14,7 @@ interface DisassemblyResources {
   readonly streamWriter: StreamWriter;
   readonly auditWriter: AuditLog;
   readonly cronRunner?: CronRunner;
-  readonly disposeContractSystems?: () => Promise<void>;
+  readonly disposeContractSystems?: () => Promise<ContractBridgeDisposeResult>;
 }
 
 export async function disassemble(instances: DisassemblyResources, signal: string): Promise<void> {
@@ -21,7 +22,17 @@ export async function disassemble(instances: DisassemblyResources, signal: strin
 
   // Step 0: dispose contractSystemCache (motion lifecycle end-of-life, phase 1200)
   try {
-    await disposeContractSystems?.();
+    const result = await disposeContractSystems?.();
+    // phase 1808 Step B：partial_failure 不再静默——按既有 per-step 模式 audit，
+    // 逐条失败携带 clawId identity 与原始 error 投影。
+    if (result?.kind === 'partial_failure') {
+      auditWriter.write(
+        ASSEMBLY_AUDIT_EVENTS.DISASSEMBLE_STEP_FAILED,
+        `step=dispose_contract_systems`,
+        `result=partial_failure`,
+        ...result.failures.map(f => `failure=${f.clawId}:${f.error}`),
+      );
+    }
   } catch (e) {
     auditWriter.write(
       ASSEMBLY_AUDIT_EVENTS.DISASSEMBLE_STEP_FAILED,

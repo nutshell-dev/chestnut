@@ -36,6 +36,7 @@ import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/inde
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
+import { closeBridgeContractSystems, type ContractBridgeDisposeResult } from './contract-bridge-dispose.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { RETRO_AUDIT_EVENTS } from '../core/evolution-system/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../core/contract/index.js';
@@ -77,7 +78,8 @@ interface MotionAddonsOutput {
   gateway?: Gateway;
   heartbeat?: Heartbeat;
   cronRunner?: CronRunner;
-  disposeContractSystems?: () => Promise<void>;
+  // phase 1808 Step B: typed dispose outcome（close 失败证据可观察）
+  disposeContractSystems?: () => Promise<ContractBridgeDisposeResult>;
 }
 
 export async function createMotionAddons(
@@ -96,7 +98,7 @@ export async function createMotionAddons(
   let gateway: Gateway | undefined;
   let heartbeat: Heartbeat | undefined;
   let cronRunner: CronRunner | undefined;
-  let disposeContractSystems: (() => Promise<void>) | undefined;
+  let disposeContractSystems: (() => Promise<ContractBridgeDisposeResult>) | undefined;
 
   // --- Gateway (motion only, offline mode) ---
   // phase 1445 Step D（裁定②）：start 内化进 createGateway 工厂（工厂变 async）；
@@ -186,7 +188,8 @@ export async function createMotionAddons(
       // 窄 ContractProgressReader capability——per-claw ContractSystem 的构造、缓存
       // 与 close 生命周期全部收口在装配层，不再泄漏 LLM/ToolRegistry/notifyClaw 给
       // Memory。
-      const bridgeContractSystems: ContractSystem[] = [];
+      // phase 1808 Step B：条目携带 clawId identity，close 失败可按 claw 归因
+      const bridgeContractSystems: { clawId: string; cs: ContractSystem }[] = [];
       const clawContractBridge = createClawContractBridge({
         clawTopology: core.topology,  // phase 259
         createReader: async (targetClawId, targetClawDir) => {
@@ -206,15 +209,17 @@ export async function createMotionAddons(
             notifyClaw: (notifyTarget, message) =>
               routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, notifyTarget, message, auditWriter),
           });
-          bridgeContractSystems.push(cs);
+          bridgeContractSystems.push({ clawId: targetClawId, cs });
           return { getProgress: (id) => cs.getProgress(id) };
         },
       });
-      disposeContractSystems = async () => {
+      disposeContractSystems = async (): Promise<ContractBridgeDisposeResult> => {
         // phase 517 B8: allSettled 兜底、单个 close 失败不阻其他（原 bridge.dispose
         // 语义上移装配层）；bridge.dispose() 只清 capability 缓存引用。
+        // phase 1808 Step B（MEMORY-CONTRACT-BRIDGE-DISPOSE-FAILURE-SILENT）：close
+        // 结果 typed outcome 显式返回，逐条失败携带 clawId 与原始 error，不再静默。
         await clawContractBridge.dispose();
-        await Promise.allSettled(bridgeContractSystems.map(cs => cs.close()));
+        return closeBridgeContractSystems(bridgeContractSystems);
       };
 
       try {

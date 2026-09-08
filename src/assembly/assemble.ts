@@ -91,7 +91,8 @@ export async function assemble(
 
   let streamWriter: StreamWriter | undefined;
   // Phase 1200: contractSystemCache dispose hook (motion lifecycle end-of-life)
-  let disposeContractSystems: (() => Promise<void>) | undefined;
+  // phase 1808 Step B: typed dispose outcome（partial_failure 携 clawId/error 证据）
+  let disposeContractSystems: (() => Promise<import('./contract-bridge-dispose.js').ContractBridgeDisposeResult>) | undefined;
 
   try {
     core = await createCoreInfrastructure({
