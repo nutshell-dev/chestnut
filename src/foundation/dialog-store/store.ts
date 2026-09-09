@@ -24,7 +24,7 @@ import type {
   DialogSaveSnapshot,
   DialogSessionLifecycle,
 } from './types.js';
-import type { AuditLog } from '../audit/index.js';
+import type { DialogStoreAuditSink } from './audit-sink.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid, newUuid, uuidToShort } from '../node-utils/index.js';
 import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
@@ -107,7 +107,7 @@ export class DialogStore implements DialogSessionLifecycle {
   constructor(
     private readonly fs: FileSystem,
     dialogDir: string,
-    private readonly audit: AuditLog,
+    private readonly audit: DialogStoreAuditSink,
     filename: string,                                 // phase 450: 必填 / caller 注入
     private readonly clawId?: string,                 // phase 450: 可选 / subagent ephemeral 用例 0 clawId
     archiveDir?: string,                              // phase 450: 可选 / 默认 'archive' subdir 保兼容
@@ -885,7 +885,7 @@ export class DialogStore implements DialogSessionLifecycle {
 export function createDialogStore(
   fs: FileSystem,
   dialogDir: string,
-  audit: AuditLog,
+  audit: DialogStoreAuditSink,
   filename: string,                       // phase 450: 必填
   clawId?: string,                        // phase 450: 可选
   archiveDir?: string,                    // phase 450: 可选

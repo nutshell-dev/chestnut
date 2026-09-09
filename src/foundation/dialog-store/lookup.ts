@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import { sha256ShortHex } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import type { AuditLog } from '../audit/index.js';
+import type { DialogStoreAuditSink } from './audit-sink.js';
 import type { ToolUseId } from '../llm-provider/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../node-utils/index.js';
@@ -49,7 +49,7 @@ export function lookupContentByToolUseId(
   dialogDir: string,
   toolUseId: ToolUseId | string,
   options?: LookupOptions,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
 ): LookupResult {
   const idStr = String(toolUseId);
   const filename = options?.filename ?? CURRENT_DIALOG_FILE;
@@ -160,7 +160,7 @@ function lookupInCurrent(
   currentPath: string,
   filename: string,
   toolUseId: string,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
 ): CurrentLookupResult {
   // Phase 987: read→parse separation. Read faults (except ENOENT) are io_error;
   // parse failures are parse_failed.
@@ -208,7 +208,7 @@ function lookupInArchive(
   archiveDir: string,
   archiveLabel: string,
   toolUseId: string,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
 ): ArchiveLookupResult {
   let archiveExists: boolean;
   try {
@@ -343,7 +343,7 @@ export function lookupContentByBlockId(
   dialogDir: string,
   shortBlockId: string,
   blockIdIndex: BlockIdIndex,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
   options?: Pick<LookupOptions, 'archiveDir'>,
 ): BlockIdLookupResult {
   let dialogExists: boolean;
@@ -405,7 +405,7 @@ function lookupBlockIdInArchive(
   archiveDir: string,
   archiveLabel: string,
   fullBlockId: string,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
 ): BlockIdArchiveLookupResult {
   let archiveExists: boolean;
   try {

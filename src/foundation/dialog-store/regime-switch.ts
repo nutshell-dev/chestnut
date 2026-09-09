@@ -18,7 +18,7 @@
 import * as path from 'node:path';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import type { AuditLog } from '../audit/index.js';
+import type { DialogStoreAuditSink } from './audit-sink.js';
 import type { ToolDefinition } from '../llm-provider/index.js';
 import type { Message } from './canonical-message.js';
 import { formatErr } from '../node-utils/index.js';
@@ -58,8 +58,8 @@ interface PerformRegimeSwitchOpts {
   clawDir: string;
   /** system fs (recovery dump 写入) */
   systemFs: FileSystem;
-  /** caller's AuditLog */
-  audit: AuditLog;
+  /** caller 注入的 audit write 能力（最小 sink） */
+  audit: DialogStoreAuditSink;
   /** caller's audit event consts namespace */
   auditEvents: RegimeSwitchAuditEvents;
   /**

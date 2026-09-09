@@ -10,12 +10,12 @@
  */
 
 import type { Message } from './canonical-message.js';
-import type { AuditLog } from '../audit/index.js';
+import type { DialogStoreAuditSink } from './audit-sink.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 
 export function assertDialogShapeInvariants(
   messages: ReadonlyArray<Message> | undefined,
-  audit: AuditLog,
+  audit: DialogStoreAuditSink,
 ): void {
   if (!Array.isArray(messages)) return;
   checkNoConsecutivePlainUserChat(messages, audit);
@@ -32,7 +32,7 @@ export function assertDialogShapeInvariants(
  */
 function checkNoConsecutivePlainUserChat(
   messages: ReadonlyArray<Message>,
-  audit: AuditLog,
+  audit: DialogStoreAuditSink,
 ): void {
   for (let i = 1; i < messages.length; i++) {
     const prev = messages[i - 1];
@@ -69,7 +69,7 @@ function isPlainUserChat(m: Message): boolean {
  */
 function checkToolUseResultPairing(
   messages: ReadonlyArray<Message>,
-  audit: AuditLog,
+  audit: DialogStoreAuditSink,
 ): void {
   const toolUseIds = new Set<string>();
   const toolResultIds = new Set<string>();

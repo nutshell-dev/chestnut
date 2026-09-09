@@ -6,7 +6,7 @@
  */
 
 import type { Message } from './canonical-message.js';
-import type { AuditLog } from '../audit/index.js';
+import type { DialogStoreAuditSink } from './audit-sink.js';
 import type { SessionData } from './types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 
@@ -16,7 +16,7 @@ const SESSION_CURRENT_VERSION = 2;
 export function detectAndMigrateVersion(
   parsed: Partial<SessionData>,
   filename: string,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
 ): SessionData | null {
   // NEW unknown version reject（phase 1019 r124 E fork）
   if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
@@ -37,7 +37,7 @@ export function detectAndMigrateVersion(
 /** Standalone validateSessionData（外部 caller 用：cli/trace + cli/_message-renderer）*/
 export function validateSessionData(
   data: SessionData,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
   clawIdFallback?: string,
 ): SessionData {
   let version: number = data.version ?? SESSION_CURRENT_VERSION;
@@ -74,7 +74,7 @@ export function validateSessionData(
 export function migrateAndValidateSession(
   raw: unknown,
   filename: string,
-  audit?: AuditLog,
+  audit?: DialogStoreAuditSink,
 ): SessionData | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const parsed = raw as Partial<SessionData>;
