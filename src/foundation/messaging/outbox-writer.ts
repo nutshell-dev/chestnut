@@ -8,7 +8,7 @@ import * as path from 'path';
 import { formatErr, newUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { OutboxMessage } from '../messaging/types.js';
-import type { AuditLog } from '../audit/index.js';
+import type { MessagingAuditSink } from './audit-sink.js';
 import { encodeOutbox } from './codec-outbox.js';
 import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
@@ -50,12 +50,12 @@ export class OutboxWriter {
     private readonly clawId: ClawId,
     private readonly outboxDir: OutboxPath,
     private readonly fs: FileSystem,
-    private readonly audit: AuditLog,
+    private readonly audit: MessagingAuditSink,
     private readonly limits: MessagingWriterLimits,
   ) {}
 
   /** Internal factory — only callable within the Messaging module. */
-  static __internal_create(clawId: ClawId, outboxDir: OutboxPath, fs: FileSystem, audit: AuditLog, limits: MessagingWriterLimits): OutboxWriter {
+  static __internal_create(clawId: ClawId, outboxDir: OutboxPath, fs: FileSystem, audit: MessagingAuditSink, limits: MessagingWriterLimits): OutboxWriter {
     return new OutboxWriter(clawId, outboxDir, fs, audit, limits);
   }
 
@@ -136,7 +136,7 @@ export function createOutboxWriter(
   clawId: ClawId,
   clawDir: string,
   fs: FileSystem,
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   limits: MessagingWriterLimits,
 ): OutboxWriter {
   return OutboxWriter.__internal_create(clawId, makeOutboxPath(clawId, clawDir), fs, audit, limits);

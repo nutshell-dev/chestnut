@@ -22,7 +22,7 @@ import type { InboxMessage, InboxHandle, InboxInitResult } from '../messaging/ty
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
 import { decodeInbox } from './codec-inbox.js';
-import type { AuditLog } from '../audit/index.js';
+import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitInboxDeduped,
   emitInboxDone,
@@ -204,7 +204,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
     private readonly doneDir: string,
     private readonly failedDir: string,
     private readonly fs: FileSystem,
-    private readonly audit: AuditLog,
+    private readonly audit: MessagingAuditSink,
     inflightDir?: string,
     misroutedDir?: string,
   ) {
@@ -1260,7 +1260,7 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
 
 export function createInboxReader(
   fs: FileSystem,
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   baseDir: string,
 ): InboxReader {
   // β 方案：子目录名是 Messaging 模块不可变约定（phase148），工厂固定拼接。

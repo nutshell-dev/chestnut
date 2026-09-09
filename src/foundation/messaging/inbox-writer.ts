@@ -10,7 +10,7 @@ import { formatErr, newUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { encodeInbox, parseFrontmatter } from './codec-inbox.js';
-import type { AuditLog } from '../audit/index.js';
+import type { MessagingAuditSink } from './audit-sink.js';
 
 import {
   emitInboxWriteFailed,
@@ -61,12 +61,12 @@ export class InboxWriter {
   private constructor(
     private readonly fs: FileSystem,
     private readonly inboxDir: InboxPath,
-    private readonly audit: AuditLog,
+    private readonly audit: MessagingAuditSink,
     private readonly limits: MessagingWriterLimits,
   ) {}
 
   /** Internal factory — only callable within the Messaging module. */
-  static __internal_create(fs: FileSystem, inboxDir: InboxPath, audit: AuditLog, limits: MessagingWriterLimits): InboxWriter {
+  static __internal_create(fs: FileSystem, inboxDir: InboxPath, audit: MessagingAuditSink, limits: MessagingWriterLimits): InboxWriter {
     return new InboxWriter(fs, inboxDir, audit, limits);
   }
 

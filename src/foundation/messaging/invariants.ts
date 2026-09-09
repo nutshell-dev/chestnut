@@ -22,7 +22,7 @@
  * 不 throw（DP1 + Path #4 防 break write 路径、保 IO 错 throw 业务路径）。
  */
 
-import type { AuditLog } from '../audit/index.js';
+import type { MessagingAuditSink } from './audit-sink.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 
 type MessageKind = 'inbox' | 'outbox';
@@ -36,7 +36,7 @@ const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]
 
 export function assertMessageShape(
   message: unknown,
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   kind: MessageKind,
   direction: MessageDirection,
 ): void {
@@ -60,7 +60,7 @@ export function assertMessageShape(
   checkType(m, audit, kind, direction, idForLog);
 }
 
-function checkId(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind, direction: MessageDirection): void {
+function checkId(m: Record<string, unknown>, audit: MessagingAuditSink, kind: MessageKind, direction: MessageDirection): void {
   if (typeof m.id !== 'string') {
     audit.write(
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,
@@ -74,7 +74,7 @@ function checkId(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind,
   }
 }
 
-function checkFrom(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind, direction: MessageDirection, id: string): void {
+function checkFrom(m: Record<string, unknown>, audit: MessagingAuditSink, kind: MessageKind, direction: MessageDirection, id: string): void {
   if (typeof m.from !== 'string') {
     audit.write(
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,
@@ -84,7 +84,7 @@ function checkFrom(m: Record<string, unknown>, audit: AuditLog, kind: MessageKin
   }
 }
 
-function checkTo(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind, direction: MessageDirection, id: string): void {
+function checkTo(m: Record<string, unknown>, audit: MessagingAuditSink, kind: MessageKind, direction: MessageDirection, id: string): void {
   if (typeof m.to !== 'string') {
     audit.write(
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,
@@ -94,7 +94,7 @@ function checkTo(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind,
   }
 }
 
-function checkContent(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind, direction: MessageDirection, id: string): void {
+function checkContent(m: Record<string, unknown>, audit: MessagingAuditSink, kind: MessageKind, direction: MessageDirection, id: string): void {
   if (typeof m.content !== 'string') {
     audit.write(
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,
@@ -104,7 +104,7 @@ function checkContent(m: Record<string, unknown>, audit: AuditLog, kind: Message
   }
 }
 
-function checkPriority(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind, direction: MessageDirection, id: string): void {
+function checkPriority(m: Record<string, unknown>, audit: MessagingAuditSink, kind: MessageKind, direction: MessageDirection, id: string): void {
   if (typeof m.priority !== 'string' || !VALID_PRIORITIES.has(m.priority)) {
     audit.write(
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,
@@ -114,7 +114,7 @@ function checkPriority(m: Record<string, unknown>, audit: AuditLog, kind: Messag
   }
 }
 
-function checkTimestamp(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind, direction: MessageDirection, id: string): void {
+function checkTimestamp(m: Record<string, unknown>, audit: MessagingAuditSink, kind: MessageKind, direction: MessageDirection, id: string): void {
   if (typeof m.timestamp !== 'string') {
     audit.write(
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,
@@ -132,7 +132,7 @@ function checkTimestamp(m: Record<string, unknown>, audit: AuditLog, kind: Messa
   }
 }
 
-function checkType(m: Record<string, unknown>, audit: AuditLog, kind: MessageKind, direction: MessageDirection, id: string): void {
+function checkType(m: Record<string, unknown>, audit: MessagingAuditSink, kind: MessageKind, direction: MessageDirection, id: string): void {
   if (typeof m.type !== 'string') {
     audit.write(
       MESSAGING_AUDIT_EVENTS.MESSAGING_MESSAGE_INVARIANT_VIOLATED,

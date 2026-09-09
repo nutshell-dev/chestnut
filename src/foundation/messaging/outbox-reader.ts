@@ -15,7 +15,7 @@ import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
-import type { AuditLog } from '../audit/index.js';
+import type { MessagingAuditSink } from './audit-sink.js';
 import { emitOutboxClaimFailed, emitOutboxListFailed, emitOutboxPeekFailed, emitOutboxProcessingOrphanCleaned } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
 import type { OutboxMessage } from './types.js';
@@ -52,7 +52,7 @@ export type OutboxPeekResult =
 export class OutboxReader {
   constructor(
     private readonly fs: FileSystem,
-    private readonly audit: AuditLog,
+    private readonly audit: MessagingAuditSink,
   ) {}
 
   /**

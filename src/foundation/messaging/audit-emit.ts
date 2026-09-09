@@ -8,7 +8,7 @@
  * + phase 1130 async-task-system + phase 1141 contract per-module typed emit cascade.
  */
 
-import type { AuditLog } from '../audit/index.js';
+import type { MessagingAuditSink } from './audit-sink.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../claw-identity/index.js';
 
@@ -18,7 +18,7 @@ import type { ClawId } from '../claw-identity/index.js';
 // ─── INBOX_WRITTEN ────────────────────────────────────────────────────────────
 // phase 437 Step A (phase 434 cluster follow-up): contract_id forensic join
 export function emitInboxWritten(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; to?: string; contractId?: string },
 ): void {
   audit.write(
@@ -32,7 +32,7 @@ export function emitInboxWritten(
 // ─── INBOX_WRITE_FAILED ───────────────────────────────────────────────────────
 // phase 437 Step A (phase 434 cluster follow-up): contract_id forensic join
 export function emitInboxWriteFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; to?: string; reason: string; contractId?: string },
 ): void {
   audit.write(
@@ -49,7 +49,7 @@ export function emitInboxWriteFailed(
 // phase 434 Step C (review N11 partial、outbox 对称): contract_id forensic join
 // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
 export function emitInboxBodyOversize(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: {
     source: string;
     to?: string;
@@ -74,7 +74,7 @@ export function emitInboxBodyOversize(
 
 // ─── INBOX_LIST_FAILED ────────────────────────────────────────────────────────
 export function emitInboxListFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { dir: string; op?: string; errorCode?: string; reason: string },
 ): void {
   const cols: string[] = [`dir=${opts.dir}`];
@@ -86,7 +86,7 @@ export function emitInboxListFailed(
 
 // ─── INBOX_FAILED ─────────────────────────────────────────────────────────────
 export function emitInboxFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; errorCode?: string; reason: string },
 ): void {
   const cols: string[] = [`file=${opts.file}`];
@@ -97,7 +97,7 @@ export function emitInboxFailed(
 
 // ─── INBOX_PRIORITY_UNKNOWN ───────────────────────────────────────────────────
 export function emitInboxPriorityUnknown(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; original: string; fallback: string },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_PRIORITY_UNKNOWN, `file=${opts.file}`, `original=${opts.original}`, `fallback=${opts.fallback}`);
@@ -105,7 +105,7 @@ export function emitInboxPriorityUnknown(
 
 // ─── INBOX_LEGACY_CLAW_ID_FIELD ───────────────────────────────────────────────
 export function emitInboxLegacyClawIdField(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; clawId: ClawId },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_LEGACY_CLAW_ID_FIELD, `file=${opts.file}`, `claw_id=${opts.clawId}`);
@@ -115,7 +115,7 @@ export function emitInboxLegacyClawIdField(
 // phase 437 Step B (phase 434 cluster follow-up): contract_id forensic join
 // phase 849: dual-key task IDs — emit both short and full ID when available
 export function emitInboxDeduped(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; shortTaskId?: string; fullTaskId?: string; contractId?: string },
 ): void {
   const cols: string[] = [`file=${opts.file}`];
@@ -131,7 +131,7 @@ export function emitInboxDeduped(
 // ─── INBOX_MARK_DONE_FAILED ───────────────────────────────────────────────────
 // phase 578: 加 file forensic col、forensic 解析能定位是哪个 file mark-done 失败
 export function emitInboxMarkDoneFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; reason: string },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_MARK_DONE_FAILED, `file=${opts.file}`, `reason=${opts.reason}`);
@@ -139,7 +139,7 @@ export function emitInboxMarkDoneFailed(
 
 // ─── INBOX_DONE ───────────────────────────────────────────────────────────────
 export function emitInboxDone(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_DONE, `file=${opts.file}`);
@@ -147,7 +147,7 @@ export function emitInboxDone(
 
 // ─── INBOX_MISROUTED (phase 442) ─────────────────────────────────────────────
 export function emitInboxMisrouted(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_MISROUTED, `file=${opts.file}`);
@@ -155,7 +155,7 @@ export function emitInboxMisrouted(
 
 // ─── OUTBOX_DELIVERED ─────────────────────────────────────────────────────────
 export function emitOutboxDelivered(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; deliveredAt?: number },
 ): void {
   const cols: string[] = [`file=${opts.file}`];
@@ -168,7 +168,7 @@ export function emitOutboxDelivered(
 // ─── OUTBOX_SKIPPED (phase 1748) ──────────────────────────────────────────────
 // outbox-skip 不读内容直接归档、独立审计（区别于 delivered）
 export function emitOutboxSkipped(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; skippedAt?: number },
 ): void {
   const cols: string[] = [`file=${opts.file}`];
@@ -180,7 +180,7 @@ export function emitOutboxSkipped(
 
 // ─── INBOX_MOVE_FAILED ────────────────────────────────────────────────────────
 export function emitInboxMoveFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; op: string; errorCode?: string; reason: string },
 ): void {
   const cols: string[] = [`file=${opts.file}`, `op=${opts.op}`];
@@ -191,7 +191,7 @@ export function emitInboxMoveFailed(
 
 // ─── INBOX_PEEK_RACE_SKIP ─────────────────────────────────────────────────────
 export function emitInboxPeekRaceSkip(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_PEEK_RACE_SKIP, `file=${opts.file}`);
@@ -199,7 +199,7 @@ export function emitInboxPeekRaceSkip(
 
 // ─── INBOX_META_FAILED ────────────────────────────────────────────────────────
 export function emitInboxMetaFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; kind: string },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_META_FAILED, `file=${opts.file}`, `kind=${opts.kind}`);
@@ -207,7 +207,7 @@ export function emitInboxMetaFailed(
 
 // ─── INBOX_RECONCILE ──────────────────────────────────────────────────────────
 export function emitInboxReconcile(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { revertedCount: number; from: string; to: string; reason: string },
 ): void {
   audit.write(
@@ -221,7 +221,7 @@ export function emitInboxReconcile(
 
 // ─── INBOX_NACK ───────────────────────────────────────────────────────────────
 export function emitInboxNack(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; reason?: string },
 ): void {
   const cols: string[] = [`file=${opts.file}`];
@@ -231,7 +231,7 @@ export function emitInboxNack(
 
 // ─── INBOX_RESTORE_CONFLICT (phase 1020) ──────────────────────────────────────
 export function emitInboxRestoreConflict(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; op: string; stageName: string },
 ): void {
   audit.write(
@@ -244,7 +244,7 @@ export function emitInboxRestoreConflict(
 
 // ─── INBOX_STAGE_QUARANTINE (phase 1034) ──────────────────────────────────────
 export function emitInboxStageQuarantine(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; reason: string },
 ): void {
   audit.write(
@@ -256,7 +256,7 @@ export function emitInboxStageQuarantine(
 
 // ─── OUTBOX_SENT ──────────────────────────────────────────────────────────────
 export function emitOutboxSent(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: {
     from: string;
     to: string;
@@ -277,7 +277,7 @@ export function emitOutboxSent(
 
 // ─── OUTBOX_LIST_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxListFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { dir: string; op?: string; reason: string },
 ): void {
   const cols: string[] = [`dir=${opts.dir}`];
@@ -288,7 +288,7 @@ export function emitOutboxListFailed(
 
 // ─── OUTBOX_PEEK_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxPeekFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; stage: 'list' | 'read' | 'decode'; reason: string },
 ): void {
   audit.write(
@@ -301,7 +301,7 @@ export function emitOutboxPeekFailed(
 
 // ─── OUTBOX_PROCESSING_ORPHAN_CLEANED ─────────────────────────────────────────
 export function emitOutboxProcessingOrphanCleaned(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { count: number },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_PROCESSING_ORPHAN_CLEANED, `count=${opts.count}`);
@@ -309,7 +309,7 @@ export function emitOutboxProcessingOrphanCleaned(
 
 // ─── OUTBOX_CLAIM_FAILED ──────────────────────────────────────────────────────
 export function emitOutboxClaimFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { file: string; op: string; reason: string },
 ): void {
   audit.write(
@@ -322,7 +322,7 @@ export function emitOutboxClaimFailed(
 
 // ─── UNKNOWN_DESTINATION_DLQ ──────────────────────────────────────────────────
 export function emitUnknownDestinationDlq(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { targetClawId: string; reason: string; file: string },
 ): void {
   audit.write(
@@ -335,7 +335,7 @@ export function emitUnknownDestinationDlq(
 
 // ─── UNKNOWN_DESTINATION_REJECTED (phase 1170) ─────────────────────────────────
 export function emitUnknownDestinationRejected(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: { targetClawId: string; reason: string },
 ): void {
   audit.write(
@@ -348,7 +348,7 @@ export function emitUnknownDestinationRejected(
 
 // ─── OUTBOX_SEND_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxSendFailed(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: {
     from: string;
     to: string;
@@ -374,7 +374,7 @@ export function emitOutboxSendFailed(
 // phase 430 Step E (review medium、inbox cap 对称): outbox body 超 cap、emit + caller 收 throw
 // phase 935: wire size limit covers the encoded payload (body + metadata)
 export function emitOutboxBodyOversize(
-  audit: AuditLog,
+  audit: MessagingAuditSink,
   opts: {
     clawId: string;
     to: string;

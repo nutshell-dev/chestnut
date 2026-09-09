@@ -14,7 +14,7 @@ import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import { MESSAGING_WRITER_LIMITS_DEFAULT } from './config-schema.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/index.js';
-import type { AuditLog } from '../audit/index.js';
+import type { MessagingAuditSink } from './audit-sink.js';
 import {
   emitUnknownDestinationDlq,
   emitUnknownDestinationRejected,
@@ -36,7 +36,7 @@ export function notifyClaw(
   targetInboxDir: string,
   dlqDir: string | undefined,
   message: InboxMessageOptionsBase,
-  audit: AuditLog,
+  audit: MessagingAuditSink,
 ): void {
   // phase 936: containment check — targetInboxDir must be inside targetClawRoot
   const resolvedInbox = fs.resolve(targetInboxDir);
@@ -110,7 +110,7 @@ export async function writeInboxAsync(
   fs: FileSystem,
   inboxDir: string,
   message: InboxMessage,
-  audit: AuditLog,
+  audit: MessagingAuditSink,
 ): Promise<void> {
   await InboxWriter.__internal_create(fs, makeInboxPath(inboxDir), audit, MESSAGING_WRITER_LIMITS_DEFAULT).write(message);
 }
@@ -133,7 +133,7 @@ export async function writeInboxAsync(
 export function notifyInbox(
   fs: FileSystem,
   opts: InboxMessageOptionsBase & { inboxDir: string },
-  audit: AuditLog,
+  audit: MessagingAuditSink,
 ): void {
   try {
     const { inboxDir, ...rest } = opts;
