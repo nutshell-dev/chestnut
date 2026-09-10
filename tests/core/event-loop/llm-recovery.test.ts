@@ -291,6 +291,29 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     await rerun;
   });
 
+  it('用户消息与定时器同时到达：一次准入、一次 turn、一次真发', async () => {
+    const h = await makeHarness();
+    h.setProviderError(QUOTA_ERROR());
+
+    h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'first' });
+    await h.eventLoop.run();
+    expect(h.providerCalls.length).toBe(1);
+    expect(h.turns.length).toBe(1);
+
+    // 新一轮 run 在等待 deadline；期间用户新消息到达（唤醒）→ 重新准入一次，
+    // 不允许同时产生第二个并发 turn。
+    const rerun = h.eventLoop.run();
+    await sleep(20);
+    h.writePending({ id: 'm-2', type: 'user_chat', from: 'user', content: 'second' });
+    await sleep(120);   // 跨过 deadline 与唤醒处理
+
+    expect(h.providerCalls.length).toBe(2);   // 只多一次真实尝试
+    expect(h.turns.length).toBe(2);           // 只多一个 turn
+    expect(h.turns[1].map(m => m.content)).toEqual(['first', 'second']);
+    h.eventLoop.abort();
+    await rerun;
+  });
+
   it('子代理（非 scoped 调用）成功不清前台等待', async () => {
     const h = await makeHarness();
     h.setProviderError(QUOTA_ERROR());
