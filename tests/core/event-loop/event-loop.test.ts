@@ -12,13 +12,13 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from '../../../src/core/event-loop/audit-events.js';
-import { LLM_MAX_RETRIES, LLM_QUOTA_INITIAL_DELAY_MS, LLM_RETRY_INITIAL_DELAY_MS } from '../../../src/core/event-loop/constants.js';
+import { CONTEXT_TRIM_RETRY_MAX, CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS } from '../../../src/core/event-loop/constants.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { LLMAllProvidersFailedError } from '../../../src/foundation/llm-orchestrator/index.js';
-import { LLMAuthError, LLMContextExceededError, LLMInvalidRequestError, LLMRateLimitError } from '../../../src/foundation/llm-provider/index.js';
+import { LLMContextExceededError } from '../../../src/foundation/llm-provider/index.js';
 import { LLMNetworkError } from '../../../src/foundation/llm-provider/errors.js';
 import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
@@ -30,15 +30,10 @@ vi.mock('../../../src/core/event-loop/constants.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
   return {
     ...actual,
-    LLM_RETRY_INITIAL_DELAY_MS: 10,
-    LLM_RETRY_MAX_DELAY_MS: 50,
     UNKNOWN_ERROR_RECOVERY_DELAY_MS: 10,
-    // Phase 1268 Step B: cooldown 独立常量，测试用小值锁状态机；
-    // Retry-After 截短断言用远大于该值的秒数反向验证。
-    LLM_COOLDOWN_MS: 80,
-    // phase 1776 Step C/D: quota 独立退避曲线用小值锁状态机（10→20→40，cap 50）。
-    LLM_QUOTA_INITIAL_DELAY_MS: 10,
-    LLM_QUOTA_MAX_DELAY_MS: 50,
+    // Phase 1826: trim 后有界重试用小值锁状态机（10→20→40，cap 50）。
+    CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS: 10,
+    CONTEXT_TRIM_RETRY_MAX_DELAY_MS: 50,
   };
 });
 
@@ -73,7 +68,20 @@ describe('EventLoop.run', () => {
     vi.restoreAllMocks();
   });
 
-  function makeEventLoop(runtime: Partial<Runtime>, audit?: AuditLog): EventLoop {
+
+  function makeMockRecovery() {
+    const adoptLegacy = vi.fn().mockReturnValue({ kind: 'imported' });
+    const begin = vi.fn().mockResolvedValue({ kind: 'admitted', attemptId: 'att-test' });
+    const finish = vi.fn().mockResolvedValue(undefined);
+    const inspect = vi.fn().mockResolvedValue({ kind: 'ready', revision: 1 });
+    return { controller: { inspect, begin, finish, adoptLegacy }, adoptLegacy, begin, finish, inspect };
+  }
+
+  function makeEventLoop(
+    runtime: Partial<Runtime>,
+    audit?: AuditLog,
+    recovery?: import('../../../src/foundation/llm-orchestrator/index.js').LLMRecoveryController,
+  ): EventLoop {
     return new EventLoop({
       runtime: runtime as Runtime,
       fsFactory,
@@ -81,6 +89,7 @@ describe('EventLoop.run', () => {
       clawId: 'test-claw',
       audit: audit ?? createMockAudit(),
       inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      ...(recovery ? { recovery } : {}),
     });
   }
 
@@ -113,7 +122,7 @@ describe('EventLoop.run', () => {
     });
   }
 
-  function seedRetryState(count: number, delayMs = LLM_RETRY_INITIAL_DELAY_MS): void {
+  function seedRetryState(count: number, delayMs = CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS): void {
     const statusDir = path.join(agentDir, 'status');
     require('fs').mkdirSync(statusDir, { recursive: true });
     require('fs').writeFileSync(
@@ -177,7 +186,9 @@ describe('EventLoop.run', () => {
       reactiveTrim,
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     return { runtime, processTurn, nackHandles, reactiveTrim };
@@ -209,7 +220,9 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -249,7 +262,9 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -292,7 +307,9 @@ describe('EventLoop.run', () => {
       reactiveTrim,
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -346,7 +363,9 @@ describe('EventLoop.run', () => {
       reactiveTrim,
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -406,7 +425,9 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -484,6 +505,7 @@ describe('EventLoop.run', () => {
       JSON.stringify({ schema_version: 1, llmRetryCount: 7, llmRetryDelayMs: 1000, llmRetryPending: true }),
     );
 
+    const recovery = makeMockRecovery();
     const eventLoop = new EventLoop({
       runtime: { abort: vi.fn() } as unknown as Runtime,
       fsFactory,
@@ -491,10 +513,16 @@ describe('EventLoop.run', () => {
       clawId: 'c1',
       audit,
       inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      recovery: recovery.controller,
     });
 
     await eventLoop.initialize();
 
+    // Phase 1826: 旧恢复状态由 EventLoop（旧 owner）导出、owner 幂等导入。
+    expect(recovery.adoptLegacy).toHaveBeenCalledTimes(1);
+    const exported = recovery.adoptLegacy.mock.calls[0][0];
+    expect(exported.source).toBe('llm-retry-state.json@v1');
+    expect(exported.retryCount).toBe(7);
     const loaded = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION && e.some(c => String(c).includes('legacy_pending_ignored')));
     expect(loaded).toBeDefined();
   });
@@ -554,7 +582,9 @@ describe('EventLoop.run', () => {
       abort: vi.fn(),
       getCurrentTraceId: vi.fn().mockReturnValue(undefined),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = new EventLoop({
@@ -635,7 +665,9 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('changed-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoopWithFsOverrides(runtime, audit, {
@@ -694,7 +726,9 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('changed-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     // deleteSync 一律 ENOENT：模拟状态文件在 initialize 清除前已被外部清理——
@@ -718,23 +752,38 @@ describe('EventLoop.run', () => {
   it('retry limit blocks current failed request before another trim', async () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
-    seedRetryState(LLM_MAX_RETRIES);
-    const { runtime, processTurn, reactiveTrim } = makeContextExceededRuntime(audit);
+    const { runtime, processTurn, reactiveTrim } = makeContextExceededRuntime(audit, {
+      status: 'progress',
+      before: 1000,
+      after: 900,
+      newMessages: [],
+      archived: true,
+    });
 
     const eventLoop = makeEventLoop(runtime, audit);
     await eventLoop.initialize();
 
+    // Phase 1826: trim 预算为 EventLoop 自有内存预算（不再读写 llm-retry-state.json）。
+    for (let i = 0; i < CONTEXT_TRIM_RETRY_MAX; i++) {
+      const run = eventLoop.run();
+      await vi.advanceTimersByTimeAsync(100);
+      await run;
+    }
+    expect(reactiveTrim).toHaveBeenCalledTimes(CONTEXT_TRIM_RETRY_MAX);
+    expect(readBlockedState()).toBeUndefined();
+
+    // 预算耗尽后的下一次失败：不再 trim，直接进入 retry_exhausted blocked。
     const run = eventLoop.run();
     await vi.advanceTimersByTimeAsync(100);
     await run;
 
-    expect(reactiveTrim).not.toHaveBeenCalled();
-    expect(processTurn).toHaveBeenCalledTimes(1);
+    expect(processTurn).toHaveBeenCalledTimes(CONTEXT_TRIM_RETRY_MAX + 1);
+    expect(reactiveTrim).toHaveBeenCalledTimes(CONTEXT_TRIM_RETRY_MAX);
     const blocked = readBlockedState();
     expect(blocked).toBeDefined();
     expect(blocked!.reason).toBe('retry_exhausted');
-    expect(blocked!.attempts).toBe(LLM_MAX_RETRIES);
-    expect(blocked!.maxAttempts).toBe(LLM_MAX_RETRIES);
+    expect(blocked!.attempts).toBe(CONTEXT_TRIM_RETRY_MAX);
+    expect(blocked!.maxAttempts).toBe(CONTEXT_TRIM_RETRY_MAX);
   });
 
   it('phase 1778 startup probe: restart clears blocked（干预信号）→ 同 fingerprint 首轮 probe 成功 ack、blocked 不再现', async () => {
@@ -744,8 +793,8 @@ describe('EventLoop.run', () => {
       version: 2,
       reason: 'retry_exhausted',
       requestFingerprint: 'stable-fp',
-      attempts: LLM_MAX_RETRIES,
-      maxAttempts: LLM_MAX_RETRIES,
+      attempts: CONTEXT_TRIM_RETRY_MAX,
+      maxAttempts: CONTEXT_TRIM_RETRY_MAX,
       blockedAt: new Date().toISOString(),
     });
 
@@ -777,7 +826,9 @@ describe('EventLoop.run', () => {
       abort: vi.fn(),
       // 同 provider 换 key / 配额恢复场景：fingerprint 不变（释放条件不满足，1778 前只能删文件）
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('stable-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -797,7 +848,7 @@ describe('EventLoop.run', () => {
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE)).toBe(false);
   });
 
-  it('phase 1778 startup probe 失败按新代码分类重建：quota → waiting；permanent → blocked 文件重现并再挡', async () => {
+  it('provider 类旧 blocked 在 initialize 交接给 owner（文件删除、不双写）', async () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
     seedBlockedState({
@@ -808,67 +859,26 @@ describe('EventLoop.run', () => {
       message: 'provider auth error (stale)',
       blockedAt: new Date().toISOString(),
     });
+    const recovery = makeMockRecovery();
+    const { runtime } = makeContextExceededRuntime(audit);
+    const eventLoop = makeEventLoop(runtime, audit, recovery.controller);
 
-    const quotaError = new Error("You've reached your 5-hour usage limit.");
-    const authError = new LLMAuthError('openai', 401, 'invalid key');
-    let call = 0;
-    const processTurn = vi.fn().mockImplementation(async () => {
-      call++;
-      // 第 1 次（启动探测）：配额仍未恢复；第 2 次（到期 probe）：换了 key 但 auth 仍错
-      return makeTurnResult('failed', { error: call === 1 ? quotaError : authError });
-    });
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles: vi.fn().mockResolvedValue(undefined),
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('stable-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
     await eventLoop.initialize();
 
-    // 启动探测清除 blocked → 首轮 probe 失败（quota）→ 进 quota waiting（1777 曲线），不重建 permanent blocked
-    const run1 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run1;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
+    // Phase 1826: provider 类阻断（invalid_request / permanent_provider_error）归 owner；
+    // EventLoop 作为旧 owner 导出后删除旧文件（禁止双写），不再持有该 gate。
+    expect(recovery.adoptLegacy).toHaveBeenCalledTimes(1);
+    const exported = recovery.adoptLegacy.mock.calls[0][0];
+    expect(exported.source).toBe('llm-request-blocked-state.json@v2');
+    expect(exported.blocked).toMatchObject({
+      reason: 'permanent_provider_error',
+      requestFingerprint: 'stable-fp',
+    });
     expect(readBlockedState()).toBeUndefined();
-    expect(readRetryState()!.waiting).toMatchObject({ kind: 'cooldown', errorClass: 'quota' });
-    expect(readRetryState()!.llmRetryCount).toBe(0);
-
-    // 到期 probe（quota waiting 到期仅一次）→ permanent/auth 失败 → 重建 blocked 文件
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(2);
-    const rebuilt = readBlockedState();
-    expect(rebuilt).toBeDefined();
-    expect(rebuilt!.reason).toBe('permanent_provider_error');
-    expect(rebuilt!.requestFingerprint).toBe('stable-fp');
-
-    // gate 同指纹再挡：后续 tick 不真发（启动探测每进程仅一次，不循环）
-    const run3 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run3;
-
-    expect(processTurn).toHaveBeenCalledTimes(2);
-    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(1);
+    // provider 类不触发 trim 类 blocked 的启动探测语义
+    expect(
+      audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE).length,
+    ).toBe(0);
   });
 
   it('phase 1778 startup probe: 无 blocked 启动不受影响（无探测 audit、行为不变）', async () => {
@@ -900,7 +910,9 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp-1'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     const eventLoop = makeEventLoop(runtime, audit);
@@ -913,394 +925,6 @@ describe('EventLoop.run', () => {
     await run1;
 
     expect(processTurn).toHaveBeenCalledTimes(1);
-  });
-
-  it('LLMInvalidRequestError enters request blocked gate and blocks same fingerprint ticks', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const invalidErr = new LLMInvalidRequestError('openai', 'invalid_unicode', '$.messages[0].content', 5);
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: invalidErr }));
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('bad-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    const run1 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run1;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-    expect(audit.entries.some(
-      e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED && e.some(c => String(c).includes('invalid_request')),
-    )).toBe(true);
-
-    const blocked = readBlockedState();
-    expect(blocked).toMatchObject({ version: 2, reason: 'invalid_request', errorCode: 'LLM_INVALID_REQUEST', requestFingerprint: 'bad-fp' });
-
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_GATE).length).toBe(1);
-  });
-
-  it('LLMAllProvidersFailedError with all invalid_request enters request blocked gate', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const allInvalidErr = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMInvalidRequestError('openai', 'invalid_unicode') },
-      { provider: 'anthropic', error: new LLMInvalidRequestError('anthropic', 'invalid_unicode') },
-    ]);
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: allInvalidErr }));
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('all-invalid-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-    const blocked = readBlockedState();
-    expect(blocked).toMatchObject({ version: 2, reason: 'invalid_request', requestFingerprint: 'all-invalid-fp' });
-  });
-
-  it('LLMAuthError enters request blocked gate with permanent_provider_error reason', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const authErr = new LLMAuthError('custom-anthropic', 401, 'Authentication Fails, Your api key is invalid');
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: authErr }));
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('auth-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    const run1 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run1;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-
-    const blocked = readBlockedState();
-    expect(blocked).toMatchObject({
-      version: 2,
-      reason: 'permanent_provider_error',
-      userActionHint: 'rotate_api_key',
-      requestFingerprint: 'auth-fp',
-    });
-
-    // Blocked gate must suspend retries on the same fingerprint.
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-    expect(processTurn).toHaveBeenCalledTimes(1);
-  });
-
-  it('LLMAllProvidersFailedError with all auth failures enters request blocked gate', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const allAuthErr = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMAuthError('openai', 401, 'bad key') },
-      { provider: 'anthropic', error: new LLMAuthError('anthropic', 401, 'bad key') },
-    ]);
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: allAuthErr }));
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('all-auth-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-    const blocked = readBlockedState();
-    expect(blocked).toMatchObject({
-      version: 2,
-      reason: 'permanent_provider_error',
-      userActionHint: 'rotate_api_key',
-      requestFingerprint: 'all-auth-fp',
-    });
-  });
-
-  it('LLMAllProvidersFailedError with transient nested errors triggers retry, not blocked gate', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const transientErr = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMNetworkError('openai', new Error('ECONNREFUSED')) },
-      { provider: 'anthropic', error: new LLMNetworkError('anthropic', new Error('ECONNREFUSED')) },
-    ]);
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: transientErr }));
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('transient-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-    expect(readBlockedState()).toBeUndefined();
-    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY)).toBe(true);
-    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(false);
-  });
-
-  it('LLMRateLimitError with retryAfter triggers backoff retry, not blocked gate', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const rateLimitErr = new LLMRateLimitError('openai', 30);
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: rateLimitErr }));
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('rate-limit-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-    expect(readBlockedState()).toBeUndefined();
-    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY)).toBe(true);
-    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(false);
-  });
-
-  it('LLMAllProvidersFailedError with all rate_limit failures triggers retry', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const allRateLimitErr = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMRateLimitError('openai', 5) },
-      { provider: 'anthropic', error: new LLMRateLimitError('anthropic', 15) },
-    ]);
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('failed', { error: allRateLimitErr }));
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-
-    const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [{ role: 'user', content: 'hi' } as Message],
-        sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
-        infos: [] as InboxMessage[],
-        addressedHandles: ['handle-1'],
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('all-rate-limit-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(nackHandles).toHaveBeenCalledTimes(1);
-    expect(readBlockedState()).toBeUndefined();
-    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY)).toBe(true);
-    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED)).toBe(false);
-  });
-
-  it('phase 1778: legacy v1 context-blocked-state.json 迁移 v2 后启动探测放行首轮 drain', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    seedLegacyBlockedState({
-      version: 1,
-      reason: 'no_progress',
-      requestFingerprint: 'legacy-fp',
-      before: 1000,
-      after: 1000,
-      blockedAt: new Date().toISOString(),
-    });
-
-    const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
-    let drainCall = 0;
-    const runtime = {
-      drainInbox: vi.fn().mockImplementation(async () => {
-        drainCall++;
-        if (drainCall === 1) {
-          return {
-            injected: [{ role: 'user', content: 'hi' } as Message],
-            sources: [{ text: 'hi', type: 'user_chat' }],
-            count: 1,
-            infos: [] as InboxMessage[],
-            addressedHandles: ['handle-1'],
-          };
-        }
-        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles: vi.fn().mockResolvedValue(undefined),
-      nackHandles: vi.fn().mockResolvedValue(undefined),
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint: vi.fn().mockResolvedValue('legacy-fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.initialize();
-
-    // 迁移（v2 原子写 + legacy 删）→ 启动探测清除 v2 并放行首轮 drain（1778 语义）
-    expect(audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_STARTUP_PROBE).length).toBe(1);
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    // legacy 已删；v2 被启动探测清除（恢复语义：放行一次验证而非跨重启静默）
-    expect(require('fs').existsSync(path.join(agentDir, 'status', 'context-blocked-state.json'))).toBe(false);
-    expect(readBlockedState()).toBeUndefined();
   });
 
   function makePostDrainRuntime(
@@ -1334,7 +958,9 @@ describe('EventLoop.run', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
 
     return { runtime, ackHandles, nackHandles, processTurn };
@@ -1477,659 +1103,8 @@ describe('EventLoop.run', () => {
     expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
     expect(nackHandles).not.toHaveBeenCalled();
   });
-
-  // ----- Phase 1268 Step B: recoverable LLM 持久 retry waiting / cooldown 状态机 -----
-
-  function makeRecoverableRuntime(
-    error: Error,
-    fingerprint: string,
-    processTurnImpl?: () => Promise<TurnResult>,
-  ) {
-    // pending 模拟真实 inbox：nack 后消息仍在，ack 后才排空，避免 success 后 chain 空转。
-    const inbox = { pending: true };
-    const processTurn = vi.fn().mockImplementation(
-      processTurnImpl ?? (async () => makeTurnResult('failed', { error })),
-    );
-    const nackHandles = vi.fn().mockResolvedValue(undefined);
-    const ackHandles = vi.fn().mockImplementation(async () => { inbox.pending = false; });
-    const computeTurnRequestFingerprint = vi.fn().mockResolvedValue(fingerprint);
-    const runtime = {
-      drainInbox: vi.fn().mockImplementation(async () => {
-        if (!inbox.pending) {
-          return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
-        }
-        return {
-          injected: [{ role: 'user', content: 'hi' } as Message],
-          sources: [{ text: 'hi', type: 'user_chat' }],
-          count: 1,
-          infos: [] as InboxMessage[],
-          addressedHandles: ['handle-1'],
-        };
-      }),
-      getSystemPrompt: vi.fn().mockResolvedValue('sys'),
-      getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
-      getMessages: vi.fn().mockResolvedValue([] as Message[]),
-      proactiveTrimIfNeeded: vi.fn().mockImplementation((m: Message[]) => m),
-      processTurn,
-      ackHandles,
-      nackHandles,
-      reactiveTrim: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn(),
-      computeTurnRequestFingerprint,
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
-    } as unknown as Runtime;
-    return { runtime, processTurn, nackHandles, ackHandles, computeTurnRequestFingerprint };
-  }
-
-  function readRetryState(): Record<string, unknown> | undefined {
-    const p = path.join(agentDir, 'status', 'llm-retry-state.json');
-    if (!require('fs').existsSync(p)) return undefined;
-    return JSON.parse(require('fs').readFileSync(p, 'utf-8'));
-  }
-
-  const retryScheduled = (audit: ReturnType<typeof createMockAudit>) =>
-    audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY && e.some(c => String(c) === 'action=scheduled'));
-  const cooldownScheduled = (audit: ReturnType<typeof createMockAudit>) =>
-    audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=scheduled'));
-
-  it('持续 rate-limit 超预算进入 cooldown：count 保持 max，不重开完整 retry 周期', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const rateLimitErr = new LLMRateLimitError('openai');
-    const { runtime, processTurn } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    // 4 次失败：3 次普通 retry 后第 4 次进入 cooldown（schedule 无 sleep，run1 不需 advance）
-    await eventLoop.run();
-    // 决定等待即先落盘：第一次失败后文件已含 waiting，无等待完成
-    const savedAfterFirst = readRetryState();
-    expect(savedAfterFirst).toMatchObject({ schema_version: 2, llmRetryCount: 1 });
-    expect(savedAfterFirst!.waiting).toMatchObject({ kind: 'retry', attempt: 1, maxAttempts: 3, requestFingerprint: 'rl-fp' });
-    for (let i = 1; i < 4; i++) {
-      const run = eventLoop.run();
-      await vi.advanceTimersByTimeAsync(100);
-      await run;
-    }
-
-    expect(processTurn).toHaveBeenCalledTimes(4);
-    expect(retryScheduled(audit).length).toBe(3);
-    expect(cooldownScheduled(audit).length).toBe(1);
-    const saved = readRetryState();
-    expect(saved!.llmRetryCount).toBe(3);  // 不清零
-    expect(saved!.waiting).toMatchObject({ kind: 'cooldown', attempts: 3, maxAttempts: 3 });
-
-    // cooldown 到期仅一次 probe；probe 失败再次 cooldown，仍不重开周期
-    const run5 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run5;
-
-    expect(processTurn).toHaveBeenCalledTimes(5);
-    expect(retryScheduled(audit).length).toBe(3);  // 无新的普通 retry
-    expect(cooldownScheduled(audit).length).toBe(2);
-    expect(readRetryState()!.llmRetryCount).toBe(3);
-  });
-
-  it('cooldown probe 成功走既有 success reset：预算与 waiting 归零', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const rateLimitErr = new LLMRateLimitError('openai');
-    let call = 0;
-    const { runtime, processTurn, ackHandles } = makeRecoverableRuntime(rateLimitErr, 'rl-fp', async () => {
-      call++;
-      return call >= 5 ? makeTurnResult('success') : makeTurnResult('failed', { error: rateLimitErr });
-    });
-
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();
-    for (let i = 1; i < 5; i++) {
-      const run = eventLoop.run();
-      await vi.advanceTimersByTimeAsync(100);
-      await run;
-    }
-
-    expect(processTurn).toHaveBeenCalledTimes(5);
-    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
-    const saved = readRetryState();
-    expect(saved!.llmRetryCount).toBe(0);
-    expect(saved!.llmRetryDelayMs).toBe(10);  // mocked LLM_RETRY_INITIAL_DELAY_MS
-    expect(saved!.waiting).toBeNull();
-  });
-
-  it('restart 恢复持久 waiting：早于 resumeAt 不调 LLM，到期才放行', async () => {
-    vi.useFakeTimers();
-    const audit1 = createMockAudit();
-    const rateLimitErr = new LLMRateLimitError('openai');
-    const { runtime: runtime1, processTurn: processTurn1 } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
-
-    const eventLoop1 = makeEventLoop(runtime1, audit1);
-    await eventLoop1.run();  // schedule 无 sleep，fake clock 不动，resumeAt 仍在未来
-    expect(processTurn1).toHaveBeenCalledTimes(1);
-
-    // 模拟进程重启：新 EventLoop 从磁盘恢复 waiting（resumeAt = schedule 时 + 10ms）
-    const audit2 = createMockAudit();
-    const { runtime: runtime2, processTurn: processTurn2 } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
-    const eventLoop2 = makeEventLoop(runtime2, audit2);
-    await eventLoop2.initialize();
-
-    const run2 = eventLoop2.run();
-    await vi.advanceTimersByTimeAsync(5);  // 未到 resumeAt
-    expect(processTurn2).not.toHaveBeenCalled();
-    expect(audit2.entries.some(e => e.some(c => String(c) === 'action=gated'))).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(100);  // 越过 resumeAt
-    await run2;
-    expect(processTurn2).toHaveBeenCalledTimes(1);
-  });
-
-  it('abort mid-retry 不清 waiting：磁盘保留已决定的等待供恢复', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const rateLimitErr = new LLMRateLimitError('openai');
-    const { runtime, processTurn } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
-
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.run();  // schedule 无 sleep，fake clock 不动
-
-    const before = readRetryState()!.waiting as Record<string, unknown>;
-
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(5);  // gate 等待中（resumeAt=schedule+10ms）
-    eventLoop.abort();
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);  // 未放行新 turn
-    expect(readRetryState()!.waiting).toEqual(before);  // waiting 未被清除
-  });
-
-  it('fingerprint 变化释放 waiting 并重置预算，按新事实执行', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const rateLimitErr = new LLMRateLimitError('openai');
-    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(rateLimitErr, 'fp-A');
-
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.run();
-    expect(readRetryState()!.llmRetryCount).toBe(1);
-
-    // 新消息/配置导致 fingerprint 改变 → 释放 waiting、重置预算、立即执行
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    processTurn.mockImplementation(async () => makeTurnResult('success'));
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(5);  // 不等到原 resumeAt 即放行
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(2);
-    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(true);
-    const saved = readRetryState();
-    expect(saved!.llmRetryCount).toBe(0);
-    expect(saved!.waiting).toBeNull();
-  });
-
-  it('cooldown 不被 backoff cap 截短：服务端更长 Retry-After 按秒数等待', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    seedRetryState(LLM_MAX_RETRIES);  // v1 文件迁移 count=3（预算已耗尽）
-    const rateLimitErr = new LLMRateLimitError('openai', 400);  // 400s > 300s cap
-    const { runtime, processTurn } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
-
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.initialize();
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(cooldownScheduled(audit).length).toBe(1);
-    expect(cooldownScheduled(audit)[0].some(c => String(c) === 'cooldown_ms=400000')).toBe(true);
-    const waiting = readRetryState()!.waiting as Record<string, unknown>;
-    expect(Date.parse(waiting.resumeAt as string) - Date.parse(waiting.scheduledAt as string)).toBe(400_000);
-  });
-
-  it('cooldown 聚合 Retry-After 取最早合法时间；无 header 用独立默认 cooldown', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    seedRetryState(LLM_MAX_RETRIES);
-    const aggregateErr = new LLMAllProvidersFailedError([
-      { provider: 'openai', error: new LLMRateLimitError('openai', 400) },
-      { provider: 'anthropic', error: new LLMRateLimitError('anthropic', 15) },
-    ]);
-    const { runtime } = makeRecoverableRuntime(aggregateErr, 'rl-fp');
-
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.initialize();
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(cooldownScheduled(audit)[0].some(c => String(c) === 'cooldown_ms=15000')).toBe(true);
-
-    // 无 header → 独立默认 cooldown（mocked LLM_COOLDOWN_MS=80），不是 backoff cap 50
-    const audit2 = createMockAudit();
-    seedRetryState(LLM_MAX_RETRIES);
-    const { runtime: runtime2 } = makeRecoverableRuntime(new LLMRateLimitError('openai'), 'rl-fp');
-    const eventLoop2 = makeEventLoop(runtime2, audit2);
-    await eventLoop2.initialize();
-    const run2 = eventLoop2.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-    expect(cooldownScheduled(audit2)[0].some(c => String(c) === 'cooldown_ms=80')).toBe(true);
-  });
-
-  it('v1 retry-state 迁移：count/delay 保留并接入新 waiting 状态机', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    seedRetryState(2, 30);  // v1 文件：count=2, delayMs=30
-    const rateLimitErr = new LLMRateLimitError('openai');
-    const { runtime } = makeRecoverableRuntime(rateLimitErr, 'rl-fp');
-
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.initialize();
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    // 迁移后的 count=2 → 本次失败是第 3 次普通 retry
-    const scheduled = retryScheduled(audit);
-    expect(scheduled.length).toBe(1);
-    expect(scheduled[0].some(c => String(c) === 'attempt=3')).toBe(true);
-    expect(scheduled[0].some(c => String(c) === 'delay_ms=30')).toBe(true);
-    expect(readRetryState()!.waiting).toMatchObject({ kind: 'retry', attempt: 3 });
-  });
-
-  it('Phase 1268 Step D: waiting 调度写结构化 llm_retry_waiting stream 事件（scheduled/gated/released）', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const streamEvents: Array<Record<string, unknown>> = [];
-    const streamWriter = { write: (ev: Record<string, unknown>) => { streamEvents.push(ev); } };
-    const rateLimitErr = new LLMRateLimitError('openai');
-    const { runtime, computeTurnRequestFingerprint } = makeRecoverableRuntime(rateLimitErr, 'fp-A');
-    // streamWriter 存在时 wrapped callbacks.onTurnStart 需要 getCurrentTraceId
-    (runtime as any).getCurrentTraceId = vi.fn().mockReturnValue(undefined);
-
-    const eventLoop = new EventLoop({
-      runtime: runtime as Runtime,
-      fsFactory,
-      agentDir,
-      clawId: 'test-claw',
-      audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
-      streamWriter,
-    });
-
-    // scheduled：失败后立即写（决定等待即落盘 + stream）
-    await eventLoop.run();
-    const scheduled = streamEvents.filter(e => e.type === 'llm_retry_waiting');
-    expect(scheduled.length).toBe(1);
-    expect(scheduled[0]).toMatchObject({
-      stage: 'retry',
-      action: 'scheduled',
-      attempt: 1,
-      maxAttempts: 3,
-      delayMs: 10,
-      errorClass: 'rate_limit',
-    });
-    expect(typeof scheduled[0].resumeAt).toBe('string');
-    expect(typeof scheduled[0].ts).toBe('number');
-
-    // gated：下一 tick deadline 未到先 gated
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-    const gated = streamEvents.filter(e => e.type === 'llm_retry_waiting' && e.action === 'gated');
-    expect(gated.length).toBeGreaterThanOrEqual(1);
-    expect(gated[0]).toMatchObject({ stage: 'retry', attempt: 1, maxAttempts: 3 });
-
-    // released：fingerprint 变化
-    streamEvents.length = 0;
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    const run3 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run3;
-    const released = streamEvents.filter(e => e.type === 'llm_retry_waiting' && e.action === 'released');
-    expect(released.length).toBe(1);
-    expect(released[0]).toMatchObject({ stage: 'retry', action: 'released' });
-  });
-
-  it('clean-stop 跳过 retry-state load（现有语义保留）：waiting 不恢复', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    // 手写 v2 waiting 文件 + clean-stop marker
-    const statusDir = path.join(agentDir, 'status');
-    require('fs').mkdirSync(statusDir, { recursive: true });
-    require('fs').writeFileSync(
-      path.join(statusDir, 'llm-retry-state.json'),
-      JSON.stringify({
-        schema_version: 2,
-        llmRetryCount: 2,
-        llmRetryDelayMs: 30,
-        llmRetryPending: false,
-        waiting: {
-          kind: 'retry',
-          requestFingerprint: 'rl-fp',
-          errorClass: 'rate_limit',
-          attempt: 2,
-          maxAttempts: 3,
-          scheduledAt: new Date().toISOString(),
-          resumeAt: new Date(Date.now() + 60_000).toISOString(),
-          error: 'rate limited',
-        },
-      }),
-    );
-    require('fs').writeFileSync(path.join(agentDir, 'clean-stop'), String(Date.now()));
-
-    const { runtime, processTurn } = makeRecoverableRuntime(new LLMRateLimitError('openai'), 'rl-fp');
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.initialize();
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(5);  // 不 gated，立即 drain
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    expect(audit.entries.some(e => e.some(c => String(c) === 'action=gated'))).toBe(false);
-  });
-
-  // ----- phase 1776 Step C/D: quota 独立时间退避 + 指纹门豁免 + 新消息 quota 提示 -----
-
-  const quotaErr = () => new Error("You've reached your 5-hour usage limit.");
-
-  it('quota 失败：kind=cooldown、quota 曲线初值、不消耗 retry 预算', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const { runtime, processTurn } = makeRecoverableRuntime(quotaErr(), 'quota-fp');
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    // quota 不进 retry 预算
-    const saved = readRetryState()!;
-    expect(saved.llmRetryCount).toBe(0);
-    // schedule 用 quota 曲线初值（mocked 10），决定等待时翻倍持久化（10→20）
-    expect(saved.llmQuotaDelayMs).toBe(20);
-    expect(saved.waiting).toMatchObject({
-      kind: 'cooldown',
-      errorClass: 'quota',
-      requestFingerprint: 'quota-fp',
-    });
-    const waiting = saved.waiting as Record<string, unknown>;
-    expect(Date.parse(waiting.resumeAt as string) - Date.parse(waiting.scheduledAt as string)).toBe(10);
-    const scheduled = cooldownScheduled(audit);
-    expect(scheduled.length).toBe(1);
-    expect(scheduled[0].some(c => String(c) === 'cooldown_ms=10')).toBe(true);
-    expect(scheduled[0].some(c => String(c) === 'error_class=quota')).toBe(true);
-  });
-
-  it('quota 到期 probe 失败：退避按曲线翻倍（10→20），预算仍不消耗', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const { runtime, processTurn } = makeRecoverableRuntime(quotaErr(), 'quota-fp');
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();  // schedule delay=10，曲线 →20
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);  // 越过 resumeAt → 到期一次 probe
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(2);  // 仅到期 probe，无提前真发
-    expect(readRetryState()!.llmRetryCount).toBe(0);
-    const scheduled = cooldownScheduled(audit);
-    expect(scheduled.length).toBe(2);
-    expect(scheduled[1].some(c => String(c) === 'cooldown_ms=20')).toBe(true);
-    expect(readRetryState()!.llmQuotaDelayMs).toBe(40);
-  });
-
-  it('quota 退避 cap：llmQuotaDelayMs 到上限后 probe 失败不再翻倍', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    // v2 文件预置 quota 曲线已到 cap（mocked 50）
-    const statusDir = path.join(agentDir, 'status');
-    require('fs').mkdirSync(statusDir, { recursive: true });
-    require('fs').writeFileSync(
-      path.join(statusDir, 'llm-retry-state.json'),
-      JSON.stringify({ schema_version: 2, llmRetryCount: 0, llmRetryDelayMs: 10, llmQuotaDelayMs: 50, llmRetryPending: false, waiting: null }),
-    );
-    const { runtime, processTurn } = makeRecoverableRuntime(quotaErr(), 'quota-fp');
-    const eventLoop = makeEventLoop(runtime, audit);
-    await eventLoop.initialize();
-
-    const run = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    const scheduled = cooldownScheduled(audit);
-    expect(scheduled.length).toBe(1);
-    expect(scheduled[0].some(c => String(c) === 'cooldown_ms=50')).toBe(true);
-    expect(readRetryState()!.llmQuotaDelayMs).toBe(50);  // 封顶不翻倍
-  });
-
-  it('quota 指纹门豁免：fingerprint 变化不释放、不提前真发（对照 transient 释放）', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();  // quota schedule，resumeAt=+10ms
-
-    // transient/rate_limit 对照（上一条 released 用例）：fingerprint 变化 → released + 立即执行；
-    // quota：变化被豁免，须等 deadline 才 probe，且不写 released、预算不重置。
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(2);  // 仅到期 probe，无提前真发
-    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(false);
-    expect(readRetryState()!.llmRetryCount).toBe(0);
-  });
-
-  it('quota waiting 期间新消息：quota_notice audit + stream notice，无额外真发、消息保持 pending', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const streamEvents: Array<Record<string, unknown>> = [];
-    const streamWriter = { write: (ev: Record<string, unknown>) => { streamEvents.push(ev); } };
-    const { runtime, processTurn, computeTurnRequestFingerprint, ackHandles } = makeRecoverableRuntime(quotaErr(), 'fp-A');
-    // streamWriter 存在时 wrapped callbacks.onTurnStart 需要 getCurrentTraceId
-    (runtime as any).getCurrentTraceId = vi.fn().mockReturnValue(undefined);
-
-    const eventLoop = new EventLoop({
-      runtime: runtime as Runtime,
-      fsFactory,
-      agentDir,
-      clawId: 'test-claw',
-      audit,
-      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
-      streamWriter,
-    });
-
-    await eventLoop.run();  // quota schedule delay=10
-
-    // 新消息 → fingerprint 变化：quota 豁免不释放，发 quota 提示后继续等 deadline
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-
-    // 无额外真发：run1 + 到期 probe 共 2 次（probe 又失败 → 第 2 次 schedule）
-    expect(processTurn).toHaveBeenCalledTimes(2);
-    // audit quota_notice
-    const notices = audit.entries.filter(e =>
-      e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=quota_notice'));
-    expect(notices.length).toBeGreaterThanOrEqual(1);
-    // stream notice
-    const noticeEvents = streamEvents.filter(e => e.type === 'llm_retry_waiting' && e.action === 'notice');
-    expect(noticeEvents.length).toBeGreaterThanOrEqual(1);
-    expect(noticeEvents[0]).toMatchObject({ stage: 'cooldown', errorClass: 'quota' });
-    // 消息保持 pending：未 ack（nack 后仍在 inbox，probe 成功前不排空）
-    expect(ackHandles).not.toHaveBeenCalled();
-  });
-
-  // ----- phase 1777 Step B/C/D: quota 曲线缩短（2min/8min）+ 新 user 消息即时探测（防旋转门） -----
-
-  function writePendingInboxMessage(opts: { id: string; from: string; timestamp: string }): void {
-    require('fs').writeFileSync(
-      path.join(inboxPendingDir, `${opts.id}.md`),
-      encodeInbox({
-        id: opts.id,
-        type: 'user_chat',
-        from: opts.from,
-        to: 'test-claw',
-        content: 'hello',
-        priority: 'normal',
-        timestamp: opts.timestamp,
-      }),
-    );
-  }
-
-  const readWaitingScheduledAt = (): string =>
-    (readRetryState()!.waiting as Record<string, unknown>).scheduledAt as string;
-
-  it('phase 1777 Step B: quota 曲线真实常量缩短为 2min 起、cap 8min', async () => {
-    const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>(
-      '../../../src/core/event-loop/constants.js',
-    );
-    expect(actual.LLM_QUOTA_INITIAL_DELAY_MS).toBe(120_000);
-    expect(actual.LLM_QUOTA_MAX_DELAY_MS).toBe(480_000);
-  });
-
-  it('phase 1777 Step C: quota waiting 期间新 user 消息（ts>scheduledAt）→ 立即 release 并 probe 成功', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    let call = 0;
-    const { runtime, processTurn, ackHandles, computeTurnRequestFingerprint } = makeRecoverableRuntime(
-      quotaErr(),
-      'fp-A',
-      async () => {
-        call++;
-        return call >= 2 ? makeTurnResult('success') : makeTurnResult('failed', { error: quotaErr() });
-      },
-    );
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();  // quota schedule delay=10（mocked 初值）
-
-    // waiting 调度后新到真人消息
-    const scheduledAt = readWaitingScheduledAt();
-    writePendingInboxMessage({
-      id: 'user-new',
-      from: 'user',
-      timestamp: new Date(Date.parse(scheduledAt) + 1000).toISOString(),
-    });
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(5);  // 远未到 resumeAt（+10ms）
-    // 已即时 probe 且成功 ack——恢复延迟归零，不依赖 deadline
-    expect(processTurn).toHaveBeenCalledTimes(2);
-    expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-
-    // released audit、waiting 清空、曲线重置回初值（用户驱动探测 = 新恢复尝试，拍板语义）
-    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(true);
-    expect(readRetryState()!.waiting).toBeNull();
-    expect(readRetryState()!.llmQuotaDelayMs).toBe(LLM_QUOTA_INITIAL_DELAY_MS);  // mocked = 10
-    // 即时探测场景不发 quota_notice
-    expect(audit.entries.some(e => e.some(c => String(c) === 'action=quota_notice'))).toBe(false);
-  });
-
-  it('phase 1777 Step C: 即时探测失败 → 按曲线从初值重新调度（release 重置曲线语义）', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();  // schedule delay=10，曲线 →20
-
-    const scheduledAt = readWaitingScheduledAt();
-    writePendingInboxMessage({
-      id: 'user-new',
-      from: 'user',
-      timestamp: new Date(Date.parse(scheduledAt) + 1000).toISOString(),
-    });
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(5);  // 未到期已即时 probe（release 不依赖 deadline）
-    expect(processTurn).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(100);
-    await run2;
-
-    // probe 失败 → 重新 schedule：delay 从初值起（release 重置曲线），再翻倍
-    const scheduled = cooldownScheduled(audit);
-    expect(scheduled.length).toBe(2);
-    expect(scheduled[1].some(c => String(c) === `cooldown_ms=${LLM_QUOTA_INITIAL_DELAY_MS}`)).toBe(true);
-    expect(readRetryState()!.llmQuotaDelayMs).toBe(LLM_QUOTA_INITIAL_DELAY_MS * 2);  // mocked 10→20
-    expect(readRetryState()!.llmRetryCount).toBe(0);  // quota 仍不进 retry 预算
-  });
-
-  it('phase 1777 Step D 防旋转门：waiting 前已 pending 的 user 消息（ts<scheduledAt，失败回滚形态）不触发即时探测', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();  // quota schedule delay=10
-
-    // 失败回滚消息：timestamp 早于 scheduledAt（nack 回原文件保留原 timestamp）
-    const scheduledAt = readWaitingScheduledAt();
-    writePendingInboxMessage({
-      id: 'user-rolled-back',
-      from: 'user',
-      timestamp: new Date(Date.parse(scheduledAt) - 1000).toISOString(),
-    });
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(5);  // 未到期：不即时 probe
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(100);  // 越过 resumeAt → 到期一次 probe
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(2);  // 仅到期 probe，无即时探测循环
-    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(false);
-    const notices = audit.entries.filter(e =>
-      e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=quota_notice'));
-    expect(notices.length).toBeGreaterThanOrEqual(1);  // 仍发 notice
-  });
-
-  it('phase 1777 Step D：waiting 期间系统消息（from=system，ts>scheduledAt）不触发即时探测', async () => {
-    vi.useFakeTimers();
-    const audit = createMockAudit();
-    const { runtime, processTurn, computeTurnRequestFingerprint } = makeRecoverableRuntime(quotaErr(), 'fp-A');
-    const eventLoop = makeEventLoop(runtime, audit);
-
-    await eventLoop.run();  // quota schedule delay=10
-
-    // 系统消息：timestamp 新但 from 非 user（判据 from==='user' 不满足）
-    const scheduledAt = readWaitingScheduledAt();
-    writePendingInboxMessage({
-      id: 'sys-new',
-      from: 'system',
-      timestamp: new Date(Date.parse(scheduledAt) + 1000).toISOString(),
-    });
-    computeTurnRequestFingerprint.mockResolvedValue('fp-B');
-    const run2 = eventLoop.run();
-    await vi.advanceTimersByTimeAsync(5);  // 未到期：系统消息不放行
-    expect(processTurn).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(100);  // 到期一次 probe
-    await run2;
-
-    expect(processTurn).toHaveBeenCalledTimes(2);
-    expect(audit.entries.some(e => e.some(c => String(c) === 'action=released'))).toBe(false);
-    const notices = audit.entries.filter(e =>
-      e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN && e.some(c => String(c) === 'action=quota_notice'));
-    expect(notices.length).toBeGreaterThanOrEqual(1);
-  });
 });
 
-/**
- * Phase 1396 Step E: EventLoop 执行停滞恢复集成 —— run() tick 起点 observe。
- * 只经自身 inbox resume / Step D failure sink，EventLoop 不直接改 contract。
- */
 describe('EventLoop execution recovery (phase 1396 Step E)', () => {
   let baseDir: string;
   let agentDir: string;
@@ -2173,7 +1148,9 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       reactiveTrim: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn(),
       computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+      peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+      peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+      consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
     } as unknown as Runtime;
   }
 

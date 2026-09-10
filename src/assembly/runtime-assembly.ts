@@ -48,6 +48,8 @@ interface RuntimeAssemblyOutput {
   streamWriter: StreamWriter;
   runtime: Runtime;
   executionRecovery: EventLoopExecutionRecoveryDeps;
+  /** Phase 1826: 前台恢复 session（daemon 把调度 capability 传给 EventLoop）。 */
+  recoverySession: import('../foundation/llm-orchestrator/index.js').LLMRecoverySession;
 }
 
 export async function createRuntimeAssembly(
@@ -57,7 +59,7 @@ export async function createRuntimeAssembly(
   const { clawDir, identity, clawId } = config;
   const isMotion = identity === 'motion';
   const {
-    systemFs, auditWriter, llm, llmConfig,
+    systemFs, auditWriter, recoverySession, llmConfig,
     maxSteps, toolProfile, idleTimeoutMs, toolTimeoutMs,
     skillRegistry, contractManager, fsFactory, streamWriter,
   } = core;
@@ -161,7 +163,9 @@ export async function createRuntimeAssembly(
       fsFactory,
       systemFs,
       auditWriter,
-      llm,
+      // Phase 1826: 前台 Runtime 使用 owner 的范围视图（scoped 调用反馈归恢复 session）；
+      // 原 orchestrator 仍供子代理/工具/契约等既有注入点使用。
+      llm: recoverySession.llm,
       contractManager,
       taskSystem,
       permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造
@@ -236,7 +240,7 @@ export async function createRuntimeAssembly(
       isAsyncTaskInFlight: async () => taskSystem.getRunningCount() > 0,
     };
 
-    return { snapshot, streamWriter, runtime, executionRecovery };
+    return { snapshot, streamWriter, runtime, executionRecovery, recoverySession };
   } catch (e) {
     streamWriter.close();
     throw e;

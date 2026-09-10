@@ -20,12 +20,11 @@ describe('LLMInvalidRequestError owner boundary', () => {
     expect('LLMInvalidRequestError' in orchestratorErrors).toBe(false);
   });
 
-  it('is consumed from owner by EventLoop and remains permanent', () => {
-    for (const source of [eventLoopSource, eventLoopTestSource]) {
-      expect(source).toMatch(
-        /import\s*\{[^}]*LLMInvalidRequestError[^}]*\}\s*from\s*['"][^'"]*foundation\/llm-provider\/index\.js['"]/s,
-      );
-    }
+  it('is consumed by the recovery owner and remains permanent', () => {
+    // Phase 1826: provider 类错误的消费方是 LLMOrchestrator（恢复 owner）；
+    // EventLoop 不再消费/导入该类（provider 类阻断不再归 EventLoop）。
+    expect(eventLoopSource).not.toMatch(/LLMInvalidRequestError/);
+    expect(eventLoopTestSource).not.toMatch(/LLMInvalidRequestError/);
     const error = new LLMInvalidRequestError('openai', 'invalid_unicode');
     expect(orchestratorErrors.classifyLLMError(error)).toBe('permanent');
   });

@@ -109,7 +109,7 @@ export async function assemble(
     // 详 src/assembly/business-systems.ts (phase 37 rename motionInbox{Dir} → selfInbox{Dir} 命名 hygiene)
     const business = await createBusinessSystems({ core, contributions });
 
-    const { snapshot, streamWriter: sw, runtime, executionRecovery } = await createRuntimeAssembly({ core, business, config });
+    const { snapshot, streamWriter: sw, runtime, executionRecovery, recoverySession } = await createRuntimeAssembly({ core, business, config });
     streamWriter = sw;
 
     // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）
@@ -143,6 +143,7 @@ export async function assemble(
       auditWriter,
       heartbeat,
       executionRecovery,
+      recoverySession,
       dispose: (signal: string) => disassemble({
         gateway,
         runtime,

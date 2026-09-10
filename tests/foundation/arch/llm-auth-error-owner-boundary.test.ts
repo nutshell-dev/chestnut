@@ -4,8 +4,8 @@ import { LLMAuthError } from '../../../src/foundation/llm-provider/index.js';
 import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/index.js';
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
+// Phase 1826: EventLoop 不再消费 LLMAuthError（provider 类阻断归 LLMOrchestrator owner）。
 const sources = [
-  '../../../tests/core/event-loop/event-loop.test.ts',
   '../../../tests/foundation/llm-orchestrator/hedge.test.ts',
   '../../../tests/foundation/llm-orchestrator/orchestrator-misc-invariants.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));

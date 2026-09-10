@@ -19,36 +19,19 @@ export const UNKNOWN_ERROR_RECOVERY_DELAY_MS = 1000;
  */
 export const INBOX_FALLBACK_TIMEOUT_MS_DEFAULT = 30000;
 
-/** LLM 重试最大次数 */
-export const LLM_MAX_RETRIES = 3;
-
-/** LLM 重试初始退避延迟 (ms) */
-export const LLM_RETRY_INITIAL_DELAY_MS = 30_000;
-
-/** LLM 重试退避延迟上限 (ms) */
-export const LLM_RETRY_MAX_DELAY_MS = 300_000;
+/**
+ * Phase 1826: context trim 后的有界重试（EventLoop 自有的上下文语义；
+ * LLM provider 的恢复安排已归 LLMOrchestrator，不再共用预算/曲线）。
+ * Derivation: 3 次预算 + 30s 起翻倍 cap 5min —— 沿用 phase 1153/1268 的既有值。
+ */
+export const CONTEXT_TRIM_RETRY_MAX = 3;
+export const CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS = 30_000;
+export const CONTEXT_TRIM_RETRY_MAX_DELAY_MS = 300_000;
 
 /**
- * Phase 1268 Step B: LLM 重试预算耗尽后的 cooldown 等待时长 (ms)。
- * Derivation: 300000ms = 5min 持续限流的保守恢复间隔 / 到期仅一次 probe，
- * 避免“每 cooldown 刷一批”重建刷屏周期 / 不复用 LLM_RETRY_MAX_DELAY_MS
- * （语义不同：backoff cap 截断单次退避，cooldown 是耗尽后的完整等待，
- * 服务端更长 Retry-After 时不得被 cap 截短）。
+ * LLM retry state 持久化文件名（phase 1826：仅用于旧 owner 迁移读取，
+ * EventLoop 不再写入；迁移后文件原文保留为只读证据）。
  */
-export const LLM_COOLDOWN_MS = 300_000;
-
-/**
- * phase 1776 Step C + phase 1777 Step B: quota（配额时间窗）独立退避曲线（ms）。
- * Derivation: 2min 起、每次 probe 失败翻倍（4/8）、cap 8min——恢复检测最坏 8min
- * （原 10min 起 cap 60min，1777 用户拍板缩短：配额恢复后应尽快继续）；quota
- * 拒绝不耗配额 token、快速失败，分钟级探测成本可接受（每小时 ≤15 次失败请求；
- * 若仍嫌频繁可放宽备选 300s/900s）；quota 不进 retry 预算（llmRetryCount 不消耗）、
- * 指纹变化不释放（内容与时间窗无关，1777 Step C 例外：waiting 期间新 user 消息放行一次探测）。
- */
-export const LLM_QUOTA_INITIAL_DELAY_MS = 120_000;
-export const LLM_QUOTA_MAX_DELAY_MS = 480_000;
-
-/** LLM retry state 持久化文件名 */
 export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;
 
 /** Phase 1154: LLM-request blocked state 持久化文件名 */

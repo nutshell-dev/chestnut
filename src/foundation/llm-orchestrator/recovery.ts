@@ -92,13 +92,13 @@ export interface LLMRecoveryController {
   inspect(): Promise<LLMRecoverySchedule>;
   begin(input: { requestKey: string; trigger: LLMRecoveryTrigger }): Promise<LLMRecoveryAdmission>;
   finish(attemptId: string, outcome: 'completed' | 'interrupted' | 'failed'): Promise<void>;
+  /** 迁移期：幂等导入旧 owner 的中性导出数据（旧等待保持原 resumeAt）。 */
+  adoptLegacy(legacy: LegacyRecoveryExport): { kind: 'imported' | 'already_imported' };
 }
 
 export interface LLMRecoverySession extends LLMRecoveryController {
   /** 绑定本 scope 的 LLM 调用视图（同一 owner 的范围视图，非另建实例）。 */
   readonly llm: LLMOrchestrator;
-  /** 迁移期：幂等导入旧 owner 的中性导出数据。 */
-  adoptLegacy(legacy: LegacyRecoveryExport): { kind: 'imported' | 'already_imported' };
 }
 
 export interface RecoverySessionDeps {

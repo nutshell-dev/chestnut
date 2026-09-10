@@ -8,7 +8,7 @@
 import * as path from 'path';
 import { randomHex, sha256Hex } from '../../foundation/node-utils/index.js';
 
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
@@ -89,6 +89,21 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value));
 }
 
+/**
+ * Phase 1826: 配置身份修订（不透明指纹，不入明文凭据）。
+ * Runtime 用它幂等应用 reload：同修订不重复替换 provider/breaker。
+ */
+function computeConfigRevision(config: LLMOrchestratorConfig): string {
+  const identities = [config.primary, ...(config.fallbacks ?? [])].map(c => [
+    c.name ?? '',
+    c.apiFormat ?? '',
+    c.model ?? '',
+    c.baseUrl ?? '',
+    c.apiKey ? sha256Hex(c.apiKey).slice(0, 8) : '',
+  ].join('|'));
+  return sha256Hex(identities.join(';')).slice(0, 16);
+}
+
 // phase 1406: extractLastTurn 迁出 → foundation/dialog-store/regime-switch.ts（per M#2 业务归属）
 
 /**
@@ -153,6 +168,8 @@ export class Runtime {
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
   // phase 1190：上下文管理器运行时配置（filterSubtypes 已移除）
   private contextTrimmingEnabled: boolean;
+  /** Phase 1826: 已应用的配置身份修订（幂等 reload 防重复替换 breaker）。 */
+  private appliedConfigRevision?: string;
   /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
   private lastLLMCallAt: number = 0;
   constructor(options: RuntimeOptions) {
@@ -563,33 +580,56 @@ export class Runtime {
    * - reload 消息无视 to 字段（reload 是「daemon 自家配置」、to 无意义）
    * - 所有 reload 消息一律 ack（成功 / 失败 / skipped 都已消费、不留在 inflight）
    */
+  /**
+   * Phase 1826: 应用磁盘上的最新 LLM 配置，返回配置身份修订。
+   * - 重复 revision 不重复 reloadConfig（防二次重载清空 breaker 失败历史）。
+   * - 失败以 audit 暴露并返回 undefined（调用方不据此放行新的尝试）。
+   */
+  private _applyConfigReload(triggeredBy: number): string | undefined {
+    if (!this.options.configReloader) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
+        `count=${triggeredBy}`,
+        `reason=no_reloader_configured`,
+      );
+      return undefined;
+    }
+    try {
+      const newConfig = this.options.configReloader();
+      const revision = computeConfigRevision(newConfig);
+      if (revision === this.appliedConfigRevision) {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
+          `count=${triggeredBy}`,
+          `reason=already_applied`,
+          `revision=${revision}`,
+        );
+        return revision;
+      }
+      this.llm.reloadConfig(newConfig);
+      this.appliedConfigRevision = revision;
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
+        `provider=${newConfig.primary.name ?? 'unknown'}`,
+        `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
+        `triggered_by=${triggeredBy}`,
+        `revision=${revision}`,
+      );
+      return revision;
+    } catch (err) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
+        `reason=${formatErr(err)}`,
+      );
+      return undefined;
+    }
+  }
+
   private async _handleReloadEntries(reloadEntries: InboxEntry[], handles: InboxHandle[]): Promise<void> {
     const reloadPaths = new Set(reloadEntries.map(e => e.filePath));
     const reloadHandles = handles.filter(h => reloadPaths.has(h.filePath));
 
-    if (!this.options.configReloader) {
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.LLM_RELOAD_SKIPPED,
-        `count=${reloadEntries.length}`,
-        `reason=no_reloader_configured`,
-      );
-    } else {
-      try {
-        const newConfig = this.options.configReloader();
-        this.llm.reloadConfig(newConfig);
-        this.auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.LLM_RELOADED,
-          `provider=${newConfig.primary.name ?? 'unknown'}`,
-          `fallbacks=${newConfig.fallbacks?.length ?? 0}`,
-          `triggered_by=${reloadEntries.length}`,
-        );
-      } catch (err) {
-        this.auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.LLM_RELOAD_FAILED,
-          `reason=${formatErr(err)}`,
-        );
-      }
-    }
+    this._applyConfigReload(reloadEntries.length);
 
     for (const h of reloadHandles) {
       try {
@@ -1142,6 +1182,41 @@ export class Runtime {
    * Controls (reload_llm_config) are included in the fingerprint because they can
    * change provider configuration and therefore must unblock a gated claw.
    */
+  /**
+   * Phase 1826: 尚未处理的用户干预身份（用户来源消息 id 列表）。
+   * EventLoop 只用不透明 id 向 owner 请求准入；正文仍在正常 drain 进入上下文。
+   */
+  async peekPendingInterventionFacts(): Promise<{ userIds: string[] }> {
+    if (!this.inboxReader) {
+      throw new Error('Runtime not initialized: inboxReader unavailable');
+    }
+    const view = await this.inboxReader.peekPending();
+    const userIds = view.entries
+      .filter(e => e.message.type === 'user_chat' || e.message.type === 'user_inbox_message')
+      .filter(e => !e.message.to || e.message.to === this.options.clawId)
+      .map(e => e.message.id);
+    return { userIds };
+  }
+
+  /**
+   * Phase 1826: 等待期间的 Runtime 控制入口。
+   * 应用磁盘上的最新 LLM 配置并返回配置身份修订；不 claim/ack 消息（仍留在
+   * pending，由正常 drain 消费一次），也不搬动普通消息。
+   */
+  async consumePendingControls(): Promise<{ consumed: number; configRevision?: string }> {
+    if (!this.inboxReader) {
+      throw new Error('Runtime not initialized: inboxReader unavailable');
+    }
+    const view = await this.inboxReader.peekPending();
+    const controls = view.entries.filter(e => e.message.type === RELOAD_LLM_CONFIG_MESSAGE_TYPE);
+    if (controls.length === 0) return { consumed: 0 };
+    const revision = this._applyConfigReload(controls.length);
+    return {
+      consumed: controls.length,
+      ...(revision !== undefined ? { configRevision: revision } : {}),
+    };
+  }
+
   async peekPendingTurnFacts(): Promise<PendingTurnFacts> {
     if (!this.inboxReader) {
       throw new Error('Runtime not initialized: inboxReader unavailable');

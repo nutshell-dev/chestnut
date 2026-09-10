@@ -247,7 +247,9 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         reactiveTrim,
         abort: vi.fn(),
         computeTurnRequestFingerprint: vi.fn().mockResolvedValue('fp'),
-        peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [], controls: [] }),
+        peekPendingTurnFacts: vi.fn().mockResolvedValue({ addressed: [{ id: 'pending-1' } as InboxMessage], controls: [] }),
+        peekPendingInterventionFacts: vi.fn().mockResolvedValue({ userIds: [] }),
+        consumePendingControls: vi.fn().mockResolvedValue({ consumed: 0 }),
       } as unknown as Runtime;
 
       const eventLoop = new EventLoop({

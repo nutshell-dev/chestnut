@@ -4,11 +4,11 @@ import { LLMRateLimitError } from '../../../src/foundation/llm-provider/index.js
 import * as orchestratorBarrel from '../../../src/foundation/llm-orchestrator/index.js';
 import * as orchestratorErrors from '../../../src/foundation/llm-orchestrator/errors.js';
 
+// Phase 1826: EventLoop 不再消费 LLMRateLimitError（Retry-After 提取与退避解释
+// 唯一归 LLMOrchestrator 恢复 owner）。
 const sources = [
   '../../../src/foundation/llm-orchestrator/orchestrator.ts',
-  '../../../src/core/event-loop/event-loop.ts',
   '../../../tests/foundation/llm-orchestrator/hedge.test.ts',
-  '../../../tests/core/event-loop/event-loop.test.ts',
   '../../../tests/foundation/llm.test.ts',
 ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
 const sdkSource = readFileSync(new URL('../../../src/index.ts', import.meta.url), 'utf8');

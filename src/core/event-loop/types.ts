@@ -2,7 +2,7 @@ import type { AuditLog, TraceId } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js';
-import type { InboxHandle } from '../../foundation/messaging/index.js';
+import type { InboxHandle, InboxMessage } from '../../foundation/messaging/index.js';
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { StreamCallbacks } from '../agent-executor/index.js';
@@ -26,6 +26,12 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
   ackHandles(handles: InboxHandle[], path: string): Promise<void>;
   nackHandles(handles: InboxHandle[], reason: string, path: string): Promise<void>;
   computeTurnRequestFingerprint(): Promise<string>;
+  /** Phase 1153: 只读 pending 事实（准入前空工作检查）。 */
+  peekPendingTurnFacts(): Promise<{ addressed: InboxMessage[]; controls: InboxMessage[] }>;
+  /** Phase 1826: 尚未处理的用户干预身份（用户来源消息 id 列表，不透明）。 */
+  peekPendingInterventionFacts(): Promise<{ userIds: string[] }>;
+  /** Phase 1826: 等待期间的 Runtime 控制入口（应用最新配置并返回身份修订）。 */
+  consumePendingControls(): Promise<{ consumed: number; configRevision?: string }>;
   drainInbox(): Promise<{
     injected: Message[];
     sources: Array<{ text: string; type: string }>;
@@ -146,4 +152,9 @@ export interface EventLoopOptions {
   streamWriter?: StreamWriter;
   onBatchComplete?: () => Promise<void>;
   executionRecovery?: EventLoopExecutionRecoveryDeps;
+  /**
+   * Phase 1826: LLM 恢复安排 owner 的窄 capability（装配期注入）。
+   * EventLoop 只消费 ready/at/on_change 与一次尝试准入；不注入时不做准入。
+   */
+  recovery?: import('../../foundation/llm-orchestrator/index.js').LLMRecoveryController;
 }

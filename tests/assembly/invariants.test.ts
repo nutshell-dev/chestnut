@@ -115,6 +115,14 @@ vi.mock('../../src/foundation/fs/node-fs.js', () => ({
     realpath: vi.fn(async (p: string) => (path.isAbsolute(p) ? p : path.join(baseDir, p))),
     writeAtomic: vi.fn().mockResolvedValue(undefined),
     append: vi.fn().mockResolvedValue(undefined),
+    // Phase 1826: LLM 恢复状态 owner session 构造期读取（默认 ENOENT = 首次启动）。
+    readSync: vi.fn(() => {
+      const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    }),
+    writeAtomicSync: vi.fn(),
+    deleteSync: vi.fn(),
   })),
 }));
 

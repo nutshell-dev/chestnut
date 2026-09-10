@@ -112,6 +112,25 @@ vi.mock('../../src/foundation/fs/node-fs.js', () => ({
     listSync: vi.fn(() => []),
     list: vi.fn().mockResolvedValue([]),
     read: vi.fn().mockRejectedValue(new Error('ENOENT')),
+    // Phase 1826: LLM 恢复状态读写（owner session 构造期读状态文件；默认 ENOENT = 首次启动）。
+    readSync: vi.fn((p: string) => {
+      const full = path.join(baseDir, p);
+      if (!fs.existsSync(full)) {
+        const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      }
+      return fs.readFileSync(full, 'utf-8');
+    }),
+    writeAtomicSync: vi.fn((p: string, content: string) => {
+      const full = path.join(baseDir, p);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content);
+    }),
+    deleteSync: vi.fn((p: string) => {
+      const full = path.join(baseDir, p);
+      if (fs.existsSync(full)) fs.unlinkSync(full);
+    }),
     writeAtomic: vi.fn().mockResolvedValue(undefined),
     move: vi.fn().mockResolvedValue(undefined),
     // phase 1818: createClawPermissionChecker 构造期必需 canonical resolve capability，

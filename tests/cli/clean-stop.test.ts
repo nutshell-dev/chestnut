@@ -120,13 +120,11 @@ describe('Phase 86: clean stop 生命周期修复', () => {
       expect(cleanStopIdx).toBeGreaterThan(-1);
     });
 
-    it('clean stop 后应跳过 llm-retry-state 加载', () => {
-      // 找到 !isCleanStop 条件块
-      const condIdx = eventLoopSource.indexOf('!isCleanStop');
-      expect(condIdx).toBeGreaterThan(-1);
-      const condBlock = eventLoopSource.slice(condIdx, condIdx + 300);
-      // phase 783: _loadLlmRetryState 被调于 !isCleanStop 块内，LLM_RETRY_STATE_FILE 在其方法体内
-      expect(condBlock).toContain('_loadLlmRetryState');
+    it('clean stop 不再清除已决定的 LLM 恢复等待（phase 1826：特例移除）', () => {
+      // 旧「clean stop 跳过 llm-retry-state 加载」特例已删除：恢复安排是持久事实，
+      // 进程恢复与 clean-stop 都不清除；旧文件仅由迁移读取（_readLegacyRecoveryExport）。
+      expect(eventLoopSource).not.toContain('!isCleanStop');
+      expect(eventLoopSource).toContain('_readLegacyRecoveryExport');
     });
 
     it('标记文件应被一次性消费（deleteSync）', () => {

@@ -33,6 +33,15 @@ function makeMockAudit() {
   };
 }
 
+function makeMockRecovery() {
+  return {
+    inspect: vi.fn().mockResolvedValue({ kind: 'ready', revision: 1 }),
+    begin: vi.fn().mockResolvedValue({ kind: 'admitted', attemptId: 'att-test' }),
+    finish: vi.fn().mockResolvedValue(undefined),
+    adoptLegacy: vi.fn().mockReturnValue({ kind: 'imported' }),
+  };
+}
+
 function makeEventLoop(agentDir: string, audit: AuditLog, runtime?: Partial<Runtime>) {
   return new EventLoop({
     runtime: (runtime ?? {
@@ -52,6 +61,9 @@ function makeEventLoop(agentDir: string, audit: AuditLog, runtime?: Partial<Runt
     clawId: 'llm-retry-test',
     audit,
     inbox: { pendingDir: path.join(agentDir, 'inbox', 'pending'), fallbackTimeoutMs: 1_000 },
+    // Phase 1826: 旧 LLM 恢复状态由旧 owner 读取导出、owner 幂等导入；
+    // 无 owner 注入时不做迁移读取（也不产生 load 类 audit）。
+    recovery: makeMockRecovery(),
   });
 }
 

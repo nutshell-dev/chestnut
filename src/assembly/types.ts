@@ -44,6 +44,8 @@ export interface Instances {
   readonly heartbeat?: Heartbeat;     // motion + heartbeat_interval_ms > 0
   /** Phase 1396 Step E: EventLoop 执行停滞恢复的 probe/sink（daemon 传给 EventLoop）。 */
   readonly executionRecovery?: EventLoopExecutionRecoveryDeps;
+  /** Phase 1826: 前台 LLM 恢复安排 session（daemon 把调度 capability 传给 EventLoop）。 */
+  readonly recoverySession?: import('../foundation/llm-orchestrator/index.js').LLMRecoverySession;
   /** Dispose exactly the private resources constructed for this assembly session. */
   readonly dispose: (signal: string) => Promise<void>;
 }

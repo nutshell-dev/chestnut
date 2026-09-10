@@ -1,204 +1,112 @@
 /**
- * daemon-loop saveLlmRetryState atomic tmp+rename + fsync (phase 1024 G.1 + phase 1214)
+ * Phase 1826: LLM 恢复状态的持久化原子性与迁移交接。
+ *
+ * 旧 daemon-loop saveLlmRetryState（EventLoop 自持）的 tmp+rename+fsync 语义
+ * 已迁至 owner（LLMOrchestrator recovery-state）；本文件断言 owner 落盘仍为
+ * 原子写（无 .tmp 残留、崩溃不产生半截状态），且旧 EventLoop 状态文件由新
+ * owner 导入后原文保留（只读迁移证据）。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fsNative from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import {
+  LLM_RECOVERY_STATE_FILE,
+  createInitialRecoveryState,
+  loadRecoveryState,
+  saveRecoveryState,
+} from '../../src/foundation/llm-orchestrator/index.js';
+import type { LLMRecoveryBudget } from '../../src/foundation/llm-orchestrator/index.js';
+
 const STATUS_SUBDIR = 'status';
 
-// phase 1214: mock fsyncSync to verify invocation in ESM
-let mockFsyncSync = vi.fn();
-vi.mock('fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('fs')>();
-  return {
-    ...actual,
-    fsyncSync: (...args: any[]) => mockFsyncSync(...args),
-  };
-});
+function budget(): LLMRecoveryBudget {
+  return { retryCount: 0, retryDelayMs: 30_000, quotaDelayMs: 120_000 };
+}
 
-import * as fsNative from 'fs';
-
-describe('saveLlmRetryState atomic tmp+rename + fsync (phase 1024 G.1 + phase 1214)', () => {
+describe('LLM recovery state atomic persistence (phase 1826)', () => {
   let agentDir: string;
-  let llmRetryStateFile: string;
+  let fs: NodeFileSystem;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
-    agentDir = path.join(os.tmpdir(), `daemon-atomic-test-${randomUUID()}`);
-    fsNative.mkdirSync(agentDir, { recursive: true });
-    llmRetryStateFile = path.join(agentDir, STATUS_SUBDIR, 'llm-retry-state.json');
-    mockFsyncSync = vi.fn();
+    agentDir = fsNative.mkdtempSync(path.join(os.tmpdir(), `recovery-atomic-${randomUUID()}-`));
+    fs = new NodeFileSystem({ baseDir: agentDir });
   });
 
   afterEach(() => {
     fsNative.rmSync(agentDir, { recursive: true, force: true });
-    vi.clearAllMocks();
   });
 
-  it('writes tmp file with .pid.timestamp.tmp suffix then renames to final', () => {
-    const llmRetryCount = 3;
-    const llmRetryDelayMs = 5000;
-    const llmRetryPending = true;
+  it('writes atomically: no tmp file left behind, content readable', () => {
+    const state = createInitialRecoveryState('foreground', budget(), Date.now());
+    saveRecoveryState(fs, state);
 
-    // Inline helper (replicated from daemon-loop.ts)
-    const saveLlmRetryState = () => {
-      try {
-        fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-        const tmpFile = `${llmRetryStateFile}.${process.pid}.${Date.now()}.tmp`;
-        fsNative.writeFileSync(tmpFile, JSON.stringify({
-          llmRetryCount,
-          llmRetryDelayMs,
-          llmRetryPending,
-        }));
-        const fd = fsNative.openSync(tmpFile, 'r+');
-        try {
-          fsNative.fsyncSync(fd);
-        } finally {
-          fsNative.closeSync(fd);
-        }
-        fsNative.renameSync(tmpFile, llmRetryStateFile);
-      } catch { /* Ignore */ }
-    };
-
-    saveLlmRetryState();
-
-    // Verify final file readable and intact
-    const saved = JSON.parse(fsNative.readFileSync(llmRetryStateFile, 'utf-8'));
-    expect(saved.llmRetryCount).toBe(3);
-    expect(saved.llmRetryDelayMs).toBe(5000);
-    expect(saved.llmRetryPending).toBe(true);
-
-    // Verify no tmp file left behind
     const statusDir = path.join(agentDir, STATUS_SUBDIR);
     const files = fsNative.readdirSync(statusDir);
-    expect(files).toHaveLength(1);
-    expect(files[0]).toBe('llm-retry-state.json');
+    expect(files).toEqual([LLM_RECOVERY_STATE_FILE]);
+
+    const loaded = loadRecoveryState(fs, 'foreground');
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind === 'ok') expect(loaded.state.scopeId).toBe('foreground');
   });
 
-  it('survives crash mid-write (tmp file left, final file absent or old)', () => {
-    fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
+  it('a crash mid-write leaves the previous full state intact', () => {
+    const first = createInitialRecoveryState('foreground', budget(), Date.now());
+    saveRecoveryState(fs, first);
 
-    // Pre-existing old valid file
-    fsNative.writeFileSync(llmRetryStateFile, JSON.stringify({ llmRetryCount: 0, llmRetryDelayMs: 1000, llmRetryPending: false }));
+    // 模拟崩溃残留：一个未 rename 的临时文件（writeAtomicSync 的 tmp 前缀形状）。
+    const statusDir = path.join(agentDir, STATUS_SUBDIR);
+    fsNative.writeFileSync(path.join(statusDir, '.tmp_partial_write'), '{半截');
 
-    // Simulate crash: write tmp but no rename
-    const tmpFile = `${llmRetryStateFile}.${process.pid}.${Date.now()}.tmp`;
-    fsNative.writeFileSync(tmpFile, JSON.stringify({ llmRetryCount: 99, llmRetryDelayMs: 9999, llmRetryPending: true }));
-    // "crash" — no renameSync
-
-    // Final file should still be the old valid one
-    const saved = JSON.parse(fsNative.readFileSync(llmRetryStateFile, 'utf-8'));
-    expect(saved.llmRetryCount).toBe(0);
-
-    // Clean up tmp
-    fsNative.unlinkSync(tmpFile);
+    const loaded = loadRecoveryState(fs, 'foreground');
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind === 'ok') expect(loaded.state.revision).toBe(first.revision);
   });
 
-  it('tmp file naming contains pid and timestamp', () => {
-    const capturedTmpFiles: string[] = [];
+  it('replacement write swaps state in whole, never partially', () => {
+    const first = createInitialRecoveryState('foreground', budget(), Date.now());
+    saveRecoveryState(fs, first);
 
-    const saveLlmRetryState = () => {
-      try {
-        fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-        const tmpFile = `${llmRetryStateFile}.${process.pid}.${Date.now()}.tmp`;
-        capturedTmpFiles.push(tmpFile);
-        fsNative.writeFileSync(tmpFile, JSON.stringify({ llmRetryCount: 1, llmRetryDelayMs: 1000, llmRetryPending: false }));
-        const fd = fsNative.openSync(tmpFile, 'r+');
-        try {
-          fsNative.fsyncSync(fd);
-        } finally {
-          fsNative.closeSync(fd);
-        }
-        fsNative.renameSync(tmpFile, llmRetryStateFile);
-      } catch { /* Ignore */ }
+    const second = {
+      ...first,
+      revision: 9,
+      schedule: { kind: 'at' as const, revision: 9, resumeAt: new Date(Date.now() + 60_000).toISOString() },
     };
+    saveRecoveryState(fs, second);
 
-    saveLlmRetryState();
-
-    expect(capturedTmpFiles).toHaveLength(1);
-    expect(capturedTmpFiles[0]).toMatch(/\.\d+\.\d+\.tmp$/);
-    expect(capturedTmpFiles[0]).toContain(String(process.pid));
+    const loaded = loadRecoveryState(fs, 'foreground');
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind === 'ok') {
+      expect(loaded.state.revision).toBe(9);
+      expect(loaded.state.schedule.kind).toBe('at');
+    }
+    // 目标文件之外的临时残留不产生第二份状态
+    const files = fsNative.readdirSync(path.join(agentDir, STATUS_SUBDIR)).filter(f => !f.startsWith('.tmp_'));
+    expect(files).toEqual([LLM_RECOVERY_STATE_FILE]);
   });
 
-  // phase 1214 反向测试
-  it('反向 1：fsyncSync is invoked on tmp file before rename', () => {
-    let capturedFd: number | null = null;
-    mockFsyncSync = vi.fn((fd: number) => {
-      capturedFd = fd;
+  it('legacy llm-retry-state.json stays untouched as migration evidence', () => {
+    // 旧 EventLoop 文件名仍在：迁移只读取，不删除、不覆写。
+    const legacyPath = path.join(agentDir, STATUS_SUBDIR, 'llm-retry-state.json');
+    fsNative.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    const legacyRaw = JSON.stringify({
+      schema_version: 2,
+      llmRetryCount: 1,
+      llmRetryDelayMs: 30_000,
+      llmRetryPending: false,
+      waiting: null,
     });
+    fsNative.writeFileSync(legacyPath, legacyRaw);
 
-    const saveLlmRetryState = () => {
-      try {
-        fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-        const tmpFile = `${llmRetryStateFile}.${process.pid}.${Date.now()}.tmp`;
-        fsNative.writeFileSync(tmpFile, JSON.stringify({ llmRetryCount: 1, llmRetryDelayMs: 1000, llmRetryPending: false }));
-        const fd = fsNative.openSync(tmpFile, 'r+');
-        try {
-          fsNative.fsyncSync(fd);
-        } finally {
-          fsNative.closeSync(fd);
-        }
-        fsNative.renameSync(tmpFile, llmRetryStateFile);
-      } catch { /* Ignore */ }
-    };
+    const state = createInitialRecoveryState('foreground', budget(), Date.now());
+    saveRecoveryState(fs, state);
 
-    saveLlmRetryState();
-
-    expect(mockFsyncSync).toHaveBeenCalledTimes(1);
-    expect(capturedFd).not.toBeNull();
-  });
-
-  it('反向 2：fsyncSync failure bubbles to outer catch (not silently swallowed)', () => {
-    mockFsyncSync = vi.fn(() => {
-      throw new Error('simulated fsync failure');
-    });
-
-    const saveLlmRetryState = () => {
-      try {
-        fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-        const tmpFile = `${llmRetryStateFile}.${process.pid}.${Date.now()}.tmp`;
-        fsNative.writeFileSync(tmpFile, JSON.stringify({ llmRetryCount: 1, llmRetryDelayMs: 1000, llmRetryPending: false }));
-        const fd = fsNative.openSync(tmpFile, 'r+');
-        try {
-          fsNative.fsyncSync(fd);
-        } finally {
-          fsNative.closeSync(fd);
-        }
-        fsNative.renameSync(tmpFile, llmRetryStateFile);
-      } catch (e) {
-        throw e;
-      }
-    };
-
-    expect(() => saveLlmRetryState()).toThrow('simulated fsync failure');
-    expect(fsNative.existsSync(llmRetryStateFile)).toBe(false);
-  });
-
-  it('反向 3：concurrent read sees old or full content, never partial', () => {
-    fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-    fsNative.writeFileSync(llmRetryStateFile, JSON.stringify({ llmRetryCount: 0, llmRetryDelayMs: 1000, llmRetryPending: false }));
-
-    const saveLlmRetryState = () => {
-      try {
-        fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-        const tmpFile = `${llmRetryStateFile}.${process.pid}.${Date.now()}.tmp`;
-        fsNative.writeFileSync(tmpFile, JSON.stringify({ llmRetryCount: 42, llmRetryDelayMs: 2000, llmRetryPending: true }));
-        const fd = fsNative.openSync(tmpFile, 'r+');
-        try {
-          fsNative.fsyncSync(fd);
-        } finally {
-          fsNative.closeSync(fd);
-        }
-        fsNative.renameSync(tmpFile, llmRetryStateFile);
-      } catch { /* Ignore */ }
-    };
-
-    saveLlmRetryState();
-
-    // After rename, read should see new full content
-    const saved = JSON.parse(fsNative.readFileSync(llmRetryStateFile, 'utf-8'));
-    expect(saved.llmRetryCount).toBe(42);
+    expect(fsNative.readFileSync(legacyPath, 'utf-8')).toBe(legacyRaw);
+    expect(
+      fsNative.existsSync(path.join(agentDir, STATUS_SUBDIR, LLM_RECOVERY_STATE_FILE)),
+    ).toBe(true);
   });
 });

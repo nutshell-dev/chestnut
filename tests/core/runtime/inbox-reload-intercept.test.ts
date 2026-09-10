@@ -147,6 +147,8 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
       expect.stringContaining('provider=reloaded-primary'),
       expect.stringContaining('fallbacks=0'),
       expect.stringContaining('triggered_by=1'),
+      // Phase 1826: 应用时记录配置身份修订（owner 借此重新评估、重复修订不重放）。
+      expect.stringContaining('revision='),
     );
   });
 
@@ -216,6 +218,7 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
       expect.anything(),
       expect.anything(),
       expect.stringContaining('triggered_by=3'),
+      expect.stringContaining('revision='),
     );
   });
 

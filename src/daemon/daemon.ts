@@ -119,7 +119,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       process.exit(1);
     }
 
-    const { runtime, streamWriter, snapshot, auditWriter, heartbeat, executionRecovery } = instances;
+    const { runtime, streamWriter, snapshot, auditWriter, heartbeat, executionRecovery, recoverySession } = instances;
 
     // Phase 1204 Step C：child 校验 generation identity，写 ready 事实后激活 generation。
     let generationRecord: ProcessGenerationRecord | undefined;
@@ -163,6 +163,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       streamWriter,
       // Phase 1396 Step E: 执行停滞恢复（Assembly 注入持久事实 probe + Step D failure sink）
       executionRecovery,
+      // Phase 1826: LLM 恢复安排 owner 的窄 capability（EventLoop 只执行安排与准入）
+      recovery: recoverySession,
     });
     await eventLoop.initialize();
 
