@@ -66,7 +66,8 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.STREAM_IDLE_PROBE_SUCCEEDED; provider: string }
   | { type: typeof STREAM_EVENT_NAMES.CONTEXT_EXCEEDED_FAILOVER; provider: string; stopReason: string }
   | { type: typeof STREAM_EVENT_NAMES.CONTEXT_EXCEEDED_THROWTHROUGH; provider: string }
-  | { type: typeof STREAM_EVENT_NAMES.PERMANENT_SKIP_RETRY; provider: string; attempt: number; errorClass: 'permanent' }
+  // Phase 1826: 确定性错误短路同时覆盖 permanent 与 quota（quota 走 owner 时间窗安排）。
+  | { type: typeof STREAM_EVENT_NAMES.PERMANENT_SKIP_RETRY; provider: string; attempt: number; errorClass: 'permanent' | 'quota' }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_STARTED; primary: string; fallbackChain: string[]; triggerErrorClass: LLMErrorClass }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_RECOVERED; provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
   | { type: typeof STREAM_EVENT_NAMES.HEDGE_PRIMARY_POST_FIRST_CHUNK_FAILURE; provider: string; error: Error }

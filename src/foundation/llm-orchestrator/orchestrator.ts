@@ -51,6 +51,12 @@ const MAX_BACKOFF_MS = 30_000;
  */
 const DEFAULT_STREAM_IDLE_PROBE_TIMEOUT_MS = 5_000;
 
+/** 单次调用的局部限制（由 owner 的准入决定；不改变全局配置）。 */
+interface CallLimits {
+  maxAttempts: number;
+  allowBreakerProbe: boolean;
+}
+
 const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
   'model_context_window_exceeded',  // anthropic
   'context_length_exceeded',         // openai variant
@@ -220,10 +226,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     breakerIndex: number,
     isFallback: boolean,
     options: LLMCallOptions,
+    maxAttempts: number,
   ): Promise<LLMResponse> {
     let lastError: Error | undefined;
 
-    for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
 
       const hardTimeoutMs = options.hardTimeoutMs;
@@ -271,22 +278,25 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
           type: 'provider_attempt_failed',
           provider: adapter.name,
           attempt,
-          maxAttempts: this.config.maxAttempts,
+          maxAttempts,
           error: lastError.message,
           errorClass: classifyLLMError(lastError),
           userActionHint: getUserActionHint(lastError),
           ...(getRetryAfterSec(lastError) !== undefined ? { retryAfterSec: getRetryAfterSec(lastError) } : {}),
         });
 
+        // 确定性错误（permanent / quota）立刻结束该 provider 本轮尝试，
+        // 不消耗剩余轮内预算：重试同 provider 对确定性响应无意义（quota 时间窗
+        // 恢复由 owner 的安排承担），仍继续考虑其余候选。
         const errClass = classifyLLMError(lastError);
-        if (errClass === 'permanent') {
+        if (errClass === 'permanent' || errClass === 'quota') {
           this.events.emit({ type: 'permanent_skip_retry', provider: adapter.name, attempt, errorClass: errClass });
           break;
         }
 
-        if (attempt < this.config.maxAttempts - 1) {
+        if (attempt < maxAttempts - 1) {
           const backoffMs = this.computeBackoffMs(attempt);
-          this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts: this.config.maxAttempts, backoffMs });
+          this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts, backoffMs });
           await delay(backoffMs, options.signal);
         }
       }
@@ -373,8 +383,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     scope: RecoveryCallScope | undefined,
   ): Promise<LLMResponse> {
     scope?.noteAttemptStarted();
+    // owner 的准入决定本次调用的局部预算与资格（不修改全局配置、不置可变标志）。
+    const limits = this.resolveCallLimits(scope);
     try {
-      const response = await this._callCore(options);
+      const response = await this._callCore(options, limits);
       scope?.noteSuccess();
       return response;
     } catch (error) {
@@ -387,11 +399,26 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     }
   }
 
-  private async _callCore(options: LLMCallOptions): Promise<LLMResponse> {
+  /** 从 scope 读取局部调用限制；无 scope 时使用既有全局配置（行为不变）。 */
+  private resolveCallLimits(scope: RecoveryCallScope | undefined): CallLimits {
+    if (!scope) return { maxAttempts: this.config.maxAttempts, allowBreakerProbe: false };
+    const attempt = scope.attemptContext();
+    return {
+      maxAttempts: attempt.probeOnly ? 1 : this.config.maxAttempts,
+      allowBreakerProbe: attempt.allowBreakerProbe,
+    };
+  }
+
+  private async _callCore(options: LLMCallOptions, limits: CallLimits): Promise<LLMResponse> {
+    const allowBreakerProbe = limits.allowBreakerProbe;
     const isBreakerOpen = (index: number): boolean => {
       const breaker = this.breakers[index];
       return breaker ? breaker.isOpen() : false;
     };
+    // 显式干预/启动放行的一次性资格：候选不因本地 breaker open 被跳过
+    // （仍会触发 open→half-open 状态机；成功/失败按既有语义记账，历史不重置）。
+    const isBreakerBlocking = (index: number): boolean =>
+      isBreakerOpen(index) && !allowBreakerProbe;
 
     const failures: Array<{ provider: string; error: Error }> = [];
 
@@ -401,9 +428,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       if (this.lastSuccessProvider?.isFallback) {
         stickyFb = this.fallbacks.find(fb => fb.name === this.lastSuccessProvider!.name);
         const stickyIdx = stickyFb ? this.fallbacks.indexOf(stickyFb) : -1;
-        if (stickyFb && stickyIdx >= 0 && !isBreakerOpen(stickyIdx + 1)) {
+        if (stickyFb && stickyIdx >= 0 && !isBreakerBlocking(stickyIdx + 1)) {
           try {
-            return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options);
+            return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options, limits.maxAttempts);
           } catch (err) {
             // User abort is not a provider failure — propagate immediately
             if (options.signal?.aborted || isAbortError(err)) throw err;
@@ -415,9 +442,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
 
       // Try primary
       let primaryFailed = false;
-      if (!isBreakerOpen(0)) {
+      if (!isBreakerBlocking(0)) {
         try {
-          return await this._tryCallProvider(this.primary, 0, false, options);
+          return await this._tryCallProvider(this.primary, 0, false, options, limits.maxAttempts);
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
@@ -435,7 +462,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       for (let i = 0; i < this.fallbacks.length; i++) {
         if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason);
         if (stickyFb && this.fallbacks[i].name === stickyFb.name) continue;
-        if (isBreakerOpen(i + 1)) {
+        if (isBreakerBlocking(i + 1)) {
           failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name) });
           continue;
         }
@@ -447,7 +474,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             to: this.fallbacks[i].name,
             reason: primaryFailed ? 'primary_exhausted' : 'primary_breaker_open',
           });
-          return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options);
+          return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options, limits.maxAttempts);
         } catch (err) {
           // User abort is not a provider failure — propagate immediately
           if (options.signal?.aborted || isAbortError(err)) throw err;
@@ -483,8 +510,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     scope: RecoveryCallScope | undefined,
   ): AsyncIterableIterator<LLMStreamChunk> {
     scope?.noteAttemptStarted();
+    const limits = this.resolveCallLimits(scope);
     try {
-      yield* this._streamCore(options);
+      yield* this._streamCore(options, limits);
     } catch (error) {
       if (scope && error instanceof LLMAllProvidersFailedError) {
         scope.noteFailure(this.toRecoveryFailures(error.failures));
@@ -494,11 +522,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
     scope?.noteSuccess();
   }
 
-  private async* _streamCore(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk> {
+  private async* _streamCore(
+    options: LLMCallOptions,
+    limits: CallLimits,
+  ): AsyncIterableIterator<LLMStreamChunk> {
     // Hedge gate (phase 737): breaker open + transient cause + fallbacks available → 2-track hedge
     const primaryBreakerOpen = this.breakers[0]?.isOpen() ?? false;
     const openCause = this.breakers[0]?.getOpenCause() ?? null;
-    if (primaryBreakerOpen && openCause === 'transient' && this.fallbacks.length > 0 && this.primary.stream) {
+    // 显式干预/启动放行的 probe 不走 hedge（直接在该候选上做一次真实尝试）。
+    if (primaryBreakerOpen && !limits.allowBreakerProbe && openCause === 'transient' && this.fallbacks.length > 0 && this.primary.stream) {
       yield* this._streamHedge(options);
       return;
     }
@@ -540,9 +572,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
         continue;
       }
 
-      // Check circuit breaker
+      // Check circuit breaker（显式干预/启动放行时忽略拒绝，但保留状态机推移与记账）
       const breaker = this.breakers[breakerIndex];
-      if (breaker?.isOpen()) {
+      if (breaker?.isOpen() && !limits.allowBreakerProbe) {
         skippedCount++;
         failures.push({ provider: adapter.name, error: new LLMCircuitBreakerOpenError(adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Circuit breaker open' };
@@ -564,7 +596,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let idleCtrl: AbortController | null = null;
       let cleanupSignal: (() => void) | undefined;
-      for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
+      for (let attempt = 0; attempt < limits.maxAttempts; attempt++) {
         hasYielded = false;
         receivedDone = false;
         hasContent = false;
@@ -731,17 +763,27 @@ export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwne
             type: 'provider_attempt_failed',
             provider: adapter.name,
             attempt,
-            maxAttempts: this.config.maxAttempts,
+            maxAttempts: limits.maxAttempts,
             error: err.message,
             errorClass: classifyLLMError(err),
             userActionHint: getUserActionHint(err),
             ...(getRetryAfterSec(err) !== undefined ? { retryAfterSec: getRetryAfterSec(err) } : {}),
           });
 
+          // 确定性错误（permanent / quota）立刻结束该 provider 本轮尝试，与 call 路径
+          // 使用同一策略：不重试、继续考虑其余候选（quota 时间窗恢复归 owner 安排）。
+          const handshakeErrClass = classifyLLMError(err);
+          if (handshakeErrClass === 'permanent' || handshakeErrClass === 'quota') {
+            this.events.emit({ type: 'permanent_skip_retry', provider: adapter.name, attempt, errorClass: handshakeErrClass });
+            lastError = err;
+            lastFailedProviderName = adapter.name;
+            break; // exit retry loop → outer loop continues to next provider
+          }
+
           // Don't wait after the last attempt
-          if (attempt < this.config.maxAttempts - 1) {
+          if (attempt < limits.maxAttempts - 1) {
             const backoffMs = this.computeBackoffMs(attempt);
-            this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts: this.config.maxAttempts, backoffMs });
+            this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, maxAttempts: limits.maxAttempts, backoffMs });
             await delay(backoffMs, options.signal);
           }
         }

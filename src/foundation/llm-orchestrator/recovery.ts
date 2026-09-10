@@ -57,6 +57,13 @@ export interface RecoveryCallScope {
   noteAttemptStarted(): void;
   noteSuccess(): void;
   noteFailure(failures: readonly RecoveryFailureInput[]): void;
+  /**
+   * 本次尝试的局部预算与资格（由 owner 的准入唯一决定）：
+   * - probeOnly：恢复 probe 模式，每候选至多一次真实调用（正常预算另计）；
+   * - allowBreakerProbe：显式干预/启动放行，候选不被本地 breaker 立即拒绝。
+   * 不修改全局配置、不置可变标志——同进程其他 caller 不受影响。
+   */
+  attemptContext(): { probeOnly: boolean; allowBreakerProbe: boolean };
 }
 
 /**
@@ -152,16 +159,23 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
 
     const residual = this.state.activeAdmission;
     if (residual) {
-      // 进程重启：未开始的 admission 视为未驱动（下轮重新 begin）；
-      // 已开始的只记「结果未知」，不虚构成功或失败。
-      this.state = { ...this.state, activeAdmission: null, revision: this.state.revision + 1 };
       if (residual.started) {
+        // 已开始 → 结果未知：清除句柄并留证据（不虚构成功或失败）。
+        this.state = { ...this.state, activeAdmission: null, revision: this.state.revision + 1 };
         this.pushFailure({
           at: new Date(this.now()).toISOString(),
           providerId: 'unknown',
           errorClass: 'unknown',
           message: `attempt ${residual.attemptId} result unknown after restart`,
         });
+      } else {
+        // 未开始 → 保留已授予、尚未执行的准入：下次 begin 重新驱动同一 attempt
+        // （不把未发请求算失败，也不让已记账的干预 id 吞掉这次机会）。
+        this.state = {
+          ...this.state,
+          activeAdmission: { ...residual, resumedFromRestart: true },
+          revision: this.state.revision + 1,
+        };
       }
       this.state.schedule = { ...this.state.schedule, revision: this.state.revision };
       this.commit();
@@ -226,7 +240,23 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       }
     }
 
-    if (this.state.activeAdmission) {
+    const active = this.state.activeAdmission;
+    if (active) {
+      if (!active.started && active.resumedFromRestart) {
+        // Z4：重启前已授予、尚未开始的准入 → 重新驱动同一 attempt
+        // （保留原预算/资格；清除 resumed 标记，之后的并发保护照常）。
+        active.resumedFromRestart = undefined;
+        if (dirty) this.commit();
+        this.emit({
+          type: 'recovery_attempt_admitted',
+          scope: this.scopeId,
+          revision: this.state.revision,
+          attemptId: active.attemptId,
+          trigger: 'resumed',
+          interventionCount: 0,
+        });
+        return { kind: 'admitted', attemptId: active.attemptId };
+      }
       // 同 scope 不允许并发 admission；保留当前安排交由调用方串行重试。
       if (dirty) this.commit();
       return { kind: 'waiting', schedule: { ...this.state.schedule } };
@@ -248,6 +278,12 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     }
 
     const attemptId = `att-${newUuid()}`;
+    // 局部预算/资格由本次准入唯一决定：
+    // - probeOnly：进入本次准入前存在非 ready 安排（到点/干预/配置/启动放行的恢复尝试）
+    //   → 每候选至多一次真实调用；
+    // - allowBreakerProbe：显式干预或启动放行（forceAttempt 路径）→ 不被旧 breaker 立即拒绝。
+    const probeOnly = schedule.kind !== 'ready';
+    const allowBreakerProbe = forceAttempt;
     this.state.activeAdmission = {
       attemptId,
       started: false,
@@ -255,6 +291,8 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
       triggerKind: input.trigger.kind,
       ...(input.trigger.kind === 'startup' ? { triggerId: input.trigger.id } : {}),
       ...(input.trigger.kind === 'configuration' ? { triggerId: input.trigger.revision } : {}),
+      probeOnly,
+      allowBreakerProbe,
     };
     this.state.revision += 1;
     this.state.schedule = { ...this.state.schedule, revision: this.state.revision };
@@ -318,6 +356,14 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
   // -------------------------------------------------------------------------
   // RecoveryCallScope（scoped 调用反馈）
   // -------------------------------------------------------------------------
+
+  attemptContext(): { probeOnly: boolean; allowBreakerProbe: boolean } {
+    const active = this.state.activeAdmission;
+    return {
+      probeOnly: active?.probeOnly ?? false,
+      allowBreakerProbe: active?.allowBreakerProbe ?? false,
+    };
+  }
 
   noteAttemptStarted(): void {
     const active = this.state.activeAdmission;
@@ -392,8 +438,10 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
         this.state.budget.quotaDelayMs = Math.min(delay * 2, LLM_RECOVERY_QUOTA_MAX_DELAY_MS);
         nextAtMs = minDefined(nextAtMs, nowMs + delay);
       } else if (failure.errorClass === 'rate_limit') {
+        // 服务端 Retry-After 是权威可尝试时刻：不早于其要求，也不早于独立 cooldown；
+        // 客户端 backoff cap 不截短它（旧 phase 1268 cooldown 语义，迁移时须保持）。
         const delay = failure.retryAfterSec !== undefined
-          ? Math.min(failure.retryAfterSec * 1000, LLM_RECOVERY_RETRY_MAX_DELAY_MS)
+          ? Math.max(LLM_RECOVERY_COOLDOWN_MS, failure.retryAfterSec * 1000)
           : this.state.budget.retryDelayMs;
         nextAtMs = minDefined(nextAtMs, nowMs + delay);
       } else if (failure.errorClass === 'permanent') {
