@@ -231,3 +231,30 @@ describe('downgrade export', () => {
     if (exported.kind === 'unrepresentable') expect(exported.reason).toBe('in_flight_admission');
   });
 });
+
+describe('Z 补修兼容性', () => {
+  it('补修前写入的 admission（无 probeOnly/allowBreakerProbe 字段）仍可加载', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    fsNative.mkdirSync(path.join(dir, 'status'), { recursive: true });
+    const base = createInitialRecoveryState(SCOPE, budget(), T0);
+    fsNative.writeFileSync(
+      path.join(dir, 'status', LLM_RECOVERY_STATE_FILE),
+      JSON.stringify({
+        ...base,
+        activeAdmission: {
+          attemptId: 'att-legacy',
+          started: false,
+          requestKey: 'fp',
+          triggerKind: 'intervention',
+        },
+      }),
+    );
+
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind === 'ok') {
+      expect(loaded.state.activeAdmission?.attemptId).toBe('att-legacy');
+      expect(loaded.state.activeAdmission?.probeOnly).toBeUndefined();
+    }
+  });
+});

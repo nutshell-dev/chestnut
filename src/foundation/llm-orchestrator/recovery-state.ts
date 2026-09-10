@@ -57,10 +57,16 @@ export interface LLMRecoveryAdmissionRecord {
   requestKey: string;
   triggerKind: string;
   triggerId?: string;
-  /** 恢复 probe 模式：本 attempt 每候选至多一次真实调用（正常预算另计）。 */
-  probeOnly: boolean;
-  /** 显式干预/启动放行：候选不被本地 breaker 立即拒绝（一次性、不影响其他 caller）。 */
-  allowBreakerProbe: boolean;
+  /**
+   * 恢复 probe 模式：本 attempt 每候选至多一次真实调用（正常预算另计）。
+   * 可选：Z 补修前写入的状态文件无此字段，按 false（既有行为）解释，不猜新语义。
+   */
+  probeOnly?: boolean;
+  /**
+   * 显式干预/启动放行：候选不被本地 breaker 立即拒绝（一次性、不影响其他 caller）。
+   * 可选：同上，旧文件缺省按 false 解释。
+   */
+  allowBreakerProbe?: boolean;
   /** 进程重启后恢复的、尚未开始的准入（下次 begin 重新驱动同一 attempt）。 */
   resumedFromRestart?: boolean;
 }
@@ -152,8 +158,8 @@ function isAdmission(v: unknown): v is LLMRecoveryAdmissionRecord {
   if (typeof a.started !== 'boolean') return false;
   if (typeof a.requestKey !== 'string') return false;
   if (typeof a.triggerKind !== 'string') return false;
-  if (typeof a.probeOnly !== 'boolean') return false;
-  if (typeof a.allowBreakerProbe !== 'boolean') return false;
+  if (a.probeOnly !== undefined && typeof a.probeOnly !== 'boolean') return false;
+  if (a.allowBreakerProbe !== undefined && typeof a.allowBreakerProbe !== 'boolean') return false;
   if (a.resumedFromRestart !== undefined && typeof a.resumedFromRestart !== 'boolean') return false;
   return true;
 }
