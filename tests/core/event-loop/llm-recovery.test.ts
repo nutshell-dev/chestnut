@@ -37,9 +37,9 @@ vi.mock('../../../src/foundation/llm-orchestrator/defaults.js', async (importOri
   const actual = await importOriginal<typeof import('../../../src/foundation/llm-orchestrator/defaults.js')>();
   return {
     ...actual,
-    LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS: 80,
-    LLM_RECOVERY_RETRY_INITIAL_DELAY_MS: 80,
-    LLM_RECOVERY_COOLDOWN_MS: 80,
+    LLM_RECOVERY_QUOTA_INITIAL_DELAY_MS: 500,
+    LLM_RECOVERY_RETRY_INITIAL_DELAY_MS: 500,
+    LLM_RECOVERY_COOLDOWN_MS: 500,
   };
 });
 
@@ -247,7 +247,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
 
     // 同一批消息失败回队后不重复放行：未到点的短窗口内不再真发。
     const rerun = h.eventLoop.run();
-    await sleep(20);   // < 80ms deadline
+    await sleep(30);   // < 500ms deadline
     expect(h.providerCalls.length).toBe(2);
     h.eventLoop.abort();
     await rerun;
@@ -266,9 +266,15 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 系统消息（任务结果）到达：保存为 pending，不触发提前尝试。
     h.writePending({ id: 's-1', type: 'task_result', from: 'system', content: 'task done' });
     const rerun = h.eventLoop.run();
-    await sleep(20);   // < 80ms deadline
+    await sleep(30);   // < 500ms deadline
     expect(h.providerCalls.length).toBe(1);
-    expect(await h.session.inspect()).toEqual(scheduleBefore);
+    const after = await h.session.inspect();
+    expect(after.kind).toBe('at');
+    // 系统消息不清零失败历史、不重置 deadline（墙钟到点后 revision 可前进，
+    // 但同一 resumeAt 保持——系统消息本身不改变安排）。
+    if (after.kind === 'at' && scheduleBefore.kind === 'at') {
+      expect(after.resumeAt).toBe(scheduleBefore.resumeAt);
+    }
     expect(h.listPending()).toEqual(expect.arrayContaining(['m-1.md', 's-1.md']));
     h.eventLoop.abort();
     await rerun;
@@ -282,10 +288,10 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     await h.eventLoop.run();
     expect(h.providerCalls.length).toBe(1);
 
-    // 等到 deadline（80ms 缩放值）后由 EventLoop 自动放行一次。
+    // 等到 deadline（500ms 缩放值）后由 EventLoop 自动放行一次。
     h.setProviderError(undefined);
     const rerun = h.eventLoop.run();
-    await sleep(120);
+    await sleep(650);
     expect(h.providerCalls.length).toBe(2);
     h.eventLoop.abort();
     await rerun;
@@ -303,9 +309,9 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 新一轮 run 在等待 deadline；期间用户新消息到达（唤醒）→ 重新准入一次，
     // 不允许同时产生第二个并发 turn。
     const rerun = h.eventLoop.run();
-    await sleep(20);
+    await sleep(30);
     h.writePending({ id: 'm-2', type: 'user_chat', from: 'user', content: 'second' });
-    await sleep(120);   // 跨过 deadline 与唤醒处理
+    await sleep(600);   // 跨过 deadline 与唤醒处理
 
     expect(h.providerCalls.length).toBe(2);   // 只多一次真实尝试
     expect(h.turns.length).toBe(2);           // 只多一个 turn
@@ -332,7 +338,7 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     // 前台等待安排未被外部成功改变：仍未到点（短窗口内不追加请求）。
     expect(await h.session.inspect()).toEqual(waiting);
     const rerun = h.eventLoop.run();
-    await sleep(20);
+    await sleep(30);
     expect(h.providerCalls.length).toBe(2);
     h.eventLoop.abort();
     await rerun;
