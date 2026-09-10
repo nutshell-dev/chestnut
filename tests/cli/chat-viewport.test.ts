@@ -618,6 +618,61 @@ describe('Phase 1268 Step D: llm retry/cooldown viewport rendering', () => {
     expect(auditWrites.filter(w => String(w[0]).includes('unknown') || String(w[1]).includes('provider_failover'))).toHaveLength(1);
   });
 
+  it('recovery_scheduled：安排类型 + 错误分类穷尽渲染（phase 1826）', async () => {
+    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { deps, lines } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    handle({
+      type: 'recovery_scheduled', scope: 'foreground', revision: 3, scheduleKind: 'at',
+      resumeAt: RESUME_AT, errorClass: 'quota', providerCount: 1, failureCount: 1,
+    });
+    handle({
+      type: 'recovery_scheduled', scope: 'foreground', revision: 4, scheduleKind: 'at',
+      resumeAt: RESUME_AT, errorClass: 'rate_limit', providerCount: 1, failureCount: 2,
+    });
+    handle({
+      type: 'recovery_scheduled', scope: 'foreground', revision: 5, scheduleKind: 'at',
+      resumeAt: RESUME_AT, errorClass: 'transient', providerCount: 1, failureCount: 3,
+    });
+    handle({
+      type: 'recovery_scheduled', scope: 'foreground', revision: 6, scheduleKind: 'on_change',
+      resumeAt: '', errorClass: 'permanent', providerCount: 1, failureCount: 4,
+    });
+
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toContain('quota recovery; next attempt at');
+    expect(lines[1]).toContain('rate-limit recovery; next attempt at');
+    expect(lines[2]).toContain('transient recovery; next attempt at');
+    // 不能「不是 rate_limit 就 transient」：permanent 显示为需配置变化。
+    expect(lines[3]).toContain('config change needed; waiting for intervention');
+    expect(lines[3]).not.toContain('transient');
+    for (const line of lines) expect(line).toContain('⟳');
+  });
+
+  it('recovery 结算类事件静默、状态写失败可见（phase 1826）', async () => {
+    const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
+    const { deps, lines, auditWrites } = makeHandlerDeps();
+    const handle = createEventHandler(deps as any);
+
+    handle({ type: 'recovery_ready', scope: 'foreground', revision: 7, reason: 'success' });
+    handle({
+      type: 'recovery_attempt_admitted', scope: 'foreground', revision: 7,
+      attemptId: 'att-1', trigger: 'intervention', interventionCount: 1,
+    });
+    handle({
+      type: 'recovery_attempt_finished', scope: 'foreground', revision: 7,
+      attemptId: 'att-1', outcome: 'failed', accepted: true,
+    });
+    expect(lines).toHaveLength(0);
+
+    handle({ type: 'recovery_state_write_failed', scope: 'foreground', reason: 'disk full', context: 'noteFailure' });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('recovery state write failed');
+    // 已知事件不落 UNKNOWN audit
+    expect(auditWrites.filter(w => String(w[0]).includes('unknown'))).toHaveLength(0);
+  });
+
   it('ALL_FAILED 连续失败序列只报第一次，成功 turn 后恢复（phase 1277）', async () => {
     const { createEventHandler } = await import('../../src/cli/commands/chat-viewport-event-handler.js');
     const { deps, lines } = makeHandlerDeps();

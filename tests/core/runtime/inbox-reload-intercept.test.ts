@@ -281,3 +281,51 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     expect(result.injected).toEqual([]);
   });
 });
+
+describe('Phase 1826: Runtime 控制入口（等待期间）', () => {
+  it('consumePendingControls：应用最新配置并返回身份修订；同修订不重复应用；不 claim 消息', async () => {
+    const audit = mkAudit();
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const peekPending = vi.fn().mockResolvedValue({
+      entries: [mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/r.md')],
+      issues: [],
+    });
+    const inboxReader = { peekPending };
+
+    const rt = build({ audit, inboxReader, llm, configReloader: reloader });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+
+    const first = await rt.consumePendingControls();
+    expect(first.consumed).toBe(1);
+    expect(typeof first.configRevision).toBe('string');
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+
+    // 消息仍留在 pending（由正常 drain 消费一次），控制入口只 peek。
+    expect(peekPending).toHaveBeenCalledTimes(1);
+
+    // 同修订重复通知：不重复 reloadConfig（防二次重载清空 breaker 历史）。
+    const second = await rt.consumePendingControls();
+    expect(second.configRevision).toBe(first.configRevision);
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('无控制消息时 consumed=0，不触碰配置', async () => {
+    const audit = mkAudit();
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const inboxReader = {
+      peekPending: vi.fn().mockResolvedValue({ entries: [mkEntry('user_chat', '/p/c.md')], issues: [] }),
+    };
+
+    const rt = build({ audit, inboxReader, llm, configReloader: reloader });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+
+    const result = await rt.consumePendingControls();
+    expect(result.consumed).toBe(0);
+    expect(reloader).not.toHaveBeenCalled();
+    expect(reloadFn).not.toHaveBeenCalled();
+  });
+});

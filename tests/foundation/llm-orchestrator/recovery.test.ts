@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'path';
+import * as fsNative from 'fs';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
@@ -56,6 +57,7 @@ afterEach(async () => {
 async function makeFixture(opts: {
   call?: () => Promise<LLMResponse>;
   maxAttempts?: number;
+  circuitBreaker?: { failureThreshold: number; resetTimeoutMs: number };
 } = {}) {
   const dir = await createTrackedTempDir('recovery-');
   cleanupDirs.push(dir);
@@ -68,6 +70,7 @@ async function makeFixture(opts: {
     retryDelayMs: 1,
     events: sink,
     createAnthropicAdapter: () => adapter,
+    ...(opts.circuitBreaker ? { circuitBreaker: opts.circuitBreaker } : {}),
   };
   const orchestrator = createLLMOrchestrator(config);
   let nowMs = T0;
@@ -78,8 +81,12 @@ async function makeFixture(opts: {
     orchestrator,
     now: () => nowMs,
   });
+  const readState = () => JSON.parse(
+    fsNative.readFileSync(path.join(dir, 'status', LLM_RECOVERY_STATE_FILE), 'utf-8'),
+  );
+
   return {
-    dir, fs, sink, emitted, orchestrator, makeSession,
+    dir, fs, sink, emitted, orchestrator, makeSession, readState,
     advance: (ms: number) => { nowMs += ms; },
     now: () => nowMs,
     statePath: path.join(dir, 'status', LLM_RECOVERY_STATE_FILE),
@@ -329,6 +336,39 @@ describe('recovery triggers for configuration and startup', () => {
 
     const nextBoot = await session.begin({ requestKey: 'fp', trigger: { kind: 'startup', id: 'boot-2' } });
     expect(nextBoot.kind).toBe('admitted');
+  });
+});
+
+
+describe('recovery breaker coordination', () => {
+  it('仅被本地 breaker 跳过的候选不消耗预算，安排不早于 reset 时刻', async () => {
+    const f = await makeFixture({
+      call: async () => { throw new LLMNetworkError('boom'); },
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000 },
+    });
+    const session = f.makeSession();
+
+    const first = await session.begin({ requestKey: 'fp', trigger: { kind: 'automatic' } });
+    if (first.kind !== 'admitted') throw new Error('expected admitted');
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await session.finish(first.attemptId, 'failed');
+    const afterFirst = f.readState();
+    expect(afterFirst.budget.retryCount).toBe(1);   // 真实失败消耗 1 次
+
+    // 跨过 deadline 后再次调用：breaker 已 open（resetTimeoutMs=60s，未到重置），
+    // 本次没有任何真实请求 → localSkip，不消耗预算。
+    f.advance(1_000_000);
+    const second = await session.begin({ requestKey: 'fp', trigger: { kind: 'automatic' } });
+    if (second.kind !== 'admitted') throw new Error('expected admitted');
+    await expect(session.llm.call(CALL)).rejects.toBeInstanceOf(LLMAllProvidersFailedError);
+    await session.finish(second.attemptId, 'failed');
+
+    const afterSecond = f.readState();
+    expect(afterSecond.budget.retryCount).toBe(1);  // 未被本地跳过消耗
+    expect(afterSecond.schedule.kind).toBe('at');
+    // 安排不早于本地 breaker 的 reset 时刻（不加倍、不提前空探测）
+    const resumeAt = Date.parse(afterSecond.schedule.resumeAt);
+    expect(resumeAt).toBeGreaterThan(f.now());
   });
 });
 

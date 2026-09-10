@@ -239,3 +239,34 @@ describe('Phase 1268 Step D: task llm_retry_waiting status bar', () => {
     expect(bar.renderSpawn(80)).not.toContain('retry 1/3');
   });
 });
+
+/**
+ * Phase 1826: task 流 recovery_scheduled → 状态行等待摘要（owner 恢复安排）
+ */
+describe('Phase 1826: task recovery_scheduled status bar', () => {
+  const makeDeps = () => {
+    const updateRender = vi.fn();
+    return { updateRender, bar: createTaskStatusBar({ updateRender }) };
+  };
+
+  it('at 安排显示分类与恢复时刻；on_change 显示等待干预；ready 清空', () => {
+    const { bar } = makeDeps();
+    bar.addTrack('task-r1', 'spawn_subagent');
+    bar.updateTrack('task-r1', {
+      type: 'recovery_scheduled', scope: 'foreground', revision: 2, scheduleKind: 'at',
+      resumeAt: '2026-08-02T13:15:12.000Z', errorClass: 'quota', providerCount: 1, failureCount: 1,
+    });
+    expect(bar.renderSpawn(80)).toContain('quota recovery at');
+    expect(bar.renderSpawn(80)).toMatch(/\d{2}:\d{2}:\d{2}/);
+
+    bar.updateTrack('task-r1', {
+      type: 'recovery_scheduled', scope: 'foreground', revision: 3, scheduleKind: 'on_change',
+      resumeAt: '', errorClass: 'permanent', providerCount: 1, failureCount: 2,
+    });
+    expect(bar.renderSpawn(80)).toContain('config change needed; waiting for intervention');
+
+    bar.updateTrack('task-r1', { type: 'recovery_ready', scope: 'foreground', revision: 4, reason: 'success' });
+    expect(bar.renderSpawn(80)).not.toContain('recovery at');
+    expect(bar.renderSpawn(80)).not.toContain('waiting for intervention');
+  });
+});

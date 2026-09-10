@@ -56,6 +56,20 @@ import {
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps } from './types.js';
 
+/**
+ * Phase 1826: 旧 EventLoop retry-state 文件的只读字段形状。
+ * 仅供迁移读取（`_readLegacyRecoveryExport`）判别与导出使用，不参与任何调度决策；
+ * 新恢复状态由 LLMOrchestrator 的 recovery-state schema 拥有。
+ */
+interface LegacyRetryStateFileV1V2 {
+  schema_version: 1 | 2;
+  llmRetryCount: number;
+  llmRetryDelayMs: number;
+  llmQuotaDelayMs?: number;
+  llmRetryPending: boolean;
+  waiting?: unknown;
+}
+
 export class EventLoop {
   private runtime: EventLoopRuntime;
   private clawId: string;
@@ -121,9 +135,12 @@ export class EventLoop {
   }
 
   /**
-   * 启动时恢复：先加载/校验 LLM-request blocked state，再按 phase 1778 启动探测
-   * 语义清除（启动 = 干预信号，放行一次探测）；最后加载 LLM retry state
-   * （clean stop 后跳过，保持默认值）。
+   * 启动时恢复：
+   * 1. 加载/校验本模块的 blocked state（trim 类 reason），按 phase 1778 启动探测
+   *    语义清除一次（启动 = 干预信号）；
+   * 2. 消费 clean-stop marker（一次性；不再跳过任何 LLM 恢复状态）；
+   * 3. Phase 1826：作为旧 owner 导出旧 LLM 恢复状态、由 owner 幂等导入
+   *    （provider 类旧 blocked 同批交接；旧文件原文保留为迁移证据）。
    */
   async initialize(): Promise<void> {
     this.audit.write(EVENTLOOP_AUDIT_EVENTS.ITERATION, `context=initialize`, `claw_id=${this.clawId}`);
@@ -175,10 +192,12 @@ export class EventLoop {
   }
 
   /**
-   * 执行一轮事件循环：调用前 gate → 消费 inbox / 重试 / 等待消息。
+   * 执行一轮事件循环：blocked gate → owner 准入 → drain/chain → 结算。
    *
    * Phase 1154 Step E: 只有 fingerprint 变化或从未 blocked 时才进入 drain+chain；
-   * no_progress/policy_conflict/invalid_request 会持久化 blocked state，后续 tick 在 drain 前 fail-closed。
+   * trim 类 no_progress/policy_conflict 会持久化 blocked state，后续 tick 在 drain 前 fail-closed。
+   * Phase 1826: LLM 后续尝试由 owner 唯一决定——begin 准入、waiting 时执行 owner
+   * 安排（deadline/用户干预/配置变化/启动），turn 结束 finish 结算。
    */
   async run(): Promise<void> {
     this.stopped = false;
@@ -863,7 +882,7 @@ export class EventLoop {
       );
       return undefined;
     }
-    const s = saved as Record<string, unknown>;
+    const s = saved as LegacyRetryStateFileV1V2;
     if (s.schema_version !== 1 && s.schema_version !== 2) {
       this.audit.write(
         EVENTLOOP_AUDIT_EVENTS.FATAL,
