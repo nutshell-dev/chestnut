@@ -24,6 +24,7 @@ import { type TaskId, makeShortTaskId, makeFullTaskId, deriveShortIdFromTaskId }
 import type { DescriptorSink } from './viewport-render-descriptor.js';
 import { prefixLines } from '../utils/string.js';
 import { formatIsoClock } from '../utils/time.js';
+import { formatRecoveryErrorClass } from '../utils/recovery-display.js';
 
 
 export interface TaskWatch {
@@ -257,7 +258,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const maxAttempts = typeof event.maxAttempts === 'number' ? event.maxAttempts : '?';
         const delaySec = typeof event.delayMs === 'number' ? Math.round(event.delayMs / 1000) : '?';
         const resumeClock = formatIsoClock(event.resumeAt);
-        const classLabel = event.errorClass === 'rate_limit' ? 'rate-limit' : 'transient';
+        const classLabel = formatRecoveryErrorClass(event.errorClass);
         // Phase 1274: 行首 ⟳（retry/cooldown 调度符号）；[时间][label] 前缀删除。
         // Phase 1276: scheduled retry 行带 resume 绝对时钟锚点（相对 in Xs + 绝对双表达，
         // 到点无动静即可判断卡住）。
@@ -271,6 +272,43 @@ export function createEventHandler(deps: EventHandlerDeps) {
           text = `${prefix} \x1b[2mturn retry ${attempt}/${maxAttempts} in ${delaySec}s，resume at ${resumeClock}`;
         }
         deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text });
+        break;
+      }
+
+      case 'recovery_scheduled': {
+        // Phase 1826: owner（LLMOrchestrator）唯一发布的恢复安排。
+        // CLI 只渲染结构化字段（穷尽分类），不重算策略、不解析 error 文本。
+        const classLabel = formatRecoveryErrorClass(event.errorClass);
+        const resumeClock = formatIsoClock(event.resumeAt);
+        const text = event.scheduleKind === 'on_change'
+          ? `⟳ \x1b[2mllm ${classLabel}; waiting for intervention or config change`
+          : `⟳ \x1b[2m${classLabel} recovery; next attempt at ${resumeClock}`;
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text });
+        break;
+      }
+
+      case 'recovery_ready': {
+        // 恢复就绪：后续调用正常，无需打扰用户（审计保留）。
+        break;
+      }
+
+      case 'recovery_attempt_admitted': {
+        // 进入一次尝试：由后续 turn 输出体现，不单独成行。
+        break;
+      }
+
+      case 'recovery_attempt_finished': {
+        // 结算事件：结果由 turn 输出/失败事件体现，不单独成行。
+        break;
+      }
+
+      case 'recovery_state_write_failed': {
+        // owner 状态写失败 = 恢复安排降级为内存态，必须可见。
+        deps.sink.emit({
+          kind: 'text-line',
+          color: '\x1b[38;5;203m',
+          text: `✗ \x1b[2mllm recovery state write failed (${event.context})`,
+        });
         break;
       }
 

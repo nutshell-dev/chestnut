@@ -42,9 +42,17 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
 
       case 'llm_retry_waiting':
       case 'provider_attempt_failed':
-      case 'retry_scheduled': {
-        // Phase 1268 Step D: task 流内 LLM 调度/重试事件 → 状态条摘要（不落 UNKNOWN audit）
+      case 'retry_scheduled':
+      case 'recovery_scheduled':
+      case 'recovery_ready': {
+        // Phase 1268 Step D / phase 1826: task 流内 LLM 调度/恢复安排 → 状态条摘要（不落 UNKNOWN audit）
         deps.taskStatusBar.updateTrack(taskId, event);
+        break;
+      }
+      case 'recovery_attempt_admitted':
+      case 'recovery_attempt_finished':
+      case 'recovery_state_write_failed': {
+        // 内部结算/持久化事件不落 task 状态条；主 stream 渲染由 viewport 承担。
         break;
       }
 

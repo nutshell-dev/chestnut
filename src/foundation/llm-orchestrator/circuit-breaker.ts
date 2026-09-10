@@ -87,6 +87,16 @@ export class CircuitBreaker {
   }
 
   /**
+   * Phase 1826: 只读查询「本地 breaker 何时允许下一次真实探测」。
+   * 与 isOpen() 不同，本方法不产生状态转移副作用；仅用于恢复安排不早于
+   * 本地弹回时间（避免安排一次明知会被本地拦截的空探测）。
+   */
+  probeAllowedAtMs(): number | null {
+    if (this.state !== 'open' || this.openedAt === undefined) return null;
+    return this.openedAt + this.resetTimeoutMs;
+  }
+
+  /**
    * Returns the error class that caused the breaker to enter 'open' state.
    * Returns null if breaker is not open, or class not recorded.
    *

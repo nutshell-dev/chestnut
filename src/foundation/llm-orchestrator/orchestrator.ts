@@ -23,6 +23,7 @@ import type {
   LLMEventSink,
   LLMOrchestrator,
   LLMStreamChunk } from './types.js';
+import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { LLMCircuitBreakerOpenError } from './errors.js';
 import { createLLMProvider, LLMStreamAbortedError, LLMEmptyResponseError, type LLMProvider, type AuditSink, type ProviderAdapter, type ProviderStreamChunk, type ProviderConfig } from '../llm-provider/index.js';
@@ -58,10 +59,16 @@ const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
 /**
  * LLM Service implementation
  */
-export class LLMOrchestratorImpl implements LLMOrchestrator {
+export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwner {
   private primary: LLMProvider;
   private fallbacks: LLMProvider[];
   private config: LLMOrchestratorConfig;
+
+  /**
+   * Phase 1826: 与 [primary, ...fallbacks] 同序的不可逆 provider 身份指纹。
+   * 恢复安排按身份记账（换 key/endpoint/model 即视为不同候选），不暴露明文凭据。
+   */
+  private providerIds: string[] = [];
 
   private lastSuccessProvider: {
     name: string;
@@ -171,6 +178,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     this.createAnthropicAdapter = config.createAnthropicAdapter;
     this.primary = this.getSdkClient(config.primary);
     this.fallbacks = (config.fallbacks ?? []).map((c) => this.getSdkClient(c));
+    this.recomputeProviderIdentities(config);
     
     // Initialize circuit breakers if configured
     const cb = config.circuitBreaker;
@@ -296,10 +304,90 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     throw lastError;
   }
 
+  /** Phase 1826: 重算 provider 身份（构造与 reloadConfig 同步调用，保持与 providers 同序）。 */
+  private recomputeProviderIdentities(config: LLMOrchestratorConfig): void {
+    const all = [config.primary, ...(config.fallbacks ?? [])];
+    this.providerIds = all.map((c) => {
+      const apiKeyHash = c.apiKey ? sha256ShortHex(c.apiKey, 8) : 'noapikey';
+      return sha256ShortHex([
+        c.name ?? 'unknown',
+        c.apiFormat ?? 'unknown',
+        c.model ?? 'unknown',
+        c.baseUrl ?? 'default',
+        apiKeyHash,
+      ].join(':'), 12);
+    });
+  }
+
+  /** 把 provider 名映射回身份指纹；未知 provider 用带前缀的稳定字面（不猜身份）。 */
+  private providerIdOf(providerName: string): string {
+    const adapters = [this.primary, ...this.fallbacks];
+    const index = adapters.findIndex((p) => p.name === providerName);
+    return index >= 0 && this.providerIds[index] !== undefined
+      ? this.providerIds[index]
+      : `unknown:${providerName}`;
+  }
+
+  /** 本地 breaker 的最早可试时刻（不调用有副作用的 isOpen）。 */
+  private breakerProbeAllowedAt(providerName: string): number | undefined {
+    const adapters = [this.primary, ...this.fallbacks];
+    const index = adapters.findIndex((p) => p.name === providerName);
+    if (index < 0) return undefined;
+    return this.breakers[index]?.probeAllowedAtMs() ?? undefined;
+  }
+
+  /** Phase 1826: 把最终失败转成 owner 策略输入（含 typed Retry-After 与本地跳过标记）。 */
+  private toRecoveryFailures(
+    failures: ReadonlyArray<{ provider: string; error: Error }>,
+  ): RecoveryFailureInput[] {
+    return failures.map((f) => {
+      const retryAfterSec = getRetryAfterSec(f.error);
+      const localSkip = f.error instanceof LLMCircuitBreakerOpenError;
+      const probeAllowedAtMs = localSkip ? this.breakerProbeAllowedAt(f.provider) : undefined;
+      return {
+        providerId: this.providerIdOf(f.provider),
+        errorClass: classifyLLMError(f.error),
+        message: f.error.message,
+        ...(retryAfterSec !== undefined ? { retryAfterSec } : {}),
+        ...(localSkip ? { localSkip } : {}),
+        ...(probeAllowedAtMs !== undefined ? { probeAllowedAtMs } : {}),
+      };
+    });
+  }
+
   /**
-   * Make an LLM call with retry and failover
+   * Make an LLM call with retry and failover.
+   * Phase 1826: scope 为 undefined 时行为与既有单调用容错完全一致；
+   * 有 scope 时把最终结果反馈给 owner（策略解释权唯一归 owner）。
    */
   async call(options: LLMCallOptions): Promise<LLMResponse> {
+    return this._callScoped(options, undefined);
+  }
+
+  async callWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): Promise<LLMResponse> {
+    return this._callScoped(options, scope);
+  }
+
+  private async _callScoped(
+    options: LLMCallOptions,
+    scope: RecoveryCallScope | undefined,
+  ): Promise<LLMResponse> {
+    scope?.noteAttemptStarted();
+    try {
+      const response = await this._callCore(options);
+      scope?.noteSuccess();
+      return response;
+    } catch (error) {
+      if (scope && error instanceof LLMAllProvidersFailedError) {
+        scope.noteFailure(this.toRecoveryFailures(error.failures));
+      }
+      throw error;
+    } finally {
+      this.currentStreamingProvider = null;
+    }
+  }
+
+  private async _callCore(options: LLMCallOptions): Promise<LLMResponse> {
     const isBreakerOpen = (index: number): boolean => {
       const breaker = this.breakers[index];
       return breaker ? breaker.isOpen() : false;
@@ -307,7 +395,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
     const failures: Array<{ provider: string; error: Error }> = [];
 
-    try {
+    {
       // 上次成功的 fallback 排最前：同 turn 内后续 step 直接用、不反复 failover
       let stickyFb: LLMProvider | undefined;
       if (this.lastSuccessProvider?.isFallback) {
@@ -369,20 +457,44 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       }
 
       throw new LLMAllProvidersFailedError(failures);
-    } finally {
-      this.currentStreamingProvider = null;
     }
   }
-  
+
   /**
    * Stream LLM response with retry and fallback support
-   * 
+   *
    * - Retries with exponential backoff on connection failures (same as call())
    * - Falls back to fallback provider if all retries exhausted
-   * - Note: retry only applies before stream starts; once chunks are flowing, 
+   * - Note: retry only applies before stream starts; once chunks are flowing,
    *         mid-stream errors will fail over without retry
+   *
+   * Phase 1826: scope 为 undefined 时行为与既有流式容错完全一致。
    */
   async* stream(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk> {
+    yield* this._streamScoped(options, undefined);
+  }
+
+  async* streamWithinRecovery(options: LLMCallOptions, scope: RecoveryCallScope): AsyncIterableIterator<LLMStreamChunk> {
+    yield* this._streamScoped(options, scope);
+  }
+
+  private async* _streamScoped(
+    options: LLMCallOptions,
+    scope: RecoveryCallScope | undefined,
+  ): AsyncIterableIterator<LLMStreamChunk> {
+    scope?.noteAttemptStarted();
+    try {
+      yield* this._streamCore(options);
+    } catch (error) {
+      if (scope && error instanceof LLMAllProvidersFailedError) {
+        scope.noteFailure(this.toRecoveryFailures(error.failures));
+      }
+      throw error;
+    }
+    scope?.noteSuccess();
+  }
+
+  private async* _streamCore(options: LLMCallOptions): AsyncIterableIterator<LLMStreamChunk> {
     // Hedge gate (phase 737): breaker open + transient cause + fallbacks available → 2-track hedge
     const primaryBreakerOpen = this.breakers[0]?.isOpen() ?? false;
     const openCause = this.breakers[0]?.getOpenCause() ?? null;
@@ -1199,6 +1311,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     this.config = newConfig;
     this.primary = this.getSdkClient(newConfig.primary);
     this.fallbacks = (newConfig.fallbacks ?? []).map((c) => this.getSdkClient(c));
+    this.recomputeProviderIdentities(newConfig);
 
     const cb = newConfig.circuitBreaker;
     const allProviders = [this.primary, ...this.fallbacks];
@@ -1245,6 +1358,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
 
 
-export function createLLMOrchestrator(config: LLMOrchestratorConfig): LLMOrchestrator {
+export function createLLMOrchestrator(config: LLMOrchestratorConfig): LLMOrchestratorOwner {
   return new LLMOrchestratorImpl(config);
 }

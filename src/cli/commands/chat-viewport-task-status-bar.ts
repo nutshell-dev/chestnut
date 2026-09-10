@@ -14,6 +14,7 @@
 
 import { fitLine } from '../utils/string.js';
 import { formatIsoClock } from '../utils/time.js';
+import { formatRecoveryErrorClass } from '../utils/recovery-display.js';
 import type { CliStreamEvent } from './stream-event-types.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
 import { type TaskId, deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/index.js';
@@ -177,9 +178,22 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
           : `retry ${attempt}/${maxAttempts} in ${delaySec}s`;
         break;
       }
+      case 'recovery_scheduled': {
+        // Phase 1826: owner 恢复安排 → 状态行摘要（on_change 等用户干预/配置变化）。
+        tr.waitingLabel = event.scheduleKind === 'on_change'
+          ? `llm ${formatRecoveryErrorClass(event.errorClass)}; waiting for intervention`
+          : `${formatRecoveryErrorClass(event.errorClass)} recovery at ${formatIsoClock(event.resumeAt)}`;
+        break;
+      }
+      case 'recovery_ready':
+        tr.waitingLabel = null;
+        break;
       case 'provider_attempt_failed':
       case 'retry_scheduled':
-        // task 流不消费 provider 级事件（owner 写主 stream）；不落入 UNKNOWN audit。
+      case 'recovery_attempt_admitted':
+      case 'recovery_attempt_finished':
+      case 'recovery_state_write_failed':
+        // task 流不消费 provider 级/内部结算事件（owner 写主 stream）；不落入 UNKNOWN audit。
         return;
 
       // 非消费类型显式声明：状态条不处理（保持原静默语义）

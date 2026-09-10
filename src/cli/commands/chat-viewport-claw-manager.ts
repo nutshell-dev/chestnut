@@ -193,6 +193,8 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
               case 'llm_start': case 'text_end': case 'tool_use_input':
               case 'provider_info': case 'provider_failover': case 'provider_failed':
               case 'llm_retry_waiting': case 'provider_attempt_failed': case 'retry_scheduled':
+              case 'recovery_scheduled': case 'recovery_ready': case 'recovery_attempt_admitted':
+              case 'recovery_attempt_finished': case 'recovery_state_write_failed':
               case 'provider_exhausted': case 'fallback_switched': case 'breaker_opened':
               case 'breaker_half_open': case 'breaker_closed': case 'healthcheck_failed':
               case 'stream_reset': case 'stream_parse_error': case 'tool_arg_parse_error':
