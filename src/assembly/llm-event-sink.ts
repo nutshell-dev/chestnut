@@ -164,6 +164,15 @@ function writeLLMAuditEvent(audit: AuditLog, event: LLMEvent): void {
       audit.write(LLM_AUDIT_EVENTS.SDK_CLIENT_CACHE_MISS,
         `preset=${event.preset}`, `model=${event.model}`);
       break;
+    case 'recovery_facts_accepted':
+      // phase 1827: 完整新事实接受证据（多事实不互相遮蔽）；磁盘接受记录仍是证据权威。
+      audit.write(LLM_AUDIT_EVENTS.RECOVERY_FACTS_ACCEPTED,
+        `scope=${event.scope}`, `revision=${event.revision}`,
+        `interventions=${event.interventionIds.join(',') || 'none'}`,
+        `config=${event.configurationRevision ?? 'none'}`,
+        `startup=${event.startupId ?? 'none'}`,
+        `attempt=${event.attemptId ?? 'none'}`);
+      break;
   }
 }
 

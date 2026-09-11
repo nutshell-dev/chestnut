@@ -40,8 +40,8 @@ import {
 } from '../../foundation/llm-orchestrator/index.js';
 import type {
   LLMRecoveryController,
+  LLMRecoveryFacts,
   LLMRecoverySchedule,
-  LLMRecoveryTrigger,
   LegacyRecoveryExport,
 } from '../../foundation/llm-orchestrator/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
@@ -90,9 +90,11 @@ export class EventLoop {
    * 不按 quota/transient 重算 deadline。未注入时不做准入（测试/无恢复场景）。
    */
   private recovery?: LLMRecoveryController;
-  /** 本次进程启动标识（owner 用于 on_change 安排的一次启动探测；幂等）。 */
+  /**
+   * Phase 1827: 本次进程启动标识（每轮随事实重送；owner 幂等记账，只有它判是否已接受）。
+   * 同 boot 不重建 token——重建会让 owner 误判为新启动。
+   */
   private readonly startupId = `boot-${newUuid()}`;
-  private startupPending = true;
   /** 当前 owner 准入句柄（turn 结束后结算）。 */
   private activeAttemptId?: string;
 
@@ -275,12 +277,15 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1826: owner 准入循环。
+   * Phase 1826/1827: owner 准入循环。
    * - 先看是否有可工作消息（空箱不进入）。
-   * - 等待期间处理 Runtime 控制入口（配置变化 → owner 重新评估）。
-   * - trigger 由真实到达事件构造：干预（未处理用户消息 id 列表）> 配置 revision >
-   *   本次启动标识 > automatic。
-   * - waiting → 执行 owner 安排（到点/被新 inbox 唤醒/abort），唤醒后重新请求准入。
+   * - 每轮先应用控制入口（配置生效），再读干预事实；两个读取任一失败都记录原异常、
+   *   做一次可中断等待后重读——不用空集合替代失败的读取继续准入。
+   * - 本轮全部事实（用户 ids + 实际返回的配置修订 + 稳定启动 token）一次提交；
+   *   不以 if/else 选一个事实，事实之间无优先级。
+   * - waiting 且 factsAccepted=false（活跃准入挡住）→ 来源保持未消费，等已有工作结束或
+   *   兜底超时后重读；waiting 且接受 → 执行 owner 安排，唤醒后重新请求准入。
+   * - admitted → 一次 drain/processTurn/finish（新旧消息同批）。
    */
   private async _admitTurn(
     entryFingerprint: string,
@@ -306,6 +311,8 @@ export class EventLoop {
           `context=consumePendingControls`,
           `reason=${formatErr(error)}`,
         );
+        if (!(await this._waitAfterFactsReadFailure())) return 'stopped';
+        continue;
       }
 
       let userIds: string[] = [];
@@ -318,25 +325,26 @@ export class EventLoop {
           `context=peekPendingInterventionFacts`,
           `reason=${formatErr(error)}`,
         );
+        if (!(await this._waitAfterFactsReadFailure())) return 'stopped';
+        continue;
       }
 
-      let trigger: LLMRecoveryTrigger;
-      if (userIds.length > 0) {
-        trigger = { kind: 'intervention', ids: userIds };
-      } else if (configRevision !== undefined) {
-        trigger = { kind: 'configuration', revision: configRevision };
-      } else if (this.startupPending) {
-        trigger = { kind: 'startup', id: this.startupId };
-      } else {
-        trigger = { kind: 'automatic' };
-      }
-
-      const admission = await recovery.begin({ requestKey: entryFingerprint, trigger });
-      this.startupPending = false;
+      const facts: LLMRecoveryFacts = {
+        interventionIds: userIds,
+        ...(configRevision !== undefined ? { configurationRevision: configRevision } : {}),
+        startupId: this.startupId,
+      };
+      const admission = await recovery.begin({ requestKey: entryFingerprint, facts });
 
       if (admission.kind === 'admitted') {
         this.activeAttemptId = admission.attemptId;
         return 'proceed';
+      }
+
+      if (!admission.factsAccepted) {
+        // 活跃准入挡住整批：不发 drain、不并发启动 turn，等待已有工作结束或兜底超时后重读。
+        if (!(await this._waitAfterFactsReadFailure())) return 'stopped';
+        continue;
       }
 
       const outcome = await this._waitOnSchedule(admission.schedule);
@@ -344,6 +352,20 @@ export class EventLoop {
       // recheck：唤醒后重新请求准入（owner 是唯一决策者）。
     }
     return 'stopped';
+  }
+
+  /** 事实读取失败/本批被拒后的可中断等待：不空转、不消费来源。 */
+  private async _waitAfterFactsReadFailure(): Promise<boolean> {
+    if (this.stopped) return false;
+    const signal = this.waitAbortController?.signal;
+    await waitForInbox(
+      this.loopFs,
+      this.audit,
+      this.inboxPendingDir,
+      this.fallbackTimeoutMs,
+      signal,
+    );
+    return !this.stopped;
   }
 
   /** Phase 1826: 执行 owner 安排——等到 deadline/新 inbox/abort（不重算策略）。 */

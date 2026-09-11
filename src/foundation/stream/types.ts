@@ -8,9 +8,10 @@
 export const STREAM_FILE = 'stream.jsonl';
 
 /**
- * stream.jsonl type 权威单源 const（phase 1312 治理；phase 1321 分层收窄 50→40；phase 1826 +5 恢复安排）。
+ * stream.jsonl type 权威单源 const（phase 1312 治理；phase 1321 分层收窄 50→40；phase 1826 +5 恢复安排；
+ * phase 1827 +1 事实接受证据）。
  * StreamEventType 由本 const 派生（typeof）→ 值集合 0 漂移。
- * 本 const 只含协议层事件（45）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 27
+ * 本 const 只含协议层事件（46）：LLM 输出 7 + LLM 调用调度/呈现 4 + llm-orchestrator LLMEvent 28
  * + LLM 恢复安排 5 + 通用系统通知通道 1 + stream 自身 1。上层业务事件 const 归各语义模块（phase 1321 分层拆件，
  * 修复 M#1/M#3/M#5——stream 不再为不属于自己的业务语义负责）：
  *   - subagent SUBAGENT_EVENTS（6：turn_start/llm_start/tool_result/turn_end/turn_interrupted/turn_error；phase 1789 自 agent-executor 迁回语义 owner）
@@ -25,6 +26,8 @@ export const STREAM_EVENT_NAMES = {
   RECOVERY_ATTEMPT_ADMITTED: 'recovery_attempt_admitted',
   RECOVERY_ATTEMPT_FINISHED: 'recovery_attempt_finished',
   RECOVERY_STATE_WRITE_FAILED: 'recovery_state_write_failed',
+  // 事实接受证据（1，phase 1827；完整新事实，admission 的单 trigger 只是显示兼容摘要）
+  RECOVERY_FACTS_ACCEPTED: 'recovery_facts_accepted',
   // LLM 输出（7，L1 LLMProvider 协议层——工具调用 input 流也是 LLM 输出的一部分）。
   // send_content_* 曾名 user_reply_*（2026-08-07 phase 1321 改名消歧：user_ 前缀族语义为
   // 「用户来源」，而此事件是 send 工具 input 的 LLM 生成内容流、非用户来源事件）。
@@ -80,8 +83,8 @@ export const STREAM_EVENT_NAMES = {
 export type StreamEventType = typeof STREAM_EVENT_NAMES[keyof typeof STREAM_EVENT_NAMES];
 
 /**
- * stream.jsonl 协议层事件 payload 判别映射（45 key，phase 1316；phase 1321 收窄；phase 1826 +5）。
- * payload 权威双份策略：LLMEvent 27 个的 payload 在此重定义（orchestrator 特有类型降级）；
+ * stream.jsonl 协议层事件 payload 判别映射（46 key，phase 1316；phase 1321 收窄；phase 1826 +5；phase 1827 +1）。
+ * payload 权威双份策略：LLMEvent 的 payload 在此重定义（orchestrator 特有类型降级）；
  * 漂移由编译互检 + 契约测试兜底。非 LLMEvent 13 个以写端对象字面量为准。
  * 全部成员含 trace_id?: string，因为 stream-callbacks checkWrite 可能注入 trace_id。
  * 上层 10 事件（agent 6 / task 3 / daemon 1）的 payload 判别归 CLI 汇总
@@ -94,6 +97,7 @@ export interface StreamEventMap {
   recovery_attempt_admitted: { scope: string; revision: number; attemptId: string; trigger: string; interventionCount: number; trace_id?: string };
   recovery_attempt_finished: { scope: string; revision: number; attemptId: string; outcome: string; accepted: boolean; trace_id?: string };
   recovery_state_write_failed: { scope: string; reason: string; context: string; trace_id?: string };
+  recovery_facts_accepted: { scope: string; revision: number; interventionIds: string[]; configurationRevision?: string; startupId?: string; attemptId?: string; trace_id?: string };
   // LLM 输出（7）
   thinking_delta: { delta: string; trace_id?: string };
   text_delta: { delta: string; trace_id?: string };

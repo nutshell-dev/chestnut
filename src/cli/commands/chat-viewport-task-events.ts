@@ -51,8 +51,9 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
       }
       case 'recovery_attempt_admitted':
       case 'recovery_attempt_finished':
-      case 'recovery_state_write_failed': {
-        // 内部结算/持久化事件不落 task 状态条；主 stream 渲染由 viewport 承担。
+      case 'recovery_state_write_failed':
+      case 'recovery_facts_accepted': {
+        // 内部结算/持久化/事实接受事件不落 task 状态条；主 stream 渲染由 viewport 承担。
         break;
       }
 

@@ -258,3 +258,92 @@ describe('Z 补修兼容性', () => {
     }
   });
 });
+
+describe('Phase 1827 事实字段：旧文件兼容与降级证据', () => {
+  it('1827 之前写入的 v1 文件（无事实字段）仍可加载：保留兼容标量、不伪造用户 ids', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    fsNative.mkdirSync(path.join(dir, 'status'), { recursive: true });
+    const base = createInitialRecoveryState(SCOPE, budget(), T0);
+    fsNative.writeFileSync(
+      path.join(dir, 'status', LLM_RECOVERY_STATE_FILE),
+      JSON.stringify({
+        ...base,
+        activeAdmission: {
+          attemptId: 'att-old',
+          started: false,
+          requestKey: 'fp',
+          triggerKind: 'configuration',
+          triggerId: 'r-old',
+        },
+      }),
+    );
+
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded.kind).toBe('ok');
+    if (loaded.kind !== 'ok') return;
+    expect(loaded.state.activeAdmission?.triggerKind).toBe('configuration');
+    expect(loaded.state.activeAdmission?.triggerId).toBe('r-old');   // 历史证据保留
+    expect(loaded.state.activeAdmission?.interventionIds).toBeUndefined();  // 不伪造
+    expect(loaded.state.acceptedFactBatches).toBeUndefined();
+  });
+
+  it('acceptedFactBatches 形状非法时拒绝加载（field_type_mismatch）', async () => {
+    const { dir, fs } = await makeTrackedDir();
+    fsNative.mkdirSync(path.join(dir, 'status'), { recursive: true });
+    const base = createInitialRecoveryState(SCOPE, budget(), T0);
+    fsNative.writeFileSync(
+      path.join(dir, 'status', LLM_RECOVERY_STATE_FILE),
+      JSON.stringify({ ...base, acceptedFactBatches: [{ scope: SCOPE, revision: 'x' }] }),
+    );
+    const loaded = loadRecoveryState(fs, SCOPE);
+    expect(loaded.kind).toBe('unusable');
+    if (loaded.kind === 'unusable') {
+      expect(loaded.reason).toBe('field_type_mismatch');
+      expect(loaded.detail).toBe('acceptedFactBatches');
+    }
+  });
+
+  it('降级导出：准入事实关联与接受历史进入 unrepresentable，不静默丢弃', () => {
+    const base = createInitialRecoveryState(SCOPE, budget(), T0);
+    const withFacts = {
+      ...base,
+      revision: 5,
+      schedule: { kind: 'on_change' as const, revision: 5 },
+      activeAdmission: {
+        attemptId: 'att-1',
+        started: false,
+        requestKey: 'fp',
+        triggerKind: 'intervention',
+        interventionIds: ['m1', 'm2'],
+        configurationRevision: 'r1',
+      },
+      acceptedFactBatches: [{
+        scope: SCOPE,
+        revision: 4,
+        interventionIds: ['m1'],
+        configurationRevision: 'r1',
+        attemptId: 'att-1',
+      }],
+    };
+    const exported = exportLegacyRecoveryState(withFacts, T0);
+    expect(exported.kind).toBe('exported');
+    if (exported.kind !== 'exported') return;
+    expect(exported.unrepresentable).toContain('activeAdmissionFacts=3');
+    expect(exported.unrepresentable).toContain('acceptedFactBatches=1');
+  });
+
+  it('已开始准入仍硬拒绝降级（含事实关联时不降级运行中状态）', () => {
+    const base = createInitialRecoveryState(SCOPE, budget(), T0);
+    const exported = exportLegacyRecoveryState({
+      ...base,
+      activeAdmission: {
+        attemptId: 'att-1',
+        started: true,
+        requestKey: 'fp',
+        triggerKind: 'intervention',
+        interventionIds: ['m1'],
+      },
+    }, T0);
+    expect(exported.kind).toBe('unrepresentable');
+  });
+});

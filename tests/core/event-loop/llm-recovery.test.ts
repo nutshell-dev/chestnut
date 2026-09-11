@@ -21,6 +21,9 @@ import { InboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
+import { Runtime } from '../../../src/core/runtime/runtime.js';
+import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../../src/core/runtime/inbox-message-types.js';
+import { LLMAuthError } from '../../../src/foundation/llm-provider/errors.js';
 import { createLLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
@@ -225,6 +228,190 @@ async function makeHarness(): Promise<Harness> {
 
 const QUOTA_ERROR = () => new Error('insufficient quota');
 
+// ---------------------------------------------------------------------------
+// Phase 1827: Z5 组合回归——真实 EventLoop + 真实 Messaging + 真实 owner
+// + 真实 Runtime.consumePendingControls（配置提供者 fake、provider 计数假实现）。
+// ---------------------------------------------------------------------------
+
+/** 只用于注入依赖字段的 Runtime 子类（绕过 initialize，与 inbox-reload-intercept 同法）。 */
+class ComboRuntime extends Runtime {
+  injectForTest(opts: { inboxReader: unknown; auditWriter: unknown; llm: unknown }) {
+    (this as unknown as Record<string, unknown>).inboxReader = opts.inboxReader;
+    (this as unknown as Record<string, unknown>).auditWriter = opts.auditWriter;
+    (this as unknown as Record<string, unknown>).llm = opts.llm;
+  }
+}
+
+interface RuntimeHarness {
+  eventLoop: EventLoop;
+  session: LLMRecoverySession;
+  providerCalls: string[];
+  turns: Array<Array<{ role: string; content: string }>>;
+  emitted: LLMEvent[];
+  reloadCalls: () => number;
+  writePending: (msg: { id: string; type: string; from: string; content: string }) => void;
+  writeReload: () => void;
+  listPending: () => string[];
+  setProviderError: (error: Error | undefined) => void;
+}
+
+async function makeRuntimeHarness(): Promise<RuntimeHarness> {
+  const dir = await createTrackedTempDir('llm-recovery-runtime-combo-');
+  cleanupDirs.push(dir);
+  const fs = new NodeFileSystem({ baseDir: dir });
+  const inboxDir = path.join(dir, 'inbox');
+  const pendingDir = path.join(inboxDir, 'pending');
+  fsNative.mkdirSync(pendingDir, { recursive: true });
+
+  const audit = { write: () => { /* not under test */ } };
+  const inboxReader = new InboxReader(
+    pendingDir,
+    path.join(inboxDir, 'done'),
+    path.join(inboxDir, 'failed'),
+    fs,
+    audit as never,
+    path.join(inboxDir, 'inflight'),
+  );
+  await inboxReader.init();
+
+  const providerCalls: string[] = [];
+  let providerError: Error | undefined;
+  const adapter: ProviderAdapter = {
+    name: 'primary',
+    model: 'model-primary',
+    call: async () => {
+      providerCalls.push('primary');
+      if (providerError) throw providerError;
+      return OK_RESPONSE;
+    },
+    stream: async function* () { throw new Error('stream unused in this suite'); },
+  };
+
+  const emitted: LLMEvent[] = [];
+  const sink: LLMEventSink = { emit: (e) => { emitted.push(e); } };
+  const orchestrator = createLLMOrchestrator({
+    primary: providerConfig(),
+    maxAttempts: 1,
+    retryDelayMs: 1,
+    events: sink,
+    createAnthropicAdapter: () => adapter,
+  });
+  const session = createRecoverySession({
+    scopeId: 'foreground',
+    fs,
+    events: sink,
+    orchestrator,
+  });
+
+  // 配置提供者（fake）：返回不同身份的 primary → 新配置修订；应用时假装换上可用 key。
+  let reloadCalls = 0;
+  const fixedConfig = {
+    primary: { name: 'primary-fixed', apiKey: 'key-fixed', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const },
+    maxAttempts: 1,
+    retryDelayMs: 1,
+    events: sink,
+  };
+
+  const runtimeLlm = {
+    reloadConfig: (cfg: unknown) => {
+      reloadCalls += 1;
+      providerError = undefined;   // 修好 key：重新加载后不再按旧错误失败
+      orchestrator.reloadConfig({ ...(cfg as never), createAnthropicAdapter: () => adapter });
+    },
+  };
+
+  const runtime = new ComboRuntime({
+    clawId: 'claw-1',
+    clawDir: dir,
+    idleTimeoutMs: 0,
+    llmConfig: { primary: { name: 'primary', apiKey: 'key-primary', model: 'model-primary', temperature: 0, timeoutMs: 1_000, apiFormat: 'anthropic' as const }, maxAttempts: 1, retryDelayMs: 1 },
+    configReloader: () => fixedConfig as never,
+    dependencies: {
+      auditWriter: audit,
+      inboxReader,
+      llm: runtimeLlm,
+      toolRegistry: { register: () => {}, getForProfile: () => [], getAll: () => [], formatForLLM: () => [] },
+    },
+  } as never);
+  runtime.injectForTest({ inboxReader, auditWriter: audit, llm: runtimeLlm });
+
+  const turns: RuntimeHarness['turns'] = [];
+  const runtimeAny = runtime as unknown as Record<string, unknown>;
+  runtimeAny.computeTurnRequestFingerprint = async () => 'fp-combo';
+  runtimeAny.drainInbox = async () => {
+    const result = await inboxReader.drainAndDeliver();
+    const reloadEntries = result.entries.filter(e => e.message.type === RELOAD_LLM_CONFIG_MESSAGE_TYPE);
+    for (const entry of reloadEntries) {
+      const handle = result.handles.find(h => h.filePath === entry.filePath);
+      if (handle) await inboxReader.ack(handle);
+    }
+    const addressed = result.entries.filter(e => e.message.type !== RELOAD_LLM_CONFIG_MESSAGE_TYPE);
+    const addressedSet = new Set(addressed.map(e => e.filePath));
+    return {
+      injected: addressed.map(e => ({ role: 'user' as const, content: e.message.content })),
+      sources: addressed.map(e => ({ text: e.message.content, type: e.message.type })),
+      count: addressed.length,
+      infos: addressed.map(e => e.message),
+      addressedHandles: result.handles.filter(h => addressedSet.has(h.filePath)),
+    };
+  };
+  runtimeAny.getMessages = async () => [];
+  runtimeAny.getSystemPrompt = async () => 'sys';
+  runtimeAny.getToolsForLLM = () => [];
+  runtimeAny.proactiveTrimIfNeeded = async (m: unknown[]) => m;
+  runtimeAny.reactiveTrim = async () => { throw new Error('reactiveTrim not expected'); };
+  runtimeAny.processTurn = async (messages: Array<{ role: string; content: string }>) => {
+    turns.push(messages.map(m => ({ role: m.role, content: m.content })));
+    try {
+      await session.llm.call({ messages: [{ role: 'user', content: 'turn' }] });
+      return { status: 'success' as const };
+    } catch (error) {
+      return { status: 'failed' as const, error };
+    }
+  };
+
+  const writeMessage = (msg: { id: string; type: string; from: string; content: string }) => {
+    fsNative.writeFileSync(path.join(pendingDir, `${msg.id}.md`), encodeInbox({
+      id: msg.id,
+      type: msg.type,
+      from: msg.from,
+      to: 'claw-1',
+      content: msg.content,
+      priority: 'normal',
+      timestamp: new Date().toISOString(),
+    } as InboxMessage));
+  };
+
+  const eventLoop = new EventLoop({
+    runtime: runtime as never,
+    fsFactory: (baseDir: string) => new NodeFileSystem({ baseDir }),
+    agentDir: dir,
+    clawId: 'claw-1',
+    audit: { write: () => {} } as never,
+    inbox: { pendingDir, fallbackTimeoutMs: 30 },
+    recovery: session,
+  });
+  await eventLoop.initialize();
+
+  return {
+    eventLoop,
+    session,
+    providerCalls,
+    turns,
+    emitted,
+    reloadCalls: () => reloadCalls,
+    writePending: writeMessage,
+    writeReload: () => writeMessage({
+      id: 'reload-1',
+      type: RELOAD_LLM_CONFIG_MESSAGE_TYPE,
+      from: 'cli',
+      content: 'reload',
+    }),
+    listPending: () => fsNative.readdirSync(pendingDir).filter(n => n.endsWith('.md')),
+    setProviderError: (error) => { providerError = error; },
+  };
+}
+
 describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 inbox', () => {
   it('用户提前输入：未到 deadline 发起一次尝试，旧消息与新消息进入同一真实 turn', async () => {
     const h = await makeHarness();
@@ -342,5 +529,70 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     expect(h.providerCalls.length).toBe(2);
     h.eventLoop.abort();
     await rerun;
+  });
+});
+
+describe('Phase 1827 Z5 组合回归：真实 Runtime 控制入口 × EventLoop × owner', () => {
+  it('pending 旧用户 + 真实配置修订同时到达：不被旧消息遮蔽，发起第二次真实请求', async () => {
+    const h = await makeRuntimeHarness();
+    h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
+    h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
+
+    // 第一次：permanent 失败 → 安排 on_change；旧用户 id 已被接受记账。
+    await h.eventLoop.run();
+    expect(h.providerCalls.length).toBe(1);
+    expect((await h.session.inspect()).kind).toBe('on_change');
+    expect(h.listPending()).toContain('old-user.md');
+
+    // 用户修好配置：reload 控制消息落盘；真实 consumePendingControls 应用并返回新修订。
+    h.writeReload();
+    const running = h.eventLoop.run();
+    await sleep(150);
+    h.eventLoop.abort();
+    await running;
+
+    // Z5：旧用户 id 不遮蔽配置事实 → 一次恢复准入 → 第二次真实请求。
+    expect(h.providerCalls.length).toBe(2);
+    expect(h.reloadCalls()).toBe(1);
+
+    // 接受证据：同一批事实里配置修订与旧用户身份都可关联。
+    const accepted = h.emitted.filter(e => e.type === 'recovery_facts_accepted');
+    expect(accepted.length).toBeGreaterThanOrEqual(1);
+    const batch = accepted.at(-1);
+    expect(batch).toMatchObject({ scope: 'foreground' });
+    if (batch?.type === 'recovery_facts_accepted') {
+      expect(typeof batch.configurationRevision).toBe('string');
+      expect(batch.attemptId).toBeTruthy();
+    }
+    // 准入主原因就是配置事实（不是旧用户、不是启动 token）——旧消息确实没有遮蔽配置。
+    const admittedEvents = h.emitted.filter(e => e.type === 'recovery_attempt_admitted');
+    expect(admittedEvents.at(-1)).toMatchObject({ trigger: 'configuration' });
+    h.eventLoop.abort();
+  });
+
+  it('重复配置修订：不重复应用配置，也不重复接受记账', async () => {
+    const h = await makeRuntimeHarness();
+    h.setProviderError(new LLMAuthError('primary', 401, 'invalid api key'));
+    h.writePending({ id: 'old-user', type: 'user_chat', from: 'user', content: 'hello' });
+    await h.eventLoop.run();
+    expect(h.providerCalls.length).toBe(1);
+
+    h.writeReload();
+    const firstRun = h.eventLoop.run();
+    await sleep(150);
+    h.eventLoop.abort();
+    await firstRun;
+    const reloadsAfterFirst = h.reloadCalls();
+    const acceptedAfterFirst = h.emitted.filter(e => e.type === 'recovery_facts_accepted').length;
+    expect(reloadsAfterFirst).toBe(1);
+
+    // 同一 reload 消息仍在 pending（正常 drain 才消费一次）+ 同一配置身份重送 → 不再 reload。
+    const secondRun = h.eventLoop.run();
+    await sleep(150);
+    h.eventLoop.abort();
+    await secondRun;
+    expect(h.reloadCalls()).toBe(reloadsAfterFirst);
+    expect(h.emitted.filter(e => e.type === 'recovery_facts_accepted').length)
+      .toBe(acceptedAfterFirst);
   });
 });

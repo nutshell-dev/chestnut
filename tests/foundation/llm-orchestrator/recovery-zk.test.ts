@@ -125,7 +125,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
   it('quota 首次 stream 调用：单候选只 1 次真实请求（不跑满轮内预算）', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
     const s = f.session();
-    await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
 
     await failedCall(s, true);
 
@@ -135,7 +135,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
   it('quota 首次 call 调用：与 stream 对称，只 1 次真实请求', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
     const s = f.session();
-    await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
 
     await failedCall(s);
 
@@ -145,12 +145,12 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
   it('quota 恢复 probe：到期后每候选至多 1 次真实请求', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
     const s = f.session();
-    const a = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s, true);
     await s.finish(a.attemptId, 'failed');
 
     f.advance(120_000);
-    const b = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const b = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     expect(b.kind).toBe('admitted');
 
     const before = f.calls();
@@ -161,7 +161,7 @@ describe('Z1 确定性错误短路与局部预算（maxAttempts=3）', () => {
   it('primary quota + fallback 成功：primary 只 1 次、fallback 正常成功、不建全局等待', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR, fallbackResponse: () => OK_RESPONSE });
     const s = f.session();
-    await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
 
     await s.llm.call(OPTIONS);
 
@@ -175,12 +175,12 @@ describe('Z2 显式干预穿透旧 breaker（一次性资格）', () => {
     const f = await makeFixture({ breaker: true });
     const s = f.session();
 
-    const a = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s);           // 网络失败 → breaker open（threshold=1）
     await s.finish(a.attemptId, 'failed');
 
     const before = f.calls();
-    const b = await s.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(b.kind).toBe('admitted');
 
     await failedCall(s);
@@ -190,24 +190,24 @@ describe('Z2 显式干预穿透旧 breaker（一次性资格）', () => {
   it('同一 id 重放：不再获得提前资格（不被 breaker 放行）', async () => {
     const f = await makeFixture({ breaker: true });
     const s = f.session();
-    const a = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s);
     await s.finish(a.attemptId, 'failed');
 
-    const first = await s.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const first = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(first.kind).toBe('admitted');
     if (first.kind !== 'admitted') return;
     await failedCall(s);
     await s.finish(first.attemptId, 'failed');
 
-    const replay = await s.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const replay = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(replay.kind).toBe('waiting');
   });
 
   it('无 scope 的其他 caller 在 breaker open 时仍被跳过（资格不外溢）', async () => {
     const f = await makeFixture({ breaker: true });
     const s = f.session();
-    const a = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s);
     await s.finish(a.attemptId, 'failed');
 
@@ -221,7 +221,7 @@ describe('Z3 服务端 Retry-After 不被客户端 cap 截短', () => {
   it('Retry-After 3600 秒：安排不早于其要求', async () => {
     const f = await makeFixture({ primaryError: () => new LLMRateLimitError('p', 3600) });
     const s = f.session();
-    await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s);
 
     const plan = await s.inspect();
@@ -235,16 +235,16 @@ describe('Z4 未开始的持久准入在重启后恢复', () => {
   it('begin 后、首请求前重启：同 id 再 begin 得到同一 attempt', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR });
     const s = f.session();
-    const a = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s);
     await s.finish(a.attemptId, 'failed');
 
-    const b = await s.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(b.kind).toBe('admitted');
     if (b.kind !== 'admitted') return;
 
     const restored = f.session();   // 重启：未开始的准入应被恢复
-    const c = await restored.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const c = await restored.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(c.kind).toBe('admitted');
     if (c.kind === 'admitted') expect(c.attemptId).toBe(b.attemptId);
   });
@@ -252,17 +252,17 @@ describe('Z4 未开始的持久准入在重启后恢复', () => {
   it('恢复后的准入仍带原预算/资格，失败后同 id 不重复干预', async () => {
     const f = await makeFixture({ primaryError: QUOTA_ERROR, breaker: true });
     const s = f.session();
-    const a = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     await failedCall(s);
     await s.finish(a.attemptId, 'failed');
 
-    const b = await s.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const b = await s.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(b.kind).toBe('admitted');
     if (b.kind !== 'admitted') return;
 
     // 重启后重新驱动同一 attempt：局部资格（为干预放行）仍随准入恢复。
     const restored = f.session();
-    const c = await restored.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const c = await restored.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(c.kind).toBe('admitted');
     expect(restored.attemptContext().allowBreakerProbe).toBe(true);
 
@@ -272,19 +272,19 @@ describe('Z4 未开始的持久准入在重启后恢复', () => {
     await restored.finish(c.kind === 'admitted' ? c.attemptId : '', 'failed');
 
     // 启动后再次失败：同 id 不再获得新的提前机会
-    const replay = await restored.begin({ requestKey: 'y', trigger: { kind: 'intervention', ids: ['new-user'] } });
+    const replay = await restored.begin({ requestKey: 'y', facts: { interventionIds: ['new-user'] } });
     expect(replay.kind).toBe('waiting');
   });
 
   it('已开始的准入在重启后仍按「结果未知」处理（不恢复句柄）', async () => {
     const f = await makeFixture({ primaryError: () => new LLMNetworkError('p', new Error('offline')) });
     const s = f.session();
-    const a = await s.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const a = await s.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     if (a.kind !== 'admitted') throw new Error('expected admitted');
     await failedCall(s);   // started 已置位
 
     const restored = f.session();
-    const c = await restored.begin({ requestKey: 'x', trigger: { kind: 'automatic' } });
+    const c = await restored.begin({ requestKey: 'x', facts: { interventionIds: [] } });
     // 结果未知的旧 attempt 不复活；当前安排（failure）决定是否放行。
     expect(c.kind === 'admitted' ? c.attemptId !== a.attemptId : true).toBe(true);
   });

@@ -21,10 +21,10 @@ export type { LLMProviderConfig } from './llm-provider-config-schema.js';
 
 export { createLLMOrchestrator } from './orchestrator.js';
 
-// Phase 1826: 恢复安排单一 owner 的公共协议 + session 工厂。
+// Phase 1826/1827: 恢复安排单一 owner 的公共协议 + session 工厂。
 export { createRecoverySession } from './recovery.js';
 export type {
-  LLMRecoveryTrigger,
+  LLMRecoveryFacts,
   LLMRecoveryAdmission,
   LLMRecoveryController,
   LLMRecoverySession,
@@ -42,6 +42,7 @@ export {
   saveRecoveryState,
 } from './recovery-state.js';
 export type {
+  LLMRecoveryAcceptedFactBatch,
   LLMRecoverySchedule,
   LLMRecoveryStateV1,
   LLMRecoveryBudget,

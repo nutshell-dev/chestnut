@@ -80,6 +80,8 @@ export type LLMEvent =
   | { type: typeof STREAM_EVENT_NAMES.PROVIDER_CLOSE_FAILED; error: string }
   // Phase 1826: 恢复安排事件（owner 唯一发布；调用方只观察，不重算策略）
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_SCHEDULED; scope: string; revision: number; scheduleKind: 'at' | 'on_change'; resumeAt: string; errorClass: string; providerCount: number; failureCount: number }
+  // Phase 1827: 事实接受证据（完整新事实；admission 事件的单 trigger 只是显示摘要）
+  | { type: typeof STREAM_EVENT_NAMES.RECOVERY_FACTS_ACCEPTED; scope: string; revision: number; interventionIds: string[]; configurationRevision?: string; startupId?: string; attemptId?: string }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_READY; scope: string; revision: number; reason: string }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_ADMITTED; scope: string; revision: number; attemptId: string; trigger: string; interventionCount: number }
   | { type: typeof STREAM_EVENT_NAMES.RECOVERY_ATTEMPT_FINISHED; scope: string; revision: number; attemptId: string; outcome: string; accepted: boolean }

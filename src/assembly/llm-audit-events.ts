@@ -34,6 +34,8 @@ export const LLM_AUDIT_EVENTS = {
   RACE_LOSER_CLEANED: 'llm_race_loser_cleaned',
   SDK_CLIENT_CACHE_HIT: 'llm_sdk_client_cache_hit',
   SDK_CLIENT_CACHE_MISS: 'llm_sdk_client_cache_miss',
+  // phase 1827: 恢复事实接受证据（完整新事实；admission 的单 trigger 只是显示摘要）
+  RECOVERY_FACTS_ACCEPTED: 'llm_recovery_facts_accepted',
 } as const;
 
 
@@ -65,4 +67,5 @@ export const ASSEMBLY_LLM_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   llm_race_loser_cleaned: 'audit',
   llm_sdk_client_cache_hit: 'audit',
   llm_sdk_client_cache_miss: 'audit',
+  llm_recovery_facts_accepted: 'audit',
 } as const;

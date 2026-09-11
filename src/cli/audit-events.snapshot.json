@@ -30,6 +30,7 @@
       "llm_provider_attempt_failed",
       "llm_provider_exhausted",
       "llm_race_loser_cleaned",
+      "llm_recovery_facts_accepted",
       "llm_retry_scheduled",
       "llm_sdk_client_cache_hit",
       "llm_sdk_client_cache_miss",

@@ -55,8 +55,16 @@ export interface LLMRecoveryAdmissionRecord {
   started: boolean;
   startedAt?: string;
   requestKey: string;
+  /** 显示兼容摘要（单一主原因）；完整事实关联见下面可选字段。 */
   triggerKind: string;
   triggerId?: string;
+  /**
+   * Phase 1827: 本准入关联的完整恢复事实（本批新接受的部分）。
+   * 可选：旧文件无此字段——保留 triggerKind/triggerId 作为历史证据，不伪造不存在的 ids。
+   */
+  interventionIds?: string[];
+  configurationRevision?: string;
+  startupId?: string;
   /**
    * 恢复 probe 模式：本 attempt 每候选至多一次真实调用（正常预算另计）。
    * 可选：Z 补修前写入的状态文件无此字段，按 false（既有行为）解释，不猜新语义。
@@ -79,6 +87,20 @@ export interface LLMRecoveryFailureEvidence {
   message: string;
 }
 
+/**
+ * Phase 1827: 一次「事实接受」批次的持久证据。
+ * 只在接受新事实时追加；重复输入不追加；是本 owner 的事实接受历史，不是通知队列
+ * （无有界截断——事件出口不可靠，磁盘记录是证据权威）。
+ */
+export interface LLMRecoveryAcceptedFactBatch {
+  scope: string;
+  revision: number;
+  interventionIds: string[];
+  configurationRevision?: string;
+  startupId?: string;
+  attemptId?: string;
+}
+
 export interface LLMRecoveryStateV1 {
   schema_version: 1;
   scopeId: string;
@@ -92,6 +114,8 @@ export interface LLMRecoveryStateV1 {
   activeAdmission: LLMRecoveryAdmissionRecord | null;
   failures: LLMRecoveryFailureEvidence[];
   importedSources: string[];
+  /** Phase 1827: 事实接受历史（可选——旧文件无此字段；缺失表示尚无 1827 批次记录）。 */
+  acceptedFactBatches?: LLMRecoveryAcceptedFactBatch[];
   updatedAt: string;
 }
 
@@ -161,6 +185,22 @@ function isAdmission(v: unknown): v is LLMRecoveryAdmissionRecord {
   if (a.probeOnly !== undefined && typeof a.probeOnly !== 'boolean') return false;
   if (a.allowBreakerProbe !== undefined && typeof a.allowBreakerProbe !== 'boolean') return false;
   if (a.resumedFromRestart !== undefined && typeof a.resumedFromRestart !== 'boolean') return false;
+  // Phase 1827：完整事实关联（可选；旧文件缺失时保留兼容标量为历史证据）。
+  if (a.interventionIds !== undefined && !isStringArray(a.interventionIds)) return false;
+  if (a.configurationRevision !== undefined && typeof a.configurationRevision !== 'string') return false;
+  if (a.startupId !== undefined && typeof a.startupId !== 'string') return false;
+  return true;
+}
+
+function isAcceptedFactBatch(v: unknown): v is LLMRecoveryAcceptedFactBatch {
+  if (typeof v !== 'object' || v === null) return false;
+  const b = v as Record<string, unknown>;
+  if (typeof b.scope !== 'string' || b.scope.length === 0) return false;
+  if (typeof b.revision !== 'number') return false;
+  if (!isStringArray(b.interventionIds)) return false;
+  if (b.configurationRevision !== undefined && typeof b.configurationRevision !== 'string') return false;
+  if (b.startupId !== undefined && typeof b.startupId !== 'string') return false;
+  if (b.attemptId !== undefined && typeof b.attemptId !== 'string') return false;
   return true;
 }
 
@@ -219,6 +259,11 @@ export function validateRecoveryState(
   }
   if (!isStringArray(s.importedSources)) {
     return { ok: false, reason: 'field_type_mismatch', detail: 'importedSources' };
+  }
+  if (s.acceptedFactBatches !== undefined) {
+    if (!Array.isArray(s.acceptedFactBatches) || !s.acceptedFactBatches.every(isAcceptedFactBatch)) {
+      return { ok: false, reason: 'field_type_mismatch', detail: 'acceptedFactBatches' };
+    }
   }
   if (typeof s.updatedAt !== 'string') {
     return { ok: false, reason: 'field_type_mismatch', detail: 'updatedAt' };
@@ -444,6 +489,18 @@ export function exportLegacyRecoveryState(
   }
   if (state.failures.length > 0) {
     unrepresentable.push(`failures=${state.failures.length}`);
+  }
+  // Phase 1827: 准入的事实关联与事实接受历史在旧格式中无法表达——保留为显式迁移证据，
+  // 不静默丢弃（回滚前须先处理完或保留这些证据）。
+  const admission = state.activeAdmission;
+  if (admission) {
+    const factCount = (admission.interventionIds?.length ?? 0)
+      + (admission.configurationRevision !== undefined ? 1 : 0)
+      + (admission.startupId !== undefined ? 1 : 0);
+    if (factCount > 0) unrepresentable.push(`activeAdmissionFacts=${factCount}`);
+  }
+  if (state.acceptedFactBatches && state.acceptedFactBatches.length > 0) {
+    unrepresentable.push(`acceptedFactBatches=${state.acceptedFactBatches.length}`);
   }
 
   let waiting: LegacyRetryStateV2['waiting'] = null;

@@ -302,6 +302,11 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
+      case 'recovery_facts_accepted': {
+        // phase 1827: 事实接受证据（完整新事实）——恢复尝试由 turn 输出体现，不单独成行；audit 保留。
+        break;
+      }
+
       case 'recovery_state_write_failed': {
         // owner 状态写失败 = 恢复安排降级为内存态，必须可见。
         deps.sink.emit({

@@ -36,7 +36,7 @@ function makeMockAudit() {
 function makeMockRecovery() {
   return {
     inspect: vi.fn().mockResolvedValue({ kind: 'ready', revision: 1 }),
-    begin: vi.fn().mockResolvedValue({ kind: 'admitted', attemptId: 'att-test' }),
+    begin: vi.fn().mockResolvedValue({ kind: 'admitted', attemptId: 'att-test', factsAccepted: true }),
     finish: vi.fn().mockResolvedValue(undefined),
     adoptLegacy: vi.fn().mockReturnValue({ kind: 'imported' }),
   };

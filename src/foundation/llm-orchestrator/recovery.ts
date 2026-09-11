@@ -8,6 +8,10 @@
  * - 决定先持久化后发布；写失败不继续真发。
  * - 显式干预只携 opaque id；owner 幂等接收，可提前尝试但不清失败历史。
  * - session 视图（`session.llm`）把 scope 作为每次调用的局部参数，不改全局状态。
+ *
+ * Phase 1827：一次 begin 接收本轮全部恢复事实（干预 ids / 配置修订 / 启动 token），
+ * 事实互不遮蔽；接受记账、安排与至多一次准入在同一原子提交中完成，完整接受事实
+ * 持久保留，单一显示原因不替代全部证据。
  */
 
 import { formatErr, newUuid } from '../node-utils/index.js';
@@ -31,6 +35,7 @@ import {
   loadRecoveryState,
   saveRecoveryState,
   type LegacyRecoveryExport,
+  type LLMRecoveryAcceptedFactBatch,
   type LLMRecoveryBudget,
   type LLMRecoverySchedule,
   type LLMRecoveryStateV1,
@@ -76,28 +81,31 @@ export interface LLMOrchestratorOwner extends LLMOrchestrator {
 }
 
 /**
- * 触发来源。触发只描述「为什么现在问」；是否放行由 owner 唯一决定。
- * - intervention.ids：当前 pending 的用户来源消息 id 列表（不透明）。owner 判
+ * Phase 1827: 一轮内观察到的全部恢复事实（只描述「观察到什么」；是否放行由 owner 唯一决定）。
+ * 事实之间无优先级——同轮共存的事实一次提交、全部幂等接受，不因某个事实先到达而遮蔽其余。
+ * - interventionIds：当前 pending 的用户来源消息 id 列表（不透明）。owner 判
  *   「存在任一未接受 id」才提前放行并全部记账——同批多 id 归一化为一次干预，
  *   失败回队的同一消息（id 不变）不再放行，第二条真新消息（新 id）仍有效。
- * - configuration.revision：配置身份指纹（不透明）。新 revision 触发重新评估；
- *   同 revision 重复通知不改变历史。
- * - startup.id：本次进程启动标识；仅在 on_change 安排上放行一次（幂等）。
+ * - configurationRevision：本轮实际成功应用的最新配置身份（不透明），不是变更历史队列。
+ *   新修订触发重新评估；同修订重复通知不改变历史。
+ * - startupId：本次进程启动标识；同一 boot 每轮可重送，owner 幂等记账，
+ *   仅在 on_change 入口放行一次资格。
+ * 空集合 = 自动检查；是否到期由 owner 的时钟判定，timer 不授予资格。
  */
-export type LLMRecoveryTrigger =
-  | { kind: 'automatic' }
-  | { kind: 'intervention'; ids: readonly string[] }
-  | { kind: 'configuration'; revision: string }
-  | { kind: 'startup'; id: string };
+export interface LLMRecoveryFacts {
+  readonly interventionIds: readonly string[];
+  readonly configurationRevision?: string;
+  readonly startupId?: string;
+}
 
 export type LLMRecoveryAdmission =
-  | { kind: 'admitted'; attemptId: string }
-  | { kind: 'waiting'; schedule: LLMRecoverySchedule };
+  | { kind: 'admitted'; attemptId: string; factsAccepted: true }
+  | { kind: 'waiting'; schedule: LLMRecoverySchedule; factsAccepted: boolean };
 
 /** EventLoop 消费的窄 capability。 */
 export interface LLMRecoveryController {
   inspect(): Promise<LLMRecoverySchedule>;
-  begin(input: { requestKey: string; trigger: LLMRecoveryTrigger }): Promise<LLMRecoveryAdmission>;
+  begin(input: { requestKey: string; facts: LLMRecoveryFacts }): Promise<LLMRecoveryAdmission>;
   finish(attemptId: string, outcome: 'completed' | 'interrupted' | 'failed'): Promise<void>;
   /** 迁移期：幂等导入旧 owner 的中性导出数据（旧等待保持原 resumeAt）。 */
   adoptLegacy(legacy: LegacyRecoveryExport): { kind: 'imported' | 'already_imported' };
@@ -192,121 +200,205 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     return { ...this.state.schedule };
   }
 
+  /**
+   * Phase 1827: 一次提交全部恢复事实，由 owner 幂等接受并至多产生一次准入。
+   *
+   * 固定顺序（事实之间无优先级）：
+   * 1. 去重输入 ids；记录入口安排（probeOnly 判定用）；
+   * 2. 活跃且非「重启恢复未开始」的准入 → waiting/factsAccepted=false，不接收任何事实；
+   * 3. 复制状态，后续只改副本；计算全部新事实差集；
+   * 4. 新配置修订 → 重新评估 on_change（at 的 deadline 不变），不清预算与失败证据；
+   * 5. 全部新干预 ids 一次记账，任一新 id 授予一次提前资格；
+   * 6. 新启动 token 一律记为本 boot 已处理，仅 on_change 入口授予一次启动资格；
+   * 7. 在配置评估后的安排上只做一次准入判断；
+   * 8. 重启恢复的未开始准入：合入本批新事实、解除 resumed 标记，不建第二个 attempt；
+   * 9-11. 去重/安排/接受证据/准入一次原子保存，成功后才替换内存并发布事件。
+   */
   async begin(input: {
     requestKey: string;
-    trigger: LLMRecoveryTrigger;
+    facts: LLMRecoveryFacts;
   }): Promise<LLMRecoveryAdmission> {
     const nowMs = this.now();
-    let dirty = false;
-    let forceAttempt = false;
-    let interventionCount = 0;
+    const entrySchedule = this.state.schedule;
+    const dedupedIds = dedupeStrings(input.facts.interventionIds);
 
-    if (input.trigger.kind === 'intervention') {
-      const accepted = new Set(this.state.acceptedInterventions);
-      const fresh = input.trigger.ids.filter(id => !accepted.has(id));
-      if (fresh.length > 0) {
-        this.state.acceptedInterventions = appendBounded(
-          this.state.acceptedInterventions,
-          fresh,
-          LLM_RECOVERY_ACCEPTED_IDS_MAX,
-        );
-        forceAttempt = true;
-        interventionCount = fresh.length;
-        dirty = true;
-      }
-    } else if (input.trigger.kind === 'configuration') {
-      if (!this.state.acceptedConfigRevisions.includes(input.trigger.revision)) {
-        this.state.acceptedConfigRevisions = appendBounded(
-          this.state.acceptedConfigRevisions,
-          [input.trigger.revision],
-          LLM_RECOVERY_ACCEPTED_IDS_MAX,
-        );
-        // 重新评估：配置变化可能修复 permanent 类阻断（换 key/model）；
-        // timed 安排保持（时间窗与配置无关）。
-        this.state.providers = this.state.providers.filter(p => p.errorClass !== 'permanent');
-        if (this.state.schedule.kind === 'on_change') {
-          this.state.schedule = { kind: 'ready', revision: this.state.revision };
-        }
-        dirty = true;
-      }
-    } else if (input.trigger.kind === 'startup') {
-      if (
-        this.state.schedule.kind === 'on_change'
-        && this.state.lastStartupProbeId !== input.trigger.id
-      ) {
-        this.state.lastStartupProbeId = input.trigger.id;
-        forceAttempt = true;
-        dirty = true;
-      }
-    }
-
+    // 活跃准入挡住整批：不记账、不改安排、不发布接受事件；来源可重送。
     const active = this.state.activeAdmission;
-    if (active) {
-      if (!active.started && active.resumedFromRestart) {
-        // Z4：重启前已授予、尚未开始的准入 → 重新驱动同一 attempt
-        // （保留原预算/资格；清除 resumed 标记，之后的并发保护照常）。
-        active.resumedFromRestart = undefined;
-        if (dirty) this.commit();
-        this.emit({
-          type: 'recovery_attempt_admitted',
-          scope: this.scopeId,
-          revision: this.state.revision,
-          attemptId: active.attemptId,
-          trigger: 'resumed',
-          interventionCount: 0,
-        });
-        return { kind: 'admitted', attemptId: active.attemptId };
-      }
-      // 同 scope 不允许并发 admission；保留当前安排交由调用方串行重试。
-      if (dirty) this.commit();
-      return { kind: 'waiting', schedule: { ...this.state.schedule } };
+    const resumable = active !== null && active.resumedFromRestart === true && !active.started;
+    if (active && !resumable) {
+      return { kind: 'waiting', schedule: { ...this.state.schedule }, factsAccepted: false };
     }
 
-    const schedule = this.state.schedule;
+    const next: LLMRecoveryStateV1 = {
+      ...this.state,
+      budget: { ...this.state.budget },
+      providers: [...this.state.providers],
+      acceptedInterventions: [...this.state.acceptedInterventions],
+      acceptedConfigRevisions: [...this.state.acceptedConfigRevisions],
+      failures: [...this.state.failures],
+      importedSources: [...this.state.importedSources],
+      ...(this.state.acceptedFactBatches
+        ? { acceptedFactBatches: [...this.state.acceptedFactBatches] }
+        : {}),
+    };
+    let stateChanged = false;
+    const acceptedFacts: {
+      interventionIds: string[];
+      configurationRevision?: string;
+      startupId?: string;
+    } = { interventionIds: [] };
+
+    // 4. 新配置修订：重新评估 permanent 阻断；at 的时间窗不因配置缩短。
+    const configRevision = input.facts.configurationRevision;
+    if (configRevision !== undefined && !next.acceptedConfigRevisions.includes(configRevision)) {
+      next.acceptedConfigRevisions = appendBounded(
+        next.acceptedConfigRevisions,
+        [configRevision],
+        LLM_RECOVERY_ACCEPTED_IDS_MAX,
+      );
+      next.providers = next.providers.filter(p => p.errorClass !== 'permanent');
+      if (next.schedule.kind === 'on_change') {
+        next.schedule = { kind: 'ready', revision: next.revision };
+      }
+      acceptedFacts.configurationRevision = configRevision;
+      stateChanged = true;
+    }
+
+    // 5. 全部新干预 ids 一次记账；多 id 归一化为一次资格，旧 id 不授予新资格。
+    const freshIds = dedupedIds.filter(id => !next.acceptedInterventions.includes(id));
+    if (freshIds.length > 0) {
+      next.acceptedInterventions = appendBounded(
+        next.acceptedInterventions,
+        freshIds,
+        LLM_RECOVERY_ACCEPTED_IDS_MAX,
+      );
+      acceptedFacts.interventionIds = freshIds;
+      stateChanged = true;
+    }
+    const hasUserQualification = freshIds.length > 0;
+
+    // 6. 新启动 token：不论入口安排都记为本 boot 已处理（ready/at 时不能留到本 boot
+    // 稍后失败再获得启动机会）；仅 on_change 入口授予一次启动资格。
+    let hasStartupQualification = false;
+    const startupId = input.facts.startupId;
+    if (startupId !== undefined && startupId !== next.lastStartupProbeId) {
+      next.lastStartupProbeId = startupId;
+      acceptedFacts.startupId = startupId;
+      stateChanged = true;
+      if (entrySchedule.kind === 'on_change') hasStartupQualification = true;
+    }
+
+    const hasNewFacts = acceptedFacts.interventionIds.length > 0
+      || acceptedFacts.configurationRevision !== undefined
+      || acceptedFacts.startupId !== undefined;
+
+    if (resumable && active) {
+      // 8. Z4+1827：重启前已授予、尚未开始的准入 → 合入本批新事实并重新驱动同一 attempt。
+      // 不做第二次准入判断；保留原预算/资格，只合入确有的新资格。
+      next.activeAdmission = {
+        ...active,
+        resumedFromRestart: undefined,
+        interventionIds: mergeIds(active.interventionIds ?? [], acceptedFacts.interventionIds),
+        ...(acceptedFacts.configurationRevision !== undefined
+          ? { configurationRevision: acceptedFacts.configurationRevision }
+          : active.configurationRevision !== undefined
+            ? { configurationRevision: active.configurationRevision }
+            : {}),
+        ...(acceptedFacts.startupId !== undefined
+          ? { startupId: acceptedFacts.startupId }
+          : active.startupId !== undefined
+            ? { startupId: active.startupId }
+            : {}),
+        allowBreakerProbe: (active.allowBreakerProbe ?? false)
+          || hasUserQualification
+          || hasStartupQualification,
+      };
+      next.revision += 1;
+      next.schedule = { ...next.schedule, revision: next.revision };
+      if (hasNewFacts) {
+        next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, active.attemptId);
+      }
+      this.commitNext(next);
+      if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, active.attemptId);
+      this.emit({
+        type: 'recovery_attempt_admitted',
+        scope: this.scopeId,
+        revision: next.revision,
+        attemptId: active.attemptId,
+        trigger: 'resumed',
+        interventionCount: acceptedFacts.interventionIds.length,
+      });
+      return { kind: 'admitted', attemptId: active.attemptId, factsAccepted: true };
+    }
+
+    // 7. 一次准入判断（配置单独到达不缩短 at；系统消息不赋予资格）。
+    const schedule = next.schedule;
     let admitted = false;
     if (schedule.kind === 'ready') {
       admitted = true;
     } else if (schedule.kind === 'at') {
-      admitted = nowMs >= Date.parse(schedule.resumeAt) || forceAttempt;
+      admitted = nowMs >= Date.parse(schedule.resumeAt) || hasUserQualification;
     } else {
-      admitted = forceAttempt;
+      admitted = hasUserQualification || hasStartupQualification;
     }
 
     if (!admitted) {
-      if (dirty) this.commit();
-      return { kind: 'waiting', schedule: { ...schedule } };
+      if (!stateChanged) {
+        // 无新事实：幂等返回，不伪造接受事件。
+        return { kind: 'waiting', schedule: { ...this.state.schedule }, factsAccepted: true };
+      }
+      next.revision += 1;
+      next.schedule = { ...next.schedule, revision: next.revision };
+      if (hasNewFacts) {
+        next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, undefined);
+      }
+      this.commitNext(next);
+      if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, undefined);
+      return { kind: 'waiting', schedule: { ...next.schedule }, factsAccepted: true };
     }
 
     const attemptId = `att-${newUuid()}`;
-    // 局部预算/资格由本次准入唯一决定：
-    // - probeOnly：进入本次准入前存在非 ready 安排（到点/干预/配置/启动放行的恢复尝试）
-    //   → 每候选至多一次真实调用；
-    // - allowBreakerProbe：显式干预或启动放行（forceAttempt 路径）→ 不被旧 breaker 立即拒绝。
-    const probeOnly = schedule.kind !== 'ready';
-    const allowBreakerProbe = forceAttempt;
-    this.state.activeAdmission = {
+    // 9. 局部预算/资格由本次准入唯一决定：
+    // - probeOnly：入口安排非 ready（恢复 probe 上下文）→ 每候选至多一次真实调用；
+    //   配置先置 ready 不恢复为正常 3 次预算。
+    // - allowBreakerProbe：仅有效新用户/启动资格授予（配置不授予）。
+    const probeOnly = entrySchedule.kind !== 'ready';
+    const allowBreakerProbe = hasUserQualification || hasStartupQualification;
+    const summary = summarizeAdmission(acceptedFacts, {
+      user: hasUserQualification,
+      startup: hasStartupQualification,
+    });
+    next.activeAdmission = {
       attemptId,
       started: false,
       requestKey: input.requestKey,
-      triggerKind: input.trigger.kind,
-      ...(input.trigger.kind === 'startup' ? { triggerId: input.trigger.id } : {}),
-      ...(input.trigger.kind === 'configuration' ? { triggerId: input.trigger.revision } : {}),
+      triggerKind: summary.kind,
+      ...(summary.id !== undefined ? { triggerId: summary.id } : {}),
+      interventionIds: [...acceptedFacts.interventionIds],
+      ...(acceptedFacts.configurationRevision !== undefined
+        ? { configurationRevision: acceptedFacts.configurationRevision }
+        : {}),
+      ...(acceptedFacts.startupId !== undefined ? { startupId: acceptedFacts.startupId } : {}),
       probeOnly,
       allowBreakerProbe,
     };
-    this.state.revision += 1;
-    this.state.schedule = { ...this.state.schedule, revision: this.state.revision };
-    // 持久化失败 → 抛错：调用方不得在写失败后继续真发。
-    this.commit();
+    next.revision += 1;
+    next.schedule = { ...next.schedule, revision: next.revision };
+    if (hasNewFacts) {
+      next.acceptedFactBatches = appendFactBatch(next, acceptedFacts, attemptId);
+    }
+    // 去重、安排、接受证据与准入一次原子保存；失败抛错，内存与来源不前移。
+    this.commitNext(next);
+    if (hasNewFacts) this.emitFactsAccepted(next.revision, acceptedFacts, attemptId);
     this.emit({
       type: 'recovery_attempt_admitted',
       scope: this.scopeId,
-      revision: this.state.revision,
+      revision: next.revision,
       attemptId,
-      trigger: input.trigger.kind,
-      interventionCount,
+      trigger: summary.kind,
+      interventionCount: acceptedFacts.interventionIds.length,
     });
-    return { kind: 'admitted', attemptId };
+    return { kind: 'admitted', attemptId, factsAccepted: true };
   }
 
   async finish(
@@ -542,9 +634,92 @@ export class LLMRecoverySessionImpl implements LLMRecoverySession, RecoveryCallS
     saveRecoveryState(this.fs, this.state);
   }
 
+  /** 先保存后替换内存：写失败抛错时调用方不得继续真发，内存仍为旧状态。 */
+  private commitNext(next: LLMRecoveryStateV1): void {
+    next.updatedAt = new Date(this.now()).toISOString();
+    saveRecoveryState(this.fs, next);
+    this.state = next;
+  }
+
+  /** 事实接受证据（磁盘记录权威；事件出口尽力而为，重复事实不伪造新事件）。 */
+  private emitFactsAccepted(
+    revision: number,
+    accepted: AcceptedFacts,
+    attemptId: string | undefined,
+  ): void {
+    this.emit({
+      type: 'recovery_facts_accepted',
+      scope: this.scopeId,
+      revision,
+      interventionIds: [...accepted.interventionIds],
+      ...(accepted.configurationRevision !== undefined
+        ? { configurationRevision: accepted.configurationRevision }
+        : {}),
+      ...(accepted.startupId !== undefined ? { startupId: accepted.startupId } : {}),
+      ...(attemptId !== undefined ? { attemptId } : {}),
+    });
+  }
+
   private emit(event: Parameters<LLMEventSink['emit']>[0]): void {
     this.events.emit(event);
   }
+}
+
+interface AcceptedFacts {
+  interventionIds: readonly string[];
+  configurationRevision?: string;
+  startupId?: string;
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string' || value.length === 0 || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function mergeIds(existing: readonly string[], additions: readonly string[]): string[] {
+  return dedupeStrings([...existing, ...additions]);
+}
+
+/** 只追加、不截断：接受历史是证据，事件出口不可靠，磁盘记录必须完整。 */
+function appendFactBatch(
+  next: LLMRecoveryStateV1,
+  accepted: AcceptedFacts,
+  attemptId: string | undefined,
+): LLMRecoveryAcceptedFactBatch[] {
+  const batch: LLMRecoveryAcceptedFactBatch = {
+    scope: next.scopeId,
+    revision: next.revision,
+    interventionIds: [...accepted.interventionIds],
+    ...(accepted.configurationRevision !== undefined
+      ? { configurationRevision: accepted.configurationRevision }
+      : {}),
+    ...(accepted.startupId !== undefined ? { startupId: accepted.startupId } : {}),
+    ...(attemptId !== undefined ? { attemptId } : {}),
+  };
+  return [...(next.acceptedFactBatches ?? []), batch];
+}
+
+/** 显示兼容摘要：只选一个主原因，完整信息由事实证据关联。 */
+function summarizeAdmission(
+  accepted: AcceptedFacts,
+  qualifications: { user: boolean; startup: boolean },
+): { kind: string; id?: string } {
+  if (qualifications.user) return { kind: 'intervention' };
+  if (qualifications.startup) {
+    return accepted.startupId !== undefined
+      ? { kind: 'startup', id: accepted.startupId }
+      : { kind: 'startup' };
+  }
+  if (accepted.configurationRevision !== undefined) {
+    return { kind: 'configuration', id: accepted.configurationRevision };
+  }
+  return { kind: 'automatic' };
 }
 
 function minDefined(current: number | undefined, candidate: number): number {

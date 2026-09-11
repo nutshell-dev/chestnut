@@ -71,7 +71,7 @@ describe('EventLoop.run', () => {
 
   function makeMockRecovery() {
     const adoptLegacy = vi.fn().mockReturnValue({ kind: 'imported' });
-    const begin = vi.fn().mockResolvedValue({ kind: 'admitted', attemptId: 'att-test' });
+    const begin = vi.fn().mockResolvedValue({ kind: 'admitted', attemptId: 'att-test', factsAccepted: true });
     const finish = vi.fn().mockResolvedValue(undefined);
     const inspect = vi.fn().mockResolvedValue({ kind: 'ready', revision: 1 });
     return { controller: { inspect, begin, finish, adoptLegacy }, adoptLegacy, begin, finish, inspect };
