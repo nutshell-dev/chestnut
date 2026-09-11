@@ -311,7 +311,7 @@ export class EventLoop {
           `context=consumePendingControls`,
           `reason=${formatErr(error)}`,
         );
-        if (!(await this._waitAfterFactsReadFailure())) return 'stopped';
+        if (!(await this._waitForFactsRetry())) return 'stopped';
         continue;
       }
 
@@ -325,7 +325,7 @@ export class EventLoop {
           `context=peekPendingInterventionFacts`,
           `reason=${formatErr(error)}`,
         );
-        if (!(await this._waitAfterFactsReadFailure())) return 'stopped';
+        if (!(await this._waitForFactsRetry())) return 'stopped';
         continue;
       }
 
@@ -343,7 +343,7 @@ export class EventLoop {
 
       if (!admission.factsAccepted) {
         // 活跃准入挡住整批：不发 drain、不并发启动 turn，等待已有工作结束或兜底超时后重读。
-        if (!(await this._waitAfterFactsReadFailure())) return 'stopped';
+        if (!(await this._waitForFactsRetry())) return 'stopped';
         continue;
       }
 
@@ -355,7 +355,7 @@ export class EventLoop {
   }
 
   /** 事实读取失败/本批被拒后的可中断等待：不空转、不消费来源。 */
-  private async _waitAfterFactsReadFailure(): Promise<boolean> {
+  private async _waitForFactsRetry(): Promise<boolean> {
     if (this.stopped) return false;
     const signal = this.waitAbortController?.signal;
     await waitForInbox(

@@ -3,8 +3,8 @@
  * CLI 汇总：stream.jsonl 全量事件判别联合（phase 1321 分层拆件）。
  *
  * stream 的 StreamEvent 已诚实化为协议基础（ts + type、payload unknown）；
- * 消费端（CLI）可 import 一切 → 全量 50 判别联合在此汇总：
- *   - 协议层 40：stream 的 STREAM_EVENT_NAMES + StreamEventMap（payload 单源在 stream）
+ * 消费端（CLI）可 import 一切 → 全量 56 判别联合在此汇总：
+ *   - 协议层 46：stream 的 STREAM_EVENT_NAMES + StreamEventMap（payload 单源在 stream）
  *   - 上层 10：agent turn 6（phase 1789 起经本地稳定 wire catalog、不导入业务 owner）
  *     / async-task-system 3 / assembly 1（payload 本地定义）
  */
@@ -29,7 +29,7 @@ export const STREAM_WIRE_EVENTS = [
 
 export type StreamWireEvent = (typeof STREAM_WIRE_EVENTS)[number];
 
-/** 全量 type 值联合（协议层 40 + 上层 10 = 50） */
+/** 全量 type 值联合（协议层 46 + 上层 10 = 56） */
 export type CliStreamEventType =
   | (typeof STREAM_EVENT_NAMES)[keyof typeof STREAM_EVENT_NAMES]
   | StreamWireEvent
@@ -37,7 +37,7 @@ export type CliStreamEventType =
   | (typeof ASSEMBLY_STREAM_EVENTS)[keyof typeof ASSEMBLY_STREAM_EVENTS];
 
 /**
- * 上层 10 事件 payload（本地定义；协议层 40 引用 stream 的 StreamEventMap——含 system_notify
+ * 上层 10 事件 payload（本地定义；协议层 46 引用 stream 的 StreamEventMap——含 system_notify
  * 与 send_content_*）。空成员用 `{ trace_id?: string }` 而非 Record<string, never>——
  * stream-callbacks checkWrite 会注入 trace_id（1316 Step B 教训）。
  */

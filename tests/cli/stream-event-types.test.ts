@@ -1,8 +1,8 @@
 /**
  * CLI 汇总完整性测试（phase 1321 分层拆件）。
  *
- * - CliStreamEventType 值集合 = 4 个 const 并集（50 = 40 协议层 + 6 agent + 3 task + 1 assembly）
- * - 上层 10 与协议层 40 无交集
+ * - CliStreamEventType 值集合 = 4 个 const 并集（56 = 46 协议层 + 6 agent + 3 task + 1 assembly）
+ * - 上层 10 与协议层 46 无交集
  * - CliStreamEventType 与并集类型级一致（编译期断言）
  */
 
@@ -19,7 +19,7 @@ type UpperEventType =
   | (typeof STREAM_WIRE_EVENTS)[number]
   | (typeof STREAM_TASK_EVENTS)[keyof typeof STREAM_TASK_EVENTS]
   | (typeof ASSEMBLY_STREAM_EVENTS)[keyof typeof ASSEMBLY_STREAM_EVENTS];
-// 类型级互检：上层 10 与协议层 40 无交集；CliStreamEventType 覆盖协议层与上层
+// 类型级互检：上层 10 与协议层 46 无交集；CliStreamEventType 覆盖协议层与上层
 type _NoOverlap = Assert<UpperEventType extends (typeof STREAM_EVENT_NAMES)[keyof typeof STREAM_EVENT_NAMES] ? false : true>;
 type _CliCoversProtocol = Assert<(typeof STREAM_EVENT_NAMES)[keyof typeof STREAM_EVENT_NAMES] extends CliStreamEventType ? true : false>;
 type _CliCoversUpper = Assert<UpperEventType extends CliStreamEventType ? true : false>;
@@ -30,9 +30,9 @@ const taskValues = Object.values(STREAM_TASK_EVENTS) as string[];
 const assemblyValues = Object.values(ASSEMBLY_STREAM_EVENTS) as string[];
 
 describe('CLI stream event 汇总', () => {
-  it('4 个 const 并集值集合 == 55（45 协议层 + 6 agent + 3 task + 1 assembly）', () => {
+  it('4 个 const 并集值集合 == 56（46 协议层 + 6 agent + 3 task + 1 assembly）', () => {
     const allValues = [...protocolValues, ...agentValues, ...taskValues, ...assemblyValues];
-    expect(new Set(allValues).size).toBe(55);
+    expect(new Set(allValues).size).toBe(56);
   });
 
   it('上层 const 与协议层无交集（值级）', () => {

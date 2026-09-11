@@ -84,6 +84,8 @@ interface Harness {
   writePending: (msg: Partial<InboxMessage> & { type: string; from: string; content: string }) => void;
   listPending: () => string[];
   setProviderError: (error: Error | undefined) => void;
+  /** 让接下来的 N 次干预事实读取抛错（测读取失败不以空集合继续准入）。 */
+  setInterventionPeekFailures: (n: number) => void;
 }
 
 async function makeHarness(): Promise<Harness> {
@@ -135,6 +137,7 @@ async function makeHarness(): Promise<Harness> {
   });
 
   const turns: Harness['turns'] = [];
+  let peekFailures = 0;
 
   const runtime = {
     abort: () => {},
@@ -151,6 +154,10 @@ async function makeHarness(): Promise<Harness> {
       return { addressed: view.entries.map(e => e.message), controls: [] };
     },
     peekPendingInterventionFacts: async () => {
+      if (peekFailures > 0) {
+        peekFailures -= 1;
+        throw new Error('inbox peek failed');
+      }
       const view = await inboxReader.peekPending();
       return {
         userIds: view.entries
@@ -223,6 +230,7 @@ async function makeHarness(): Promise<Harness> {
     },
     listPending: () => fsNative.readdirSync(pendingDir).filter(n => n.endsWith('.md')),
     setProviderError: (error) => { providerError = error; },
+    setInterventionPeekFailures: (n) => { peekFailures = n; },
   };
 }
 
@@ -529,6 +537,29 @@ describe('Phase 1826 组合行为：owner 安排 × EventLoop 执行 × 真实 i
     expect(h.providerCalls.length).toBe(2);
     h.eventLoop.abort();
     await rerun;
+  });
+});
+
+describe('Phase 1827 事实读取失败处理', () => {
+  it('读取失败：不以空集合继续准入；等待后重读、按真实事实准入一次', async () => {
+    const h = await makeHarness();
+    h.writePending({ id: 'm-1', type: 'user_chat', from: 'user', content: 'hello' });
+
+    // 持续失败窗口：不得用空集合绕过（否则会立即准入并真发）。
+    h.setInterventionPeekFailures(Number.POSITIVE_INFINITY);
+    const running = h.eventLoop.run();
+    await sleep(120);   // > fallbackTimeoutMs(30)：若空集合继续准入，这里已经真发
+    expect(h.providerCalls.length).toBe(0);
+    expect(h.turns.length).toBe(0);
+
+    // 读取恢复：重读拿到真实用户事实，正常准入一次。
+    h.setInterventionPeekFailures(0);
+    await sleep(150);
+    expect(h.providerCalls.length).toBe(1);
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].map(m => m.content)).toEqual(['hello']);
+    h.eventLoop.abort();
+    await running;
   });
 });
 
