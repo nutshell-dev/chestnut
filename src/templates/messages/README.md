@@ -32,6 +32,7 @@
 
 ## 明确不在此目录
 
+- **M12 CLI guidance 文案（2026-09-11 用户拍板排除）**：label/subject 文本、truncation 行与布局保留单源在 `src/cli-protocol/guidance.ts`——该文本与 CLI 命令字面同行紧耦合，且 cli-protocol 是封闭叶子层（`no-cli-protocol-to-outside`，未开例外）。它只在呈现时追加到 3 个 motion inbox type（claw_outbox_summary / contract_events / contract_cancelled）的最终文本，不落盘。
 - AsyncTaskSystem `task_result` 异步结果（JSON/结果正文/截断/fallback）：仅汇总，见 `coding plan/phase1828/异步结果消息清单（仅汇总）.md`。
 - 非 inbox 工具结果（如 submit_subtask 工具返回文本）、用户/模型动态正文、`src/templates/prompts`、`memory/prompts`、auditor prompt。
 - audit/stream 事件与 UI 文案（非 inbox 消息文本）。
