@@ -151,6 +151,42 @@ describe('llm-event-sink (phase 1176 Step B)', () => {
     consoleSpy.mockRestore();
   });
 
+  it('fans out recovery_facts_accepted with full facts to audit and stream (phase 1827)', () => {
+    const audit = makeAudit();
+    const stream = makeStream();
+    const sink = createLLMEventSink(audit, stream);
+
+    const event: LLMEvent = {
+      type: 'recovery_facts_accepted',
+      scope: 'foreground',
+      revision: 7,
+      interventionIds: ['m1', 'm2'],
+      configurationRevision: 'r-fixed',
+      startupId: 'boot-1',
+      attemptId: 'att-9',
+    };
+    sink.emit(event);
+
+    expect(audit.writes).toHaveLength(1);
+    expect(audit.writes[0][0]).toBe('llm_recovery_facts_accepted');
+    expect(audit.writes[0]).toEqual(expect.arrayContaining([
+      'scope=foreground',
+      'revision=7',
+      'interventions=m1,m2',
+      'config=r-fixed',
+      'startup=boot-1',
+      'attempt=att-9',
+    ]));
+
+    expect(stream.events).toHaveLength(1);
+    const streamEvent = stream.events[0] as Record<string, unknown>;
+    expect(streamEvent.type).toBe('recovery_facts_accepted');
+    expect(streamEvent.interventionIds).toEqual(['m1', 'm2']);
+    expect(streamEvent.configurationRevision).toBe('r-fixed');
+    expect(streamEvent.startupId).toBe('boot-1');
+    expect(streamEvent.attemptId).toBe('att-9');
+  });
+
   it('normalizes Error payload to readable string in stream', () => {
     const audit = makeAudit();
     const stream = makeStream();
