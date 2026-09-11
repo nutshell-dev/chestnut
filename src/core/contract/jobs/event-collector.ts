@@ -13,6 +13,18 @@ import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 import { LEGACY_PROGRESS_STATUSES_TUPLE } from '../schemas.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
 import { readLifecycleIntentsForContract } from '../lifecycle-intent.js';
+import {
+  contractEventCauseLine,
+  contractEventEvidenceRefLine,
+  contractEventGoalLine,
+  contractEventHeader,
+  contractEventLastFailureLine,
+  contractEventReasonLine,
+  contractEventSubtaskEvidenceLine,
+  contractEventSubtaskIdLine,
+  contractEventSubtasksHeading,
+  contractEventTitleLine,
+} from '../../../templates/messages/index.js';
 
 function readContractMeta(
   fs: FileSystem,
@@ -130,7 +142,7 @@ async function formatCurrentArchiveEvent(
       );
       const { cause } = formatCorruptedCause(contractDirName, progress, intents);
       return {
-        body: `[contract_archive_corrupted] claw=${clawId} contract=${contractDirName}`,
+        body: contractEventHeader('contract_archive_corrupted', clawId, contractDirName),
         hasFailure: true,
         status: 'corrupted',
         reason: 'archive_corrupted',
@@ -147,9 +159,9 @@ async function formatCurrentArchiveEvent(
         contractDirName as import('../types.js').ContractId,
       );
       const { reason, evidenceRef } = formatFailedReason(intents);
-      const lines: string[] = [`[contract_failed] claw=${clawId} contract=${contractDirName}`];
-      lines.push(`  reason: ${reason}`);
-      if (evidenceRef) lines.push(`  evidence_ref: ${evidenceRef}`);
+      const lines: string[] = [contractEventHeader('contract_failed', clawId, contractDirName)];
+      lines.push(contractEventReasonLine(reason));
+      if (evidenceRef) lines.push(contractEventEvidenceRefLine(evidenceRef));
       return {
         body: lines.join('\n'),
         hasFailure: true,
@@ -189,7 +201,7 @@ function formatLegacyFlatArchiveEvent(
       return formatCrashed(clawId, contractDirName, meta, progress);
     case 'archive_corrupted':
       return {
-        body: `[contract_archive_corrupted] claw=${clawId} contract=${contractDirName}`,
+        body: contractEventHeader('contract_archive_corrupted', clawId, contractDirName),
         hasFailure: true,
         status: 'corrupted',
         reason: 'archive_corrupted',
@@ -254,21 +266,21 @@ function formatCompleted(
   meta: { title?: string; goal?: string },
   progress: ProgressData,
 ): FormattedEvent {
-  const lines: string[] = [`[contract_completed] claw=${clawId} contract=${dirName}`];
-  if (meta.title) lines.push(`  title: ${meta.title}`);
-  if (meta.goal) lines.push(`  goal: ${meta.goal}`);
+  const lines: string[] = [contractEventHeader('contract_completed', clawId, dirName)];
+  if (meta.title) lines.push(contractEventTitleLine(meta.title));
+  if (meta.goal) lines.push(contractEventGoalLine(meta.goal));
 
   let hasFailure = false;
   const completed = Object.entries(progress.subtasks)
     .filter(([, st]) => st.status === 'completed');
   if (completed.length > 0) {
-    lines.push('  subtasks:');
+    lines.push(contractEventSubtasksHeading('completed'));
     for (const [stId, st] of completed) {
       // phase 1487: 去 [force-accepted] 前缀（语义诚实化 / motion 是决策主体 / DP）
       const ev = st.evidence ?? '';
-      lines.push(`    [${stId}] ${ev}`);
+      lines.push(contractEventSubtaskEvidenceLine(stId, ev));
       if (st.last_failed_feedback?.feedback) {
-        lines.push(`      ⚠ last_failure: ${st.last_failed_feedback.feedback}`);
+        lines.push(contractEventLastFailureLine(st.last_failed_feedback.feedback));
         hasFailure = true;
       }
     }
@@ -283,14 +295,14 @@ function formatCancelled(
   progress: ProgressData,
   reason: string,
 ): FormattedEvent {
-  const lines: string[] = [`[contract_cancelled] claw=${clawId} contract=${dirName}`];
-  if (meta.title) lines.push(`  title: ${meta.title}`);
-  if (meta.goal) lines.push(`  goal: ${meta.goal}`);
-  lines.push(`  reason: ${reason}`);
+  const lines: string[] = [contractEventHeader('contract_cancelled', clawId, dirName)];
+  if (meta.title) lines.push(contractEventTitleLine(meta.title));
+  if (meta.goal) lines.push(contractEventGoalLine(meta.goal));
+  lines.push(contractEventReasonLine(reason));
   const completed = Object.entries(progress.subtasks).filter(([, st]) => st.status === 'completed');
   if (completed.length > 0) {
-    lines.push(`  subtasks (completed before cancel):`);
-    for (const [stId] of completed) lines.push(`    [${stId}]`);
+    lines.push(contractEventSubtasksHeading('before-cancel'));
+    for (const [stId] of completed) lines.push(contractEventSubtaskIdLine(stId));
   }
   return { body: lines.join('\n'), hasFailure: true, status: 'cancelled', reason };
 }
@@ -302,14 +314,14 @@ function formatCrashed(
   progress: ProgressData,
 ): FormattedEvent {
   const cause = (progress.checkpoint ?? '').replace(/^crashed:\s*/, '') || '(no cause given)';
-  const lines: string[] = [`[contract_crashed] claw=${clawId} contract=${dirName}`];
-  if (meta.title) lines.push(`  title: ${meta.title}`);
-  if (meta.goal) lines.push(`  goal: ${meta.goal}`);
-  lines.push(`  cause: ${cause}`);
+  const lines: string[] = [contractEventHeader('contract_crashed', clawId, dirName)];
+  if (meta.title) lines.push(contractEventTitleLine(meta.title));
+  if (meta.goal) lines.push(contractEventGoalLine(meta.goal));
+  lines.push(contractEventCauseLine(cause));
   const completed = Object.entries(progress.subtasks).filter(([, st]) => st.status === 'completed');
   if (completed.length > 0) {
-    lines.push(`  subtasks (completed before crash):`);
-    for (const [stId] of completed) lines.push(`    [${stId}]`);
+    lines.push(contractEventSubtasksHeading('before-crash'));
+    for (const [stId] of completed) lines.push(contractEventSubtaskIdLine(stId));
   }
   return { body: lines.join('\n'), hasFailure: true, status: 'crashed', cause };
 }

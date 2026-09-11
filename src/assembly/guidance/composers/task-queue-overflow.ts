@@ -13,6 +13,7 @@
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
+import { taskQueueOverflowGuidanceText } from '../../../templates/messages/index.js';
 
 interface TaskQueueOverflowState {
   cap?: string;
@@ -21,6 +22,6 @@ interface TaskQueueOverflowState {
 
 export const composer: GuidanceComposer<TaskQueueOverflowState> = (): GuidanceEntry => {
   return {
-    text: 'This is a system-level overload beyond agent control. Surface to the user immediately and ask them to report this to the developer. Do not retry dispatching new tasks.',
+    text: taskQueueOverflowGuidanceText(),
   };
 };

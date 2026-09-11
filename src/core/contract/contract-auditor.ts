@@ -20,6 +20,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { ContentBlock, TextBlock } from '../../foundation/llm-provider/index.js';
 import { buildAuditorPrompt } from './auditor-prompt.js';
+import { contractAuditDriftLine, contractAuditFeedbackBody } from '../../templates/messages/index.js';
 import { contractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
@@ -209,12 +210,10 @@ export class ContractAuditor {
     // 去重：删 pending 中同 sender 旧消息
     await this.deps.inbox.removePendingBySource(sender);
 
-    const driftLines = verdict.drifts.map((d, i) => `${i + 1}. ${d.what}（证据：${d.evidence}）`).join('\n');
-    const body = `看了你最近的活动，几个点：
-
-${driftLines || '（auditor 标 drift 但未给具体条目）'}
-
-建议：${verdict.next_focus_suggestion || '（无）'}`;
+    const driftLines = verdict.drifts
+      .map((d, i) => contractAuditDriftLine(i, d.what, d.evidence))
+      .join('\n');
+    const body = contractAuditFeedbackBody(driftLines, verdict.next_focus_suggestion);
 
     await this.deps.inbox.write({
       id: `auditor-${req.contractId}-${nowMs}`,

@@ -20,6 +20,7 @@ import { STREAM_EVENT_NAMES } from '../foundation/stream/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
+import { contractNotificationBody } from '../templates/messages/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import {
   encodeContractEventsGuidance,
@@ -65,7 +66,7 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
         type: 'contract_events',   // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
         source: 'system',
         priority: 'high',
-        body: `[${event.type}] claw=${deps.clawId} ${formatNotifyData(data)}`,
+        body: contractNotificationBody(event.type, deps.clawId, formatNotifyData(data)),
         extraFields: encodeContractEventsGuidance([{
           clawId: makeClawId(deps.clawId),
           contractId: event.contractId,
@@ -83,7 +84,7 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
         type: 'contract_cancelled',  // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
         source: 'system',
         priority: 'high',
-        body: `[contract_cancelled] claw=${deps.clawId} ${formatNotifyData(data)}`,
+        body: contractNotificationBody('contract_cancelled', deps.clawId, formatNotifyData(data)),
         extraFields: encodeContractCancelledGuidance([{
           clawId: makeClawId(deps.clawId),
           contractId: event.contractId,

@@ -48,6 +48,7 @@ import { newUuid } from '../../foundation/node-utils/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import { PendingViewError, notifyInbox } from '../../foundation/messaging/index.js';
+import { executionRecoveryMessage } from '../../templates/messages/index.js';
 import {
   createExecutionRecoveryController,
   createExecutionRecoveryStore,
@@ -825,7 +826,7 @@ export class EventLoop {
       type: EXECUTION_RECOVERY_MESSAGE_TYPE,
       source: this.clawId,
       priority: 'high',
-      body: `Execution stalled with no persisted activity; resume work on active contract ${record.contractId} (recovery attempt ${record.attempts}).`,
+      body: executionRecoveryMessage(record.contractId, record.attempts),
       metadata: { contract_id: record.contractId },
     }, this.audit);
   }

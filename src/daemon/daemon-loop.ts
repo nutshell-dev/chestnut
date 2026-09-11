@@ -22,6 +22,7 @@ import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.j
 import type { Heartbeat } from '../core/heartbeat/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
 import { hasPendingStartupCheck, shouldEmitStartupCheck } from './startup-check.js';
+import { startupCheckMessage } from '../templates/messages/index.js';
 import {
   INTERRUPT_POLL_MAX_ERRORS,
   INTERRUPT_POLL_RECOVERY_BACKOFF_MS,
@@ -91,7 +92,7 @@ export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
       type: 'startup_check',
       source: 'daemon',
       priority: 'high',
-      body: 'System startup. Please review active contracts and resume execution.',
+      body: startupCheckMessage(),
     }, audit);
     // post-condition：dedup identity 确认投递（notifyInbox 不抛出、只能靠证据核实）
     if (!hasPendingStartupCheck(agentFs, audit)) {

@@ -27,6 +27,7 @@ import type { CronJob } from '../../../foundation/cron/index.js';
 import { parseSchedule } from '../../../foundation/cron/index.js';
 import type { CronJobGlobalConfig } from '../../../foundation/cron/index.js';
 import { makeClawId } from '../../../foundation/claw-identity/index.js';
+import { contractEventsBody } from '../../../templates/messages/index.js';
 
 
 /**
@@ -717,7 +718,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
           type: 'contract_events',
           source: 'system',
           priority: 'high',
-          body: completedEvents.join('\n\n'),
+          body: contractEventsBody(completedEvents),
           // phase 1261 Step B: 空 refs 合法（正文覆盖全部 completed events，
           // guidance 只含 hasFailure 契约），照常投递与推进 watermark。
           extraFields: encodeContractEventsGuidance(guidanceRefs),
@@ -742,7 +743,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
           type: 'contract_cancelled',
           source: 'system',
           priority: 'high',
-          body: cancelledEvents.join('\n\n'),
+          body: contractEventsBody(cancelledEvents),
           // phase 1262 Step B: 投递条件保证 refs non-empty（一事件一 ref），
           // encoder 仍做 boundary validation。
           extraFields: encodeContractCancelledGuidance(cancelledGuidanceRefs),

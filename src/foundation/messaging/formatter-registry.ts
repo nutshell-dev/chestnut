@@ -7,6 +7,12 @@
  * Messaging 提供 standard renderer；Runtime 仅 dispatch + DP 不静默 fallback。
  */
 
+import {
+  systemMessageEnvelope,
+  userChatMessageEnvelope,
+  userInboxMessageEnvelope,
+} from '../../templates/messages/index.js';
+
 /** 已 format 好的"(2m ago)"字串、formatter 不重复 format。空串表示无 timestamp。*/
 interface MessageFormatterContext {
   /** 消息发件方 claw id 或 'system' */
@@ -95,11 +101,11 @@ export function renderStandardInboxMessage(
 ): string {
   switch (presentation) {
     case 'system':
-      return `[system message${ctx.timestampSec}] ${ctx.body}`;
+      return systemMessageEnvelope(ctx.timestampSec, ctx.body);
     case 'user_inbox':
-      return `[user inbox message${ctx.timestampSec}]\n${ctx.body}`;
+      return userInboxMessageEnvelope(ctx.timestampSec, ctx.body);
     case 'user_chat':
-      return ctx.body;
+      return userChatMessageEnvelope(ctx.body);
     default:
       return assertNever(presentation);
   }

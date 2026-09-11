@@ -61,6 +61,7 @@ import {
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
+import { taskQueueOverflowBody } from '../../templates/messages/index.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome } from './types.js';
 import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 
@@ -997,7 +998,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
             type: 'task_queue_overflow',
             source: 'async-task-system',
             priority: 'critical',
-            body: `Task queue is at capacity (${this.pendingQueueMax} pending). The system is unable to dispatch tasks fast enough — likely a chronic processing failure.`,
+            body: taskQueueOverflowBody(this.pendingQueueMax),
             idPrefix: `${Date.now()}_overflow`,
             extraFields: {
               cap: String(this.pendingQueueMax),

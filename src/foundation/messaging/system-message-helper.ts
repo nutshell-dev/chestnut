@@ -10,8 +10,11 @@
 
 import type { Message } from '../dialog-store/index.js';
 
-/** inbox-formatter 写入侧字面前缀常量、给 LLM 看 */
-export const SYSTEM_MESSAGE_PREFIX = '[system message';
+/**
+ * inbox-formatter 写入侧字面前缀常量、给 LLM 看。
+ * phase 1828：单源移到 templates/messages（纯静态文案资源）；此处保留旧 export 兼容。
+ */
+export { SYSTEM_MESSAGE_PREFIX } from '../../templates/messages/index.js';
 
 /** 是否为系统消息（user role + origin='system'） */
 export function isSystemMessage(msg: Message): boolean {

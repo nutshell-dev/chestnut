@@ -7,6 +7,14 @@ import type { VerificationContext } from './verification-types.js';
 import type { ContractId } from './types.js';
 import type { SubtaskId } from './types.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
+import {
+  forceAcceptMessage,
+  subtaskAcceptedMessage,
+  verificationCrashedFeedback,
+  verificationErrorMessage,
+  verificationRejectionMessage,
+  verificationTimeoutFeedback,
+} from '../../templates/messages/index.js';
 import { ToolError, ToolTimeoutError } from '../../foundation/tools/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import type { ContractNotification } from './notification.js';
@@ -55,11 +63,9 @@ export function writeVerificationInbox(
 
   let body: string;
   if (verdict === 'passed') {
-    body = allCompleted
-      ? `Subtask ${subtaskId} accepted. All subtasks complete!`
-      : `Subtask ${subtaskId} accepted.`;
+    body = subtaskAcceptedMessage(subtaskId, allCompleted);
   } else {
-    body = feedback || 'No feedback provided';
+    body = verificationRejectionMessage(feedback);
   }
 
   ctx.notifyClaw(ctx.clawId, {
@@ -91,10 +97,7 @@ export function writeForceAcceptInbox(
   retryCount: number,
   lastFeedback: string | undefined,
 ): void {
-  const summary = lastFeedback ? `\n⚠ last_failure: ${lastFeedback}` : '';
-  const body = allCompleted
-    ? `Subtask ${subtaskId} force-accepted after ${retryCount} attempts. All subtasks complete!${summary}`
-    : `Subtask ${subtaskId} force-accepted after ${retryCount} attempts.${summary}`;
+  const body = forceAcceptMessage({ subtaskId, retryCount, allCompleted, lastFeedback });
 
   ctx.notifyClaw(ctx.clawId, {
     type: 'verification_result',
@@ -128,7 +131,7 @@ function notifyVerificationError(
     source: 'contract_system',
     to: ctx.clawId,
     priority: 'high',
-    body: `Acceptance verification failed with error: ${errorMsg}`,
+    body: verificationErrorMessage(errorMsg),
     idPrefix: 'verification_error',
     extraFields: {
       contract_id: contractId,
@@ -331,8 +334,8 @@ export async function writeVerificationError(
     error instanceof ToolTimeoutError ? 'subagent_timeout' : 'programming_bug';
   const feedbackText =
     cause === 'subagent_timeout'
-      ? `Acceptance verifier timed out after ${(error as ToolTimeoutError).context?.timeoutMs ?? '?'}ms. 资源 / 网络问题 / 重试可能修复。Error: ${errorMsg}`
-      : `Acceptance verification crashed (system bug). Error: ${errorMsg}. 修代码后再 retry。`;
+      ? verificationTimeoutFeedback(String((error as ToolTimeoutError).context?.timeoutMs ?? '?'), errorMsg)
+      : verificationCrashedFeedback(errorMsg);
 
   notifyVerificationError(ctx, contractId, subtaskId, errorMsg);
   // Phase 1201 Step C: error fact 传入 retry state machine，由其 durable-first persist。

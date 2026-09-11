@@ -24,6 +24,7 @@ import { InboxReader, INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from
 const DEFAULT_PULSE_INTERVAL_MS = 30_000;
 import { auditRandomDreamCrossSource } from './dream-cross-source-audit.js';
 import { loadDreamStateRaw, quarantineDreamStateRaw } from './dream-state-load.js';
+import { dreamOutputsPersistedMessage } from '../../templates/messages/index.js';
 import type { DreamStateDegraded } from './dream-state-load.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
@@ -611,7 +612,7 @@ function toCompletionMessage(item: PendingRandomDreamNotification): InboxMessage
     type: 'random_dream_completed',
     source: 'random-dream',
     priority: 'normal',
-    body: `Dream outputs persisted: ${item.outputCount} contracts. See ${item.outputPath}`,
+    body: dreamOutputsPersistedMessage(item.outputCount, item.outputPath),
     metadata: {
       dreamId: item.taskId,
       outputCount: String(item.outputCount),

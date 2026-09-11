@@ -262,10 +262,12 @@ module.exports = {
         'M#5 单向依赖：foundation 层不依赖任何上层模块。',
         'foundation 内部子层依赖方向由 code review 守（M#5 应然方向、不靠物理路径 lint）。',
         'phase 725 立：718-725 六 phase 治理后 foundation→outside 已 0 违反、lint 守 invariant 防回退。',
+        'phase 1828 用户拍板：src/templates/** 是层中性纯静态文案/提示资源（无业务、无 IO、无运行时配置），',
+        'foundation 可依赖它；据此加 pathNot 而非 allowlist 单文件。其余 outside 仍禁。',
       ].join(' '),
       severity: 'error',
       from: { path: '^src/foundation/' },
-      to: { path: '^src/(?!foundation/)' },
+      to: { path: '^src/(?!foundation/)', pathNot: '^src/templates/' },
     },
     {
       name: 'no-cli-protocol-to-outside',
