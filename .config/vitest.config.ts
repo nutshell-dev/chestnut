@@ -87,6 +87,7 @@ const VI_MOCK_FILES = [
   // 'tests/core/contract/cancel-signal-propagation.test.ts',
   // 'tests/core/contract/contract-system-close.test.ts',
   'tests/core/event-loop/event-loop.test.ts',  // phase 783: vi.mock constants (LLM retry delay)
+  'tests/core/event-loop/llm-recovery.test.ts',  // 2026-09-14 补登记: vi.mock llm-orchestrator/defaults（phase 316 invariant 抓漂移）
   // phase 102 (SHA fb9764d0): LockContext + VerificationContext DI 替 vi.mock pattern。
   // 'tests/core/contract/verification.test.ts',
   // phase 91: verifier-job VerifierRuntimeConfig 加 runSubagent? DI 替 vi.mock pattern、
@@ -135,7 +136,8 @@ const VI_MOCK_FILES = [
   // 移 fast project。
   // 'tests/core/subagent-executor.test.ts',
   'tests/core/subagent/subagent-tool-timeout-inherit.test.ts',
-  'tests/daemon/daemon-loop-atomic-retry-state.test.ts',
+  // 2026-09-14 移出: 该文件已无 vi.mock 用点（phase 316 invariant 抓漂移、注释保留作历史）。
+  // 'tests/daemon/daemon-loop-atomic-retry-state.test.ts',
   'tests/daemon/startup-check-atomic-write.test.ts',
   'tests/foundation/anthropic-cache.test.ts',
   'tests/foundation/audit/fallback-periodic-reconcile.test.ts',
@@ -193,6 +195,7 @@ const VI_MOCK_FILES = [
   'tests/watchdog/shutdown-invariants.test.ts',
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
   'tests/watchdog/watchdog-state-migration.test.ts',  // Phase 1396 Step H: legacy notification state migration uses vi.mock
+  'tests/templates/messages/inbox-text-equivalence.test.ts',  // 2026-09-14 补登记: vi.mock outbox-summary/guidance-state（phase 316 invariant 抓漂移）
   // phase 288 Step C sync: 48 entries added per find -name '*.test.ts' -exec grep 'vi.mock(' {} \;
   'tests/assembly/invariants.test.ts',
   'tests/assembly/assemble.test.ts',

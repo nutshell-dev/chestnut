@@ -1,5 +1,6 @@
 /**
- * @module Templates.Messages
+ * 模块：Templates.Messages（层中性纯静态资源，不占用 L 编号——phase 1828 用户拍板
+ * src/templates/** 为层中性，foundation/cli-protocol 可引用；故不使用 L 层编号标记）。
  * Phase 1828：经 inbox 进入智能体上下文的系统编写文案单源目录。
  *
  * 纯静态资源：TS 纯函数/常量，无 FS/网络/时钟/随机数/注册表；入参仅必要标量、
