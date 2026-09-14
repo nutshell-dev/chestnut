@@ -309,9 +309,22 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         expect.stringContaining('retry_count=3'),
         expect.stringContaining('claw=claw-test'),
       ]));
+
+      // phase 1829: 异常后放行只发一条 verification_result，同时携带异常与放行事实；
+      // 不再另发一条会要求重试的 verification_error。
+      const notifyClawCalls = (ctx.notifyClaw as ReturnType<typeof vi.fn>).mock.calls;
+      expect(notifyClawCalls).toHaveLength(1);
+      const msg = notifyClawCalls[0][1];
+      expect(msg.type).toBe('verification_result');
+      expect(msg.extraFields.force_accepted).toBe('true');
+      expect(msg.extraFields.retry_count).toBe('3');
+      expect(msg.body).toContain('契约：c1；子任务：st1');
+      expect(msg.body).toContain('未得到正常通过结论');
+      expect(msg.body).toContain('失败计数达到配置阈值 3');
+      expect(msg.body).toContain('test');
     });
 
-    it('reset path retry_count < maxAttempts → force_accepted unset', async () => {
+    it('reset path retry_count < maxAttempts → force_accepted unset + 单条 verification_error', async () => {
       const { ctx, storedProgress } = makeAcceptanceCtx({ maxAttempts: 3 });
       // setup: subtask with retry_count=0 + in_progress
       storedProgress.c2 = {
@@ -328,6 +341,15 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       expect(txCalls.length).toBeGreaterThanOrEqual(1);
       expect(txCalls[0][2]).toMatchObject({ kind: 'reject', maxAttempts: 3 });
       expect(storedProgress.c2.subtasks['st1'].force_accepted).toBeUndefined();
+
+      // phase 1829: 异常退回只发一条 verification_error，含身份与已退回处置
+      const notifyClawCalls = (ctx.notifyClaw as ReturnType<typeof vi.fn>).mock.calls;
+      expect(notifyClawCalls).toHaveLength(1);
+      const msg = notifyClawCalls[0][1];
+      expect(msg.type).toBe('verification_error');
+      expect(msg.body).toContain('契约：c2；子任务：st1');
+      expect(msg.body).toContain('系统已将该子任务退回待提交');
+      expect(msg.body).toContain('当前已提交失败计数：1');
     });
 
     it('reset path with no verification_attempts config → uses default maxAttempts=3', async () => {

@@ -15,7 +15,7 @@
 |---|---|---|---|---|
 | M01 | execution-recovery.ts（`executionRecoveryMessage`） | EventLoop 停滞恢复 → 本 claw inbox（高优） | core/event-loop | tests/core/event-loop/execution-recovery.test.ts |
 | M02 | startup.ts（`startupCheckMessage`） | daemon 启动自检 → 本 claw inbox（高优） | daemon | tests/daemon/startup-check-delivery.test.ts |
-| M03 | verification.ts（accepted / rejection / force-accept / error / timeout / crashed feedback） | ContractSystem 验证流水线 → 契约所属 claw | core/contract | tests/core/contract/verification-inbox-invariants.test.ts、tests/core/contract/jobs/event-collector-format-contract-event.test.ts |
+| M03 | verification.ts（验收通过/拒绝/放行/异常通知 + 结构化拒绝反馈 + 执行/配置上游反馈 + 持久化错误反馈） | ContractSystem 验证流水线 → 契约所属 claw | core/contract（verification / verification-notify / verification-format / verification-execution） | tests/core/contract/verification-notice-context.test.ts、tests/core/contract/verification-inbox-invariants.test.ts、tests/core/contract/jobs/event-collector-format-contract-event.test.ts |
 | M04 | contract-notification.ts（`contractNotificationBody`） | Assembly 契约通知 adapter → 本 daemon 自家 inbox | assembly（序列化与字段顺序仍归 adapter） | tests/assembly/contract-notification-adapter*.test.ts |
 | M05 | contract-events.ts（标题/标题行/子任务/证据行/末次失败行 + `contractEventsBody` 双换行组合） | event-collector / contract-observer → motion inbox | core/contract（schema 解析、状态分支、hasFailure 仍在 owner） | tests/core/contract/jobs/event-collector-format-contract-event.test.ts、tests/core/contract/contract-observer.test.ts |
 | M06 | contract-audit.ts（drift 行 + 反馈体） | ContractAuditor drift 检出 → 契约所属 claw | core/contract（限流/去重/模型正文仍在 owner） | tests/core/contract/contract-auditor.test.ts |
@@ -27,6 +27,7 @@
 
 ## 等价与反向证据
 
+- phase 1829：M03 是语义变更（通知正文携带身份与已提交处置、上游系统反馈归位），不是等价迁移。M03 从逐字节等价比较移交新语义验收（`SEMANTICALLY_REDESIGNED_GROUPS`），其余 11 组仍逐字节比对。
 - `tests/templates/messages/inbox-text-equivalence.test.ts`：迁移前从旧实现真实入口捕获的 golden（`__fixtures__/inbox-text-golden.json`，生成器存 `development log/phase1828-logs/B-capture-golden.test.ts.txt`）与迁移后同入口输出逐字节比较。
 - `tests/foundation/arch/inbox-message-template-boundary.test.ts`：模板纯资源约束 + 迁移来源不再定义已迁文案且确实消费单源。
 

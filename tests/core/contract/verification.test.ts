@@ -41,7 +41,7 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
   } as VerificationContext;
 }
 
-describe('formatRejectionFeedback (phase 990)', () => {
+describe('formatRejectionFeedback (phase 990 / phase 1829 模板归位)', () => {
   it('formats full rejection with issues', () => {
     const text = formatRejectionFeedback(
       'st-1',
@@ -53,7 +53,8 @@ describe('formatRejectionFeedback (phase 990)', () => {
       'script',
       'check.sh',
     );
-    expect(text).toContain('st-1');
+    // phase 1829: subtask 身份由通知身份行承载，结构化反馈不再重复标题
+    expect(text).not.toContain('## 验收失败');
     expect(text).toContain('desc A');
     expect(text).toContain('reason X');
     expect(text).toContain('- issue1');
@@ -641,5 +642,90 @@ describe('applyVerificationOutcome reject transition audit ordering (Phase 1142)
         body: expect.stringContaining('ENOSPC'),
       }),
     );
+  });
+});
+
+/**
+ * phase 1829: 阶段隔离——持久化/提交失败不覆盖已知 verifier 结论；
+ * 提交后通知失败不得回灌为新的验收失败。
+ */
+describe('runVerificationInBackground stage isolation (phase 1829)', () => {
+  const contractYaml = {
+    subtasks: [{ id: 'st1', description: 'desc' }],
+  } as any;
+  const verificationConfig = { subtask_id: 'st1', type: 'script' as const, script_file: 'check.sh' };
+
+  it('persist stage failure after passed → notification keeps "验收计算通过，但结果提交未确认"', async () => {
+    const notifyClaw = vi.fn();
+    const ctx = makeCtx({
+      notifyClaw,
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: 'lgtm' }),
+      persistVerificationOutcome: vi.fn().mockRejectedValue(new Error('persist boom')),
+    });
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    const errorCalls = notifyClaw.mock.calls.filter(([, m]: any) => m.type === 'verification_error');
+    expect(errorCalls).toHaveLength(1);
+    const body = errorCalls[0][1].body;
+    expect(body).toContain('验收计算通过，但结果提交未确认');
+    expect(body).toContain('persist boom');
+    expect(body).not.toContain('本次验收未通过');
+    // 未提交成功，不得写 reject transition
+    expect(ctx.transitionVerificationAttempt).not.toHaveBeenCalledWith(
+      'c1', 'st1', expect.objectContaining({ kind: 'reject' }),
+    );
+  });
+
+  it('post-commit notify failure after committed pass → no second reject / no errored outcome', async () => {
+    const mockAudit = makeMockAudit();
+    const transitionVerificationAttempt = vi.fn().mockResolvedValue({
+      kind: 'updated',
+      progress: {
+        status: 'running',
+        subtasks: { st1: { status: 'completed', completed_at: '2026-09-14T00:00:00Z' } },
+      },
+    });
+    const persistVerificationOutcome = vi.fn().mockResolvedValue('persisted');
+    const ctx = makeCtx({
+      audit: mockAudit as unknown as VerificationContext['audit'],
+      transitionVerificationAttempt,
+      persistVerificationOutcome,
+      getProgress: vi.fn().mockResolvedValue({
+        status: 'running',
+        subtasks: { st1: { status: 'in_progress', verification_attempt_id: 'a1' } },
+      }),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: 'ok' }),
+      notifyClaw: vi.fn().mockImplementation(() => { throw new Error('inbox disk full'); }),
+    });
+
+    await runVerificationInBackground(
+      ctx,
+      { contractId: 'c1', subtaskId: 'st1', evidence: 'ev', attemptId: 'a1' },
+      contractYaml,
+      verificationConfig,
+    );
+
+    // 只有一次 pass 提交；通知失败不触发 reject/计数
+    const kinds = transitionVerificationAttempt.mock.calls.map(([, , t]: any) => t.kind);
+    expect(kinds).toEqual(['pass']);
+    // 不写冲突的 errored outcome
+    expect(persistVerificationOutcome).toHaveBeenCalledTimes(1);
+    // 投递失败走 audit，不静默
+    expect(vi.mocked(mockAudit.write).mock.calls.some(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
+    )).toBe(true);
+    // background done 仍按已提交事实记 passed
+    const doneCalls = vi.mocked(mockAudit.write).mock.calls.filter(
+      c => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
+    );
+    expect(doneCalls).toHaveLength(1);
+    expect(doneCalls[0].some(col => String(col).includes('result=passed'))).toBe(true);
   });
 });

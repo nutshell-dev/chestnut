@@ -705,6 +705,15 @@ describe('ContractSystem Acceptance Flow', () => {
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=task-1'),
       ]));
+
+      // phase 1829: 正常失败阈值放行 = 一条 verification_result，含身份与「按阈值放行」语义
+      const inbox = await readClawInbox(tempDir);
+      const results = inbox.filter(m => m.content.includes('verification_result'));
+      expect(results).toHaveLength(1);
+      expect(results[0].content).toContain(`契约：${contractId}；子任务：task-1`);
+      expect(results[0].content).toContain('失败计数达到配置阈值 2');
+      expect(results[0].content).toContain('这表示流程放行，不表示本次验收通过');
+      expect(results[0].content).toMatch(/force_accepted:\s*true/);
     });
   });
 
@@ -791,6 +800,11 @@ describe('ContractSystem Acceptance Flow', () => {
 
       // passed 时不应含 retry_count
       expect(content).not.toContain('retry_count');
+
+      // phase 1829: 正文携带身份与已提交处置，不依赖 metadata 猜测
+      expect(content).toContain(`契约：${contractId}；子任务：task-1；验收尝试：`);
+      expect(content).toContain('本次验收通过，系统已将该子任务记为完成');
+      expect(content).not.toContain('已归档');
     });
 
     it('should write rejected message with correct frontmatter, high priority, and retry_count', async () => {
@@ -826,6 +840,12 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(content).toContain('subtask_id: "task-1"');
       expect(content).toContain('verdict: "rejected"');
       expect(content).toContain('retry_count: 1');
+
+      // phase 1829: 正文携带身份、退回处置、原始反馈与「未自动再次验收」事实
+      expect(content).toContain(`契约：${contractId}；子任务：task-1；验收尝试：`);
+      expect(content).toContain('本次验收未通过，系统已将该子任务退回待提交');
+      expect(content).toContain('file not found');
+      expect(content).toContain('系统尚未自动再次验收');
     });
   });
 });

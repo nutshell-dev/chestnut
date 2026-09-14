@@ -50,6 +50,37 @@ const MIGRATED: MigratedSource[] = [
       'Acceptance verification failed with error',
       'Acceptance verifier timed out after',
       'Acceptance verification crashed (system bug)',
+      // phase 1829: 新语义文案同样不得在模板外定义第二份
+      '本次验收未通过',
+      '契约验收通知',
+      '本次验收流程异常',
+      '按现行规则将该子任务记为完成',
+    ],
+  },
+  {
+    id: 'M03',
+    file: 'core/contract/verification.ts',
+    fragments: [
+      'verification config script 类型缺少',
+      'verification config llm 类型缺少',
+      '本次验收',
+    ],
+  },
+  {
+    id: 'M03',
+    file: 'core/contract/verification-format.ts',
+    fragments: ['未提供具体问题', '需要修正的问题', '验收标准', '已失败'],
+  },
+  {
+    id: 'M03',
+    file: 'core/contract/verification-execution.ts',
+    fragments: [
+      '路径安全拒绝',
+      'LLM 验收未配置',
+      '验收子代理超时',
+      'Script verification passed',
+      'LLM 验收失败',
+      'prompt_file 读失败',
     ],
   },
   { id: 'M04', file: 'assembly/contract-notification-adapter.ts', fragments: ['claw=${deps.clawId} ${formatNotifyData(data)}'] },

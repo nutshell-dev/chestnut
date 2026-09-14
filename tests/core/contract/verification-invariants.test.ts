@@ -677,10 +677,11 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       isActiveContract: vi.fn().mockResolvedValue(false),
     });
 
-    await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');
+    const result = await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');
 
     expect(saveProgress).not.toHaveBeenCalled();
     expect(progress.subtasks[subtaskId].status).toBe('in_progress');
+    expect(result.disposition).toEqual({ kind: 'not_applied', reason: 'not_active' });
     expect(audit.write).toHaveBeenCalledWith(
       CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
       expect.stringContaining(`contractId=${contractId}`),
@@ -695,7 +696,7 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
     const subtaskId = 'st1';
     const progress = {
       subtasks: {
-        [subtaskId]: { status: 'in_progress', retry_count: 0 },
+        [subtaskId]: { status: 'in_progress', retry_count: 0, verification_attempt_id: 'att-1' },
       },
     };
     const updatedProgress = {
@@ -712,7 +713,7 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
       transitionVerificationAttempt,
     });
 
-    await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');
+    const result = await handleVerificationErrorRetry(ctx, contractId, subtaskId, 'programming_bug', 'crash');
 
     expect(transitionVerificationAttempt).toHaveBeenCalledWith(
       contractId,
@@ -721,6 +722,176 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
     );
     expect(updatedProgress.subtasks[subtaskId].status).toBe('todo');
     expect(updatedProgress.subtasks[subtaskId].retry_count).toBe(1);
+    // phase 1829: 返回真实 disposition（含绑定 attempt 与已提交计数）
+    expect(result.disposition).toEqual({ kind: 'returned_to_todo', attemptId: 'att-1', retryCount: 1 });
+    expect(result.processingErrors).toEqual([]);
+  });
+
+  it('transition late → not_applied/late with actualAttemptId, no retry side effects', async () => {
+    const ctx = makeCtx({
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'in_progress', retry_count: 0, verification_attempt_id: 'att-old' } },
+      }),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({
+        kind: 'late', expectedAttemptId: 'att-old', actualAttemptId: 'att-new',
+      }),
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c1', 'st1', 'programming_bug', 'crash', 'att-old');
+
+    expect(result.disposition).toEqual({ kind: 'not_applied', reason: 'late', actualAttemptId: 'att-new' });
+    expect(result.processingErrors).toEqual([]);
+  });
+
+  it('immutable outcome conflict → not_applied/conflict, no transition', async () => {
+    const transitionVerificationAttempt = vi.fn();
+    const ctx = makeCtx({
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'in_progress', retry_count: 0, verification_attempt_id: 'att-1' } },
+      }),
+      persistVerificationOutcome: vi.fn().mockResolvedValue('conflict'),
+      transitionVerificationAttempt,
+    });
+
+    const result = await handleVerificationErrorRetry(
+      ctx, 'c1', 'st1', 'programming_bug', 'crash', 'att-1',
+      { message: 'boom', name: 'Error' },
+    );
+
+    expect(result.disposition).toEqual({ kind: 'not_applied', reason: 'conflict' });
+    expect(transitionVerificationAttempt).not.toHaveBeenCalled();
+  });
+
+  it('subtask not in_progress → not_applied/not_in_progress with observed status', async () => {
+    const ctx = makeCtx({
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'completed', retry_count: 3 } },
+      }),
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c1', 'st1', 'programming_bug', 'crash');
+
+    expect(result.disposition).toEqual({ kind: 'not_applied', reason: 'not_in_progress', observedStatus: 'completed' });
+  });
+
+  it('gateway throw → fallback interrupt on the SAME bound attempt → interrupted_to_todo', async () => {
+    const transitionVerificationAttempt = vi.fn().mockImplementation((_c: string, _s: string, t: any) => {
+      if (t.kind === 'reject') return Promise.reject(new Error('gateway write failed'));
+      return Promise.resolve({
+        kind: 'updated',
+        progress: { subtasks: { st1: { status: 'todo', retry_count: 2 } } },
+      });
+    });
+    const ctx = makeCtx({
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'in_progress', retry_count: 2, verification_attempt_id: 'att-1' } },
+      }),
+      transitionVerificationAttempt,
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c1', 'st1', 'programming_bug', 'crash', 'att-1');
+
+    expect(result.disposition).toEqual({ kind: 'interrupted_to_todo', attemptId: 'att-1', retryCount: 2 });
+    // 原始处理异常保留在 processingErrors，不覆盖
+    expect(result.processingErrors.join('\n')).toContain('gateway write failed');
+    const interruptCalls = transitionVerificationAttempt.mock.calls.filter(([, , t]: any) => t.kind === 'interrupt');
+    expect(interruptCalls).toHaveLength(1);
+    expect(interruptCalls[0][2]).toMatchObject({ attemptId: 'att-1' });
+  });
+
+  it('fallback fresh-read finds a NEW attempt → does NOT interrupt it, reports late', async () => {
+    const transitionVerificationAttempt = vi.fn().mockImplementation((_c: string, _s: string, t: any) => {
+      if (t.kind === 'reject') return Promise.reject(new Error('gateway write failed'));
+      return Promise.resolve({ kind: 'updated', progress: { subtasks: {} } });
+    });
+    const ctx = makeCtx({
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'in_progress', retry_count: 0, verification_attempt_id: 'att-NEW' } },
+      }),
+      transitionVerificationAttempt,
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c1', 'st1', 'programming_bug', 'crash', 'att-old');
+
+    expect(result.disposition).toEqual({ kind: 'not_applied', reason: 'late', actualAttemptId: 'att-NEW' });
+    const interruptCalls = transitionVerificationAttempt.mock.calls.filter(([, , t]: any) => t.kind === 'interrupt');
+    expect(interruptCalls).toHaveLength(0);
+  });
+
+  it('fallback also throws → unconfirmed keeps both original and processing errors', async () => {
+    const transitionVerificationAttempt = vi.fn().mockRejectedValue(new Error('gateway down'));
+    const ctx = makeCtx({
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'in_progress', retry_count: 0, verification_attempt_id: 'att-1' } },
+      }),
+      transitionVerificationAttempt,
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c1', 'st1', 'programming_bug', 'crash', 'att-1');
+
+    expect(result.disposition.kind).toBe('unconfirmed');
+    expect(result.processingErrors.length).toBeGreaterThanOrEqual(2);
+    expect(result.processingErrors.join('\n')).toContain('gateway down');
+  });
+
+  it('post-commit side-effect failure does not rewrite committed disposition or re-reject', async () => {
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO) throw new Error('audit disk full');
+    });
+    const transitionVerificationAttempt = vi.fn().mockResolvedValue({
+      kind: 'updated',
+      progress: { subtasks: { st1: { status: 'todo', retry_count: 1 } } },
+    });
+    const ctx = makeCtx({
+      audit: audit as unknown as VerificationContext['audit'],
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'in_progress', retry_count: 0, verification_attempt_id: 'att-1' } },
+      }),
+      transitionVerificationAttempt,
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c1', 'st1', 'programming_bug', 'crash', 'att-1');
+
+    // 已提交处置保留为 returned_to_todo；副作用失败只追加 processingErrors
+    expect(result.disposition).toEqual({ kind: 'returned_to_todo', attemptId: 'att-1', retryCount: 1 });
+    expect(result.processingErrors.join('\n')).toContain('audit disk full');
+    // 没有第二次 reject / fallback interrupt
+    expect(transitionVerificationAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('force-accept on threshold → disposition carries counts; no inbox written inside handler', async () => {
+    const notifyClaw = vi.fn();
+    const transitionVerificationAttempt = vi.fn().mockResolvedValue({
+      kind: 'updated',
+      progress: {
+        subtasks: {
+          st1: {
+            status: 'completed', retry_count: 3, force_accepted: true,
+            last_failed_feedback: { feedback: 'crash', cause: 'programming_bug' },
+          },
+        },
+      },
+    });
+    const ctx = makeCtx({
+      notifyClaw,
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { st1: { status: 'in_progress', retry_count: 2, verification_attempt_id: 'att-1' } },
+      }),
+      transitionVerificationAttempt,
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(true),
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c1', 'st1', 'programming_bug', 'crash', 'att-1');
+
+    expect(result.disposition).toEqual({
+      kind: 'force_accepted', attemptId: 'att-1', retryCount: 3, maxAttempts: 3,
+      allCompleted: true, feedback: 'crash',
+    });
+    // archived=false 投影保留旧 caller「放行后需尝试归档」约定
+    expect(result.archived).toBe(false);
+    // phase 1829: force-accept inbox 由 writeVerificationError 依据 disposition 统一发出
+    expect(notifyClaw).not.toHaveBeenCalled();
   });
 });
 

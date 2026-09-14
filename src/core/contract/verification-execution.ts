@@ -21,6 +21,18 @@ import {
   emitContractVerificationScriptStarted,
   emitContractVerificationTimeout,
 } from './audit-emit.js';
+import {
+  llmNotConfiguredFeedback,
+  llmVerificationFailedFeedback,
+  promptFileEscapedClawFeedback,
+  promptFilePathRejectedFeedback,
+  promptFileReadFailedFeedback,
+  scriptFilePathRejectedFeedback,
+  scriptVerificationFailedFeedback,
+  scriptVerificationPassedFeedback,
+  scriptVerificationTimeoutFeedback,
+  verifierSubagentTimeoutFeedback,
+} from '../../templates/messages/index.js';
 
 export function checkPathContainment(fs: FileSystem, container: string, relativePath: string): string | null {
   const resolved = path.resolve(container, relativePath);
@@ -51,7 +63,7 @@ export async function runScriptVerification(
 ): Promise<VerificationResult> {
   const resolved = checkPathContainment(ctx.fs, contractAbsDir, scriptFile);
   if (!resolved) {
-    return { passed: false, feedback: '路径安全拒绝: script_file 必须在契约目录内（或为不可解析的 symlink）' };
+    return { passed: false, feedback: scriptFilePathRejectedFeedback() };
   }
   emitContractVerificationScriptStarted(
     ctx.audit,
@@ -63,19 +75,23 @@ export async function runScriptVerification(
       timeout: CONTRACT_SCRIPT_TIMEOUT_MS,
       signal: ctx.signal, // Phase 963: propagate cancellation to script execution
     });
-    return { passed: true, feedback: 'Script verification passed' };
+    return { passed: true, feedback: scriptVerificationPassedFeedback() };
   } catch (err) {
     // Phase 965: abort is not a verification failure — don't convert to passed:false.
     if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
       throw err;
     }
     if (!(err instanceof ProcessExecError)) {
-      return { passed: false, feedback: `验收失败: ${formatErr(err)}` };
+      return { passed: false, feedback: scriptVerificationFailedFeedback(formatErr(err)) };
     }
-    const prefix = err.killed ? '验收脚本超时' : '验收失败';
     const detail = err.output || err.message;
     const firstLine = detail.split('\n').find(l => l.trim()) ?? detail.trim();
-    return { passed: false, feedback: `${prefix}: ${firstLine}` };
+    return {
+      passed: false,
+      feedback: err.killed
+        ? scriptVerificationTimeoutFeedback(firstLine)
+        : scriptVerificationFailedFeedback(firstLine),
+    };
   }
 }
 
@@ -90,24 +106,24 @@ export async function runLLMVerification(
   artifacts: string[],
 ): Promise<VerificationResult> {
   if (!ctx.llm) {
-    return { passed: false, feedback: 'LLM 验收未配置（llm 未注入）' };
+    return { passed: false, feedback: llmNotConfiguredFeedback() };
   }
   const resolved = checkPathContainment(ctx.fs, contractAbsDir, promptFile);
   if (!resolved) {
-    return { passed: false, feedback: '路径安全拒绝: prompt_file 必须在契约目录内' };
+    return { passed: false, feedback: promptFilePathRejectedFeedback() };
   }
   try {
     // Phase 965: resolved is realPath; compare against realpath'd clawDir to avoid symlink mismatch on macOS (/var vs /private).
     const realClawDir = ctx.fs.realpathSync(ctx.clawDir);
     const relativePath = path.relative(realClawDir, resolved);
     if (relativePath.startsWith('..')) {
-      return { passed: false, feedback: '路径安全拒绝: prompt_file 解析后逃出 claw 目录' };
+      return { passed: false, feedback: promptFileEscapedClawFeedback() };
     }
     let promptTemplate: string;
     try {
       promptTemplate = await ctx.fs.read(relativePath);
     } catch (readErr) {
-      return { passed: false, feedback: `prompt_file 读失败 (${relativePath}): ${formatErr(readErr)}` };
+      return { passed: false, feedback: promptFileReadFailedFeedback(relativePath, formatErr(readErr)) };
     }
     const filledPrompt = promptTemplate
       .replace(/\{\{evidence\}\}/g, evidence)
@@ -141,9 +157,9 @@ export async function runLLMVerification(
       throw err;
     }
     if (err instanceof ToolTimeoutError) {
-      return { passed: false, feedback: '验收子代理超时' };
+      return { passed: false, feedback: verifierSubagentTimeoutFeedback() };
     }
     const msg = formatErr(err);
-    return { passed: false, feedback: `LLM 验收失败: ${msg}` };
+    return { passed: false, feedback: llmVerificationFailedFeedback(msg) };
   }
 }

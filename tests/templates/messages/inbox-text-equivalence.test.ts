@@ -16,12 +16,6 @@ import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { InboxWriter, makeInboxPath, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { createStartupCheckDelivery } from '../../../src/daemon/daemon-loop.js';
-import {
-  writeVerificationInbox,
-  writeForceAcceptInbox,
-  writeVerificationError,
-} from '../../../src/core/contract/verification-notify.js';
-import { ToolTimeoutError } from '../../../src/foundation/tools/index.js';
 import { createContractNotificationAdapter } from '../../../src/assembly/contract-notification-adapter.js';
 import { scanArchivedContracts } from '../../../src/core/contract/jobs/event-collector.js';
 import { lifecycleIntentPath } from '../../../src/core/contract/lifecycle-intent.js';
@@ -58,6 +52,14 @@ const fixture = JSON.parse(fsNative.readFileSync(FIXTURE_PATH, 'utf8')) as {
 };
 const asserted = new Set<string>();
 
+/**
+ * phase 1829: M03 从逐字节迁移等价移交新的语义验收（通知正文携带身份与已提交处置、
+ * 上游系统反馈归位模板）。本 set 中的组保留 golden 历史数据但不逐字节比较；
+ * 新语义由 tests/core/contract/verification-notice-context.test.ts 等逐分支接管。
+ * 完整性 = 保留比较的组 + 新语义接管的组 = 全部 fixture 组。
+ */
+const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03']);
+
 /** 用迁移后入口的实际输出与冻结 golden 逐字节比较（body + envelope + case 集合）。 */
 function expectCases(group: string, actual: Case[]): void {
   asserted.add(group);
@@ -82,8 +84,8 @@ function tmpDir(prefix: string): string {
 const auditStub = (): AuditLog => ({ write: () => {} }) as unknown as AuditLog;
 
 afterAll(() => {
-  // 完整性：fixture 的每一组都必须被本测试断言过（防漏测组）
-  expect([...asserted].sort()).toEqual(Object.keys(fixture.cases).sort());
+  // 完整性：fixture 的每一组都必须被本测试断言过，或显式移交新语义验收（防漏测组）
+  expect([...asserted, ...SEMANTICALLY_REDESIGNED_GROUPS].sort()).toEqual(Object.keys(fixture.cases).sort());
   for (const dir of tmpRoots) {
     fsNative.rmSync(dir, { recursive: true, force: true });
   }
@@ -143,60 +145,12 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     }]);
   });
 
-  it('M03 verification messages', async () => {
-    const cases: Case[] = [];
-    const captured: Array<Record<string, unknown>> = [];
-    const ctx = {
-      clawId: 'claw-1',
-      audit: auditStub(),
-      notifyClaw: (_id: string, m: Record<string, unknown>) => { captured.push(m); },
-    };
-    writeVerificationInbox(ctx as never, 'c-1' as never, 'st-1' as never, 'passed', true);
-    writeVerificationInbox(ctx as never, 'c-1' as never, 'st-2' as never, 'passed', false);
-    writeVerificationInbox(ctx as never, 'c-1' as never, 'st-3' as never, 'rejected', false, '第一行 "引号"\n第二行', 1);
-    writeVerificationInbox(ctx as never, 'c-1' as never, 'st-4' as never, 'rejected', false, '', 1);
-    writeForceAcceptInbox(ctx as never, 'c-1' as never, 'st-5' as never, true, 3, '输出仍有问题');
-    writeForceAcceptInbox(ctx as never, 'c-1' as never, 'st-6' as never, false, 3, undefined);
-    for (const m of captured) {
-      cases.push({
-        case: String(m.type),
-        body: String(m.body),
-        envelope: { type: m.type, from: m.source, to: m.to, priority: m.priority, extraFields: m.extraFields },
-      });
-    }
-
-    // writeVerificationError：timeout / crashed 两种 feedback 经 retry 状态机进入后续通知
-    const feedbacks: string[] = [];
-    const retryCtx = {
-      clawId: 'claw-1',
-      audit: auditStub(),
-      notifyClaw: () => {},
-      isActiveContract: async () => true,
-      getProgress: async () => ({
-        contract_id: 'c-1',
-        status: 'running',
-        subtasks: { 'st-9': { status: 'in_progress', verification_attempt_id: 'att-1', retry_count: 1 } },
-      }),
-      loadContractYaml: async () => ({ title: 'T', goal: 'G', subtasks: [], verification_attempts: 5 }),
-      persistVerificationOutcome: async () => 'persisted',
-      transitionVerificationAttempt: async (_c: string, _s: string, t: { feedback: string }) => {
-        feedbacks.push(t.feedback);
-        return {
-          kind: 'updated',
-          progress: {
-            contract_id: 'c-1',
-            status: 'running',
-            subtasks: { 'st-9': { status: 'in_progress', verification_attempt_id: 'att-1', retry_count: 2 } },
-          },
-        };
-      },
-    };
-    await writeVerificationError(retryCtx as never, 'c-1' as never, 'st-9' as never, new ToolTimeoutError('verifier', 60000));
-    await writeVerificationError(retryCtx as never, 'c-1' as never, 'st-9' as never, new Error('boom\n多行'));
-    cases.push({ case: 'feedback-timeout', body: feedbacks[0] ?? '' });
-    cases.push({ case: 'feedback-crashed', body: feedbacks[1] ?? '' });
-    expectCases('M03', cases);
-    expect(cases.length).toBeGreaterThanOrEqual(8);
+  it('M03 已移交 phase 1829 语义验收，保留 golden 历史数据但不逐字节比较', () => {
+    // 反向完整性：M03 仍在 fixture（历史数据保留），且显式登记为语义重设计组。
+    expect(fixture.cases.M03).toBeDefined();
+    expect(fixture.cases.M03.length).toBeGreaterThanOrEqual(8);
+    expect(SEMANTICALLY_REDESIGNED_GROUPS.has('M03')).toBe(true);
+    expect(asserted.has('M03')).toBe(false);
   });
 
   it('M04 contract notification envelope body', () => {

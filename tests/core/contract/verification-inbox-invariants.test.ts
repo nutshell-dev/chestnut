@@ -92,11 +92,15 @@ describe('phase 1405 Fix 1: writeForceAcceptInbox', () => {
     expect(content).toContain('verdict: "passed"');
     expect(content).toMatch(/force_accepted:\s*true/);
     expect(content).toMatch(/retry_count:\s*3/);
-    expect(content).toContain('force-accepted after 3 attempts');
-    expect(content).toContain('last_failure: bad output');
+    // phase 1829: 正文携带身份 + 明确「按阈值放行」语义 + 原始失败反馈
+    expect(content).toContain('契约：c1；子任务：st1');
+    expect(content).toContain('失败计数达到配置阈值 3');
+    expect(content).toContain('这表示流程放行，不表示本次验收通过');
+    expect(content).toContain('bad output');
+    expect(content).not.toContain('验收尝试：A-');
   });
 
-  it('emits "All subtasks complete!" when allCompleted=true', () => {
+  it('emits all-completed line when allCompleted=true', () => {
     const clawDir = path.join(tempDir, '.chestnut', 'claws', 'test-claw');
     const inboxPending = path.join(clawDir, 'inbox', 'pending');
     fs.mkdirSync(inboxPending, { recursive: true });
@@ -110,12 +114,198 @@ describe('phase 1405 Fix 1: writeForceAcceptInbox', () => {
     const files = fs.readdirSync(inboxPending);
     expect(files.length).toBe(1);
     const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
-    expect(content).toContain('All subtasks complete!');
-    expect(content).not.toContain('last_failure');
+    expect(content).toContain('该契约的全部子任务均已完成');
+    expect(content).not.toContain('本次失败反馈');
   });
 
   it('reverse: helper exported from verification-notify barrel', async () => {
     expect(typeof verificationNotifyMod.writeForceAcceptInbox).toBe('function');
+  });
+});
+
+/**
+ * phase 1829: 真实 inbox 内容验收——身份、type、数量与实际处置一致，
+ * 不只测 helper 字面。notice 参数由生产调用方传入真实 attempt/结果时间。
+ */
+describe('phase 1829 verification inbox content invariants', () => {
+  let tempDir: string;
+  let originalEnv: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await createTrackedTempDir('phase1829-inbox-');
+    originalEnv = process.env.CHESTNUT_ROOT;
+    process.env.CHESTNUT_ROOT = tempDir;
+  });
+
+  afterEach(async () => {
+    if (originalEnv === undefined) delete process.env.CHESTNUT_ROOT;
+    else process.env.CHESTNUT_ROOT = originalEnv;
+    await cleanupTempDir(tempDir);
+  });
+
+  function setup() {
+    const clawDir = path.join(tempDir, '.chestnut', 'claws', 'test-claw');
+    const inboxPending = path.join(clawDir, 'inbox', 'pending');
+    fs.mkdirSync(inboxPending, { recursive: true });
+    const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    const chestnutRoot = path.join(tempDir, '.chestnut');
+    const audit = { write: () => {}, preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as any;
+    const ctx = {
+      clawDir: clawDir as any,
+      clawId: 'test-claw' as any,
+      audit,
+      fs: nodeFs as any,
+      notifyClaw: (targetClawId: string, message: any) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', targetClawId, message, audit),
+    } as unknown as VerificationContext;
+    return { ctx, inboxPending };
+  }
+
+  it('passed 通知：正文含契约/子任务/尝试身份，未归档时不说已归档', () => {
+    const { ctx, inboxPending } = setup();
+    writeVerificationInbox(ctx, 'c-42' as any, 's-2' as any, 'passed', false, undefined, undefined, { attemptId: 'a-7', observedAt: '2026-09-14T01:00:00Z' });
+
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).toContain('type: verification_result');
+    expect(content).toContain('契约：c-42；子任务：s-2；验收尝试：a-7');
+    expect(content).toContain('结果时间：2026-09-14T01:00:00Z');
+    expect(content).toContain('本次验收通过，系统已将该子任务记为完成');
+    expect(content).toContain('仍有未完成子任务');
+    expect(content).not.toContain('已归档');
+    expect(content).toMatch(/attempt_id:\s*"?a-7/);
+  });
+
+  it('passed + allCompleted：明确「截至本次结果提交」而非归档承诺', () => {
+    const { ctx, inboxPending } = setup();
+    writeVerificationInbox(ctx, 'c-42' as any, 's-2' as any, 'passed', true);
+
+    const content = fs.readFileSync(path.join(inboxPending, fs.readdirSync(inboxPending)[0]), 'utf8');
+    expect(content).toContain('截至本次结果提交，该契约的全部子任务均已完成');
+    expect(content).not.toContain('已归档');
+    // 兼容入口未提供 attempt → 明确缺失，不冒充
+    expect(content).toContain('验收尝试：（未提供）');
+  });
+
+  it('rejected 有反馈：正文含身份、退回处置与原始反馈', () => {
+    const { ctx, inboxPending } = setup();
+    writeVerificationInbox(ctx, 'c-42' as any, 's-2' as any, 'rejected', false, '输出缺少 summary 字段', 1, { attemptId: 'a-7' });
+
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).toContain('type: verification_rejection');
+    expect(content).toContain('契约：c-42；子任务：s-2；验收尝试：a-7');
+    expect(content).toContain('本次验收未通过，系统已将该子任务退回待提交');
+    expect(content).toContain('输出缺少 summary 字段');
+    expect(content).toContain('系统尚未自动再次验收');
+    expect(content).toMatch(/retry_count:\s*1/);
+  });
+
+  it('rejected 无反馈：明确无修改依据，不凭空编造修复项', () => {
+    const { ctx, inboxPending } = setup();
+    writeVerificationInbox(ctx, 'c-42' as any, 's-2' as any, 'rejected', false, '', 1);
+
+    const content = fs.readFileSync(path.join(inboxPending, fs.readdirSync(inboxPending)[0]), 'utf8');
+    expect(content).toContain('验收方未提供反馈，当前没有具体修改依据');
+    expect(content).not.toContain('验收反馈：');
+  });
+
+  it('writeVerificationError：每个异常只产生一条与 disposition 一致的通知', async () => {
+    const { ctx, inboxPending } = setup();
+    (ctx as any).isActiveContract = vi.fn(async () => true);
+    (ctx as any).getProgress = vi.fn(async () => ({
+      contract_id: 'c-42',
+      status: 'running',
+      subtasks: { 's-2': { status: 'in_progress', verification_attempt_id: 'a-7', retry_count: 0 } },
+    }));
+    (ctx as any).loadContractYaml = vi.fn(async () => ({ title: 'T', goal: 'G', subtasks: [], verification_attempts: 3 }));
+    (ctx as any).persistVerificationOutcome = vi.fn(async () => 'persisted');
+    (ctx as any).transitionVerificationAttempt = vi.fn(async () => ({
+      kind: 'updated',
+      progress: {
+        contract_id: 'c-42',
+        status: 'running',
+        subtasks: { 's-2': { status: 'todo', retry_count: 1 } },
+      },
+    }));
+
+    await writeVerificationError(ctx, 'c-42' as any, 's-2' as any, new Error('verifier exploded'), 'a-7');
+
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).toContain('type: verification_error');
+    expect(content).toContain('契约：c-42；子任务：s-2；验收尝试：a-7');
+    expect(content).toContain('系统已将该子任务退回待提交');
+    expect(content).toContain('verifier exploded');
+    expect(content).toContain('系统尚未自动再次验收');
+    // 不承诺已恢复/重试，不把异常写成质量判定
+    expect(content).toContain('此次异常不提供交付质量结论');
+  });
+
+  it('writeVerificationError：异常达阈值放行 → 仅一条 verification_result，含异常与放行事实', async () => {
+    const { ctx, inboxPending } = setup();
+    (ctx as any).isActiveContract = vi.fn(async () => true);
+    (ctx as any).getProgress = vi.fn(async () => ({
+      contract_id: 'c-42',
+      status: 'running',
+      subtasks: { 's-2': { status: 'in_progress', verification_attempt_id: 'a-7', retry_count: 2 } },
+    }));
+    (ctx as any).loadContractYaml = vi.fn(async () => ({ title: 'T', goal: 'G', subtasks: [], verification_attempts: 3 }));
+    (ctx as any).persistVerificationOutcome = vi.fn(async () => 'persisted');
+    (ctx as any).transitionVerificationAttempt = vi.fn(async () => ({
+      kind: 'updated',
+      progress: {
+        contract_id: 'c-42',
+        status: 'running',
+        subtasks: {
+          's-2': {
+            status: 'completed', retry_count: 3, force_accepted: true,
+            last_failed_feedback: { feedback: 'crash', cause: 'programming_bug' },
+          },
+        },
+      },
+    }));
+    (ctx as any).checkAllSubtasksCompleted = vi.fn(async () => false);
+
+    await writeVerificationError(ctx, 'c-42' as any, 's-2' as any, new Error('verifier exploded'), 'a-7');
+
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).toContain('type: verification_result');
+    expect(content).toMatch(/force_accepted:\s*true/);
+    expect(content).toContain('未得到正常通过结论');
+    expect(content).toContain('失败计数达到配置阈值 3');
+    expect(content).toContain('verifier exploded');
+    expect(content).toContain('这表示流程放行，不表示验收通过');
+  });
+
+  it('writeVerificationError：旧 attempt 迟到 → 归属原 attempt，不要求重做当前尝试', async () => {
+    const { ctx, inboxPending } = setup();
+    (ctx as any).isActiveContract = vi.fn(async () => true);
+    (ctx as any).getProgress = vi.fn(async () => ({
+      contract_id: 'c-42',
+      status: 'running',
+      subtasks: { 's-2': { status: 'in_progress', verification_attempt_id: 'a-8', retry_count: 1 } },
+    }));
+    (ctx as any).loadContractYaml = vi.fn(async () => ({ title: 'T', goal: 'G', subtasks: [], verification_attempts: 3 }));
+    (ctx as any).persistVerificationOutcome = vi.fn(async () => 'persisted');
+    (ctx as any).transitionVerificationAttempt = vi.fn(async () => ({
+      kind: 'late', expectedAttemptId: 'a-7', actualAttemptId: 'a-8',
+    }));
+
+    await writeVerificationError(ctx, 'c-42' as any, 's-2' as any, new Error('old attempt crashed'), 'a-7');
+
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).toContain('type: verification_error');
+    expect(content).toContain('验收尝试：a-7');
+    expect(content).toContain('系统当前记录的验收尝试为 a-8');
+    expect(content).toContain('请以当前契约进度为准');
+    expect(content).not.toContain('退回待提交');
   });
 });
 

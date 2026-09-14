@@ -4,11 +4,16 @@
  */
 
 import type { ProgressData, SubtaskId } from './types.js';
+import { structuredRejectionFeedback } from '../../templates/messages/index.js';
 
 export function formatValidIds(progress: ProgressData): string {
   return Object.keys(progress.subtasks).join(', ');
 }
 
+/**
+ * phase 1829: 固定文案与纯布局委托 templates/messages；兼容入口签名不变。
+ * subtaskId 身份由通知身份行承载，结构化反馈不再重复 `## 验收失败 — id` 标题。
+ */
 export function formatRejectionFeedback(
   subtaskId: SubtaskId,
   subtaskDesc: string,
@@ -19,23 +24,14 @@ export function formatRejectionFeedback(
   verificationType: string,
   verificationFile: string,
 ): string {
-  const issuesList = issues.length > 0
-    ? issues.map(i => `- ${i}`).join('\n')
-    : '- (未提供具体问题)';
-
-  return [
-    `## 验收失败 — ${subtaskId}`,
-    '',
-    `**子任务：** ${subtaskDesc}`,
-    '',
-    '**失败原因：**',
+  void subtaskId;
+  return structuredRejectionFeedback({
+    subtaskDesc,
     reason,
-    '',
-    '**需要修正的问题：**',
-    issuesList,
-    '',
-    `**验收标准：** ${verificationType} (${verificationFile})`,
-    '',
-    `已失败 ${retryCount}/${maxRetries} 次。`,
-  ].join('\n');
+    issues,
+    retryCount,
+    maxRetries,
+    verificationType,
+    verificationFile,
+  });
 }

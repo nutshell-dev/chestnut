@@ -140,6 +140,52 @@ export type VerificationGatewayResult =
   | { kind: 'late'; expectedAttemptId: string; actualAttemptId?: string };
 
 /**
+ * phase 1829: 通知身份。生产异步路径始终有 contractId/subtaskId/attemptId 与结果
+ * 提交时间；兼容入口未提供 attempt 时明确缺失，不偷读当前 attempt 冒充旧尝试。
+ */
+export type VerificationNoticeIdentity = {
+  contractId: ContractId;
+  subtaskId: SubtaskId;
+  attemptId?: string;
+  observedAt?: string;
+};
+
+/**
+ * phase 1829: 错误处置的真实出口（内部判别联合，仅 ContractSystem 内部使用）。
+ * 处置事实来自持久 gateway 提交结果，不再用 `{}` 混合不同结果。
+ */
+export type ErrorDisposition =
+  | { kind: 'returned_to_todo'; attemptId?: string; retryCount: number }
+  | { kind: 'force_accepted'; attemptId?: string; retryCount: number;
+      maxAttempts: number; allCompleted: boolean; feedback?: string }
+  | { kind: 'interrupted_to_todo'; attemptId?: string; retryCount: number }
+  | { kind: 'not_applied'; reason: 'not_active' | 'not_in_progress' |
+      'missing_subtask' | 'late' | 'conflict' | 'skipped'; actualAttemptId?: string;
+      detail?: string; observedStatus?: string }
+  | { kind: 'unconfirmed'; processingError: string };
+
+/**
+ * phase 1829: 错误状态处理结果。disposition 是 gateway 已提交（或确认未提交）的
+ * 事实；processingErrors 保留提交后副作用/处理过程中的异常，不覆盖原始错误。
+ * archived=false 保留旧 caller 的「放行后需尝试归档」约定，不表示已归档。
+ */
+export type ErrorHandlingResult = {
+  disposition: ErrorDisposition;
+  processingErrors: readonly string[];
+  archived?: boolean;
+};
+
+/**
+ * phase 1829: 异常发生阶段与已知 verifier 结论。持久化/提交失败不得覆盖已取得的
+ * 验收结论；post_commit 错误不得进入会重做 reject 的恢复路径。
+ */
+export type VerificationFailureContext = {
+  stage: 'execution' | 'outcome_processing' | 'post_commit' | 'unspecified';
+  knownVerdict: 'passed' | 'not_passed' | 'unavailable';
+  feedback?: string;
+};
+
+/**
  * Phase 1201 Step B: result of the queued sync-completion capability.
  * The mutation (fresh-read + validate + save) commits inside the ContractSystem
  * per-contract queue; callers perform post-commit audit/notify/archive side
