@@ -20,7 +20,11 @@ import { STREAM_EVENT_NAMES } from '../foundation/stream/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
-import { contractNotificationBody } from '../templates/messages/index.js';
+import {
+  contractNotificationBody,
+  contractCompletedNotificationBody,
+  contractCompletedSubtaskLine,
+} from '../templates/messages/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import {
   encodeContractEventsGuidance,
@@ -61,12 +65,23 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
       //   - motion daemon: 写 motion 自家 inbox
       //   - worker daemon: 写 worker 自家 inbox
       //   跨 claw 通知归 contract-observer cron
+      // phase 1832: 完成正文改用 typed event 事实直传纯模板（不再从 legacy 串反解析）；
+      // stream 的 toLegacyNotifyData shape 保持不变。
       notifyInbox(deps.systemFs, {
         inboxDir: deps.selfInboxDir,
         type: 'contract_events',   // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
         source: 'system',
         priority: 'high',
-        body: contractNotificationBody(event.type, deps.clawId, formatNotifyData(data)),
+        body: contractCompletedNotificationBody({
+          clawId: deps.clawId,
+          contractId: event.contractId,
+          title: event.title,
+          goal: event.goal,
+          completedAt: event.completedAt,
+          subtaskLines: event.subtasks.map((st) =>
+            contractCompletedSubtaskLine(st.id, st.completedAt, st.forceAccepted),
+          ),
+        }),
         extraFields: encodeContractEventsGuidance([{
           clawId: makeClawId(deps.clawId),
           contractId: event.contractId,

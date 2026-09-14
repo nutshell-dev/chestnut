@@ -182,7 +182,7 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
     expect(renderCliGuidanceDocument(doc)).toBe('查看具体内容： chestnut claw <claw-id> outbox --limit 4');
   });
 
-  it('trace-contract / show-contract 裸 invocation 行（无 label 前缀、无 leading space）', () => {
+  it('trace-contract / show-contract 查询用途标签前缀（phase 1832）', () => {
     const doc: CliGuidanceDocument = {
       lines: [
         { label: 'trace-contract', action: { kind: 'claw.trace', clawId: createCliSafeToken('motion'), contractId: createCliSafeToken('abc-123') } },
@@ -190,8 +190,8 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
       ],
     };
     expect(renderCliGuidanceDocument(doc)).toBe(
-      'chestnut claw motion trace --contract abc-123\n' +
-      'chestnut contract show -c motion --contract abc-123',
+      '查看相关执行记录： chestnut claw motion trace --contract abc-123\n' +
+      '查看契约与进度摘要： chestnut contract show -c motion --contract abc-123',
     );
   });
 
@@ -207,8 +207,8 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
       truncation: { total: 12, shown: 10, subject: 'contract-events' },
       lines,
     });
-    expect(text.startsWith('(12 contract events、显示前 10)\n\nchestnut claw worker-0 trace --contract c0\n')).toBe(true);
-    expect(text).toContain('chestnut contract show -c worker-9 --contract c9');
+    expect(text.startsWith('(12 contract events、显示前 10)\n\n查看相关执行记录： chestnut claw worker-0 trace --contract c0\n')).toBe(true);
+    expect(text).toContain('查看契约与进度摘要： chestnut contract show -c worker-9 --contract c9');
     expect(text).not.toContain('worker-10');
   });
 
@@ -220,7 +220,7 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
       ],
     };
     expect(renderCliGuidanceDocument(doc)).toBe(
-      '(12 cancellations、显示前 1)\n\nchestnut claw claw0 trace --contract c0',
+      '(12 cancellations、显示前 1)\n\n查看相关执行记录： chestnut claw claw0 trace --contract c0',
     );
   });
 

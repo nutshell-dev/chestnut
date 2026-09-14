@@ -99,8 +99,11 @@ const LABEL_PREFIX: Record<CliGuidanceLabel, string> = {
   'inspect-stuck': 'To inspect what the agent is stuck on: ',
   inspect: 'To inspect: ',
   'read-outbox': '查看具体内容： ',
-  'trace-contract': '',
-  'show-contract': '',
+  // phase 1832: 查询用途标签——trace 是相关执行记录（不保证每条仅归属该契约），
+  // show 是契约与进度摘要（evidence 预览截断 300 字）；同一查询入口用途说明，
+  // 完成/取消通知共用，不改变业务或 refs 数量。
+  'trace-contract': '查看相关执行记录： ',
+  'show-contract': '查看契约与进度摘要： ',
 };
 
 /** subject → presentation 字面（超 cap 提示行）。file-private，不导出。 */

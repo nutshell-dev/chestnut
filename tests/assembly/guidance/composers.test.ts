@@ -216,14 +216,14 @@ describe('phase 63+190+198 + phase 1262 + phase 1267: contract_cancelled typed b
   }
 
   const EXACT_SINGLE = [
-    'chestnut claw worker trace --contract c1',
-    'chestnut contract show -c worker --contract c1',
+    '查看相关执行记录： chestnut claw worker trace --contract c1',
+    '查看契约与进度摘要： chestnut contract show -c worker --contract c1',
   ].join('\n');
   const EXACT_BATCH = [
-    'chestnut claw claw1 trace --contract c1',
-    'chestnut contract show -c claw1 --contract c1',
-    'chestnut claw claw2 trace --contract c2',
-    'chestnut contract show -c claw2 --contract c2',
+    '查看相关执行记录： chestnut claw claw1 trace --contract c1',
+    '查看契约与进度摘要： chestnut contract show -c claw1 --contract c1',
+    '查看相关执行记录： chestnut claw claw2 trace --contract c2',
+    '查看契约与进度摘要： chestnut contract show -c claw2 --contract c2',
   ].join('\n');
 
   it('v1 single（真实 encoder）→ exact trace + show 两行、0 prescription', () => {
@@ -398,14 +398,14 @@ describe('phase 205 + phase 1261 + phase 1266: contract-events typed binding', (
   }
 
   const EXACT_SINGLE = [
-    'chestnut claw motion trace --contract abc-123',
-    'chestnut contract show -c motion --contract abc-123',
+    '查看相关执行记录： chestnut claw motion trace --contract abc-123',
+    '查看契约与进度摘要： chestnut contract show -c motion --contract abc-123',
   ].join('\n');
   const EXACT_BATCH = [
-    'chestnut claw worker-1 trace --contract 1780-abcd',
-    'chestnut contract show -c worker-1 --contract 1780-abcd',
-    'chestnut claw worker-2 trace --contract 1780-cdef',
-    'chestnut contract show -c worker-2 --contract 1780-cdef',
+    '查看相关执行记录： chestnut claw worker-1 trace --contract 1780-abcd',
+    '查看契约与进度摘要： chestnut contract show -c worker-1 --contract 1780-abcd',
+    '查看相关执行记录： chestnut claw worker-2 trace --contract 1780-cdef',
+    '查看契约与进度摘要： chestnut contract show -c worker-2 --contract 1780-cdef',
   ].join('\n');
 
   it('v1 single（真实 encoder）→ exact trace + show 两行', () => {
@@ -445,7 +445,7 @@ describe('phase 205 + phase 1261 + phase 1266: contract-events typed binding', (
 
   it('legacy batch（problem_pairs 1 pair）→ 同 v1 single exact 输出', () => {
     expect(composeContractEvents({ problem_pairs: 'worker-1:1780-abcd' }, 'system'))
-      .toEqual({ text: 'chestnut claw worker-1 trace --contract 1780-abcd\nchestnut contract show -c worker-1 --contract 1780-abcd' });
+      .toEqual({ text: '查看相关执行记录： chestnut claw worker-1 trace --contract 1780-abcd\n查看契约与进度摘要： chestnut contract show -c worker-1 --contract 1780-abcd' });
   });
 
   it('legacy batch（2 pairs）→ exact 按 owner 顺序 trace 后 show per pair', () => {
@@ -460,10 +460,10 @@ describe('phase 205 + phase 1261 + phase 1266: contract-events typed binding', (
   it('legacy batch trims whitespace around pairs', () => {
     expect(composeContractEvents({ problem_pairs: ' worker-1:abc , worker-2:def ' }, 'system'))
       .toEqual({ text: [
-        'chestnut claw worker-1 trace --contract abc',
-        'chestnut contract show -c worker-1 --contract abc',
-        'chestnut claw worker-2 trace --contract def',
-        'chestnut contract show -c worker-2 --contract def',
+        '查看相关执行记录： chestnut claw worker-1 trace --contract abc',
+        '查看契约与进度摘要： chestnut contract show -c worker-1 --contract abc',
+        '查看相关执行记录： chestnut claw worker-2 trace --contract def',
+        '查看契约与进度摘要： chestnut contract show -c worker-2 --contract def',
       ].join('\n') });
   });
 

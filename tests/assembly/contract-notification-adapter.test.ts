@@ -73,7 +73,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(inboxFiles()).toHaveLength(0);
   });
 
-  it('contract_completed → stream mixed payload + contract_events self-inbox（legacy shape 逐字段）', () => {
+  it('contract_completed → stream mixed payload 不变 + contract_events self-inbox（phase 1832 新正文语义）', () => {
     emit({
       type: 'contract_completed',
       contractId: makeContractId('c1'),
@@ -86,6 +86,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
       completedAt: '2026-08-01T01:00:00Z',
     });
 
+    // stream system_notify payload 逐字段保持 legacy shape（phase 1832 不动 stream 协议）
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(streamWrite).toHaveBeenCalledWith({
       ts: expect.any(Number),
@@ -111,13 +112,45 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     );
     expect(content).not.toContain('source_claw:');
     expect(content).not.toMatch(/^contract_id:/m);
+    // phase 1832: 正文自足呈现终态/对象/执行者/原目标/完成时间/逐子任务；
+    // forceAccepted 仅中性放行注记，不表示验收通过；缺省不反推质量通过。
     expect(content).toContain(
-      '[contract_completed] claw=test-claw'
-      + ' contractId=c1 title=T goal=G'
-      + ' subtasks=[{"id":"t1","completed_at":"2026-08-01T00:00:00Z","force_accepted":false},'
-      + '{"id":"t2","completed_at":"2026-08-01T01:00:00Z","force_accepted":true}]'
-      + ' completed_at=2026-08-01T01:00:00Z',
+      '契约流程已完成｜T（c1）\n'
+      + '执行者：test-claw\n'
+      + '原目标：G\n'
+      + '完成时间：2026-08-01T01:00:00Z\n'
+      + '已完成子任务：\n'
+      + '  [t1] 完成时间：2026-08-01T00:00:00Z\n'
+      + '  [t2] 完成时间：2026-08-01T01:00:00Z\n'
+      + '    完成方式：按流程放行记为完成；该标记不表示验收通过',
     );
+    // 不再携带 legacy 序列化串
+    expect(content).not.toContain('[contract_completed]');
+    expect(content).not.toContain('subtasks=[');
+  });
+
+  it('contract_completed（空标题/空目标）→ 只显 ID，不省略已存在的时间', () => {
+    emit({
+      type: 'contract_completed',
+      contractId: makeContractId('c2'),
+      title: '',
+      goal: '',
+      subtasks: [
+        { id: makeSubtaskId('t1'), completedAt: '2026-08-02T00:00:00Z', forceAccepted: false },
+      ],
+      completedAt: '2026-08-02T00:00:00Z',
+    });
+
+    const content = readOnlyInboxFile();
+    expect(content).toContain(
+      '契约流程已完成｜c2\n'
+      + '执行者：test-claw\n'
+      + '完成时间：2026-08-02T00:00:00Z\n'
+      + '已完成子任务：\n'
+      + '  [t1] 完成时间：2026-08-02T00:00:00Z',
+    );
+    expect(content).not.toContain('原目标：');
+    expect(content).not.toContain('（）');
   });
 
   it('contract_cancelled → stream camel payload + contract_cancelled self-inbox（v1 guidance wire、reason 仅留 body/stream）', () => {

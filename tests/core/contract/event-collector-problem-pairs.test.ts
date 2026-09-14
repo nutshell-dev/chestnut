@@ -61,8 +61,9 @@ describe('phase 1487: collectContractEvents result shape', () => {
     const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events.length).toBe(1);
     expect(result.problemPairs).toEqual([]);
-    expect(result.events[0]).toContain('[contract_completed] claw=worker-1 contract=1780-abcd');
-    expect(result.events[0]).toContain('[st-1] src/login.ts');
+    expect(result.events[0]).toContain('契约流程已完成｜1780-abcd');
+    expect(result.events[0]).toContain('执行者：worker-1');
+    expect(result.events[0]).toContain('[st-1] 执行者提交材料：src/login.ts');
   });
 
   it('contract with last_failure → problemPairs contains pair', async () => {
@@ -80,11 +81,12 @@ describe('phase 1487: collectContractEvents result shape', () => {
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
     const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events.length).toBe(1);
+    // phase 1832: 历史反馈 refs 语义不变（有 last_failed_feedback 才进 problemPairs）
     expect(result.problemPairs).toEqual(['worker-1:1780-cdef']);
-    expect(result.events[0]).toContain('⚠ last_failure: Failed test isolation');
+    expect(result.events[0]).toContain('历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：Failed test isolation');
   });
 
-  it('force_accepted=true subtask → NO [force-accepted] prefix in body (DP cleanup)', async () => {
+  it('force_accepted=true subtask → 中性放行注记、无 [force-accepted] prefix（phase 1832）', async () => {
     await makeContract('claws/worker-1', '1780-eeee', makeProgress({
       contractId: '1780-eeee',
       subtasks: {
@@ -92,14 +94,17 @@ describe('phase 1487: collectContractEvents result shape', () => {
           status: 'completed',
           evidence: 'src/auth.ts',
           completed_at: '2026-05-31T00:00:00Z',
-          force_accepted: true,  // 内部仍可能 true / 但 body 不显式标
+          force_accepted: true,  // 正文仅中性注记，不表示验收通过
         },
       },
     }));
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
     const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events[0]).not.toContain('[force-accepted]');
-    expect(result.events[0]).toContain('[st-1] src/auth.ts');
+    expect(result.events[0]).toContain('[st-1] 执行者提交材料：src/auth.ts');
+    expect(result.events[0]).toContain('完成方式：按流程放行记为完成；该标记不表示验收通过');
+    // 放行不算历史失败，不进 problemPairs
+    expect(result.problemPairs).toEqual([]);
   });
 
   it('multiple subtasks, some with failure → problem_pairs includes only failure entries', async () => {

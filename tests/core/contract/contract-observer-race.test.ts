@@ -177,9 +177,9 @@ describe('phase 946 contract-observer watermark + async notify', () => {
 
     expect(notifyClaw).toHaveBeenCalledTimes(1);
     const payload = notifyClaw.mock.calls[0][0] as { body: string };
-    expect(payload.body).toContain('[contract_completed]');
-    expect(payload.body).toContain('claw=worker-a');
-    expect(payload.body).toContain('contract-1');
+    // phase 1832: 完成正文新语义——终态+对象/执行者（不再 legacy `[contract_completed]` 串）
+    expect(payload.body).toContain('契约流程已完成｜contract-1');
+    expect(payload.body).toContain('执行者：worker-a');
   });
 
   it('bootstrap: v1 schema migrate → 首 tick 不 emit、更新 lastArchivedAt', async () => {

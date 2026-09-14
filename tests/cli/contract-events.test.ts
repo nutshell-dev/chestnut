@@ -86,7 +86,8 @@ describe('contractEventsCommand', () => {
     await contractEventsCommand({ fsFactory }, 'test-claw', completedAt.getTime() - 1000);
 
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[contract_completed]'),
+      // phase 1832: 完成正文新语义——终态+对象（不再 legacy `[contract_completed]` 串）
+      expect.stringContaining('契约流程已完成｜'),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining(contractId),

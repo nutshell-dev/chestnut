@@ -14,13 +14,18 @@ import { LEGACY_PROGRESS_STATUSES_TUPLE } from '../schemas.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
 import { readLifecycleIntentsForContract } from '../lifecycle-intent.js';
 import {
+  contractCompletedExecutorLine,
+  contractCompletedForceAcceptedNoteLine,
+  contractCompletedGoalLine,
+  contractCompletedHistoryFeedbackLine,
+  contractCompletedMaterialLine,
+  contractCompletedStateLine,
+  contractCompletedSubtasksHeading,
   contractEventCauseLine,
   contractEventEvidenceRefLine,
   contractEventGoalLine,
   contractEventHeader,
-  contractEventLastFailureLine,
   contractEventReasonLine,
-  contractEventSubtaskEvidenceLine,
   contractEventSubtaskIdLine,
   contractEventSubtasksHeading,
   contractEventTitleLine,
@@ -266,21 +271,26 @@ function formatCompleted(
   meta: { title?: string; goal?: string },
   progress: ProgressData,
 ): FormattedEvent {
-  const lines: string[] = [contractEventHeader('contract_completed', clawId, dirName)];
-  if (meta.title) lines.push(contractEventTitleLine(meta.title));
-  if (meta.goal) lines.push(contractEventGoalLine(meta.goal));
+  // phase 1832: 完成正文准确呈现流程终态与提交材料——材料/放行/历史反馈均为
+  // progress 已读原文；缺失仅明示事实，不补造细节、不反推验收结论。
+  const lines: string[] = [
+    contractCompletedStateLine(meta.title ?? '', dirName),
+    contractCompletedExecutorLine(clawId),
+  ];
+  if (meta.goal) lines.push(contractCompletedGoalLine(meta.goal));
 
   let hasFailure = false;
   const completed = Object.entries(progress.subtasks)
     .filter(([, st]) => st.status === 'completed');
   if (completed.length > 0) {
-    lines.push(contractEventSubtasksHeading('completed'));
+    lines.push(contractCompletedSubtasksHeading());
     for (const [stId, st] of completed) {
-      // phase 1487: 去 [force-accepted] 前缀（语义诚实化 / motion 是决策主体 / DP）
-      const ev = st.evidence ?? '';
-      lines.push(contractEventSubtaskEvidenceLine(stId, ev));
+      lines.push(contractCompletedMaterialLine(stId, st.evidence ?? ''));
+      if (st.force_accepted === true) {
+        lines.push(contractCompletedForceAcceptedNoteLine());
+      }
       if (st.last_failed_feedback?.feedback) {
-        lines.push(contractEventLastFailureLine(st.last_failed_feedback.feedback));
+        lines.push(contractCompletedHistoryFeedbackLine(st.last_failed_feedback.feedback));
         hasFailure = true;
       }
     }

@@ -342,7 +342,9 @@ describe('event-collector schema check', () => {
 
     const result = await collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
     expect(result.events.length).toBe(1);
-    expect(result.events[0]).toContain('contract=good');
+    // phase 1832: 完成正文新语义——终态+对象/执行者（不再 legacy `contract=` 串）
+    expect(result.events[0]).toContain('契约流程已完成｜good');
+    expect(result.events[0]).toContain('执行者：test-claw');
 
     // Phase 949: schema validation failure emits PROGRESS_CORRUPTED audit.
     expect(mockAudit.write).toHaveBeenCalledTimes(1);

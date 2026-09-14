@@ -34,7 +34,12 @@ export {
   verificationTimeoutFeedback,
   verificationCrashedFeedback,
 } from './verification.js';
-export { contractNotificationBody } from './contract-notification.js';
+export {
+  contractNotificationBody,
+  contractCompletedNotificationBody,
+  contractCompletedSubtaskLine,
+  type ContractCompletedMessageInput,
+} from './contract-notification.js';
 export {
   contractEventHeader,
   contractEventTitleLine,
@@ -47,6 +52,14 @@ export {
   contractEventSubtaskIdLine,
   contractEventLastFailureLine,
   contractEventsBody,
+  contractCompletedStateLine,
+  contractCompletedExecutorLine,
+  contractCompletedGoalLine,
+  contractCompletedTimeLine,
+  contractCompletedSubtasksHeading,
+  contractCompletedMaterialLine,
+  contractCompletedForceAcceptedNoteLine,
+  contractCompletedHistoryFeedbackLine,
 } from './contract-events.js';
 export { contractAuditDriftLine, contractAuditFeedbackBody } from './contract-audit.js';
 export {
