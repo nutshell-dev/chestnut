@@ -113,3 +113,65 @@ export function contractCompletedForceAcceptedNoteLine(): string {
 export function contractCompletedHistoryFeedbackLine(feedback: string): string {
   return `    历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：${feedback}`;
 }
+
+/* ------------------------------------------------------------------ */
+/* phase 1833：契约取消通知专用呈现（completed/failed/crashed 分支不变）。*/
+/* 只呈现 owner 已选择的事实行；模板不解析 checkpoint、不判断来源。     */
+/* ------------------------------------------------------------------ */
+
+/** 取消终态 + 对象行：`契约已取消｜标题（ID）`；标题空只显示 ID。 */
+export function contractCancelledStateLine(title: string, contractId: string): string {
+  return title ? `契约已取消｜${title}（${contractId}）` : `契约已取消｜${contractId}`;
+}
+
+/** 自家通知取消原因行（typed event 原 reason，调用方保证非空白）。 */
+export function contractCancelledReasonLine(reason: string): string {
+  return `取消原因：${reason}`;
+}
+
+/** 自家通知空原因行：取消请求未填写原因。 */
+export function contractCancelledEmptyReasonLine(): string {
+  return '取消请求未填写原因';
+}
+
+/** observer 路：取消请求原因小节标题（记录中的请求，不冒称生效原因）。 */
+export function contractCancelledRequestsHeading(): string {
+  return '记录中的取消请求原因：';
+}
+
+/** observer 路：单条取消请求原因（逐条完整保留不去重）；空白明示该条未填写。 */
+export function contractCancelledRequestReasonLine(reason: string): string {
+  return reason.trim() ? `  - ${reason}` : '  - （该条未填写原因）';
+}
+
+/** observer 路：部分原因记录读取失败注记（详细问题走真实审计）。 */
+export function contractCancelledPartialReadNoteLine(): string {
+  return '  部分原因记录读取失败，以上为已读取部分';
+}
+
+/** observer 路：legacy checkpoint 取消原因行；前缀后为空则说明未取得原因。 */
+export function contractCancelledLegacyReasonLine(reason: string): string {
+  return reason.trim()
+    ? `历史检查点记录的取消原因：${reason}`
+    : '历史检查点有取消标记，本次未取得取消原因记录';
+}
+
+/** observer 路：未取得原因统一措辞（不断言根本没有原因）。 */
+export function contractCancelledNoReasonLine(): string {
+  return '本次未取得取消原因记录';
+}
+
+/** observer 路：非取消 checkpoint 单列完整保留，不当原因。 */
+export function contractCancelledCheckpointLine(checkpoint: string): string {
+  return `历史检查点记录：${checkpoint}`;
+}
+
+/** observer 路：取消前已完成子任务小节标题（无已完成子任务时调用方不渲染本小节）。 */
+export function contractCancelledSubtasksHeading(): string {
+  return '取消前已完成子任务：';
+}
+
+/** observer 路：取消前已完成子任务 ID 行。 */
+export function contractCancelledSubtaskIdLine(subtaskId: string): string {
+  return `  [${subtaskId}]`;
+}

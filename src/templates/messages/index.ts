@@ -35,10 +35,11 @@ export {
   verificationCrashedFeedback,
 } from './verification.js';
 export {
-  contractNotificationBody,
   contractCompletedNotificationBody,
   contractCompletedSubtaskLine,
+  contractCancelledNotificationBody,
   type ContractCompletedMessageInput,
+  type ContractCancelledMessageInput,
 } from './contract-notification.js';
 export {
   contractEventHeader,
@@ -60,6 +61,17 @@ export {
   contractCompletedMaterialLine,
   contractCompletedForceAcceptedNoteLine,
   contractCompletedHistoryFeedbackLine,
+  contractCancelledStateLine,
+  contractCancelledReasonLine,
+  contractCancelledEmptyReasonLine,
+  contractCancelledRequestsHeading,
+  contractCancelledRequestReasonLine,
+  contractCancelledPartialReadNoteLine,
+  contractCancelledLegacyReasonLine,
+  contractCancelledNoReasonLine,
+  contractCancelledCheckpointLine,
+  contractCancelledSubtasksHeading,
+  contractCancelledSubtaskIdLine,
 } from './contract-events.js';
 export { contractAuditDriftLine, contractAuditFeedbackBody } from './contract-audit.js';
 export {

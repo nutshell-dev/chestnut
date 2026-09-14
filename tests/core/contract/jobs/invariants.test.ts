@@ -182,7 +182,11 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     // Observer-style sinceTs filter: previous watermark before archivedAt should NOT drop the event
     const result = await collectContractEvents(fs, clawDir, 'worker-1', entries[0].archivedAt - 1, audit);
     expect(result.events).toHaveLength(1);
-    expect(result.events[0]).toContain('[contract_cancelled]');
+    // phase 1833: 取消正文新语义——终态/对象 + legacy checkpoint 取消原因来源明示
+    expect(result.events[0]).toContain('契约已取消｜1780-cancelled');
+    expect(result.events[0]).toContain('执行者：worker-1');
+    expect(result.events[0]).toContain('历史检查点记录的取消原因：user manual');
+    expect(result.events[0]).not.toContain('[contract_cancelled]');
     expect(events).toHaveLength(0);
   });
 

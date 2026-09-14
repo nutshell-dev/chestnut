@@ -153,7 +153,7 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(content).not.toContain('（）');
   });
 
-  it('contract_cancelled → stream camel payload + contract_cancelled self-inbox（v1 guidance wire、reason 仅留 body/stream）', () => {
+  it('contract_cancelled → stream camel payload + contract_cancelled self-inbox（phase 1833 新正文语义）', () => {
     emit({
       type: 'contract_cancelled',
       contractId: makeContractId('c1'),
@@ -181,10 +181,38 @@ describe('phase 1260: contract notification adapter legacy transport shape', () 
     expect(content).not.toContain('source_claw:');
     expect(content).not.toMatch(/^contract_id:/m);
     expect(content).not.toMatch(/^reason:/m);
-    // body 仍持久化 reason（不随 metadata 删除）
+    // phase 1833: 正文自足呈现终态/对象/执行者/原 reason（typed event 无标题，不跨模块补）
     expect(content).toContain(
-      '[contract_cancelled] claw=test-claw contractId=c1 reason=user cancelled',
+      '契约已取消｜c1\n'
+      + '执行者：test-claw\n'
+      + '取消原因：user cancelled',
     );
+    // 不再携带 legacy 序列化串
+    expect(content).not.toContain('[contract_cancelled]');
+    expect(content).not.toContain('contractId=c1');
+  });
+
+  it('contract_cancelled（空原因）→ 明示取消请求未填写原因、stream 不变', () => {
+    emit({
+      type: 'contract_cancelled',
+      contractId: makeContractId('c2'),
+      reason: '',
+    });
+
+    expect(streamWrite).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'system_notify',
+      subtype: 'contract_cancelled',
+      contractId: 'c2',
+      reason: '',
+    }));
+
+    const content = readOnlyInboxFile();
+    expect(content).toContain(
+      '契约已取消｜c2\n'
+      + '执行者：test-claw\n'
+      + '取消请求未填写原因',
+    );
+    expect(content).not.toContain('取消原因：');
   });
 
   it('subtask_completed（普通路径）→ stream camel payload / 无 inbox', () => {

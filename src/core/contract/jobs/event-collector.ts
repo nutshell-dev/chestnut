@@ -4,7 +4,7 @@ import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
-import type { ArchiveState, LifecycleIntent } from '../types.js';
+import type { ArchiveState, LifecycleIntent, LifecycleIntentIssue } from '../types.js';
 import { deriveProgressStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
@@ -14,6 +14,15 @@ import { LEGACY_PROGRESS_STATUSES_TUPLE } from '../schemas.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
 import { readLifecycleIntentsForContract } from '../lifecycle-intent.js';
 import {
+  contractCancelledCheckpointLine,
+  contractCancelledLegacyReasonLine,
+  contractCancelledNoReasonLine,
+  contractCancelledPartialReadNoteLine,
+  contractCancelledRequestReasonLine,
+  contractCancelledRequestsHeading,
+  contractCancelledStateLine,
+  contractCancelledSubtaskIdLine,
+  contractCancelledSubtasksHeading,
   contractCompletedExecutorLine,
   contractCompletedForceAcceptedNoteLine,
   contractCompletedGoalLine,
@@ -59,23 +68,49 @@ interface FormattedEvent {
   cause?: string;
 }
 
-function formatCancelledReason(
-  _contractDirName: string,
-  progress: ProgressData,
+/**
+ * phase 1833：取消原因事实联合（局限本文件，不是公共业务类型）。
+ * - requests：有 cancelled 请求记录——逐条完整保留，incomplete 表示另有读取失败；
+ * - legacy：无请求记录、checkpoint 带显式 `cancelled:` 前缀——checkpoint 为前缀后原文（可空）；
+ * - unavailable：无请求记录且无取消前缀 checkpoint——checkpoint 为非取消检查点原文（完整保留不当原因）。
+ * 列表异常返回空 intents/issues 时落入 unavailable/legacy，措辞「未取得」不断言根本没有原因。
+ */
+type CancelReasonFacts =
+  | { kind: 'requests'; reasons: readonly string[]; incomplete: boolean }
+  | { kind: 'legacy'; checkpoint: string }
+  | { kind: 'unavailable'; checkpoint?: string };
+
+/**
+ * phase 1833：取消原因事实 + 兼容串派生（owner 职责；模板只渲染已选择行）。
+ * compatReason 保持 ArchivedContractEntry.reason 既有兼容串值（原 formatCancelledReason
+ * 语义），独立于新中文正文，避免其它查询调用者观察到不必要变化。
+ */
+function deriveCancelledReasonFacts(
   intents: LifecycleIntent[],
-): { reason: string; notes?: string } {
-  const cancelledIntents = intents.filter(
-    (i): i is LifecycleIntent & { requested_state: 'cancelled'; reason: string } =>
-      i.requested_state === 'cancelled',
-  );
-  if (cancelledIntents.length > 0) {
-    const reasons = cancelledIntents.map(i => i.reason);
-    const note = reasons.length === 1 ? reasons[0] : `requests: ${reasons.join('; ')}`;
-    return { reason: note };
+  issues: LifecycleIntentIssue[],
+  checkpointRaw: string,
+): { facts: CancelReasonFacts; compatReason: string } {
+  const reasons = intents
+    .filter((i): i is LifecycleIntent & { requested_state: 'cancelled'; reason: string } =>
+      i.requested_state === 'cancelled')
+    .map(i => i.reason);
+  if (reasons.length > 0) {
+    return {
+      facts: { kind: 'requests', reasons, incomplete: issues.length > 0 },
+      compatReason: reasons.length === 1 ? reasons[0] : `requests: ${reasons.join('; ')}`,
+    };
   }
-  // Legacy fallback: checkpoint written before Phase 1198.
-  const legacy = (progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
-  return { reason: legacy, notes: '(from legacy checkpoint)' };
+  if (checkpointRaw.startsWith('cancelled:')) {
+    const stripped = checkpointRaw.replace(/^cancelled:\s*/, '');
+    return {
+      facts: { kind: 'legacy', checkpoint: stripped },
+      compatReason: stripped || '(no reason given)',
+    };
+  }
+  return {
+    facts: checkpointRaw ? { kind: 'unavailable', checkpoint: checkpointRaw } : { kind: 'unavailable' },
+    compatReason: checkpointRaw || '(no reason given)',
+  };
 }
 
 function formatCorruptedCause(
@@ -116,6 +151,7 @@ function formatFailedReason(
 }
 
 // Step F: current archive state comes from the directory path (SoT).
+// phase 1833: 取消分支贯通外层真实 audit（原空 AuditLog 静默吞读取异常）；其他状态分支行为不变。
 async function formatCurrentArchiveEvent(
   fs: FileSystem,
   clawDir: string,
@@ -124,19 +160,20 @@ async function formatCurrentArchiveEvent(
   meta: { title?: string; goal?: string },
   progress: ProgressData,
   state: ArchiveState,
+  audit: AuditLog,
 ): Promise<FormattedEvent | null> {
   switch (state) {
     case 'completed':
       return formatCompleted(clawId, contractDirName, meta, progress);
     case 'cancelled': {
-      const { intents } = await readLifecycleIntentsForContract(
+      const { intents, issues } = await readLifecycleIntentsForContract(
         fs,
-        { write: () => {} } as unknown as AuditLog,
+        audit,
         clawDir,
         contractDirName as import('../types.js').ContractId,
       );
-      const { reason } = formatCancelledReason(contractDirName, progress, intents);
-      return formatCancelled(clawId, contractDirName, meta, progress, reason);
+      const { facts, compatReason } = deriveCancelledReasonFacts(intents, issues, progress.checkpoint ?? '');
+      return formatCancelled(clawId, contractDirName, meta, progress, compatReason, facts);
     }
     case 'corrupted': {
       const { intents } = await readLifecycleIntentsForContract(
@@ -199,8 +236,9 @@ function formatLegacyFlatArchiveEvent(
     case 'completed':
       return formatCompleted(clawId, contractDirName, meta, progress);
     case 'cancelled': {
-      const reason = (progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
-      return formatCancelled(clawId, contractDirName, meta, progress, reason);
+      // phase 1833: legacy flat 无 intent store，同一 checkpoint 分类语义（owner 解析来源）
+      const { facts, compatReason } = deriveCancelledReasonFacts([], [], progress.checkpoint ?? '');
+      return formatCancelled(clawId, contractDirName, meta, progress, compatReason, facts);
     }
     case 'crashed':
       return formatCrashed(clawId, contractDirName, meta, progress);
@@ -303,18 +341,37 @@ function formatCancelled(
   dirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
-  reason: string,
+  compatReason: string,
+  facts: CancelReasonFacts,
 ): FormattedEvent {
-  const lines: string[] = [contractEventHeader('contract_cancelled', clawId, dirName)];
-  if (meta.title) lines.push(contractEventTitleLine(meta.title));
-  if (meta.goal) lines.push(contractEventGoalLine(meta.goal));
-  lines.push(contractEventReasonLine(reason));
+  // phase 1833: 取消正文准确呈现终态与原因记录——来源明确、原文保留、缺失明示；
+  // 不给继续/重派/升级处方，不称其余子任务未开始。reason 字段保持既有兼容串值。
+  const lines: string[] = [
+    contractCancelledStateLine(meta.title ?? '', dirName),
+    contractCompletedExecutorLine(clawId),
+  ];
+  if (meta.goal) lines.push(contractCompletedGoalLine(meta.goal));
+  switch (facts.kind) {
+    case 'requests': {
+      lines.push(contractCancelledRequestsHeading());
+      for (const reason of facts.reasons) lines.push(contractCancelledRequestReasonLine(reason));
+      if (facts.incomplete) lines.push(contractCancelledPartialReadNoteLine());
+      break;
+    }
+    case 'legacy':
+      lines.push(contractCancelledLegacyReasonLine(facts.checkpoint));
+      break;
+    case 'unavailable':
+      lines.push(contractCancelledNoReasonLine());
+      if (facts.checkpoint) lines.push(contractCancelledCheckpointLine(facts.checkpoint));
+      break;
+  }
   const completed = Object.entries(progress.subtasks).filter(([, st]) => st.status === 'completed');
   if (completed.length > 0) {
-    lines.push(contractEventSubtasksHeading('before-cancel'));
-    for (const [stId] of completed) lines.push(contractEventSubtaskIdLine(stId));
+    lines.push(contractCancelledSubtasksHeading());
+    for (const [stId] of completed) lines.push(contractCancelledSubtaskIdLine(stId));
   }
-  return { body: lines.join('\n'), hasFailure: true, status: 'cancelled', reason };
+  return { body: lines.join('\n'), hasFailure: true, status: 'cancelled', reason: compatReason };
 }
 
 function formatCrashed(
@@ -444,7 +501,7 @@ export async function scanArchivedContracts(
       const meta = readContractMeta(fs, loc.contractRoot);
       let formatted: FormattedEvent | null;
       if (loc.kind === 'current' && loc.state) {
-        formatted = await formatCurrentArchiveEvent(fs, clawDir, clawId, loc.contractId, meta, progress, loc.state);
+        formatted = await formatCurrentArchiveEvent(fs, clawDir, clawId, loc.contractId, meta, progress, loc.state, audit);
       } else {
         // Step F: legacy flat archive — derive status from historical progress.json field.
         (progress as unknown as Record<string, unknown>).status = result.data.status

@@ -5,8 +5,9 @@
  *
  * ContractNotification → transport adapter：接 ContractSystem-owned typed event，
  * exhaustive mapper 显式恢复 legacy stream/inbox shape（camel/snake 历史混排是
- * 持久化观察协议事实，本 adapter 逐字段保持、不归一化），formatNotifyData 序列化 /
- * stream system_notify + completed/cancelled self-inbox 发出。
+ * 持久化观察协议事实，本 adapter 逐字段保持、不归一化），stream system_notify +
+ * completed/cancelled self-inbox 发出（phase 1832/1833：inbox 正文改由模板纯呈现
+ * typed event 事实，stream payload 形状不变）。
  *
  * 抽出动机：assemble() M#1/SRP 治理（assembly-auditor §六.4 follow-up）。
  * phase 1260 Step B：物理归位 Assembly（原 core/contract/contract-notify-callback.ts），
@@ -21,9 +22,9 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
 import {
-  contractNotificationBody,
   contractCompletedNotificationBody,
   contractCompletedSubtaskLine,
+  contractCancelledNotificationBody,
 } from '../templates/messages/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import {
@@ -92,14 +93,19 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
     // phase 63: contract_cancelled NEW
     if (event.type === 'contract_cancelled') {
       // phase 1262 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
-      // （schema version + refs JSON 两 owner key；不再手写 legacy dialect keys ——
-      // 取消原因已由 body 与 stream 持久化、不重复跨边界）
+      // （schema version + refs JSON 两 owner key；不再手写 legacy dialect keys）
+      // phase 1833: 取消正文改用 typed id/reason 直传纯模板（typed event 只有这两字段，
+      // 不跨模块补标题/进度）；stream 的 toLegacyNotifyData shape 保持不变。
       notifyInbox(deps.systemFs, {
         inboxDir: deps.selfInboxDir,
         type: 'contract_cancelled',  // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
         source: 'system',
         priority: 'high',
-        body: contractNotificationBody('contract_cancelled', deps.clawId, formatNotifyData(data)),
+        body: contractCancelledNotificationBody({
+          clawId: deps.clawId,
+          contractId: event.contractId,
+          reason: event.reason,
+        }),
         extraFields: encodeContractCancelledGuidance([{
           clawId: makeClawId(deps.clawId),
           contractId: event.contractId,
@@ -166,10 +172,4 @@ function toLegacyNotifyData(event: ContractNotification): Record<string, unknown
       throw new Error(`unknown contract notification variant: ${JSON.stringify(exhaustive)}`);
     }
   }
-}
-
-function formatNotifyData(data: Record<string, unknown>): string {
-  return Object.entries(data)
-    .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
-    .join(' ');
 }

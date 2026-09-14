@@ -60,14 +60,20 @@ const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06']);
 
 /**
  * phase 1832: M04/M05 的契约完成 case 移交新语义验收（case 级接管，非整组豁免）。
- * 接管表：group → fixture case 标识；接管 case 由本测试内的新语义断言与
- * tests/core/contract/contract-completed-message-context.test.ts 真实两路测试覆盖。
- * M04/contract_cancelled 与 M05/c-cancelled:cancelled、observer:contract_cancelled、
- * c-corrupted:corrupted、c-failed:failed 继续逐字节比较。
+ * phase 1833: 取消 case 同样接管（M04/contract_cancelled、M05/c-cancelled:cancelled、
+ * M05/observer:contract_cancelled）。接管 case 由本测试内的新语义断言与
+ * tests/core/contract/contract-completed-message-context.test.ts /
+ * contract-cancelled-message-context.test.ts 真实两路测试覆盖。
+ * M05/c-corrupted:corrupted、c-failed:failed 继续逐字节比较。
  */
 const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
-  M04: new Set(['contract_events']),
-  M05: new Set(['c-completed:completed', 'observer:contract_events']),
+  M04: new Set(['contract_events', 'contract_cancelled']),
+  M05: new Set([
+    'c-completed:completed',
+    'observer:contract_events',
+    'c-cancelled:cancelled',
+    'observer:contract_cancelled',
+  ]),
 };
 
 /** 已逐字节比较过的 case（`${group}/${case}`），供完整性核对。 */
@@ -225,17 +231,28 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       body: msg.content,
       envelope: { type: msg.type, from: msg.from, to: msg.to, priority: msg.priority },
     }));
-    // phase 1832: contract_events 完成 case 移交新语义；contract_cancelled 继续逐字节比较
-    const [completed] = expectCasesExceptRedesigned('M04', allCases);
-    expect(completed.body).toBe(
-      '契约流程已完成｜演示「标题」（c-9）\n'
-      + '执行者：motion\n'
-      + '原目标：目标\n多行\n'
-      + '完成时间：2026-09-11T00:00:00.000Z\n'
-      + '已完成子任务：\n'
-      + '  [st-1] 完成时间：2026-09-11T00:01:00.000Z',
-    );
+    // phase 1832/1833: completed/cancelled case 均移交新语义，现场断言精确正文+envelope
+    const takenOver = expectCasesExceptRedesigned('M04', allCases);
+    const expectedM04: Record<string, string> = {
+      contract_events:
+        '契约流程已完成｜演示「标题」（c-9）\n'
+        + '执行者：motion\n'
+        + '原目标：目标\n多行\n'
+        + '完成时间：2026-09-11T00:00:00.000Z\n'
+        + '已完成子任务：\n'
+        + '  [st-1] 完成时间：2026-09-11T00:01:00.000Z',
+      contract_cancelled:
+        '契约已取消｜c-9\n'
+        + '执行者：motion\n'
+        + '取消原因：user manual',
+    };
+    for (const c of takenOver) {
+      expect(c.body).toBe(expectedM04[c.case]);
+    }
+    const completed = takenOver.find(c => c.case === 'contract_events')!;
     expect(completed.envelope).toEqual({ type: 'contract_events', from: 'system', to: '', priority: 'high' });
+    const cancelled = takenOver.find(c => c.case === 'contract_cancelled')!;
+    expect(cancelled.envelope).toEqual({ type: 'contract_cancelled', from: 'system', to: '', priority: 'high' });
     expect(messages.length).toBe(2);
   });
 
@@ -344,7 +361,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
         envelope: { type: m.type, from: m.source, priority: m.priority },
       })),
     ];
-    // phase 1832: 完成 case（entry + observer 组合）移交新语义；取消/损坏/失败继续逐字节比较
+    // phase 1832/1833: 完成/取消 case（entry + observer 组合）移交新语义；损坏/失败继续逐字节比较
     const takenOver = expectCasesExceptRedesigned('M05', m05Cases);
     const expectedCompletedBody =
       '契约流程已完成｜演示契约（c-completed）\n'
@@ -354,13 +371,29 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       + '  [st-1] 执行者提交材料：done part 1\n'
       + '  [st-2] 执行者提交材料：done "part 2"\n'
       + '    历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：曾失败一次';
+    const expectedCancelledBody =
+      '契约已取消｜c-cancelled\n'
+      + '执行者：claw-1\n'
+      + '历史检查点记录的取消原因：user manual\n'
+      + '取消前已完成子任务：\n'
+      + '  [st-1]';
+    const expectedM05: Record<string, string> = {
+      'c-completed:completed': expectedCompletedBody,
+      'observer:contract_events': expectedCompletedBody,
+      'c-cancelled:cancelled': expectedCancelledBody,
+      'observer:contract_cancelled': expectedCancelledBody,
+    };
     for (const c of takenOver) {
-      expect(c.body).toBe(expectedCompletedBody);
+      expect(c.body).toBe(expectedM05[c.case]);
     }
     const entryCase = takenOver.find(c => c.case === 'c-completed:completed')!;
     expect(entryCase.envelope).toEqual({ hasFailure: true, status: 'completed' });
     const observerCase = takenOver.find(c => c.case === 'observer:contract_events')!;
     expect(observerCase.envelope).toEqual({ type: 'contract_events', from: 'system', priority: 'high' });
+    const cancelledEntry = takenOver.find(c => c.case === 'c-cancelled:cancelled')!;
+    expect(cancelledEntry.envelope).toEqual({ hasFailure: true, status: 'cancelled' });
+    const observerCancelled = takenOver.find(c => c.case === 'observer:contract_cancelled')!;
+    expect(observerCancelled.envelope).toEqual({ type: 'contract_cancelled', from: 'system', priority: 'high' });
     expect(notified.length).toBeGreaterThanOrEqual(1);
   });
 
