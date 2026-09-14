@@ -54,25 +54,28 @@ export function contractCompletedNotificationBody(input: ContractCompletedMessag
 
 /* ------------------------------------------------------------------ */
 /* phase 1833：自家契约取消通知纯呈现入口（旧串行化入口已随调用移除）。   */
-/* typed cancelled event 只有 contractId/reason：呈现终态+对象+执行者+   */
-/* 原 reason（非空时）；空原因明示「取消请求未填写原因」，不跨模块查询    */
-/* 补标题/进度。                                                        */
+/* typed cancelled event 只有契约 ID 与取消事由：呈现终态+对象+执行者+   */
+/* 原事由（非空时）；空事由明示「取消请求未填写原因」，不跨模块查询补     */
+/* 标题/进度。                                                          */
 /* ------------------------------------------------------------------ */
 
-/** 自家取消通知最小呈现输入（adapter 从 typed event 逐字段传入）。 */
-export interface ContractCancelledMessageInput {
-  clawId: string;
+/**
+ * 自家取消通知最小呈现输入：adapter 把 typed cancelled event 整体直传
+ * （结构子集，不 import event 定义）；投递 block 不再出现 owner wire key
+ * 同名字面（arch ratchet 保持严格）。
+ */
+export interface ContractCancelledMessageEvent {
   contractId: string;
   reason: string;
 }
 
 /** 自家取消通知正文：终态 + 对象 + 执行者 + 原因事实。 */
-export function contractCancelledNotificationBody(input: ContractCancelledMessageInput): string {
+export function contractCancelledNotificationBody(clawId: string, event: ContractCancelledMessageEvent): string {
   return [
-    contractCancelledStateLine('', input.contractId),
-    contractCompletedExecutorLine(input.clawId),
-    input.reason.trim()
-      ? contractCancelledReasonLine(input.reason)
+    contractCancelledStateLine('', event.contractId),
+    contractCompletedExecutorLine(clawId),
+    event.reason.trim()
+      ? contractCancelledReasonLine(event.reason)
       : contractCancelledEmptyReasonLine(),
   ].join('\n');
 }

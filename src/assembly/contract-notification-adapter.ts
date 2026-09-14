@@ -94,18 +94,15 @@ export function createContractNotificationAdapter(deps: ContractNotificationAdap
     if (event.type === 'contract_cancelled') {
       // phase 1262 Step B: guidance metadata 只经 ContractSystem owner codec 写 v1
       // （schema version + refs JSON 两 owner key；不再手写 legacy dialect keys）
-      // phase 1833: 取消正文改用 typed id/reason 直传纯模板（typed event 只有这两字段，
-      // 不跨模块补标题/进度）；stream 的 toLegacyNotifyData shape 保持不变。
+      // phase 1833: 取消正文改用 typed event 整体直传纯模板（typed event 只有契约 ID
+      // 与取消事由两字段，不跨模块补标题/进度）；block 内不出现 owner wire key 同名
+      // 字面（arch ratchet 保持严格）。stream 的 toLegacyNotifyData shape 保持不变。
       notifyInbox(deps.systemFs, {
         inboxDir: deps.selfInboxDir,
         type: 'contract_cancelled',  // inbox sender type（guidance WIRE_TYPE 同值）；非 stream 枚举
         source: 'system',
         priority: 'high',
-        body: contractCancelledNotificationBody({
-          clawId: deps.clawId,
-          contractId: event.contractId,
-          reason: event.reason,
-        }),
+        body: contractCancelledNotificationBody(deps.clawId, event),
         extraFields: encodeContractCancelledGuidance([{
           clawId: makeClawId(deps.clawId),
           contractId: event.contractId,

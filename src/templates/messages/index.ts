@@ -39,7 +39,7 @@ export {
   contractCompletedSubtaskLine,
   contractCancelledNotificationBody,
   type ContractCompletedMessageInput,
-  type ContractCancelledMessageInput,
+  type ContractCancelledMessageEvent,
 } from './contract-notification.js';
 export {
   contractEventHeader,
