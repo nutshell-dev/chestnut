@@ -359,14 +359,24 @@ function globMatch(s: string, pattern: string): boolean {
   return regex.test(s);
 }
 
-/** Reverse of esc() from _helpers.ts */
+/**
+ * Reverse of esc() from _helpers.ts.
+ * phase 1831: 单遍消费已有转义序列——每次匹配只吃“一个反斜杠 + 一个已知代码字符”，
+ * 替换产物不再进入后续匹配，避免旧连续 replace 对双反斜杠的二次解释
+ * （如磁盘 \\t = 字面 \\t，旧实现会先 \t→TAB 吃掉内层反斜杠）。
+ * 未知代码或末尾孤立反斜杠不匹配、按原字面保留；已定义转义严格只解一层。
+ */
 function unesc(s: string): string {
-  return s
-    .replace(/\\0/g, '\0')
-    .replace(/\\r/g, '\r')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\\\/g, '\\');
+  return s.replace(/\\([\\nrt0])/g, (whole: string, code: string): string => {
+    switch (code) {
+      case '\\': return '\\';
+      case 'n': return '\n';
+      case 'r': return '\r';
+      case 't': return '\t';
+      case '0': return '\0';
+      default: return whole;
+    }
+  });
 }
 
 /** List audit files at baseDir. */

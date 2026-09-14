@@ -3,9 +3,10 @@
  *
  * 链路：真实 ContractAuditor + 临时 FS 真实落盘 inbox → decodeInbox →
  * 真实 Runtime.formatInboxMessage（真实 registry 声明）→ sanitizeForLLMCall
- * （provider 边界投影）。审计侧用真实 AuditWriter 落 audit.tsv、真实
- * createAuditReader 读回，证明完整 response（含非文本 content block、制表符、
- * 换行、超 500 字文本）与实际 prompt 未经摘要截断可还原，处置链 reviewId 可关联。
+ * （provider 边界投影）。审计侧用真实 AuditWriter 落 audit.tsv、生产
+ * createAuditReader 读回（phase 1831 接管：不再有测试私有解码器），证明完整
+ * response（含非文本 content block、制表符、换行、超 500 字文本）与实际 prompt
+ * 未经摘要截断可还原，处置链 reviewId 可关联。
  *
  * 反向三项：①模板只呈现 owner 选定事实、不判业务有效性（模板无解析/查询入参）；
  * ②无依据结果不产生占位消息、不静默过滤条目、阶段错误不混称网络失败；
@@ -24,6 +25,7 @@ import {
 } from '../../../src/foundation/messaging/index.js';
 import { CONTRACT_INBOX_MESSAGE_TYPES } from '../../../src/core/contract/index.js';
 import { createAuditWriter } from '../../../src/foundation/audit/index.js';
+import { createAuditReader } from '../../../src/foundation/audit/reader.js';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import { sanitizeForLLMCall } from '../../../src/foundation/llm-provider/sanitize.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -100,9 +102,15 @@ async function providerVisibleContent(
 const LONG_EVIDENCE = `step 40-49 重复执行 grep -r "config" .\t命中 0 次\n` +
   '补充：'.repeat(200) + '（长文本尾部标记 END-MARKER）';
 
-function makeLLM(response: LLMResponse): LLMOrchestrator {
+/** 捕获真实 LLM 调用参数（用于 prompt 完整性对比，非 contains 片段）。 */
+type CapturedCall = { messages: Array<{ role: string; content: string }> };
+
+function makeLLM(response: LLMResponse, captured?: CapturedCall[]): LLMOrchestrator {
   return {
-    async call() { return response; },
+    async call(req: CapturedCall) {
+      captured?.push(req);
+      return response;
+    },
     stream: () => { throw new Error('not implemented'); },
     healthCheck: async () => true,
     getProviderInfo: () => ({ name: 'mock', model: 'mock', isFallback: false }),
@@ -163,36 +171,16 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
 
   interface AuditRow { type: string; cols: readonly string[] }
 
-  /**
-   * AuditWriter esc 的逆（单遍左到右解码）。
-   * 不用 createAuditReader 的 unesc：其对 `\\t`/`\\n` 这类已转义序列的替换顺序
-   * 会先吃掉内层反斜杠，JSON payload 无法还原（本测试要证明的恰恰是写侧无损，
-   * 故用精确逆变换读回原始文件行）。
-   */
-  function unescCol(s: string): string {
-    let out = '';
-    for (let i = 0; i < s.length; i++) {
-      if (s[i] === '\\' && i + 1 < s.length) {
-        const c = s[i + 1];
-        if (c === '\\') { out += '\\'; i++; continue; }
-        if (c === 't') { out += '\t'; i++; continue; }
-        if (c === 'n') { out += '\n'; i++; continue; }
-        if (c === 'r') { out += '\r'; i++; continue; }
-        if (c === '0') { out += '\0'; i++; continue; }
-      }
-      out += s[i];
-    }
-    return out;
-  }
-
-  /** 读回真实 audit.tsv（写侧为生产 AuditWriter：ts \t seq \t type \t cols...）。 */
+  /** 生产入口读回真实 audit.tsv（phase 1831：无备用/私有 decoder）。 */
   async function readAuditRows(): Promise<AuditRow[]> {
-    const content = await fs.readFile(path.join(rootDir, 'audit.tsv'), 'utf-8');
+    const reader = createAuditReader(nfs, 'audit.tsv');
     const rows: AuditRow[] = [];
-    for (const line of content.split('\n')) {
-      if (!line) continue;
-      const parts = line.split('\t');
-      rows.push({ type: unescCol(parts[2]!), cols: parts.slice(3).map(unescCol) });
+    try {
+      for await (const rec of reader.read()) {
+        rows.push({ type: rec.type, cols: rec.cols });
+      }
+    } finally {
+      reader.close();
     }
     return rows;
   }
@@ -216,7 +204,8 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
       stop_reason: 'end_turn',
       usage: { input_tokens: 100, output_tokens: 50 },
     };
-    const auditor = makeAuditor(makeLLM(response));
+    const calls: CapturedCall[] = [];
+    const auditor = makeAuditor(makeLLM(response, calls));
 
     const out = await auditor.maybeAudit(defaultReq());
     expect(out.audited).toBe(true);
@@ -260,9 +249,12 @@ describe('phase 1830: 契约审阅反馈 → inbox → Runtime → provider + �
     expect(payload.contractTitle).toBe('修复配置重载');
     expect(payload.currentStep).toBe(50);
     expect(typeof payload.collectedAt).toBe('string');
+    // 完整性：payload.prompt 与真实 LLM 调用入参逐字节一致（非 contains 片段）
+    expect(calls).toHaveLength(1);
+    expect(payload.prompt).toBe(calls[0]!.messages[0]!.content);
     expect(payload.prompt).toContain('do X, do Y');
     // 非文本 content block 保留（extractText 只是解析入口，不是唯一留存）
-    expect(payload.response.content).toEqual(response.content);
+    expect(payload.response).toEqual(response);
     // 制表符/换行/超 500 字文本无截断还原
     const textBlock = payload.response.content.find(b => b.type === 'text');
     expect(textBlock).toBeDefined();

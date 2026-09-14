@@ -244,6 +244,24 @@ describe('AuditReader', () => {
       expect((recs[0] as any).type).toBe('a');
     });
 
+    it('phase 1831: colFilter 在解码后匹配——字面转义值与控制字符值互不误匹配', async () => {
+      // 磁盘编码（手写样本，不经 writer）：row1 col 为 k=a\nb 单反斜杠+n（TS 'k=a\\nb'）
+      // → 解码 k=a<LF>b；row2 col 为 k=a\\nb 双反斜杠+n（TS 'k=a\\\\nb'）
+      // → 解码字面 k=a\nb（反斜杠+n 两个字符）。
+      const fs = makeFs({
+        '/test/audit.tsv':
+          '2024-01-01T00:00:00Z\tseq=1\twith_lf\tk=a\\nb\n' +
+          '2024-01-01T00:00:01Z\tseq=2\twith_literal\tk=a\\\\nb\n',
+      });
+      const reader = createAuditReader(fs, '/test/audit.tsv');
+      const lfHits: unknown[] = [];
+      for await (const rec of reader.read({ colFilter: { k: 'a\nb' } })) lfHits.push(rec);
+      expect(lfHits.map(r => (r as any).type)).toEqual(['with_lf']);
+      const literalHits: unknown[] = [];
+      for await (const rec of reader.read({ colFilter: { k: 'a\\nb' } })) literalHits.push(rec);
+      expect(literalHits.map(r => (r as any).type)).toEqual(['with_literal']);
+    });
+
     it('limits results', async () => {
       const fs = makeFs({
         '/test/audit.tsv':
@@ -319,6 +337,55 @@ describe('AuditReader', () => {
     });
   });
 
+  describe('phase 1831: 冻结协议样本（手写 TSV 字面，不经 writer/esc 生成）', () => {
+    // 层次约定：TS 源码 '\\' = 磁盘一个反斜杠；'\t'/'\n' 只作列/行物理分隔。
+    // 磁盘转义序列 = 一个反斜杠 + 代码字母，故磁盘 \\n 在 TS 源码写作 '\\\\n'。
+    async function readAll(content: string): Promise<Array<{ type: string; cols: readonly string[] }>> {
+      const fs = makeFs({ '/test/audit.tsv': content });
+      const reader = createAuditReader(fs, '/test/audit.tsv');
+      const recs: Array<{ type: string; cols: readonly string[] }> = [];
+      try {
+        for await (const rec of reader.read()) recs.push({ type: rec.type, cols: rec.cols });
+      } finally {
+        reader.close();
+      }
+      return recs;
+    }
+
+    it('磁盘单反斜杠+n 读成 LF；双反斜杠+n 读成字面反斜杠+n', async () => {
+      const recs = await readAll(
+        // row1 磁盘 col 字符：k=a[\][n]b → 解码 k=a<LF>b
+        '2024-01-01T00:00:00Z\tseq=1\tesc_lf\tk=a\\nb\n' +
+        // row2 磁盘 col 字符：k=a[\][\][n]b → 解码字面 k=a[\][n]b
+        '2024-01-01T00:00:01Z\tseq=2\tesc_lit\tk=a\\\\nb\n',
+      );
+      expect(recs).toHaveLength(2);
+      expect(recs[0]!.cols).toEqual(['k=a\nb']);
+      expect(recs[1]!.cols).toEqual(['k=a\\nb']);
+    });
+
+    it('磁盘双反斜杠+代码字母不产生二次解释', async () => {
+      // 磁盘 col 字符：v=x[\][\][t]y → 单遍解码 [\][\]→[\]、[t] 原样 → v=x[\][t]y
+      const recs = await readAll('2024-01-01T00:00:00Z\tseq=1\tt\tv=x\\\\ty\n');
+      expect(recs[0]!.cols).toEqual(['v=x\\ty']);
+    });
+
+    it('未知转义 \\q 与尾部孤立反斜杠按原字面保留', async () => {
+      const recs = await readAll(
+        '2024-01-01T00:00:00Z\tseq=1\tt\tu=a\\qb\n' +
+        '2024-01-01T00:00:01Z\tseq=2\tt\ttail=abc\\\n',
+      );
+      expect(recs[0]!.cols).toEqual(['u=a\\qb']);
+      expect(recs[1]!.cols).toEqual(['tail=abc\\']);
+    });
+
+    it('type 列同样只解一层', async () => {
+      // 磁盘 type 字符：ev[\][\]tent → 解码 ev[\]tent
+      const recs = await readAll('2024-01-01T00:00:00Z\tseq=1\tev\\\\tent\tc\n');
+      expect(recs[0]!.type).toBe('ev\\tent');
+    });
+  });
+
   describe('trace_id parsing', () => {
     it('extracts trace_id from last col', async () => {
       const fs = makeFs({ '/test/audit.tsv': '2024-01-01T00:00:00Z\tseq=1\ta\tcol1\ttrace_id=abc\n' });
@@ -379,6 +446,32 @@ describe('AuditReader', () => {
       const recs: unknown[] = [];
       for await (const rec of iter) recs.push(rec);
       expect(recs).toHaveLength(0);
+    });
+
+    it('phase 1831: follow 追加完整编码行经生产 reader 解码为原字段值', async () => {
+      const { fs, append } = makeMutableFs({
+        '/test/audit.tsv': '2024-01-01T00:00:00Z\tseq=1\ta\n',
+      });
+      const reader = createAuditReader(fs, '/test/audit.tsv');
+      const iter = reader.follow();
+      const recs: unknown[] = [];
+      const deadline = setTimeout(() => { reader.close(); }, FOLLOW_CLOSE_DEADLINE_MS);
+      try {
+        // 追加完整编码行（磁盘字面：msg=k=a[\][\][t]b，期望解码 k=a[\][t]b 字面反斜杠+t）
+        setTimeout(() => {
+          append('/test/audit.tsv', '2024-01-01T00:00:01Z\tseq=2\tevt_follow\tmsg=k=a\\\\tb\n');
+        }, FOLLOW_APPEND_DELAY_MS);
+        for await (const rec of iter) {
+          recs.push(rec);
+          if (recs.length >= 1) { reader.close(); break; }
+        }
+      } finally {
+        clearTimeout(deadline);
+        reader.close();
+      }
+      expect(recs).toHaveLength(1);
+      expect((recs[0] as any).type).toBe('evt_follow');
+      expect((recs[0] as any).cols).toEqual(['msg=k=a\\tb']);
     });
   });
 

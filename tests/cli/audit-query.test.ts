@@ -9,6 +9,7 @@ import { parseIntOption } from '../../src/cli/parse-int-option.js';
 import * as fsNative from 'fs';  // phase 283: hoist 5 require('fs') calls
 import { createTrackedTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeAuditCommandDeps } from '../helpers/audit-command-deps.js';
+import { createAuditWriter } from '../../src/foundation/audit/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const auditQueryCommand = (
@@ -64,6 +65,32 @@ describe('audit query', () => {
     const lines = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     expect(lines).toContain('seq=1');
     expect(lines).toContain('seq=2');
+  });
+
+  it('phase 1831: 真实 writer 落盘 → --json 输出还原原字段与嵌套 payload（不经 mock reader）', async () => {
+    const clawDir = path.join(tempDir, 'claws', 'test-claw');
+    vi.mocked(getClawDir).mockReturnValue(clawDir);
+    // 真实 AuditWriter 落 audit.tsv（生产编码），真实 reader 经 auditQueryCommand 解码
+    const writer = createAuditWriter(new NodeFileSystem({ baseDir: clawDir }), 'audit.tsv');
+    const payload = {
+      note: 'a\tb\nc',
+      nested: { lit: '\\n', unknown: '\\q', trailing: 'x\\' },
+      list: ['中文🌰', 'C:\\Users\\new'],
+    };
+    const cols = ['contractId=c-1', `payload=${JSON.stringify(payload)}`, 'plain=ordinary text'];
+    writer.write('contract_audit_result_recorded', ...cols);
+
+    await auditQueryCommand({ fsFactory }, { claw: 'test-claw', file: 'audit', json: true });
+
+    const lines = stdoutSpy.mock.calls.map(c => c[0] as string).join('').trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const parsed = JSON.parse(lines[0]!);
+    expect(parsed.type).toBe('contract_audit_result_recorded');
+    // 外层 JSON 的 cols 逐字段等于原输入
+    expect(parsed.cols).toEqual(cols);
+    // payload 列再 JSON.parse 等于原对象
+    const payloadCol = (parsed.cols as string[]).find(c => c.startsWith('payload='))!;
+    expect(JSON.parse(payloadCol.slice('payload='.length))).toEqual(payload);
   });
 
   it('--json yields JSON lines', async () => {
