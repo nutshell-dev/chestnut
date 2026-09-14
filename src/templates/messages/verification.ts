@@ -31,18 +31,35 @@ function knownVerdictLine(knownVerdict?: 'passed' | 'not_passed' | 'unavailable'
   return knownVerdict === 'passed' ? '验收计算通过，但结果提交未确认。' : null;
 }
 
+/**
+ * phase 1829 Z 补修：处置/副作用异常以明细列表呈现——原始异常与处理异常分行，
+ * 不用分号拼接掩盖不同错误归属。
+ */
+function processingErrorLines(errors?: readonly string[]): string[] {
+  if (errors === undefined || errors.length === 0) return [];
+  return ['处置过程中另有异常：', ...errors.map(e => `- ${e}`)];
+}
+
+/** 完成度行：true 全部完成；false 仍有未完；'unknown' 显式表达未能确认，不以 false 冒充。 */
+function completionLine(allCompleted: boolean | 'unknown', unknownText: string): string | null {
+  if (allCompleted === true) return '截至本次结果提交，该契约的全部子任务均已完成。';
+  if (allCompleted === 'unknown') return unknownText;
+  return null;
+}
+
 // ─── 正常结果通知 ───
 
-/** 验收通过（状态已提交为完成）。 */
-export function verificationPassedNotice(input: NoticeIdentity & { allCompleted: boolean }): string {
-  return [
+/** 验收通过（状态已提交为完成）。allCompleted 为 'unknown' 时表示完成度未能确认。 */
+export function verificationPassedNotice(input: NoticeIdentity & { allCompleted: boolean | 'unknown' }): string {
+  const lines = [
     RESULT_TITLE,
     ...identityLines(input),
     '本次验收通过，系统已将该子任务记为完成。',
-    input.allCompleted
-      ? '截至本次结果提交，该契约的全部子任务均已完成。'
-      : '该契约仍有未完成子任务，请按当前契约进度继续执行。',
-  ].join('\n');
+  ];
+  const done = completionLine(input.allCompleted, '契约整体完成度未能确认；请以契约当前进度为准。');
+  if (done !== null) lines.push(done);
+  else lines.push('该契约仍有未完成子任务，请按当前契约进度继续执行。');
+  return lines.join('\n');
 }
 
 /** 验收未通过（已提交退回待提交）。feedback 为空串/缺省视为无反馈。 */
@@ -71,7 +88,7 @@ export function verificationRejectedNotice(input: NoticeIdentity & { feedback?: 
 export function verificationForceAcceptedNotice(input: NoticeIdentity & {
   retryCount: number;
   maxAttempts: number;
-  allCompleted: boolean;
+  allCompleted: boolean | 'unknown';
   feedback?: string;
 }): string {
   const lines = [
@@ -84,9 +101,8 @@ export function verificationForceAcceptedNotice(input: NoticeIdentity & {
     lines.push('本次失败反馈：', input.feedback);
   }
   lines.push('请结合这项未通过的反馈判断交付质量；不需要再次提交已完成的子任务。');
-  if (input.allCompleted) {
-    lines.push('截至本次结果提交，该契约的全部子任务均已完成。');
-  }
+  const done = completionLine(input.allCompleted, '契约整体完成度未能确认；请以契约当前进度为准。');
+  if (done !== null) lines.push(done);
   return lines.join('\n');
 }
 
@@ -98,7 +114,7 @@ export function verificationErrorReturnedNotice(input: NoticeIdentity & {
   stage: 'execution' | 'outcome_processing' | 'post_commit' | 'unspecified';
   knownVerdict?: 'passed' | 'not_passed' | 'unavailable';
   retryCount?: number;
-  processingError?: string;
+  processingErrors?: readonly string[];
 }): string {
   const stageText = input.stage === 'execution' ? '验收执行' : '验收流程';
   const lines = [
@@ -109,9 +125,7 @@ export function verificationErrorReturnedNotice(input: NoticeIdentity & {
   const verdictLine = knownVerdictLine(input.knownVerdict);
   if (verdictLine !== null) lines.push(verdictLine);
   lines.push(`异常：${input.errorMessage}`);
-  if (input.processingError !== undefined) {
-    lines.push(`状态处置过程中另有异常：${input.processingError}`);
-  }
+  lines.push(...processingErrorLines(input.processingErrors));
   if (input.retryCount !== undefined) {
     lines.push(`当前已提交失败计数：${input.retryCount}。`);
   }
@@ -122,28 +136,40 @@ export function verificationErrorReturnedNotice(input: NoticeIdentity & {
   return lines.join('\n');
 }
 
-/** 流程异常达到阈值后放行：一条通知同时携带原异常与放行事实。 */
+/**
+ * 流程异常达到阈值后放行：一条通知同时携带原异常与放行事实。
+ * phase 1829 Z 补修：已知验收结论（passed/not_passed）必须保留——已知 passed 时明确
+ * 「验收计算通过；结果处理阶段发生异常」，不硬编码「未得到正常通过结论」；处置副作用
+ * 异常以明细列出。
+ */
 export function verificationErrorForceAcceptedNotice(input: NoticeIdentity & {
   errorMessage: string;
   retryCount: number;
   maxAttempts: number;
-  allCompleted: boolean;
+  allCompleted: boolean | 'unknown';
   feedback?: string;
+  knownVerdict?: 'passed' | 'not_passed' | 'unavailable';
+  processingErrors?: readonly string[];
 }): string {
+  const verdictFact = input.knownVerdict === 'passed'
+    ? '验收计算通过，但在结果处理阶段发生异常'
+    : input.knownVerdict === 'not_passed'
+      ? '验收计算未通过'
+      : '未得到正常通过结论';
   const lines = [
     RESULT_TITLE,
     ...identityLines(input),
-    `本次验收流程发生异常，未得到正常通过结论；失败计数达到配置阈值 ${input.maxAttempts}，系统已按现行规则将该子任务记为完成。`,
+    `本次验收流程发生异常，${verdictFact}；失败计数达到配置阈值 ${input.maxAttempts}，系统已按现行规则将该子任务记为完成。`,
     '这表示流程放行，不表示验收通过。',
     `异常：${input.errorMessage}`,
   ];
+  lines.push(...processingErrorLines(input.processingErrors));
   if (input.feedback !== undefined && input.feedback !== '') {
     lines.push('本次失败反馈：', input.feedback);
   }
   lines.push('不需要再次提交已完成的子任务；请结合上述异常判断交付质量。');
-  if (input.allCompleted) {
-    lines.push('截至本次结果提交，该契约的全部子任务均已完成。');
-  }
+  const done = completionLine(input.allCompleted, '契约整体完成度未能确认；请以契约当前进度为准。');
+  if (done !== null) lines.push(done);
   return lines.join('\n');
 }
 
@@ -155,6 +181,7 @@ export function verificationErrorNotAppliedNotice(input: NoticeIdentity & {
   observedStatus?: string;
   actualAttemptId?: string;
   knownVerdict?: 'passed' | 'not_passed' | 'unavailable';
+  processingErrors?: readonly string[];
 }): string {
   const lines = [
     ERROR_TITLE,
@@ -163,6 +190,7 @@ export function verificationErrorNotAppliedNotice(input: NoticeIdentity & {
   ];
   const verdictLine = knownVerdictLine(input.knownVerdict);
   if (verdictLine !== null) lines.push(verdictLine);
+  lines.push(...processingErrorLines(input.processingErrors));
   if (input.reason === 'late') {
     lines.push('此异常属于上述尝试；系统未将其应用于当前状态（该异常属于旧尝试）。');
     if (input.actualAttemptId !== undefined) {
@@ -198,10 +226,10 @@ export function verificationErrorNotAppliedNotice(input: NoticeIdentity & {
   return lines.join('\n');
 }
 
-/** 流程异常且状态处置无法确认。 */
+/** 流程异常且状态处置无法确认。processingErrors 为完整处理异常明细（至少含处置失败本身）。 */
 export function verificationErrorUnconfirmedNotice(input: NoticeIdentity & {
   errorMessage: string;
-  processingError: string;
+  processingErrors: readonly string[];
   knownVerdict?: 'passed' | 'not_passed' | 'unavailable';
 }): string {
   const lines = [
@@ -212,7 +240,8 @@ export function verificationErrorUnconfirmedNotice(input: NoticeIdentity & {
   const verdictLine = knownVerdictLine(input.knownVerdict);
   if (verdictLine !== null) lines.push(verdictLine);
   lines.push(
-    `状态处置也发生异常：${input.processingError}`,
+    '状态处置也发生异常：',
+    ...input.processingErrors.map(e => `- ${e}`),
     `当前未确认该子任务已退回待提交。此通知不表示可以重新提交；需要核对 ${input.contractId}/${input.subtaskId} 的当前状态。`,
   );
   return lines.join('\n');
@@ -298,11 +327,13 @@ export function llmVerificationFailedFeedback(errorMsg: string): string {
 }
 
 // ─── 错误持久反馈（写入 last_failed_feedback / errored outcome 的共享文本） ───
+// phase 1829 Z 补修：只陈述超时/异常事实，不附未经证实的根因猜测或「修源码后再重试」
+// 处方（普通 Error 不等于系统源码 bug；重试决策归阈值规则与业务智能体）。
 
 export function verificationTimeoutFeedback(timeoutMs: string | number, errorMsg: string): string {
-  return `Acceptance verifier timed out after ${timeoutMs}ms. 资源 / 网络问题 / 重试可能修复。Error: ${errorMsg}`;
+  return `验收等待超过所配时限（${timeoutMs}ms），未得到验收结论。Error: ${errorMsg}`;
 }
 
 export function verificationCrashedFeedback(errorMsg: string): string {
-  return `Acceptance verification crashed (system bug). Error: ${errorMsg}. 修代码后再 retry。`;
+  return `验收流程异常，未得到验收结论。Error: ${errorMsg}`;
 }

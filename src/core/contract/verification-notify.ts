@@ -47,6 +47,27 @@ import {
   type SerializableErrorFact,
 } from './verification-outcome.js';
 
+/**
+ * phase 1829 Z 补修：提交后副作用失败的兜底记录。audit 自身也可能失败——此时降级
+ * stderr，绝不把副作用异常继续抛回业务错误恢复链。
+ * detail.context 存在时走 VERIFICATION_RESET_FAILED（操作性故障），否则走
+ * NOTIFY_FAILED（通知/投递失败）。
+ */
+export function recordVerificationSideEffectFailure(
+  ctx: VerificationContext,
+  detail: { notifyType?: string; context?: string; error: string },
+): void {
+  try {
+    if (detail.context !== undefined) {
+      emitContractVerificationResetFailed(ctx.audit, { context: detail.context, error: detail.error });
+    } else {
+      emitContractNotifyFailed(ctx.audit, { notifyType: detail.notifyType, error: detail.error });
+    }
+  } catch (auditErr) {
+    process.stderr.write(`[verification] side-effect failure audit error: ${formatErr(auditErr)}\n`);
+  }
+}
+
 export function safeNotify(
   ctx: VerificationContext,
   event: ContractNotification,
@@ -54,8 +75,9 @@ export function safeNotify(
   try {
     ctx.onNotify?.(event);
   } catch (err) {
-    emitContractNotifyFailed(
-      ctx.audit,
+    // phase 1829 Z 补修：失败审计自身失败时降级 stderr，safeNotify 不向外抛
+    recordVerificationSideEffectFailure(
+      ctx,
       { notifyType: event.type, error: formatErr(err) },
     );
   }
@@ -76,7 +98,7 @@ export function writeVerificationInbox(
   contractId: ContractId,
   subtaskId: SubtaskId,
   verdict: 'passed' | 'rejected',
-  allCompleted: boolean,
+  allCompleted: boolean | 'unknown',
   feedback?: string,
   retryCount?: number,
   notice?: { attemptId?: string; observedAt?: string },
@@ -119,7 +141,7 @@ export function writeForceAcceptInbox(
   ctx: VerificationContext,
   contractId: ContractId,
   subtaskId: SubtaskId,
-  allCompleted: boolean,
+  allCompleted: boolean | 'unknown',
   retryCount: number,
   lastFeedback: string | undefined,
   notice?: { attemptId?: string; observedAt?: string; maxAttempts?: number },
@@ -366,27 +388,37 @@ export async function handleVerificationErrorRetry(
 
     if (forceAccept) {
       const lastFeedback = updatedSubtask?.last_failed_feedback?.feedback;
-      let allCompleted = false;
+      // phase 1829 Z4 补修：完成度是独立事实，单独先行固定；读取失败显式记
+      // 'unknown'（audit + processingErrors），不以默认 false 冒充未完成，也
+      // 不被后续 audit/onNotify 副作用异常改写。
+      let allCompleted: boolean | 'unknown' = 'unknown';
+      try {
+        allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
+      } catch (completionErr) {
+        processingErrors.push(formatErr(completionErr));
+        recordVerificationSideEffectFailure(ctx, {
+          context: 'handleVerificationErrorRetry.checkAllSubtasksCompleted',
+          error: formatErr(completionErr),
+        });
+      }
       let archived: boolean | undefined;
+      if (allCompleted === true) {
+        // archiveAndEmit 由 caller（runVerificationInBackground catch）调用
+        archived = false;
+      }
       try {
         emitSubtaskForceAccepted(ctx.audit, {
           contractId, subtaskId, retryCount, claw: ctx.clawId,
         });
-        safeNotify(ctx, {
-          type: 'subtask_completed',
-          contractId,
-          subtaskId,
-          forceAccepted: true,
-        } satisfies ContractNotification);
-
-        allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
-        if (allCompleted) {
-          // archiveAndEmit 由 caller（runVerificationInBackground catch）调用
-          archived = false;
-        }
       } catch (sideErr) {
         processingErrors.push(formatErr(sideErr));
       }
+      safeNotify(ctx, {
+        type: 'subtask_completed',
+        contractId,
+        subtaskId,
+        forceAccepted: true,
+      } satisfies ContractNotification);
       return {
         disposition: {
           kind: 'force_accepted',
@@ -401,24 +433,24 @@ export async function handleVerificationErrorRetry(
       };
     }
 
-    // retry_count < maxAttempts: 保留 retry 路径
+    // retry_count < maxAttempts: 保留 retry 路径（audit 与 onNotify 各自隔离）
     try {
       // phase 425: retry path transition 完成 audit、tests 用此 event 等 state settle
       emitContractSubtaskResetToTodo(ctx.audit, {
         contractId, subtaskId, cause, retryCount, maxAttempts,
       });
-      safeNotify(ctx, {
-        type: 'verification_failed',
-        contractId,
-        subtaskId,
-        cause,
-        feedback: feedbackText,
-        retryCount,
-        maxAttempts,
-      } satisfies ContractNotification);
     } catch (sideErr) {
       processingErrors.push(formatErr(sideErr));
     }
+    safeNotify(ctx, {
+      type: 'verification_failed',
+      contractId,
+      subtaskId,
+      cause,
+      feedback: feedbackText,
+      retryCount,
+      maxAttempts,
+    } satisfies ContractNotification);
     return {
       disposition: { kind: 'returned_to_todo', attemptId: effectiveAttemptId, retryCount },
       processingErrors,
@@ -451,9 +483,9 @@ function writeVerificationDispositionInbox(
     subtaskId,
     attemptId: ('attemptId' in d && d.attemptId !== undefined) ? d.attemptId : attemptId,
   };
-  const processingNote = result.processingErrors.length > 0
-    ? result.processingErrors.join('；')
-    : undefined;
+  // phase 1829 Z2 补修：processingErrors 是公共事实，所有 disposition 分支都传递；
+  // 模板以明细列表呈现，不用分号拼接掩盖不同错误归属。
+  const processingErrors = result.processingErrors;
 
   if (d.kind === 'force_accepted') {
     ctx.notifyClaw(ctx.clawId, {
@@ -467,7 +499,13 @@ function writeVerificationDispositionInbox(
         retryCount: d.retryCount,
         maxAttempts: d.maxAttempts,
         allCompleted: d.allCompleted,
-        feedback: d.feedback,
+        // phase 1829 Z5 补修：已知验收结论必须进入放行通知；not_passed 时优先呈现
+        // verifier 已给出的反馈（committed last_failed_feedback 是异常处置文本）。
+        knownVerdict: failure?.knownVerdict,
+        processingErrors,
+        feedback: failure?.knownVerdict === 'not_passed'
+          ? (failure.feedback ?? d.feedback)
+          : d.feedback,
       }),
       extraFields: {
         ...identityExtraFields(identity),
@@ -489,7 +527,7 @@ function writeVerificationDispositionInbox(
         stage: failure?.stage ?? 'unspecified',
         knownVerdict: failure?.knownVerdict,
         retryCount: d.retryCount,
-        processingError: processingNote,
+        processingErrors,
       });
       break;
     case 'not_applied':
@@ -501,13 +539,15 @@ function writeVerificationDispositionInbox(
         observedStatus: d.observedStatus,
         actualAttemptId: d.actualAttemptId,
         knownVerdict: failure?.knownVerdict,
+        processingErrors,
       });
       break;
     case 'unconfirmed':
       body = verificationErrorUnconfirmedNotice({
         ...identity,
         errorMessage: errorMsg,
-        processingError: d.processingError,
+        // 完整处理异常明细；为空时至少保留 disposition 自身的处置失败事实
+        processingErrors: processingErrors.length > 0 ? processingErrors : [d.processingError],
         knownVerdict: failure?.knownVerdict,
       });
       break;
@@ -566,8 +606,9 @@ export async function writeVerificationError(
   try {
     writeVerificationDispositionInbox(ctx, contractId, subtaskId, errorMsg, result, attemptId, failure);
   } catch (notifyErr) {
-    emitContractNotifyFailed(
-      ctx.audit,
+    // 投递失败只记 audit；audit 自身失败降级 stderr，不再向外抛（phase 1829 Z3）
+    recordVerificationSideEffectFailure(
+      ctx,
       { notifyType: 'verification_error', error: formatErr(notifyErr) },
     );
   }

@@ -108,7 +108,7 @@ describe('phase 1829: 验收通知 → inbox → Runtime → provider 全链路'
     await cleanupTempDir(rootDir);
   });
 
-  function makeManager(audit: any) {
+  function makeManager(audit: any, notifyClaw?: (targetClawId: string, message: any) => void) {
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
     return new ContractSystem({
       clawDir,
@@ -118,8 +118,8 @@ describe('phase 1829: 验收通知 → inbox → Runtime → provider 全链路'
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
-      notifyClaw: (targetClawId: string, message: any) =>
-        routeNotifyClaw(nodeFs, rootDir, 'motion', targetClawId, message, audit),
+      notifyClaw: notifyClaw ?? ((targetClawId: string, message: any) =>
+        routeNotifyClaw(nodeFs, rootDir, 'motion', targetClawId, message, audit)),
     });
   }
 
@@ -308,5 +308,33 @@ describe('phase 1829: 验收通知 → inbox → Runtime → provider 全链路'
 
     const progress = await manager.getProgress(contractId);
     expect(progress.subtasks.t1.force_accepted).toBe(true);
+  });
+
+  // phase 1829 Z4 补修回归（真实 FS）：阈值放行已提交后通知投递失败，不改写
+  // 完成度、不阻断原有归档安排——契约仍移至 contract/archive/completed。
+  it('Z4: 阈值放行通知投递失败不改写完成度，契约仍按原安排归档（真实 FS）', async () => {
+    const { audit, events, emitter } = makeAudit();
+    const notifyClaw = vi.fn(() => { throw new Error('INBOX_WRITE_EIO'); });
+    const manager = makeManager(audit, notifyClaw);
+    // 单子任务：force-accept 后 allCompleted=true，归档是原安排
+    const contractId = await manager.create(makeContractYaml({
+      subtasks: [{ id: 't1', description: 'd1' }],
+      verification: [{ subtask_id: 't1', type: 'script', script_file: 'verify.sh' }],
+      verification_attempts: 1,
+    }));
+    vi.spyOn(manager as any, 'runScriptVerification')
+      .mockResolvedValue({ passed: false, feedback: 'needs fix' });
+
+    await completeSubtask(manager, { contractId, subtaskId: 't1', evidence: 'e1' });
+    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
+
+    // 投递失败被记录为 NOTIFY_FAILED（不进入错误恢复链）
+    expect(notifyClaw).toHaveBeenCalled();
+    expect(events.some(e => e[0] === CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED)).toBe(true);
+    // 完成度未被通知失败改写：归档仍发生（真实 FS 状态）
+    const activeExists = await fs.access(path.join(clawDir, 'contract', 'active', contractId)).then(() => true, () => false);
+    const archivedExists = await fs.access(path.join(clawDir, 'contract', 'archive', 'completed', contractId)).then(() => true, () => false);
+    expect(activeExists).toBe(false);
+    expect(archivedExists).toBe(true);
   });
 });

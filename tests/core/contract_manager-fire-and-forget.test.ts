@@ -149,7 +149,8 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       const progress = await testManager.getProgress(contractId);
       expect(progress.subtasks['t1'].status).toBe('todo');
       expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('programming_bug');
-      expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('system bug');
+      // phase 1829 Z1 补修：异常反馈只陈述事实，不再含「system bug / 修代码后再 retry」处方
+      expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('验收流程异常，未得到验收结论');
 
       const unexpectedThrowCalls = events.filter(
         (e) => e[0] === CONTRACT_AUDIT_EVENTS.UNEXPECTED_ASYNC_THROW

@@ -157,7 +157,7 @@ export type VerificationNoticeIdentity = {
 export type ErrorDisposition =
   | { kind: 'returned_to_todo'; attemptId?: string; retryCount: number }
   | { kind: 'force_accepted'; attemptId?: string; retryCount: number;
-      maxAttempts: number; allCompleted: boolean; feedback?: string }
+      maxAttempts: number; allCompleted: boolean | 'unknown'; feedback?: string }
   | { kind: 'interrupted_to_todo'; attemptId?: string; retryCount: number }
   | { kind: 'not_applied'; reason: 'not_active' | 'not_in_progress' |
       'missing_subtask' | 'late' | 'conflict' | 'skipped'; actualAttemptId?: string;

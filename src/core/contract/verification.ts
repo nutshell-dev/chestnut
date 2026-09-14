@@ -12,7 +12,6 @@ import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import {
   emitContractCompleteOnCancelled,
-  emitContractNotifyFailed,
   emitContractPassed,
   emitContractProgressCorrupted,
   emitContractSubtaskCompleted,
@@ -30,7 +29,7 @@ import { buildVerificationOutcome } from './verification-outcome.js';
 
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
-import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';
+import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify, recordVerificationSideEffectFailure } from './verification-notify.js';
 import { formatRejectionFeedback } from './verification-format.js';
 import type { VerificationContext, VerificationFailureContext } from './verification-types.js';
 import type { ContractId } from './types.js';
@@ -113,11 +112,29 @@ async function runVerificationByType(
 }
 
 type ApplyOutcome =
-  | { allCompleted: boolean; passed: boolean }
+  | { allCompleted: boolean | 'unknown'; passed: boolean }
   | { kind: 'cancelled' }
   | { kind: 'missing_subtask' }
   | { kind: 'skipped' }
   | { kind: 'late' };
+
+/**
+ * phase 1829 Z4 补修：完成度是独立的已提交后事实——单独先行读取；读取失败显式
+ * 'unknown' 并记录，不以默认 false 冒充未完成，也不被后续通知/audit 副作用改写。
+ */
+async function readCompletionFact(
+  ctx: VerificationContext,
+  contractId: ContractId,
+  progress: Parameters<VerificationContext['checkAllSubtasksCompleted']>[1],
+  context: string,
+): Promise<{ value: boolean | 'unknown' }> {
+  try {
+    return { value: await ctx.checkAllSubtasksCompleted(contractId, progress) };
+  } catch (completionErr) {
+    recordVerificationSideEffectFailure(ctx, { context, error: formatErr(completionErr) });
+    return { value: 'unknown' };
+  }
+}
 
 async function isContractActive(ctx: VerificationContext, contractId: ContractId): Promise<boolean> {
   return ctx.isActiveContract(contractId);
@@ -191,19 +208,21 @@ async function applyVerificationOutcome(
       return { kind: 'skipped' };
     }
     const updatedProgress = transitionResult.progress;
-    // phase 1829: 已提交 pass——通知/audit/完成度读取等后续副作用与提交隔离；
-    // 失败只记 audit，不得再次 reject/计数/fallback。
-    let allCompleted = false;
+    // phase 1829 Z3/Z4 补修：已提交 pass——完成度事实先行固定；audit/onNotify/inbox
+    // 副作用各自隔离，失败只记录（audit 失败降级 stderr），不改写已提交事实、
+    // 不重入验收错误恢复链。
+    const { value: allCompleted } = await readCompletionFact(
+      ctx, contractId, updatedProgress,
+      'applyVerificationOutcome.checkAllSubtasksCompleted',
+    );
+    safeNotify(ctx, {
+      type: 'subtask_completed',
+      contractId,
+      subtaskId,
+    } satisfies ContractNotification);
+    const subtaskTotal = contractYaml.subtasks.length;
+    const completedCount = Object.values(updatedProgress.subtasks).filter(s => s.status === 'completed').length;
     try {
-      allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
-      safeNotify(ctx, {
-        type: 'subtask_completed',
-        contractId,
-        subtaskId,
-      } satisfies ContractNotification);
-      const subtaskTotal = contractYaml.subtasks.length;
-      const completedCount = Object.values(updatedProgress.subtasks).filter(s => s.status === 'completed').length;
-
       // Phase 968: emit completion audit AFTER transition commits
       emitContractSubtaskCompleted(
         ctx.audit,
@@ -215,12 +234,16 @@ async function applyVerificationOutcome(
         },
       );
       emitContractPassed(ctx.audit, { contractId, subtaskId });
+    } catch (auditErr) {
+      recordVerificationSideEffectFailure(ctx, {
+        context: 'applyVerificationOutcome.completionAudit',
+        error: formatErr(auditErr),
+      });
+    }
+    try {
       writeVerificationInbox(ctx, contractId, subtaskId, 'passed', allCompleted, undefined, undefined, { attemptId, observedAt: at });
-    } catch (postCommitErr) {
-      emitContractNotifyFailed(
-        ctx.audit,
-        { notifyType: 'verification_result', error: formatErr(postCommitErr) },
-      );
+    } catch (inboxErr) {
+      recordVerificationSideEffectFailure(ctx, { notifyType: 'verification_result', error: formatErr(inboxErr) });
     }
 
     return { allCompleted, passed: true };
@@ -260,12 +283,18 @@ async function applyVerificationOutcome(
     return { kind: 'skipped' };
   }
 
-  // phase 1829: 已提交 reject——先固定已提交事实，后续 audit/notify/inbox 副作用
-  // 与提交隔离；副作用失败只记 audit，不二次 reject/计数。
+  // phase 1829 Z3/Z4 补修：已提交 reject——先固定已提交事实（重试计数/放行/
+  // 完成度），audit/onNotify/inbox 副作用各自隔离；副作用失败只记录，不改写
+  // 已提交事实、不二次 reject/计数、不重入错误恢复链。
   const updatedProgress = transitionResult.progress;
   const updatedSubtask = updatedProgress.subtasks[subtaskId];
   const retryCount = updatedSubtask?.retry_count ?? 1;
   const forceAccept = updatedSubtask?.force_accepted === true;
+  const { value: allCompleted } = await readCompletionFact(
+    ctx, contractId, updatedProgress,
+    'applyVerificationOutcome.checkAllSubtasksCompleted',
+  );
+
   try {
     // Phase 1142: verification_failed Audit must only be written after the reject transition commits.
     emitContractVerificationFailed(
@@ -273,70 +302,90 @@ async function applyVerificationOutcome(
       // phase 217: 末端单次 .message 截、producer (verifier-job) 已不自截
       { contractId, subtaskId, feedback: ctx.audit.message(result.feedback) },
     );
+  } catch (auditErr) {
+    recordVerificationSideEffectFailure(ctx, {
+      context: 'applyVerificationOutcome.verificationFailedAudit',
+      error: formatErr(auditErr),
+    });
+  }
 
-    const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, updatedProgress);
+  if (forceAccept) {
+    const lastFeedback = updatedSubtask?.last_failed_feedback?.feedback;
+    safeNotify(ctx, {
+      type: 'subtask_completed',
+      contractId,
+      subtaskId,
+      forceAccepted: true,
+    } satisfies ContractNotification);
 
-    if (forceAccept) {
-      const lastFeedback = updatedSubtask?.last_failed_feedback?.feedback;
-      safeNotify(ctx, {
-        type: 'subtask_completed',
-        contractId,
-        subtaskId,
-        forceAccepted: true,
-      } satisfies ContractNotification);
-
+    try {
       // Phase 968: emit force-accept audit AFTER transition commits
       emitSubtaskForceAccepted(ctx.audit, {
         contractId, subtaskId, retryCount, claw: ctx.clawId,
       });
-
-      // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
-      writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, retryCount, lastFeedback, { attemptId, observedAt: at, maxAttempts });
-
-      // archiveAndEmit 由 runVerificationInBackground 调用（避免在 outcome 提交内嵌套生命周期操作）
-      return { allCompleted, passed: true };
+    } catch (auditErr) {
+      recordVerificationSideEffectFailure(ctx, {
+        context: 'applyVerificationOutcome.forceAcceptAudit',
+        error: formatErr(auditErr),
+      });
     }
 
-    // retry_count < maxAttempts: 保留 retry 路径
-    safeNotify(ctx, {
-      type: 'verification_failed',
-      contractId,
-      subtaskId,
-      cause: failureCause,
-      feedback: result.feedback,
-      retryCount,
-      maxAttempts,
-    } satisfies ContractNotification);
+    try {
+      // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
+      writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, retryCount, lastFeedback, { attemptId, observedAt: at, maxAttempts });
+    } catch (inboxErr) {
+      recordVerificationSideEffectFailure(ctx, { notifyType: 'verification_result', error: formatErr(inboxErr) });
+    }
+
+    // archiveAndEmit 由 runVerificationInBackground 调用（避免在 outcome 提交内嵌套生命周期操作）；
+    // 返回已固定的完成度事实，通知/audit 失败不将其改写为 false（Z4）。
+    return { allCompleted, passed: true };
+  }
+
+  // retry_count < maxAttempts: 保留 retry 路径
+  safeNotify(ctx, {
+    type: 'verification_failed',
+    contractId,
+    subtaskId,
+    cause: failureCause,
+    feedback: result.feedback,
+    retryCount,
+    maxAttempts,
+  } satisfies ContractNotification);
+  try {
     // phase 425: retry path transition 完成 audit、tests 用此 event 等 state settle
     emitContractSubtaskResetToTodo(ctx.audit, {
       contractId, subtaskId, cause: failureCause, retryCount, maxAttempts,
     });
-
-    const verificationFile = verificationConfig.type === 'script'
-      ? verificationConfig.script_file ?? 'unknown'
-      : verificationConfig.prompt_file ?? 'unknown';
-    const formattedFeedback = result.structured
-      ? formatRejectionFeedback(
-          subtaskId,
-          subtaskDesc,
-          result.structured.reason,
-          result.structured.issues || [],
-          retryCount,
-          maxAttempts,
-          verificationConfig.type,
-          verificationFile,
-        )
-      : result.feedback;
-    writeVerificationInbox(ctx, contractId, subtaskId, 'rejected', false, formattedFeedback, retryCount, { attemptId, observedAt: at });
-
-    return { allCompleted: false, passed: false };
-  } catch (postCommitErr) {
-    emitContractNotifyFailed(
-      ctx.audit,
-      { notifyType: forceAccept ? 'verification_result' : 'verification_rejection', error: formatErr(postCommitErr) },
-    );
-    return forceAccept ? { allCompleted: false, passed: true } : { allCompleted: false, passed: false };
+  } catch (auditErr) {
+    recordVerificationSideEffectFailure(ctx, {
+      context: 'applyVerificationOutcome.resetToTodoAudit',
+      error: formatErr(auditErr),
+    });
   }
+
+  const verificationFile = verificationConfig.type === 'script'
+    ? verificationConfig.script_file ?? 'unknown'
+    : verificationConfig.prompt_file ?? 'unknown';
+  const formattedFeedback = result.structured
+    ? formatRejectionFeedback(
+        subtaskId,
+        subtaskDesc,
+        result.structured.reason,
+        result.structured.issues || [],
+        retryCount,
+        maxAttempts,
+        verificationConfig.type,
+        verificationFile,
+      )
+    : result.feedback;
+  try {
+    writeVerificationInbox(ctx, contractId, subtaskId, 'rejected', false, formattedFeedback, retryCount, { attemptId, observedAt: at });
+  } catch (inboxErr) {
+    recordVerificationSideEffectFailure(ctx, { notifyType: 'verification_rejection', error: formatErr(inboxErr) });
+  }
+
+  return { allCompleted: false, passed: false };
 }
 
 export async function runVerificationPipeline(
@@ -439,6 +488,8 @@ export async function runVerificationInBackground(
   let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' | 'skipped' | 'late' = 'error';
   let cancelReason: string | undefined;
   let missingSubtaskId: string | undefined;
+  // phase 1829 Z3 补修：结果提交后置位，外围 catch 据此禁止重入错误处置链。
+  let outcomeCommitted = false;
 
   // Phase 967: register controller BEFORE starting the promise so registration
   // failures do not leak a running verification. We use a deferred promise so
@@ -492,8 +543,10 @@ export async function runVerificationInBackground(
         }
       }
     } catch (inboxErr) {
-      emitContractVerificationResetFailed(
-        ctx.audit,
+      // phase 1829 Z3 补修：writeVerificationError 内部已隔离投递/audit 失败；
+      // 此兜底自身的 audit 也不得再向外抛（避免重入 handleFailure）。
+      recordVerificationSideEffectFailure(
+        ctx,
         {
           context: 'ContractSystem.backgroundVerification.writeError',
           error: formatErr(inboxErr),
@@ -608,9 +661,21 @@ export async function runVerificationInBackground(
       }
     } else {
       outcomeKind = outcome.passed ? 'passed' : 'failed';
+      // phase 1829 Z3 补修：结果已提交——此后（含归档段）任何异常都不得重入
+      // 会重做 reject/计数的错误处置链。
+      outcomeCommitted = true;
     }
 
-    if (!('kind' in outcome) && outcome.passed && outcome.allCompleted) {
+    if (!('kind' in outcome) && outcome.passed && outcome.allCompleted === 'unknown') {
+      // phase 1829 Z4 补修：完成度未能确认——不以 false 冒充未完成而静默跳过归档，
+      // 也不盲目归档；记录待核实事实，由原 owner 核实后推进。
+      recordVerificationSideEffectFailure(ctx, {
+        context: 'runVerificationInBackground.completionUnknown',
+        error: `completion unknown after committed pass for ${contractId}/${subtaskId}; archive deferred for owner verification`,
+      });
+    }
+
+    if (!('kind' in outcome) && outcome.passed && outcome.allCompleted === true) {
       // Phase 1132 Step D: archiveAndEmit is the lifecycle commit point. If the contract was
       // cancelled while verification ran, the active path is gone and archiveAndEmit must not run.
       if (!(await isContractActive(ctx, contractId))) {
@@ -622,12 +687,12 @@ export async function runVerificationInBackground(
         cancelReason = 'contract_cancelled_after_verification';
       } else {
         // phase 1829: 提交后阶段——pass 已提交，归档失败只记 audit，
-        // 不得再次 reject/计数/写冲突 outcome。
+        // 不得再次 reject/计数/写冲突 outcome；audit 自身失败降级 stderr（Z3）。
         try {
           await archiveAndEmit(ctx, contractId, contractYaml, 'ContractSystem._runVerificationInBackground');
         } catch (archiveErr) {
-          emitContractVerificationResetFailed(
-            ctx.audit,
+          recordVerificationSideEffectFailure(
+            ctx,
             {
               context: 'ContractSystem.backgroundVerification.archive',
               error: formatErr(archiveErr),
@@ -675,7 +740,16 @@ export async function runVerificationInBackground(
       }
       throw err;
     }
-    // 意外逸出（正常路径已按阶段在 inner catch 处理）：按未知阶段进入错误处置链。
+    // 意外逸出（正常路径已按阶段在 inner catch 处理）：已提交结果的 post-commit
+    // 异常绝不重入错误处置链（Z3）；未提交阶段的异常按未知阶段进入错误处置。
+    if (outcomeCommitted) {
+      recordVerificationSideEffectFailure(ctx, {
+        context: 'ContractSystem.backgroundVerification.postCommit',
+        error: formatErr(err),
+      });
+      resolveVerification({ passed: false, feedback: '' });
+      return;
+    }
     await handleFailure(err, { stage: 'unspecified', knownVerdict: 'unavailable' });
   } finally {
     ctx.unregisterController?.(contractId, controller);

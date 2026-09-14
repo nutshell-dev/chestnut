@@ -282,6 +282,78 @@ describe('phase 1829 verification inbox content invariants', () => {
     expect(content).toContain('这表示流程放行，不表示验收通过');
   });
 
+  // phase 1829 Z1 补修回归：新生成的异常反馈只陈述超时/异常事实，不附未经证实的
+  // 根因猜测（system bug）或「修代码后再 retry」处方；持久反馈与最终放行通知同源。
+  it('Z1: 异常放行通知与持久反馈只陈述事实，无根因猜测/修源码处方', async () => {
+    const { ctx, inboxPending } = setup();
+    (ctx as any).isActiveContract = vi.fn(async () => true);
+    (ctx as any).getProgress = vi.fn(async () => ({
+      contract_id: 'c-42',
+      status: 'running',
+      subtasks: { 's-2': { status: 'in_progress', verification_attempt_id: 'a-7', retry_count: 2 } },
+    }));
+    (ctx as any).loadContractYaml = vi.fn(async () => ({ title: 'T', goal: 'G', subtasks: [], verification_attempts: 3 }));
+    (ctx as any).persistVerificationOutcome = vi.fn(async () => 'persisted');
+    // 与真实 gateway 一致：reject transition 提交的 feedback 即 last_failed_feedback
+    (ctx as any).transitionVerificationAttempt = vi.fn(async (_c: string, _s: string, t: any) => ({
+      kind: 'updated',
+      progress: {
+        contract_id: 'c-42',
+        status: 'running',
+        subtasks: {
+          's-2': {
+            status: 'completed', retry_count: 3, force_accepted: true,
+            last_failed_feedback: { feedback: t.feedback, cause: 'programming_bug' },
+          },
+        },
+      },
+    }));
+    (ctx as any).checkAllSubtasksCompleted = vi.fn(async () => false);
+
+    await writeVerificationError(ctx, 'c-42' as any, 's-2' as any, new Error('verifier exploded'), 'a-7');
+
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).not.toMatch(/system bug|修代码后再 retry|重试可能修复/);
+    // 新事实文案：异常 + 原始 error，无处方
+    expect(content).toContain('验收流程异常，未得到验收结论');
+    expect(content).toContain('verifier exploded');
+  });
+
+  // phase 1829 Z2 补修回归：处理异常后处置未应用（late）时，通知保留完整处理异常
+  // 明细，不只报原始异常、不用分号拼接掩盖归属。
+  it('Z2: 处置未应用（late）的通知保留处理异常明细与当前实际 attempt', async () => {
+    const { ctx, inboxPending } = setup();
+    (ctx as any).isActiveContract = vi.fn(async () => true);
+    (ctx as any).getProgress = vi.fn()
+      .mockResolvedValueOnce({
+        contract_id: 'c-42', status: 'running',
+        subtasks: { 's-2': { status: 'in_progress', verification_attempt_id: 'a-7', retry_count: 0 } },
+      })
+      .mockResolvedValue({
+        contract_id: 'c-42', status: 'running',
+        subtasks: { 's-2': { status: 'in_progress', verification_attempt_id: 'a-9', retry_count: 0 } },
+      });
+    (ctx as any).loadContractYaml = vi.fn(async () => ({ title: 'T', goal: 'G', subtasks: [], verification_attempts: 3 }));
+    (ctx as any).persistVerificationOutcome = vi.fn(async () => { throw new Error('OUTCOME_WRITE_EIO'); });
+    const transitionVerificationAttempt = vi.fn();
+    (ctx as any).transitionVerificationAttempt = transitionVerificationAttempt;
+
+    await writeVerificationError(ctx, 'c-42' as any, 's-2' as any, new Error('ORIGINAL_VERIFIER_ERROR'), 'a-7');
+
+    // fallback fresh-read 发现新 attempt → 不动新 attempt（不 interrupt/不 reject）
+    expect(transitionVerificationAttempt).not.toHaveBeenCalled();
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).toContain('type: verification_error');
+    expect(content).toContain('ORIGINAL_VERIFIER_ERROR');
+    expect(content).toContain('处置过程中另有异常');
+    expect(content).toContain('OUTCOME_WRITE_EIO');
+    expect(content).toContain('a-9');
+  });
+
   it('writeVerificationError：旧 attempt 迟到 → 归属原 attempt，不要求重做当前尝试', async () => {
     const { ctx, inboxPending } = setup();
     (ctx as any).isActiveContract = vi.fn(async () => true);

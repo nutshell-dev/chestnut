@@ -895,6 +895,155 @@ describe('handleVerificationErrorRetry (Phase 968)', () => {
   });
 });
 
+/**
+ * phase 1829 Step Z 补修回归：已提交验收事实不被通知/audit/完成度副作用异常改写。
+ * 来源：development log/phase1829-logs/Z-review.test.ts 故障探针 Z3/Z4/Z5 的产品化
+ * （外部探针保留为快速复现；本 describe 是产品契约回归）。
+ */
+describe('phase 1829 Z 补修：提交后副作用隔离（故障矩阵）', () => {
+  function makePipelineCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
+    return {
+      clawDir: '/tmp/claw',
+      clawId: 'claw-test',
+      audit: makeMockAudit() as unknown as VerificationContext['audit'],
+      notifyClaw: vi.fn(),
+      fs: {} as unknown as FileSystem,
+      contractDir: vi.fn().mockResolvedValue('contract/active'),
+      getProgress: vi.fn().mockResolvedValue({
+        subtasks: { s: { status: 'in_progress', verification_attempt_id: 'a' } },
+      }),
+      loadContractYaml: vi.fn().mockResolvedValue({
+        subtasks: [{ id: 's', description: 's' }],
+        verification_attempts: 1,
+      }),
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(false),
+      toolRegistry: {} as VerificationContext['toolRegistry'],
+      isActiveContract: vi.fn().mockResolvedValue(true),
+      getContractRoot: vi.fn().mockResolvedValue('contract/active'),
+      persistVerificationOutcome: vi.fn().mockResolvedValue('persisted'),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({ kind: 'skipped', reason: 'not configured' }),
+      runScriptVerification: vi.fn().mockResolvedValue({ passed: true, feedback: 'verified' }),
+      ...overrides,
+    } as VerificationContext;
+  }
+
+  function runBackground(ctx: VerificationContext) {
+    return VerificationMain.runVerificationInBackground(
+      ctx,
+      { contractId: 'c', subtaskId: 's', evidence: 'e', attemptId: 'a' },
+      { subtasks: [{ id: 's', description: 's' }], verification_attempts: 1 },
+      { subtask_id: 's', type: 'script', script_file: 'v.sh' },
+    );
+  }
+
+  it('Z3: pass 已提交后 inbox 投递与 notify-failed audit 均失败 → 不重入错误处置、只发一条通知', async () => {
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED) throw new Error('AUDIT_WRITE_EIO');
+    });
+    const ctx = makePipelineCtx({
+      audit: audit as unknown as VerificationContext['audit'],
+      notifyClaw: vi.fn(() => { throw new Error('INBOX_WRITE_EIO'); }),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({
+        kind: 'updated',
+        progress: { subtasks: { s: { status: 'completed', retry_count: 0 } } },
+      }),
+    });
+
+    await runBackground(ctx);
+
+    // 只有已提交 pass 的一次通知尝试；投递/audit 失败不重入 handleFailure 产生 verification_error
+    const notifyCalls = vi.mocked(ctx.notifyClaw).mock.calls;
+    expect(notifyCalls.map(c => c[1].type)).toEqual(['verification_result']);
+    // 无第二次 transition（不重做 reject/计数）
+    expect(ctx.transitionVerificationAttempt).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ctx.transitionVerificationAttempt).mock.calls[0][2].kind).toBe('pass');
+  });
+
+  it('Z5: 已知 passed 的结果持久化失败 → 阈值放行通知保留「验收计算通过」结论', async () => {
+    const ctx = makePipelineCtx({
+      persistVerificationOutcome: vi.fn()
+        .mockRejectedValueOnce(new Error('PERSIST_RESULT_EIO'))
+        .mockResolvedValue('persisted'),
+      transitionVerificationAttempt: vi.fn().mockImplementation(async (_c: string, _s: string, t: any) => ({
+        kind: 'updated',
+        progress: {
+          subtasks: {
+            s: {
+              status: 'completed', force_accepted: true, retry_count: 1,
+              last_failed_feedback: { feedback: t.feedback },
+            },
+          },
+        },
+      })),
+    });
+
+    await runBackground(ctx);
+
+    const notifyCalls = vi.mocked(ctx.notifyClaw).mock.calls;
+    expect(notifyCalls).toHaveLength(1);
+    const body = notifyCalls[0][1].body;
+    expect(body).toContain('验收计算通过');
+    expect(body).not.toContain('未得到正常通过结论');
+    expect(body).toContain('按现行规则将该子任务记为完成');
+  });
+
+  it('Z4(错误路径): force-accept 后完成度读取失败 → 显式 unknown，不以 false 冒充、不归档', async () => {
+    const ctx = makePipelineCtx({
+      checkAllSubtasksCompleted: vi.fn().mockRejectedValue(new Error('COMPLETION_READ_EIO')),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({
+        kind: 'updated',
+        progress: {
+          subtasks: {
+            s: {
+              status: 'completed', retry_count: 1, force_accepted: true,
+              last_failed_feedback: { feedback: 'crash' },
+            },
+          },
+        },
+      }),
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c', 's', 'programming_bug', 'crash', 'a');
+
+    expect(result.disposition).toMatchObject({ kind: 'force_accepted', allCompleted: 'unknown' });
+    // 完成度未知 → 不安排归档（区别于 allCompleted=true 时的 archived=false 投影）
+    expect(result.archived).toBeUndefined();
+    expect(result.processingErrors.join('\n')).toContain('COMPLETION_READ_EIO');
+  });
+
+  it('Z4(错误路径): force-accept 的 audit/onNotify 副作用失败 → disposition 与完成度不变', async () => {
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation((type: string) => {
+      if (type === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED) throw new Error('AUDIT_EIO');
+    });
+    const ctx = makePipelineCtx({
+      audit: audit as unknown as VerificationContext['audit'],
+      onNotify: () => { throw new Error('ONNOTIFY_EIO'); },
+      checkAllSubtasksCompleted: vi.fn().mockResolvedValue(true),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({
+        kind: 'updated',
+        progress: {
+          subtasks: {
+            s: {
+              status: 'completed', retry_count: 1, force_accepted: true,
+              last_failed_feedback: { feedback: 'crash' },
+            },
+          },
+        },
+      }),
+    });
+
+    const result = await handleVerificationErrorRetry(ctx, 'c', 's', 'programming_bug', 'crash', 'a');
+
+    expect(result.disposition).toMatchObject({ kind: 'force_accepted', allCompleted: true, retryCount: 1 });
+    expect(result.archived).toBe(false);
+    expect(result.processingErrors.join('\n')).toContain('AUDIT_EIO');
+    // onNotify 失败经加固 safeNotify 记入 NOTIFY_FAILED audit，不向处置链抛出
+    expect(vi.mocked(audit.write).mock.calls.some(c => c[0] === CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED)).toBe(true);
+  });
+});
+
 describe('phase 1237 contract/verification sub-file cluster DAG', () => {
   const SUB_FILES = [
     'verification-format.ts',
