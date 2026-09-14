@@ -316,8 +316,9 @@ describe('phase 1829 verification inbox content invariants', () => {
     expect(files.length).toBe(1);
     const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
     expect(content).not.toMatch(/system bug|修代码后再 retry|重试可能修复/);
-    // 新事实文案：异常 + 原始 error，无处方
-    expect(content).toContain('验收流程异常，未得到验收结论');
+    // 新事实文案：只陈述异常 + 原始 error，无处方、不无条件否认已有结论（第二轮）
+    expect(content).toContain('验收流程发生异常。异常：');
+    expect(content).not.toContain('未得到验收结论');
     expect(content).toContain('verifier exploded');
   });
 
@@ -352,6 +353,50 @@ describe('phase 1829 verification inbox content invariants', () => {
     expect(content).toContain('处置过程中另有异常');
     expect(content).toContain('OUTCOME_WRITE_EIO');
     expect(content).toContain('a-9');
+  });
+
+  // phase 1829 第二轮补修回归（R2-1）：包含引用反馈的完整正文不得自相矛盾——
+  // 已知 passed 的处置中异常放行，主段写「验收计算通过」，引用反馈段不得再写
+  // 「未得到验收结论」。
+  it('R2-1: 已知 passed 的异常放行完整正文无相互矛盾结论（含引用反馈段）', async () => {
+    const { ctx, inboxPending } = setup();
+    (ctx as any).isActiveContract = vi.fn(async () => true);
+    (ctx as any).getProgress = vi.fn(async () => ({
+      contract_id: 'c-42',
+      status: 'running',
+      subtasks: { 's-2': { status: 'in_progress', verification_attempt_id: 'a-7', retry_count: 2 } },
+    }));
+    (ctx as any).loadContractYaml = vi.fn(async () => ({ title: 'T', goal: 'G', subtasks: [], verification_attempts: 3 }));
+    (ctx as any).persistVerificationOutcome = vi.fn(async () => 'persisted');
+    // 与真实 gateway 一致：reject transition 提交的 feedback 即 last_failed_feedback
+    (ctx as any).transitionVerificationAttempt = vi.fn(async (_c: string, _s: string, t: any) => ({
+      kind: 'updated',
+      progress: {
+        contract_id: 'c-42',
+        status: 'running',
+        subtasks: {
+          's-2': {
+            status: 'completed', retry_count: 3, force_accepted: true,
+            last_failed_feedback: { feedback: t.feedback, cause: 'programming_bug' },
+          },
+        },
+      },
+    }));
+    (ctx as any).checkAllSubtasksCompleted = vi.fn(async () => false);
+
+    await writeVerificationError(
+      ctx, 'c-42' as any, 's-2' as any, new Error('PERSIST_RESULT_EIO'), 'a-7',
+      { stage: 'outcome_processing', knownVerdict: 'passed', feedback: 'verified' },
+    );
+
+    const files = fs.readdirSync(inboxPending);
+    expect(files.length).toBe(1);
+    const content = fs.readFileSync(path.join(inboxPending, files[0]), 'utf8');
+    expect(content).toContain('验收计算通过');
+    expect(content).not.toContain('未得到正常通过结论');
+    expect(content).not.toContain('未得到验收结论');
+    expect(content).toContain('PERSIST_RESULT_EIO');
+    expect(content).toContain('按现行规则将该子任务记为完成');
   });
 
   it('writeVerificationError：旧 attempt 迟到 → 归属原 attempt，不要求重做当前尝试', async () => {

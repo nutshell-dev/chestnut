@@ -329,11 +329,13 @@ export function llmVerificationFailedFeedback(errorMsg: string): string {
 // ─── 错误持久反馈（写入 last_failed_feedback / errored outcome 的共享文本） ───
 // phase 1829 Z 补修：只陈述超时/异常事实，不附未经证实的根因猜测或「修源码后再重试」
 // 处方（普通 Error 不等于系统源码 bug；重试决策归阈值规则与业务智能体）。
+// 第二轮补修：不无条件写「未得到验收结论」——是否已取得结论由 owner 的
+// VerificationFailureContext.knownVerdict 按真实阶段给出，同一条消息各段不得相互否定。
 
 export function verificationTimeoutFeedback(timeoutMs: string | number, errorMsg: string): string {
-  return `验收等待超过所配时限（${timeoutMs}ms），未得到验收结论。Error: ${errorMsg}`;
+  return `验收等待超过配置时限（${timeoutMs}ms）。异常：${errorMsg}`;
 }
 
 export function verificationCrashedFeedback(errorMsg: string): string {
-  return `验收流程异常，未得到验收结论。Error: ${errorMsg}`;
+  return `验收流程发生异常。异常：${errorMsg}`;
 }

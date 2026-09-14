@@ -985,6 +985,8 @@ describe('phase 1829 Z 补修：提交后副作用隔离（故障矩阵）', () 
     const body = notifyCalls[0][1].body;
     expect(body).toContain('验收计算通过');
     expect(body).not.toContain('未得到正常通过结论');
+    // 第二轮：引用反馈（crashed feedback）也不得与主段结论相互否定
+    expect(body).not.toContain('未得到验收结论');
     expect(body).toContain('按现行规则将该子任务记为完成');
   });
 
@@ -1041,6 +1043,41 @@ describe('phase 1829 Z 补修：提交后副作用隔离（故障矩阵）', () 
     expect(result.processingErrors.join('\n')).toContain('AUDIT_EIO');
     // onNotify 失败经加固 safeNotify 记入 NOTIFY_FAILED audit，不向处置链抛出
     expect(vi.mocked(audit.write).mock.calls.some(c => c[0] === CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED)).toBe(true);
+  });
+
+  // phase 1829 第二轮补修回归（R2-2）：audit 写入自身失败时，stderr 兜底同时保留
+  // 原始副作用错误、审计错误与归属上下文；不递归调用失败的 audit、不重入状态处理。
+  it('R2-2: 双重失败兜底 stderr 同时保留原错误/审计错误/归属，且无第二次状态迁移', async () => {
+    const audit = makeMockAudit();
+    vi.mocked(audit.write).mockImplementation(() => { throw new Error('AUDIT_DISK_FAILED'); });
+    const ctx = makePipelineCtx({
+      audit: audit as unknown as VerificationContext['audit'],
+      notifyClaw: vi.fn(() => { throw new Error('INBOX_DISK_FAILED'); }),
+      transitionVerificationAttempt: vi.fn().mockResolvedValue({
+        kind: 'updated',
+        progress: { subtasks: { s: { status: 'completed', retry_count: 0 } } },
+      }),
+    });
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(((value: any) => {
+      writes.push(String(value));
+      return true;
+    }) as any);
+
+    try {
+      await runBackground(ctx);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const stderr = writes.join('');
+    // 原错误、审计错误、归属上下文同存于兜底记录
+    expect(stderr).toContain('INBOX_DISK_FAILED');
+    expect(stderr).toContain('AUDIT_DISK_FAILED');
+    expect(stderr).toContain('verification_result');
+    // 兜底不重入验收状态处理：只有已提交 pass 的一次 transition
+    expect(ctx.transitionVerificationAttempt).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ctx.transitionVerificationAttempt).mock.calls[0][2].kind).toBe('pass');
   });
 });
 

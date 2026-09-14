@@ -64,7 +64,12 @@ export function recordVerificationSideEffectFailure(
       emitContractNotifyFailed(ctx.audit, { notifyType: detail.notifyType, error: detail.error });
     }
   } catch (auditErr) {
-    process.stderr.write(`[verification] side-effect failure audit error: ${formatErr(auditErr)}\n`);
+    // phase 1829 第二轮补修：审计写入再失败时，单条 JSON 同时保留原事实（detail）
+    // 与审计异常及其归属——不让第二个错误覆盖第一个；JSON 转义保证换行/引号不
+    // 糊成无法分辨的上下文。不递归调用失败的 audit，不向外抛。
+    process.stderr.write(
+      `[verification] side-effect failure audit error: ${JSON.stringify({ detail, auditError: formatErr(auditErr) })}\n`,
+    );
   }
 }
 
