@@ -108,10 +108,11 @@ export function contractCompletedForceAcceptedNoteLine(): string {
 
 /**
  * observer 路历史验收反馈行：last_failed_feedback 原文保留；明示是该子任务保留的
- * 历史记录，不推测对应最终尝试、不要求重做。
+ * 最近一次未通过反馈记录，不断言它必然对应或不对应最终验收结论、不推测对应
+ * 最终尝试、不要求重做。
  */
 export function contractCompletedHistoryFeedbackLine(feedback: string): string {
-  return `    历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：${feedback}`;
+  return `    历史验收反馈（该子任务保留的最近一次未通过反馈，不能仅凭此记录判断最终验收结论）：${feedback}`;
 }
 
 /* ------------------------------------------------------------------ */

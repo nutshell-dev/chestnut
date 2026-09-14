@@ -83,7 +83,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
     expect(result.events.length).toBe(1);
     // phase 1832: 历史反馈 refs 语义不变（有 last_failed_feedback 才进 problemPairs）
     expect(result.problemPairs).toEqual(['worker-1:1780-cdef']);
-    expect(result.events[0]).toContain('历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：Failed test isolation');
+    expect(result.events[0]).toContain('历史验收反馈（该子任务保留的最近一次未通过反馈，不能仅凭此记录判断最终验收结论）：Failed test isolation');
   });
 
   it('force_accepted=true subtask → 中性放行注记、无 [force-accepted] prefix（phase 1832）', async () => {

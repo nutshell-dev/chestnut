@@ -114,7 +114,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toContain('  [st-1] 执行者提交材料：final.ts');
-    expect(entries[0].body).toContain('历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：曾缺测试');
+    expect(entries[0].body).toContain('历史验收反馈（该子任务保留的最近一次未通过反馈，不能仅凭此记录判断最终验收结论）：曾缺测试');
     expect(entries[0].body).not.toContain('last_failure');
     // 历史反馈存在 → hasFailure 语义不变（guidance refs 选择依据）
     expect(entries[0].hasFailure).toBe(true);

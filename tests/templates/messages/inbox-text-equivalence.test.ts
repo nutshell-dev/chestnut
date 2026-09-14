@@ -370,7 +370,7 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       + '已完成子任务：\n'
       + '  [st-1] 执行者提交材料：done part 1\n'
       + '  [st-2] 执行者提交材料：done "part 2"\n'
-      + '    历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：曾失败一次';
+      + '    历史验收反馈（该子任务保留的最近一次未通过反馈，不能仅凭此记录判断最终验收结论）：曾失败一次';
     const expectedCancelledBody =
       '契约已取消｜c-cancelled\n'
       + '执行者：claw-1\n'

@@ -320,12 +320,69 @@ describe('phase 1832: 契约完成通知 → inbox → Runtime/指导 → provid
       expect(content).toContain('执行者提交材料：未记录提交材料');
       // 放行中性注记
       expect(content).toContain('完成方式：按流程放行记为完成；该标记不表示验收通过');
-      // 历史反馈原文保留并指明是历史记录（长反馈逐字保留）
-      expect(content).toContain(`历史验收反馈（该子任务保留的历史记录，不对应最终验收结论）：${longFeedback}`);
+      // 历史反馈原文保留并说明记录含义（长反馈逐字保留；不断言必然对应/不对应最终验收）
+      expect(content).toContain(`历史验收反馈（该子任务保留的最近一次未通过反馈，不能仅凭此记录判断最终验收结论）：${longFeedback}`);
+      expect(content).not.toContain('不对应最终验收结论');
       // guidance refs 只含有历史反馈的 c-a（hasFailure 选择保持）
       expect(content).toContain('查看相关执行记录： chestnut claw claw-1 trace --contract c-a');
       expect(content).toContain('查看契约与进度摘要： chestnut contract show -c claw-1 --contract c-a');
       expect(content).not.toContain('--contract c-b');
+      expectNoFabrication(content);
+    });
+
+    it('组合复现：放行+最终未通过反馈 / 先未通过后通过保留旧反馈 / 普通完成无反馈，均不产生虚假对应判断', async () => {
+      // ① force_accepted=true 且 last_failed_feedback 含最终未通过反馈（原复现失败组合）
+      await writeCompletedArchive('claw-1', 'c-fa', {
+        subtasks: {
+          'st-1': {
+            status: 'completed',
+            completed_at: '2026-09-13T04:00:00.000Z',
+            force_accepted: true,
+            last_failed_feedback: { feedback: '最终验收未通过：缺少边界测试' },
+          },
+        },
+      });
+      // ② 先未通过后通过仍保留旧反馈
+      await writeCompletedArchive('claw-1', 'c-ftp', {
+        subtasks: {
+          'st-1': {
+            status: 'completed',
+            completed_at: '2026-09-13T05:00:00.000Z',
+            evidence: '交付：v2',
+            last_failed_feedback: { feedback: 'v1 未通过：接口不符' },
+          },
+        },
+      });
+      // ③ 普通完成无历史反馈
+      await writeCompletedArchive('claw-1', 'c-plain', {
+        subtasks: {
+          'st-1': { status: 'completed', completed_at: '2026-09-13T06:00:00.000Z', evidence: '交付：ok' },
+        },
+      });
+
+      const { audit } = makeAudit();
+      const messages = await runObserverToMotionInbox(audit);
+      expect(messages).toHaveLength(1);
+
+      const runtime = makeRuntime(audit, { withGuidance: true });
+      const content = await providerVisibleContent(runtime, messages[0]);
+
+      // ① 放行注记与历史反馈并存：各自中性，互不推断对应关系
+      expect(content).toContain('完成方式：按流程放行记为完成；该标记不表示验收通过');
+      expect(content).toContain('历史验收反馈（该子任务保留的最近一次未通过反馈，不能仅凭此记录判断最终验收结论）：最终验收未通过：缺少边界测试');
+      // ② 旧反馈原文保留，同样措辞
+      expect(content).toContain('历史验收反馈（该子任务保留的最近一次未通过反馈，不能仅凭此记录判断最终验收结论）：v1 未通过：接口不符');
+      // 三者都不产生虚假对应判断（无过强“不对应”断言、无“对应最终验收”推断）
+      expect(content).not.toContain('不对应最终验收结论');
+      expect(content).not.toContain('对应最终验收');
+      // ③ 无历史反馈则无该行、无放行注记（计数断言，不依赖事件顺序）
+      expect(content).toContain('执行者提交材料：交付：ok');
+      expect(content.match(/历史验收反馈（/g)).toHaveLength(2);
+      expect(content.match(/完成方式：/g)).toHaveLength(1);
+      // refs 选择按实际行为：含反馈的 c-fa/c-ftp 进 guidanceRefs，c-plain 不进
+      expect(content).toContain('查看相关执行记录： chestnut claw claw-1 trace --contract c-fa');
+      expect(content).toContain('查看相关执行记录： chestnut claw claw-1 trace --contract c-ftp');
+      expect(content).not.toContain('--contract c-plain');
       expectNoFabrication(content);
     });
 
