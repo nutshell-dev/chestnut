@@ -13,14 +13,12 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import { InboxWriter, makeInboxPath, MESSAGING_WRITER_LIMITS_DEFAULT } from '../../../src/foundation/messaging/index.js';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { createStartupCheckDelivery } from '../../../src/daemon/daemon-loop.js';
 import { createContractNotificationAdapter } from '../../../src/assembly/contract-notification-adapter.js';
 import { scanArchivedContracts } from '../../../src/core/contract/jobs/event-collector.js';
 import { lifecycleIntentPath } from '../../../src/core/contract/lifecycle-intent.js';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
-import { ContractAuditor } from '../../../src/core/contract/contract-auditor.js';
 import { writeNewSummary, SUMMARY_INBOX_TYPE } from '../../../src/core/claw-topology/jobs/outbox-summary/write.js';
 import { createHeartbeatInboxFormatter } from '../../../src/core/heartbeat/inbox-formatter.js';
 import { runRandomDream } from '../../../src/core/memory/random-dream.js';
@@ -36,8 +34,6 @@ import { renderCliGuidanceDocument, createCliSafeToken } from '../../../src/cli-
 import type { CliGuidanceDocument } from '../../../src/cli-protocol/guidance.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import { makeAudit } from '../../helpers/audit.js';
 
 // M07 等价比较：incomplete 状态在 owner codec 处 fail-closed（写盘前 throw），
 // 迁移前后都只 stub codec（非消息文本）以取到同一入口的 body 分支。
@@ -54,11 +50,13 @@ const asserted = new Set<string>();
 
 /**
  * phase 1829: M03 从逐字节迁移等价移交新的语义验收（通知正文携带身份与已提交处置、
- * 上游系统反馈归位模板）。本 set 中的组保留 golden 历史数据但不逐字节比较；
- * 新语义由 tests/core/contract/verification-notice-context.test.ts 等逐分支接管。
+ * 上游系统反馈归位模板）。phase 1830: M06 同样移交新语义验收（审阅反馈正文自含身份/
+ * 来源/依据/可选建议，无依据结果不投递）。本 set 中的组保留 golden 历史数据但不逐字节
+ * 比较；新语义由 tests/core/contract/verification-notice-context.test.ts、
+ * tests/core/contract/contract-audit-feedback-context.test.ts 等逐分支接管。
  * 完整性 = 保留比较的组 + 新语义接管的组 = 全部 fixture 组。
  */
-const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03']);
+const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06']);
 
 /** 用迁移后入口的实际输出与冻结 golden 逐字节比较（body + envelope + case 集合）。 */
 function expectCases(group: string, actual: Case[]): void {
@@ -292,48 +290,12 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     expect(notified.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('M06 contract audit feedback body', async () => {
-    const baseDir = tmpDir('p1828-m06-');
-    const inboxDir = path.join(baseDir, 'inbox', 'pending');
-    fsNative.mkdirSync(inboxDir, { recursive: true });
-    const nfs = new NodeFileSystem({ baseDir });
-    const inbox = InboxWriter.__internal_create(
-      nfs, makeInboxPath('inbox/pending'), makeAudit().audit, MESSAGING_WRITER_LIMITS_DEFAULT,
-    );
-    const verdict = JSON.stringify({
-      on_track: false,
-      drifts: [{ what: 'grep 循环', evidence: 'step 40-49' }, { what: '未提交', evidence: 'step 50' }],
-      next_focus_suggestion: '先提交再继续',
-    });
-    const llm = {
-      async call() {
-        return { content: [{ type: 'text', text: verdict }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } };
-      },
-      stream: () => { throw new Error('unused'); },
-      healthCheck: async () => true,
-      getProviderInfo: () => ({ name: 'mock', model: 'mock', isFallback: false }),
-      close: async () => {},
-    } as unknown as LLMOrchestrator;
-    const auditor = new ContractAuditor({ audit: makeAudit().audit, fs: nfs, inbox, llm });
-    await auditor.maybeAudit({
-      contractId: 'c-1',
-      contractTitle: 'Test Contract',
-      clawId: 'motion',
-      currentStep: 50,
-      auditInterval: 50,
-      lastAuditedStep: 0,
-      expectations: 'do X',
-      contractStartedAt: undefined,
-      progress: { done: [], in_progress: 's1', pending: ['s2'] },
-    } as never);
-    const files = fsNative.readdirSync(inboxDir).filter(f => f.endsWith('.md'));
-    const messages = files.map(f => decodeInbox(fsNative.readFileSync(path.join(inboxDir, f), 'utf8')));
-    expectCases('M06', messages.map(msg => ({
-      case: 'audit-feedback',
-      body: msg.content,
-      envelope: { type: msg.type, from: msg.from, to: msg.to, priority: msg.priority },
-    })));
-    expect(messages.length).toBe(1);
+  it('M06 已移交 phase 1830 语义验收，保留 golden 历史数据但不逐字节比较', () => {
+    // 反向完整性：M06 仍在 fixture（历史数据保留），且显式登记为语义重设计组。
+    expect(fixture.cases.M06).toBeDefined();
+    expect(fixture.cases.M06.length).toBeGreaterThanOrEqual(1);
+    expect(SEMANTICALLY_REDESIGNED_GROUPS.has('M06')).toBe(true);
+    expect(asserted.has('M06')).toBe(false);
   });
 
   it('M07 outbox summary bodies', async () => {

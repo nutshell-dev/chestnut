@@ -106,6 +106,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_AUDIT_TRIGGERED: 'contract_audit_triggered',
   CONTRACT_AUDIT_DRIFT_DETECTED: 'contract_audit_drift_detected',
   CONTRACT_AUDIT_FEEDBACK_DELIVERED: 'contract_audit_feedback_delivered',
+  // phase 1830: auditor 结果原文留存 + 有效性/投递处置链（reviewId 关联）
+  CONTRACT_AUDIT_RESULT_RECORDED: 'contract_audit_result_recorded',
+  CONTRACT_AUDIT_FEEDBACK_DISPOSITION: 'contract_audit_feedback_disposition',
   // phase 188 Step A: archive 入口 status precondition violation
   CONTRACT_ARCHIVE_PRECONDITION_VIOLATED: 'contract_archive_precondition_violated',
   // phase 188 Step C: archive stale active 态 boot reconcile sweep
@@ -242,6 +245,8 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_audit_triggered: 'audit',
   contract_audit_drift_detected: 'audit',
   contract_audit_feedback_delivered: 'audit',
+  contract_audit_result_recorded: 'audit',
+  contract_audit_feedback_disposition: 'audit',
   contract_archive_precondition_violated: 'audit',
   contract_archive_reconcile_stale: 'audit',
   contract_archive_reconcile_failed: 'audit',

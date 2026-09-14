@@ -297,6 +297,8 @@
       "contract_archive_target_exists",
       "contract_audit_drift_detected",
       "contract_audit_feedback_delivered",
+      "contract_audit_feedback_disposition",
+      "contract_audit_result_recorded",
       "contract_audit_triggered",
       "contract_auditor_load_active_failed",
       "contract_boot_migrate_archive_skipped",

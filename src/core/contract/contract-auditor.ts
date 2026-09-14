@@ -10,18 +10,24 @@
  *
  * 复用：PriorityInboxInterrupt 路径（runtime.ts:565-567）— 0 新中断 API、0 partial state 风险
  *
+ * phase 1830: 有效性门 + 处置审计链。LLM 原始返回（含非文本 block）与实际 prompt 先经
+ * CONTRACT_AUDIT_RESULT_RECORDED 留 audit（reviewId 关联），再解析分类；不完整结果
+ * （空 drifts / 条目缺 what 或 evidence / 建议非字符串 / 自相矛盾）整份不投递、不删旧
+ * pending 反馈，只留 disposition 审计。限流/删除/写入各自捕获并记真实阶段，不混称
+ * llm_call_failed；只有 inbox.write 成功才记 delivered。
+ *
  * Philosophy align：「系统在智能体需要决策时交付相关信息」+「事件驱动」+「agent 是决策主体」（auditor 仅 surface 事实、不替决策）
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from "../../foundation/node-utils/index.js";
+import { formatErr, newUuid } from "../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
-import type { ContentBlock, TextBlock } from '../../foundation/llm-provider/index.js';
+import type { ContentBlock, LLMResponse, TextBlock } from '../../foundation/llm-provider/index.js';
 import { buildAuditorPrompt } from './auditor-prompt.js';
 import { contractAuditDriftLine, contractAuditFeedbackBody } from '../../templates/messages/index.js';
-import { contractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
+import { contractFootprint, type ContractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 
@@ -41,6 +47,23 @@ interface AuditorVerdict {
   drifts: AuditorDrift[];
   next_focus_suggestion: string;
 }
+
+/**
+ * phase 1830: 解析结果 = verdict + 逐条结构问题。
+ * issues 非空时整份结果不可投递（不静默过滤后呈现部分结论）。
+ */
+interface ParsedVerdict {
+  verdict: AuditorVerdict;
+  issues: string[];
+}
+
+/**
+ * phase 1830: owner 侧有效性分类（有效性=结构与依据字段完整性，不验证模型证据真伪）。
+ */
+type FeedbackDisposition =
+  | { kind: 'on_track' }
+  | { kind: 'invalid'; reasons: string[] }
+  | { kind: 'feedback'; verdict: AuditorVerdict };
 
 interface ContractAuditorDeps {
   audit: AuditLog;
@@ -131,12 +154,15 @@ export class ContractAuditor {
   }
 
   private async _doAudit(req: AuditRequest): Promise<AuditOutcome> {
+    // phase 1830: 每次审阅独立 reviewId（UUID；进程重启不碰撞），贯穿结果记录与处置链
+    const reviewId = newUuid();
 
     this.deps.audit.write(
       CONTRACT_AUDIT_EVENTS.CONTRACT_AUDIT_TRIGGERED,
       `contractId=${req.contractId}`,
       `clawId=${req.clawId}`,
       `step=${req.currentStep}`,
+      `reviewId=${reviewId}`,
     );
 
     const sinceTimestampMs = req.contractStartedAt
@@ -146,8 +172,18 @@ export class ContractAuditor {
       sinceTimestampMs,
       recentExecN: 50,
     };
-    const fp = await contractFootprint(this.deps.fs, req.contractId, fpOpts);
+    let fp: ContractFootprint;
+    try {
+      fp = await contractFootprint(this.deps.fs, req.contractId, fpOpts);
+    } catch (err) {
+      // phase 1830: footprint 读取失败保留阶段与原错误（不依赖 manager 空 catch 留证）
+      const reason = formatErr(err);
+      this.writeDisposition(reviewId, req, 'footprint_failed', `error=${reason}`);
+      return { audited: false, reason: `footprint_read_failed:${reason}` };
+    }
 
+    // 材料采集时刻：footprint + progress 已就位、prompt 构造前由 owner 捕获
+    const collectedAt = new Date().toISOString();
     const prompt = buildAuditorPrompt({
       contractId: req.contractId,
       contractTitle: req.contractTitle,
@@ -157,9 +193,9 @@ export class ContractAuditor {
       recentMessages: req.recentMessages,
     });
 
-    let verdict: AuditorVerdict;
+    let response: LLMResponse;
     try {
-      verdict = await this.callAuditorLLM(prompt);
+      response = await this.callAuditorLLM(prompt);
     } catch (err) {
       const reason = formatErr(err);
       this.deps.audit.write(
@@ -167,25 +203,66 @@ export class ContractAuditor {
         `contractId=${req.contractId}`,
         `step=${req.currentStep}`,
         `llm_call_failed=${reason}`,
+        `reviewId=${reviewId}`,
       );
+      this.writeDisposition(reviewId, req, 'llm_call_failed', `error=${reason}`);
       return { audited: false, reason: `llm_call_failed:${reason}` };
     }
 
-    if (!verdict.on_track) {
-      this.deps.audit.write(
-        CONTRACT_AUDIT_EVENTS.CONTRACT_AUDIT_DRIFT_DETECTED,
-        `contractId=${req.contractId}`,
-        `clawId=${req.clawId}`,
-        `step=${req.currentStep}`,
-        `drifts=${verdict.drifts.length}`,
-      );
-      await this.deliverFeedback(req, verdict);
+    // phase 1830: 先留存完整原始返回（含非文本 content block）+ 实际 prompt + 身份/采集时刻，
+    // JSON 一次编码交 AuditLog 转义；不双重手工转义、不经 preview/message/summary 截断。
+    this.deps.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_AUDIT_RESULT_RECORDED,
+      `reviewId=${reviewId}`,
+      `contractId=${req.contractId}`,
+      `payload=${JSON.stringify({
+        reviewId,
+        contractId: req.contractId,
+        contractTitle: req.contractTitle,
+        clawId: req.clawId,
+        currentStep: req.currentStep,
+        collectedAt,
+        prompt,
+        response,
+      })}`,
+    );
+
+    let parsed: ParsedVerdict;
+    try {
+      parsed = parseVerdictDetailed(extractText(response.content));
+    } catch (err) {
+      // 解析/结构失败与 LLM 调用失败分开记录，不混称 llm_call_failed
+      const reason = formatErr(err);
+      this.writeDisposition(reviewId, req, 'parse_failed', `error=${reason}`);
+      return { audited: false, reason: `parse_failed:${reason}` };
     }
 
-    return { audited: true, verdict };
+    const disposition = classifyVerdict(parsed);
+    if (disposition.kind === 'on_track') {
+      this.writeDisposition(reviewId, req, 'on_track');
+      return { audited: true, verdict: parsed.verdict };
+    }
+    if (disposition.kind === 'invalid') {
+      // 不完整结果：整份不投递、不进入限流/删除/写入，只留处置记录
+      this.writeDisposition(reviewId, req, 'invalid', `reasons=${JSON.stringify(disposition.reasons)}`);
+      return { audited: false, verdict: parsed.verdict, reason: 'audit_verdict_incomplete' };
+    }
+
+    // 完整有依据的偏离结果才进入既有投递链
+    this.deps.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_AUDIT_DRIFT_DETECTED,
+      `contractId=${req.contractId}`,
+      `clawId=${req.clawId}`,
+      `step=${req.currentStep}`,
+      `drifts=${disposition.verdict.drifts.length}`,
+      `reviewId=${reviewId}`,
+    );
+    await this.deliverFeedback(req, disposition.verdict, reviewId, collectedAt);
+    return { audited: true, verdict: disposition.verdict };
   }
 
-  private async callAuditorLLM(prompt: string): Promise<AuditorVerdict> {
+  /** LLM 调用边界：只负责拿原始 response；解析在 _doAudit 内单独阶段。 */
+  private async callAuditorLLM(prompt: string): Promise<LLMResponse> {
     const response = await this.deps.llm.call({
       messages: [{ role: 'user', content: prompt }],
       system: AUDITOR_SYSTEM_PROMPT,
@@ -193,37 +270,65 @@ export class ContractAuditor {
       temperature: 0.2,
       signal: this.abortController.signal,  // phase 517 B3: dispose 时 abort in-flight LLM
     });
-    const text = extractText(response.content);
-    const verdict = parseVerdict(text);
-    return verdict;
+    return response;
   }
 
-  private async deliverFeedback(req: AuditRequest, verdict: AuditorVerdict): Promise<void> {
+  /** phase 1830: 处置链审计（reviewId 关联 RESULT_RECORDED 原文记录）。 */
+  private writeDisposition(reviewId: string, req: AuditRequest, disposition: string, ...extra: string[]): void {
+    this.deps.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_AUDIT_FEEDBACK_DISPOSITION,
+      `reviewId=${reviewId}`,
+      `contractId=${req.contractId}`,
+      `step=${req.currentStep}`,
+      `disposition=${disposition}`,
+      ...extra,
+    );
+  }
+
+  private async deliverFeedback(req: AuditRequest, verdict: AuditorVerdict, reviewId: string, collectedAt: string): Promise<void> {
     const sender = `contract-auditor-${req.contractId}`;
     const nowMs = Date.now();
     const last = this.lastDeliveredBySender.get(sender) ?? 0;
     if (nowMs - last < this.minDeliveryIntervalMs) {
-      // 限流：上次投递距今 < 30s、跳过本次（避免短期重复打扰）
+      // 限流：上次投递距今 < 30s、跳过本次（避免短期重复打扰）；不删除旧 pending
+      this.writeDisposition(reviewId, req, 'rate_limited', `sender=${sender}`);
       return;
     }
 
-    // 去重：删 pending 中同 sender 旧消息
-    await this.deps.inbox.removePendingBySource(sender);
+    // 去重：删 pending 中同 sender 旧消息（失败记真实阶段、不记 delivered）
+    try {
+      await this.deps.inbox.removePendingBySource(sender);
+    } catch (err) {
+      this.writeDisposition(reviewId, req, 'remove_pending_failed', `error=${formatErr(err)}`);
+      throw err;
+    }
 
     const driftLines = verdict.drifts
       .map((d, i) => contractAuditDriftLine(i, d.what, d.evidence))
       .join('\n');
-    const body = contractAuditFeedbackBody(driftLines, verdict.next_focus_suggestion);
-
-    await this.deps.inbox.write({
-      id: `auditor-${req.contractId}-${nowMs}`,
-      type: 'contract_audit_feedback',
-      from: sender,
-      to: req.clawId,
-      content: body,
-      priority: 'high',
-      timestamp: new Date(nowMs).toISOString(),
+    const body = contractAuditFeedbackBody({
+      contractId: req.contractId,
+      contractTitle: req.contractTitle,
+      driftLines,
+      suggestion: verdict.next_focus_suggestion,
+      includesRecentMessages: typeof req.recentMessages === 'string' && req.recentMessages.length > 0,
+      collectedAt,
     });
+
+    try {
+      await this.deps.inbox.write({
+        id: `auditor-${req.contractId}-${nowMs}`,
+        type: 'contract_audit_feedback',
+        from: sender,
+        to: req.clawId,
+        content: body,
+        priority: 'high',
+        timestamp: new Date(nowMs).toISOString(),
+      });
+    } catch (err) {
+      this.writeDisposition(reviewId, req, 'write_failed', `error=${formatErr(err)}`);
+      throw err;
+    }
 
     this.lastDeliveredBySender.set(sender, nowMs);
     this.deps.audit.write(
@@ -232,7 +337,9 @@ export class ContractAuditor {
       `clawId=${req.clawId}`,
       `step=${req.currentStep}`,
       `drifts=${verdict.drifts.length}`,
+      `reviewId=${reviewId}`,
     );
+    this.writeDisposition(reviewId, req, 'delivered');
   }
 
   /**
@@ -263,8 +370,20 @@ function extractText(content: ContentBlock[]): string {
  * Parse auditor LLM JSON output.
  * 容错：尝试提取大括号包围段落 + JSON.parse + schema 基本校验。
  * 解析失败抛 Error / caller 由 try/catch 兜底。
+ * phase 1830: 不再静默过滤条目——逐条 what/evidence 完整性问题经 parseVerdictDetailed
+ * 的 issues 上抛给 owner 分类；本入口只返回 verdict 部分（保持既有导出契约）。
  */
 export function parseVerdict(rawText: string): AuditorVerdict {
+  return parseVerdictDetailed(rawText).verdict;
+}
+
+/**
+ * phase 1830: 完整解析入口 — verdict + 逐条结构问题。
+ * 所有条目都检查（不以第一条有效放过后续非法条目）；what/evidence 用 trim 判空、
+ * 呈现保留原文本；next_focus_suggestion 缺省/空字符串合法，非字符串记结构问题。
+ * 抛出 = 解析/根结构失败（非 JSON、on_track 非布尔、根节点非法）。
+ */
+function parseVerdictDetailed(rawText: string): ParsedVerdict {
   const trimmed = rawText.trim();
   // 兼容 LLM 可能加 markdown code fence
   const stripped = trimmed
@@ -282,30 +401,77 @@ export function parseVerdict(rawText: string): AuditorVerdict {
     parsed = JSON.parse(match[0]);
   }
 
-  if (!parsed || typeof parsed !== 'object') {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('auditor response is not an object');
   }
   const obj = parsed as Record<string, unknown>;
   if (typeof obj.on_track !== 'boolean') {
     throw new Error('on_track field missing or not boolean');
   }
+
+  const issues: string[] = [];
   const drifts: AuditorDrift[] = [];
-  if (Array.isArray(obj.drifts)) {
-    for (const d of obj.drifts) {
-      if (!d || typeof d !== 'object') continue;
+  if (obj.drifts !== undefined && !Array.isArray(obj.drifts)) {
+    issues.push('drifts field is not an array');
+  } else if (Array.isArray(obj.drifts)) {
+    obj.drifts.forEach((d, i) => {
+      if (!d || typeof d !== 'object' || Array.isArray(d)) {
+        issues.push(`drifts[${i}] is not an object`);
+        return;
+      }
       const dd = d as Record<string, unknown>;
       const what = typeof dd.what === 'string' ? dd.what : '';
       const evidence = typeof dd.evidence === 'string' ? dd.evidence : '';
-      if (what) drifts.push({ what, evidence });
+      if (!what.trim()) {
+        issues.push(`drifts[${i}].what missing or blank`);
+        return;
+      }
+      if (!evidence.trim()) {
+        issues.push(`drifts[${i}].evidence missing or blank`);
+        return;
+      }
+      drifts.push({ what, evidence });
+    });
+  }
+
+  let next_focus_suggestion = '';
+  if (obj.next_focus_suggestion !== undefined) {
+    if (typeof obj.next_focus_suggestion === 'string') {
+      next_focus_suggestion = obj.next_focus_suggestion;
+    } else {
+      issues.push('next_focus_suggestion is not a string');
     }
   }
-  const next_focus_suggestion = typeof obj.next_focus_suggestion === 'string'
-    ? obj.next_focus_suggestion
-    : '';
 
   return {
-    on_track: obj.on_track,
-    drifts,
-    next_focus_suggestion,
+    verdict: {
+      on_track: obj.on_track,
+      drifts,
+      next_focus_suggestion,
+    },
+    issues,
   };
+}
+
+/**
+ * phase 1830: 有效性分类 — 结构与依据字段完整性判定（不验证模型证据真伪、不二次模型裁决）。
+ * - 任一结构问题 → invalid 整份不投递（混合也不悄悄过滤后呈现部分结论）
+ * - on_track=true 但含偏离条目 → 自相矛盾，不投递也不宣称已确认 on_track
+ * - on_track=false 但无有效偏离条目 → 无依据，不投递
+ */
+function classifyVerdict(parsed: ParsedVerdict): FeedbackDisposition {
+  const { verdict, issues } = parsed;
+  if (issues.length > 0) {
+    return { kind: 'invalid', reasons: issues };
+  }
+  if (verdict.on_track) {
+    if (verdict.drifts.length > 0) {
+      return { kind: 'invalid', reasons: ['on_track=true but drifts non-empty (self-contradictory)'] };
+    }
+    return { kind: 'on_track' };
+  }
+  if (verdict.drifts.length === 0) {
+    return { kind: 'invalid', reasons: ['on_track=false but no valid drift entries'] };
+  }
+  return { kind: 'feedback', verdict };
 }
