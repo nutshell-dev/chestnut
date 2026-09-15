@@ -73,8 +73,14 @@ const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06', 'M07']);
  * NO_GUIDANCE），由本测试现场精确断言与
  * tests/templates/messages/task-queue-overflow-semantics.test.ts 真实链接管；
  * M11 不作整组接管。
+ * phase 1839: M02 唯一 case（startup-check）移交新语义（正文说明启动唤醒依据——
+ * 启动检查时发现仍有活跃契约，指导结合当前状态继续未完成工作、已完成步骤不因
+ * 重启重复；只陈述启动检查所见），由本测试现场完整 literal 断言与
+ * tests/templates/messages/startup-check-semantics.test.ts 真实呈现链接管；
+ * M02 不作整组接管。
  */
 const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
+  M02: new Set(['startup-check']),
   M04: new Set(['contract_events', 'contract_cancelled']),
   M05: new Set([
     'c-completed:completed',
@@ -197,10 +203,20 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     const files = fsNative.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
     expect(files.length).toBe(1);
     const msg = decodeInbox(fsNative.readFileSync(path.join(pendingDir, files[0]!), 'utf8'));
-    expectCases('M02', [{
+    // phase 1839: M02/startup-check 移交新语义，现场完整 literal 断言（不经模板生成）
+    const takenOver = expectCasesExceptRedesigned('M02', [{
       case: 'startup-check',
       body: msg.content,
       envelope: { type: msg.type, from: msg.from, to: msg.to, priority: msg.priority },
+    }]);
+    expect(takenOver).toEqual([{
+      case: 'startup-check',
+      body:
+        '执行进程已启动。启动检查时发现仍有活跃契约，本消息用于唤醒后续处理。\n'
+        + '\n'
+        + '请结合当前契约状态和已有工作记录，继续尚未完成的工作。\n'
+        + '不要因进程重启重复执行已完成的步骤；若相关工作已经完成，无需因本通知新增任务。',
+      envelope: { type: 'startup_check', from: 'daemon', to: '', priority: 'high' },
     }]);
   });
 

@@ -14,7 +14,7 @@
 | ID | 模板文件 | 触发 / 接收者 | 原名来源 owner | 对应测试 |
 |---|---|---|---|---|
 | M01 | execution-recovery.ts（`executionRecoveryMessage`） | EventLoop 停滞恢复 → 本 claw inbox（高优） | core/event-loop | tests/core/event-loop/execution-recovery.test.ts |
-| M02 | startup.ts（`startupCheckMessage`） | daemon 启动自检 → 本 claw inbox（高优） | daemon | tests/daemon/startup-check-delivery.test.ts |
+| M02 | startup.ts（`startupCheckMessage`） | daemon 启动自检 → 本 claw inbox（高优） | daemon | tests/daemon/startup-check-delivery.test.ts、tests/templates/messages/startup-check-semantics.test.ts |
 | M03 | verification.ts（验收通过/拒绝/放行/异常通知 + 结构化拒绝反馈 + 执行/配置上游反馈 + 持久化错误反馈） | ContractSystem 验证流水线 → 契约所属 claw | core/contract（verification / verification-notify / verification-format / verification-execution） | tests/core/contract/verification-notice-context.test.ts、tests/core/contract/verification-inbox-invariants.test.ts、tests/core/contract/jobs/event-collector-format-contract-event.test.ts |
 | M04 | contract-notification.ts（`contractNotificationBody`） | Assembly 契约通知 adapter → 本 daemon 自家 inbox | assembly（序列化与字段顺序仍归 adapter） | tests/assembly/contract-notification-adapter*.test.ts |
 | M05 | contract-events.ts（标题/标题行/子任务/证据行/末次失败行 + `contractEventsBody` 双换行组合） | event-collector / contract-observer → motion inbox | core/contract（schema 解析、状态分支、hasFailure 仍在 owner） | tests/core/contract/jobs/event-collector-format-contract-event.test.ts、tests/core/contract/contract-observer.test.ts |
@@ -32,6 +32,7 @@
 - phase 1834：M07 语义治理（准确表达观察范围与读取消费副作用、历史重复只陈述事实不推断已读、退役自动 skip 建议链），整组移交新语义验收（`tests/templates/messages/outbox-summary-semantics.test.ts`）。M07 的 CLI 读取命令字面与 read-outbox 用途标签仍由 CLIProtocol 持有（M12 排除条款不变；M12 仅 outbox-labels case 随标签变更移交新语义）。
 - phase 1835：M09 语义治理（正文自含任务标识、输出块数、相对 motion 根的产物路径与按需读取用途；只陈述输出块已保存，不冒称契约数、洞见已验证或已自动整理为长期记忆），completion case 移交新语义验收（`SEMANTICALLY_REDESIGNED_CASES` + `tests/templates/messages/random-dream-notice-semantics.test.ts` 真实链），模板签名改为最小事实对象，正常/迟到/pending 重投共用同一正文构造。
 - phase 1836：M11 语义治理（正文准确说明单次拒绝事件：被拒任务身份、拒绝处置前观测的队列数量/上限、系统已执行处置；移除长期故障推断与升级用户/停派指令，guidance 退役为 NO_GUIDANCE），M11 两 case（guidance、overflow-body）移交新语义验收（`SEMANTICALLY_REDESIGNED_CASES` + `tests/templates/messages/task-queue-overflow-semantics.test.ts` 真实链）。
+- phase 1839：M02 语义治理（正文说明启动唤醒依据：启动检查时发现仍有活跃契约、本消息用于唤醒后续处理；指导结合当前契约状态与已有工作记录继续未完成工作，已完成步骤不因重启重复、相关工作已完成时无需因通知新增任务；只陈述启动检查所见，不承诺到达时契约仍活跃或系统已完整恢复），M02 唯一 case（startup-check）移交新语义验收（`SEMANTICALLY_REDESIGNED_CASES` + equivalence 测试现场完整 literal 断言 + `tests/templates/messages/startup-check-semantics.test.ts` 真实 delivery→InboxReader→Runtime 呈现链）。
 - `tests/templates/messages/inbox-text-equivalence.test.ts`：迁移前从旧实现真实入口捕获的 golden（`__fixtures__/inbox-text-golden.json`，生成器存 `development log/phase1828-logs/B-capture-golden.test.ts.txt`）与迁移后同入口输出逐字节比较。
 - `tests/foundation/arch/inbox-message-template-boundary.test.ts`：模板纯资源约束 + 迁移来源不再定义已迁文案且确实消费单源。
 

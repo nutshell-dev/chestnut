@@ -37,7 +37,17 @@ interface MigratedSource {
 
 const MIGRATED: MigratedSource[] = [
   { id: 'M01', file: 'core/event-loop/event-loop.ts', fragments: ['Execution stalled with no persisted activity'] },
-  { id: 'M02', file: 'daemon/daemon-loop.ts', fragments: ['System startup. Please review active contracts'] },
+  {
+    id: 'M02',
+    file: 'daemon/daemon-loop.ts',
+    // phase 1839: 新语义正文片段同样不得在模板外定义第二份（旧 fragment 保留防回潮）
+    fragments: [
+      'System startup. Please review active contracts',
+      '执行进程已启动',
+      '启动检查时发现仍有活跃契约',
+      '继续尚未完成的工作',
+    ],
+  },
   {
     id: 'M03',
     file: 'core/contract/verification-notify.ts',

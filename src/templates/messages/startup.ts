@@ -2,8 +2,17 @@
  * M02 inbox 文案：startup_check 启动自检通知。
  * 触发/接收者：daemon 启动（冷却 + 空 inbox + 有活跃契约）→ 本 claw inbox（高优）。
  * 原 owner：daemon。
+ * phase 1839: 正文说明启动唤醒用途——启动检查时发现仍有活跃契约，本消息用于唤醒
+ * 后续处理；指导接收方结合当前契约状态与已有工作记录继续未完成工作，已完成的
+ * 步骤不因进程重启重复执行，相关工作已完成时无需因本通知新增任务。只陈述启动
+ * 检查所见（历史时态），不承诺消息到达时契约仍活跃或系统已完整恢复。
  */
 
 export function startupCheckMessage(): string {
-  return 'System startup. Please review active contracts and resume execution.';
+  return [
+    '执行进程已启动。启动检查时发现仍有活跃契约，本消息用于唤醒后续处理。',
+    '',
+    '请结合当前契约状态和已有工作记录，继续尚未完成的工作。',
+    '不要因进程重启重复执行已完成的步骤；若相关工作已经完成，无需因本通知新增任务。',
+  ].join('\n');
 }
