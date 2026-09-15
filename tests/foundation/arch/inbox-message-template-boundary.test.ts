@@ -81,7 +81,17 @@ const MIGRATED: MigratedSource[] = [
     fragments: ['outbox 未读：共', '（无预览）', '〔提示〕以上未读消息与此前推送完全重复', '计数可能不完整'],
   },
   { id: 'M08', file: 'core/heartbeat/inbox-formatter.ts', fragments: ['Heartbeat triggered. Please perform a routine check.'] },
-  { id: 'M09', file: 'core/memory/random-dream.ts', fragments: ['Dream outputs persisted'] },
+  {
+    id: 'M09',
+    file: 'core/memory/random-dream.ts',
+    // phase 1835: 新语义文案同样不得在模板外定义第二份（旧英文保留防回退）
+    fragments: [
+      'Dream outputs persisted',
+      '跨 claw 经验探索输出已保存',
+      '产物：',
+      '尚未自动整理为可检索的长期记忆',
+    ],
+  },
   { id: 'M10', file: 'foundation/messaging/formatter-registry.ts', fragments: ['[system message${', '[user inbox message${'] },
   { id: 'M10', file: 'foundation/messaging/system-message-helper.ts', fragments: ["= '[system message'"] },
   {

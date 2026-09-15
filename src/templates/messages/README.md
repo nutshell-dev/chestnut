@@ -21,7 +21,7 @@
 | M06 | contract-audit.ts（drift 行 + 反馈体） | ContractAuditor drift 检出 → 契约所属 claw | core/contract（限流/去重/模型正文仍在 owner） | tests/core/contract/contract-auditor.test.ts |
 | M07 | outbox-summary.ts（head/逐 claw 行/范围说明/历史重复提示/失败警告） | ClawTopology outbox-summary job → motion inbox | core/claw-topology（排序、重复判断、失败集合仍在 owner） | tests/core/outbox-summary/*、tests/templates/messages/outbox-summary-semantics.test.ts |
 | M08 | heartbeat.ts（base 行 + checklist 组合） | Heartbeat 定时 → 本 claw inbox | core/heartbeat（读文件与错误分支仍在 owner） | tests/core/heartbeat.test.ts |
-| M09 | memory.ts（`dreamOutputsPersistedMessage`） | Memory random-dream → motion inbox | core/memory（投递状态机仍在 owner） | tests/core/memory/random-dream-delivery.test.ts |
+| M09 | memory.ts（`dreamOutputsPersistedMessage`，最小事实对象 taskId/outputCount/outputPath） | Memory random-dream → motion inbox | core/memory（投递状态机与持久事实仍在 owner） | tests/core/memory/random-dream-delivery.test.ts、tests/core/memory/random-dream-late-settle.test.ts、tests/templates/messages/random-dream-notice-semantics.test.ts |
 | M10 | envelope.ts（`SYSTEM_MESSAGE_PREFIX` + 三种标准呈现） | Messaging formatter-registry 标准呈现 → 最终上下文文本 | foundation/messaging（presentation 选择与 origin 判定仍在 owner） | tests/core/runtime/runtime-format-inbox-via-registry.test.ts |
 | M11 | task-queue-overflow.ts（通知正文 + guidance 文本） | AsyncTaskSystem 队列溢出 → 本 daemon 自家 inbox + motion guidance | core/async-task-system / assembly composer | tests/core/async-task-system/overflow-invariants.test.ts、tests/assembly/guidance/composers.test.ts |
 
@@ -30,6 +30,7 @@
 - phase 1829：M03 是语义变更（通知正文携带身份与已提交处置、上游系统反馈归位），不是等价迁移。M03 从逐字节等价比较移交新语义验收（`SEMANTICALLY_REDESIGNED_GROUPS`）。
 - phase 1830：M06 同样移交新语义验收。
 - phase 1834：M07 语义治理（准确表达观察范围与读取消费副作用、历史重复只陈述事实不推断已读、退役自动 skip 建议链），整组移交新语义验收（`tests/templates/messages/outbox-summary-semantics.test.ts`）。M07 的 CLI 读取命令字面与 read-outbox 用途标签仍由 CLIProtocol 持有（M12 排除条款不变；M12 仅 outbox-labels case 随标签变更移交新语义）。
+- phase 1835：M09 语义治理（正文自含任务标识、输出块数、相对 motion 根的产物路径与按需读取用途；只陈述输出块已保存，不冒称契约数、洞见已验证或已自动整理为长期记忆），completion case 移交新语义验收（`SEMANTICALLY_REDESIGNED_CASES` + `tests/templates/messages/random-dream-notice-semantics.test.ts` 真实链），模板签名改为最小事实对象，正常/迟到/pending 重投共用同一正文构造。
 - `tests/templates/messages/inbox-text-equivalence.test.ts`：迁移前从旧实现真实入口捕获的 golden（`__fixtures__/inbox-text-golden.json`，生成器存 `development log/phase1828-logs/B-capture-golden.test.ts.txt`）与迁移后同入口输出逐字节比较。
 - `tests/foundation/arch/inbox-message-template-boundary.test.ts`：模板纯资源约束 + 迁移来源不再定义已迁文案且确实消费单源。
 

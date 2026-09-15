@@ -198,6 +198,14 @@ describe('random-dream late-settle (phase 170)', () => {
     expect(inboxContents[0]).toContain('from: "random-dream"');
     expect(inboxContents[0]).toContain('dreamId:');
 
+    // phase 1835: 正文自含任务标识/输出块数/产物路径与用途说明，不只检查 metadata
+    expect(inboxContents[0]).toContain('跨 claw 经验探索输出已保存。');
+    expect(inboxContents[0]).toContain(`任务：${taskId}`);
+    expect(inboxContents[0]).toContain('产物：1 个输出块');
+    expect(inboxContents[0]).toContain(`位置：motion 目录下的 memory/dream-outputs/${taskId}.txt`);
+    expect(inboxContents[0]).toContain('尚未自动整理为可检索的长期记忆');
+    expect(inboxContents[0]).not.toContain('contracts');
+
     // state 文件 entry drop
     const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
     expect(state.pendingLateSettle).toHaveLength(0);
@@ -379,6 +387,10 @@ describe('random-dream late-settle (phase 170)', () => {
     expect(inboxContents.length).toBeGreaterThanOrEqual(1);
     expect(inboxContents[0]).toContain('type: random_dream_completed');
     expect(inboxContents[0]).toContain('from: "random-dream"');
+    // phase 1835: 重入重投正文保持同一语义（任务/块数/路径）
+    expect(inboxContents[0]).toContain(`任务：${taskId}`);
+    expect(inboxContents[0]).toContain('产物：1 个输出块');
+    expect(inboxContents[0]).toContain(`位置：motion 目录下的 memory/dream-outputs/${taskId}.txt`);
 
     // state 最终 pending = []
     const stateFinal = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));

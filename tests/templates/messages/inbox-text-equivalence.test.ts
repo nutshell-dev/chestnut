@@ -64,6 +64,10 @@ const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06', 'M07']);
  * phase 1834: M12/outbox-labels 随 read-outbox 用途标签变更（CLIProtocol 持有该
  * 文案）移交新语义——旧两行含 skip 配对的 renderer 样本不作新行为依据；其余四个
  * M12 case 继续逐字节比较，M12 不作整组接管。
+ * phase 1835: M09/completion 移交新语义（正文自含任务/输出块数/产物路径/按需读取
+ * 用途，不再将块数称为 contracts），由本测试现场精确断言与
+ * tests/templates/messages/random-dream-notice-semantics.test.ts 真实链接管；
+ * M09 不作整组接管。
  */
 const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
   M04: new Set(['contract_events', 'contract_cancelled']),
@@ -73,6 +77,7 @@ const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
     'c-cancelled:cancelled',
     'observer:contract_cancelled',
   ]),
+  M09: new Set(['completion']),
   M12: new Set(['outbox-labels']),
 };
 
@@ -472,10 +477,23 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     } as never);
     const msg = notified.find(m => m.type === 'random_dream_completed');
     expect(msg).toBeTruthy();
-    expectCases('M09', [{
+    // phase 1835: M09/completion 移交新语义，现场断言精确正文+envelope（literal expected，不经模板生成）
+    const takenOver = expectCasesExceptRedesigned('M09', [{
       case: 'completion',
       body: String(msg?.body ?? ''),
       envelope: { type: msg?.type, from: msg?.source, priority: msg?.priority },
+    }]);
+    expect(takenOver).toEqual([{
+      case: 'completion',
+      body:
+        '跨 claw 经验探索输出已保存。\n'
+        + '任务：direct-1\n'
+        + '产物：1 个输出块\n'
+        + '位置：motion 目录下的 memory/dream-outputs/direct-1.txt\n'
+        + '\n'
+        + '这些内容来自对已归档契约的探索，尚未自动整理为可检索的长期记忆。\n'
+        + '需要参考这些经验时，可读取该文件，再判断哪些内容值得整理或采用。',
+      envelope: { type: 'random_dream_completed', from: 'random-dream', priority: 'normal' },
     }]);
     void MEMORY_AUDIT_EVENTS;
     void MOTION_CLAW_ID;

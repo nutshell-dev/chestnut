@@ -612,7 +612,11 @@ function toCompletionMessage(item: PendingRandomDreamNotification): InboxMessage
     type: 'random_dream_completed',
     source: 'random-dream',
     priority: 'normal',
-    body: dreamOutputsPersistedMessage(item.outputCount, item.outputPath),
+    body: dreamOutputsPersistedMessage({
+      taskId: item.taskId,
+      outputCount: item.outputCount,
+      outputPath: item.outputPath,
+    }),
     metadata: {
       dreamId: item.taskId,
       outputCount: String(item.outputCount),

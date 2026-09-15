@@ -8,6 +8,9 @@
  * - query error（EACCES）不发送
  * - stage save 失败不发送
  * - notify 成功但 clear save 崩溃后恢复：命中 done 只清 outbox
+ *
+ * phase 1835: 正常完成 / failed 重投 / pending 恢复补正文与持久事实断言
+ * （任务标识、输出块数、产物路径自含在正文；块数不称为 contracts）。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -22,6 +25,17 @@ import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 const mockWritePendingSubAgentTask = vi.fn();
+
+/** phase 1835: 新语义完整正文（与模板契约同一字面，不经模板生成 expected）。 */
+function expectedNoticeBody(taskId: string, outputCount: number, outputPath: string): string {
+  return '跨 claw 经验探索输出已保存。\n'
+    + `任务：${taskId}\n`
+    + `产物：${outputCount} 个输出块\n`
+    + `位置：motion 目录下的 ${outputPath}\n`
+    + '\n'
+    + '这些内容来自对已归档契约的探索，尚未自动整理为可检索的长期记忆。\n'
+    + '需要参考这些经验时，可读取该文件，再判断哪些内容值得整理或采用。';
+}
 
 function makeMockTaskSystem(): AsyncTaskSystem {
   return {
@@ -106,6 +120,14 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
     const msg = notifyMotion.mock.calls[0][0];
     expect(msg.type).toBe('random_dream_completed');
     expect(msg.extraFields.delivery_id).toBe(`random-dream:${taskId}`);
+
+    // phase 1835: 正文自含任务/块数/产物路径与用途说明；持久事实与正文一致
+    const outputPath = `memory/dream-outputs/${taskId}.txt`;
+    expect(msg.body).toBe(expectedNoticeBody(taskId, 1, outputPath));
+    expect(msg.body).not.toContain('contracts');
+    expect(msg.metadata).toMatchObject({ dreamId: taskId, outputCount: '1', path: outputPath });
+    const savedOutput = fsSync.readFileSync(path.join(motionDir, outputPath), 'utf-8');
+    expect(savedOutput).toBe('insight');
 
     // state cleared outbox
     const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
@@ -234,6 +256,10 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
     await runRandomDream({ ...makeOpts(chestnutRoot, motionDir, notifyMotion), subagentTimeoutMs: 1000, pulseIntervalMs: 10 });
 
     expect(notifyMotion).toHaveBeenCalledTimes(1);
+    // phase 1835: failed 重投按持久事实构造新语义正文（taskId/count/path 不丢）
+    const resent = notifyMotion.mock.calls[0][0];
+    expect(resent.body).toBe(expectedNoticeBody(taskId, 1, `memory/dream-outputs/${taskId}.txt`));
+    expect(resent.extraFields.delivery_id).toBe(`random-dream:${taskId}`);
     const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
     expect(state.pendingNotifications).toEqual([]);
   });
@@ -262,7 +288,10 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
 
     // late-settle sweep sends with delivery_id based on taskId
     await runRandomDream({ ...makeOpts(chestnutRoot, motionDir, notifyMotion), subagentTimeoutMs: 1000, pulseIntervalMs: 10 });
-    const lateSettleDeliveryId = notifyMotion.mock.calls[0][0].extraFields.delivery_id;
+    const lateSettleMsg = notifyMotion.mock.calls[0][0];
+    const lateSettleDeliveryId = lateSettleMsg.extraFields.delivery_id;
+    // phase 1835: 迟到路径正文同语义（任务/块数/持久产物路径）
+    expect(lateSettleMsg.body).toBe(expectedNoticeBody(taskId, 1, `memory/dream-outputs/${taskId}.txt`));
 
     // reset and run direct completion with same taskId
     notifyMotion.mockClear();
@@ -272,9 +301,12 @@ describe('random-dream durable delivery (phase 1159 Step D)', () => {
       'utf-8'
     );
     await runRandomDream({ ...makeOpts(chestnutRoot, motionDir, notifyMotion), subagentTimeoutMs: 1000, pulseIntervalMs: 10 });
-    const directDeliveryId = notifyMotion.mock.calls[0][0].extraFields.delivery_id;
+    const directMsg = notifyMotion.mock.calls[0][0];
+    const directDeliveryId = directMsg.extraFields.delivery_id;
 
     expect(directDeliveryId).toBe(lateSettleDeliveryId);
     expect(directDeliveryId).toBe(`random-dream:${taskId}`);
+    // 正常与迟到路径同一正文语义
+    expect(directMsg.body).toBe(lateSettleMsg.body);
   });
 });
