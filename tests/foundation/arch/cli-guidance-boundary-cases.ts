@@ -35,8 +35,10 @@ export const CLI_GUIDANCE_BINDINGS: readonly CliGuidanceBindingBoundaryCase[] = 
     ident: 'clawOutboxSummaryGuidanceBinding',
     decoder: 'decodeOutboxSummaryGuidance',
     ownerCodec: '../../../core/claw-topology/index.js',
-    prose: '查看具体内容',
-    forbiddenFields: ['state.hash', 'state.counts', 'state.totalClaws'],
+    // phase 1834: prose 覆盖新旧 read-outbox 前缀（均不得出现在 binding）；
+    // counts 是逐 claw affordance 的必要事实（允许消费），totals/hash 不参与。
+    prose: '查看具体内容|读取并消费',
+    forbiddenFields: ['state.hash', 'state.totalMsgs', 'state.totalClaws'],
   },
   {
     file: 'contract-events.ts',

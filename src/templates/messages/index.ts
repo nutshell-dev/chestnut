@@ -77,6 +77,7 @@ export { contractAuditDriftLine, contractAuditFeedbackBody } from './contract-au
 export {
   outboxSummaryHead,
   outboxSummaryClawLine,
+  outboxSummaryScopeHint,
   outboxSummaryRepeatHint,
   outboxSummaryIncompleteWarning,
   outboxSummaryBody,

@@ -98,7 +98,8 @@ const LABEL_PREFIX: Record<CliGuidanceLabel, string> = {
   'inspect-current-work': 'To inspect what the claw was doing: ',
   'inspect-stuck': 'To inspect what the agent is stuck on: ',
   inspect: 'To inspect: ',
-  'read-outbox': '查看具体内容： ',
+  // phase 1834: 用途标签说明读取即消费（归档）、limit 是上限而非快照绑定。
+  'read-outbox': '读取并消费（最多 --limit 指定的条数）：',
   // phase 1832: 查询用途标签——trace 是相关执行记录（不保证每条仅归属该契约），
   // show 是契约与进度摘要（evidence 预览截断 300 字）；同一查询入口用途说明，
   // 完成/取消通知共用，不改变业务或 refs 数量。

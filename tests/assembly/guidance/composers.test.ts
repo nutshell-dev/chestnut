@@ -66,11 +66,12 @@ describe('claw-outbox-summary typed binding (phase 1265 Step A)', () => {
    * phase 1476: claw-outbox-summary composer unit test (γ2 first real composer).
    * phase 1259 Step B: composer 只消费 ClawTopology owner codec typed state —
    *   v1/legacy 完整 production fixture 合法；NaN/0/inconsistent/malformed wire 由
-   *   decoder 抛 typed error（不再静默 fallback `--limit 10`）；
-   *   `<claw-id>` placeholder 保留为当前显式 presentation decision。
-   * phase 1265 Step A: composer 原子迁为 Assembly typed binding —
-   *   Assembly 只把 totalMsgs 映射成单个 placeholder outbox document；CLIProtocol
-   *   发起注册并渲染。最终文本、placeholder、limit 与 typed decode failure 全部不变。
+   *   decoder 抛 typed error（不再静默 fallback `--limit 10`）。
+   * phase 1265 Step A: composer 原子迁为 Assembly typed binding；CLIProtocol
+   *   发起注册并渲染。
+   * phase 1834: 单占位 target + 总量 limit 退役 —— binding 逐 claw 产真实 target
+   *   与各自 limit（counts 是 owner 持久化且 decoder 校验的观察事实），label 用途
+   *   说明读取并消费；typed decode failure 不变。
    */
 
   /** 合法 v1 wire（production shape：from 固定 system）。 */
@@ -105,10 +106,12 @@ describe('claw-outbox-summary typed binding (phase 1265 Step A)', () => {
     return composer(env('claw_outbox_summary', meta, from));
   }
 
-  const OUTBOX_EXACT = '查看具体内容： chestnut claw <claw-id> outbox --limit 4';
+  const OUTBOX_EXACT =
+    '读取并消费（最多 --limit 指定的条数）：chestnut claw clawA outbox --limit 3\n' +
+    '读取并消费（最多 --limit 指定的条数）：chestnut claw clawB outbox --limit 1';
 
-  describe('phase 1476 + phase 1259 + phase 1265: claw-outbox-summary typed binding', () => {
-    it('v1 合法 → exact placeholder CLI guidance（真实 limit）', () => {
+  describe('phase 1476 + phase 1259 + phase 1265 + phase 1834: claw-outbox-summary typed binding', () => {
+    it('v1 合法 → 逐 claw 具体读取指令（各自真实 limit）', () => {
       expect(composeOutboxSummary(v1SummaryMeta(), 'system')).toEqual({ text: OUTBOX_EXACT });
     });
 
@@ -116,14 +119,14 @@ describe('claw-outbox-summary typed binding (phase 1265 Step A)', () => {
       expect(composeOutboxSummary(legacySummaryMeta(), 'system')).toEqual({ text: OUTBOX_EXACT });
     });
 
-    it('binding 只产 typed document：placeholder target + 真实 limit，不消费 hash/counts/totalClaws', () => {
+    it('binding 只产 typed document：逐 claw 真实 target + 各自 limit，不消费 hash/totals', () => {
       expect(clawOutboxSummaryGuidanceBinding.type).toBe('claw_outbox_summary');
       const state = clawOutboxSummaryGuidanceBinding.decode(env('claw_outbox_summary', v1SummaryMeta(), 'system'));
       expect(clawOutboxSummaryGuidanceBinding.toDocument(state)).toEqual({
-        lines: [{
-          label: 'read-outbox',
-          action: { kind: 'claw.outbox', target: { kind: 'placeholder', name: 'claw-id' }, limit: 4 },
-        }],
+        lines: [
+          { label: 'read-outbox', action: { kind: 'claw.outbox', target: { kind: 'claw', id: 'clawA' }, limit: 3 } },
+          { label: 'read-outbox', action: { kind: 'claw.outbox', target: { kind: 'claw', id: 'clawB' }, limit: 1 } },
+        ],
       });
     });
 

@@ -10,8 +10,9 @@
  *  - re-tick after done file aged > 24h → write new (mtime window expired)
  *  - state change (new msg) → write new summary, old stays pending
  *  - all unread consumed + new tick → no write, no audit, old summary stays pending
- *  - phase 1749: repeat push (aged > 24h same hash) → body carries outbox-skip guidance
- *  - phase 1749: first push / new-hash push → body has no guidance
+ *  - phase 1834: repeat push (aged > 24h same hash) → body carries historical-repeat notice
+ *    (fact statement only — no skip guidance, no "already read" inference)
+ *  - phase 1834: first push / new-hash push → body has no historical-repeat notice
  */
 
 import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
@@ -33,14 +34,8 @@ import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
-import { renderCliGuidanceAction } from '../../../src/cli-protocol/index.js';
 
-/**
- * phase 1757 Step B: 真实渲染器注入 core 的中性 port —— 测试与装配层同款接线
- * （最终 invocation 归 CLIProtocol；core 自身零 cli-protocol import）。
- */
-const testRenderOutboxSkipHint = (clawId: string): string =>
-  renderCliGuidanceAction({ kind: 'claw.outbox-skip', target: { kind: 'claw', id: clawId } });
+const REPEAT_NOTICE = '这些消息曾出现在历史未读提醒中；重复提醒不表示你已读取过消息正文。';
 
 function makeMsg(content: string, ts: string) {
   return {
@@ -138,7 +133,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     expect(await listSummaries(root, 'pending', fs)).toEqual([]);
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
@@ -154,7 +148,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const summaries = await listSummaries(root, 'pending', fs);
     expect(summaries.length).toBe(1);
@@ -197,7 +190,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
     events.length = 0;
@@ -208,7 +200,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     expect((await listSummaries(root, 'pending', fs))[0]).toBe(firstSummary);
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
@@ -224,7 +215,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const drained = await inboxReader.drainAndDeliver();
     expect(drained.handles.length).toBe(1);
@@ -238,7 +228,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     expect(await listSummaries(root, 'pending', fs)).toEqual([]);
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
@@ -254,7 +243,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const drained = await inboxReader.drainAndDeliver();
     await inboxReader.ack(drained.handles[0]);
@@ -270,7 +258,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
   });
@@ -285,7 +272,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const drained = await inboxReader.drainAndDeliver();
     await inboxReader.ack(drained.handles[0]);
@@ -301,7 +287,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     expect((await listSummaries(root, 'pending', fs)).length).toBe(1);
     expect(events.some(e => e[0] === 'cron_outbox_summary_written')).toBe(true);
@@ -317,7 +302,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
 
@@ -330,7 +314,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const summaries = await listSummaries(root, 'pending', fs);
     expect(summaries.length).toBe(2);
@@ -348,7 +331,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const summary = (await listSummaries(root, 'pending', fs))[0];
     await fsAsync.rm(path.join(root, 'claws/clawA/outbox/pending/m1.md'));
@@ -361,7 +343,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     expect(await listSummaries(root, 'pending', fs)).toContain(summary);
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
@@ -394,7 +375,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         inboxWriter,
         outboxReader: failingReader,
         audit,
-        renderOutboxSkipHint: testRenderOutboxSkipHint,
       }),
     ).rejects.toThrow(/incomplete/i);
 
@@ -422,7 +402,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         inboxWriter,
         outboxReader: failingReader,
         audit,
-        renderOutboxSkipHint: testRenderOutboxSkipHint,
       }),
     ).rejects.toThrow(/incomplete/i);
 
@@ -445,7 +424,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         inboxWriter,
         outboxReader,
         audit,
-        renderOutboxSkipHint: testRenderOutboxSkipHint,
         signal: controller.signal,
       }),
     ).rejects.toThrow(/aborted/i);
@@ -464,7 +442,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     expect(await listSummaries(root, 'pending', fs)).toHaveLength(1);
 
@@ -491,7 +468,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
         inboxWriter,
         outboxReader: interceptReader,
         audit,
-        renderOutboxSkipHint: testRenderOutboxSkipHint,
         signal: controller.signal,
       }),
     ).rejects.toThrow(/aborted/i);
@@ -500,7 +476,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     expect(await listSummaries(root, 'pending', fs)).toHaveLength(1);
   });
 
-  it('phase 1749: repeat after done window expiry → body carries outbox-skip guidance', async () => {
+  it('phase 1834: repeat after done window expiry → body carries historical-repeat notice, no skip guidance', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
@@ -512,7 +488,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const drained = await inboxReader.drainAndDeliver();
     expect(drained.handles.length).toBe(1);
@@ -529,7 +504,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const summaries = await listSummaries(root, 'pending', fs);
     expect(summaries).toHaveLength(1);
@@ -537,11 +511,14 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     const summaryContent = await fsAsync.readFile(path.join(root, 'motion/inbox/pending', summaries[0]), 'utf-8');
     const body = decodeInbox(summaryContent).content;
-    expect(body).toContain('〔提示〕以上未读消息与此前推送完全重复');
-    expect(body).toContain('chestnut claw clawA outbox-skip --all');
-    expect(body).toContain('chestnut claw clawB outbox-skip --all');
-    // 逐 claw 命令按 claw id localeCompare 排序（与 body 行列表同序）
-    expect(body.indexOf('chestnut claw clawA')).toBeLessThan(body.indexOf('chestnut claw clawB'));
+    // 历史重复只陈述「曾出现」事实；不推断已读、不附 skip 建议、不冒称与上一条相同
+    expect(body).toContain(REPEAT_NOTICE);
+    expect(body).not.toContain('outbox-skip');
+    expect(body).not.toContain('〔提示〕');
+    expect(body).not.toContain('与上一条');
+    expect(body).not.toContain('已看过');
+    // 范围/消费说明始终在正文中（重复提醒同首次）
+    expect(body).toContain('预览仅展示各 claw 最后一条消息的首行片段，不代表全部未读内容。');
     // hash 不变：extraMeta 与 body 解耦，dedup 语义不受影响
     const decoded = decodeInbox(summaryContent);
     expect(decoded.metadata).toEqual({
@@ -553,7 +530,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     });
   });
 
-  it('phase 1749: first push → body has no skip guidance', async () => {
+  it('phase 1834: first push → body has scope hint but no historical-repeat notice', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
@@ -563,16 +540,17 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const summaries = await listSummaries(root, 'pending', fs);
     expect(summaries).toHaveLength(1);
     const body = decodeInbox(await fsAsync.readFile(path.join(root, 'motion/inbox/pending', summaries[0]), 'utf-8')).content;
+    expect(body).toContain('预览仅展示各 claw 最后一条消息的首行片段，不代表全部未读内容。');
+    expect(body).not.toContain(REPEAT_NOTICE);
     expect(body).not.toContain('〔提示〕');
     expect(body).not.toContain('outbox-skip');
   });
 
-  it('phase 1749: new-hash push (state change, old summary pending) → new body has no guidance', async () => {
+  it('phase 1834: new-hash push (state change, old summary pending) → new body has no historical-repeat notice', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
@@ -582,7 +560,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
 
@@ -595,12 +572,12 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       inboxWriter,
       outboxReader,
       audit,
-      renderOutboxSkipHint: testRenderOutboxSkipHint,
     });
     const summaries = await listSummaries(root, 'pending', fs);
     expect(summaries).toHaveLength(2);
     const newSummary = summaries.find(s => s !== firstSummary)!;
     const body = decodeInbox(await fsAsync.readFile(path.join(root, 'motion/inbox/pending', newSummary), 'utf-8')).content;
+    expect(body).not.toContain(REPEAT_NOTICE);
     expect(body).not.toContain('〔提示〕');
     expect(body).not.toContain('outbox-skip');
   });

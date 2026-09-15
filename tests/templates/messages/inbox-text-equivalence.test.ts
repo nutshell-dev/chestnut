@@ -6,7 +6,7 @@
  * 真实发送/呈现入口生成一次后固化；本测试用同一批入口与参数重跑，断言 body 与
  * envelope 逐字节相同。禁止用新模板反向生成 expected，禁止更新 fixture 掩盖变化。
  */
-import { describe, it, expect, afterAll, vi } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import * as fsNative from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,7 +19,6 @@ import { createContractNotificationAdapter } from '../../../src/assembly/contrac
 import { scanArchivedContracts } from '../../../src/core/contract/jobs/event-collector.js';
 import { lifecycleIntentPath } from '../../../src/core/contract/lifecycle-intent.js';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
-import { writeNewSummary, SUMMARY_INBOX_TYPE } from '../../../src/core/claw-topology/jobs/outbox-summary/write.js';
 import { createHeartbeatInboxFormatter } from '../../../src/core/heartbeat/inbox-formatter.js';
 import { runRandomDream } from '../../../src/core/memory/random-dream.js';
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
@@ -35,12 +34,6 @@ import type { CliGuidanceDocument } from '../../../src/cli-protocol/guidance.js'
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
-// M07 等价比较：incomplete 状态在 owner codec 处 fail-closed（写盘前 throw），
-// 迁移前后都只 stub codec（非消息文本）以取到同一入口的 body 分支。
-vi.mock('../../../src/core/claw-topology/jobs/outbox-summary/guidance-state.js', () => ({
-  encodeOutboxSummaryGuidance: () => ({}),
-}));
-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = path.join(HERE, '__fixtures__', 'inbox-text-golden.json');
 const fixture = JSON.parse(fsNative.readFileSync(FIXTURE_PATH, 'utf8')) as {
@@ -51,12 +44,15 @@ const asserted = new Set<string>();
 /**
  * phase 1829: M03 从逐字节迁移等价移交新的语义验收（通知正文携带身份与已提交处置、
  * 上游系统反馈归位模板）。phase 1830: M06 同样移交新语义验收（审阅反馈正文自含身份/
- * 来源/依据/可选建议，无依据结果不投递）。本 set 中的组保留 golden 历史数据但不逐字节
+ * 来源/依据/可选建议，无依据结果不投递）。phase 1834: M07 语义治理（观察范围与读取
+ * 消费副作用说明、历史重复只陈述事实、退役自动 skip 建议链），整组移交
+ * tests/templates/messages/outbox-summary-semantics.test.ts 的真实生产链组合验收。
+ * 本 set 中的组保留 golden 历史数据但不逐字节
  * 比较；新语义由 tests/core/contract/verification-notice-context.test.ts、
  * tests/core/contract/contract-audit-feedback-context.test.ts 等逐分支接管。
  * 完整性 = 保留比较的组 + 新语义接管的组 = 全部 fixture 组。
  */
-const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06']);
+const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06', 'M07']);
 
 /**
  * phase 1832: M04/M05 的契约完成 case 移交新语义验收（case 级接管，非整组豁免）。
@@ -65,6 +61,9 @@ const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06']);
  * tests/core/contract/contract-completed-message-context.test.ts /
  * contract-cancelled-message-context.test.ts 真实两路测试覆盖。
  * M05/c-corrupted:corrupted、c-failed:failed 继续逐字节比较。
+ * phase 1834: M12/outbox-labels 随 read-outbox 用途标签变更（CLIProtocol 持有该
+ * 文案）移交新语义——旧两行含 skip 配对的 renderer 样本不作新行为依据；其余四个
+ * M12 case 继续逐字节比较，M12 不作整组接管。
  */
 const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
   M04: new Set(['contract_events', 'contract_cancelled']),
@@ -74,6 +73,7 @@ const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
     'c-cancelled:cancelled',
     'observer:contract_cancelled',
   ]),
+  M12: new Set(['outbox-labels']),
 };
 
 /** 已逐字节比较过的 case（`${group}/${case}`），供完整性核对。 */
@@ -405,37 +405,13 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     expect(asserted.has('M06')).toBe(false);
   });
 
-  it('M07 outbox summary bodies', async () => {
-    const written: Array<Record<string, unknown>> = [];
-    const writer = { write: async (msg: Record<string, unknown>) => { written.push(msg); } } as never;
-    const state = {
-      counts: { 'claw-a': 2, 'claw-b': 1 },
-      total_claws: 2,
-      total_msgs: 3,
-      file_set: ['claw-a:a.md', 'claw-a:b.md', 'claw-b:c.md'],
-      hash: 'abcdef123456',
-      previews: { 'claw-a': '第一行 "引号" 预览', 'claw-b': '' },
-      failed_claws: [],
-      incomplete: false,
-    };
-    const deps = {
-      inboxWriter: writer,
-      audit: auditStub(),
-      renderOutboxSkipHint: (id: string) => `chestnut claw ${id} outbox-skip --all`,
-      now: () => Date.parse('2026-09-11T00:00:00.000Z'),
-    };
-    await writeNewSummary(deps as never, state as never, { isRepeat: false });
-    await writeNewSummary(deps as never, state as never, { isRepeat: true });
-    await writeNewSummary(deps as never, {
-      ...state, previews: { 'claw-b': '只有 b 的预览' }, failed_claws: ['claw-c', 'claw-d'], incomplete: true,
-    } as never, { isRepeat: true });
-    expectCases('M07', written.map(msg => ({
-      case: `type=${String(msg.type)}`,
-      body: String(msg.content),
-      envelope: { type: msg.type, from: msg.from, to: msg.to, priority: msg.priority, extraMeta: msg.extraMeta },
-    })));
-    expect(written.length).toBe(3);
-    expect(String(written[0].type)).toBe(SUMMARY_INBOX_TYPE);
+  it('M07 已移交 phase 1834 语义验收，保留 golden 历史数据但不逐字节比较', () => {
+    // 反向完整性：M07 仍在 fixture（历史数据保留，含旧 skip 提示正文），且显式登记
+    // 为语义重设计组；新语义由 outbox-summary-semantics.test.ts 真实生产链接管。
+    expect(fixture.cases.M07).toBeDefined();
+    expect(fixture.cases.M07.length).toBeGreaterThanOrEqual(1);
+    expect(SEMANTICALLY_REDESIGNED_GROUPS.has('M07')).toBe(true);
+    expect(asserted.has('M07')).toBe(false);
   });
 
   it('M08 heartbeat formatter outputs', async () => {
@@ -584,10 +560,12 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       },
       {
         case: 'outbox-labels',
+        // phase 1834: read-outbox 用途标签变更后只保留真实读取语义的一行；
+        // 旧样本中 read-outbox 与 claw.outbox-skip 的配对是 renderer 样本而非实际
+        // M07 binding 输出，不机械改写为新前缀（skip 动作覆盖在 cli-protocol 与 CLI 测试）。
         doc: {
           lines: [
             { label: 'read-outbox', action: { kind: 'claw.outbox', target: { kind: 'claw', id: 'worker-1' }, limit: 20 } },
-            { label: 'read-outbox', action: { kind: 'claw.outbox-skip', target: { kind: 'claw', id: 'worker-1' } } },
           ],
         },
       },
@@ -611,7 +589,12 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       },
       { case: 'empty-no-truncation', doc: { lines: [] } },
     ];
-    expectCases('M12', docs.map(({ case: c, doc }) => ({ case: c, body: renderCliGuidanceDocument(doc) })));
+    // phase 1834: outbox-labels 移交新语义（read-outbox 标签变更），其余 case 逐字节比较
+    const takenOver = expectCasesExceptRedesigned('M12', docs.map(({ case: c, doc }) => ({ case: c, body: renderCliGuidanceDocument(doc) })));
+    expect(takenOver).toEqual([{
+      case: 'outbox-labels',
+      body: '读取并消费（最多 --limit 指定的条数）：chestnut claw worker-1 outbox --limit 20',
+    }]);
     expect(fixture.cases.M12.length).toBe(5);
   });
 });

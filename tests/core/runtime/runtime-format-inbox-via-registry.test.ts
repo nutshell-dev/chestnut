@@ -175,7 +175,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
   });
 
 
-  it('phase 1259 Step B + phase 1265 Step A: claw_outbox_summary 真实 typed binding + 合法 v1 wire → guidance append（真实 limit）', async () => {
+  it('phase 1259 Step B + phase 1265 Step A + phase 1834: claw_outbox_summary 真实 typed binding + 合法 v1 wire → 逐 claw guidance append（各自真实 limit）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createInboxMessageTypeRegistry();
     registry.register({ owner: 'runtime-test', type: 'claw_outbox_summary', rendering: { kind: 'standard', presentation: 'system' } });
@@ -190,7 +190,7 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const result = await runtime.testFormatInboxMessage(
       'claw_outbox_summary',
       'system',
-      '[system] outbox 未读：共 2 个 claw 4 条消息',
+      '未读消息提醒：扫描发现 2 个 claw 共 4 条未读消息。',
       undefined,
       {
         guidance_schema_version: '1',
@@ -201,9 +201,11 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
       },
     );
 
-    expect(result).toMatch(/^\[system message\d*\] \[system\] outbox 未读：共 2 个 claw 4 条消息$/m);
-    expect(result).toContain('chestnut claw <claw-id> outbox');
-    expect(result).toContain('--limit 4');
+    expect(result).toMatch(/^\[system message\d*\] 未读消息提醒：扫描发现 2 个 claw 共 4 条未读消息。$/m);
+    // phase 1834: 最终正文含每个 claw 各自的真实读取指令（无单占位 <claw-id>）
+    expect(result).toContain('读取并消费（最多 --limit 指定的条数）：chestnut claw clawA outbox --limit 3');
+    expect(result).toContain('读取并消费（最多 --limit 指定的条数）：chestnut claw clawB outbox --limit 1');
+    expect(result).not.toContain('<claw-id>');
     expect(audit.write).not.toHaveBeenCalled();
   });
 
@@ -223,15 +225,15 @@ describe('phase 1243 Runtime.formatInboxMessage via declaration registry', () =>
     const result = await runtime.testFormatInboxMessage(
       'claw_outbox_summary',
       'system',
-      '[system] outbox 未读：共 1 个 claw 1 条消息',
+      '未读消息提醒：扫描发现 1 个 claw 共 1 条未读消息。',
       undefined,
       { total_msgs: 'NaN', counts: '{}' },  // malformed wire：缺 owned fields + 非法 total
     );
 
     // malformed wire 不阻断 body 投递
-    expect(result).toMatch(/^\[system message\d*\] \[system\] outbox 未读：共 1 个 claw 1 条消息$/);
+    expect(result).toMatch(/^\[system message\d*\] 未读消息提醒：扫描发现 1 个 claw 共 1 条未读消息。$/);
     // formatted result 不含任何 fallback guidance（NaN/0 不再静默变 --limit 10）
-    expect(result).not.toContain('查看具体内容');
+    expect(result).not.toContain('读取并消费');
     expect(result).not.toContain('--limit 10');
     // audit 含 type 与安全 reason（typed decode error / 不回显 metadata）
     expect(audit.write).toHaveBeenCalledWith(

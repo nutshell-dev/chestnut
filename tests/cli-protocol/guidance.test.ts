@@ -173,13 +173,13 @@ describe('phase 1263 Step A: renderCliGuidanceDocument label/subject presentatio
     );
   });
 
-  it('outbox read-outbox label exact（中文 presentation + placeholder）', () => {
+  it('outbox read-outbox label exact（phase 1834: 读取并消费用途说明 + placeholder）', () => {
     const doc: CliGuidanceDocument = {
       lines: [
         { label: 'read-outbox', action: { kind: 'claw.outbox', target: placeholder, limit: 4 } },
       ],
     };
-    expect(renderCliGuidanceDocument(doc)).toBe('查看具体内容： chestnut claw <claw-id> outbox --limit 4');
+    expect(renderCliGuidanceDocument(doc)).toBe('读取并消费（最多 --limit 指定的条数）：chestnut claw <claw-id> outbox --limit 4');
   });
 
   it('trace-contract / show-contract 查询用途标签前缀（phase 1832）', () => {
@@ -397,7 +397,7 @@ describe('phase 1263 Step B: registerCliGuidance', () => {
     expect(composers.get('fake_a')!(fakeInput('fake_a')))
       .toEqual({ text: 'To inspect what the claw was doing: chestnut claw clawA steps' });
     expect(composers.get('fake_b')!(fakeInput('fake_b')))
-      .toEqual({ text: '查看具体内容： chestnut claw clawB outbox --limit 2' });
+      .toEqual({ text: '读取并消费（最多 --limit 指定的条数）：chestnut claw clawB outbox --limit 2' });
   });
 
   it('toDocument null = 合法显式无 affordance → composer 返 null（不经 renderer）', () => {

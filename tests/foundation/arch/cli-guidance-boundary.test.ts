@@ -101,9 +101,15 @@ describe('phase 1263 Step C + phase 1264 Step A + phase 1265/1266/1267 Step A: c
     expect(cancelledRe.test("'cancellations、显示前 10' + cmd")).toBe(true);
     expect(outboxRe.test('renderCliGuidanceDocument(doc)')).toBe(true);
     expect(outboxRe.test('renderClawInvocation(id, cmd)')).toBe(true);
-    expect(outboxRe.test('state.counts')).toBe(true);
+    // phase 1834: counts 是逐 claw affordance 的必要事实 → 允许；totals/hash 仍禁止
+    expect(outboxRe.test('state.counts')).toBe(false);
+    expect(outboxRe.test('Object.entries(state.counts)')).toBe(false);
+    expect(outboxRe.test('state.totalMsgs')).toBe(true);
     expect(outboxRe.test('state.totalClaws')).toBe(true);
     expect(outboxRe.test('state.hash')).toBe(true);
+    // 新旧 read-outbox 中文前缀均不得写进 binding
+    expect(outboxRe.test('查看具体内容')).toBe(true);
+    expect(outboxRe.test('读取并消费')).toBe(true);
     expect(outboxRe.test("import { decodeOutboxSummaryGuidance } from '../../../core/claw-topology/jobs/outbox-summary/guidance-state.js';")).toBe(false);
     expect(eventsRe.test('(12 contract events、显示前 10)')).toBe(true);
     expect(cancelledRe.test('(12 cancellations、显示前 10)')).toBe(true);

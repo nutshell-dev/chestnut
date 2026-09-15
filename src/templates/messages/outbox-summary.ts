@@ -1,24 +1,39 @@
 /**
- * M07 inbox 文案：claw outbox 未读汇总（head/逐 claw 行/重复提示/扫描失败警告）。
+ * M07 inbox 文案：claw outbox 未读汇总（head/逐 claw 行/范围说明/历史重复提示/扫描失败警告）。
  * 触发/接收者：ClawTopology outbox-summary job → motion inbox（claw_outbox_summary，normal）。
- * 原 owner：core/claw-topology（排序、重复判断、失败集合、skip 指引渲染仍归 owner）。
+ * 原 owner：core/claw-topology（排序、重复判断、失败集合仍归 owner）。
+ * phase 1834：语义治理 —— 说明观察范围与读取消费副作用；不再从重复推断已读、
+ * 不再附 outbox-skip 建议（CLI 读取命令字面与用途标签仍归 CLIProtocol，不入本目录）。
  */
 
 export function outboxSummaryHead(totalClaws: number, totalMsgs: number): string {
-  return `[system] outbox 未读：共 ${totalClaws} 个 claw ${totalMsgs} 条消息`;
+  return `未读消息提醒：扫描发现 ${totalClaws} 个 claw 共 ${totalMsgs} 条未读消息。`;
 }
 
 /** 逐 claw 行：预览缺省显示 `(无预览)`。 */
 export function outboxSummaryClawLine(clawId: string, count: number, preview: string | undefined): string {
-  return `- ${clawId} (${count}): 「${preview ?? '(无预览)'}」`;
+  return `- ${clawId}：${count} 条；最后一条预览：「${preview ?? '(无预览)'}」`;
 }
 
-/** 重复推送提示块（含已渲染命令行的两空格缩进）。 */
-export function outboxSummaryRepeatHint(skipHintLines: readonly string[]): string[] {
+/**
+ * phase 1834：预览范围与读取消费副作用说明（两条事实陈述，不绑定扫描时集合、
+ * 不冒称当前瞬间完整状态）。
+ */
+export function outboxSummaryScopeHint(): string {
+  return [
+    '预览仅展示各 claw 最后一条消息的首行片段，不代表全部未读内容。',
+    '需要了解消息内容时，可使用下方读取命令。命令会读取并消费消息，消费后归档；--limit 是最多读取条数，不绑定本次扫描的消息集合。消息可能已被消费或有新消息到达，以实际读取结果为准。',
+  ].join('\n');
+}
+
+/**
+ * phase 1834：历史重复提示块（前导空行）。只陈述「曾出现在历史提醒中」这一事实；
+ * 不推断已读、不写「与上一条完全相同」、不附 skip 建议。
+ */
+export function outboxSummaryRepeatHint(): string[] {
   return [
     '',
-    '〔提示〕以上未读消息与此前推送完全重复。若你已确认这些消息无需处理，可执行以下命令跳过对应 claw 的未读消息（归档到 done/、不再提醒）：',
-    ...skipHintLines.map((line) => `  ${line}`),
+    '这些消息曾出现在历史未读提醒中；重复提醒不表示你已读取过消息正文。',
   ];
 }
 

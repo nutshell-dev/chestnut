@@ -19,7 +19,7 @@
 | M04 | contract-notification.ts（`contractNotificationBody`） | Assembly 契约通知 adapter → 本 daemon 自家 inbox | assembly（序列化与字段顺序仍归 adapter） | tests/assembly/contract-notification-adapter*.test.ts |
 | M05 | contract-events.ts（标题/标题行/子任务/证据行/末次失败行 + `contractEventsBody` 双换行组合） | event-collector / contract-observer → motion inbox | core/contract（schema 解析、状态分支、hasFailure 仍在 owner） | tests/core/contract/jobs/event-collector-format-contract-event.test.ts、tests/core/contract/contract-observer.test.ts |
 | M06 | contract-audit.ts（drift 行 + 反馈体） | ContractAuditor drift 检出 → 契约所属 claw | core/contract（限流/去重/模型正文仍在 owner） | tests/core/contract/contract-auditor.test.ts |
-| M07 | outbox-summary.ts（head/逐 claw 行/重复提示/失败警告） | ClawTopology outbox-summary job → motion inbox | core/claw-topology（排序、重复判断、skip 指引渲染仍在 owner） | tests/core/claw-topology/jobs/*outbox-summary* |
+| M07 | outbox-summary.ts（head/逐 claw 行/范围说明/历史重复提示/失败警告） | ClawTopology outbox-summary job → motion inbox | core/claw-topology（排序、重复判断、失败集合仍在 owner） | tests/core/outbox-summary/*、tests/templates/messages/outbox-summary-semantics.test.ts |
 | M08 | heartbeat.ts（base 行 + checklist 组合） | Heartbeat 定时 → 本 claw inbox | core/heartbeat（读文件与错误分支仍在 owner） | tests/core/heartbeat.test.ts |
 | M09 | memory.ts（`dreamOutputsPersistedMessage`） | Memory random-dream → motion inbox | core/memory（投递状态机仍在 owner） | tests/core/memory/random-dream-delivery.test.ts |
 | M10 | envelope.ts（`SYSTEM_MESSAGE_PREFIX` + 三种标准呈现） | Messaging formatter-registry 标准呈现 → 最终上下文文本 | foundation/messaging（presentation 选择与 origin 判定仍在 owner） | tests/core/runtime/runtime-format-inbox-via-registry.test.ts |
@@ -27,7 +27,9 @@
 
 ## 等价与反向证据
 
-- phase 1829：M03 是语义变更（通知正文携带身份与已提交处置、上游系统反馈归位），不是等价迁移。M03 从逐字节等价比较移交新语义验收（`SEMANTICALLY_REDESIGNED_GROUPS`），其余 11 组仍逐字节比对。
+- phase 1829：M03 是语义变更（通知正文携带身份与已提交处置、上游系统反馈归位），不是等价迁移。M03 从逐字节等价比较移交新语义验收（`SEMANTICALLY_REDESIGNED_GROUPS`）。
+- phase 1830：M06 同样移交新语义验收。
+- phase 1834：M07 语义治理（准确表达观察范围与读取消费副作用、历史重复只陈述事实不推断已读、退役自动 skip 建议链），整组移交新语义验收（`tests/templates/messages/outbox-summary-semantics.test.ts`）。M07 的 CLI 读取命令字面与 read-outbox 用途标签仍由 CLIProtocol 持有（M12 排除条款不变；M12 仅 outbox-labels case 随标签变更移交新语义）。
 - `tests/templates/messages/inbox-text-equivalence.test.ts`：迁移前从旧实现真实入口捕获的 golden（`__fixtures__/inbox-text-golden.json`，生成器存 `development log/phase1828-logs/B-capture-golden.test.ts.txt`）与迁移后同入口输出逐字节比较。
 - `tests/foundation/arch/inbox-message-template-boundary.test.ts`：模板纯资源约束 + 迁移来源不再定义已迁文案且确实消费单源。
 
