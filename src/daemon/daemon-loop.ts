@@ -20,8 +20,8 @@ import { createInterruptWatcher } from './interrupt-watcher.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import type { Watcher, WatcherFactory } from '../foundation/file-watcher/index.js';
 import type { Heartbeat } from '../core/heartbeat/index.js';
-import { notifyInbox } from '../foundation/messaging/index.js';
-import { hasPendingStartupCheck, shouldEmitStartupCheck } from './startup-check.js';
+import { notifyInbox, createInboxReader } from '../foundation/messaging/index.js';
+import { shouldEmitStartupCheck } from './startup-check.js';
 import { startupCheckMessage } from '../templates/messages/index.js';
 import {
   INTERRUPT_POLL_MAX_ERRORS,
@@ -54,24 +54,52 @@ export interface StartupCheckDeliveryDeps {
 }
 
 /**
- * phase 1794: startup check 两阶段提交（eligible → timestamp_committed → inbox_committed）。
+ * phase 1838: startup check 投递确认——以本次消息的真实记录为准。
  *
+ * - 关联身份 = 已成功写入的 `startup_check_ts`（`String(tsCommittedMs)`），经 Messaging
+ *   `createInboxReader(...).findByExtraMeta('startup_check_ts', ...)` 扫
+ *   pending/inflight/done（Infinity 窗口）确认；不猜文件名、不读 envelope id。
  * - timestamp 已提交但 notify 未确认时保留 tsCommittedMs：下 tick 只重试 notify，
  *   不重写 timestamp（防 cooldown 基线漂移）；重试 bypass eligibility 重评估
  *   （startup_check_ts 刚提交、cooldown 必未过，重评估会把 pending_retry 误判为 not_eligible）。
  * - notifyInbox 内部 best-effort 不抛出（INBOX_WRITE_FAILED 已由其 audit）——
- *   notify 阶段结果以 inbox owner dedup identity 做 post-condition：pending 无
- *   `_startup_check_` 文件 = 未投递 → pending_retry；已存在（含上轮写盘后抛错）→ 去重不重复发。
- *   hasPendingStartupCheck I/O 错误 fail-closed 返回 true（宁不重发、可能漏重试一拍），
- *   与 owner dedup 语义一致。
+ *   投递结论只靠写后查询：命中才 fired；查询抛错 = 未知 → pending_retry，
+ *   既不盲发也不误 fired。
+ * - `firedOutcome` 是已确认磁盘消息的进程内派生缓存（不是先行成功锁）；
+ *   未确认前失败/移动/failed 均不视为成功证据，允许重发。
+ * - reader 只读：不 init（避免 reconcile inflight）、不 drain/ack。
  */
 export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
-  deliver: () => StartupCheckOutcome;
+  deliver: () => Promise<StartupCheckOutcome>;
 } {
   const { agentFs, clawFs, agentDir, audit } = deps;
   let tsCommittedMs: number | null = null;
+  let firedOutcome: Extract<StartupCheckOutcome, { kind: 'fired' }> | null = null;
+  const reader = createInboxReader(agentFs, audit, 'inbox');
 
-  const deliver = (): StartupCheckOutcome => {
+  /** owner 查询适配：命中/未命中/未知（I/O 错误保留 owner 原始错误，不冒充结论）。 */
+  type LookupResult = { kind: 'present' } | { kind: 'absent' } | { kind: 'unknown'; error: string };
+  const lookup = async (ts: number): Promise<LookupResult> => {
+    try {
+      const hit = await reader.findByExtraMeta(
+        'startup_check_ts',
+        String(ts),
+        { includeDoneWithinMs: Number.POSITIVE_INFINITY },
+      );
+      return hit ? { kind: 'present' } : { kind: 'absent' };
+    } catch (err) {
+      return { kind: 'unknown', error: formatErr(err) };
+    }
+  };
+
+  const retry = (op: string, ts: number, error: string): StartupCheckOutcome => ({
+    kind: 'pending_retry',
+    stage: 'notify',
+    error: `op=${op} startup_check_ts=${ts} ${error}`,
+  });
+
+  const deliver = async (): Promise<StartupCheckOutcome> => {
+    if (firedOutcome !== null) return firedOutcome;
     if (tsCommittedMs === null) {
       if (!shouldEmitStartupCheck(agentFs, audit)) return { kind: 'not_eligible' };
       const tsMs = Date.now();
@@ -83,22 +111,33 @@ export function createStartupCheckDelivery(deps: StartupCheckDeliveryDeps): {
       }
       tsCommittedMs = tsMs;
     }
-    // dedup identity 命中（首轮 eligibility 已查 / 重试轮防重复投递）→ 直接 fired
-    if (hasPendingStartupCheck(agentFs, audit)) {
-      return { kind: 'fired', timestampMs: tsCommittedMs };
+    const ts = tsCommittedMs;
+
+    // 当前关联值已命中（含上轮写盘后抛错 / 消息已移 inflight/done）→ 确认不重发
+    const before = await lookup(ts);
+    if (before.kind === 'unknown') return retry('pre-query', ts, before.error);
+    if (before.kind === 'present') {
+      firedOutcome = { kind: 'fired', timestampMs: ts };
+      return firedOutcome;
     }
+
     notifyInbox(clawFs, {
       inboxDir: path.join(agentDir, 'inbox', 'pending'),
       type: 'startup_check',
       source: 'daemon',
       priority: 'high',
       body: startupCheckMessage(),
+      metadata: { startup_check_ts: String(ts) },
     }, audit);
-    // post-condition：dedup identity 确认投递（notifyInbox 不抛出、只能靠证据核实）
-    if (!hasPendingStartupCheck(agentFs, audit)) {
-      return { kind: 'pending_retry', stage: 'notify', error: 'startup_check pending message absent after notifyInbox' };
+
+    // post-condition：真实记录确认投递（notifyInbox 不抛出、只能靠证据核实）
+    const after = await lookup(ts);
+    if (after.kind === 'unknown') return retry('post-query', ts, after.error);
+    if (after.kind === 'absent') {
+      return retry('post-query', ts, 'startup_check message absent after notifyInbox');
     }
-    return { kind: 'fired', timestampMs: tsCommittedMs };
+    firedOutcome = { kind: 'fired', timestampMs: ts };
+    return firedOutcome;
   };
 
   return { deliver };
@@ -179,8 +218,9 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const promise = (async () => {
     while (!stopped) {
       // phase 1794: Startup 两阶段投递——typed outcome；失败阶段留证据、下 tick 重试
+      // phase 1838: deliver 异步——以真实消息记录确认 fired；查询未知 = pending_retry
       if (!startupFired && !startupChecked) {
-        const delivery = startupDelivery.deliver();
+        const delivery = await startupDelivery.deliver();
         if (delivery.kind === 'fired') {
           startupFired = true;
         } else if (delivery.kind === 'not_eligible') {
@@ -193,6 +233,10 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
           );
         }
       }
+
+      // phase 1838: stop 不打断已开始的本轮投递，但 await 结束后不得再启动
+      // Heartbeat / 新一轮 EventLoop 驱动
+      if (stopped) break;
 
       // Heartbeat check (moved into daemon loop to avoid setInterval race conditions)
       if (heartbeat?.isDue()) {

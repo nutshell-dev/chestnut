@@ -189,16 +189,14 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     (clawFs as unknown as { writeAtomicSync(p: string, c: string): void }).writeAtomicSync =
       (p: string, c: string) => { writes.push(p); original(p, c); };
     const delivery = createStartupCheckDelivery({ agentFs, clawFs, agentDir, audit: auditStub() });
-    const result = delivery.deliver();
-    expect(['fired', 'not_eligible', 'pending_retry']).toContain(result.kind);
+    // phase 1838: deliver 异步且以真实消息记录确认——本 fixture 环境（active 存在、inbox 空、
+    // 无冷却）必须严格 fired 且恰好一条；不再兼容 not_eligible/pending_retry 分支。
+    const result = await delivery.deliver();
+    expect(result.kind).toBe('fired');
     const pendingDir = path.join(agentDir, 'inbox', 'pending');
-    const files = fsNative.existsSync(pendingDir) ? fsNative.readdirSync(pendingDir).filter(f => f.endsWith('.md')) : [];
-    if (files.length === 0) {
-      // startup check eligibility 依赖环境；无消息时记录 not_eligible，由既有链路测试补
-      expectCases('M02', [{ case: 'not-delivered', body: `(no message; result=${result.kind})` }]);
-      return;
-    }
-    const msg = decodeInbox(fsNative.readFileSync(path.join(pendingDir, files[0]), 'utf8'));
+    const files = fsNative.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
+    expect(files.length).toBe(1);
+    const msg = decodeInbox(fsNative.readFileSync(path.join(pendingDir, files[0]!), 'utf8'));
     expectCases('M02', [{
       case: 'startup-check',
       body: msg.content,

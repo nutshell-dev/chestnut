@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
+import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
 import { waitForInbox } from '../../src/core/event-loop/inbox-watcher.js';
 import { EventLoop } from '../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../src/core/event-loop/audit-events.js';
@@ -205,6 +206,129 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       await promise;
 
       expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('phase 1838: 多 tick 仅一条启动通知；查询失败记 RETRY 且 EventLoop 仍驱动、下 tick 恢复', async () => {
+      fsNative.mkdirSync(path.join(agentDir, 'contract', 'active', 'c-live'), { recursive: true });
+      const audit = createMockAudit();
+      const fakeWatcher = createFakeWatcher();
+
+      // agentFs 代理：首次 inbox 异步 list（reader 查询）注入一次性 EIO
+      let listFailures = 1;
+      const fsFactoryProxy = (dir: string): FileSystem => {
+        const base = new NodeFileSystem({ baseDir: dir });
+        if (path.resolve(dir) !== path.resolve(agentDir)) return base;
+        return new Proxy(base, {
+          get(target, prop) {
+            if (prop === 'list') {
+              return async (p: string, opts?: unknown) => {
+                if (listFailures > 0 && String(p).includes('inbox')) {
+                  listFailures--;
+                  throw Object.assign(new Error('EIO injected list'), { code: 'EIO' });
+                }
+                return (target.list as (p: string, o?: unknown) => Promise<unknown>).call(target, p, opts);
+              };
+            }
+            const v = Reflect.get(target, prop);
+            return typeof v === 'function' ? v.bind(target) : v;
+          },
+        }) as FileSystem;
+      };
+
+      // EventLoop 显式屏障：run 逐一放行，不靠短 sleep 猜 tick 时序
+      const runGates: Array<() => void> = [];
+      const run = vi.fn().mockImplementation(() => new Promise<void>(r => { runGates.push(r); }));
+      const eventLoop = { run, abort: vi.fn() } as unknown as EventLoop;
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory: fsFactoryProxy,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test daemon]',
+        audit,
+        createWatcher: () => fakeWatcher,
+      });
+
+      try {
+        // tick1：deliver pre-query 失败 → STARTUP_CHECK_RETRY、不盲发；run 仍被调用（EventLoop 得到驱动）
+        await vi.waitFor(() => expect(runGates.length).toBe(1));
+        const retries = audit.entries.filter(e => e[0] === DAEMON_AUDIT_EVENTS.STARTUP_CHECK_RETRY);
+        expect(retries.length).toBe(1);
+        expect(retries[0]!.join(' ')).toContain('stage=notify');
+        expect(retries[0]!.join(' ')).toContain('op=pre-query');
+        expect(fsNative.readdirSync(inboxPendingDir).filter(f => f.endsWith('.md')).length).toBe(0);
+
+        runGates[0]!();  // 放行 tick1 → tick2：查询恢复、真实投递一条
+        await vi.waitFor(() => expect(runGates.length).toBe(2));
+        expect(fsNative.readdirSync(inboxPendingDir).filter(f => f.endsWith('.md')).length).toBe(1);
+
+        runGates[1]!();  // 放行 tick2 → tick3：fired latch、不再投递
+        await vi.waitFor(() => expect(runGates.length).toBe(3));
+        expect(fsNative.readdirSync(inboxPendingDir).filter(f => f.endsWith('.md')).length).toBe(1);
+        expect(audit.entries.filter(e => e[0] === DAEMON_AUDIT_EVENTS.STARTUP_CHECK_RETRY).length).toBe(1);
+      } finally {
+        stop();
+        runGates.forEach(g => g());
+        await promise;
+      }
+    });
+
+    it('phase 1838: 查询 await 中 stop——进行中的投递允许完成、promise 结束、不再驱动 EventLoop', async () => {
+      fsNative.mkdirSync(path.join(agentDir, 'contract', 'active', 'c-live'), { recursive: true });
+      const audit = createMockAudit();
+      const fakeWatcher = createFakeWatcher();
+
+      // agentFs 代理：首次 inbox 异步 list 挂起（屏障），释放后透传
+      let release: (() => void) | null = null;
+      let hangArmed = true;
+      let hangEntered = false;
+      const hangBarrier = new Promise<void>(r => { release = r; });
+      const fsFactoryProxy = (dir: string): FileSystem => {
+        const base = new NodeFileSystem({ baseDir: dir });
+        if (path.resolve(dir) !== path.resolve(agentDir)) return base;
+        return new Proxy(base, {
+          get(target, prop) {
+            if (prop === 'list') {
+              return async (p: string, opts?: unknown) => {
+                if (hangArmed && String(p).includes('inbox')) {
+                  hangArmed = false;
+                  hangEntered = true;
+                  await hangBarrier;
+                }
+                return (target.list as (p: string, o?: unknown) => Promise<unknown>).call(target, p, opts);
+              };
+            }
+            const v = Reflect.get(target, prop);
+            return typeof v === 'function' ? v.bind(target) : v;
+          },
+        }) as FileSystem;
+      };
+
+      const run = vi.fn().mockImplementation(async () => { /* 不应到达 */ });
+      const eventLoop = { run, abort: vi.fn() } as unknown as EventLoop;
+
+      const { promise, stop } = startDaemonLoop({
+        fsFactory: fsFactoryProxy,
+        eventLoop,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test daemon]',
+        audit,
+        createWatcher: () => fakeWatcher,
+      });
+
+      // deliver 正在 pre-query await → stop → 释放查询
+      await vi.waitFor(() => expect(hangEntered).toBe(true));
+      stop();
+      release!();
+      await promise;
+
+      // await 结束后不再启动 watcher/EventLoop 段
+      expect(run).not.toHaveBeenCalled();
+      expect(fakeWatcher.close).not.toHaveBeenCalled();
+      // 进行中的投递允许完成：消息真实落盘
+      expect(fsNative.readdirSync(inboxPendingDir).filter(f => f.endsWith('.md')).length).toBe(1);
     });
 
     it('daemon 连续 blocked outer ticks 不会重复 drain/ack/nack/LLM', async () => {

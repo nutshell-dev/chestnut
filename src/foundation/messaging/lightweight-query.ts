@@ -34,7 +34,7 @@ export function peekPendingCount(fs: FileSystem, clawDir: string): Result<number
 
 /**
  * Lightweight pending inbox filenames — directory list only, no file reads.
- * For callers that need to match filename patterns (e.g. startup-check dedup).
+ * For callers that need to inspect pending filename patterns.
  */
 export function peekPendingFilenames(fs: FileSystem, clawDir: string): Result<string[]> {
   const dir = path.join(clawDir, INBOX_PENDING_DIR);

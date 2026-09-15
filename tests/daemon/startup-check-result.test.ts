@@ -1,10 +1,11 @@
 /**
  * Phase 858: startup-check fail-closed behavior with lightweight-query Result.
+ * phase 1838: 删除 hasPendingStartupCheck（文件名匹配从未命中真实文件名）；
+ * eligibility = inbox empty + has active + cooldown 三条件。
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
   isInboxEmpty,
-  hasPendingStartupCheck,
   shouldEmitStartupCheck,
 } from '../../src/daemon/startup-check.js';
 import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
@@ -21,6 +22,41 @@ function makeFs(opts: { inboxListError?: NodeJS.ErrnoException; inboxExists?: bo
     listSync: vi.fn((_dir: string, _options?: unknown) => {
       if (opts.inboxListError) throw opts.inboxListError;
       return [];
+    }),
+  } as unknown as FileSystem;
+}
+
+/** 三条件 eligibility stub：可分别控制 inbox 空 / active 存在 / 冷却状态。 */
+function makeEligibilityFs(opts: {
+  inboxEntries?: Array<{ name: string }>;
+  activeEntries?: Array<{ name: string; isDirectory: boolean }>;
+  creating?: boolean;
+  cooldownTs?: string | 'ENOENT' | 'EIO';
+}): FileSystem {
+  return {
+    existsSync: vi.fn((p: string) => {
+      if (p === 'inbox/pending') return true;
+      if (p === 'contract/active') return opts.activeEntries !== undefined;
+      if (typeof p === 'string' && p.endsWith('.creating')) return opts.creating ?? false;
+      return false;
+    }),
+    listSync: vi.fn((dir: string) => {
+      if (dir === 'inbox/pending') {
+        return (opts.inboxEntries ?? []).map(e => ({ name: e.name, isDirectory: false, isFile: true }));
+      }
+      if (dir === 'contract/active') {
+        return (opts.activeEntries ?? []).map(e => ({ name: e.name, isDirectory: e.isDirectory, isFile: !e.isDirectory }));
+      }
+      return [];
+    }),
+    readSync: vi.fn((_p: string) => {
+      if (opts.cooldownTs === 'EIO') {
+        throw Object.assign(new Error('EIO'), { code: 'EIO' });
+      }
+      if (opts.cooldownTs === undefined || opts.cooldownTs === 'ENOENT') {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      }
+      return opts.cooldownTs;
     }),
   } as unknown as FileSystem;
 }
@@ -57,33 +93,6 @@ describe('startup-check Result adaptation (phase 858)', () => {
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('hasPendingStartupCheck returns true and emits audit on I/O error (fail-closed)', () => {
-    const fs = makeFs({
-      inboxListError: Object.assign(new Error('EIO'), { code: 'EIO' }),
-    });
-    const audit = makeAudit();
-
-    expect(hasPendingStartupCheck(fs, audit as any)).toBe(true);
-    expect(audit.write).toHaveBeenCalledWith(
-      DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
-      expect.stringContaining('fn=peekPendingFilenames'),
-      expect.stringContaining('reason='),
-    );
-  });
-
-  it('hasPendingStartupCheck returns true when a startup_check file is pending', () => {
-    const fs = {
-      existsSync: vi.fn(() => true),
-      listSync: vi.fn(() => [
-        { name: '2026-01-01_startup_check_x.md', isDirectory: () => false, isFile: () => true },
-      ]),
-    } as unknown as FileSystem;
-    const audit = makeAudit();
-
-    expect(hasPendingStartupCheck(fs, audit as any)).toBe(true);
-    expect(audit.write).not.toHaveBeenCalled();
-  });
-
   it('shouldEmitStartupCheck returns false when peekPendingCount errors (fail-closed)', () => {
     const fs = makeFs({
       inboxListError: Object.assign(new Error('EIO'), { code: 'EIO' }),
@@ -92,5 +101,46 @@ describe('startup-check Result adaptation (phase 858)', () => {
 
     // Even if other conditions would be true, I/O error on inbox makes isInboxEmpty false.
     expect(shouldEmitStartupCheck(fs, audit as any)).toBe(false);
+  });
+});
+
+describe('shouldEmitStartupCheck 三条件 eligibility (phase 1838)', () => {
+  it('inbox 空 + 有 published active + 无 timestamp → true', () => {
+    const fs = makeEligibilityFs({ activeEntries: [{ name: 'c-live', isDirectory: true }] });
+    expect(shouldEmitStartupCheck(fs, makeAudit() as any)).toBe(true);
+  });
+
+  it('pending 非空（任何消息）→ false', () => {
+    const fs = makeEligibilityFs({
+      inboxEntries: [{ name: 'daemon-1_high_x.md' }],
+      activeEntries: [{ name: 'c-live', isDirectory: true }],
+    });
+    expect(shouldEmitStartupCheck(fs, makeAudit() as any)).toBe(false);
+  });
+
+  it('无 active → false；仅 .creating 占位 → false', () => {
+    const noActive = makeEligibilityFs({});
+    expect(shouldEmitStartupCheck(noActive, makeAudit() as any)).toBe(false);
+    const creating = makeEligibilityFs({
+      activeEntries: [{ name: 'c-new', isDirectory: true }],
+      creating: true,
+    });
+    expect(shouldEmitStartupCheck(creating, makeAudit() as any)).toBe(false);
+  });
+
+  it('冷却未过 → false；冷却已过 → true', () => {
+    const active = [{ name: 'c-live', isDirectory: true }];
+    const fresh = makeEligibilityFs({ activeEntries: active, cooldownTs: String(Date.now()) });
+    expect(shouldEmitStartupCheck(fresh, makeAudit() as any)).toBe(false);
+    const stale = makeEligibilityFs({ activeEntries: active, cooldownTs: String(Date.now() - 11 * 60 * 1000) });
+    expect(shouldEmitStartupCheck(stale, makeAudit() as any)).toBe(true);
+  });
+
+  it('count 读取失败 → false（不伪称可投递）', () => {
+    const fs = {
+      existsSync: vi.fn(() => true),
+      listSync: vi.fn(() => { throw Object.assign(new Error('EIO'), { code: 'EIO' }); }),
+    } as unknown as FileSystem;
+    expect(shouldEmitStartupCheck(fs, makeAudit() as any)).toBe(false);
   });
 });

@@ -5,7 +5,9 @@
  * @consumers L6.DaemonLoop
  *
  * daemon 启动后是否 emit `startup_check` inbox 消息的决策逻辑。
- * 4 个 fs 状态 check：inbox empty + active contracts + no pending + cooldown elapsed。
+ * 3 个 fs 状态 check：inbox empty + active contracts + cooldown elapsed。
+ * phase 1838: 不再按文件名 dedup（`_startup_check_` 从未出现在真实文件名中）；
+ * 投递确认改由 daemon-loop 以 startup_check_ts 关联消息真实记录完成。
  */
 
 import * as path from 'path';
@@ -13,7 +15,7 @@ import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
-import { peekPendingCount, peekPendingFilenames } from '../foundation/messaging/index.js';
+import { peekPendingCount } from '../foundation/messaging/index.js';
 import { STARTUP_CHECK_COOLDOWN_MS } from './constants.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
@@ -47,20 +49,6 @@ function hasActiveContracts(fs: FileSystem, audit: AuditLog): boolean {
   }
 }
 
-/** inbox 是否已有 pending 的 _startup_check_ 文件（dedup 用）。I/O 错误 → 假定有 pending（fail-closed，不重复 emit）。*/
-export function hasPendingStartupCheck(fs: FileSystem, audit: AuditLog): boolean {
-  const result = peekPendingFilenames(fs, '.');
-  if (!result.ok) {
-    audit.write(
-      DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
-      `fn=peekPendingFilenames`,
-      `reason=${result.error}`,
-    );
-    return true;
-  }
-  return result.value.some(f => f.includes('_startup_check_'));
-}
-
 /** startup_check_ts 文件是否过 cooldown。读失败 / 解析失败 / 负值 → 默 true（无 cooldown）。*/
 function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
   try {
@@ -87,13 +75,13 @@ function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boolean {
 
 /**
  * 决策是否 emit startup_check inbox 消息。
- * 4 条件全 true 才 emit：inbox empty + has active + 无 pending startup_check + cooldown 过。
+ * 3 条件全 true 才 emit：inbox empty + has active + cooldown 过。
+ * （inbox empty 已覆盖一切 pending 消息；本条目不负责单次投递去重——见模块头。）
  */
 export function shouldEmitStartupCheck(fs: FileSystem, audit: AuditLog): boolean {
   return (
     isInboxEmpty(fs, audit) &&
     hasActiveContracts(fs, audit) &&
-    !hasPendingStartupCheck(fs, audit) &&
     isStartupCheckCooledDown(fs, audit)
   );
 }
