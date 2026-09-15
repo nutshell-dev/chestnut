@@ -41,22 +41,27 @@ function env<M extends Record<string, string>>(type: string, meta: M, from = 'te
 
 describe('task-queue-overflow-composer', () => {
   /**
-   * phase 7 γ7: task-queue-overflow real composer unit test.
+   * phase 1836: task-queue-overflow composer 退役为 NO_GUIDANCE —— 事件正文已自含
+   * 事实（被拒任务、拒绝处置前观测的数量/上限、系统已执行处置），不附无依据的
+   * 故障推断或升级/停派指令。注册保留（显式表态），非缺注册碰巧为空。
    */
 
-  describe('task-queue-overflow composer (phase 7)', () => {
-    it('returns escalation guidance pointing to user', () => {
-      const r = taskQueueOverflowComposer(env('task_queue_overflow', { cap: '1000', queue_length: '1000' }));
-      expect(r.text).toContain('system-level overload');
-      expect(r.text).toContain('Surface to the user');
-      expect(r.text).toContain('developer');
-      expect(r.text).toContain('Do not retry');
+  describe('task-queue-overflow composer (phase 1836: NO_GUIDANCE)', () => {
+    it('正式 composer 对合法 meta 返回 null（无额外指导）', () => {
+      expect(taskQueueOverflowComposer(env('task_queue_overflow', { cap: '3', queue_length: '4' }))).toBeNull();
     });
 
-    it('returns same guidance regardless of state fields', () => {
-      const r1 = taskQueueOverflowComposer(env('task_queue_overflow', {}));
-      const r2 = taskQueueOverflowComposer(env('task_queue_overflow', { cap: '500', queue_length: '500' }));
-      expect(r1.text).toBe(r2.text);
+    it('缺字段与不同字段同样不添指导', () => {
+      expect(taskQueueOverflowComposer(env('task_queue_overflow', {}))).toBeNull();
+      expect(taskQueueOverflowComposer(env('task_queue_overflow', { cap: '500', queue_length: '500' }))).toBeNull();
+      expect(taskQueueOverflowComposer(env('task_queue_overflow', { unrelated: 'x' }))).toBeNull();
+    });
+
+    it('经正式 registry.compose 返回 null（注册保留、非缺注册 fallback）', () => {
+      const registry = createMotionGuidanceRegistry();
+      registerAllMotionGuidance(registry);
+      expect(registry.compose(env('task_queue_overflow', { cap: '3', queue_length: '4' }))).toBeNull();
+      expect(registry.compose(env('task_queue_overflow', {}))).toBeNull();
     });
   });
 });

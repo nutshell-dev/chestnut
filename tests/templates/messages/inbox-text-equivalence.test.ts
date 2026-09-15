@@ -68,6 +68,11 @@ const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06', 'M07']);
  * 用途，不再将块数称为 contracts），由本测试现场精确断言与
  * tests/templates/messages/random-dream-notice-semantics.test.ts 真实链接管；
  * M09 不作整组接管。
+ * phase 1836: M11 两 case（guidance、overflow-body）移交新语义（正文准确说明单次
+ * 拒绝事件：被拒任务、拒绝处置前观测的数量/上限、已执行处置；guidance 退役为
+ * NO_GUIDANCE），由本测试现场精确断言与
+ * tests/templates/messages/task-queue-overflow-semantics.test.ts 真实链接管；
+ * M11 不作整组接管。
  */
 const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
   M04: new Set(['contract_events', 'contract_cancelled']),
@@ -78,6 +83,7 @@ const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
     'observer:contract_cancelled',
   ]),
   M09: new Set(['completion']),
+  M11: new Set(['guidance', 'overflow-body']),
   M12: new Set(['outbox-labels']),
 };
 
@@ -516,8 +522,12 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
   });
 
   it('M11 task queue overflow texts', async () => {
+    // phase 1836: guidance 退役为 NO_GUIDANCE。历史完整性：先断言正式 composer 对
+    // 合法/空 meta 均返回 null，再以 body: '' 记录“无附加文本”（不用 ?.text ?? '' 掩盖）。
+    expect(overflowComposer({ type: 'task_queue_overflow', from: 'async-task-system', meta: { cap: '3', queue_length: '4' } } as never)).toBeNull();
+    expect(overflowComposer({ type: 'task_queue_overflow', from: 'async-task-system', meta: {} } as never)).toBeNull();
     const cases: Case[] = [
-      { case: 'guidance', body: overflowComposer({ cap: '3', queue_length: '4' } as never).text },
+      { case: 'guidance', body: '' },
     ];
 
     const baseDir = tmpDir('p1828-m11-');
@@ -556,7 +566,28 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       body: String(overflowMsg?.body ?? ''),
       envelope: { type: overflowMsg?.type, priority: overflowMsg?.priority, extraFields: overflowMsg?.extraFields },
     });
-    expectCases('M11', cases);
+    // phase 1836: 两 case 移交新语义，现场精确断言（literal expected，不经模板生成）
+    const takenOver = expectCasesExceptRedesigned('M11', cases);
+    const expectedOverflowBody = [
+      '一次异步任务提交因待处理队列超限被拒绝。',
+      '任务：overflow-task',
+      '检查时队列数量：4；上限：3',
+      '',
+      '系统已将该任务记为失败，并另行投递失败结果。',
+      '上述数量是拒绝发生前的观测值，收到通知时队列状态可能已经变化。',
+    ].join('\n');
+    expect(takenOver).toEqual([
+      { case: 'guidance', body: '' },
+      {
+        case: 'overflow-body',
+        body: expectedOverflowBody,
+        envelope: {
+          type: 'task_queue_overflow',
+          priority: 'critical',
+          extraFields: { cap: '3', queue_length: '4' },
+        },
+      },
+    ]);
   });
 
   it('M12 CLI guidance renderings', () => {

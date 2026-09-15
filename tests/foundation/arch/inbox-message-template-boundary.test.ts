@@ -97,12 +97,13 @@ const MIGRATED: MigratedSource[] = [
   {
     id: 'M11',
     file: 'core/async-task-system/system.ts',
-    fragments: ['Task queue is at capacity'],
-  },
-  {
-    id: 'M11',
-    file: 'assembly/guidance/composers/task-queue-overflow.ts',
-    fragments: ['system-level overload beyond agent control'],
+    // phase 1836: 新语义文案同样不得在模板外定义第二份（旧英文保留防回退）
+    fragments: [
+      'Task queue is at capacity',
+      '因待处理队列超限被拒绝',
+      '检查时队列数量',
+      '系统已将该任务记为失败',
+    ],
   },
 ];
 
@@ -147,4 +148,14 @@ describe('phase 1828: inbox message template boundary', () => {
       );
     });
   }
+
+  it('M11 退役 composer：只采用 NO_GUIDANCE，不再引用 guidance 模板（不为空 composer 保留无用 import）', () => {
+    // phase 1836: composer 已无正文资源职责，从 MIGRATED 移除；定向核 NO_GUIDANCE 出口
+    // 与旧 guidance 调用/模板 import 均不存在。
+    const text = readStripped('assembly/guidance/composers/task-queue-overflow.ts');
+    expect(text).toMatch(/export const composer = NO_GUIDANCE/);
+    expect(text).not.toContain('system-level overload beyond agent control');
+    expect(text).not.toContain('taskQueueOverflowGuidanceText');
+    expect(text).not.toMatch(/templates\/messages/);
+  });
 });

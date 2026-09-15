@@ -1,27 +1,12 @@
 /**
  * @module L6.Assembly.Guidance
- * phase 7 γ7: real composer for `task_queue_overflow`.
- * phase 208: signature 收窄 GuidanceEntry | null → GuidanceEntry
- *   (body 无条件 return { text }、type 收窄 hygiene)
+ * phase 1836: composer for `task_queue_overflow` — NO_GUIDANCE sentinel。
  *
- * task_queue_overflow = system-level overload (1000 pending tasks accumulated).
- * 超出 motion 决策能力 — motion 是 user 通道、不该自家 retry / 不该等 / 应立即升级。
- * Chain: system → motion → user → developer.
- *
- * No CLI action for motion (system internal queue / no inspection or cancel verb).
- * Composer 教 motion immediately escalate to user.
+ * 事件正文已自含事实（被拒任务、拒绝处置前观测的队列数量/上限、系统已执行处置），
+ * 不附无依据的故障推断或自动行动指令；旧升级用户/停派 guidance 已退役。
+ * 注册保留（显式表态无 guidance），不是缺注册碰巧为空。
  */
 
-import type { GuidanceComposer, GuidanceEntry } from '../types.js';
-import { taskQueueOverflowGuidanceText } from '../../../templates/messages/index.js';
+import { NO_GUIDANCE } from '../types.js';
 
-interface TaskQueueOverflowState {
-  cap?: string;
-  queue_length?: string;
-}
-
-export const composer: GuidanceComposer<TaskQueueOverflowState> = (): GuidanceEntry => {
-  return {
-    text: taskQueueOverflowGuidanceText(),
-  };
-};
+export const composer = NO_GUIDANCE;

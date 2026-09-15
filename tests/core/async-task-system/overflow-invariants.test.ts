@@ -187,6 +187,37 @@ describe('pending queue overflow motion notify', () => {
     // 验收: pending file 已移走
     expect(fs.existsSync(taskFile)).toBe(false);
   });
+
+  it('phase 1836: 失败前置（失败结果投递失败）→ 系统通知零投递，不宣称已处理', async () => {
+    const { audit } = makeMockAudit();
+    const inboxWrites: Array<Record<string, unknown>> = [];
+    const mockInbox: InboxWriter = {
+      writeSync: vi.fn((msg) => { inboxWrites.push(msg as Record<string, unknown>); }),
+    } as unknown as InboxWriter;
+
+    const realFs = new NodeFileSystem({ baseDir });
+    const system = new AsyncTaskSystem(baseDir, realFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit, llm: {} as any, contractManager: {} as any,
+      registry: {} as any, selfInbox: mockInbox,
+      pendingQueueMax: 3,
+      // 故障注入：sendFallbackResult 失败 → notified marker 不写 → 任务留 pending 重试
+      sendFallbackResult: async () => { throw new Error('inbox unavailable'); },
+    });
+
+    writePendingFile('overflow-task');
+    for (let i = 0; i < 3; i++) {
+      writePendingFile(`task-${i}`);
+    }
+
+    await (system as any)._enqueueAndDispatch({ id: 'overflow-task', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
+
+    // 验收：本轮系统通知零投递——结果未成功投递时不得发送宣称“已投递失败结果”的通知
+    expect(inboxWrites.filter(w => w.type === 'task_queue_overflow')).toHaveLength(0);
+    // 任务未搬 failed（留 pending 供下轮 _retryOverflowMove 恢复）
+    expect(fs.existsSync(path.join(baseDir, 'tasks', 'queues', 'pending', 'overflow-task.json'))).toBe(true);
+    expect(fs.existsSync(path.join(baseDir, 'tasks', 'queues', 'failed', 'overflow-task.json'))).toBe(false);
+  });
 });
 
 /**
@@ -278,7 +309,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     expect(overflowMsgs.length).toBe(1);
   });
 
-  it('new body framing — system-level (not per-task) + capacity number', async () => {
+  it('phase 1836: body 准确说明单次拒绝 — 实际任务 ID、拒绝前观测 count=4/cap=3、已执行处置', async () => {
     const { audit } = makeAudit();
     const inboxWrites: Array<Record<string, unknown>> = [];
     const mockInbox: InboxWriter = {
@@ -302,12 +333,22 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
 
     const msg = inboxWrites.find(w => w.type === 'task_queue_overflow');
     expect(msg).toBeDefined();
-    expect(msg!.body).toContain(`at capacity (3 pending)`);
-    expect(msg!.body).toContain('chronic processing failure');
-    // 新 body 不应再含 per-task framing (`Task <id> rejected`)
-    expect(msg!.body as string).not.toMatch(/Task \S+ (rejected|\(\w+\))/);
-    // extraFields 透传 cap + queue_length 给 composer
+    // 精确新正文：本次被拒任务 fullId + 拒绝处置前观测 4（含本任务）/上限 3 + 系统已执行处置
+    expect(msg!.body).toBe([
+      '一次异步任务提交因待处理队列超限被拒绝。',
+      '任务：overflow-task',
+      '检查时队列数量：4；上限：3',
+      '',
+      '系统已将该任务记为失败，并另行投递失败结果。',
+      '上述数量是拒绝发生前的观测值，收到通知时队列状态可能已经变化。',
+    ].join('\n'));
+    // 旧语义不回退：cap 不是观测值、无长期故障推断、无 system-level framing
+    expect(msg!.body as string).not.toContain('at capacity');
+    expect(msg!.body as string).not.toContain('chronic');
+    expect(msg!.body as string).not.toContain('system-level');
+    // extraFields 透传 cap + queue_length 保持
     expect((msg!.extraFields as Record<string, string>).cap).toBe('3');
+    expect((msg!.extraFields as Record<string, string>).queue_length).toBe('4');
   });
 
   it('after queue drains below cap, dedup resets — next overflow re-notifies', async () => {

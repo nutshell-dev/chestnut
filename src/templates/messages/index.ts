@@ -90,4 +90,4 @@ export {
   userInboxMessageEnvelope,
   userChatMessageEnvelope,
 } from './envelope.js';
-export { taskQueueOverflowBody, taskQueueOverflowGuidanceText } from './task-queue-overflow.js';
+export { taskQueueOverflowBody } from './task-queue-overflow.js';

@@ -992,13 +992,19 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
 
       // phase 7: Notify self daemon of system-level overload (best-effort) / dedup 同 overflow 窗口 1 通知
       // phase 37 rename: motion daemon → 写 motion 自家、worker daemon → 写 worker 自家
+      // phase 1836: 正文为本次拒绝的最小事实（任务身份 + 拒绝处置前观测的数量/上限 +
+      // 已执行处置），观测含本次任务、不是收到通知时的实时状态，不推断长期故障。
       if (this.selfInbox && !this.overflowNotified) {
         try {
           this.selfInbox.writeSync({
             type: 'task_queue_overflow',
             source: 'async-task-system',
             priority: 'critical',
-            body: taskQueueOverflowBody(this.pendingQueueMax),
+            body: taskQueueOverflowBody({
+              taskId: fullId,
+              queueLength: pendingCount,
+              cap: this.pendingQueueMax,
+            }),
             idPrefix: `${Date.now()}_overflow`,
             extraFields: {
               cap: String(this.pendingQueueMax),
