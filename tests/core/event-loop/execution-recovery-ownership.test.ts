@@ -94,6 +94,9 @@ describe('execution-recovery ownership (phase 1841)', () => {
       store,
       audit,
       deliverResume: async (request) => { resumeCalls.push(request); return { kind: 'confirmed' as const }; },
+      // Phase 1843: 本文件验证实例归属/旧基线语义，不验证 pending 匹配——
+      // 显式 absent 模拟依赖（真实 owner 查询能力见 delivery.test.ts）。
+      findPendingResume: async () => ({ kind: 'absent' as const }),
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -107,6 +110,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
       store: inst.store,
       audit: inst.audit,
       deliverResume: async (request) => { inst.resumeCalls.push(request); return { kind: 'confirmed' as const }; },
+      findPendingResume: async () => ({ kind: 'absent' as const }),
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });

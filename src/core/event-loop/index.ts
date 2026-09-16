@@ -27,4 +27,5 @@ export type {
   ExecutionRecoveryDeliveryRequest,
   ExecutionRecoveryRecord,
   ExecutionRecoveryStore,
+  PendingExecutionResume,
 } from './execution-recovery.js';

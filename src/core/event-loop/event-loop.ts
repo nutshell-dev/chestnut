@@ -55,6 +55,7 @@ import {
   type ExecutionRecoveryController,
   type ExecutionRecoveryDeliveryOutcome,
   type ExecutionRecoveryDeliveryRequest,
+  type PendingExecutionResume,
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps } from './types.js';
 
@@ -137,6 +138,8 @@ export class EventLoop {
         timeoutMs: options.executionRecovery.timeoutMs ?? EXECUTION_INACTIVITY_TIMEOUT_MS,
         // Phase 1842: 真实 owner 投递适配（查询→写→查询确认），生产绑定不变。
         deliverResume: (request) => this._deliverExecutionResume(request),
+        // Phase 1843: 新登记前的 owner pending 查询适配（只读 peek，精确三要素）。
+        findPendingResume: (contractId) => this._findPendingExecutionResume(contractId),
       });
     }
   }
@@ -888,6 +891,26 @@ export class EventLoop {
           stage: 'query_after',
           error: new Error('execution recovery message not observed after write'),
         };
+  }
+
+  /**
+   * Phase 1843: 新登记前只读查询本 claw pending 是否已有同契约执行提醒。
+   * 精确三要素匹配：type=execution_recovery、from=本 claw、
+   * metadata.contract_id=当前选中契约（不能只按 contract_id——其他系统消息也用；
+   * 不按 delivery 关联 ID——旧 epoch/1842 前提醒没有该字段）。消息年龄、正文、
+   * priority、是否具有 1842 metadata 均不影响匹配。仅 peek，无 init/drain/ack/
+   * cleanup；owner 异常（含 PendingViewError）原样传播给 controller，不在适配层
+   * catch 折空。使用实际注入的 pending 路径推导 inbox baseDir，不硬编码默认 inbox。
+   * protected 只为真实类型化测试子类调用，不是面向上层模块的配置/端口。
+   */
+  protected async _findPendingExecutionResume(contractId: string): Promise<PendingExecutionResume> {
+    const reader = createInboxReader(this.agentFs, this.audit, path.dirname(this.inboxPendingDir));
+    const view = await reader.peekPending();
+    const entry = view.entries.find(({ message }) =>
+      message.type === EXECUTION_RECOVERY_MESSAGE_TYPE &&
+      message.from === this.clawId &&
+      message.metadata?.contract_id === contractId);
+    return entry ? { kind: 'present', messageId: entry.message.id } : { kind: 'absent' };
   }
 
   /** Phase 1826: trim 重试预算（纯内存，EventLoop 自有语义）。 */

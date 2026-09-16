@@ -21,6 +21,11 @@
  * （停止补投、保留身份与正文证据）。确认时刻起计算下一逻辑提醒窗口；
  * attempt 表示逻辑调度次数，不是物理写次数或成功通知次数。
  *
+ * Phase 1843: 到期准备登记新提醒时，如果本 claw pending 中已有本 claw 发出的
+ * 同契约 execution_recovery 消息，则不登记新义务、不增加调度次数；读取未知
+ * 同样停止本次新增并显式审计。已持久 pending 义务仍按 1842 稳定身份恢复，
+ * 不经此检查。
+ *
  * 职责边界：
  * - EventLoop 判断活进程中的 agent 执行是否自发停滞（无 turn/retry/task 在途、
  *   active contract 存在、持久 activity 超时），先本模块自恢复（向自身 inbox 写
@@ -125,6 +130,21 @@ export interface ExecutionRecoveryDeliveryRequest {
 export type ExecutionRecoveryDeliveryOutcome =
   | { kind: 'confirmed' }
   | { kind: 'pending'; stage: 'query_before' | 'write' | 'query_after'; error: unknown };
+
+// ---------------------------------------------------------------------------
+// Pending 新增抑制（Phase 1843）
+// ---------------------------------------------------------------------------
+
+/**
+ * 新登记前的 owner pending 查询结果（EventLoop 模块内部契约，经 EventLoop 的
+ * protected 适配从 Messaging.peekPending 取得）。absent = 同三要素提醒不存在；
+ * present = 精确命中（type=execution_recovery、from=本 claw、
+ * metadata.contract_id=本契约），携带一个用于审计的现存 messageId。读取未知
+ * 由回调以 rejection 保留实际异常，不得折成 absent。
+ */
+export type PendingExecutionResume =
+  | { kind: 'absent' }
+  | { kind: 'present'; messageId: string };
 
 function isRepresentableMs(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_DATE_MS;
@@ -447,6 +467,12 @@ interface ExecutionRecoveryControllerDeps {
    * 再以写后查询确认；回调 resolve 不等于确认。依赖在构造时绑定，不动态替换。
    */
   deliverResume: (request: ExecutionRecoveryDeliveryRequest) => Promise<ExecutionRecoveryDeliveryOutcome>;
+  /**
+   * Phase 1843: 新登记前查询本 claw pending 是否已有同契约执行提醒（精确三要素
+   * 匹配由适配侧完成）。必需依赖——不得默认 absent，避免漏接生产能力静默放行；
+   * 查询未知以 rejection 保留实际异常，controller 审计后停止本次新增。
+   */
+  findPendingResume: (contractId: string) => Promise<PendingExecutionResume>;
   timeoutMs: number;
   now?: () => number;
 }
@@ -574,6 +600,35 @@ export function createExecutionRecoveryController(
         const baseline =
           record.delivery?.kind === 'confirmed' ? record.delivery.confirmedAt : record.lastAttemptAt;
         if (currentMs - baseline < deps.timeoutMs) return;
+      }
+
+      // Phase 1843: 新登记前查 owner pending——已有本 claw 同契约执行提醒则
+      // 不生成 ID/正文、不增加 attempt、不写新义务（该消息本身仍是待消费的
+      // 等价唤醒机会）。查询未知同样停止本次新增（审计留证），不能当 absent
+      // 静默新增。命中不延长窗口、不写 suppressed 状态；消费后下一符合条件
+      // observe 即可重新判断。本检查只拦截新登记：已持久 pending 义务在上游
+      // 已先行交付并 return，不经此分支。
+      let pendingResume: PendingExecutionResume;
+      try {
+        pendingResume = await deps.findPendingResume(contractId);
+      } catch (error) {
+        audit.write(
+          EVENTLOOP_AUDIT_EVENTS.FATAL,
+          `context=executionRecoveryPendingCheck`,
+          `contract=${contractId}`,
+          `error=${formatErr(error)}`,
+        );
+        return;
+      }
+      if (pendingResume.kind === 'present') {
+        audit.write(
+          EVENTLOOP_AUDIT_EVENTS.ITERATION,
+          `context=executionRecoveryPendingCheck`,
+          `contract=${contractId}`,
+          `reason=pending_reminder_exists`,
+          `message_id=${pendingResume.messageId}`,
+        );
+        return;
       }
 
       // Phase 1840: 提醒没有次数上限——到期窗口无条件登记下一次 attempt；

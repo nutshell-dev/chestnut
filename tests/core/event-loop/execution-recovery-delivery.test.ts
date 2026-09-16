@@ -15,6 +15,11 @@
  * post-query EIO 与 post-null / 确认保存失败 / pending-inflight-done 三位置 /
  * delayed confirm / 新活动 supersede / 无 active·在途·切换 / run 装配见
  * event-loop.test.ts。
+ * Phase 1843: 登记前 pending 精确匹配抑制（真实 _findPendingExecutionResume 接线）——
+ * 未消费跨窗口/重启不新增、消费后窗口恢复新增、旧格式/旧 epoch/多条积压匹配、
+ * 三要素精确边界、登记前 peek 故障停止本次新增。故障注入不按 list 调用次数猜阶段
+ * （新增 peek 也走同一 list）：pre-query 先以写 EIO 建立持久 pending 再注入；
+ * post-query 以「写已提交」标记门控。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -29,6 +34,7 @@ import {
   type ExecutionRecoveryStore,
   type ExecutionActivitySnapshot,
   type ExecutionRecoveryRecord,
+  type PendingExecutionResume,
 } from '../../../src/core/event-loop/execution-recovery.js';
 import { EventLoop } from '../../../src/core/event-loop/event-loop.js';
 import {
@@ -55,12 +61,17 @@ function createMockAudit(): AuditLog & { entries: [string, ...(string | number)[
   };
 }
 
-/** 类型化测试子类：只公开真实 protected 投递适配器，不复制控制逻辑。 */
+/** 类型化测试子类：只公开真实 protected 适配器，不复制控制逻辑。 */
 class TestEventLoop extends EventLoop {
   deliverExecutionResume(
     request: ExecutionRecoveryDeliveryRequest,
   ): Promise<ExecutionRecoveryDeliveryOutcome> {
     return this._deliverExecutionResume(request);
+  }
+
+  /** Phase 1843: 登记前 owner pending 查询适配（真实 peekPending 链）。 */
+  findPendingExecutionResume(contractId: string): Promise<PendingExecutionResume> {
+    return this._findPendingExecutionResume(contractId);
   }
 }
 
@@ -119,6 +130,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
         requests.push(request);
         return loop.deliverExecutionResume(request);
       },
+      findPendingResume: (contractId) => loop.findPendingExecutionResume(contractId),
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -135,6 +147,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
         h.requests.push(request);
         return h.loop.deliverExecutionResume(request);
       },
+      findPendingResume: (contractId) => h.loop.findPendingExecutionResume(contractId),
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -189,16 +202,30 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     return () => spy.mockRestore();
   }
 
-  /** Fs 边界：owner 查询（pending 目录 list）注入；nthCall 起抛错。 */
-  function failPendingList(h: Harness, nthCall: number): () => void {
+  /**
+   * Fs 边界：owner pending 目录 list 无条件抛 EIO（返回恢复函数）。
+   * Phase 1843：不按第 N 次 list 猜阶段（登记前 peek 也走同一 list）；调用方
+   * 负责先建立目标阶段，再注入本故障。
+   */
+  function failPendingListEIO(h: Harness): () => void {
     const realList = h.agentFs.list.bind(h.agentFs);
-    let calls = 0;
     const spy = vi.spyOn(h.agentFs, 'list').mockImplementation(async (p, opts) => {
       if (String(p).replace(/\\/g, '/').endsWith('inbox/pending')) {
-        calls++;
-        if (calls >= nthCall) throw Object.assign(new Error('probe query EIO'), { code: 'EIO' });
+        throw Object.assign(new Error('probe query EIO'), { code: 'EIO' });
       }
       return realList(p, opts);
+    });
+    return () => spy.mockRestore();
+  }
+
+  /** Fs 边界：owner pending 目录内消息文件 read 无条件抛 EIO（peekPending → PendingViewError）。 */
+  function failPendingReadEIO(h: Harness): () => void {
+    const realRead = h.agentFs.read.bind(h.agentFs);
+    const spy = vi.spyOn(h.agentFs, 'read').mockImplementation(async (p) => {
+      if (String(p).replace(/\\/g, '/').includes('inbox/pending/')) {
+        throw Object.assign(new Error('probe read EIO'), { code: 'EIO' });
+      }
+      return realRead(p);
     });
     return () => spy.mockRestore();
   }
@@ -223,6 +250,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
         h.requests.push(request);
         return h.loop.deliverExecutionResume(request);
       },
+      findPendingResume: (contractId) => h.loop.findPendingExecutionResume(contractId),
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -323,10 +351,11 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
 
     // 重建后：预查询命中（pending 位置），不再写，直接确认第 1 ID
     reopen(h);
+    // Phase 1843：spy 必须在 observe 之前挂上——此前在 observe 之后建立的空断言无效。
+    const writeSpy2 = vi.spyOn(h.agentFs, 'writeAtomic');
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
     expect(h.requests).toHaveLength(2);
     expect(h.requests[1].delivery.id).toBe(firstId);
-    const writeSpy2 = vi.spyOn(h.agentFs, 'writeAtomic');
     expect(writeSpy2).not.toHaveBeenCalled();
     expect(pendingFiles(h)).toHaveLength(1);
     expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: firstId, attempt: 1 });
@@ -339,20 +368,33 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
 
   it('pre-query EIO：保留 pending、0 次写（查询失败不当 absent）；恢复后同 id 补投确认', async () => {
     const h = makeHarness('delivery-pre-query-eio-');
-    const restore = failPendingList(h, 1);
+    // Phase 1843：不按 list 调用次数猜阶段——先以真实写前 EIO 建立持久 pending
+    // 义务（0 消息），恢复写入并重建 controller，再注入 list EIO；这样走已持久
+    // 义务的投递链（绕过登记前新增查询），仍测 query_before。
+    const restoreWrite = failInboxWrites(h, 'before_commit');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+    expect(pendingFiles(h)).toHaveLength(0);
+    expect(deliveryFatal(h, 'write')).toBe(true);
+    const firstId = h.requests[0].delivery.id;
+    restoreWrite();
+    reopen(h);
+
+    const restoreList = failPendingListEIO(h);
     const writeSpy = vi.spyOn(h.agentFs, 'writeAtomic');
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
     expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
     expect(writeSpy).not.toHaveBeenCalled();
     expect(pendingFiles(h)).toHaveLength(0);
     expect(deliveryFatal(h, 'query_before')).toBe(true);
-    const firstId = h.requests[0].delivery.id;
-    restore();
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.id).toBe(firstId);
+    restoreList();
 
     reopen(h);
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
-    expect(h.requests).toHaveLength(2);
-    expect(h.requests[1].delivery.id).toBe(firstId);
+    expect(h.requests).toHaveLength(3);
+    expect(h.requests[2].delivery.id).toBe(firstId);
     expect(pendingFiles(h)).toHaveLength(1);
     expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: firstId });
   });
@@ -363,14 +405,30 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
 
   it('post-query EIO：写已提交但写后查询失败 → pending/stage=query_after；恢复后同 ID 确认、不补第二份', async () => {
     const h = makeHarness('delivery-post-query-eio-');
-    // 第一次 pending list（写前查询）放行，第二次（写后查询）抛错
-    const restore = failPendingList(h, 2);
+    // Phase 1843：不按第 2 次 list 猜阶段——真实 writeAtomic 成功后置 committed
+    // 标记，此后 pending list 才抛 EIO；恢复时清标记并恢复 spy。
+    let committed = false;
+    const realWrite = h.agentFs.writeAtomic.bind(h.agentFs);
+    const writeMock = vi.spyOn(h.agentFs, 'writeAtomic').mockImplementation(async (p, content) => {
+      const result = await realWrite(p, content);
+      if (String(p).endsWith('.md')) committed = true;
+      return result;
+    });
+    const realList = h.agentFs.list.bind(h.agentFs);
+    const listMock = vi.spyOn(h.agentFs, 'list').mockImplementation(async (p, opts) => {
+      if (committed && String(p).replace(/\\/g, '/').endsWith('inbox/pending')) {
+        throw Object.assign(new Error('probe query EIO'), { code: 'EIO' });
+      }
+      return realList(p, opts);
+    });
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
     expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
     expect(pendingFiles(h)).toHaveLength(1);
     expect(deliveryFatal(h, 'query_after')).toBe(true);
     const firstId = h.requests[0].delivery.id;
-    restore();
+    committed = false;
+    writeMock.mockRestore();
+    listMock.mockRestore();
 
     reopen(h);
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
@@ -499,7 +557,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
   // delayed confirm：大于原窗口才成功仍 attempt1；下一次逻辑提醒等 confirmedAt+timeout
   // -------------------------------------------------------------------------
 
-  it('delayed confirm：跨多个原窗口才确认仍 attempt1（当次不生成 attempt2）；下一逻辑提醒等 confirmedAt+timeout', async () => {
+  it('delayed confirm：跨多个原窗口才确认仍 attempt1（当次不生成 attempt2）；未消费时边界仍不新增；drain+ack 原消息后 confirmedAt+timeout 才 attempt2', async () => {
     const h = makeHarness('delivery-delayed-');
     const restore = failInboxWrites(h, 'before_commit');
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
@@ -523,7 +581,30 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     currentNow = confirmedAt + TIMEOUT_MS - 1;
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
     expect(h.requests).toHaveLength(2);
+    // Phase 1843：原消息仍 pending 未消费——边界也不新增（pending 提醒本身是
+    // 待消费唤醒机会），不是冷却失效
     currentNow = confirmedAt + TIMEOUT_MS;
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(1);
+    const suppressedAudit = h.audit.entries.find(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION &&
+      e.some(col => String(col) === 'context=executionRecoveryPendingCheck') &&
+      e.some(col => String(col) === 'reason=pending_reminder_exists'));
+    expect(suppressedAudit).toBeDefined();
+    expect(suppressedAudit!.some(col => String(col) === `message_id=${firstId}`)).toBe(true);
+
+    // 真实 drain+ack 消费原消息（消费不等于契约完成，不人为推进 activity）
+    const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
+    const batch = await reader.drainAndDeliver();
+    expect(batch.kind).toBe('complete');
+    if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
+    expect(batch.entries).toHaveLength(1);
+    expect(batch.entries[0].message.id).toBe(firstId);
+    await reader.ack(batch.handles[0]);
+    expect(pendingFiles(h)).toHaveLength(0);
+
+    // 消费后同一边界窗口：查询 absent → 登记下一逻辑提醒 attempt2（新身份）
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
     expect(h.requests).toHaveLength(3);
     expect(h.requests[2].delivery.attempt).toBe(2);
@@ -624,49 +705,133 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 原「真实 Messaging 投递读回」迁移：经实际 EventLoop 适配器的多窗口投递与真实消费
+  // Phase 1843: pending 未消费跨窗口不新增；消费后下一到期窗口恢复新增
   // -------------------------------------------------------------------------
 
-  it('实际适配器多窗口投递：4 个到期窗口各一条 execution_recovery（各自独立逻辑 ID），drainAndDeliver 读回并真实 ack', async () => {
-    const h = makeHarness('delivery-multi-window-');
+  it('未消费跨 4 个窗口（含 controller 重建）：仍 1 消息、record 字节/attempt 不变，每窗口审计留证', async () => {
+    const h = makeHarness('delivery-suppress-window-');
+    const lastActivityAt = BASE_NOW - TIMEOUT_MS - 1;
+    await h.controller.observe(stalled(CONTRACT_ID, lastActivityAt));
+    const record1 = readRecord(h, CONTRACT_ID)!;
+    expect(record1.attempts).toBe(1);
+    expect(record1.delivery?.kind).toBe('confirmed');
+    const recordBytes = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
+    const messageBytes = pendingFiles(h).map(f =>
+      fs.readFileSync(path.join(h.pendingDir, f), 'utf8'));
+    expect(messageBytes).toHaveLength(1);
+
+    for (let w = 2; w <= 4; w++) {
+      currentNow += TIMEOUT_MS;
+      if (w === 3) reopen(h); // 跨重启行为相同
+      await h.controller.observe(stalled(CONTRACT_ID, lastActivityAt));
+      // 不生成新 ID/正文、不增加 attempt、不写新义务、不改消息文件
+      expect(h.requests).toHaveLength(1);
+      expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(recordBytes);
+      expect(pendingFiles(h).map(f => fs.readFileSync(path.join(h.pendingDir, f), 'utf8')))
+        .toEqual(messageBytes);
+      const hits = h.audit.entries.filter(e =>
+        e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION &&
+        e.some(col => String(col) === 'context=executionRecoveryPendingCheck') &&
+        e.some(col => String(col) === 'reason=pending_reminder_exists') &&
+        e.some(col => String(col) === `message_id=${record1.delivery!.id}`));
+      expect(hits).toHaveLength(w - 1);
+    }
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(1);
+  });
+
+  it('每窗口真实 drain+ack 后再进入下一窗口：四个不同 ID、累计 attempt4、done 四条（消费不等于契约完成）', async () => {
+    const h = makeHarness('delivery-consume-window-');
     const lastActivityAt = BASE_NOW - TIMEOUT_MS - 1;
     const ids: string[] = [];
-    for (let i = 1; i <= 4; i++) {
+    for (let w = 1; w <= 4; w++) {
       await h.controller.observe(stalled(CONTRACT_ID, lastActivityAt));
       const record = readRecord(h, CONTRACT_ID)!;
-      expect(record.attempts).toBe(i);
+      expect(record.attempts).toBe(w);
       expect(record.delivery?.kind).toBe('confirmed');
       ids.push(record.delivery!.id);
-      currentNow += TIMEOUT_MS;
-    }
-    // 每窗口独立逻辑 ID（跨窗口积压治理不在本 phase：各窗口各写一条）
-    expect(new Set(ids).size).toBe(4);
-
-    const messages = readPendingMessages(h);
-    expect(messages).toHaveLength(4);
-    for (const msg of messages) {
+      expect(pendingFiles(h)).toHaveLength(1);
+      // 真实消费链：drain → inflight → ack → done；不人为推进 activity
+      const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
+      const batch = await reader.drainAndDeliver();
+      expect(batch.kind).toBe('complete');
+      if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
+      expect(batch.entries).toHaveLength(1);
+      const msg = batch.entries[0].message;
       expect(msg.type).toBe('execution_recovery');
       expect(msg.from).toBe(CLAW_ID);
       expect(msg.priority).toBe('high');
       expect(msg.metadata?.contract_id).toBe(CONTRACT_ID);
-      expect(ids).toContain(msg.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]);
+      expect(msg.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(record.delivery!.id);
+      await reader.ack(batch.handles[0]);
+      expect(pendingFiles(h)).toHaveLength(0);
+      currentNow += TIMEOUT_MS;
     }
-
-    // 真实消费链：drain → inflight 可查 → ack → done 可查
-    const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
-    const batch = await reader.drainAndDeliver();
-    expect(batch.kind).toBe('complete');
-    if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
-    expect(batch.entries).toHaveLength(4);
-    const lookup = (id: string) =>
-      createInboxReader(h.agentFs, h.audit, 'inbox')
-        .findByExtraMeta(EXECUTION_RECOVERY_DELIVERY_META_KEY, id, { includeDoneWithinMs: Infinity });
-    expect((await lookup(ids[0]))?.location).toBe('inflight');
-    for (const handle of batch.handles) {
-      await reader.ack(handle);
-    }
+    expect(new Set(ids).size).toBe(4);
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(4);
     expect(fs.readdirSync(path.join(h.agentDir, 'inbox', 'done'))).toHaveLength(4);
-    expect((await lookup(ids[0]))?.location).toBe('done');
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 1843: 登记前 pending 查询故障——停止本次新增，正常 drain 语义不受影响
+  // -------------------------------------------------------------------------
+
+  it('登记前 pending 查询 list EIO：不建 record、0 消息、FATAL 审计携带原错误；恢复后可登记', async () => {
+    const h = makeHarness('delivery-precheck-list-eio-');
+    const restore = failPendingListEIO(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)).toBeNull();
+    expect(pendingFiles(h)).toHaveLength(0);
+    expect(h.requests).toHaveLength(0);
+    const fatal = h.audit.entries.find(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
+      e.some(col => String(col) === 'context=executionRecoveryPendingCheck'));
+    expect(fatal).toBeDefined();
+    expect(fatal!.some(col => String(col).includes('probe query EIO'))).toBe(true);
+
+    // 恢复后重试检查：同窗口可正常登记
+    restore();
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(1);
+    expect(pendingFiles(h)).toHaveLength(1);
+  });
+
+  it('登记前 pending 查询 read EIO（PendingViewError）：既有 record 原字节不变、0 新消息；坏消息恢复后可登记', async () => {
+    const h = makeHarness('delivery-precheck-read-eio-');
+    const existing: ExecutionRecoveryRecord = {
+      schema_version: 1,
+      contractId: CONTRACT_ID,
+      observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+      attempts: 2,
+      lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+    };
+    h.store.save(existing);
+    const bytesBefore = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
+    // 无关坏消息（非本契约类型）也使本次新增查询未知——peek 是全目录解码
+    await writeInboxAsync(h.agentFs, h.pendingDir, {
+      id: 'unrelated-1',
+      type: 'task',
+      from: 'motion',
+      to: '',
+      priority: 'normal',
+      content: 'unrelated',
+      timestamp: new Date(BASE_NOW).toISOString(),
+    }, h.audit);
+    const restore = failPendingReadEIO(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(bytesBefore);
+    expect(pendingFiles(h)).toHaveLength(1); // 只有预置坏消息，无新增
+    expect(h.requests).toHaveLength(0);
+    const fatal = h.audit.entries.find(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
+      e.some(col => String(col) === 'context=executionRecoveryPendingCheck'));
+    expect(fatal).toBeDefined();
+    expect(fatal!.some(col => String(col).includes('Pending view incomplete'))).toBe(true);
+
+    // 坏消息恢复可读后：无关消息不匹配三要素，正常登记 attempt3
+    restore();
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(3);
+    expect(pendingFiles(h)).toHaveLength(2);
   });
 
   // -------------------------------------------------------------------------
@@ -701,5 +866,178 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
     await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
     expect(writeSpy).not.toHaveBeenCalled();
     expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: delivery.id });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 1843: pending 精确匹配矩阵（真实 owner 写 + 真实 _findPendingExecutionResume 链）
+  // -------------------------------------------------------------------------
+
+  describe('pending 精确匹配矩阵（Phase 1843）', () => {
+    const LAST_ACTIVITY_AT = BASE_NOW - TIMEOUT_MS - 1;
+
+    /** 真实 owner API 预置消息（旧格式可缺 1842 delivery 关联字段）。 */
+    async function writeReminder(h: Harness, opts: {
+      id: string;
+      contractId: string;
+      from?: string;
+      type?: string;
+      withDeliveryMeta?: boolean;
+    }): Promise<void> {
+      await writeInboxAsync(h.agentFs, h.pendingDir, {
+        id: opts.id,
+        type: opts.type ?? 'execution_recovery',
+        from: opts.from ?? CLAW_ID,
+        to: '',
+        priority: 'high',
+        content: `old reminder ${opts.id}`,
+        // 旧消息年龄不影响匹配
+        timestamp: new Date(BASE_NOW - 100 * TIMEOUT_MS).toISOString(),
+        metadata: {
+          contract_id: opts.contractId,
+          ...(opts.withDeliveryMeta ? { [EXECUTION_RECOVERY_DELIVERY_META_KEY]: opts.id } : {}),
+        },
+      }, h.audit);
+    }
+
+    function pendingSnapshot(h: Harness): string[] {
+      return pendingFiles(h).sort().map(f => fs.readFileSync(path.join(h.pendingDir, f), 'utf8'));
+    }
+
+    function expectSuppressed(h: Harness, messageId: string): void {
+      expect(h.requests).toHaveLength(0);
+      const hit = h.audit.entries.find(e =>
+        e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION &&
+        e.some(col => String(col) === 'context=executionRecoveryPendingCheck') &&
+        e.some(col => String(col) === 'reason=pending_reminder_exists'));
+      expect(hit).toBeDefined();
+      expect(hit!.some(col => String(col) === `message_id=${messageId}`)).toBe(true);
+    }
+
+    it('旧格式消息（无 1842 delivery 关联字段）+ 无 record：抑制新增、不建 record、消息字节不变', async () => {
+      const h = makeHarness('matrix-legacy-norecord-');
+      await writeReminder(h, { id: 'old-reminder', contractId: CONTRACT_ID });
+      const before = pendingSnapshot(h);
+      await h.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expectSuppressed(h, 'old-reminder');
+      expect(readRecord(h, CONTRACT_ID)).toBeNull();
+      expect(pendingSnapshot(h)).toEqual(before);
+    });
+
+    it('旧格式消息 + 旧 confirmed record：抑制新增、record 字节不变', async () => {
+      const h = makeHarness('matrix-legacy-confirmed-');
+      h.store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: LAST_ACTIVITY_AT,
+        attempts: 1,
+        lastAttemptAt: BASE_NOW - 20 * TIMEOUT_MS,
+        delivery: {
+          kind: 'confirmed',
+          id: 'execution_recovery-old',
+          attempt: 1,
+          scheduledAt: BASE_NOW - 20 * TIMEOUT_MS,
+          body: 'old body',
+          confirmedAt: BASE_NOW - 19 * TIMEOUT_MS,
+        },
+      });
+      await writeReminder(h, { id: 'old-reminder', contractId: CONTRACT_ID });
+      const recordBytes = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
+      const before = pendingSnapshot(h);
+      await h.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expectSuppressed(h, 'old-reminder');
+      expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(recordBytes);
+      expect(pendingSnapshot(h)).toEqual(before);
+    });
+
+    it('旧格式消息 + 旧无 delivery record：抑制新增、record 字节不变', async () => {
+      const h = makeHarness('matrix-legacy-nodelivery-');
+      h.store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: LAST_ACTIVITY_AT,
+        attempts: 2,
+        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+      });
+      await writeReminder(h, { id: 'old-reminder', contractId: CONTRACT_ID });
+      const recordBytes = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
+      await h.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expectSuppressed(h, 'old-reminder');
+      expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(recordBytes);
+    });
+
+    it('同契约旧 epoch 两条积压（不只匹配最新 delivery ID）：不生成第三条、原文件不删改', async () => {
+      const h = makeHarness('matrix-old-epoch-');
+      await writeReminder(h, { id: 'epoch-1', contractId: CONTRACT_ID, withDeliveryMeta: true });
+      await writeReminder(h, { id: 'epoch-2', contractId: CONTRACT_ID });
+      const before = pendingSnapshot(h);
+      await h.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expect(h.requests).toHaveLength(0);
+      expect(readRecord(h, CONTRACT_ID)).toBeNull();
+      expect(pendingSnapshot(h)).toEqual(before);
+      const hit = h.audit.entries.find(e =>
+        e.some(col => String(col) === 'reason=pending_reminder_exists'));
+      expect(hit).toBeDefined();
+      // 命中证据是 reader 排序后首个现存 ID（两条之一），不枚举/删除旧消息
+      expect(['message_id=epoch-1', 'message_id=epoch-2']
+        .some(col => hit!.some(c => String(c) === col))).toBe(true);
+    });
+
+    it('三要素缺一不抑制：同 contract 不同 type / 同 type 不同 from / 同 type from 不同 contract', async () => {
+      // 同 contract 不同 type
+      const h1 = makeHarness('matrix-diff-type-');
+      await writeReminder(h1, { id: 'm-type', contractId: CONTRACT_ID, type: 'task' });
+      await h1.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expect(h1.requests).toHaveLength(1);
+      expect(readRecord(h1, CONTRACT_ID)?.attempts).toBe(1);
+      expect(pendingFiles(h1)).toHaveLength(2);
+
+      // 同 type 不同 from
+      const h2 = makeHarness('matrix-diff-from-');
+      await writeReminder(h2, { id: 'm-from', contractId: CONTRACT_ID, from: 'claw-2' });
+      await h2.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expect(h2.requests).toHaveLength(1);
+      expect(pendingFiles(h2)).toHaveLength(2);
+
+      // 同 type/from 不同 contract（选中 CONTRACT_ID，队列里只有 other-contract 提醒）
+      const h3 = makeHarness('matrix-diff-contract-');
+      await writeReminder(h3, { id: 'm-contract', contractId: 'other-contract' });
+      await h3.controller.observe(stalled(CONTRACT_ID, LAST_ACTIVITY_AT));
+      expect(h3.requests).toHaveLength(1);
+      expect(pendingFiles(h3)).toHaveLength(2);
+    });
+
+    it('新 activity：reset 合法写仍落盘；新 epoch 到期时被旧 pending 提醒抑制', async () => {
+      const h = makeHarness('matrix-activity-reset-');
+      h.store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - 10 * TIMEOUT_MS,
+        attempts: 1,
+        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+        delivery: {
+          kind: 'confirmed',
+          id: 'execution_recovery-old',
+          attempt: 1,
+          scheduledAt: BASE_NOW - 10 * TIMEOUT_MS,
+          body: 'old body',
+          confirmedAt: BASE_NOW - 10 * TIMEOUT_MS,
+        },
+      });
+      await writeReminder(h, { id: 'old-reminder', contractId: CONTRACT_ID });
+
+      // activity 前进：先持久化零计数 reset（合法写，不被「抑制不写状态」阻断）
+      await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW));
+      const reset = readRecord(h, CONTRACT_ID)!;
+      expect(reset).toMatchObject({ attempts: 0, lastAttemptAt: 0, observedActivityAt: BASE_NOW });
+      expect(h.audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(true);
+      expect(h.requests).toHaveLength(0);
+      const resetBytes = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
+
+      // 新 epoch 到期：旧提醒仍 pending → 抑制新增，reset 记录字节不变
+      currentNow += TIMEOUT_MS;
+      await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW));
+      expectSuppressed(h, 'old-reminder');
+      expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(resetBytes);
+    });
   });
 });

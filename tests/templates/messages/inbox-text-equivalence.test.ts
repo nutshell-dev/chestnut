@@ -26,6 +26,7 @@ import type {
   ExecutionRecoveryDeliveryOutcome,
   ExecutionRecoveryDeliveryRequest,
   ExecutionRecoveryRecord,
+  PendingExecutionResume,
 } from '../../../src/core/event-loop/index.js';
 import { createStartupCheckDelivery } from '../../../src/daemon/daemon-loop.js';
 import { createContractNotificationAdapter } from '../../../src/assembly/contract-notification-adapter.js';
@@ -190,6 +191,11 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       ): Promise<ExecutionRecoveryDeliveryOutcome> {
         return this._deliverExecutionResume(request);
       }
+
+      /** Phase 1843: 登记前 owner pending 查询适配（真实 peekPending 链）。 */
+      findPendingExecutionResume(contractId: string): Promise<PendingExecutionResume> {
+        return this._findPendingExecutionResume(contractId);
+      }
     }
     const loop = new TestEventLoop({
       runtime: {} as never,
@@ -215,6 +221,8 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       store,
       audit,
       deliverResume: (request) => loop.deliverExecutionResume(request),
+      // Phase 1843: 空 pending 首次登记走真实查询适配（不 stub absent 冒充真实链）
+      findPendingResume: (contractId) => loop.findPendingExecutionResume(contractId),
       timeoutMs: TIMEOUT_MS,
       now: () => FIXED_NOW,
     });

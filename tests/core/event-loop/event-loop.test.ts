@@ -25,6 +25,7 @@ import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { InboxHandle, InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { decodeInbox, encodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
+import { writeInboxAsync } from '../../../src/foundation/messaging/index.js';
 
 vi.mock('../../../src/core/event-loop/constants.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/core/event-loop/constants.js')>('../../../src/core/event-loop/constants.js');
@@ -1445,5 +1446,95 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(runtime.drainInbox).toHaveBeenCalled();
     // 损坏 record 原字节不变（不覆盖、不删除）
     expect(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe('not-json{{{');
+  });
+
+  it('实际 run：pending 已有同 claw 同契约旧提醒，到期观察不新增提醒/不建 record，正常 drain 仍执行（Phase 1843）', async () => {
+    const audit = createMockAudit();
+    const runtime = makeIdleRuntime();
+    // 真实 owner API 预置旧格式提醒（无 1842 delivery 关联字段）
+    const sharedAgentFs = new NodeFileSystem({ baseDir: agentDir });
+    const factory = (dir: string): FileSystem =>
+      dir === agentDir ? sharedAgentFs : new NodeFileSystem({ baseDir: dir });
+    await writeInboxAsync(sharedAgentFs, inboxPendingDir, {
+      id: 'old-reminder-1',
+      type: 'execution_recovery',
+      from: 'test-claw',
+      to: '',
+      priority: 'high',
+      content: 'old reminder body',
+      timestamp: new Date(Date.now() - 100 * RECOVERY_TIMEOUT_MS).toISOString(),
+      metadata: { contract_id: CONTRACT_ID },
+    }, audit);
+    const loop = new EventLoop({
+      runtime,
+      fsFactory: factory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      executionRecovery: {
+        probeActivity: async () => ({
+          activeContractId: CONTRACT_ID,
+          lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+        }),
+        timeoutMs: RECOVERY_TIMEOUT_MS,
+      },
+    });
+
+    await loop.run();
+
+    // 没有新提醒、没有新 record；旧消息原样保留；正常 drain 仍被调用
+    const messages = readInboxMessages();
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe('old-reminder-1');
+    expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+    expect(runtime.drainInbox).toHaveBeenCalled();
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(false);
+    expect(audit.entries.some(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION &&
+      e.some(col => String(col) === 'context=executionRecoveryPendingCheck') &&
+      e.some(col => String(col) === 'reason=pending_reminder_exists') &&
+      e.some(col => String(col) === 'message_id=old-reminder-1'))).toBe(true);
+  });
+
+  it('实际 run：登记前只读 peek 错误，FATAL 审计后不新增义务、正常 drain 仍执行（Phase 1843）', async () => {
+    const audit = createMockAudit();
+    const runtime = makeIdleRuntime();
+    const sharedAgentFs = new NodeFileSystem({ baseDir: agentDir });
+    const factory = (dir: string): FileSystem =>
+      dir === agentDir ? sharedAgentFs : new NodeFileSystem({ baseDir: dir });
+    const realList = sharedAgentFs.list.bind(sharedAgentFs);
+    vi.spyOn(sharedAgentFs, 'list').mockImplementation(async (p, opts) => {
+      if (String(p).replace(/\\/g, '/').endsWith('inbox/pending')) {
+        throw Object.assign(new Error('probe peek EIO'), { code: 'EIO' });
+      }
+      return realList(p, opts);
+    });
+    const loop = new EventLoop({
+      runtime,
+      fsFactory: factory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      executionRecovery: {
+        probeActivity: async () => ({
+          activeContractId: CONTRACT_ID,
+          lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+        }),
+        timeoutMs: RECOVERY_TIMEOUT_MS,
+      },
+    });
+
+    await loop.run();
+
+    // 查询未知：不新增提醒/不建 record，FATAL 审计携带原错误；正常 drain 仍执行
+    expect(readInboxMessages()).toHaveLength(0);
+    expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+    expect(runtime.drainInbox).toHaveBeenCalled();
+    expect(audit.entries.some(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
+      e.some(col => String(col) === 'context=executionRecoveryPendingCheck') &&
+      e.some(col => String(col).includes('probe peek EIO')))).toBe(true);
   });
 });
