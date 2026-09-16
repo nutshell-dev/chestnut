@@ -23,11 +23,14 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   EXECUTION_RECOVERY_RESUME: 'eventloop_execution_recovery_resume',
   /** Phase 1396 Step E: activity 前进 / contract 不再 active → recovery record 复位删除 */
   EXECUTION_RECOVERY_RESET: 'eventloop_execution_recovery_reset',
-  /** Phase 1396 Step E: 恢复耗尽，execution failure 已交付 ExecutionFailureSink */
+  /** Phase 1396 Step E: 恢复耗尽，execution failure 已交付 ExecutionFailureSink。
+   *  Phase 1840: 历史保留（旧版本审计可理解）；提醒链不再发出本事件。 */
   EXECUTION_RECOVERY_FAILURE_DELIVERED: 'eventloop_execution_recovery_failure_delivered',
-  /** Phase 1396 Step E: failure 交付失败，保留 record 下 tick 重试交付 */
+  /** Phase 1396 Step E: failure 交付失败，保留 record 下 tick 重试交付。
+   *  Phase 1840: 历史保留（旧版本审计可理解）；提醒链不再发出本事件。 */
   EXECUTION_RECOVERY_DELIVERY_FAILED: 'eventloop_execution_recovery_delivery_failed',
-  /** Phase 1803 Step B: failure 交付被永久拒绝（rejected），保留 record 证据并上抛 */
+  /** Phase 1803 Step B: failure 交付被永久拒绝（rejected），保留 record 证据并上抛。
+   *  Phase 1840: 历史保留（旧版本审计可理解）；提醒链不再发出本事件。 */
   EXECUTION_RECOVERY_DELIVERY_REJECTED: 'eventloop_execution_recovery_delivery_rejected',
 } as const;
 

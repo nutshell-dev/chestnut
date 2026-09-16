@@ -724,9 +724,10 @@ describe('phase1396-summon-claim-wiring', () => {
 describe('phase1396-execution-recovery-wiring', () => {
   /**
    * Phase 1396 Step E: Assembly 为 EventLoop 注入执行停滞恢复依赖。
+   * Phase 1840: 提醒链失败出口退役——instances.executionRecovery 不再携带
+   * failureSink，装配不调用 ContractSystem.failActiveForExecutor（该入口保留给
+   * 其他真实失败源）。
    * - instances.executionRecovery 存在（daemon → EventLoop options）。
-   * - failureSink.report 适配到 ContractSystem.failActiveForExecutor（Step D narrow
-   *   intake），EventLoop 不直接持有 ContractSystem。
    */
   const baseConfig = {
     identity: 'motion' as const,
@@ -753,31 +754,14 @@ describe('phase1396-execution-recovery-wiring', () => {
     capturedContractSystems.length = 0;
   });
 
-  it('assemble 输出 executionRecovery，failureSink 适配到 contractManager.failActiveForExecutor', async () => {
+  it('assemble 输出 executionRecovery：无 failureSink 属性，failActiveForExecutor 未被提醒装配调用', async () => {
     const instances = await assemble(baseConfig, undefined, { createSkillSystem: mockSkillFactory });
 
     expect(instances.executionRecovery).toBeDefined();
+    expect(instances.executionRecovery).not.toHaveProperty('failureSink');
     const contractManager = capturedContractSystems[0];
     expect(contractManager).toBeDefined();
-
-    const reportResult = await instances.executionRecovery!.failureSink.report({
-      executorId: 'motion',
-      producer: 'runtime',
-      reason: 'agent_spontaneous_stall',
-      evidenceRef: 'event-loop/execution-recovery/c-1.json',
-    });
-
-    // Phase 1803 Step B: 适配器透传 typed ReportOutcome。
-    expect(reportResult).toEqual({ kind: 'committed' });
-    expect(contractManager.failActiveForExecutor).toHaveBeenCalledTimes(1);
-    expect(contractManager.failActiveForExecutor).toHaveBeenCalledWith({
-      executorId: 'motion',
-      failure: {
-        reason: 'agent_spontaneous_stall',
-        evidenceRef: 'event-loop/execution-recovery/c-1.json',
-        producer: 'runtime',
-      },
-    });
+    expect(contractManager.failActiveForExecutor).not.toHaveBeenCalled();
   });
 
   it('probeActivity / isAsyncTaskInFlight 已接线（mock fs 无 active contract → undefined）', async () => {

@@ -217,16 +217,10 @@ export async function createRuntimeAssembly(
     }));
 
     // Phase 1396 Step E: EventLoop 执行停滞恢复的 Assembly DI。
-    // probe 只读持久事实（stream LLM output / contract 创建时间 merge），sink 走
-    // Step D narrow intake（ContractSystem 自枚举/核实 active contract）；EventLoop
+    // Phase 1840: 提醒链失败出口退役（不再适配 ContractSystem.failActiveForExecutor）；
+    // probe 只读持久事实（stream LLM output / contract 创建时间 merge），EventLoop
     // 不直接持有 ContractSystem、不做 rename/cancel。
     const executionRecovery: EventLoopExecutionRecoveryDeps = {
-      failureSink: {
-        report: (input) => contractManager.failActiveForExecutor({
-          executorId: input.executorId,
-          failure: { reason: input.reason, evidenceRef: input.evidenceRef, producer: input.producer },
-        }),
-      },
       probeActivity: async () => {
         const active = listActiveContracts(systemFs, '.');
         const activeContractId = active[0]?.contractId;

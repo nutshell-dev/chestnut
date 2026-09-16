@@ -18,13 +18,10 @@ export {
   createExecutionRecoveryStore,
   readStreamExecutionActivityMs,
   parseExecutionRecoveryRecord,
-  MAX_EXECUTION_RECOVERY_ATTEMPTS,
 } from './execution-recovery.js';
 export type {
   ExecutionActivitySnapshot,
   ExecutionRecoveryController,
-  ExecutionRecoveryFailureSink,
   ExecutionRecoveryRecord,
-  ExecutionRecoveryReportOutcome,
   ExecutionRecoveryStore,
 } from './execution-recovery.js';

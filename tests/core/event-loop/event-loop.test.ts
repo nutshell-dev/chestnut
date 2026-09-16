@@ -1158,7 +1158,6 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     runtime: Runtime,
     audit: AuditLog,
     recovery: {
-      failureSink: { report: ReturnType<typeof vi.fn> };
       probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null }>;
       isAsyncTaskInFlight?: () => Promise<boolean>;
     },
@@ -1187,9 +1186,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
   it('停滞 active contract：run() 向自身 inbox 写高优 resume event（不调 Runtime reentrant API）', async () => {
     const audit = createMockAudit();
-    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
     const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
-      failureSink: { report: sinkReport },
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
@@ -1204,17 +1201,15 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(messages[0].priority).toBe('high');
     expect(messages[0].content).toContain(CONTRACT_ID);
     expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
-    // record 已落盘 attempt=1；sink 未触发
+    // record 已落盘 attempt=1
     expect(JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).attempts).toBe(1);
-    expect(sinkReport).not.toHaveBeenCalled();
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(true);
   });
 
-  it('attempts 耗尽：run() 经 failureSink 交付 agent_spontaneous_stall（EventLoop 不直接改 contract）', async () => {
+  it('旧 attempts=3 record：run() 到期继续提醒产出第 4 条 resume（Phase 1840：无契约失败出口）', async () => {
     const audit = createMockAudit();
-    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
     const lastActivityAt = Date.now() - 10 * RECOVERY_TIMEOUT_MS;
-    // 预置 attempts=3 的 record（terminal evidence 已持久化）
+    // 预置旧版 attempts=3 的 schema1 record（旧阈值记录在升级后继续计数）
     require('fs').mkdirSync(path.dirname(recordFilePath(CONTRACT_ID)), { recursive: true });
     require('fs').writeFileSync(recordFilePath(CONTRACT_ID), JSON.stringify({
       schema_version: 1,
@@ -1224,27 +1219,29 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       lastAttemptAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
     }));
     const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
-      failureSink: { report: sinkReport },
       probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt }),
     });
 
     await loop.run();
 
-    expect(sinkReport).toHaveBeenCalledTimes(1);
-    expect(sinkReport).toHaveBeenCalledWith({
-      executorId: 'test-claw',
-      producer: 'runtime',
-      reason: 'agent_spontaneous_stall',
-      evidenceRef: `event-loop/execution-recovery/${CONTRACT_ID}.json`,
-    });
-    expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+    const messages = readInboxMessages();
+    expect(messages).toHaveLength(1);
+    expect(messages[0].type).toBe('execution_recovery');
+    expect(messages[0].from).toBe('test-claw');
+    expect(messages[0].priority).toBe('high');
+    expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
+    // record 变 4 且仍在磁盘；全程无失败交付 audit
+    const persisted = JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8'));
+    expect(persisted.attempts).toBe(4);
+    expect(audit.entries.some(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED ||
+      e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED ||
+      e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_REJECTED)).toBe(false);
   });
 
   it('async task 在途：run() 不判 stall（不写 resume、不建 record）', async () => {
     const audit = createMockAudit();
-    const sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
     const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
-      failureSink: { report: sinkReport },
       probeActivity: async () => ({
         activeContractId: CONTRACT_ID,
         lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
@@ -1256,7 +1253,6 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
     expect(readInboxMessages()).toHaveLength(0);
     expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
-    expect(sinkReport).not.toHaveBeenCalled();
   });
 
   it('无 executionRecovery 注入：run() 行为不变（不触碰 record 目录）', async () => {

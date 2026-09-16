@@ -8,7 +8,6 @@ import type { Message } from '../../foundation/dialog-store/index.js';
 import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { ContextTrimOutcome } from '../context_manager/index.js';
 import type { TurnResult } from '../runtime/index.js';
-import type { ExecutionRecoveryFailureSink } from './execution-recovery.js';
 
 /** Consumer-owned trace capability used by EventLoop stream projection. */
 export interface EventLoopTraceSource {
@@ -126,11 +125,10 @@ export type LLMRequestGateDecision =
 
 /**
  * Phase 1396 Step E: Assembly 注入的执行停滞恢复依赖。
- * record store / resume inbox 语义归 EventLoop 自有；Assembly 只注入持久事实
- * probe、async-task 在途 probe 与 Step D 的 ExecutionFailureSink。
+ * Phase 1840: 提醒链不再携带契约失败出口（failureSink 退役）；Assembly 只注入
+ * 持久事实 probe 与 async-task 在途 probe。
  */
 export interface EventLoopExecutionRecoveryDeps {
-  failureSink: ExecutionRecoveryFailureSink;
   /**
    * 读持久事实：active contract + 最近一次持久 activity ts（stream LLM output /
    * contract 创建时间 merge）。activeContractId 存在时 lastActivityAt 必须非 null。

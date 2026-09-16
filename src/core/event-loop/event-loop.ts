@@ -129,7 +129,6 @@ export class EventLoop {
       this.executionRecoveryDeps = options.executionRecovery;
       this.executionRecovery = createExecutionRecoveryController({
         store: createExecutionRecoveryStore({ rootFs: this.rootFs, audit: this.audit }),
-        failureSink: options.executionRecovery.failureSink,
         audit: this.audit,
         timeoutMs: options.executionRecovery.timeoutMs ?? EXECUTION_INACTIVITY_TIMEOUT_MS,
         enqueueResume: (record) => this._enqueueExecutionResume(record),
@@ -798,7 +797,6 @@ export class EventLoop {
       // contract 创建时间兜底；仍 null 说明事实源不可用，不得用内存 timer 代替）。
       if (probe.activeContractId && probe.lastActivityAt === null) return;
       await this.executionRecovery.observe({
-        executorId: this.clawId,
         activeContractId: probe.activeContractId,
         lastActivityAt: probe.lastActivityAt ?? 0,
         turnInFlight: this.turnInFlight,

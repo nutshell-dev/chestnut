@@ -1,13 +1,15 @@
 /**
  * Phase 1396 Step E: EventLoop-owned execution stall recovery — unit tests.
+ * Phase 1840: 提醒不再升级为契约失败——持续提醒语义替换旧耗尽/失败交付约束。
  *
  * 覆盖 execution-recovery controller/store 语义：
  * - in-flight（turn / retry / async task）不打扰
  * - 无 active contract / 未超时不动作；contract 消失清理 record
  * - activity 前进 reset、同窗口重入幂等、重启从 record 恢复
- * - 前 MAX 次 self-resume、耗尽 single failure、sink 失败保留 record 重试交付
+ * - 持续 self-resume（无次数上限）、旧 attempts>=3 record 到期继续计数
+ * - store.save / enqueue 失败的保留语义；真实 Messaging 读回投递
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -15,7 +17,6 @@ import { randomUUID } from 'crypto';
 import {
   createExecutionRecoveryStore,
   createExecutionRecoveryController,
-  MAX_EXECUTION_RECOVERY_ATTEMPTS,
   type ExecutionRecoveryController,
   type ExecutionRecoveryStore,
   type ExecutionActivitySnapshot,
@@ -24,11 +25,18 @@ import {
 import { EXECUTION_RECOVERY_DIR } from '../../../src/core/event-loop/constants.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { createInboxReader, notifyInbox } from '../../../src/foundation/messaging/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 const TIMEOUT_MS = 1000;
 const BASE_NOW = 1_700_000_000_000;
 const CONTRACT_ID = '1700000000000-abcd';
+
+const FAILURE_DELIVERY_AUDITS: readonly string[] = [
+  EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED,
+  EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED,
+  EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_REJECTED,
+];
 
 function createMockAudit(): AuditLog & { entries: [string, ...(string | number)[]][] } {
   const entries: [string, ...(string | number)[]][] = [];
@@ -44,7 +52,6 @@ describe('execution-recovery controller', () => {
   let audit: ReturnType<typeof createMockAudit>;
   let currentNow: number;
   let resumeCalls: ExecutionRecoveryRecord[];
-  let sinkReport: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
@@ -54,7 +61,6 @@ describe('execution-recovery controller', () => {
     audit = createMockAudit();
     currentNow = BASE_NOW;
     resumeCalls = [];
-    sinkReport = vi.fn().mockResolvedValue({ kind: 'committed' });
   });
 
   afterEach(() => {
@@ -75,7 +81,6 @@ describe('execution-recovery controller', () => {
     const store = createExecutionRecoveryStore({ rootFs, audit });
     const controller = createExecutionRecoveryController({
       store,
-      failureSink: { report: sinkReport },
       audit,
       enqueueResume: (record) => { resumeCalls.push(record); },
       timeoutMs: TIMEOUT_MS,
@@ -84,10 +89,20 @@ describe('execution-recovery controller', () => {
     return { store, controller };
   }
 
+  /** 用同一 store 重建 controller（模拟重启 / 升级后新进程）。 */
+  function reopenController(store: ExecutionRecoveryStore): ExecutionRecoveryController {
+    return createExecutionRecoveryController({
+      store,
+      audit,
+      enqueueResume: (record) => { resumeCalls.push(record); },
+      timeoutMs: TIMEOUT_MS,
+      now: () => currentNow,
+    });
+  }
+
   /** 已超时（lastActivityAt 早于 now - timeoutMs）的停滞 snapshot。 */
   function stalledSnapshot(overrides?: Partial<ExecutionActivitySnapshot>): ExecutionActivitySnapshot {
     return {
-      executorId: 'claw-1',
       activeContractId: CONTRACT_ID,
       lastActivityAt: BASE_NOW - TIMEOUT_MS - 1,
       turnInFlight: false,
@@ -97,20 +112,22 @@ describe('execution-recovery controller', () => {
     };
   }
 
+  function expectNoFailureDeliveryAudit(): void {
+    expect(audit.entries.some(e => FAILURE_DELIVERY_AUDITS.includes(e[0]))).toBe(false);
+  }
+
   describe('in-flight 不打扰', () => {
-    it('turn 在途：不建 record、不 resume、不 report', async () => {
+    it('turn 在途：不建 record、不 resume', async () => {
       const { controller } = makeController();
       await controller.observe(stalledSnapshot({ turnInFlight: true }));
       expect(resumeCalls).toHaveLength(0);
-      expect(sinkReport).not.toHaveBeenCalled();
       expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
     });
 
-    it('retry 在途：不建 record、不 resume、不 report', async () => {
+    it('retry 在途：不建 record、不 resume', async () => {
       const { controller } = makeController();
       await controller.observe(stalledSnapshot({ retryInFlight: true }));
       expect(resumeCalls).toHaveLength(0);
-      expect(sinkReport).not.toHaveBeenCalled();
       expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
     });
 
@@ -118,47 +135,52 @@ describe('execution-recovery controller', () => {
       const { controller } = makeController();
       await controller.observe(stalledSnapshot({ asyncTaskInFlight: true }));
       expect(resumeCalls).toHaveLength(0);
-      expect(sinkReport).not.toHaveBeenCalled();
       expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
     });
 
-    it('retryable outcome：保留 record 下 tick 重试交付，error 进 audit（phase 1803）', async () => {
-      const { controller } = makeController();
-      for (let i = 0; i < MAX_EXECUTION_RECOVERY_ATTEMPTS; i++) {
-        await controller.observe(stalledSnapshot());
-        currentNow += TIMEOUT_MS;
-      }
-      sinkReport.mockResolvedValueOnce({ kind: 'retryable', error: 'not closed: fs busy' });
-      await controller.observe(stalledSnapshot());
-      expect(sinkReport).toHaveBeenCalledTimes(1);
-      // record 保留、attempts 不重置、不再 enqueue resume
-      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(MAX_EXECUTION_RECOVERY_ATTEMPTS);
-      expect(resumeCalls).toHaveLength(MAX_EXECUTION_RECOVERY_ATTEMPTS);
-      const failed = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED);
-      expect(failed).toBeDefined();
-      expect(failed!.some(col => String(col).includes('not closed: fs busy'))).toBe(true);
-      // 下一窗口重试交付 committed → record 删除
-      currentNow += TIMEOUT_MS;
-      await controller.observe(stalledSnapshot());
-      expect(sinkReport).toHaveBeenCalledTimes(2);
-      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+    it('已有 attempts=3 record 时 turn 在途：record 与 enqueue 不变', async () => {
+      const { store, controller } = makeController();
+      const existing: ExecutionRecoveryRecord = {
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+        attempts: 3,
+        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+      };
+      store.save(existing);
+      await controller.observe(stalledSnapshot({ turnInFlight: true }));
+      expect(readRecordFile(CONTRACT_ID)).toEqual(existing);
+      expect(resumeCalls).toHaveLength(0);
     });
 
-    it('rejected outcome：保留 record 证据 + 独立 rejected audit，不标 delivered（phase 1803）', async () => {
-      const { controller } = makeController();
-      for (let i = 0; i < MAX_EXECUTION_RECOVERY_ATTEMPTS; i++) {
-        await controller.observe(stalledSnapshot());
-        currentNow += TIMEOUT_MS;
-      }
-      sinkReport.mockResolvedValueOnce({ kind: 'rejected', reason: 'executor mismatch' });
-      await controller.observe(stalledSnapshot());
-      expect(sinkReport).toHaveBeenCalledTimes(1);
-      // 证据保留：record 不删、不走 delivered
-      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(MAX_EXECUTION_RECOVERY_ATTEMPTS);
-      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED)).toBe(false);
-      const rejected = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_REJECTED);
-      expect(rejected).toBeDefined();
-      expect(rejected!.some(col => String(col).includes('executor mismatch'))).toBe(true);
+    it('已有 attempts=3 record 时 retry 在途：record 与 enqueue 不变', async () => {
+      const { store, controller } = makeController();
+      const existing: ExecutionRecoveryRecord = {
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+        attempts: 3,
+        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+      };
+      store.save(existing);
+      await controller.observe(stalledSnapshot({ retryInFlight: true }));
+      expect(readRecordFile(CONTRACT_ID)).toEqual(existing);
+      expect(resumeCalls).toHaveLength(0);
+    });
+
+    it('已有 attempts=3 record 时 async task 在途：record 与 enqueue 不变', async () => {
+      const { store, controller } = makeController();
+      const existing: ExecutionRecoveryRecord = {
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+        attempts: 3,
+        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+      };
+      store.save(existing);
+      await controller.observe(stalledSnapshot({ asyncTaskInFlight: true }));
+      expect(readRecordFile(CONTRACT_ID)).toEqual(existing);
+      expect(resumeCalls).toHaveLength(0);
     });
   });
 
@@ -167,7 +189,6 @@ describe('execution-recovery controller', () => {
       const { controller } = makeController();
       await controller.observe(stalledSnapshot({ activeContractId: undefined }));
       expect(resumeCalls).toHaveLength(0);
-      expect(sinkReport).not.toHaveBeenCalled();
     });
 
     it('无 active contract 且磁盘有残留 record：删除 record', async () => {
@@ -182,7 +203,6 @@ describe('execution-recovery controller', () => {
       expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(true);
       await controller.observe(stalledSnapshot({ activeContractId: undefined }));
       expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
-      expect(sinkReport).not.toHaveBeenCalled();
     });
 
     it('未超时：不建 record、不 resume', async () => {
@@ -235,15 +255,7 @@ describe('execution-recovery controller', () => {
         attempts: 2,
         lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
       });
-      // 新 controller（模拟重启后重建）读同一 store
-      const controller = createExecutionRecoveryController({
-        store: createExecutionRecoveryStore({ rootFs, audit }),
-        failureSink: { report: sinkReport },
-        audit,
-        enqueueResume: (record) => { resumeCalls.push(record); },
-        timeoutMs: TIMEOUT_MS,
-        now: () => currentNow,
-      });
+      const controller = reopenController(createExecutionRecoveryStore({ rootFs, audit }));
       await controller.observe(stalledSnapshot());
       expect(resumeCalls).toHaveLength(1);
       expect(resumeCalls[0].attempts).toBe(3);
@@ -265,7 +277,7 @@ describe('execution-recovery controller', () => {
     });
   });
 
-  describe('self-resume 与耗尽交付', () => {
+  describe('持续提醒（Phase 1840：无次数上限、无失败出口）', () => {
     it('首次超时：先落盘 attempt=1 record，再向自身 enqueue 高优 resume', async () => {
       const { controller } = makeController();
       await controller.observe(stalledSnapshot());
@@ -273,58 +285,173 @@ describe('execution-recovery controller', () => {
       expect(resumeCalls[0]).toMatchObject({ contractId: CONTRACT_ID, attempts: 1 });
       const persisted = readRecordFile(CONTRACT_ID);
       expect(persisted).toMatchObject({ schema_version: 1, contractId: CONTRACT_ID, attempts: 1 });
-      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(true);
-      expect(sinkReport).not.toHaveBeenCalled();
+      const resumeAudit = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME);
+      expect(resumeAudit).toBeDefined();
+      expect(resumeAudit!.some(col => String(col) === `interval_ms=${TIMEOUT_MS}`)).toBe(true);
+      expectNoFailureDeliveryAudit();
     });
 
-    it('前 MAX 次均 self-resume；耗尽后 single failure（record 即 terminal evidence，先持久化再 report）', async () => {
-      sinkReport.mockImplementation(async () => {
-        // report 时 evidence 必须已持久化且 attempts 已耗尽
-        const evidence = readRecordFile(CONTRACT_ID);
-        expect(evidence?.attempts).toBe(MAX_EXECUTION_RECOVERY_ATTEMPTS);
-        return { kind: 'committed' };
-      });
+    it('连续 6 个到期窗口：attempt=1..6 各 enqueue 一次，record 持续存在，同窗口不重复，全程无失败交付 audit', async () => {
       const { controller } = makeController();
-      for (let i = 1; i <= MAX_EXECUTION_RECOVERY_ATTEMPTS; i++) {
+      for (let i = 1; i <= 6; i++) {
         await controller.observe(stalledSnapshot());
         expect(resumeCalls).toHaveLength(i);
-        expect(sinkReport).not.toHaveBeenCalled();
+        expect(resumeCalls[i - 1].attempts).toBe(i);
+        expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(i);
+        // 同窗口重入不增加
+        await controller.observe(stalledSnapshot());
+        expect(resumeCalls).toHaveLength(i);
+        expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(i);
         currentNow += TIMEOUT_MS;
       }
-      // 第 MAX+1 个超时窗口：attempts 耗尽 → 交付 failure
-      await controller.observe(stalledSnapshot());
-      expect(sinkReport).toHaveBeenCalledTimes(1);
-      expect(sinkReport).toHaveBeenCalledWith({
-        executorId: 'claw-1',
-        producer: 'runtime',
-        reason: 'agent_spontaneous_stall',
-        evidenceRef: `${EXECUTION_RECOVERY_DIR}/${CONTRACT_ID}.json`,
-      });
-      // 交付成功 → record 删除；不重复恢复
-      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
-      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED)).toBe(true);
-      // contract 已 terminal（不再 active）→ 后续 observe 不重复 report
-      await controller.observe(stalledSnapshot({ activeContractId: undefined }));
-      expect(sinkReport).toHaveBeenCalledTimes(1);
+      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(true);
+      expectNoFailureDeliveryAudit();
     });
 
-    it('sink 抛错：保留 record、不重复恢复，下 tick 重试交付（反向验收：evidence 不丢、计数不重置）', async () => {      const { controller } = makeController();
-      for (let i = 0; i < MAX_EXECUTION_RECOVERY_ATTEMPTS; i++) {
+    it('旧 attempts=3 schema1 record（升级后重建 controller）：到期前无动作，到期后 attempt=4 继续提醒', async () => {
+      const { store } = makeController();
+      const lastActivityAt = BASE_NOW - TIMEOUT_MS - 1;
+      store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: lastActivityAt,
+        attempts: 3,
+        lastAttemptAt: BASE_NOW - TIMEOUT_MS / 2,
+      });
+      const controller = reopenController(createExecutionRecoveryStore({ rootFs, audit }));
+      // 窗口未到期：不动作（不删 record、不重置）
+      await controller.observe(stalledSnapshot({ lastActivityAt }));
+      expect(resumeCalls).toHaveLength(0);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(3);
+      // 到期：attempt+1，observedActivityAt 保持（不伪造新 epoch）
+      currentNow += TIMEOUT_MS / 2;
+      await controller.observe(stalledSnapshot({ lastActivityAt }));
+      expect(resumeCalls).toHaveLength(1);
+      expect(resumeCalls[0].attempts).toBe(4);
+      const persisted = readRecordFile(CONTRACT_ID)!;
+      expect(persisted.attempts).toBe(4);
+      expect(persisted.observedActivityAt).toBe(lastActivityAt);
+      expectNoFailureDeliveryAudit();
+    });
+
+    it('旧 attempts=7（高于旧阈值）record：到期后 attempt=8 继续提醒', async () => {
+      const { store } = makeController();
+      const lastActivityAt = BASE_NOW - TIMEOUT_MS - 1;
+      store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: lastActivityAt,
+        attempts: 7,
+        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+      });
+      const controller = reopenController(createExecutionRecoveryStore({ rootFs, audit }));
+      await controller.observe(stalledSnapshot({ lastActivityAt }));
+      expect(resumeCalls).toHaveLength(1);
+      expect(resumeCalls[0].attempts).toBe(8);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(8);
+      expectNoFailureDeliveryAudit();
+    });
+
+    it('store.save 抛错：不 enqueue、错误沿现有传播；恢复后可再次 observe 正常登记', async () => {
+      const realStore = createExecutionRecoveryStore({ rootFs, audit });
+      let failSave = true;
+      const store: ExecutionRecoveryStore = {
+        ...realStore,
+        save: (record) => {
+          if (failSave) {
+            failSave = false;
+            throw new Error('EIO save');
+          }
+          realStore.save(record);
+        },
+      };
+      const controller = reopenController(store);
+      await expect(controller.observe(stalledSnapshot())).rejects.toThrow('EIO save');
+      expect(resumeCalls).toHaveLength(0);
+      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+      // 上次 attempt 未落盘 → 恢复后同窗口可再次登记
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(1);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+    });
+
+    it('enqueue 抛错：record 已持久化；同窗口不重发，下一窗口继续（不偷换为投递确认）', async () => {
+      let failEnqueue = true;
+      const controller = createExecutionRecoveryController({
+        store: createExecutionRecoveryStore({ rootFs, audit }),
+        audit,
+        enqueueResume: (record) => {
+          if (failEnqueue) {
+            failEnqueue = false;
+            throw new Error('inbox down');
+          }
+          resumeCalls.push(record);
+        },
+        timeoutMs: TIMEOUT_MS,
+        now: () => currentNow,
+      });
+      await expect(controller.observe(stalledSnapshot())).rejects.toThrow('inbox down');
+      // 调度尝试已登记落盘（attempt 是调度计数，不是成功通知数）
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+      expect(resumeCalls).toHaveLength(0);
+      // 同窗口不补发
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(0);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+      // 下一窗口继续
+      currentNow += TIMEOUT_MS;
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(1);
+      expect(resumeCalls[0].attempts).toBe(2);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(2);
+    });
+  });
+
+  describe('真实 Messaging 投递读回', () => {
+    it('controller 真实 store + enqueue 回调调现有 notifyInbox：4 个到期窗口写入 4 条 execution_recovery，drainAndDeliver 读回并真实 ack', async () => {
+      const agentDir = path.join(rootDir, 'claws', 'claw-1');
+      const pendingDir = path.join(agentDir, 'inbox', 'pending');
+      fs.mkdirSync(pendingDir, { recursive: true });
+      const agentFs = new NodeFileSystem({ baseDir: agentDir });
+      const controller = createExecutionRecoveryController({
+        store: createExecutionRecoveryStore({ rootFs, audit }),
+        audit,
+        enqueueResume: (record) => {
+          // 只为验证调度链路的简单 body（不复制模板实现）；投递语义同生产
+          // notifyInbox（best-effort 自吞错，不是投递确认）。
+          notifyInbox(agentFs, {
+            inboxDir: pendingDir,
+            type: 'execution_recovery',
+            source: 'claw-1',
+            priority: 'high',
+            body: `resume attempt ${record.attempts}`,
+            metadata: { contract_id: record.contractId },
+          }, audit);
+        },
+        timeoutMs: TIMEOUT_MS,
+        now: () => currentNow,
+      });
+      for (let i = 1; i <= 4; i++) {
         await controller.observe(stalledSnapshot());
         currentNow += TIMEOUT_MS;
       }
-      sinkReport.mockRejectedValueOnce(new Error('contract fs down'));
-      await controller.observe(stalledSnapshot());
-      expect(sinkReport).toHaveBeenCalledTimes(1);
-      // record 保留、attempts 不重置、不再 enqueue resume
-      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(MAX_EXECUTION_RECOVERY_ATTEMPTS);
-      expect(resumeCalls).toHaveLength(MAX_EXECUTION_RECOVERY_ATTEMPTS);
-      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED)).toBe(true);
-      // 下一窗口重试交付成功 → record 删除
-      currentNow += TIMEOUT_MS;
-      await controller.observe(stalledSnapshot());
-      expect(sinkReport).toHaveBeenCalledTimes(2);
-      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+
+      const reader = createInboxReader(agentFs, audit, 'inbox');
+      const batch = await reader.drainAndDeliver();
+      expect(batch.kind).toBe('complete');
+      if (batch.kind !== 'complete') return;
+      expect(batch.entries).toHaveLength(4);
+      for (const entry of batch.entries) {
+        expect(entry.message.type).toBe('execution_recovery');
+        expect(entry.message.from).toBe('claw-1');
+        expect(entry.message.metadata?.contract_id).toBe(CONTRACT_ID);
+      }
+      for (const handle of batch.handles) {
+        await reader.ack(handle);
+      }
+      expect(fs.readdirSync(path.join(agentDir, 'inbox', 'done'))).toHaveLength(4);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(4);
+      expectNoFailureDeliveryAudit();
     });
   });
 
@@ -342,11 +469,6 @@ describe('execution-recovery controller', () => {
       expect(store.load(CONTRACT_ID)).toEqual(record);
       store.delete(CONTRACT_ID);
       expect(store.load(CONTRACT_ID)).toBeNull();
-    });
-
-    it('recordRef 为 chestnut-root 相对路径（evidenceRef 语义）', () => {
-      const { store } = makeController();
-      expect(store.recordRef(CONTRACT_ID)).toBe(`${EXECUTION_RECOVERY_DIR}/${CONTRACT_ID}.json`);
     });
 
     it('损坏 record：load 返回 null 并 audit（不抛）', () => {

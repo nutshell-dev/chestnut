@@ -5,13 +5,16 @@
  * @consumers L5.EventLoop, L6.Assembly
  *
  * Phase 1396 Step E: EventLoop 自有的执行停滞恢复闭合。
+ * Phase 1840: 执行提醒不再升级为契约失败——无活动/提醒次数是提醒事实，
+ * 不是契约最终失败证据；提醒沿既有节奏持续，失败终态仍由 ContractSystem
+ * 对真实失败来源独占裁决。
  *
  * 职责边界：
  * - EventLoop 判断活进程中的 agent 执行是否自发停滞（无 turn/retry/task 在途、
  *   active contract 存在、持久 activity 超时），先本模块自恢复（向自身 inbox 写
  *   高优 resume event，正常 drain 消费，不调 Runtime reentrant API）；
- * - 恢复尝试耗尽后只通过 Step D narrow sink 报告 `{executorId, producer, reason,
- *   evidenceRef}`；不直接改 contract、不通知 motion；
+ * - 提醒没有次数上限：每个到期窗口至多一次 attempt，超过旧阈值仍按同一节奏
+ *   继续；本模块不发起契约失败，不直接改 contract、不通知 motion；
  * - recovery state 全落盘（`.chestnut/event-loop/execution-recovery/<contractId>.json`），
  *   daemon 重启后从 record 恢复 attempt 计数与交付义务。
  *
@@ -28,9 +31,6 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { readAll, STREAM_FILE, LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';
 import { EXECUTION_RECOVERY_DIR } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS } from './audit-events.js';
-
-/** 最大恢复尝试次数，只在本模块定义（计划 §4）。 */
-export const MAX_EXECUTION_RECOVERY_ATTEMPTS = 3;
 
 // ---------------------------------------------------------------------------
 // Record schema
@@ -74,8 +74,6 @@ export interface ExecutionRecoveryStore {
   save(record: ExecutionRecoveryRecord): void;
   delete(contractId: string): void;
   list(): ExecutionRecoveryRecord[];
-  /** chestnut-root 相对的 evidence 引用（交给 ContractFailure.evidenceRef）。 */
-  recordRef(contractId: string): string;
 }
 
 function recordFileName(contractId: string): string {
@@ -172,11 +170,6 @@ export function createExecutionRecoveryStore(deps: {
       }
       return records;
     },
-
-    recordRef(contractId) {
-      // evidenceRef 用 posix 风格相对路径，跨平台稳定。
-      return `${EXECUTION_RECOVERY_DIR}/${recordFileName(contractId)}`;
-    },
   };
 }
 
@@ -228,7 +221,6 @@ export async function readStreamExecutionActivityMs(
  * activeContractId 存在时 lastActivityAt 必须有效（contract 创建时间兜底）。
  */
 export interface ExecutionActivitySnapshot {
-  executorId: string;
   activeContractId?: string;
   lastActivityAt: number;
   turnInFlight: boolean;
@@ -236,41 +228,12 @@ export interface ExecutionActivitySnapshot {
   asyncTaskInFlight: boolean;
 }
 
-/**
- * Consumer-owned report outcome（结构镜像 contract.ExecutionFailureReportOutcome；
- * 类型随消费者，event-loop 不 import contract 类型）。
- *
- * Phase 1803 Step B: 报告方依据三态 ack 管理交付证据：committed = terminal
- * winner 已定，闭合证据；retryable = 本轮未闭合，保留证据下 tick 重试；
- * rejected = 永久拒绝（如 identity mismatch），保留证据并以独立 audit 上抛。
- * Contract lifecycle outcome 细节不可出现在本控制流。
- */
-export type ExecutionRecoveryReportOutcome =
-  | { kind: 'committed' }
-  | { kind: 'retryable'; error: string }
-  | { kind: 'rejected'; reason: string };
-
-/**
- * Consumer-owned failure sink（结构兼容 contract.ExecutionFailureSink；
- * 接口随消费者，event-loop 不 import contract 类型）。
- */
-export interface ExecutionRecoveryFailureSink {
-  report(input: {
-    executorId: string;
-    producer: string;
-    reason: string;
-    evidenceRef: string;
-  }): Promise<ExecutionRecoveryReportOutcome>;
-}
-
 interface ExecutionRecoveryControllerDeps {
   store: ExecutionRecoveryStore;
-  failureSink: ExecutionRecoveryFailureSink;
   audit: AuditLog;
   /** 向自身 inbox 写高优 resume event（由 EventLoop 绑定自身 inbox）。 */
   enqueueResume: (record: ExecutionRecoveryRecord) => void | Promise<void>;
   timeoutMs: number;
-  maxAttempts?: number;
   now?: () => number;
 }
 
@@ -281,8 +244,7 @@ export interface ExecutionRecoveryController {
 export function createExecutionRecoveryController(
   deps: ExecutionRecoveryControllerDeps,
 ): ExecutionRecoveryController {
-  const { store, failureSink, audit } = deps;
-  const maxAttempts = deps.maxAttempts ?? MAX_EXECUTION_RECOVERY_ATTEMPTS;
+  const { store, audit } = deps;
   const now = deps.now ?? (() => Date.now());
 
   async function deleteRecordsExcept(keepContractId?: string): Promise<void> {
@@ -340,68 +302,23 @@ export function createExecutionRecoveryController(
       // 相同超时窗口重入幂等：每次新超时最多 +1 attempt。
       if (record.attempts > 0 && currentMs - record.lastAttemptAt < deps.timeoutMs) return;
 
-      if (record.attempts < maxAttempts) {
-        // 先落盘（重启可恢复计数），再向自身 inbox enqueue resume。
-        const next: ExecutionRecoveryRecord = {
-          ...record,
-          attempts: record.attempts + 1,
-          lastAttemptAt: currentMs,
-        };
-        store.save(next);
-        audit.write(
-          EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME,
-          `contract=${contractId}`,
-          `attempt=${next.attempts}`,
-          `max=${maxAttempts}`,
-        );
-        await deps.enqueueResume(next);
-        return;
-      }
-
-      // attempts 耗尽：terminal evidence（attempts=max 的 record）已在上次 attempt
-      // 落盘 → 交付 sink。Phase 1803 Step B: 穷尽处理三态 ack——committed 闭合
-      // （terminal winner 已确定）→ 删 record；retryable 保留 record 下 tick 重试
-      // 交付；rejected 是永久拒绝，保留 record（证据）并以独立 audit 上抛（不
-      // 静默吞掉；下 tick 重报保持可观测，由上层修复 wiring）。意外 throw 走
-      // catch 防御性兜底，同 retryable 保留 record。
-      try {
-        const outcome = await failureSink.report({
-          executorId: snapshot.executorId,
-          producer: 'runtime',
-          reason: 'agent_spontaneous_stall',
-          evidenceRef: store.recordRef(contractId),
-        });
-        switch (outcome.kind) {
-          case 'committed':
-            store.delete(contractId);
-            audit.write(
-              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED,
-              `contract=${contractId}`,
-              `attempts=${record.attempts}`,
-            );
-            break;
-          case 'retryable':
-            audit.write(
-              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED,
-              `contract=${contractId}`,
-              `reason=${outcome.error}`,
-            );
-            break;
-          case 'rejected':
-            audit.write(
-              EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_REJECTED,
-              `contract=${contractId}`,
-              `reason=${outcome.reason}`,
-            );
-            break;
-        }
-      } catch (err) {
-        audit.write(
-          EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED,
-          `contract=${contractId}`,
-          `reason=${formatErr(err)}`,
-        );
-      }
+      // Phase 1840: 提醒没有次数上限——到期窗口无条件登记下一次 attempt 并
+      // enqueue resume；attempts 不再携带终态含义（旧 attempts>=3 记录升级后
+      // 在下一到期窗口继续计数）。audit 的 RESUME 表示一次已登记的调度尝试，
+      // 不表示落盘通知成功。先落盘（重启可恢复计数），再 enqueue。
+      const next: ExecutionRecoveryRecord = {
+        ...record,
+        attempts: record.attempts + 1,
+        lastAttemptAt: currentMs,
+      };
+      store.save(next);
+      audit.write(
+        EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME,
+        `contract=${contractId}`,
+        `attempt=${next.attempts}`,
+        `interval_ms=${deps.timeoutMs}`,
+      );
+      await deps.enqueueResume(next);
     },
   };
 }
