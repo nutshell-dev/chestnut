@@ -63,3 +63,9 @@ export const EXECUTION_RECOVERY_DIR = 'event-loop/execution-recovery';
 
 /** Phase 1396 Step E: 自愈 resume 的自身 inbox 消息类型（EventLoop 正常消费，不走 Runtime reentrant API）。 */
 export const EXECUTION_RECOVERY_MESSAGE_TYPE = 'execution_recovery';
+
+/**
+ * Phase 1842: 执行恢复交付义务的 inbox metadata 关联键——owner 查询
+ * （findByExtraMeta）以冻结的稳定 delivery id 证实消息存在；不依赖文件名推身份。
+ */
+export const EXECUTION_RECOVERY_DELIVERY_META_KEY = 'execution_recovery_delivery_id';

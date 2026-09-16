@@ -22,6 +22,9 @@ export {
 export type {
   ExecutionActivitySnapshot,
   ExecutionRecoveryController,
+  ExecutionRecoveryDelivery,
+  ExecutionRecoveryDeliveryOutcome,
+  ExecutionRecoveryDeliveryRequest,
   ExecutionRecoveryRecord,
   ExecutionRecoveryStore,
 } from './execution-recovery.js';

@@ -22,6 +22,7 @@ import {
   createExecutionRecoveryStore,
   createExecutionRecoveryController,
   type ExecutionRecoveryController,
+  type ExecutionRecoveryDeliveryRequest,
   type ExecutionRecoveryStore,
   type ExecutionActivitySnapshot,
   type ExecutionRecoveryRecord,
@@ -48,7 +49,7 @@ interface Instance {
   agentDir: string;
   agentFs: NodeFileSystem;
   audit: ReturnType<typeof createMockAudit>;
-  resumeCalls: ExecutionRecoveryRecord[];
+  resumeCalls: ExecutionRecoveryDeliveryRequest[];
   store: ExecutionRecoveryStore;
   controller: ExecutionRecoveryController;
 }
@@ -87,12 +88,12 @@ describe('execution-recovery ownership (phase 1841)', () => {
     fs.mkdirSync(agentDir, { recursive: true });
     const agentFs = new NodeFileSystem({ baseDir: agentDir });
     const audit = createMockAudit();
-    const resumeCalls: ExecutionRecoveryRecord[] = [];
+    const resumeCalls: ExecutionRecoveryDeliveryRequest[] = [];
     const store = createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
     const controller = createExecutionRecoveryController({
       store,
       audit,
-      enqueueResume: (record) => { resumeCalls.push(record); },
+      deliverResume: async (request) => { resumeCalls.push(request); return { kind: 'confirmed' as const }; },
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -105,7 +106,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
     inst.controller = createExecutionRecoveryController({
       store: inst.store,
       audit: inst.audit,
-      enqueueResume: (record) => { inst.resumeCalls.push(record); },
+      deliverResume: async (request) => { inst.resumeCalls.push(request); return { kind: 'confirmed' as const }; },
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -316,7 +317,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
     expect(fs.readFileSync(legacyRecordPath(contractId), 'utf8')).toBe(legacyRaw);
   });
 
-  it('旧 schema1 attempts=7 基线已到期：同次 observe 合法「导入一次+attempt 一次」两次写，最终 attempt=8', async () => {
+  it('旧 schema1 attempts=7 基线已到期：同次 observe 合法「导入一次+pending 一次+confirmed 一次」三次业务写，最终 attempt=8（Phase 1842）', async () => {
     const c = makeInstance('claw-c', path.join(rootDir, 'claws', 'claw-c'));
     const contractId = 'legacy-7';
     const lastActivityAt = BASE_NOW - 10 * TIMEOUT_MS;
@@ -330,12 +331,23 @@ describe('execution-recovery ownership (phase 1841)', () => {
     const writeSpy = vi.spyOn(c.agentFs, 'writeAtomicSync');
 
     await c.controller.observe(stalled(contractId, lastActivityAt));
-    // 导入写 + 到期 attempt 写 = 恰好两次业务写（不是盲目重试）
-    expect(writeSpy).toHaveBeenCalledTimes(2);
+    // 导入写 + pending 义务写 + confirmed 写 = 恰好三次业务写（不是盲目重试）：
+    // 各次转换 kind 不同但同一冻结 id/attempt
+    expect(writeSpy).toHaveBeenCalledTimes(3);
+    const writtenKinds = writeSpy.mock.calls.map(call => {
+      const parsed = JSON.parse(String(call[1])) as ExecutionRecoveryRecord;
+      return parsed.delivery?.kind ?? 'no-delivery';
+    });
+    expect(writtenKinds).toEqual(['no-delivery', 'pending', 'confirmed']);
+    const pendingWrite = JSON.parse(String(writeSpy.mock.calls[1][1])) as ExecutionRecoveryRecord;
+    const confirmedWrite = JSON.parse(String(writeSpy.mock.calls[2][1])) as ExecutionRecoveryRecord;
+    expect(confirmedWrite.delivery?.id).toBe(pendingWrite.delivery?.id);
+    expect(confirmedWrite.delivery?.attempt).toBe(8);
     expect(c.resumeCalls).toHaveLength(1);
-    expect(c.resumeCalls[0].attempts).toBe(8);
+    expect(c.resumeCalls[0].delivery.attempt).toBe(8);
     const after = readLocal(c.agentDir, contractId)!;
     expect(after.attempts).toBe(8);
+    expect(after.delivery?.kind).toBe('confirmed');
     expect(after.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
     expect(fs.readFileSync(legacyRecordPath(contractId), 'utf8')).toBe(legacyRaw);
   });
@@ -429,7 +441,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
     currentNow += TIMEOUT_MS;
     await c.controller.observe(stalled(contractId, lastActivityAt));
     expect(readLocal(c.agentDir, contractId)?.attempts).toBe(1);
-    expect(c.resumeCalls[c.resumeCalls.length - 1].attempts).toBe(1);
+    expect(c.resumeCalls[c.resumeCalls.length - 1].delivery.attempt).toBe(1);
   });
 
   // -------------------------------------------------------------------------
@@ -476,7 +488,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
     currentNow += TIMEOUT_MS;
     await c.controller.observe(stalled(contractId, progressedAt));
     expect(c.resumeCalls).toHaveLength(1);
-    expect(c.resumeCalls[0].attempts).toBe(1);
+    expect(c.resumeCalls[0].delivery.attempt).toBe(1);
     const epoch = readLocal(c.agentDir, contractId)!;
     expect(epoch.attempts).toBe(1);
     expect(epoch.observedActivityAt).toBe(progressedAt);
@@ -753,7 +765,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
     writeSpy2.mockRestore();
   });
 
-  it('普通 save 返回 committed_durability_unknown：真实落盘、只写一次、审计精确类别，不重写不加 attempt', async () => {
+  it('普通 save 返回 committed_durability_unknown：真实落盘、pending/confirmed 各一次业务转换、审计精确类别，不重写不加 attempt（Phase 1842）', async () => {
     const c = makeInstance('claw-c', path.join(rootDir, 'claws', 'claw-c'));
     const contractId = 'save-unknown';
     const lastActivityAt = BASE_NOW - 10 * TIMEOUT_MS;
@@ -768,11 +780,15 @@ describe('execution-recovery ownership (phase 1841)', () => {
       return { kind: 'committed_durability_unknown', error: unknownError };
     });
 
-    // 到期窗口：单次普通 save（attempt 2→3）
+    // 到期窗口：pending 登记写 + confirmed 确认写 = 两次业务转换（各有明确 kind，
+    // 不是对同一转换的盲目重写）
     await c.controller.observe(stalled(contractId, lastActivityAt));
-    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy).toHaveBeenCalledTimes(2);
+    const transitionKinds = writeSpy.mock.calls.map(call =>
+      (JSON.parse(String(call[1])) as ExecutionRecoveryRecord).delivery?.kind);
+    expect(transitionKinds).toEqual(['pending', 'confirmed']);
     expect(c.resumeCalls).toHaveLength(1);
-    expect(c.resumeCalls[0].attempts).toBe(3);
+    expect(c.resumeCalls[0].delivery.attempt).toBe(3);
     // 真实落盘且未被当未提交重写
     expect(readLocal(c.agentDir, contractId)?.attempts).toBe(3);
     const fatal = c.audit.entries.find(
@@ -782,7 +798,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
     expect(fatal).toBeDefined();
     expect(fatal!.some(col => String(col).includes('dir fsync failed'))).toBe(true);
 
-    // 同窗口重入：不重写、不加 attempt
+    // 同窗口重入：不重写、不加 attempt（confirmed 后以 confirmedAt 为窗口基线）
     writeSpy.mockRestore();
     const writeSpy2 = vi.spyOn(c.agentFs, 'writeAtomicSync');
     await c.controller.observe(stalled(contractId, lastActivityAt));
@@ -790,5 +806,65 @@ describe('execution-recovery ownership (phase 1841)', () => {
     expect(c.resumeCalls).toHaveLength(1);
     expect(readLocal(c.agentDir, contractId)?.attempts).toBe(3);
     writeSpy2.mockRestore();
+  });
+
+  // -------------------------------------------------------------------------
+  // 9. Phase 1842: root delivery 不继承义务（显式兼容决策，非静默忽略）
+  // -------------------------------------------------------------------------
+
+  it('旧 root 记录含 delivery：不导入为本 claw 义务（本地投影无 delivery），raw 原文原样保留，到期登记全新身份', async () => {
+    const c = makeInstance('claw-c', path.join(rootDir, 'claws', 'claw-c'));
+    const contractId = 'legacy-with-delivery';
+    const lastActivityAt = BASE_NOW - 10 * TIMEOUT_MS;
+    const legacyRaw = writeLegacyRecord(contractId, {
+      schema_version: 1,
+      contractId,
+      observedActivityAt: lastActivityAt,
+      attempts: 3,
+      lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+      // 旧共享记录没有实例身份：即便带着格式合法的 delivery，也不能证明本 claw 义务
+      delivery: {
+        kind: 'pending',
+        id: 'execution_recovery-root-legacy',
+        attempt: 3,
+        scheduledAt: BASE_NOW - 10 * TIMEOUT_MS,
+        body: 'legacy body',
+      },
+    });
+
+    // 到期：继承（投影去掉 delivery）+ 新 pending + confirmed
+    await c.controller.observe(stalled(contractId, lastActivityAt));
+    const local = readLocal(c.agentDir, contractId)!;
+    expect(local.attempts).toBe(4);
+    // 新义务身份不是 root delivery 的身份
+    expect(local.delivery?.kind).toBe('confirmed');
+    expect(local.delivery?.id).not.toBe('execution_recovery-root-legacy');
+    expect(c.resumeCalls).toHaveLength(1);
+    expect(c.resumeCalls[0].delivery.id).not.toBe('execution_recovery-root-legacy');
+    // root 原文（含 delivery 字段）原字节保留为来源证据
+    expect(local.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
+    expect(fs.readFileSync(legacyRecordPath(contractId), 'utf8')).toBe(legacyRaw);
+  });
+
+  it('旧 root delivery 格式错误：仍只作原文证据保留、不阻断继承（root 其余格式/ID 错误仍阻断）', async () => {
+    const c = makeInstance('claw-c', path.join(rootDir, 'claws', 'claw-c'));
+    const contractId = 'legacy-bad-delivery';
+    const lastActivityAt = BASE_NOW - TIMEOUT_MS / 2; // 未超时：只导入不登记
+    const legacyRaw = writeLegacyRecord(contractId, {
+      schema_version: 1,
+      contractId,
+      observedActivityAt: lastActivityAt,
+      attempts: 2,
+      lastAttemptAt: BASE_NOW - TIMEOUT_MS / 2,
+      delivery: 12345, // 非法 delivery：不阻断、不继承
+    });
+
+    await c.controller.observe(stalled(contractId, lastActivityAt));
+    const local = readLocal(c.agentDir, contractId)!;
+    expect(local.attempts).toBe(2);
+    expect(local.delivery).toBeUndefined();
+    expect(local.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
+    expect(c.resumeCalls).toHaveLength(0);
+    expect(fs.readFileSync(legacyRecordPath(contractId), 'utf8')).toBe(legacyRaw);
   });
 });

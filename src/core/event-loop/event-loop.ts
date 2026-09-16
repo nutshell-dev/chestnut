@@ -22,6 +22,7 @@ import {
   INBOX_FALLBACK_TIMEOUT_MS_DEFAULT,
   EXECUTION_INACTIVITY_TIMEOUT_MS,
   EXECUTION_RECOVERY_MESSAGE_TYPE,
+  EXECUTION_RECOVERY_DELIVERY_META_KEY,
   CONTEXT_TRIM_RETRY_MAX,
   CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS,
   CONTEXT_TRIM_RETRY_MAX_DELAY_MS,
@@ -47,13 +48,13 @@ import type {
 import { newUuid } from '../../foundation/node-utils/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import { PendingViewError, notifyInbox } from '../../foundation/messaging/index.js';
-import { executionRecoveryMessage } from '../../templates/messages/index.js';
+import { PendingViewError, createInboxReader, writeInboxAsync } from '../../foundation/messaging/index.js';
 import {
   createExecutionRecoveryController,
   createExecutionRecoveryStore,
   type ExecutionRecoveryController,
-  type ExecutionRecoveryRecord,
+  type ExecutionRecoveryDeliveryOutcome,
+  type ExecutionRecoveryDeliveryRequest,
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps } from './types.js';
 
@@ -134,7 +135,8 @@ export class EventLoop {
         store: createExecutionRecoveryStore({ agentFs: this.agentFs, legacyRootFs: this.rootFs, audit: this.audit }),
         audit: this.audit,
         timeoutMs: options.executionRecovery.timeoutMs ?? EXECUTION_INACTIVITY_TIMEOUT_MS,
-        enqueueResume: (record) => this._enqueueExecutionResume(record),
+        // Phase 1842: 真实 owner 投递适配（查询→写→查询确认），生产绑定不变。
+        deliverResume: (request) => this._deliverExecutionResume(request),
       });
     }
   }
@@ -817,19 +819,75 @@ export class EventLoop {
   }
 
   /**
-   * Phase 1396 Step E: 自恢复 resume 只走自身 inbox（高优消息，正常 drain 消费），
-   * 不直接调 Runtime reentrant API。恢复消息不产生 stream LLM output，
-   * 不会被 probe 误判为业务 progress。
+   * Phase 1842: 执行恢复交付义务的真实 owner 适配。
+   * 自恢复 resume 只走自身 inbox（高优消息，正常 drain 消费），不直接调 Runtime
+   * reentrant API。恢复消息不产生 stream LLM output，不会被 probe 误判为业务 progress。
+   *
+   * 顺序不可交换（先查→未命中才写→写后再查）：
+   * - 以冻结的稳定 delivery.id 经 metadata 关联键查询 owner 消息存在证据
+   *   （pending/inflight/done 任一即确认——已被消费也算投递证据；failed/
+   *   misrouted 按 owner 显式语义不扫，不算确认来源）；
+   * - 查询失败（非缺失）不能当 absent，直接 pending 返回，绝不写；
+   * - 写抛错（包括「已提交后抛错」）不在当次立刻再写，留给下一 observe 查询调和；
+   * - 只消费 findByExtraMeta 的存在事实，不从文件名推身份（owner 生成的文件名
+   *   含另一个 UUID），也不把查询结果误当完整消息内容。
+   * protected 只为真实类型化测试子类调用，不是面向上层模块的配置/端口。
    */
-  private _enqueueExecutionResume(record: ExecutionRecoveryRecord): void {
-    notifyInbox(this.agentFs, {
-      inboxDir: this.inboxPendingDir,
-      type: EXECUTION_RECOVERY_MESSAGE_TYPE,
-      source: this.clawId,
-      priority: 'high',
-      body: executionRecoveryMessage(record.contractId, record.attempts),
-      metadata: { contract_id: record.contractId },
-    }, this.audit);
+  protected async _deliverExecutionResume(
+    request: ExecutionRecoveryDeliveryRequest,
+  ): Promise<ExecutionRecoveryDeliveryOutcome> {
+    const { delivery } = request;
+    // reader 用实际注入的 pending 路径推导 inbox baseDir（按实际注入路径，不硬编码
+    // 另一个 inbox）；每次调用创建只读 reader 句柄，路径依赖固定。只 findByExtraMeta，
+    // 不 init/drain/ack。done 不设时间截止（includeDoneWithinMs: Infinity）。
+    const reader = createInboxReader(this.agentFs, this.audit, path.dirname(this.inboxPendingDir));
+    const query = () =>
+      reader.findByExtraMeta(EXECUTION_RECOVERY_DELIVERY_META_KEY, delivery.id, {
+        includeDoneWithinMs: Infinity,
+      });
+
+    let before: Awaited<ReturnType<typeof query>>;
+    try {
+      before = await query();
+    } catch (error) {
+      // 结构化 outcome 暴露原 error（DP-2），由 controller 审计 stage/error。
+      return { error, kind: 'pending', stage: 'query_before' };
+    }
+    if (before) return { kind: 'confirmed' };
+
+    try {
+      await writeInboxAsync(this.agentFs, this.inboxPendingDir, {
+        id: delivery.id,
+        type: EXECUTION_RECOVERY_MESSAGE_TYPE,
+        from: this.clawId,
+        to: '',
+        priority: 'high',
+        content: delivery.body,
+        timestamp: new Date(delivery.scheduledAt).toISOString(),
+        metadata: {
+          contract_id: request.contractId,
+          [EXECUTION_RECOVERY_DELIVERY_META_KEY]: delivery.id,
+        },
+      }, this.audit);
+    } catch (error) {
+      // 结构化 outcome 暴露原 error（包括「已提交后抛错」），不在当次立刻再写。
+      return { error, kind: 'pending', stage: 'write' };
+    }
+
+    let after: Awaited<ReturnType<typeof query>>;
+    try {
+      after = await query();
+    } catch (error) {
+      // 结构化 outcome 暴露原 error，不能 false confirmed。
+      return { error, kind: 'pending', stage: 'query_after' };
+    }
+    return after
+      ? { kind: 'confirmed' }
+      : {
+          kind: 'pending',
+          stage: 'query_after',
+          error: new Error('execution recovery message not observed after write'),
+        };
   }
 
   /** Phase 1826: trim 重试预算（纯内存，EventLoop 自有语义）。 */

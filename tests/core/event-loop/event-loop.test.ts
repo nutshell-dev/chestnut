@@ -12,7 +12,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { EventLoop } from '../../../src/core/event-loop/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from '../../../src/core/event-loop/audit-events.js';
-import { CONTEXT_TRIM_RETRY_MAX, CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS } from '../../../src/core/event-loop/constants.js';
+import { CONTEXT_TRIM_RETRY_MAX, CONTEXT_TRIM_RETRY_INITIAL_DELAY_MS, EXECUTION_RECOVERY_DELIVERY_META_KEY } from '../../../src/core/event-loop/constants.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Runtime, TurnResult } from '../../../src/core/runtime/index.js';
@@ -1191,7 +1191,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     );
   }
 
-  it('停滞 active contract：run() 向自身 inbox 写高优 resume event（不调 Runtime reentrant API）', async () => {
+  it('停滞 active contract：run() 先 observe 向自身 inbox 写高优 resume event（不调 Runtime reentrant API），owner 证实后 record delivery=confirmed（Phase 1842）', async () => {
     const audit = createMockAudit();
     const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
       probeActivity: async () => ({
@@ -1208,8 +1208,13 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(messages[0].priority).toBe('high');
     expect(messages[0].content).toContain(CONTRACT_ID);
     expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
-    // record 已落盘 attempt=1
-    expect(JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).attempts).toBe(1);
+    // record 已落盘 attempt=1 且 owner 证实消息存在后 delivery=confirmed；
+    // inbox 消息以稳定 delivery id 关联（metadata 键，不依赖文件名）
+    const persisted = JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8'));
+    expect(persisted.attempts).toBe(1);
+    expect(persisted.delivery?.kind).toBe('confirmed');
+    expect(messages[0].metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(persisted.delivery.id);
+    expect(messages[0].id).toBe(persisted.delivery.id);
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(true);
   });
 
@@ -1239,9 +1244,12 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(messages[0].from).toBe('test-claw');
     expect(messages[0].priority).toBe('high');
     expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
-    // 本地 record 变 4 且附旧基线原文/unknown 归属；root 原字节不变
+    // 本地 record 变 4 且附旧基线原文/unknown 归属；root 原字节不变；
+    // Phase 1842: 旧 root 无实例身份，新义务以全新 delivery id 落盘并确认
     const persisted = JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8'));
     expect(persisted.attempts).toBe(4);
+    expect(persisted.delivery?.kind).toBe('confirmed');
+    expect(persisted.delivery?.attempt).toBe(4);
     expect(persisted.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
     expect(require('fs').readFileSync(legacyRecordFilePath(CONTRACT_ID), 'utf8')).toBe(legacyRaw);
     expect(audit.entries.some(e =>
@@ -1336,6 +1344,14 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(workerMsgs[0].from).toBe('worker-1');
     expect(JSON.parse(require('fs').readFileSync(localRecordAt(motionDir), 'utf8')).attempts).toBe(1);
     expect(JSON.parse(require('fs').readFileSync(localRecordAt(workerDir), 'utf8')).attempts).toBe(1);
+    // Phase 1842: 各自 local delivery=confirmed 且 inbox 消息以稳定 delivery id 关联
+    const motionRecord = JSON.parse(require('fs').readFileSync(localRecordAt(motionDir), 'utf8'));
+    const workerRecord = JSON.parse(require('fs').readFileSync(localRecordAt(workerDir), 'utf8'));
+    expect(motionRecord.delivery?.kind).toBe('confirmed');
+    expect(workerRecord.delivery?.kind).toBe('confirmed');
+    expect(motionMsgs[0].metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(motionRecord.delivery.id);
+    expect(workerMsgs[0].metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(workerRecord.delivery.id);
+    expect(motionRecord.delivery.id).not.toBe(workerRecord.delivery.id);
     // 不产生新的 root 共享记录
     expect(require('fs').existsSync(path.join(baseDir, 'event-loop'))).toBe(false);
 
@@ -1352,6 +1368,58 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, idleProbe).run();
     expect(require('fs').readFileSync(localRecordAt(motionDir), 'utf8')).toBe(motionBytes);
     expect(require('fs').readFileSync(localRecordAt(workerDir), 'utf8')).toBe(workerBytes);
+  });
+
+  it('异步 inbox 写失败：本轮正常 drain 仍执行、义务 pending 保留；恢复后下一 run 以同一逻辑 ID 补投并确认（Phase 1842）', async () => {
+    const audit = createMockAudit();
+    // 共享 agentFs 以便在 Fs 边界注入异步 writeAtomic 错误（不是已退役的
+    // writeAtomicSync inbox 点）；record 写（writeAtomicSync/.json）不受影响。
+    const sharedAgentFs = new NodeFileSystem({ baseDir: agentDir });
+    const factory = (dir: string): FileSystem =>
+      dir === agentDir ? sharedAgentFs : new NodeFileSystem({ baseDir: dir });
+    const runtime = makeIdleRuntime();
+    const fixedActivity = Date.now() - 10 * RECOVERY_TIMEOUT_MS;
+    const makeLoop = () => new EventLoop({
+      runtime,
+      fsFactory: factory,
+      agentDir,
+      clawId: 'test-claw',
+      audit,
+      inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+      executionRecovery: {
+        probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt: fixedActivity }),
+        timeoutMs: RECOVERY_TIMEOUT_MS,
+      },
+    });
+
+    const realWrite = sharedAgentFs.writeAtomic.bind(sharedAgentFs);
+    const writeSpy = vi.spyOn(sharedAgentFs, 'writeAtomic').mockImplementation(async (p, content) => {
+      if (String(p).endsWith('.md')) throw Object.assign(new Error('probe inbox async EIO'), { code: 'EIO' });
+      return realWrite(p, content);
+    });
+
+    await makeLoop().run();
+
+    // 义务 pending 保留、0 消息；投递失败不拖垮本轮——正常 drain 仍执行
+    const pendingRecord = JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8'));
+    expect(pendingRecord.attempts).toBe(1);
+    expect(pendingRecord.delivery?.kind).toBe('pending');
+    expect(readInboxMessages()).toHaveLength(0);
+    expect(runtime.drainInbox).toHaveBeenCalled();
+    expect(audit.entries.some(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
+      e.some(col => String(col) === 'context=executionRecoveryDelivery') &&
+      e.some(col => String(col) === 'stage=write'))).toBe(true);
+    const pendingId = pendingRecord.delivery.id;
+    writeSpy.mockRestore();
+
+    // 恢复后下一 run（重建 loop = 重启）：同一逻辑 ID 补投并确认
+    await makeLoop().run();
+    expect(readInboxMessages()).toHaveLength(1);
+    const confirmedRecord = JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8'));
+    expect(confirmedRecord.delivery).toMatchObject({ kind: 'confirmed', id: pendingId, attempt: 1 });
+    expect(confirmedRecord.attempts).toBe(1);
+    expect(readInboxMessages()[0].metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(pendingId);
   });
 
   it('record 读取异常：FATAL 审计后不阻断正常消息 drain', async () => {

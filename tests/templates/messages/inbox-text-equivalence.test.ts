@@ -13,7 +13,20 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
-import { EventLoop } from '../../../src/core/event-loop/index.js';
+import {
+  EventLoop,
+  createExecutionRecoveryController,
+  createExecutionRecoveryStore,
+} from '../../../src/core/event-loop/index.js';
+import {
+  EXECUTION_RECOVERY_DELIVERY_META_KEY,
+  EXECUTION_RECOVERY_DIR,
+} from '../../../src/core/event-loop/constants.js';
+import type {
+  ExecutionRecoveryDeliveryOutcome,
+  ExecutionRecoveryDeliveryRequest,
+  ExecutionRecoveryRecord,
+} from '../../../src/core/event-loop/index.js';
 import { createStartupCheckDelivery } from '../../../src/daemon/daemon-loop.js';
 import { createContractNotificationAdapter } from '../../../src/assembly/contract-notification-adapter.js';
 import { scanArchivedContracts } from '../../../src/core/contract/jobs/event-collector.js';
@@ -159,29 +172,77 @@ afterAll(() => {
 });
 
 describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）', () => {
-  it('M01 execution_recovery resume body', () => {
+  it('M01 execution_recovery resume body', async () => {
+    // Phase 1842: M01 harness 迁到真实异步链——真实 store 预置旧 attempt=1/过期
+    // lastAttemptAt，真实 controller（固定时钟）登记 attempt=2 并经实际 EventLoop
+    // protected 适配器（类型化测试子类公开，不复制控制逻辑）投递，再读真实消息。
+    // golden 字节约束不变；模板文本不复制、不手造 delivery 替代产品调度。
     const baseDir = tmpDir('p1828-m01-');
     const agentDir = path.join(baseDir, 'claws', 'claw-1');
     const pendingDir = path.join(agentDir, 'inbox', 'pending');
     fsNative.mkdirSync(pendingDir, { recursive: true });
-    const loop = new EventLoop({
+    const audit = auditStub();
+    const agentFs = new NodeFileSystem({ baseDir: agentDir });
+    const rootFs = new NodeFileSystem({ baseDir });
+    class TestEventLoop extends EventLoop {
+      deliverExecutionResume(
+        request: ExecutionRecoveryDeliveryRequest,
+      ): Promise<ExecutionRecoveryDeliveryOutcome> {
+        return this._deliverExecutionResume(request);
+      }
+    }
+    const loop = new TestEventLoop({
       runtime: {} as never,
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       agentDir,
       clawId: 'claw-1',
-      audit: auditStub(),
+      audit,
       inbox: { pendingDir },
     });
-    (loop as unknown as { _enqueueExecutionResume(r: { contractId: string; attempts: number }): void })
-      ._enqueueExecutionResume({ contractId: '1700000000000-abcd', attempts: 2 });
-    const file = fsNative.readdirSync(pendingDir).find(f => f.endsWith('.md'))!;
-    const msg = decodeInbox(fsNative.readFileSync(path.join(pendingDir, file), 'utf8'));
+    const CONTRACT_ID = '1700000000000-abcd';
+    const FIXED_NOW = 1_700_500_000_000;
+    const TIMEOUT_MS = 1000;
+    const lastActivityAt = FIXED_NOW - 10 * TIMEOUT_MS;
+    const store = createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+    store.save({
+      schema_version: 1,
+      contractId: CONTRACT_ID,
+      observedActivityAt: lastActivityAt,
+      attempts: 1,
+      lastAttemptAt: FIXED_NOW - 10 * TIMEOUT_MS,
+    });
+    const controller = createExecutionRecoveryController({
+      store,
+      audit,
+      deliverResume: (request) => loop.deliverExecutionResume(request),
+      timeoutMs: TIMEOUT_MS,
+      now: () => FIXED_NOW,
+    });
+    await controller.observe({
+      activeContractId: CONTRACT_ID,
+      lastActivityAt,
+      turnInFlight: false,
+      retryInFlight: false,
+      asyncTaskInFlight: false,
+    });
+    const files = fsNative.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
+    expect(files).toHaveLength(1);
+    const msg = decodeInbox(fsNative.readFileSync(path.join(pendingDir, files[0]!), 'utf8'));
     expectCases('M01', [{
       case: 'stalled-contract',
       body: msg.content,
       envelope: { type: msg.type, from: msg.from, to: msg.to, priority: msg.priority },
     }]);
     expect(msg.content).toContain('Execution stalled');
+    // Phase 1842 额外断言（不进 golden）：义务经 owner 证实后 confirmed，
+    // 消息以稳定 delivery id 关联（metadata 键，不依赖文件名）
+    const recordPath = path.join(agentDir, EXECUTION_RECOVERY_DIR, `${CONTRACT_ID}.json`);
+    const record = JSON.parse(fsNative.readFileSync(recordPath, 'utf8')) as ExecutionRecoveryRecord;
+    expect(record.attempts).toBe(2);
+    expect(record.delivery?.kind).toBe('confirmed');
+    expect(msg.id).toBe(record.delivery?.id);
+    expect(msg.metadata?.contract_id).toBe(CONTRACT_ID);
+    expect(msg.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(record.delivery?.id);
   });
 
   it('M02 startup_check body', async () => {

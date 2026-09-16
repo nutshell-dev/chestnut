@@ -1,7 +1,7 @@
 /**
  * @module L5.EventLoop.ExecutionRecovery
  * @layer L5 服务层
- * @depends L2.AuditLog, L2.Fs, L2.Stream
+ * @depends L1.NodeUtils, L2.AuditLog, L2.Fs, L2.Stream, Templates.Messages（层中性纯文案）
  * @consumers L5.EventLoop, L6.Assembly
  *
  * Phase 1396 Step E: EventLoop 自有的执行停滞恢复闭合。
@@ -14,6 +14,12 @@
  * `<root>/event-loop/execution-recovery/` 共享目录仅作只读历史基线继承
  * （归属不可考，原文与 unknown 标记随记录保留）。controller 只按当前选中
  * 契约 ID 直读直写，未选中/无 active 不授权删除任何记录，不扫描目录。
+ * Phase 1842: 一次已决定的提醒先持久化 pending 交付义务（冻结稳定
+ * id/attempt/scheduledAt/body），直到 Messaging 查询证实消息存在于
+ * pending/inflight/done 才落 confirmed；投递失败或重启继续同一义务——
+ * 不额外计次、不等待下一提醒窗口。新 activity 使旧 pending 转 superseded
+ * （停止补投、保留身份与正文证据）。确认时刻起计算下一逻辑提醒窗口；
+ * attempt 表示逻辑调度次数，不是物理写次数或成功通知次数。
  *
  * 职责边界：
  * - EventLoop 判断活进程中的 agent 执行是否自发停滞（无 turn/retry/task 在途、
@@ -32,9 +38,10 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
+import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { readAll, STREAM_FILE, LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';
+import { executionRecoveryMessage } from '../../templates/messages/index.js';
 import { EXECUTION_RECOVERY_DIR } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS } from './audit-events.js';
 
@@ -65,6 +72,110 @@ export interface ExecutionRecoveryRecord {
     attribution: 'unknown';
     raw: string;
   };
+  /**
+   * Phase 1842: 交付义务（可选，schema_version 仍为 1，旧记录无此字段合法）。
+   * pending = 已决定但未经 Messaging 证实的义务（冻结 id/attempt/scheduledAt/body，
+   * 跨重启按原样补投）；confirmed = owner 查询证实消息存在；superseded = 新
+   * activity 前进终止补投（保留身份/正文证据，不召回已写消息）。
+   */
+  delivery?: ExecutionRecoveryDelivery;
+}
+
+// ---------------------------------------------------------------------------
+// Delivery obligation（Phase 1842）
+// ---------------------------------------------------------------------------
+
+/** delivery.id 的稳定前缀（`execution_recovery-${newUuid()}`）。 */
+const DELIVERY_ID_PREFIX = 'execution_recovery-';
+
+/** Date 可表示的毫秒范围（±8.64e15）。 */
+const MAX_DATE_MS = 8.64e15;
+
+interface ExecutionRecoveryDeliveryBase {
+  /** 稳定身份：登记时冻结，重启/补投/确认全程不变。 */
+  id: string;
+  /** 逻辑调度次数（与 record.attempts 一致），不是物理写次数。 */
+  attempt: number;
+  /** 登记时刻（epoch ms，冻结；与 record.lastAttemptAt 一致）。 */
+  scheduledAt: number;
+  /** 一次渲染后冻结的正文；重启/补投不重新渲染。 */
+  body: string;
+}
+
+export type ExecutionRecoveryDelivery =
+  | (ExecutionRecoveryDeliveryBase & { kind: 'pending' })
+  | (ExecutionRecoveryDeliveryBase & { kind: 'confirmed'; confirmedAt: number })
+  | (ExecutionRecoveryDeliveryBase & {
+      kind: 'superseded';
+      supersededAt: number;
+      reason: 'activity_progressed';
+    });
+
+/** 交给交付适配器的义务（只可能是 pending）。 */
+export interface ExecutionRecoveryDeliveryRequest {
+  contractId: string;
+  delivery: Extract<ExecutionRecoveryDelivery, { kind: 'pending' }>;
+}
+
+/**
+ * 交付结果。confirmed = owner 查询证实消息存在（pending/inflight/done 任一）；
+ * pending = 未能证实（携带失败阶段与原 error），义务原样保留待下一 observe。
+ * 回调 resolve 本身不构成确认。
+ */
+export type ExecutionRecoveryDeliveryOutcome =
+  | { kind: 'confirmed' }
+  | { kind: 'pending'; stage: 'query_before' | 'write' | 'query_after'; error: unknown };
+
+function isRepresentableMs(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_DATE_MS;
+}
+
+/**
+ * delivery 字段严格校验。缺省合法（旧记录）；显式 null / 未知 kind / 字段不合法
+ * 或与顶部计数不一致 → 整个 record 无效（返回 null，由 store 审计后抛出）。
+ * 不引入「确认时间必须大于登记时间」的时钟单调假设。
+ */
+function parseDelivery(
+  raw: unknown,
+  attempts: number,
+  lastAttemptAt: number,
+): ExecutionRecoveryDelivery | null | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'object' || raw === null) return null;
+  const d = raw as Record<string, unknown>;
+  if (
+    typeof d.id !== 'string' ||
+    !d.id.startsWith(DELIVERY_ID_PREFIX) ||
+    d.id.length === DELIVERY_ID_PREFIX.length
+  ) return null;
+  if (typeof d.attempt !== 'number' || !Number.isInteger(d.attempt) || d.attempt < 1) return null;
+  if (typeof d.body !== 'string' || d.body.length === 0) return null;
+  if (!isRepresentableMs(d.scheduledAt)) return null;
+  const base = { id: d.id, attempt: d.attempt, scheduledAt: d.scheduledAt, body: d.body };
+  switch (d.kind) {
+    case 'pending':
+      // pending 必须与本 epoch 顶部计数一致（最后一次登记的义务）。
+      if (d.attempt !== attempts || d.scheduledAt !== lastAttemptAt) return null;
+      return { ...base, kind: 'pending' };
+    case 'confirmed': {
+      if (!isRepresentableMs(d.confirmedAt)) return null;
+      if (attempts > 0) {
+        if (d.attempt !== attempts || d.scheduledAt !== lastAttemptAt) return null;
+      } else if (lastAttemptAt !== 0) {
+        // attempts=0 只允许 activity 重置后的零基线（lastAttemptAt=0）保留旧证据。
+        return null;
+      }
+      return { ...base, kind: 'confirmed', confirmedAt: d.confirmedAt };
+    }
+    case 'superseded':
+      if (!isRepresentableMs(d.supersededAt)) return null;
+      if (d.reason !== 'activity_progressed') return null;
+      // superseded 只能出现在 activity 重置后的零基线上。
+      if (attempts !== 0 || lastAttemptAt !== 0) return null;
+      return { ...base, kind: 'superseded', supersededAt: d.supersededAt, reason: 'activity_progressed' };
+    default:
+      return null;
+  }
 }
 
 /** 手写校验（沿用本模块 _loadLlmRetryState 风格，不引 zod）。纯解析返回 null；
@@ -86,6 +197,8 @@ export function parseExecutionRecoveryRecord(raw: unknown): ExecutionRecoveryRec
     if (typeof prov.raw !== 'string') return null;
     legacySharedBaseline = { attribution: 'unknown', raw: prov.raw };
   }
+  const delivery = parseDelivery(r.delivery, r.attempts, r.lastAttemptAt);
+  if (delivery === null) return null;
   return {
     schema_version: 1,
     contractId: r.contractId,
@@ -93,6 +206,7 @@ export function parseExecutionRecoveryRecord(raw: unknown): ExecutionRecoveryRec
     attempts: r.attempts,
     lastAttemptAt: r.lastAttemptAt,
     ...(legacySharedBaseline ? { legacySharedBaseline } : {}),
+    ...(delivery ? { delivery } : {}),
   };
 }
 
@@ -190,7 +304,20 @@ export function createExecutionRecoveryStore(deps: {
         { cause: e },
       );
     }
-    const record = parseExecutionRecoveryRecord(parsed);
+    // Phase 1842: legacy scope 在严格解析前只为控制投影移除 delivery 字段——
+    // 旧 root 共享记录没有实例身份，其 delivery（无论格式是否合法）不能证明本
+    // claw 的交付义务，不继承、不阻断；完整原文仍随 legacySharedBaseline.raw
+    // 保留为来源证据。这是显式兼容决策，不是静默忽略。local scope 不做投影：
+    // 本地 delivery 无效即整个 record 无效。
+    const projectionSource =
+      scope === 'legacy' && typeof parsed === 'object' && parsed !== null
+        ? (() => {
+            const copy = { ...(parsed as Record<string, unknown>) };
+            delete copy.delivery;
+            return copy;
+          })()
+        : parsed;
+    const record = parseExecutionRecoveryRecord(projectionSource);
     if (!record) {
       auditFailure(`scope=${scope}`, `operation=read`, `contract=${contractId}`, `reason=schema_invalid`);
       throw new Error(`execution recovery record ${scope} schema invalid (contract=${contractId})`);
@@ -314,8 +441,12 @@ export interface ExecutionActivitySnapshot {
 interface ExecutionRecoveryControllerDeps {
   store: ExecutionRecoveryStore;
   audit: AuditLog;
-  /** 向自身 inbox 写高优 resume event（由 EventLoop 绑定自身 inbox）。 */
-  enqueueResume: (record: ExecutionRecoveryRecord) => void | Promise<void>;
+  /**
+   * Phase 1842: 交付义务适配器（由 EventLoop 绑定真实 owner 读写链）。
+   * 以冻结的稳定 delivery.id 先查询 owner 消息存在证据，未命中才写，
+   * 再以写后查询确认；回调 resolve 不等于确认。依赖在构造时绑定，不动态替换。
+   */
+  deliverResume: (request: ExecutionRecoveryDeliveryRequest) => Promise<ExecutionRecoveryDeliveryOutcome>;
   timeoutMs: number;
   now?: () => number;
 }
@@ -329,6 +460,44 @@ export function createExecutionRecoveryController(
 ): ExecutionRecoveryController {
   const { store, audit } = deps;
   const now = deps.now ?? (() => Date.now());
+
+  /**
+   * 交付一次 pending 义务（新登记或补投共用）。失败只审计保留义务，不抛给
+   * 智能体、不自循环；confirmed 时把同一 record 的 delivery 落为 confirmed
+   * （save 失败原样抛出——磁盘仍是 pending，下一 observe 先查询原消息再确认，
+   * 不会重复写、不额外计次）。无论确认花了多久，当次 observe 均 return，
+   * 不立即登记下一提醒。
+   */
+  const deliverObligation = async (
+    contractId: string,
+    record: ExecutionRecoveryRecord,
+    delivery: Extract<ExecutionRecoveryDelivery, { kind: 'pending' }>,
+  ): Promise<void> => {
+    const outcome = await deps.deliverResume({ contractId, delivery });
+    if (outcome.kind === 'pending') {
+      audit.write(
+        EVENTLOOP_AUDIT_EVENTS.FATAL,
+        `context=executionRecoveryDelivery`,
+        `contract=${contractId}`,
+        `delivery_id=${delivery.id}`,
+        `stage=${outcome.stage}`,
+        `error=${formatErr(outcome.error)}`,
+      );
+      return;
+    }
+    const confirmedAt = now();
+    store.save({
+      ...record,
+      delivery: { ...delivery, kind: 'confirmed', confirmedAt },
+    });
+    audit.write(
+      EVENTLOOP_AUDIT_EVENTS.ITERATION,
+      `context=executionRecoveryDeliveryConfirmed`,
+      `contract=${contractId}`,
+      `delivery_id=${delivery.id}`,
+      `confirmed_at=${confirmedAt}`,
+    );
+  };
 
   return {
     async observe(snapshot) {
@@ -346,6 +515,10 @@ export function createExecutionRecoveryController(
       // activity 前进 → 本 epoch 已恢复：先持久化零计数记录（保留「已建立本地状态」
       // 事实与 legacy 来源证据，重启不会重新导入旧共享基线），再判断活动是否超时，
       // 不留「内存已重置、磁盘旧值」窗口。spread 保留 legacySharedBaseline。
+      // Phase 1842: 旧 pending 义务同次转 superseded（停止后续补投，保留冻结身份
+      // 与正文证据；不召回已写消息，也不宣称旧消息从未投递）；旧 confirmed /
+      // superseded 保持原证据。save 失败终止本次，不能继续交付。superseded 与
+      // 后续新 pending 之间可崩溃；重启按保存状态继续。
       if (record && snapshot.lastActivityAt > record.observedActivityAt) {
         const previous = record;
         record = {
@@ -353,6 +526,16 @@ export function createExecutionRecoveryController(
           observedActivityAt: snapshot.lastActivityAt,
           attempts: 0,
           lastAttemptAt: 0,
+          ...(record.delivery?.kind === 'pending'
+            ? {
+                delivery: {
+                  ...record.delivery,
+                  kind: 'superseded' as const,
+                  supersededAt: now(),
+                  reason: 'activity_progressed' as const,
+                },
+              }
+            : {}),
         };
         store.save(record);
         audit.write(
@@ -361,6 +544,13 @@ export function createExecutionRecoveryController(
           `reason=activity_progressed`,
           `previous_record=${JSON.stringify(previous)}`,
         );
+      }
+
+      // Phase 1842: 已有 pending 义务 → 直接交付该义务（同一冻结身份/正文），
+      // 不检查 lastAttemptAt 冷却、不重新增加 attempt；每次 observe 只交付一次并 return。
+      if (record?.delivery?.kind === 'pending') {
+        await deliverObligation(contractId, record, record.delivery);
+        return;
       }
 
       const currentMs = now();
@@ -376,17 +566,34 @@ export function createExecutionRecoveryController(
         lastAttemptAt: 0,
       };
 
-      // 相同超时窗口重入幂等：每次新超时最多 +1 attempt。
-      if (record.attempts > 0 && currentMs - record.lastAttemptAt < deps.timeoutMs) return;
+      // 相同超时窗口重入幂等：每个新窗口最多登记一次新义务。
+      // Phase 1842: 下一逻辑提醒窗口自确认时刻起算——attempts>0 且有 confirmed
+      // 义务时以 confirmedAt 为基线；旧无 delivery 记录沿用 lastAttemptAt。
+      // attempts=0 不受保留的旧 confirmed 时间限制。
+      if (record.attempts > 0) {
+        const baseline =
+          record.delivery?.kind === 'confirmed' ? record.delivery.confirmedAt : record.lastAttemptAt;
+        if (currentMs - baseline < deps.timeoutMs) return;
+      }
 
-      // Phase 1840: 提醒没有次数上限——到期窗口无条件登记下一次 attempt 并
-      // enqueue resume；attempts 不再携带终态含义（旧 attempts>=3 记录升级后
-      // 在下一到期窗口继续计数）。audit 的 RESUME 表示一次已登记的调度尝试，
-      // 不表示落盘通知成功。先落盘（重启可恢复计数），再 enqueue。
+      // Phase 1840: 提醒没有次数上限——到期窗口无条件登记下一次 attempt；
+      // attempts 不再携带终态含义。Phase 1842: 新义务冻结稳定 id/attempt/
+      // scheduledAt/body（模板一次渲染），先 save 完整新 record（重启可按原样
+      // 恢复义务），再 RESUME 审计，再交付。audit 的 RESUME 表示一次已登记的
+      // 调度尝试与 pending 义务落盘，不表示 owner 已确认消息存在。save 抛错
+      // 不调用适配器；审计与 save 不构成完整事务日志，历史 gap 保持。
+      const delivery: Extract<ExecutionRecoveryDelivery, { kind: 'pending' }> = {
+        kind: 'pending',
+        id: `${DELIVERY_ID_PREFIX}${newUuid()}`,
+        attempt: record.attempts + 1,
+        scheduledAt: currentMs,
+        body: executionRecoveryMessage(contractId, record.attempts + 1),
+      };
       const next: ExecutionRecoveryRecord = {
         ...record,
-        attempts: record.attempts + 1,
+        attempts: delivery.attempt,
         lastAttemptAt: currentMs,
+        delivery,
       };
       store.save(next);
       audit.write(
@@ -394,8 +601,12 @@ export function createExecutionRecoveryController(
         `contract=${contractId}`,
         `attempt=${next.attempts}`,
         `interval_ms=${deps.timeoutMs}`,
+        `delivery_id=${delivery.id}`,
+        `delivery_state=pending`,
+        // 覆盖上一 delivery 前留证（没有则不加本列）。
+        ...(record.delivery ? [`previous_delivery=${JSON.stringify(record.delivery)}`] : []),
       );
-      await deps.enqueueResume(next);
+      await deliverObligation(contractId, next, delivery);
     },
   };
 }

@@ -1,0 +1,705 @@
+/**
+ * Phase 1842: 提醒交付义务真实链验收 —— 真实 NodeFileSystem / store / controller /
+ * EventLoop 投递适配（protected 仅由类型化测试子类暴露）/ Messaging
+ * （writeInboxAsync + InboxReader.findByExtraMeta）。
+ *
+ * 边界纪律：
+ * - 故障只在 Fs 边界注入（异步 writeAtomic / list），或按 record 内容 kind 定点
+ *   注入 store.save；不 mock findByExtraMeta 来证明真实查找，不手抄产品实现；
+ * - 测试子类只暴露适配器，不复制控制逻辑；
+ * - post-null（写后证据被移走）是故障注入场景，不是正常串行路径（正常链中
+ *   写完同目录即可见）；
+ * - confirmed 只证明 Messaging 消息存在证据，不证明 LLM 已执行或契约有进展。
+ *
+ * 覆盖 B§6 矩阵：新到期提醒 / 写前 EIO / 写已提交后 throw / pre-query EIO /
+ * post-query EIO 与 post-null / 确认保存失败 / pending-inflight-done 三位置 /
+ * delayed confirm / 新活动 supersede / 无 active·在途·切换 / run 装配见
+ * event-loop.test.ts。
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import {
+  createExecutionRecoveryStore,
+  createExecutionRecoveryController,
+  type ExecutionRecoveryController,
+  type ExecutionRecoveryDelivery,
+  type ExecutionRecoveryDeliveryOutcome,
+  type ExecutionRecoveryDeliveryRequest,
+  type ExecutionRecoveryStore,
+  type ExecutionActivitySnapshot,
+  type ExecutionRecoveryRecord,
+} from '../../../src/core/event-loop/execution-recovery.js';
+import { EventLoop } from '../../../src/core/event-loop/event-loop.js';
+import {
+  EXECUTION_RECOVERY_DIR,
+  EXECUTION_RECOVERY_DELIVERY_META_KEY,
+} from '../../../src/core/event-loop/constants.js';
+import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { createInboxReader, decodeInbox, writeInboxAsync } from '../../../src/foundation/messaging/index.js';
+import type { InboxMessage } from '../../../src/foundation/messaging/index.js';
+import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { createTrackedTempDirSync } from '../../utils/temp.js';
+
+const TIMEOUT_MS = 1000;
+const BASE_NOW = 1_700_000_000_000;
+const CONTRACT_ID = '1700000000000-abcd';
+const CLAW_ID = 'claw-1';
+
+function createMockAudit(): AuditLog & { entries: [string, ...(string | number)[]][] } {
+  const entries: [string, ...(string | number)[]][] = [];
+  return {
+    entries,
+    write: (type: string, ...cols: (string | number)[]) => { entries.push([type, ...cols]); },
+  };
+}
+
+/** 类型化测试子类：只公开真实 protected 投递适配器，不复制控制逻辑。 */
+class TestEventLoop extends EventLoop {
+  deliverExecutionResume(
+    request: ExecutionRecoveryDeliveryRequest,
+  ): Promise<ExecutionRecoveryDeliveryOutcome> {
+    return this._deliverExecutionResume(request);
+  }
+}
+
+interface Harness {
+  rootDir: string;
+  agentDir: string;
+  pendingDir: string;
+  agentFs: NodeFileSystem;
+  rootFs: NodeFileSystem;
+  audit: ReturnType<typeof createMockAudit>;
+  requests: ExecutionRecoveryDeliveryRequest[];
+  loop: TestEventLoop;
+  store: ExecutionRecoveryStore;
+  controller: ExecutionRecoveryController;
+}
+
+describe('execution-recovery delivery obligation (phase 1842)', () => {
+  let currentNow: number;
+  let cleanups: string[];
+
+  beforeEach(() => {
+    currentNow = BASE_NOW;
+    cleanups = [];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const dir of cleanups) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** 真实链 harness：EventLoop 适配 + 真实 store/controller/Messaging。 */
+  function makeHarness(prefix: string): Harness {
+    const rootDir = createTrackedTempDirSync(prefix);
+    cleanups.push(rootDir);
+    const agentDir = path.join(rootDir, 'claws', CLAW_ID);
+    const pendingDir = path.join(agentDir, 'inbox', 'pending');
+    fs.mkdirSync(pendingDir, { recursive: true });
+    const agentFs = new NodeFileSystem({ baseDir: agentDir });
+    const rootFs = new NodeFileSystem({ baseDir: rootDir });
+    const audit = createMockAudit();
+    const requests: ExecutionRecoveryDeliveryRequest[] = [];
+    // EventLoop 构造只用 agentDir 推导自身 fs；提供共享 agentFs 以便 Fs 边界注入。
+    const loop = new TestEventLoop({
+      runtime: {} as never,
+      fsFactory: (dir: string) => (dir === agentDir ? agentFs : new NodeFileSystem({ baseDir: dir })),
+      agentDir,
+      clawId: CLAW_ID,
+      audit,
+      inbox: { pendingDir },
+    });
+    const store = createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+    const controller = createExecutionRecoveryController({
+      store,
+      audit,
+      deliverResume: async (request) => {
+        requests.push(request);
+        return loop.deliverExecutionResume(request);
+      },
+      timeoutMs: TIMEOUT_MS,
+      now: () => currentNow,
+    });
+    return { rootDir, agentDir, pendingDir, agentFs, rootFs, audit, requests, loop, store, controller };
+  }
+
+  /** 只重建 store/controller（模拟重启），Fs/inbox/audit/requests 不变。 */
+  function reopen(h: Harness): void {
+    h.store = createExecutionRecoveryStore({ agentFs: h.agentFs, legacyRootFs: h.rootFs, audit: h.audit });
+    h.controller = createExecutionRecoveryController({
+      store: h.store,
+      audit: h.audit,
+      deliverResume: async (request) => {
+        h.requests.push(request);
+        return h.loop.deliverExecutionResume(request);
+      },
+      timeoutMs: TIMEOUT_MS,
+      now: () => currentNow,
+    });
+  }
+
+  function stalled(contractId: string, lastActivityAt: number): ExecutionActivitySnapshot {
+    return {
+      activeContractId: contractId,
+      lastActivityAt,
+      turnInFlight: false,
+      retryInFlight: false,
+      asyncTaskInFlight: false,
+    };
+  }
+
+  function recordPath(h: Harness, contractId: string): string {
+    return path.join(h.agentDir, EXECUTION_RECOVERY_DIR, `${contractId}.json`);
+  }
+
+  function readRecord(h: Harness, contractId: string): ExecutionRecoveryRecord | null {
+    const p = recordPath(h, contractId);
+    if (!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, 'utf8')) as ExecutionRecoveryRecord;
+  }
+
+  function pendingFiles(h: Harness): string[] {
+    return fs.readdirSync(h.pendingDir).filter(f => f.endsWith('.md'));
+  }
+
+  function readPendingMessages(h: Harness): InboxMessage[] {
+    return pendingFiles(h).map(f =>
+      decodeInbox(fs.readFileSync(path.join(h.pendingDir, f), 'utf8')));
+  }
+
+  function deliveryFatal(h: Harness, stage: string): boolean {
+    return h.audit.entries.some(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
+      e.some(col => String(col) === 'context=executionRecoveryDelivery') &&
+      e.some(col => String(col) === `stage=${stage}`));
+  }
+
+  /** Fs 边界：inbox 消息（.md）的异步 writeAtomic 注入。 */
+  function failInboxWrites(h: Harness, mode: 'before_commit' | 'after_commit'): () => void {
+    const realWrite = h.agentFs.writeAtomic.bind(h.agentFs);
+    const spy = vi.spyOn(h.agentFs, 'writeAtomic').mockImplementation(async (p, content) => {
+      if (String(p).endsWith('.md')) {
+        if (mode === 'after_commit') await realWrite(p, content);
+        throw Object.assign(new Error('probe inbox EIO'), { code: 'EIO' });
+      }
+      return realWrite(p, content);
+    });
+    return () => spy.mockRestore();
+  }
+
+  /** Fs 边界：owner 查询（pending 目录 list）注入；nthCall 起抛错。 */
+  function failPendingList(h: Harness, nthCall: number): () => void {
+    const realList = h.agentFs.list.bind(h.agentFs);
+    let calls = 0;
+    const spy = vi.spyOn(h.agentFs, 'list').mockImplementation(async (p, opts) => {
+      if (String(p).replace(/\\/g, '/').endsWith('inbox/pending')) {
+        calls++;
+        if (calls >= nthCall) throw Object.assign(new Error('probe query EIO'), { code: 'EIO' });
+      }
+      return realList(p, opts);
+    });
+    return () => spy.mockRestore();
+  }
+
+  /** store.save 按 record 内容 kind 定点注入（不允许误打其他转换）。 */
+  function failConfirmSave(h: Harness): () => void {
+    const realSave = h.store.save.bind(h.store);
+    const orig = h.controller;
+    void orig;
+    h.controller = createExecutionRecoveryController({
+      store: {
+        load: h.store.load.bind(h.store),
+        save: (record) => {
+          if (record.delivery?.kind === 'confirmed') {
+            throw Object.assign(new Error('EIO confirm save'), { code: 'EIO' });
+          }
+          realSave(record);
+        },
+      },
+      audit: h.audit,
+      deliverResume: async (request) => {
+        h.requests.push(request);
+        return h.loop.deliverExecutionResume(request);
+      },
+      timeoutMs: TIMEOUT_MS,
+      now: () => currentNow,
+    });
+    return () => reopen(h);
+  }
+
+  // -------------------------------------------------------------------------
+  // 新到期提醒：pending 先落盘 → 写 → owner 后查询命中才 confirmed
+  // -------------------------------------------------------------------------
+
+  it('新到期提醒：先有本地 pending 再写；唯一逻辑 ID/body；owner 后查询命中才保存 confirmed；解码消息关联正确', async () => {
+    const h = makeHarness('delivery-happy-');
+    // 断言写消息之前磁盘上已有 pending 义务（同一冻结 id）
+    let recordAtWrite: ExecutionRecoveryRecord | null = null;
+    const realWrite = h.agentFs.writeAtomic.bind(h.agentFs);
+    vi.spyOn(h.agentFs, 'writeAtomic').mockImplementation(async (p, content) => {
+      if (String(p).endsWith('.md')) recordAtWrite = readRecord(h, CONTRACT_ID);
+      return realWrite(p, content);
+    });
+
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+
+    expect(h.requests).toHaveLength(1);
+    const delivery = h.requests[0].delivery;
+    // 写消息时本地义务已是 pending 且 id 一致
+    expect(recordAtWrite?.delivery).toMatchObject({ kind: 'pending', id: delivery.id, attempt: 1 });
+    // owner 后查询命中才 confirmed
+    const record = readRecord(h, CONTRACT_ID)!;
+    expect(record.attempts).toBe(1);
+    expect(record.delivery).toMatchObject({
+      kind: 'confirmed',
+      id: delivery.id,
+      attempt: 1,
+      scheduledAt: BASE_NOW,
+      body: delivery.body,
+      confirmedAt: BASE_NOW,
+    });
+    // 解码消息关联正确（metadata 关联键，不从文件名推身份）
+    const messages = readPendingMessages(h);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe(delivery.id);
+    expect(messages[0].type).toBe('execution_recovery');
+    expect(messages[0].from).toBe(CLAW_ID);
+    expect(messages[0].priority).toBe('high');
+    expect(messages[0].content).toBe(delivery.body);
+    expect(messages[0].timestamp).toBe(new Date(BASE_NOW).toISOString());
+    expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
+    expect(messages[0].metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe(delivery.id);
+    // owner 生成的文件名含另一个 UUID，不等于 delivery.id
+    expect(pendingFiles(h)[0]).not.toContain(delivery.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // 写前 EIO：pending 保留、0 消息；恢复后原窗口内补投同 id/body
+  // -------------------------------------------------------------------------
+
+  it('写前 EIO：record pending/attempt1、0 消息；恢复写入并重建 controller，原窗口内补投成功（同 id/body/attempt1）', async () => {
+    const h = makeHarness('delivery-write-eio-');
+    const restore = failInboxWrites(h, 'before_commit');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'pending', attempt: 1 });
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(1);
+    expect(pendingFiles(h)).toHaveLength(0);
+    expect(deliveryFatal(h, 'write')).toBe(true);
+    const failedId = h.requests[0].delivery.id;
+    const failedBody = h.requests[0].delivery.body;
+
+    // 恢复写入 + 重建 controller（重启），同窗口：补投同一义务
+    restore();
+    reopen(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.id).toBe(failedId);
+    expect(h.requests[1].delivery.body).toBe(failedBody);
+    expect(h.requests[1].delivery.attempt).toBe(1);
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: failedId, attempt: 1 });
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 写已提交后 throw：第一回 pending 但已有 1 文件；重建后预查询命中不再写
+  // -------------------------------------------------------------------------
+
+  it('写已提交后 throw：第一回 pending 但已有 1 文件；重建后预查询命中，不再写，第 1 ID 确认', async () => {
+    const h = makeHarness('delivery-commit-throw-');
+    const restore = failInboxWrites(h, 'after_commit');
+    const writeSpy = h.agentFs.writeAtomic as ReturnType<typeof vi.spyOn>;
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    // 写实际已提交但回调抛错 → 义务仍 pending（不当成功也不立刻重写）
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(deliveryFatal(h, 'write')).toBe(true);
+    const firstId = h.requests[0].delivery.id;
+    const mdWritesBefore = writeSpy.mock.calls.filter(c => String(c[0]).endsWith('.md')).length;
+    expect(mdWritesBefore).toBe(1);
+    restore();
+
+    // 重建后：预查询命中（pending 位置），不再写，直接确认第 1 ID
+    reopen(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.id).toBe(firstId);
+    const writeSpy2 = vi.spyOn(h.agentFs, 'writeAtomic');
+    expect(writeSpy2).not.toHaveBeenCalled();
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: firstId, attempt: 1 });
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // pre-query EIO：保留 pending，0 次写；不得当 absent；恢复后可继续
+  // -------------------------------------------------------------------------
+
+  it('pre-query EIO：保留 pending、0 次写（查询失败不当 absent）；恢复后同 id 补投确认', async () => {
+    const h = makeHarness('delivery-pre-query-eio-');
+    const restore = failPendingList(h, 1);
+    const writeSpy = vi.spyOn(h.agentFs, 'writeAtomic');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(pendingFiles(h)).toHaveLength(0);
+    expect(deliveryFatal(h, 'query_before')).toBe(true);
+    const firstId = h.requests[0].delivery.id;
+    restore();
+
+    reopen(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.id).toBe(firstId);
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: firstId });
+  });
+
+  // -------------------------------------------------------------------------
+  // post-query EIO：保留 pending/stage=query_after，不能 false confirmed
+  // -------------------------------------------------------------------------
+
+  it('post-query EIO：写已提交但写后查询失败 → pending/stage=query_after；恢复后同 ID 确认、不补第二份', async () => {
+    const h = makeHarness('delivery-post-query-eio-');
+    // 第一次 pending list（写前查询）放行，第二次（写后查询）抛错
+    const restore = failPendingList(h, 2);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(deliveryFatal(h, 'query_after')).toBe(true);
+    const firstId = h.requests[0].delivery.id;
+    restore();
+
+    reopen(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests[1].delivery.id).toBe(firstId);
+    expect(pendingFiles(h)).toHaveLength(1); // 不补第二份
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: firstId });
+  });
+
+  it('post-null（故障注入移走证据，非正常串行路径）：写后查询无证据 → pending 不 false confirmed；证据恢复后同 ID 确认', async () => {
+    const h = makeHarness('delivery-post-null-');
+    // 写已真实提交，随后在适配器写后查询之前把文件移出 inbox 目录（模拟外部搬移
+    // 证据的故障场景；正常单实例串行链写完同目录即可见，不会走这条路）。
+    const realWrite = h.agentFs.writeAtomic.bind(h.agentFs);
+    let movedBack: (() => void) | null = null;
+    vi.spyOn(h.agentFs, 'writeAtomic').mockImplementation(async (p, content) => {
+      const result = await realWrite(p, content);
+      if (String(p).endsWith('.md')) {
+        const file = pendingFiles(h)[0];
+        const stashed = path.join(h.rootDir, 'stashed.md');
+        fs.renameSync(path.join(h.pendingDir, file), stashed);
+        movedBack = () => fs.renameSync(stashed, path.join(h.pendingDir, file));
+      }
+      return result;
+    });
+
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    // 写后查询无证据：不能 false confirmed
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+    expect(deliveryFatal(h, 'query_after')).toBe(true);
+    expect(pendingFiles(h)).toHaveLength(0);
+    const firstId = h.requests[0].delivery.id;
+
+    // 证据恢复（文件移回 pending）→ 同 ID 确认，不补第二份
+    movedBack!();
+    reopen(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.id).toBe(firstId);
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: firstId });
+  });
+
+  // -------------------------------------------------------------------------
+  // 确认保存失败：inbox 1 份、磁盘 pending；重建再查询确认，物理写总数 1
+  // -------------------------------------------------------------------------
+
+  it('confirmation save 在 rename 前失败：inbox 1 份、磁盘 pending；重建再查询确认，物理写总数 1', async () => {
+    const h = makeHarness('delivery-confirm-save-fail-');
+    const restore = failConfirmSave(h);
+    await expect(h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1)))
+      .rejects.toThrow('EIO confirm save');
+    // 消息已写入，但确认未落盘 → 磁盘仍是 pending
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+    const firstId = h.requests[0].delivery.id;
+    restore();
+
+    // 重建：预查询命中原消息 → 确认保存成功；全程物理写总数 1
+    const writeSpy = vi.spyOn(h.agentFs, 'writeAtomic');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.id).toBe(firstId);
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(pendingFiles(h)).toHaveLength(1);
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: firstId, attempt: 1 });
+  });
+
+  // -------------------------------------------------------------------------
+  // pending / inflight / done 三位置：每位置重建 controller 后都确认同 id，无新写
+  // -------------------------------------------------------------------------
+
+  it('pending/inflight/done 三位置均可确认同一义务（真实 reader drain/ack 移动）；done 跨大于 timeout 仍可找到', async () => {
+    // 每个位置独立 harness：先让义务 pending 且消息已真实写入（写已提交后 throw），
+    // 再用真实 reader 把消息移动到目标位置，重建 controller 后预查询命中确认。
+    const setupPendingWithMessage = async (prefix: string): Promise<Harness> => {
+      const h = makeHarness(prefix);
+      const restore = failInboxWrites(h, 'after_commit');
+      await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+      restore();
+      expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+      expect(pendingFiles(h)).toHaveLength(1);
+      return h;
+    };
+
+    // 1) pending 位置
+    const hp = await setupPendingWithMessage('delivery-loc-pending-');
+    reopen(hp);
+    await hp.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(hp, CONTRACT_ID)?.delivery?.kind).toBe('confirmed');
+    expect(pendingFiles(hp)).toHaveLength(1);
+
+    // 2) inflight 位置（真实 drain 移动，不 ack）
+    const hi = await setupPendingWithMessage('delivery-loc-inflight-');
+    const inflightReader = createInboxReader(hi.agentFs, hi.audit, 'inbox');
+    const batch = await inflightReader.drainAndDeliver();
+    expect(batch.kind).toBe('complete');
+    if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
+    expect(batch.entries).toHaveLength(1);
+    reopen(hi);
+    await hi.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(hi, CONTRACT_ID)?.delivery?.kind).toBe('confirmed');
+    expect(hi.requests).toHaveLength(2);
+    expect(hi.requests[1].delivery.id).toBe(hi.requests[0].delivery.id);
+
+    // 3) done 位置（真实 drain + ack；跨过多个 timeout 仍可找到，不补写、不加 attempt）
+    const hd = await setupPendingWithMessage('delivery-loc-done-');
+    const doneReader = createInboxReader(hd.agentFs, hd.audit, 'inbox');
+    const doneBatch = await doneReader.drainAndDeliver();
+    expect(doneBatch.kind).toBe('complete');
+    if (doneBatch.kind !== 'complete') throw new Error('unexpected batch kind');
+    await doneReader.ack(doneBatch.handles[0]);
+    currentNow += 10 * TIMEOUT_MS; // done 已远旧于窗口
+    reopen(hd);
+    const writeSpy = vi.spyOn(hd.agentFs, 'writeAtomic');
+    await hd.controller.observe(stalled(CONTRACT_ID, BASE_NOW - 11 * TIMEOUT_MS));
+    expect(readRecord(hd, CONTRACT_ID)?.delivery).toMatchObject({
+      kind: 'confirmed',
+      id: hd.requests[0].delivery.id,
+      attempt: 1,
+    });
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(readRecord(hd, CONTRACT_ID)?.attempts).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // delayed confirm：大于原窗口才成功仍 attempt1；下一次逻辑提醒等 confirmedAt+timeout
+  // -------------------------------------------------------------------------
+
+  it('delayed confirm：跨多个原窗口才确认仍 attempt1（当次不生成 attempt2）；下一逻辑提醒等 confirmedAt+timeout', async () => {
+    const h = makeHarness('delivery-delayed-');
+    const restore = failInboxWrites(h, 'before_commit');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+    const firstId = h.requests[0].delivery.id;
+    restore();
+
+    // 跨过 5 个原窗口才恢复：仍补投同一 attempt1 义务，不产生 attempt2
+    currentNow += 5 * TIMEOUT_MS;
+    reopen(h);
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.id).toBe(firstId);
+    expect(h.requests[1].delivery.attempt).toBe(1);
+    const record = readRecord(h, CONTRACT_ID)!;
+    expect(record.attempts).toBe(1);
+    expect(record.delivery).toMatchObject({ kind: 'confirmed', attempt: 1, confirmedAt: currentNow });
+
+    // 下一逻辑提醒窗口自 confirmedAt 起算
+    const confirmedAt = currentNow;
+    currentNow = confirmedAt + TIMEOUT_MS - 1;
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(2);
+    currentNow = confirmedAt + TIMEOUT_MS;
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(3);
+    expect(h.requests[2].delivery.attempt).toBe(2);
+    expect(h.requests[2].delivery.id).not.toBe(firstId);
+    expect(readRecord(h, CONTRACT_ID)?.attempts).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // 新活动与 pending：superseded 落盘、证据保留、不再交付旧义务
+  // -------------------------------------------------------------------------
+
+  it('新活动使旧 pending 转 superseded：落盘保留同 identity/body 证据、不再交付旧义务；reset 写失败不能发；新 epoch 仍可到期正常登记', async () => {
+    const h = makeHarness('delivery-supersede-');
+    const restore = failInboxWrites(h, 'before_commit');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    restore();
+    const oldId = h.requests[0].delivery.id;
+    const oldBody = h.requests[0].delivery.body;
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('pending');
+
+    // 新活动推进：reset 写失败 → 抛出、旧记录原字节不变、不交付
+    const bytesBefore = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
+    vi.spyOn(h.agentFs, 'writeAtomicSync').mockImplementation(() => {
+      throw Object.assign(new Error('EIO reset'), { code: 'EIO' });
+    });
+    await expect(h.controller.observe(stalled(CONTRACT_ID, BASE_NOW))).rejects.toThrow('EIO reset');
+    expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(bytesBefore);
+    expect(h.requests).toHaveLength(1);
+    vi.restoreAllMocks();
+
+    // reset 成功：superseded 落盘，保留旧 identity/body 证据；当次不交付旧义务
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW));
+    const superseded = readRecord(h, CONTRACT_ID)!;
+    expect(superseded).toMatchObject({ attempts: 0, lastAttemptAt: 0, observedActivityAt: BASE_NOW });
+    expect(superseded.delivery).toMatchObject({
+      kind: 'superseded',
+      id: oldId,
+      body: oldBody,
+      attempt: 1,
+      supersededAt: currentNow,
+      reason: 'activity_progressed',
+    });
+    expect(h.requests).toHaveLength(1); // 旧义务不再交付
+    const resetAudit = h.audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET);
+    expect(resetAudit).toBeDefined();
+    expect(String(resetAudit!.find(col => String(col).startsWith('previous_record=')))).toContain(oldId);
+
+    // 新 epoch 到期：登记全新 pending（新身份），正常投递确认
+    currentNow += TIMEOUT_MS;
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW));
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].delivery.attempt).toBe(1);
+    expect(h.requests[1].delivery.id).not.toBe(oldId);
+    expect(readRecord(h, CONTRACT_ID)?.delivery?.kind).toBe('confirmed');
+  });
+
+  // -------------------------------------------------------------------------
+  // 无 active / 任一 inflight / 切换：未选中 pending 字节不变、不投递
+  // -------------------------------------------------------------------------
+
+  it('无 active/在途/切换：未选中 pending 字节不变、不投递；选回来无新 activity 时恢复原义务', async () => {
+    const h = makeHarness('delivery-selection-');
+    const restore = failInboxWrites(h, 'before_commit');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    const pendingId = h.requests[0].delivery.id;
+    const bytesBefore = fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8');
+
+    // 在途（turn/retry/async task）→ 不读写交付
+    for (const inflight of [
+      { turnInFlight: true }, { retryInFlight: true }, { asyncTaskInFlight: true },
+    ]) {
+      await h.controller.observe({ ...stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1), ...inflight });
+    }
+    // 无 active → 不动作
+    await h.controller.observe({
+      activeContractId: undefined,
+      lastActivityAt: 0,
+      turnInFlight: false,
+      retryInFlight: false,
+      asyncTaskInFlight: false,
+    });
+    expect(h.requests).toHaveLength(1);
+    expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(bytesBefore);
+
+    // 切到其他 contract：原 pending 字节不变；新 contract 建立自己的义务
+    await h.controller.observe(stalled('other-contract', BASE_NOW - TIMEOUT_MS - 1));
+    expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(bytesBefore);
+    expect(h.requests).toHaveLength(2);
+    expect(h.requests[1].contractId).toBe('other-contract');
+    // （写仍失败，other-contract 也 pending——不干扰本契约义务）
+
+    // 选回来且无新 activity：恢复原义务（同一 id），写恢复后确认
+    restore();
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(h.requests).toHaveLength(3);
+    expect(h.requests[2].delivery.id).toBe(pendingId);
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: pendingId });
+  });
+
+  // -------------------------------------------------------------------------
+  // 原「真实 Messaging 投递读回」迁移：经实际 EventLoop 适配器的多窗口投递与真实消费
+  // -------------------------------------------------------------------------
+
+  it('实际适配器多窗口投递：4 个到期窗口各一条 execution_recovery（各自独立逻辑 ID），drainAndDeliver 读回并真实 ack', async () => {
+    const h = makeHarness('delivery-multi-window-');
+    const lastActivityAt = BASE_NOW - TIMEOUT_MS - 1;
+    const ids: string[] = [];
+    for (let i = 1; i <= 4; i++) {
+      await h.controller.observe(stalled(CONTRACT_ID, lastActivityAt));
+      const record = readRecord(h, CONTRACT_ID)!;
+      expect(record.attempts).toBe(i);
+      expect(record.delivery?.kind).toBe('confirmed');
+      ids.push(record.delivery!.id);
+      currentNow += TIMEOUT_MS;
+    }
+    // 每窗口独立逻辑 ID（跨窗口积压治理不在本 phase：各窗口各写一条）
+    expect(new Set(ids).size).toBe(4);
+
+    const messages = readPendingMessages(h);
+    expect(messages).toHaveLength(4);
+    for (const msg of messages) {
+      expect(msg.type).toBe('execution_recovery');
+      expect(msg.from).toBe(CLAW_ID);
+      expect(msg.priority).toBe('high');
+      expect(msg.metadata?.contract_id).toBe(CONTRACT_ID);
+      expect(ids).toContain(msg.metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]);
+    }
+
+    // 真实消费链：drain → inflight 可查 → ack → done 可查
+    const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
+    const batch = await reader.drainAndDeliver();
+    expect(batch.kind).toBe('complete');
+    if (batch.kind !== 'complete') throw new Error('unexpected batch kind');
+    expect(batch.entries).toHaveLength(4);
+    const lookup = (id: string) =>
+      createInboxReader(h.agentFs, h.audit, 'inbox')
+        .findByExtraMeta(EXECUTION_RECOVERY_DELIVERY_META_KEY, id, { includeDoneWithinMs: Infinity });
+    expect((await lookup(ids[0]))?.location).toBe('inflight');
+    for (const handle of batch.handles) {
+      await reader.ack(handle);
+    }
+    expect(fs.readdirSync(path.join(h.agentDir, 'inbox', 'done'))).toHaveLength(4);
+    expect((await lookup(ids[0]))?.location).toBe('done');
+  });
+
+  // -------------------------------------------------------------------------
+  // writeInboxAsync 直写 owner 侧证据（手工预置消息 = 真实 owner API 写入）
+  // -------------------------------------------------------------------------
+
+  it('消息已在 inflight 时重建 controller：预查询命中即确认，不重复写（真实 owner 写 + drain 预置）', async () => {
+    const h = makeHarness('delivery-preexisting-');
+    // 先建立 pending 义务但写失败（0 消息）
+    const restore = failInboxWrites(h, 'before_commit');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    restore();
+    const delivery = h.requests[0].delivery;
+
+    // 真实 owner API 写入同身份消息并 drain 到 inflight（外部已投递的场景）
+    await writeInboxAsync(h.agentFs, h.pendingDir, {
+      id: delivery.id,
+      type: 'execution_recovery',
+      from: CLAW_ID,
+      to: '',
+      priority: 'high',
+      content: delivery.body,
+      timestamp: new Date(delivery.scheduledAt).toISOString(),
+      metadata: { contract_id: CONTRACT_ID, [EXECUTION_RECOVERY_DELIVERY_META_KEY]: delivery.id },
+    }, h.audit);
+    const reader = createInboxReader(h.agentFs, h.audit, 'inbox');
+    const batch = await reader.drainAndDeliver();
+    expect(batch.kind).toBe('complete');
+
+    reopen(h);
+    const writeSpy = vi.spyOn(h.agentFs, 'writeAtomic');
+    await h.controller.observe(stalled(CONTRACT_ID, BASE_NOW - TIMEOUT_MS - 1));
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(readRecord(h, CONTRACT_ID)?.delivery).toMatchObject({ kind: 'confirmed', id: delivery.id });
+  });
+});

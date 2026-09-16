@@ -19,11 +19,14 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   CONTEXT_BLOCKED_STARTUP_PROBE: 'eventloop_context_blocked_startup_probe',
   /** Phase 1158: post-drain pipeline 异常后 nack 恢复并审计 */
   POST_DRAIN_FAILURE_RECOVERED: 'eventloop_post_drain_failure_recovered',
-  /** Phase 1396 Step E: 检测到执行停滞，向自身 inbox enqueue 高优 resume（attempt 已落盘） */
+  /** Phase 1396 Step E: 检测到执行停滞，登记一次调度 attempt。
+   *  Phase 1842: 表示 pending 交付义务已先落盘（冻结稳定 id/正文）；
+   *  不表示 owner 已确认消息存在。 */
   EXECUTION_RECOVERY_RESUME: 'eventloop_execution_recovery_resume',
   /** Phase 1396 Step E: activity 前进 → 本 claw 本地 recovery epoch 重置为零计数记录
    *  （Phase 1841：记录与来源证据保留，不再删除；也不存在「contract 不再 active」
-   *   触发的记录清理）。事件名/路由不变。 */
+   *   触发的记录清理；Phase 1842：未交付的 pending 义务同次转 superseded，
+   *   保留身份/正文证据、停止补投）。事件名/路由不变。 */
   EXECUTION_RECOVERY_RESET: 'eventloop_execution_recovery_reset',
   /** Phase 1396 Step E: 恢复耗尽，execution failure 已交付 ExecutionFailureSink。
    *  Phase 1840: 历史保留（旧版本审计可理解）；提醒链不再发出本事件。 */
