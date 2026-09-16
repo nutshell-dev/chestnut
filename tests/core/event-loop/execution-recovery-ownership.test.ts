@@ -97,6 +97,8 @@ describe('execution-recovery ownership (phase 1841)', () => {
       // Phase 1843: 本文件验证实例归属/旧基线语义，不验证 pending 匹配——
       // 显式 absent 模拟依赖（真实 owner 查询能力见 delivery.test.ts）。
       findPendingResume: async () => ({ kind: 'absent' as const }),
+      // Phase 1844: 本文件不注入 LLM recovery owner——显式 undefined（未注入语义）。
+      inspectLlmRecoverySchedule: async () => undefined,
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -111,6 +113,7 @@ describe('execution-recovery ownership (phase 1841)', () => {
       audit: inst.audit,
       deliverResume: async (request) => { inst.resumeCalls.push(request); return { kind: 'confirmed' as const }; },
       findPendingResume: async () => ({ kind: 'absent' as const }),
+      inspectLlmRecoverySchedule: async () => undefined,
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });

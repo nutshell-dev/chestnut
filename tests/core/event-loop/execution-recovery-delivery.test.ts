@@ -131,6 +131,8 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
         return loop.deliverExecutionResume(request);
       },
       findPendingResume: (contractId) => loop.findPendingExecutionResume(contractId),
+      // Phase 1844: 本文件不注入 LLM recovery owner——显式 undefined（未注入语义）。
+      inspectLlmRecoverySchedule: async () => undefined,
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -148,6 +150,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
         return h.loop.deliverExecutionResume(request);
       },
       findPendingResume: (contractId) => h.loop.findPendingExecutionResume(contractId),
+      inspectLlmRecoverySchedule: async () => undefined,
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -251,6 +254,7 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
         return h.loop.deliverExecutionResume(request);
       },
       findPendingResume: (contractId) => h.loop.findPendingExecutionResume(contractId),
+      inspectLlmRecoverySchedule: async () => undefined,
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });

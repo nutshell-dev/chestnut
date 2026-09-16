@@ -140,6 +140,11 @@ export class EventLoop {
         deliverResume: (request) => this._deliverExecutionResume(request),
         // Phase 1843: 新登记前的 owner pending 查询适配（只读 peek，精确三要素）。
         findPendingResume: (contractId) => this._findPendingExecutionResume(contractId),
+        // Phase 1844: 新登记前只读 inspect 本模块 recovery owner 的公开安排
+        // （未来 at 抑制新登记）；未注入 owner 时显式返回 undefined。async 展开
+        // 返回 Promise 并传播 rejection；this.recovery 在上方已赋值。只读
+        // inspect，不调用 begin/finish/adoptLegacy 试探资格。
+        inspectLlmRecoverySchedule: async () => this.recovery?.inspect(),
       });
     }
   }

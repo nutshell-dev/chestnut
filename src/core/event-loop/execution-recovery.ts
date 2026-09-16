@@ -1,7 +1,7 @@
 /**
  * @module L5.EventLoop.ExecutionRecovery
  * @layer L5 服务层
- * @depends L1.NodeUtils, L2.AuditLog, L2.Fs, L2.Stream, Templates.Messages（层中性纯文案）
+ * @depends L1.NodeUtils, L2.AuditLog, L2.Fs, L2.Stream, L2b.LLMOrchestrator（type-only 恢复安排类型）, Templates.Messages（层中性纯文案）
  * @consumers L5.EventLoop, L6.Assembly
  *
  * Phase 1396 Step E: EventLoop 自有的执行停滞恢复闭合。
@@ -25,6 +25,13 @@
  * 同契约 execution_recovery 消息，则不登记新义务、不增加调度次数；读取未知
  * 同样停止本次新增并显式审计。已持久 pending 义务仍按 1842 稳定身份恢复，
  * 不经此检查。
+ * Phase 1844: 新登记前只读 inspect LLM owner 公开恢复安排——尚未到时的 at
+ * 说明 owner 已安排未来重试，本次不登记新提醒、不增加 attempt、不修改 owner
+ * 安排（不另持有等待状态或 timer）；inspect 读取失败/非法 resumeAt 同样停止
+ * 本次新增并审计留证（未知不是 ready）。ready/on_change/未注入 owner 及已到
+ * 期（含恰好到期）的 at 继续原 1843 查询路径；继续登记不等于准入，实际请求
+ * 仍由 owner.begin 唯一决定。已持久 pending 义务不经此检查（即使 inspect
+ * 会抛错也不调用）。
  *
  * 职责边界：
  * - EventLoop 判断活进程中的 agent 执行是否自发停滞（无 turn/retry/task 在途、
@@ -46,6 +53,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { readAll, STREAM_FILE, LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';
+import type { LLMRecoverySchedule } from '../../foundation/llm-orchestrator/index.js';
 import { executionRecoveryMessage } from '../../templates/messages/index.js';
 import { EXECUTION_RECOVERY_DIR } from './constants.js';
 import { EVENTLOOP_AUDIT_EVENTS } from './audit-events.js';
@@ -473,6 +481,14 @@ interface ExecutionRecoveryControllerDeps {
    * 查询未知以 rejection 保留实际异常，controller 审计后停止本次新增。
    */
   findPendingResume: (contractId: string) => Promise<PendingExecutionResume>;
+  /**
+   * Phase 1844: 新登记前只读查询 LLM owner 公开恢复安排（复用 owner 三态类型，
+   * 不自建「是否可调用 LLM」协议）。必需依赖——不得默认 ready/undefined 函数，
+   * 编译器检查所有 controller 构造。返回 undefined 只表示装配未注入 recovery
+   * owner；读取失败以 rejection 保留实际异常，不得折 undefined/ready。
+   * revision/resumeAt 仅用于判断与审计，不解析 owner 持久 schema。
+   */
+  inspectLlmRecoverySchedule: () => Promise<LLMRecoverySchedule | undefined>;
   timeoutMs: number;
   now?: () => number;
 }
@@ -600,6 +616,47 @@ export function createExecutionRecoveryController(
         const baseline =
           record.delivery?.kind === 'confirmed' ? record.delivery.confirmedAt : record.lastAttemptAt;
         if (currentMs - baseline < deps.timeoutMs) return;
+      }
+
+      // Phase 1844: 新登记前只读 inspect LLM owner 公开安排——尚未到时的 at
+      // 说明 owner 已安排未来重试，本次不登记新提醒、不增加 attempt、不修改
+      // owner 安排。读取失败/非法 resumeAt（类型合法但日期无效，NaN 比较会为
+      // false 而误放行）同样拒绝新增并显式留证；检查未知不是 ready。抑制只记
+      // 审计，不另持有等待状态或 timer，不对未到期观察增加查询之外的写。
+      // 时间比较在 inspect 完成后取当前时刻：边界 resumeAt === now 已到期，
+      // 不因 inspect 仍返回 at 继续抑制。ready/on_change/undefined 及已到期 at
+      // 继续原 1843 查询——继续登记不等于准入，实际请求仍由 owner.begin 唯一
+      // 决定。本检查只拦截新登记：已持久 pending 义务在上游已先行交付并
+      // return，不经此分支（即使 inspect 会抛错也不调用）。
+      let schedule: LLMRecoverySchedule | undefined;
+      let resumeMs: number | undefined;
+      try {
+        schedule = await deps.inspectLlmRecoverySchedule();
+        if (schedule?.kind === 'at') {
+          resumeMs = Date.parse(schedule.resumeAt);
+          if (!Number.isFinite(resumeMs)) {
+            throw new Error('execution recovery received invalid LLM resumeAt');
+          }
+        }
+      } catch (error) {
+        audit.write(
+          EVENTLOOP_AUDIT_EVENTS.FATAL,
+          `context=executionRecoveryScheduleCheck`,
+          `contract=${contractId}`,
+          `error=${formatErr(error)}`,
+        );
+        return;
+      }
+      if (schedule?.kind === 'at' && resumeMs !== undefined && resumeMs > now()) {
+        audit.write(
+          EVENTLOOP_AUDIT_EVENTS.ITERATION,
+          `context=executionRecoveryScheduleCheck`,
+          `contract=${contractId}`,
+          `reason=llm_retry_scheduled`,
+          `schedule_revision=${schedule.revision}`,
+          `resume_at=${schedule.resumeAt}`,
+        );
+        return;
       }
 
       // Phase 1843: 新登记前查 owner pending——已有本 claw 同契约执行提醒则

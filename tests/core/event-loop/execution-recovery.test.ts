@@ -37,6 +37,7 @@ import { EXECUTION_RECOVERY_DIR } from '../../../src/core/event-loop/constants.j
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import type { LLMRecoverySchedule } from '../../../src/foundation/llm-orchestrator/index.js';
 
 const TIMEOUT_MS = 1000;
 const BASE_NOW = 1_700_000_000_000;
@@ -70,12 +71,23 @@ describe('execution-recovery controller', () => {
   let nextPendingResume: PendingExecutionResume;
   let pendingResumeCalls: string[];
   let pendingResumeError: Error | null;
+  /** Phase 1844: 可控 LLM 安排查询 stub（默认 undefined=装配未注入 owner）及调用记录。 */
+  let nextSchedule: LLMRecoverySchedule | undefined;
+  let scheduleInspectCalls: number;
+  let scheduleInspectError: Error | null;
 
   /** 显式查询依赖：抛错经 rejection 保留原异常，不折 absent。 */
   function findPendingResume(contractId: string): Promise<PendingExecutionResume> {
     pendingResumeCalls.push(contractId);
     if (pendingResumeError) return Promise.reject(pendingResumeError);
     return Promise.resolve(nextPendingResume);
+  }
+
+  /** 显式安排查询依赖：undefined 只表示未注入 owner；抛错经 rejection 保留原异常。 */
+  function inspectLlmRecoverySchedule(): Promise<LLMRecoverySchedule | undefined> {
+    scheduleInspectCalls += 1;
+    if (scheduleInspectError) return Promise.reject(scheduleInspectError);
+    return Promise.resolve(nextSchedule);
   }
 
   beforeEach(() => {
@@ -93,6 +105,9 @@ describe('execution-recovery controller', () => {
     nextPendingResume = { kind: 'absent' };
     pendingResumeCalls = [];
     pendingResumeError = null;
+    nextSchedule = undefined;
+    scheduleInspectCalls = 0;
+    scheduleInspectError = null;
   });
 
   afterEach(() => {
@@ -126,6 +141,7 @@ describe('execution-recovery controller', () => {
       audit,
       deliverResume: async (request) => { resumeCalls.push(request); return nextOutcome; },
       findPendingResume,
+      inspectLlmRecoverySchedule,
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -139,6 +155,7 @@ describe('execution-recovery controller', () => {
       audit,
       deliverResume: async (request) => { resumeCalls.push(request); return nextOutcome; },
       findPendingResume,
+      inspectLlmRecoverySchedule,
       timeoutMs: TIMEOUT_MS,
       now: () => currentNow,
     });
@@ -490,6 +507,7 @@ describe('execution-recovery controller', () => {
             : { kind: 'confirmed' };
         },
         findPendingResume,
+        inspectLlmRecoverySchedule,
         timeoutMs: TIMEOUT_MS,
         now: () => currentNow,
       });
@@ -515,6 +533,7 @@ describe('execution-recovery controller', () => {
           return { kind: 'confirmed' };
         },
         findPendingResume,
+        inspectLlmRecoverySchedule,
         timeoutMs: TIMEOUT_MS,
         now: () => currentNow,
       });
@@ -557,6 +576,7 @@ describe('execution-recovery controller', () => {
           return { kind: 'confirmed' };
         },
         findPendingResume,
+        inspectLlmRecoverySchedule,
         timeoutMs: TIMEOUT_MS,
         now: () => currentNow,
       });
@@ -670,13 +690,14 @@ describe('execution-recovery controller', () => {
             : { kind: 'confirmed' };
         },
         findPendingResume,
+        inspectLlmRecoverySchedule,
         timeoutMs: TIMEOUT_MS,
         now: () => currentNow,
       });
       await controller.observe(stalledSnapshot());
       expect(readRecordFile(CONTRACT_ID)?.delivery?.kind).toBe('pending');
-      // 重建 controller（重启）：旧 pending 义务直接交付恢复，不经新增查询——
-      // 查询若被调用即 throw（若真被调用会走未知分支、义务永远不被确认）
+      // 重建 controller（重启）：旧 pending 义务直接交付恢复，不经新增查询与
+      // 安排检查——两者若被调用即 throw（若真被调用会走未知分支、义务永远不被确认）
       const controller2 = createExecutionRecoveryController({
         store: makeStore(),
         audit,
@@ -685,6 +706,7 @@ describe('execution-recovery controller', () => {
           return { kind: 'confirmed' };
         },
         findPendingResume: async () => { throw new Error('must not query for persisted pending obligation'); },
+        inspectLlmRecoverySchedule: async () => { throw new Error('must not inspect for persisted pending obligation'); },
         timeoutMs: TIMEOUT_MS,
         now: () => currentNow,
       });
@@ -692,9 +714,255 @@ describe('execution-recovery controller', () => {
       expect(resumeCalls).toHaveLength(2);
       expect(resumeCalls[1].delivery.id).toBe(resumeCalls[0].delivery.id);
       expect(readRecordFile(CONTRACT_ID)?.delivery?.kind).toBe('confirmed');
-      // 无 executionRecoveryPendingCheck 审计（检查从未执行）
+      // 无 executionRecoveryPendingCheck/ScheduleCheck 审计（检查从未执行）
       expect(audit.entries.some(e =>
         e.some(col => String(col) === 'context=executionRecoveryPendingCheck'))).toBe(false);
+      expect(audit.entries.some(e =>
+        e.some(col => String(col) === 'context=executionRecoveryScheduleCheck'))).toBe(false);
+    });
+  });
+
+  describe('LLM 等待期抑制（Phase 1844）', () => {
+    const FUTURE_RESUME_AT = new Date(BASE_NOW + 60_000).toISOString();
+
+    function futureAt(revision = 7): LLMRecoverySchedule {
+      return { kind: 'at', revision, resumeAt: FUTURE_RESUME_AT };
+    }
+
+    function scheduleCheckAudits(): typeof audit.entries {
+      return audit.entries.filter(e =>
+        e.some(col => String(col) === 'context=executionRecoveryScheduleCheck'));
+    }
+
+    it('未来 at：不登记新提醒、不建 record，审计携带 revision/resume_at；不再执行 pending 查询', async () => {
+      const { controller } = makeController();
+      nextSchedule = futureAt();
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(0);
+      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+      expect(scheduleInspectCalls).toBe(1);
+      // 安排检查在 1843 pending 查询之前：被抑制时不执行 pending 查询
+      expect(pendingResumeCalls).toHaveLength(0);
+      const hits = scheduleCheckAudits();
+      expect(hits).toHaveLength(1);
+      expect(hits[0][0]).toBe(EVENTLOOP_AUDIT_EVENTS.ITERATION);
+      expect(hits[0].some(col => String(col) === 'reason=llm_retry_scheduled')).toBe(true);
+      expect(hits[0].some(col => String(col) === 'schedule_revision=7')).toBe(true);
+      expect(hits[0].some(col => String(col) === `resume_at=${FUTURE_RESUME_AT}`)).toBe(true);
+    });
+
+    // 非抑制安排：继续原 1843 查询并正常登记（继续登记不等于准入，begin 唯一决定）
+    const nonSuppressing: Array<[string, LLMRecoverySchedule | undefined]> = [
+      ['ready', { kind: 'ready', revision: 3 }],
+      ['on_change', { kind: 'on_change', revision: 4 }],
+      ['未注入 owner（undefined）', undefined],
+      ['已过期的 at', { kind: 'at', revision: 5, resumeAt: new Date(BASE_NOW - 1000).toISOString() }],
+      ['恰好到期的 at（resumeAt === now）', { kind: 'at', revision: 6, resumeAt: new Date(BASE_NOW).toISOString() }],
+    ];
+    for (const [label, schedule] of nonSuppressing) {
+      it(`非抑制安排（${label}）：继续 1843 pending 查询并正常登记`, async () => {
+        const { controller } = makeController();
+        nextSchedule = schedule;
+        await controller.observe(stalledSnapshot());
+        expect(scheduleInspectCalls).toBe(1);
+        expect(pendingResumeCalls).toEqual([CONTRACT_ID]);
+        expect(resumeCalls).toHaveLength(1);
+        expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+        expect(scheduleCheckAudits()).toHaveLength(0);
+        expectNoFailureDeliveryAudit();
+      });
+    }
+
+    it('inspect 读取失败（reject）：FATAL 审计携带原错误，不登记、不折 ready；恢复后正常登记', async () => {
+      const { controller } = makeController();
+      scheduleInspectError = new Error('owner store corrupt');
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(0);
+      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+      expect(pendingResumeCalls).toHaveLength(0);
+      const hits = scheduleCheckAudits();
+      expect(hits).toHaveLength(1);
+      expect(hits[0][0]).toBe(EVENTLOOP_AUDIT_EVENTS.FATAL);
+      expect(hits[0].some(col => String(col).includes('owner store corrupt'))).toBe(true);
+      // 恢复后同窗口重试检查并能登记
+      scheduleInspectError = null;
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(1);
+      expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+    });
+
+    it('非法 resumeAt 日期（类型合法值无效）：FATAL 审计明确协议错误，不登记、不因 NaN 比较放行', async () => {
+      const { controller } = makeController();
+      nextSchedule = { kind: 'at', revision: 2, resumeAt: 'not-a-date' };
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(0);
+      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+      expect(pendingResumeCalls).toHaveLength(0);
+      const hits = scheduleCheckAudits();
+      expect(hits).toHaveLength(1);
+      expect(hits[0][0]).toBe(EVENTLOOP_AUDIT_EVENTS.FATAL);
+      expect(hits[0].some(col => String(col).includes('invalid LLM resumeAt'))).toBe(true);
+    });
+
+    it('未来 at + 既有 confirmed record：record 原字节/次数/确认时间不变，不执行 pending 查询', async () => {
+      const { store, controller } = makeController();
+      const scheduledAt = BASE_NOW - 10 * TIMEOUT_MS;
+      store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+        attempts: 1,
+        lastAttemptAt: scheduledAt,
+        delivery: {
+          kind: 'confirmed',
+          id: 'execution_recovery-old',
+          attempt: 1,
+          scheduledAt,
+          body: 'old body',
+          confirmedAt: scheduledAt,
+        },
+      });
+      const bytesBefore = fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8');
+      nextSchedule = futureAt();
+      await controller.observe(stalledSnapshot());
+      expect(fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe(bytesBefore);
+      expect(resumeCalls).toHaveLength(0);
+      expect(pendingResumeCalls).toHaveLength(0);
+      expect(scheduleCheckAudits()).toHaveLength(1);
+    });
+
+    it('检查顺序：在途/无 active/未超时/确认冷却内 inspect 调用 0', async () => {
+      const { controller } = makeController();
+      nextSchedule = futureAt();
+      await controller.observe(stalledSnapshot({ turnInFlight: true }));
+      await controller.observe(stalledSnapshot({ retryInFlight: true }));
+      await controller.observe(stalledSnapshot({ asyncTaskInFlight: true }));
+      await controller.observe(stalledSnapshot({ activeContractId: undefined }));
+      await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW - TIMEOUT_MS + 1 }));
+      expect(scheduleInspectCalls).toBe(0);
+      // 登记一次并确认后，confirmedAt 冷却内不做安排检查
+      nextSchedule = undefined;
+      await controller.observe(stalledSnapshot());
+      expect(scheduleInspectCalls).toBe(1);
+      expect(readRecordFile(CONTRACT_ID)?.delivery?.kind).toBe('confirmed');
+      currentNow += TIMEOUT_MS - 1;
+      await controller.observe(stalledSnapshot());
+      expect(scheduleInspectCalls).toBe(1);
+      expect(resumeCalls).toHaveLength(1);
+    });
+
+    it('activity 推进 reset 写保持：旧 pending 转 superseded 后新 epoch 到期仍被未来 at 抑制', async () => {
+      const { store, controller } = makeController();
+      const oldScheduledAt = BASE_NOW - 20 * TIMEOUT_MS;
+      store.save({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - 20 * TIMEOUT_MS,
+        attempts: 1,
+        lastAttemptAt: oldScheduledAt,
+        delivery: {
+          kind: 'pending',
+          id: 'execution_recovery-stale',
+          attempt: 1,
+          scheduledAt: oldScheduledAt,
+          body: 'stale body',
+        },
+      });
+      // activity 前进（> observedActivityAt）但新 activity 本身仍超时
+      const progressedAt = BASE_NOW - TIMEOUT_MS - 1;
+      nextSchedule = futureAt();
+      await controller.observe(stalledSnapshot({ lastActivityAt: progressedAt }));
+      // reset 必要写保持：attempts 归零、旧义务转 superseded（不吞既有证据）
+      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(true);
+      const record = readRecordFile(CONTRACT_ID)!;
+      expect(record.attempts).toBe(0);
+      expect(record.observedActivityAt).toBe(progressedAt);
+      expect(record.delivery).toMatchObject({ kind: 'superseded', id: 'execution_recovery-stale' });
+      // 只有新登记被未来 at 挡住：不交付、不查 pending
+      expect(resumeCalls).toHaveLength(0);
+      expect(pendingResumeCalls).toHaveLength(0);
+      expect(scheduleCheckAudits()).toHaveLength(1);
+    });
+
+    it('旧共享基线导入写保持：legacy 继承照常落盘，新登记被未来 at 抑制', async () => {
+      const legacyRaw = JSON.stringify({
+        schema_version: 1,
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW - TIMEOUT_MS - 1,
+        attempts: 3,
+        lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
+      });
+      fs.mkdirSync(path.dirname(legacyRecordFilePath(CONTRACT_ID)), { recursive: true });
+      fs.writeFileSync(legacyRecordFilePath(CONTRACT_ID), legacyRaw);
+      const { controller } = makeController();
+      nextSchedule = futureAt();
+      await controller.observe(stalledSnapshot());
+      // 继承写保持：本地 record 建立（attempts 3 + unknown 来源证据），root 原文不变
+      const record = readRecordFile(CONTRACT_ID)!;
+      expect(record.attempts).toBe(3);
+      expect(record.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
+      expect(fs.readFileSync(legacyRecordFilePath(CONTRACT_ID), 'utf8')).toBe(legacyRaw);
+      expect(resumeCalls).toHaveLength(0);
+      expect(scheduleCheckAudits()).toHaveLength(1);
+    });
+
+    it('已持久 pending 义务 + inspect 抛错：inspect 0 调用，义务按原身份恢复确认', async () => {
+      // 先用正常流程建立持久 pending 义务（第一次交付未证实）
+      let deliverCount = 0;
+      const controller = createExecutionRecoveryController({
+        store: makeStore(),
+        audit,
+        deliverResume: async (request) => {
+          resumeCalls.push(request);
+          deliverCount++;
+          return deliverCount === 1
+            ? { kind: 'pending', stage: 'write', error: new Error('inbox down') }
+            : { kind: 'confirmed' };
+        },
+        findPendingResume,
+        inspectLlmRecoverySchedule,
+        timeoutMs: TIMEOUT_MS,
+        now: () => currentNow,
+      });
+      await controller.observe(stalledSnapshot());
+      expect(readRecordFile(CONTRACT_ID)?.delivery?.kind).toBe('pending');
+      expect(scheduleInspectCalls).toBe(1);
+      // 重建 controller（重启）：旧 pending 义务直接恢复，即使 inspect 会抛错也不调用
+      const controller2 = createExecutionRecoveryController({
+        store: makeStore(),
+        audit,
+        deliverResume: async (request) => {
+          resumeCalls.push(request);
+          return { kind: 'confirmed' };
+        },
+        findPendingResume,
+        inspectLlmRecoverySchedule: async () => { throw new Error('must not inspect for persisted pending obligation'); },
+        timeoutMs: TIMEOUT_MS,
+        now: () => currentNow,
+      });
+      await controller2.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(2);
+      expect(resumeCalls[1].delivery.id).toBe(resumeCalls[0].delivery.id);
+      expect(readRecordFile(CONTRACT_ID)?.delivery?.kind).toBe('confirmed');
+      expect(scheduleInspectCalls).toBe(1);
+    });
+
+    it('未来 at → 到期：推进共享时间后同一契约可登记 attempt1 并交付，无额外固定冷却', async () => {
+      const { controller } = makeController();
+      nextSchedule = futureAt();
+      await controller.observe(stalledSnapshot());
+      expect(resumeCalls).toHaveLength(0);
+      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+      // 推进到 deadline（resumeAt === now 已到期）：同一观察路径登记并交付
+      currentNow = BASE_NOW + 60_000;
+      nextSchedule = { kind: 'at', revision: 7, resumeAt: FUTURE_RESUME_AT };
+      await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW - TIMEOUT_MS - 1 }));
+      expect(scheduleInspectCalls).toBe(2);
+      expect(pendingResumeCalls).toEqual([CONTRACT_ID]);
+      expect(resumeCalls).toHaveLength(1);
+      const record = readRecordFile(CONTRACT_ID)!;
+      expect(record.attempts).toBe(1);
+      expect(record.delivery?.kind).toBe('confirmed');
     });
   });
 

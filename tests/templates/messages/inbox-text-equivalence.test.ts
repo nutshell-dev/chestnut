@@ -223,6 +223,8 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
       deliverResume: (request) => loop.deliverExecutionResume(request),
       // Phase 1843: 空 pending 首次登记走真实查询适配（不 stub absent 冒充真实链）
       findPendingResume: (contractId) => loop.findPendingExecutionResume(contractId),
+      // Phase 1844: 本 EventLoop 未注入 LLM recovery owner——显式 undefined（未注入语义）。
+      inspectLlmRecoverySchedule: async () => undefined,
       timeoutMs: TIMEOUT_MS,
       now: () => FIXED_NOW,
     });
