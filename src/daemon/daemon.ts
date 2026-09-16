@@ -161,7 +161,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       audit: auditWriter,
       inbox: { pendingDir: inboxPendingDir },
       streamWriter,
-      // Phase 1396 Step E: 执行停滞恢复（Assembly 注入持久事实 probe + Step D failure sink）
+      // Phase 1396 Step E: 执行停滞恢复（Assembly 只注入持久事实 probe / async-task
+      // 在途 probe 等观察依赖；Phase 1840 起提醒链无 failure sink 失败出口）
       executionRecovery,
       // Phase 1826: LLM 恢复安排 owner 的窄 capability（EventLoop 只执行安排与准入）
       recovery: recoverySession,

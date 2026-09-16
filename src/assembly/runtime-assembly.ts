@@ -223,6 +223,8 @@ export async function createRuntimeAssembly(
     const executionRecovery: EventLoopExecutionRecoveryDeps = {
       probeActivity: async () => {
         const active = listActiveContracts(systemFs, '.');
+        // Phase 1841: active[0] 只选择本次观察对象（单个 claw 的提醒对象）；
+        // 不授予清理其他记录的权利——未列出的契约不等于终态。
         const activeContractId = active[0]?.contractId;
         const streamMs = await readStreamExecutionActivityMs(systemFs, auditWriter);
         const createdMs = getActiveContractTimestamp(systemFs, '.', auditWriter);

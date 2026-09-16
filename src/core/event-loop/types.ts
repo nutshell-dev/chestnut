@@ -130,8 +130,11 @@ export type LLMRequestGateDecision =
  */
 export interface EventLoopExecutionRecoveryDeps {
   /**
-   * 读持久事实：active contract + 最近一次持久 activity ts（stream LLM output /
-   * contract 创建时间 merge）。activeContractId 存在时 lastActivityAt 必须非 null。
+   * 读持久事实：本 claw 当前选中的 active contract + 最近一次持久 activity ts
+   * （stream LLM output / contract 创建时间 merge）。activeContractId 存在时
+   * lastActivityAt 必须非 null。
+   * Phase 1841: probe 只给出当前选中的一个契约 ID（底层列表异常还可能折空）；
+   * 未给出的 ID 不构成终态事实，不授权对其记录做任何清理。
    */
   probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null }>;
   /** AsyncTaskSystem 在途 probe（async task 在途不得判 stall）。 */

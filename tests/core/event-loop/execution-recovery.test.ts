@@ -1,11 +1,14 @@
 /**
  * Phase 1396 Step E: EventLoop-owned execution stall recovery — unit tests.
  * Phase 1840: 提醒不再升级为契约失败——持续提醒语义替换旧耗尽/失败交付约束。
+ * Phase 1841: 记录按实例归属——local（agentDir）优先、旧 root 共享目录只读继承；
+ * 无 active / 契约切换不再删除任何记录；activity 前进保存零计数记录而非删除。
  *
  * 覆盖 execution-recovery controller/store 语义：
  * - in-flight（turn / retry / async task）不打扰
- * - 无 active contract / 未超时不动作；contract 消失清理 record
- * - activity 前进 reset、同窗口重入幂等、重启从 record 恢复
+ * - 无 active contract / 未超时不动作；未选中记录原样保留
+ * - activity 前进保存零计数 record（audit reset 带前记录）、同窗口重入幂等、
+ *   重启从 record 恢复
  * - 持续 self-resume（无次数上限）、旧 attempts>=3 record 到期继续计数
  * - store.save / enqueue 失败的保留语义；真实 Messaging 读回投递
  */
@@ -48,7 +51,9 @@ function createMockAudit(): AuditLog & { entries: [string, ...(string | number)[
 
 describe('execution-recovery controller', () => {
   let rootDir: string;
+  let agentDir: string;
   let rootFs: NodeFileSystem;
+  let agentFs: NodeFileSystem;
   let audit: ReturnType<typeof createMockAudit>;
   let currentNow: number;
   let resumeCalls: ExecutionRecoveryRecord[];
@@ -56,8 +61,11 @@ describe('execution-recovery controller', () => {
   beforeEach(() => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     rootDir = path.join(os.tmpdir(), `execution-recovery-test-${randomUUID()}`);
-    fs.mkdirSync(rootDir, { recursive: true });
+    // agentDir 形如 <root>/claws/<clawId>：local record 落 agentDir，legacy 只读 rootDir。
+    agentDir = path.join(rootDir, 'claws', 'claw-1');
+    fs.mkdirSync(agentDir, { recursive: true });
     rootFs = new NodeFileSystem({ baseDir: rootDir });
+    agentFs = new NodeFileSystem({ baseDir: agentDir });
     audit = createMockAudit();
     currentNow = BASE_NOW;
     resumeCalls = [];
@@ -67,7 +75,13 @@ describe('execution-recovery controller', () => {
     fs.rmSync(rootDir, { recursive: true, force: true });
   });
 
+  /** Phase 1841: 本地记录路径（<agentDir>/event-loop/execution-recovery/）。 */
   function recordFilePath(contractId: string): string {
+    return path.join(agentDir, EXECUTION_RECOVERY_DIR, `${contractId}.json`);
+  }
+
+  /** 旧 root 共享目录路径（只读基线来源）。 */
+  function legacyRecordFilePath(contractId: string): string {
     return path.join(rootDir, EXECUTION_RECOVERY_DIR, `${contractId}.json`);
   }
 
@@ -77,8 +91,12 @@ describe('execution-recovery controller', () => {
     return JSON.parse(fs.readFileSync(p, 'utf8')) as ExecutionRecoveryRecord;
   }
 
+  function makeStore(): ExecutionRecoveryStore {
+    return createExecutionRecoveryStore({ agentFs, legacyRootFs: rootFs, audit });
+  }
+
   function makeController(): { store: ExecutionRecoveryStore; controller: ExecutionRecoveryController } {
-    const store = createExecutionRecoveryStore({ rootFs, audit });
+    const store = makeStore();
     const controller = createExecutionRecoveryController({
       store,
       audit,
@@ -89,7 +107,7 @@ describe('execution-recovery controller', () => {
     return { store, controller };
   }
 
-  /** 用同一 store 重建 controller（模拟重启 / 升级后新进程）。 */
+  /** 用新 store 重建 controller（模拟重启 / 升级后新进程）。 */
   function reopenController(store: ExecutionRecoveryStore): ExecutionRecoveryController {
     return createExecutionRecoveryController({
       store,
@@ -191,18 +209,23 @@ describe('execution-recovery controller', () => {
       expect(resumeCalls).toHaveLength(0);
     });
 
-    it('无 active contract 且磁盘有残留 record：删除 record', async () => {
+    it('无 active contract 且磁盘有残留 record：record 原字节保留（Phase 1841：未选中不授权删除）', async () => {
       const { store, controller } = makeController();
-      store.save({
+      const existing: ExecutionRecoveryRecord = {
         schema_version: 1,
         contractId: CONTRACT_ID,
         observedActivityAt: BASE_NOW - 10 * TIMEOUT_MS,
         attempts: 2,
         lastAttemptAt: BASE_NOW - 5 * TIMEOUT_MS,
-      });
-      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(true);
+      };
+      store.save(existing);
+      const bytesBefore = fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8');
       await controller.observe(stalledSnapshot({ activeContractId: undefined }));
-      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
+      expect(fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe(bytesBefore);
+      expect(readRecordFile(CONTRACT_ID)).toEqual(existing);
+      expect(resumeCalls).toHaveLength(0);
+      // 无 active / 切换不产生虚假 reset 审计
+      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(false);
     });
 
     it('未超时：不建 record、不 resume', async () => {
@@ -214,15 +237,35 @@ describe('execution-recovery controller', () => {
   });
 
   describe('reset / dedupe / restart', () => {
-    it('activity 前进：删除旧 record 并 audit reset（恢复消息自身不算 progress 由 probe 语义保证）', async () => {
+    it('activity 前进：保存零计数 record 并 audit reset（保留已建立本地状态与来源证据；恢复消息自身不算 progress 由 probe 语义保证）', async () => {
       const { controller } = makeController();
       await controller.observe(stalledSnapshot());
       expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(1);
+      const resetAuditCountBefore = audit.entries.filter(
+        e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET,
+      ).length;
 
-      // activity 前进到 now（turn 真的跑了）→ record 复位
+      // activity 前进到 now（turn 真的跑了）→ 零计数 record 持久化（不删除）
       await controller.observe(stalledSnapshot({ lastActivityAt: BASE_NOW }));
-      expect(fs.existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
-      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(true);
+      const persisted = readRecordFile(CONTRACT_ID);
+      expect(persisted).toMatchObject({
+        contractId: CONTRACT_ID,
+        observedActivityAt: BASE_NOW,
+        attempts: 0,
+        lastAttemptAt: 0,
+      });
+      const resetAudits = audit.entries.filter(
+        e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET,
+      );
+      expect(resetAudits.length).toBe(resetAuditCountBefore + 1);
+      const resetAudit = resetAudits[resetAudits.length - 1];
+      expect(resetAudit.some(col => String(col) === 'reason=activity_progressed')).toBe(true);
+      // RESET 审计附前记录原文（含重置前 attempts=1）
+      const previousCol = resetAudit.find(col => String(col).startsWith('previous_record='));
+      expect(previousCol).toBeDefined();
+      expect(JSON.parse(String(previousCol).slice('previous_record='.length)).attempts).toBe(1);
+      // 活动未超时：reset 后本 tick 不产生新 epoch 提醒
+      expect(resumeCalls).toHaveLength(1);
     });
 
     it('相同窗口重入幂等：同 tick 重复 observe 只 +1 attempt、只 enqueue 一次', async () => {
@@ -255,25 +298,37 @@ describe('execution-recovery controller', () => {
         attempts: 2,
         lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
       });
-      const controller = reopenController(createExecutionRecoveryStore({ rootFs, audit }));
+      const controller = reopenController(makeStore());
       await controller.observe(stalledSnapshot());
       expect(resumeCalls).toHaveLength(1);
       expect(resumeCalls[0].attempts).toBe(3);
       expect(readRecordFile(CONTRACT_ID)?.attempts).toBe(3);
     });
 
-    it('contract 切换：清理旧 contract 的残留 record', async () => {
+    it('contract 切换：旧 contract record 原字节保留，下次选中继续其计数（Phase 1841）', async () => {
       const { store, controller } = makeController();
-      store.save({
+      const oldRecord: ExecutionRecoveryRecord = {
         schema_version: 1,
         contractId: 'old-contract',
         observedActivityAt: BASE_NOW - 10 * TIMEOUT_MS,
         attempts: 1,
         lastAttemptAt: BASE_NOW - 5 * TIMEOUT_MS,
-      });
+      };
+      store.save(oldRecord);
+      const oldBytesBefore = fs.readFileSync(recordFilePath('old-contract'), 'utf8');
+      // 选中 new-contract（停滞）→ 只写新记录，旧记录不受影响
       await controller.observe(stalledSnapshot({ activeContractId: 'new-contract' }));
-      expect(fs.existsSync(recordFilePath('old-contract'))).toBe(false);
+      expect(fs.readFileSync(recordFilePath('old-contract'), 'utf8')).toBe(oldBytesBefore);
       expect(readRecordFile('new-contract')?.attempts).toBe(1);
+      // 不产生虚假 reset 审计
+      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESET)).toBe(false);
+      // 下次再选中旧 contract（窗口早已到期、activity 未前进）→ 继续旧计数
+      await controller.observe(stalledSnapshot({
+        activeContractId: 'old-contract',
+        lastActivityAt: oldRecord.observedActivityAt,
+      }));
+      expect(readRecordFile('old-contract')?.attempts).toBe(2);
+      expect(resumeCalls[resumeCalls.length - 1].contractId).toBe('old-contract');
     });
   });
 
@@ -318,7 +373,7 @@ describe('execution-recovery controller', () => {
         attempts: 3,
         lastAttemptAt: BASE_NOW - TIMEOUT_MS / 2,
       });
-      const controller = reopenController(createExecutionRecoveryStore({ rootFs, audit }));
+      const controller = reopenController(makeStore());
       // 窗口未到期：不动作（不删 record、不重置）
       await controller.observe(stalledSnapshot({ lastActivityAt }));
       expect(resumeCalls).toHaveLength(0);
@@ -344,7 +399,7 @@ describe('execution-recovery controller', () => {
         attempts: 7,
         lastAttemptAt: BASE_NOW - 10 * TIMEOUT_MS,
       });
-      const controller = reopenController(createExecutionRecoveryStore({ rootFs, audit }));
+      const controller = reopenController(makeStore());
       await controller.observe(stalledSnapshot({ lastActivityAt }));
       expect(resumeCalls).toHaveLength(1);
       expect(resumeCalls[0].attempts).toBe(8);
@@ -353,7 +408,7 @@ describe('execution-recovery controller', () => {
     });
 
     it('store.save 抛错：不 enqueue、错误沿现有传播；恢复后可再次 observe 正常登记', async () => {
-      const realStore = createExecutionRecoveryStore({ rootFs, audit });
+      const realStore = makeStore();
       let failSave = true;
       const store: ExecutionRecoveryStore = {
         ...realStore,
@@ -378,7 +433,7 @@ describe('execution-recovery controller', () => {
     it('enqueue 抛错：record 已持久化；同窗口不重发，下一窗口继续（不偷换为投递确认）', async () => {
       let failEnqueue = true;
       const controller = createExecutionRecoveryController({
-        store: createExecutionRecoveryStore({ rootFs, audit }),
+        store: makeStore(),
         audit,
         enqueueResume: (record) => {
           if (failEnqueue) {
@@ -409,12 +464,10 @@ describe('execution-recovery controller', () => {
 
   describe('真实 Messaging 投递读回', () => {
     it('controller 真实 store + enqueue 回调调现有 notifyInbox：4 个到期窗口写入 4 条 execution_recovery，drainAndDeliver 读回并真实 ack', async () => {
-      const agentDir = path.join(rootDir, 'claws', 'claw-1');
       const pendingDir = path.join(agentDir, 'inbox', 'pending');
       fs.mkdirSync(pendingDir, { recursive: true });
-      const agentFs = new NodeFileSystem({ baseDir: agentDir });
       const controller = createExecutionRecoveryController({
-        store: createExecutionRecoveryStore({ rootFs, audit }),
+        store: makeStore(),
         audit,
         enqueueResume: (record) => {
           // 只为验证调度链路的简单 body（不复制模板实现）；投递语义同生产
@@ -456,7 +509,7 @@ describe('execution-recovery controller', () => {
   });
 
   describe('store', () => {
-    it('save/load/delete roundtrip', () => {
+    it('save/load/覆盖 roundtrip（Phase 1841：store 不再提供 delete/list）', () => {
       const { store } = makeController();
       const record: ExecutionRecoveryRecord = {
         schema_version: 1,
@@ -467,16 +520,24 @@ describe('execution-recovery controller', () => {
       };
       store.save(record);
       expect(store.load(CONTRACT_ID)).toEqual(record);
-      store.delete(CONTRACT_ID);
-      expect(store.load(CONTRACT_ID)).toBeNull();
+      const updated: ExecutionRecoveryRecord = { ...record, attempts: 3, lastAttemptAt: 789 };
+      store.save(updated);
+      expect(store.load(CONTRACT_ID)).toEqual(updated);
+      // legacy 目录全程未被写入
+      expect(fs.existsSync(legacyRecordFilePath(CONTRACT_ID))).toBe(false);
     });
 
-    it('损坏 record：load 返回 null 并 audit（不抛）', () => {
+    it('损坏 record：load 审计后抛出（Phase 1841：读取未知不降格为不存在），原字节不变', () => {
       const { store } = makeController();
-      fs.mkdirSync(path.join(rootDir, EXECUTION_RECOVERY_DIR), { recursive: true });
+      fs.mkdirSync(path.join(agentDir, EXECUTION_RECOVERY_DIR), { recursive: true });
       fs.writeFileSync(recordFilePath(CONTRACT_ID), 'not-json{{{');
-      expect(store.load(CONTRACT_ID)).toBeNull();
-      expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL)).toBe(true);
+      const bytesBefore = fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8');
+      expect(() => store.load(CONTRACT_ID)).toThrow();
+      expect(fs.readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe(bytesBefore);
+      const fatal = audit.entries.find(e => e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL);
+      expect(fatal).toBeDefined();
+      expect(fatal!.some(col => String(col) === 'scope=local')).toBe(true);
+      expect(fatal!.some(col => String(col) === 'reason=parse_failed')).toBe(true);
     });
   });
 });

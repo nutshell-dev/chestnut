@@ -108,6 +108,7 @@ export class EventLoop {
   private waitAbortController?: AbortController;
 
   // Phase 1396 Step E: 执行停滞恢复（record store / resume enqueue 归 EventLoop 自有）
+  // Phase 1841: record 按实例归属——写本 claw agentFs；旧 root 共享目录仅只读继承。
   private executionRecovery?: ExecutionRecoveryController;
   private executionRecoveryDeps?: EventLoopExecutionRecoveryDeps;
   /** processTurn 执行中为 true（observe 只挂在 idle 路径，此字段为未来挂载点保真） */
@@ -128,7 +129,9 @@ export class EventLoop {
     if (options.executionRecovery) {
       this.executionRecoveryDeps = options.executionRecovery;
       this.executionRecovery = createExecutionRecoveryController({
-        store: createExecutionRecoveryStore({ rootFs: this.rootFs, audit: this.audit }),
+        // Phase 1841: 实例本地记录（agentFs）+ 旧 root 共享基线只读继承（rootFs
+        // 以 Pick<..., 'readSync'> 收窄传入；rootFs 本身仍供 clean-stop marker 使用）。
+        store: createExecutionRecoveryStore({ agentFs: this.agentFs, legacyRootFs: this.rootFs, audit: this.audit }),
         audit: this.audit,
         timeoutMs: options.executionRecovery.timeoutMs ?? EXECUTION_INACTIVITY_TIMEOUT_MS,
         enqueueResume: (record) => this._enqueueExecutionResume(record),

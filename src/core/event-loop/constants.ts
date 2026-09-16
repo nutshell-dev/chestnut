@@ -53,7 +53,12 @@ export const REACT_CHAIN_MAX_ITERATIONS = 100;
  */
 export const EXECUTION_INACTIVITY_TIMEOUT_MS = 300_000;
 
-/** Phase 1396 Step E: recovery record 目录（chestnut root 相对路径）。 */
+/**
+ * Phase 1396 Step E: recovery record 目录（相对路径，值不变）。
+ * Phase 1841: 实例相对路径——记录写到 <agentDir>/event-loop/execution-recovery/
+ * （motion 为 <root>/motion/...，claw 为 <root>/claws/<id>/...）；旧
+ * <root>/event-loop/execution-recovery/ 相同相对路径仅作为只读共享基线兼容读。
+ */
 export const EXECUTION_RECOVERY_DIR = 'event-loop/execution-recovery';
 
 /** Phase 1396 Step E: 自愈 resume 的自身 inbox 消息类型（EventLoop 正常消费，不走 Runtime reentrant API）。 */

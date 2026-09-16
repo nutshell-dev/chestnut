@@ -21,7 +21,9 @@ export const EVENTLOOP_AUDIT_EVENTS = {
   POST_DRAIN_FAILURE_RECOVERED: 'eventloop_post_drain_failure_recovered',
   /** Phase 1396 Step E: 检测到执行停滞，向自身 inbox enqueue 高优 resume（attempt 已落盘） */
   EXECUTION_RECOVERY_RESUME: 'eventloop_execution_recovery_resume',
-  /** Phase 1396 Step E: activity 前进 / contract 不再 active → recovery record 复位删除 */
+  /** Phase 1396 Step E: activity 前进 → 本 claw 本地 recovery epoch 重置为零计数记录
+   *  （Phase 1841：记录与来源证据保留，不再删除；也不存在「contract 不再 active」
+   *   触发的记录清理）。事件名/路由不变。 */
   EXECUTION_RECOVERY_RESET: 'eventloop_execution_recovery_reset',
   /** Phase 1396 Step E: 恢复耗尽，execution failure 已交付 ExecutionFailureSink。
    *  Phase 1840: 历史保留（旧版本审计可理解）；提醒链不再发出本事件。 */

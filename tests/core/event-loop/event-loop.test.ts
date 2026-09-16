@@ -1117,7 +1117,8 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
   beforeEach(() => {
     // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     baseDir = path.join(os.tmpdir(), `event-loop-recovery-test-${randomUUID()}`);
-    // agentDir 形如 <base>/claws/<clawId>，rootFs 解析到 <base>（record 落盘处）。
+    // agentDir 形如 <base>/claws/<clawId>：Phase 1841 起 record 落本 claw 本地
+    // （<agentDir>/event-loop/execution-recovery/），<base> 旧目录仅只读继承。
     agentDir = path.join(baseDir, 'claws', 'test-claw');
     require('fs').mkdirSync(agentDir, { recursive: true });
     inboxPendingDir = path.join(agentDir, 'inbox', 'pending');
@@ -1173,7 +1174,13 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     });
   }
 
+  /** Phase 1841: 本地记录路径（<agentDir>/event-loop/execution-recovery/）。 */
   function recordFilePath(contractId: string): string {
+    return path.join(agentDir, 'event-loop', 'execution-recovery', `${contractId}.json`);
+  }
+
+  /** 旧 root 共享目录路径（只读基线来源）。 */
+  function legacyRecordFilePath(contractId: string): string {
     return path.join(baseDir, 'event-loop', 'execution-recovery', `${contractId}.json`);
   }
 
@@ -1206,18 +1213,20 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(true);
   });
 
-  it('旧 attempts=3 record：run() 到期继续提醒产出第 4 条 resume（Phase 1840：无契约失败出口）', async () => {
+  it('旧 root 共享 attempts=3 record：run() 只读继承到本地，到期继续提醒产出第 4 条 resume（Phase 1840：无契约失败出口；Phase 1841：root 原文不变）', async () => {
     const audit = createMockAudit();
     const lastActivityAt = Date.now() - 10 * RECOVERY_TIMEOUT_MS;
-    // 预置旧版 attempts=3 的 schema1 record（旧阈值记录在升级后继续计数）
-    require('fs').mkdirSync(path.dirname(recordFilePath(CONTRACT_ID)), { recursive: true });
-    require('fs').writeFileSync(recordFilePath(CONTRACT_ID), JSON.stringify({
+    // 预置旧版 root 共享 attempts=3 的 schema1 record（旧阈值记录升级后作为
+    // 归属未知的共享基线继承，在本地继续计数）
+    const legacyRaw = JSON.stringify({
       schema_version: 1,
       contractId: CONTRACT_ID,
       observedActivityAt: lastActivityAt,
       attempts: 3,
       lastAttemptAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
-    }));
+    });
+    require('fs').mkdirSync(path.dirname(legacyRecordFilePath(CONTRACT_ID)), { recursive: true });
+    require('fs').writeFileSync(legacyRecordFilePath(CONTRACT_ID), legacyRaw);
     const loop = makeRecoveryEventLoop(makeIdleRuntime(), audit, {
       probeActivity: async () => ({ activeContractId: CONTRACT_ID, lastActivityAt }),
     });
@@ -1230,9 +1239,11 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(messages[0].from).toBe('test-claw');
     expect(messages[0].priority).toBe('high');
     expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
-    // record 变 4 且仍在磁盘；全程无失败交付 audit
+    // 本地 record 变 4 且附旧基线原文/unknown 归属；root 原字节不变
     const persisted = JSON.parse(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8'));
     expect(persisted.attempts).toBe(4);
+    expect(persisted.legacySharedBaseline).toEqual({ attribution: 'unknown', raw: legacyRaw });
+    expect(require('fs').readFileSync(legacyRecordFilePath(CONTRACT_ID), 'utf8')).toBe(legacyRaw);
     expect(audit.entries.some(e =>
       e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_FAILURE_DELIVERED ||
       e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_DELIVERY_FAILED ||
@@ -1255,7 +1266,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
   });
 
-  it('无 executionRecovery 注入：run() 行为不变（不触碰 record 目录）', async () => {
+  it('无 executionRecovery 注入：run() 行为不变（local 与 root 均不触碰 record 目录）', async () => {
     const audit = createMockAudit();
     const loop = new EventLoop({
       runtime: makeIdleRuntime(),
@@ -1268,6 +1279,103 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
     await loop.run();
 
+    expect(require('fs').existsSync(path.join(agentDir, 'event-loop'))).toBe(false);
     expect(require('fs').existsSync(path.join(baseDir, 'event-loop'))).toBe(false);
+  });
+
+  it('motion 与 worker 同一真实 root：各自 inbox/record 独立接线，重入幂等，无 active 不影响对方', async () => {
+    // 固定 Date.now（只 spy Date.now，不冻结等待 timer）+ 固定 lastActivityAt，
+    // 避免每次 probe 人为推进活动。
+    const FIXED_NOW = 1_700_000_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW);
+    const lastActivityAt = FIXED_NOW - 10 * RECOVERY_TIMEOUT_MS;
+
+    const motionDir = path.join(baseDir, 'motion');
+    const workerDir = path.join(baseDir, 'claws', 'worker-1');
+    const motionPending = path.join(motionDir, 'inbox', 'pending');
+    const workerPending = path.join(workerDir, 'inbox', 'pending');
+    require('fs').mkdirSync(motionPending, { recursive: true });
+    require('fs').mkdirSync(workerPending, { recursive: true });
+
+    const makeLoopAt = (
+      dir: string,
+      clawId: string,
+      pendingDir: string,
+      audit: AuditLog,
+      probeActivity: () => Promise<{ activeContractId?: string; lastActivityAt: number | null }>,
+    ): EventLoop => new EventLoop({
+      runtime: makeIdleRuntime(),
+      fsFactory,
+      agentDir: dir,
+      clawId,
+      audit,
+      inbox: { pendingDir, fallbackTimeoutMs: 50 },
+      executionRecovery: { probeActivity, timeoutMs: RECOVERY_TIMEOUT_MS },
+    });
+    const readPending = (pendingDir: string): InboxMessage[] =>
+      (require('fs').readdirSync(pendingDir) as string[]).map((f: string) =>
+        decodeInbox(require('fs').readFileSync(path.join(pendingDir, f), 'utf8')));
+    const localRecordAt = (dir: string): string =>
+      path.join(dir, 'event-loop', 'execution-recovery', `${CONTRACT_ID}.json`);
+
+    const motionAudit = createMockAudit();
+    const workerAudit = createMockAudit();
+    const stalledProbe = async () => ({ activeContractId: CONTRACT_ID, lastActivityAt });
+
+    // 两个 claw 相同 contract ID，各自 run：各自 inbox 一条高优 resume、各自本地 record=1
+    await makeLoopAt(motionDir, 'motion', motionPending, motionAudit, stalledProbe).run();
+    await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, stalledProbe).run();
+
+    const motionMsgs = readPending(motionPending);
+    const workerMsgs = readPending(workerPending);
+    expect(motionMsgs).toHaveLength(1);
+    expect(workerMsgs).toHaveLength(1);
+    expect(motionMsgs[0].type).toBe('execution_recovery');
+    expect(workerMsgs[0].type).toBe('execution_recovery');
+    expect(motionMsgs[0].from).toBe('motion');
+    expect(workerMsgs[0].from).toBe('worker-1');
+    expect(JSON.parse(require('fs').readFileSync(localRecordAt(motionDir), 'utf8')).attempts).toBe(1);
+    expect(JSON.parse(require('fs').readFileSync(localRecordAt(workerDir), 'utf8')).attempts).toBe(1);
+    // 不产生新的 root 共享记录
+    expect(require('fs').existsSync(path.join(baseDir, 'event-loop'))).toBe(false);
+
+    // 同窗口重入（重建 loop = 重启）：两者均不重复提醒
+    await makeLoopAt(motionDir, 'motion', motionPending, motionAudit, stalledProbe).run();
+    await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, stalledProbe).run();
+    expect(readPending(motionPending)).toHaveLength(1);
+    expect(readPending(workerPending)).toHaveLength(1);
+
+    // worker 无 active：不读写；motion 记录原字节不变
+    const motionBytes = require('fs').readFileSync(localRecordAt(motionDir), 'utf8');
+    const workerBytes = require('fs').readFileSync(localRecordAt(workerDir), 'utf8');
+    const idleProbe = async () => ({ activeContractId: undefined, lastActivityAt: FIXED_NOW });
+    await makeLoopAt(workerDir, 'worker-1', workerPending, workerAudit, idleProbe).run();
+    expect(require('fs').readFileSync(localRecordAt(motionDir), 'utf8')).toBe(motionBytes);
+    expect(require('fs').readFileSync(localRecordAt(workerDir), 'utf8')).toBe(workerBytes);
+  });
+
+  it('record 读取异常：FATAL 审计后不阻断正常消息 drain', async () => {
+    const audit = createMockAudit();
+    // 本地 record 损坏（无效 JSON）→ load 严格抛出，EventLoop 外层 catch 记录
+    require('fs').mkdirSync(path.dirname(recordFilePath(CONTRACT_ID)), { recursive: true });
+    require('fs').writeFileSync(recordFilePath(CONTRACT_ID), 'not-json{{{');
+    const runtime = makeIdleRuntime();
+    const loop = makeRecoveryEventLoop(runtime, audit, {
+      probeActivity: async () => ({
+        activeContractId: CONTRACT_ID,
+        lastActivityAt: Date.now() - 10 * RECOVERY_TIMEOUT_MS,
+      }),
+    });
+
+    await loop.run();
+
+    // 恢复观察失败被审计……
+    expect(audit.entries.some(e =>
+      e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
+      e.some(col => String(col) === 'context=executionRecovery'))).toBe(true);
+    // ……但正常调度未被阻断：有待处理消息时 drain 仍被调用
+    expect(runtime.drainInbox).toHaveBeenCalled();
+    // 损坏 record 原字节不变（不覆盖、不删除）
+    expect(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe('not-json{{{');
   });
 });
