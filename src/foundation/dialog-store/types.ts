@@ -46,14 +46,40 @@ export interface DialogSaveSnapshot {
 }
 
 /**
+ * phase 1850 Step C: save() 在 owner 内 clone 上分配的 blockId 显式回传单元。
+ * caller 持有对象在 save 前后完全不变；需要 in-memory blockId 的 caller 用
+ * applyBlockIdAssignments 把 assignments 写回自己的 messages 数组。
+ */
+export interface BlockIdAssignment {
+  messageIndex: number;
+  blockIndex: number;
+  blockId: string;   // full UUID
+  shortId: string;   // uuidToShort(blockId)
+}
+
+/**
+ * phase 1850 Step B: save 双文件提交协议的结构化交付。
+ * 主快照（current.json）失败 = reject（无部分提交）；index 失败 = 主快照已提交的事实不丢，
+ * 以 blockIndexPersisted=false 回传（dirty 保持、下次 save 自动重试），不 reject。
+ */
+export interface DialogSaveResult {
+  /** 主快照（current.json）提交后，block-index 是否已同步持久化；false 时 dirty 保持、下次 save 重试 */
+  blockIndexPersisted: boolean;
+  /** phase 1850 Step C: 本次 save 在内部 clone 上新分配的 blockId 清单（幂等：已带 ID 的块不在列） */
+  assignedBlockIds: BlockIdAssignment[];
+}
+
+/**
  * Minimal lifecycle required by a dialog-session consumer.
  *
  * DialogStore owns the persistence semantics; consumers depend on this protocol
  * instead of the concrete store and its unrelated lookup/restore capabilities.
  */
 export interface DialogSessionLifecycle {
+  /** 本 session 的 dialog 目录绝对路径（owner 资源位置；recovery/取证 artifact 派生用） */
+  readonly dialogDir: string;
   load(): Promise<LoadResult>;
-  save(snapshot: DialogSaveSnapshot): Promise<void>;
+  save(snapshot: DialogSaveSnapshot): Promise<DialogSaveResult>;
   beginTurn(): Promise<void>;
   commitTurn(reason?: string): Promise<void>;
   rollbackTurn(reason?: string): Promise<void>;

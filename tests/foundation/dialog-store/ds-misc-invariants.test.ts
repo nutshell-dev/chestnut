@@ -194,10 +194,11 @@ describe('validate-session-invariant', () => {
       await cleanupTempDir(tempDir);
     });
 
-    it('validateSession version > 2 emits INVARIANT_FAILED + fallback to 2', () => {
-      // Directly test private validateSession (bypass detectAndMigrateVersion which already rejects > 2)
+    it('validateSession version < 1 emits INVARIANT_FAILED + fallback to 2', () => {
+      // Directly test private validateSession (shared normalization; version adjudication
+      // for > SESSION_CURRENT_VERSION lives in parseSessionData, which rejects it)
       const session = (store as any).validateSession({
-        version: 99,
+        version: 0,
         clawId,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -215,7 +216,7 @@ describe('validate-session-invariant', () => {
         expect.arrayContaining([
           DIALOG_AUDIT_EVENTS.INVARIANT_FAILED,
           'field=version',
-          'got=99',
+          'got=0',
           'fallback=2',
         ]),
       );
@@ -374,13 +375,6 @@ describe('regime-switch-atomicity', () => {
     } as unknown as AuditLog & { getCalls: () => typeof calls };
   }
 
-  const REGIME_SWITCH_AUDIT_EVENTS = {
-    REGIME_SWITCH: 'regime_switch',
-    REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
-    REGIME_SWITCH_FAILED: 'regime_switch_failed',
-    REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
-  };
-
   describe('DialogStore regime switch archive idempotency (phase 985)', () => {
     it('first new-session save fails; retry succeeds and preserves old session in archive', async () => {
       const tempDir = await createTempDir();
@@ -429,10 +423,8 @@ describe('regime-switch-atomicity', () => {
           currentStore,
           dialogStoreFactory,
           toolsForLLM: [] as ToolDefinition[],
-          clawDir: tempDir,
           systemFs: fs,
           audit: audit as unknown as AuditLog,
-          auditEvents: REGIME_SWITCH_AUDIT_EVENTS,
         };
 
         // First attempt: archive succeeds, new-session save fails.

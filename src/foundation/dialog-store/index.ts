@@ -11,14 +11,20 @@ export { DialogStore } from './store.js';
 export type { Message } from './canonical-message.js';
 // phase 483: audit-events barrel re-export
 export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-export { migrateAndValidateSession, validateSessionData } from './validate.js';
+// phase 1850 Step F: 单一公开校验入口 + 结果协议类型
+export { parseSessionData } from './validate.js';
+export type { SessionParseOutcome } from './validate.js';
 export type {
   SessionData,
   LoadResult,
   StableLoadResult,
   DialogSaveSnapshot,
+  DialogSaveResult,
   DialogSessionLifecycle,
+  BlockIdAssignment,
 } from './types.js';
+// phase 1850 Step C: save clone 分配的 blockId 显式回传写回原语
+export { applyBlockIdAssignments } from './apply-block-ids.js';
 export { repairMessages as repairDialogMessages } from './repair.js';
 // phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module
 export { performRegimeSwitch } from './regime-switch.js';

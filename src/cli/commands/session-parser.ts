@@ -8,7 +8,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import { CliError } from '../errors.js';
-import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/index.js';
+import { parseSessionData } from '../../foundation/dialog-store/index.js';
 
 export interface Step {
   num: number;
@@ -114,10 +114,10 @@ export function loadSessionFromFile(
   // path 1: current.json exists → read directly
   if (fileSystem.existsSync(relPath)) {
     const raw = JSON.parse(fileSystem.readSync(relPath));
-    const session = migrateAndValidateSession(raw, relPath);
-    if (!session) throw new CliError(`dialog session version unknown: ${filePath}`);
+    const outcome = parseSessionData(raw, relPath);
+    if (outcome.kind !== 'ok') throw new CliError(`dialog session version unknown: ${filePath}`);
     return {
-      session: validateSessionData(session) as SessionLike,
+      session: outcome.session as SessionLike,
       source: 'current',
     };
   }
@@ -133,10 +133,10 @@ export function loadSessionFromFile(
     throw new CliError(`dialog session not found: ${filePath} (archive/ empty)`);
   }
   const raw = JSON.parse(archiveFs.readSync(latestArchive));
-  const session = migrateAndValidateSession(raw, latestArchive);
-  if (!session) throw new CliError(`dialog session version unknown: archive/${latestArchive}`);
+  const outcome = parseSessionData(raw, latestArchive);
+  if (outcome.kind !== 'ok') throw new CliError(`dialog session version unknown: archive/${latestArchive}`);
   return {
-    session: validateSessionData(session) as SessionLike,
+    session: outcome.session as SessionLike,
     source: 'archive',
     archiveName: latestArchive,
   };

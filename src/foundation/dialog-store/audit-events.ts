@@ -16,6 +16,7 @@ export const DIALOG_AUDIT_EVENTS = {
   ARCHIVE_PARSE_FAILED: 'session_archive_parse_failed',
   ARCHIVE_DIR_FAILED: 'session_archive_dir_failed',
   LOOKUP_IO_ERROR: 'dialog_lookup_io_error',
+  LOOKUP_CORRUPTION: 'dialog_lookup_corruption', // ← NEW phase 1850 Step G (lookup 腐化 owner 事件)
   ARCHIVE_ALREADY_ARCHIVED: 'dialog_archive_already_archived',
   VERSION_UNKNOWN: 'dialog_session_version_unknown',  // ← NEW phase 1019 r124 E fork
   VERSION_MIGRATE: 'dialog_session_version_migrate',  // ← NEW phase 1019 r124 E fork (v1→v2 observability)
@@ -32,4 +33,10 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_CLEANUP_FAILED: 'dialog_turn_cleanup_failed',
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
   BLOCK_ID_INDEX_LOAD_FAILED: 'block_id_index_load_failed', // ← NEW phase 1822 (owner catalog registration)
+  BLOCK_ID_INDEX_SAVE_FAILED: 'block_id_index_save_failed', // ← NEW phase 1850 Step B (save 双文件提交协议)
+  // phase 1850: regime switch 事件归 DialogStore owner（原 Runtime 命名空间 caller 注入）
+  REGIME_SWITCH: 'regime_switch',
+  REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
+  REGIME_SWITCH_FAILED: 'regime_switch_failed',
+  REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
 } as const;

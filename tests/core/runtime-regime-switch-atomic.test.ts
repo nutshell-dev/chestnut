@@ -18,7 +18,7 @@ import type { LLMOrchestratorConfig, LLMStreamChunk } from '../../src/foundation
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
-import { RUNTIME_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
+import { DIALOG_AUDIT_EVENTS } from '../../src/foundation/dialog-store/index.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
@@ -253,7 +253,7 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
     await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     const failedCall = auditSpy.mock.calls.find(c =>
-      c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED && c[1] === 'phase=save_and_dump'
+      c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_FAILED && c[1] === 'phase=save_and_dump'
     );
     expect(failedCall).toBeDefined();
     expect(failedCall![2]).toMatch(/^recovery_path=/);
@@ -316,10 +316,122 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
     expect(runtime.testGetLastIdentityHash()).toBe('identity-B');
 
     // Audit success
-    const regimeSwitchCall = auditSpy.mock.calls.find(c => c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH);
+    const regimeSwitchCall = auditSpy.mock.calls.find(c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH);
     expect(regimeSwitchCall).toBeDefined();
     expect(regimeSwitchCall![1]).toBe('strategy=all');
     expect(regimeSwitchCall![2]).toMatch(/^inherited=/);
     expect(regimeSwitchCall![3]).toMatch(/^discarded=/);
+  });
+
+  it('phase 1850 Step D ②: post-commit cleanup runs after switch commit + identity hash update', async () => {
+    const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
+    const originalFactory = deps.dialogStoreFactory;
+
+    let capturedNewSessionManager: unknown;
+    vi.spyOn(deps, 'dialogStoreFactory').mockImplementation(() => {
+      const newSm = originalFactory();
+      capturedNewSessionManager = newSm;
+      return newSm;
+    });
+
+    const runtime = new TestRuntime({
+      clawId: 'test-claw',
+      clawDir,
+      llmConfig: createMockLLMConfig(),
+      dependencies: deps,
+    });
+    runtimesToStop.push(runtime);
+
+    const auditSpy = vi.spyOn(deps.auditWriter, 'write');
+
+    const mockLLM = createMockLLM([
+      { content: [{ type: 'text', text: 'First' }], stop_reason: 'end_turn' },
+      { content: [{ type: 'text', text: 'Second' }], stop_reason: 'end_turn' },
+    ]);
+
+    await runtime.initialize();
+    vi.spyOn(deps.sessionManager, 'archive').mockResolvedValue(undefined);
+    runtime.testSetLLM(mockLLM);
+
+    // 观测 cleanup 时点：clearReadFileState 第一步即 ctx.readFileState.clear()
+    let hashAtCleanup: string | undefined;
+    let sessionManagerAtCleanup: unknown;
+    const clearSpy = vi.spyOn(runtime.testGetExecContext().readFileState, 'clear')
+      .mockImplementation(() => {
+        hashAtCleanup = runtime.testGetLastIdentityHash();
+        sessionManagerAtCleanup = runtime.testGetSessionManager();
+      });
+
+    vi.spyOn(runtime.contextInjector, 'buildSystemPromptForRegime')
+      .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
+      .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
+
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
+
+    // 顺序断言：switch commit（sessionManager 替换 + REGIME_SWITCH_COMMITTED audit）
+    // → identity hash 更新 → cleanup
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(sessionManagerAtCleanup).toBe(capturedNewSessionManager);
+    expect(hashAtCleanup).toBe('identity-B');
+    const committedIdx = auditSpy.mock.calls.findIndex(
+      c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED,
+    );
+    expect(committedIdx).toBeGreaterThanOrEqual(0);
+    expect(auditSpy.mock.invocationCallOrder[committedIdx])
+      .toBeLessThan(clearSpy.mock.invocationCallOrder[0]);
+    expect(runtime.testGetLastIdentityHash()).toBe('identity-B');
+  });
+
+  it('phase 1850 Step D ④: cleanup throw does not roll back commit decision nor retrigger switch', async () => {
+    const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
+
+    const runtime = new TestRuntime({
+      clawId: 'test-claw',
+      clawDir,
+      llmConfig: createMockLLMConfig(),
+      dependencies: deps,
+    });
+    runtimesToStop.push(runtime);
+
+    const auditSpy = vi.spyOn(deps.auditWriter, 'write');
+
+    const mockLLM = createMockLLM([
+      { content: [{ type: 'text', text: 'First' }], stop_reason: 'end_turn' },
+      { content: [{ type: 'text', text: 'Second' }], stop_reason: 'end_turn' },
+      { content: [{ type: 'text', text: 'Third' }], stop_reason: 'end_turn' },
+    ]);
+
+    await runtime.initialize();
+    vi.spyOn(deps.sessionManager, 'archive').mockResolvedValue(undefined);
+    runtime.testSetLLM(mockLLM);
+
+    // 实然 clearReadFileState 对内吞错；用 stub ctx（readFileState.clear 抛错）构造抛错场景
+    vi.spyOn(runtime.testGetExecContext().readFileState, 'clear')
+      .mockImplementationOnce(() => { throw new Error('clear-boom'); });
+
+    vi.spyOn(runtime.contextInjector, 'buildSystemPromptForRegime')
+      .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
+      .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' })
+      .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
+
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+
+    // cleanup 抛错：turn 以 failed 收场（错误不逃逸出 processTurn），但提交判定不回溯
+    const result2 = await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
+    expect(result2.status).toBe('failed');
+    expect(runtime.testGetLastIdentityHash()).toBe('identity-B');
+    const switchCallsAfter2 = auditSpy.mock.calls.filter(
+      c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH,
+    );
+    expect(switchCallsAfter2).toHaveLength(1);
+
+    // 下轮 identity 不变 → 不重复执行已提交的 switch
+    const result3 = await processRuntimeMessage(runtime, { role: 'user', content: 'Message 3' });
+    expect(result3.status).toBe('success');
+    const switchCallsAfter3 = auditSpy.mock.calls.filter(
+      c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH,
+    );
+    expect(switchCallsAfter3).toHaveLength(1);
   });
 });

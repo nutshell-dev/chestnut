@@ -155,9 +155,18 @@ describe('lookupContentByToolUseId', () => {
         { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'from-second' }] },
       ]),
     });
-    const result = lookupContentByToolUseId(fs, '/dialog', 't1');
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
     expect(result.source).toBe('archive');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('parse failed'));
+    // phase 1850 Step G: 腐化走 owner 事件，stderr 零输出
+    expect(audit.write).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+      'file=1706745600000_bad1.json',
+      'toolUseId=t1',
+      expect.any(String),
+    );
+    expect(stderrSpy).not.toHaveBeenCalled();
     const ar = result as Extract<LookupResult, { source: 'archive'; archivedAt: string }>;
     expect(ar.content).toBe('from-second');
   });
@@ -231,15 +240,110 @@ describe('lookupContentByToolUseId', () => {
     expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('not_in_current');
   });
 
-  it('phase 919: returns not_in_current when current.json is corrupted', () => {
+  it('phase 1850 Step G: returns corrupted when current.json is corrupted', () => {
     const fs = makeFs({
       '/dialog/current.json': 'not-valid-json',
       '/dialog/archive': { size: 0, isDirectory: true },
     });
-    const result = lookupContentByToolUseId(fs, '/dialog', 't1');
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
     expect(result.source).toBe('unavailable');
-    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('not_in_current');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('current.json parse failed'));
+    const ua = result as Extract<LookupResult, { source: 'unavailable'; reason: 'corrupted' }>;
+    expect(ua.reason).toBe('corrupted');
+    expect(ua.detail).toEqual(['current.json']);
+    expect(audit.write).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+      'file=current.json',
+      'toolUseId=t1',
+      expect.any(String),
+    );
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('phase 1850 Step G: current corrupted + archive hit returns archive and emits one corruption row', () => {
+    const fs = makeFs({
+      '/dialog/current.json': 'not-valid-json',
+      '/dialog/archive': { size: 0, isDirectory: true },
+      '/dialog/archive/1704067200000_abc123.json': currentJson([
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'from-archive' }] },
+      ]),
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('archive');
+    const ar = result as Extract<LookupResult, { source: 'archive'; archivedAt: string }>;
+    expect(ar.content).toBe('from-archive');
+    expect(ar.degradationNotes).toEqual(['current.json: parse_failed']);
+    expect(audit.write).toHaveBeenCalledTimes(1);
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+      'file=current.json',
+      'toolUseId=t1',
+      expect.any(String),
+    );
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('phase 1850 Step G: current + all archive entries corrupted → corrupted with all failed filenames', () => {
+    const fs = makeFs({
+      '/dialog/current.json': 'not-valid-json',
+      '/dialog/archive': { size: 0, isDirectory: true },
+      '/dialog/archive/1706745600000_bad1.json': 'not-valid-json',
+      '/dialog/archive/1704067200000_bad2.json': '{broken',
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    const ua = result as Extract<LookupResult, { source: 'unavailable'; reason: 'corrupted' }>;
+    expect(ua.reason).toBe('corrupted');
+    expect(ua.detail).toEqual(['current.json', '1706745600000_bad1.json', '1704067200000_bad2.json']);
+    expect(audit.write).toHaveBeenCalledTimes(3);
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('phase 1850 Step G: archive-only corruption (current valid, id absent) → corrupted without current.json in detail', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([]),
+      '/dialog/archive': { size: 0, isDirectory: true },
+      '/dialog/archive/1704067200000_bad1.json': 'not-valid-json',
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    const ua = result as Extract<LookupResult, { source: 'unavailable'; reason: 'corrupted' }>;
+    expect(ua.reason).toBe('corrupted');
+    expect(ua.detail).toEqual(['1704067200000_bad1.json']);
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('phase 1850 Step G: io_error takes precedence over corrupted', () => {
+    const fs = makeFs({
+      '/dialog/current.json': 'not-valid-json',
+      '/dialog/archive': { size: 0, isDirectory: true },
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    vi.spyOn(fs, 'listSync').mockImplementation(() => {
+      const err = new Error('EACCES: permission denied') as any;
+      err.code = 'EACCES';
+      throw err;
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+      'file=current.json',
+      'toolUseId=t1',
+      expect.any(String),
+    );
+    expect(audit.write).toHaveBeenCalledWith(
+      DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+      'dir=archive',
+      'toolUseId=t1',
+      expect.stringContaining('EACCES'),
+    );
+    expect(stderrSpy).not.toHaveBeenCalled();
   });
 
   it('phase 919: returns all_failed when current.json is valid but id not found and archive is empty', () => {
@@ -500,5 +604,75 @@ describe('lookupContentByBlockId layout', () => {
       content: 'custom block layout',
       blockId: fullId,
     });
+  });
+
+  it('phase 1850 Step G: returns corrupted when all archive entries fail to parse', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const fullId = '12345678-1234-1234-1234-123456789abc';
+      const fs = makeFs({
+        '/dialog/archive': { size: 0, isDirectory: true },
+        '/dialog/archive/1706745600000_bad1.json': 'not-valid-json',
+        '/dialog/archive/1704067200000_bad2.json': '{broken',
+      });
+      const index = new BlockIdIndex(fs, '/dialog');
+      index.add('12345678', fullId);
+      const audit = { write: vi.fn() } as unknown as AuditLog;
+
+      const result = lookupContentByBlockId(fs, '/dialog', '12345678', index, audit);
+
+      expect(result.source).toBe('unavailable');
+      if (result.source !== 'unavailable' || result.reason !== 'corrupted') {
+        throw new Error('expected corrupted');
+      }
+      expect(result.detail).toEqual(['1706745600000_bad1.json', '1704067200000_bad2.json']);
+      expect(audit.write).toHaveBeenCalledTimes(2);
+      expect(audit.write).toHaveBeenCalledWith(
+        DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+        'file=1706745600000_bad1.json',
+        `blockId=${fullId}`,
+        expect.any(String),
+      );
+      expect(stderrSpy).not.toHaveBeenCalled();
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('phase 1850 Step G: block-id io_error takes precedence over corrupted', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const fullId = '12345678-1234-1234-1234-123456789abc';
+      const fs = makeFs({
+        '/dialog/archive': { size: 0, isDirectory: true },
+        '/dialog/archive/1706745600000_bad1.json': 'not-valid-json',
+      });
+      const index = new BlockIdIndex(fs, '/dialog');
+      index.add('12345678', fullId);
+      const audit = { write: vi.fn() } as unknown as AuditLog;
+      vi.spyOn(fs, 'readSync').mockImplementation((p: string) => {
+        if (p === '/dialog/archive/1706745600000_bad1.json') {
+          const err = new Error('EACCES: permission denied') as any;
+          err.code = 'EACCES';
+          throw err;
+        }
+        return (makeFs({}).readSync as any)(p);
+      });
+
+      const result = lookupContentByBlockId(fs, '/dialog', '12345678', index, audit);
+
+      expect(result.source).toBe('unavailable');
+      if (result.source !== 'unavailable') throw new Error('expected unavailable');
+      expect(result.reason).toBe('io_error');
+      expect(audit.write).toHaveBeenCalledWith(
+        DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
+        'file=1706745600000_bad1.json',
+        `blockId=${fullId}`,
+        expect.stringContaining('EACCES'),
+      );
+      expect(stderrSpy).not.toHaveBeenCalled();
+    } finally {
+      stderrSpy.mockRestore();
+    }
   });
 });

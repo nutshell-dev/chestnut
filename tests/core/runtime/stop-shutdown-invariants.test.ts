@@ -17,6 +17,7 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from '../_runtime-test-helpers.js';
 import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
+import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/index.js';
 
 describe('stop-flush-barrier', () => {
   /**
@@ -463,7 +464,7 @@ describe('regime-switch-archive-fail', () => {
 
       // phase 595: emit 顺序变为 phase + reason、test 改全 arg 匹配
       expect(mockAudit.write).toHaveBeenCalledWith(
-        'regime_switch_hard_fail',
+        DIALOG_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL,
         'phase=archive',
         expect.stringContaining('disk full'),
       );
@@ -485,7 +486,7 @@ describe('regime-switch-archive-fail', () => {
       await (runtime as any)._performRegimeSwitch('new system prompt');
 
       const hardFailCalls = (mockAudit.write as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (c: any) => c[0] === 'regime_switch_hard_fail',
+        (c: any) => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL,
       );
       expect(hardFailCalls).toHaveLength(0);
     });

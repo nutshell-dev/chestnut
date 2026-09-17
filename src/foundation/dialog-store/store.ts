@@ -22,7 +22,9 @@ import type {
   LoadResult,
   StableLoadResult,
   DialogSaveSnapshot,
+  DialogSaveResult,
   DialogSessionLifecycle,
+  BlockIdAssignment,
 } from './types.js';
 import type { DialogStoreAuditSink } from './audit-sink.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
@@ -30,7 +32,7 @@ import { newShortUuid, newUuid, uuidToShort } from '../node-utils/index.js';
 import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
 import { BlockIdIndex } from './block-id-index.js';
 
-import { detectAndMigrateVersion, validateSessionData } from './validate.js';
+import { normalizeSessionData, parseSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR, TURN_TRANSACTION_FILE } from './dirs.js';
 import { repairMessages } from './repair.js';
 import { assertDialogShapeInvariants } from './invariants.js';
@@ -106,7 +108,7 @@ export class DialogStore implements DialogSessionLifecycle {
 
   constructor(
     private readonly fs: FileSystem,
-    dialogDir: string,
+    public readonly dialogDir: string,
     private readonly audit: DialogStoreAuditSink,
     filename: string,                                 // phase 450: 必填 / caller 注入
     private readonly clawId?: string,                 // phase 450: 可选 / subagent ephemeral 用例 0 clawId
@@ -154,13 +156,16 @@ export class DialogStore implements DialogSessionLifecycle {
     try {
       const content = await this.fs.read(this.currentPath);
       try {
-        const parsed = JSON.parse(content) as Partial<SessionData>;
-        const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, this.audit);
-        if (detected === null) {
-          this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
-          throw new DialogStoreError('session version unknown');
+        const parsed: unknown = JSON.parse(content);
+        const outcome = parseSessionData(parsed, CURRENT_DIALOG_FILE, this.audit, this.clawId);
+        if (outcome.kind === 'rejected') {
+          if (outcome.reason === 'future_version') {
+            this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
+            throw new DialogStoreError('session version unknown');
+          }
+          throw new DialogStoreError('session data has invalid shape');
         }
-        const data = this.validateSession(detected);
+        const data = outcome.session;
         // Cache createdAt for subsequent saves
         this.createdAt = data.createdAt;
         this.prevMessagesLength = data.messages.length;
@@ -399,7 +404,7 @@ export class DialogStore implements DialogSessionLifecycle {
    * Phase 1218 Step C: DialogStore no longer serializes concurrent saves. The
    * single writer authority (Runtime / SubAgent) is responsible for ordering.
    */
-  async save(snapshot: DialogSaveSnapshot): Promise<void> {
+  async save(snapshot: DialogSaveSnapshot): Promise<DialogSaveResult> {
     await this.ensureTurnTransactionRecovered();
     // phase 227: schema invariant check（违例 emit audit、不 throw、不阻 save）
     assertDialogShapeInvariants(snapshot.messages, this.audit);
@@ -418,18 +423,23 @@ export class DialogStore implements DialogSessionLifecycle {
 
     const now = new Date().toISOString();
 
-    // 给未分配 blockId 的块分配 ID
-    for (const msg of snapshot.messages) {
-      if (typeof msg.content === 'string') continue;
-      for (const block of msg.content) {
-        if (block.blockId !== undefined) continue;
+    // phase 1850 Step C: 在 owner 内 JSON 深拷贝上分配 blockId——caller 持有对象全程不变；
+    // 已分配 ID 经 DialogSaveResult.assignedBlockIds 显式回传，caller 用
+    // applyBlockIdAssignments 写回自己的数组（幂等：已带 ID 不重分配）
+    const clonedMessages = JSON.parse(JSON.stringify(snapshot.messages)) as Message[];
+    const assignedBlockIds: BlockIdAssignment[] = [];
+    clonedMessages.forEach((msg, messageIndex) => {
+      if (typeof msg.content === 'string') return;
+      msg.content.forEach((block, blockIndex) => {
+        if (block.blockId !== undefined) return;
         const fullId = newUuid();
         (block as Record<string, unknown>).blockId = fullId;
         const shortId = uuidToShort(fullId);
         // 碰撞检测：add 内部抛错
         this.blockIdIndex.add(shortId, fullId);
-      }
-    }
+        assignedBlockIds.push({ messageIndex, blockIndex, blockId: fullId, shortId });
+      });
+    });
 
     // Use cached createdAt if available, otherwise use now
     if (!this.createdAt) {
@@ -442,7 +452,7 @@ export class DialogStore implements DialogSessionLifecycle {
       createdAt: this.createdAt,
       updatedAt: now,
       systemPrompt: snapshot.systemPrompt,
-      messages: snapshot.messages,
+      messages: clonedMessages,
       toolsForLLM: snapshot.toolsForLLM,
       ...(snapshot.trace_id && { trace_id: snapshot.trace_id }),
     };
@@ -452,16 +462,28 @@ export class DialogStore implements DialogSessionLifecycle {
       // phase 988 (audit-2026-05-17 NEW.P1 G.1): reset corruptedPoisoned 防 sticky data loss
       // save 写新 current.json → current.json 实然不再 corrupted、应然 align
       this.corruptedPoisoned = false;
-      // Phase 1186: persist block-id index after successful dialog write
-      this.blockIdIndex.save();
     } catch (err) {
       this.audit.write(
         DIALOG_AUDIT_EVENTS.SAVE_FAILED,
         `path=${this.currentPath}`,
         `reason=${formatErr(err)}`,
       );
-      throw err;
+      throw err;                                     // 主快照失败：无部分提交
     }
+    // Phase 1186: persist block-id index after successful dialog write
+    // phase 1850 Step B: index 是取证加速结构、不阻主快照提交——失败独立 audit + 结构化交付，
+    // dirty 保持 true、下次 save 自动重试；本进程内 index 内存映射保留（resolve() 可用）
+    try {
+      this.blockIdIndex.save();                      // dirty=false 时早退
+    } catch (err) {
+      this.audit.write(
+        DIALOG_AUDIT_EVENTS.BLOCK_ID_INDEX_SAVE_FAILED,
+        `path=${this.blockIdIndex.indexPath}`,
+        `reason=${formatErr(err)}`,
+      );
+      return { blockIndexPersisted: false, assignedBlockIds };  // 主快照已提交，事实不丢、不伪报失败
+    }
+    return { blockIndexPersisted: true, assignedBlockIds };
   }
 
   /**
@@ -686,7 +708,7 @@ export class DialogStore implements DialogSessionLifecycle {
 
   /**
    * 读取指定 archive 文件，返完整 SessionData。
-   * 内部自动做 detectAndMigrateVersion + validateSession。
+   * 内部自动做 parseSessionData（shape 判定 + 版本裁决 + 迁移 + 归一）。
    * @throws 文件不存在时底层 fs 抛 ENOENT/FS_NOT_FOUND
    * @throws 文件格式损坏时抛 CorruptionError（含 corrupted 隔离 + audit）
    * @throws 读取 I/O 错误时抛 DialogIOError
@@ -711,13 +733,16 @@ export class DialogStore implements DialogSessionLifecycle {
     }
 
     try {
-      const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = detectAndMigrateVersion(parsed, filename, this.audit);
-      if (detected === null) {
-        this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `reason=version_unknown`);
-        throw new CorruptionError(`session version unknown in archive ${filename}`, null);
+      const parsed: unknown = JSON.parse(content);
+      const outcome = parseSessionData(parsed, filename, this.audit, this.clawId);
+      if (outcome.kind === 'rejected') {
+        if (outcome.reason === 'future_version') {
+          this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `reason=version_unknown`);
+          throw new CorruptionError(`session version unknown in archive ${filename}`, null);
+        }
+        throw new CorruptionError(`invalid session shape in archive ${filename}`, null);
       }
-      return this.validateSession(detected);
+      return outcome.session;
     } catch (err) {
       if (isFileNotFound(err)) {
         throw err; // should not happen since read() succeeded, but keep defensive
@@ -793,14 +818,16 @@ export class DialogStore implements DialogSessionLifecycle {
       }
 
       try {
-        const parsed = JSON.parse(content) as Partial<SessionData>;
-        const detected = detectAndMigrateVersion(parsed, entry.name, this.audit);
-        if (detected === null) {
-          this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED, `file=${entry.name}`, `reason=version_unknown`);
-          continue;
+        const parsed: unknown = JSON.parse(content);
+        const outcome = parseSessionData(parsed, entry.name, this.audit, this.clawId);
+        if (outcome.kind === 'rejected') {
+          if (outcome.reason === 'future_version') {
+            this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED, `file=${entry.name}`, `reason=version_unknown`);
+            continue;
+          }
+          throw new DialogStoreError('session data has invalid shape');
         }
-        const session = this.validateSession(detected);
-        return { session, name: entry.name };
+        return { session: outcome.session, name: entry.name };
       } catch (err) {
         // Data corruption in this archive: isolate and try the next older archive.
         try {
@@ -874,11 +901,12 @@ export class DialogStore implements DialogSessionLifecycle {
 
   /**
    * Validate and normalize session data
-   * phase 1400: 委托 validateSessionData / 消 DRY 违反 / clawId fallback 来源传 this.clawId
-   * phase 46 Step B: validateSessionData 迁至 validate.ts
+   * phase 1400: 委托共享归一 / 消 DRY 违反 / clawId fallback 来源传 this.clawId
+   * phase 46 Step B: 归一实现迁至 validate.ts
+   * phase 1850 Step F: 委托 validate.ts 内部共享归一 normalizeSessionData
    */
   private validateSession(data: SessionData): SessionData {
-    return validateSessionData(data, this.audit, this.clawId);
+    return normalizeSessionData(data, this.audit, this.clawId);
   }
 }
 
@@ -893,5 +921,3 @@ export function createDialogStore(
   return new DialogStore(fs, dialogDir, audit, filename, clawId, archiveDir);
 }
 
-// phase 46 Step B: re-export 保直接从 store.js import 的 caller 0 改（barrel 透明）
-export { migrateAndValidateSession, validateSessionData } from './validate.js';

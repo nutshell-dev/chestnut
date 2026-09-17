@@ -96,7 +96,8 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
   it('onStepComplete saves dialog before persisting read-state', async () => {
     const runtime = await makeRuntime();
     const sessionManager = (runtime as any).sessionManager;
-    const saveSpy = vi.spyOn(sessionManager, 'save').mockResolvedValue(undefined);
+    const saveSpy = vi.spyOn(sessionManager, 'save')
+      .mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] });
     const persistSpy = vi.spyOn(persistModule, 'persistReadFileState').mockResolvedValue(undefined);
 
     let capturedOnStepComplete: ((stepCount: number) => Promise<void>) | undefined;
@@ -133,6 +134,7 @@ describe('Runtime read-state step boundary (Phase 1229 Step A)', () => {
         // onStepComplete's dialog save: block until the test releases it.
         await saveDeferred;
       }
+      return { blockIndexPersisted: true, assignedBlockIds: [] };
     });
 
     let capturedOnStepComplete: ((stepCount: number) => Promise<void>) | undefined;
