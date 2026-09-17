@@ -26,6 +26,7 @@ import { SUBAGENT_EVENTS } from './stream-events.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
+import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import { createTimeoutController } from './timeout-controller.js';
@@ -300,11 +301,14 @@ export class SubAgent {
             }
             // 每步后持久化 messages — 崩溃可恢复、执行中可观察
             try {
-              await this.messageStore.save({
-                systemPrompt,
-                messages,
-                toolsForLLM: tools,
-              });
+              const saved = await this.messageStore
+                .save({
+                  systemPrompt,
+                  messages,
+                  toolsForLLM: tools,
+                });
+              // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+              applyBlockIdAssignments(messages, saved.assignedBlockIds);
             } catch (err) {
               this.auditWriter.write(
                 SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
@@ -380,11 +384,15 @@ export class SubAgent {
       }
       // 持久化 messages — finally 保证超时/中断/正常结束都落盘（best-effort）
       try {
-        await this.messageStore.save({
-          systemPrompt: this.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT,
-          messages: this.messages ?? [],
-          toolsForLLM: this.toolsForLLM ?? [],
-        });
+        const finalMessages = this.messages ?? [];
+        const saved = await this.messageStore
+          .save({
+            systemPrompt: this.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+            messages: finalMessages,
+            toolsForLLM: this.toolsForLLM ?? [],
+          });
+        // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+        applyBlockIdAssignments(finalMessages, saved.assignedBlockIds);
       } catch (e) {
         this.auditWriter.write(
           SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,

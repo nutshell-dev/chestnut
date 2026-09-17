@@ -18,6 +18,7 @@ import type { InboxMessageRenderingResolver } from '../../foundation/messaging/i
 import { renderStandardInboxMessage } from '../../foundation/messaging/index.js';
 
 import {
+  applyBlockIdAssignments,
   performRegimeSwitch,
   repairDialogMessages,
   type DialogSessionLifecycle,
@@ -334,11 +335,13 @@ export class Runtime {
         const repairTools = this.toolRegistry.formatForLLM(
           this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
         );
-        await this.sessionManager.save({
+        const saved = await this.sessionManager.save({
           systemPrompt: session.systemPrompt,
           messages: repaired,
           toolsForLLM: repairTools,
         });
+        // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+        applyBlockIdAssignments(repaired, saved.assignedBlockIds);
       } catch (e) {
         auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.SESSION_REPAIR_FAILED, e);
         throw e;
@@ -878,7 +881,9 @@ export class Runtime {
           }
         },
         onStepComplete: async (stepCount) => {
-          await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
+          const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
+          // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+          applyBlockIdAssignments(messages, saved.assignedBlockIds);
           // Phase 1229 Step A: after the complete step's dialog snapshot is saved, commit the
           // aggregated read-state once. FileTool owns the entry/schema and persistence primitive;
           // Runtime owns the boundary timing. Order is fixed: dialog → read-state.
@@ -922,7 +927,9 @@ export class Runtime {
 
         streamCallbacks: callbacks,
       });
-      await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
+      const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
+      // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+      applyBlockIdAssignments(messages, saved.assignedBlockIds);
 
       // phase 521: turn 末 regime change 检测（per L5.G3 (a) 自动检测）
       await this._checkRegimeSwitch(resolvedSystemPrompt, identityContent);
@@ -1031,12 +1038,14 @@ export class Runtime {
 
       try {
         await this.sessionManager.beginTurn();
-        await this.sessionManager.save({
+        const saved = await this.sessionManager.save({
           systemPrompt,
           messages,
           toolsForLLM,
           trace_id: this.currentTraceId,
         });
+        // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
+        applyBlockIdAssignments(messages, saved.assignedBlockIds);
 
         // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
         this.llm.resetLastSuccessProvider?.();

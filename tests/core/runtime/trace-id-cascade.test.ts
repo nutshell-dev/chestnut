@@ -164,7 +164,8 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
 
   it('session save receives trace_id in snapshot', async () => {
     const runtime = await makeTraceRuntime();
-    const saveSpy = vi.spyOn((runtime as any).sessionManager, 'save').mockResolvedValue(undefined);
+    const saveSpy = vi.spyOn((runtime as any).sessionManager, 'save')
+      .mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] });
     const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
 
     runtime.drainResult = {

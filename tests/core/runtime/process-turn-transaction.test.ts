@@ -35,7 +35,7 @@ class TransactionTestRuntime extends Runtime {
 function createMockSessionManager() {
   return {
     beginTurn: vi.fn().mockResolvedValue(undefined),
-    save: vi.fn().mockResolvedValue(undefined),
+    save: vi.fn().mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] }),
     commitTurn: vi.fn().mockResolvedValue(undefined),
     rollbackTurn: vi.fn().mockResolvedValue(undefined),
     load: vi.fn().mockResolvedValue({ source: 'current', session: { messages: [], systemPrompt: 'sp' } }),

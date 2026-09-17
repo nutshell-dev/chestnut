@@ -24,6 +24,7 @@ import type {
   DialogSaveSnapshot,
   DialogSaveResult,
   DialogSessionLifecycle,
+  BlockIdAssignment,
 } from './types.js';
 import type { DialogStoreAuditSink } from './audit-sink.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
@@ -419,18 +420,23 @@ export class DialogStore implements DialogSessionLifecycle {
 
     const now = new Date().toISOString();
 
-    // 给未分配 blockId 的块分配 ID
-    for (const msg of snapshot.messages) {
-      if (typeof msg.content === 'string') continue;
-      for (const block of msg.content) {
-        if (block.blockId !== undefined) continue;
+    // phase 1850 Step C: 在 owner 内 JSON 深拷贝上分配 blockId——caller 持有对象全程不变；
+    // 已分配 ID 经 DialogSaveResult.assignedBlockIds 显式回传，caller 用
+    // applyBlockIdAssignments 写回自己的数组（幂等：已带 ID 不重分配）
+    const clonedMessages = JSON.parse(JSON.stringify(snapshot.messages)) as Message[];
+    const assignedBlockIds: BlockIdAssignment[] = [];
+    clonedMessages.forEach((msg, messageIndex) => {
+      if (typeof msg.content === 'string') return;
+      msg.content.forEach((block, blockIndex) => {
+        if (block.blockId !== undefined) return;
         const fullId = newUuid();
         (block as Record<string, unknown>).blockId = fullId;
         const shortId = uuidToShort(fullId);
         // 碰撞检测：add 内部抛错
         this.blockIdIndex.add(shortId, fullId);
-      }
-    }
+        assignedBlockIds.push({ messageIndex, blockIndex, blockId: fullId, shortId });
+      });
+    });
 
     // Use cached createdAt if available, otherwise use now
     if (!this.createdAt) {
@@ -443,7 +449,7 @@ export class DialogStore implements DialogSessionLifecycle {
       createdAt: this.createdAt,
       updatedAt: now,
       systemPrompt: snapshot.systemPrompt,
-      messages: snapshot.messages,
+      messages: clonedMessages,
       toolsForLLM: snapshot.toolsForLLM,
       ...(snapshot.trace_id && { trace_id: snapshot.trace_id }),
     };
@@ -472,9 +478,9 @@ export class DialogStore implements DialogSessionLifecycle {
         `path=${this.blockIdIndex.indexPath}`,
         `reason=${formatErr(err)}`,
       );
-      return { blockIndexPersisted: false };         // 主快照已提交，事实不丢、不伪报失败
+      return { blockIndexPersisted: false, assignedBlockIds };  // 主快照已提交，事实不丢、不伪报失败
     }
-    return { blockIndexPersisted: true };
+    return { blockIndexPersisted: true, assignedBlockIds };
   }
 
   /**

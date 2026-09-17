@@ -15,7 +15,7 @@ function makeDialogStore(overrides?: {
 }): DialogStore {
   return {
     archive: vi.fn(overrides?.archive ?? (async () => {})),
-    save: vi.fn(overrides?.save ?? (async () => {})),
+    save: vi.fn(overrides?.save ?? (async () => ({ blockIndexPersisted: true, assignedBlockIds: [] }))),
   } as unknown as DialogStore;
 }
 

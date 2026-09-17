@@ -90,7 +90,7 @@ describe('performRegimeSwitch dialog repair', () => {
           toolsForLLM: [],
         },
       }),
-      save: vi.fn().mockResolvedValue({ blockIndexPersisted: true }),
+      save: vi.fn().mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] }),
       beginTurn: vi.fn(),
       commitTurn: vi.fn(),
       rollbackTurn: vi.fn(),
@@ -98,7 +98,7 @@ describe('performRegimeSwitch dialog repair', () => {
     } satisfies DialogSessionLifecycle;
     const newStore = {
       ...currentStore,
-      save: vi.fn().mockResolvedValue({ blockIndexPersisted: true }),
+      save: vi.fn().mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] }),
     } satisfies DialogSessionLifecycle;
 
     await performRegimeSwitch({

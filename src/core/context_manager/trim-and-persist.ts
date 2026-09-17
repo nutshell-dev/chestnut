@@ -5,6 +5,7 @@
 
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message, DialogSaveResult } from '../../foundation/dialog-store/index.js';
+import { applyBlockIdAssignments } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
 import {
   estimateTextTokens,
@@ -22,7 +23,8 @@ export type TriggerKind = 'reactive_overflow' | 'proactive_cache_idle';
  */
 export interface DialogStoreMutationCapability {
   archive(): Promise<void>;
-  // phase 1850 Step B: save 双文件提交协议——返回结构化 DialogSaveResult（helper 不消费返回值、语义兼容）
+  // phase 1850 Step B: save 双文件提交协议——返回结构化 DialogSaveResult
+  // phase 1850 Step C: helper 消费 assignedBlockIds 显式写回 outcome.newMessages（save 不再隐式写 caller 数组）
   save(snapshot: {
     systemPrompt: string;
     messages: Message[];
@@ -92,11 +94,13 @@ export async function trimAndPersist(
     `trigger_kind=${inputs.triggerKind}`,
   );
 
-  await inputs.dialogStore.save({
+  const saved = await inputs.dialogStore.save({
     systemPrompt: inputs.systemPrompt,
     messages: outcome.newMessages,
     toolsForLLM: inputs.toolsForLLM,
   });
+  // phase 1850 Step C: 显式回传 blockId 到 outcome.newMessages（该数组被上层继续持有）
+  applyBlockIdAssignments(outcome.newMessages, saved.assignedBlockIds);
 
   return { ...outcome, archived: true };
 }

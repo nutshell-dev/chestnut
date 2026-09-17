@@ -19,7 +19,10 @@ export type {
   DialogSaveSnapshot,
   DialogSaveResult,
   DialogSessionLifecycle,
+  BlockIdAssignment,
 } from './types.js';
+// phase 1850 Step C: save clone 分配的 blockId 显式回传写回原语
+export { applyBlockIdAssignments } from './apply-block-ids.js';
 export { repairMessages as repairDialogMessages } from './repair.js';
 // phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module
 export { performRegimeSwitch } from './regime-switch.js';
