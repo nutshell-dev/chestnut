@@ -135,6 +135,9 @@ function emit(result: LookupResult, toolUseId: string, json: boolean): void {
         case 'io_error':
           process.stderr.write(`  - dialog I/O error while reading current/archive (detail=${result.detail.join('; ')})\n`);
           break;
+        case 'corrupted':
+          process.stderr.write(`  - dialog session 文件腐化（JSON parse 失败）(detail=${result.detail.join('; ')})\n`);
+          break;
         default:
           { const _exhaustiveReason: never = result; void _exhaustiveReason; }
       }
@@ -164,7 +167,10 @@ function emitBlockId(result: BlockIdLookupResult, shortBlockId: string, json: bo
       break;
     }
     case 'unavailable': {
-      process.stderr.write(`Block ID not found: ${shortBlockId} reason=${result.reason}${result.detail ? ` detail=${result.detail}` : ''}\n`);
+      const detail = result.detail === undefined
+        ? ''
+        : Array.isArray(result.detail) ? result.detail.join('; ') : result.detail;
+      process.stderr.write(`Block ID not found: ${shortBlockId} reason=${result.reason}${detail ? ` detail=${detail}` : ''}\n`);
       break;
     }
     default:

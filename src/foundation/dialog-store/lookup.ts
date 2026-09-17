@@ -17,12 +17,13 @@ import { formatErr } from '../node-utils/index.js';
 import { BlockIdIndex } from './block-id-index.js';
 import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR } from './dirs.js';
 
-/** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error). */
+/** Lookup result discriminated union (phase 147 / 4 级降级路径 + phase 985 io_error + phase 1850 corrupted). */
 export type LookupResult =
   | { source: 'current'; content: string }
   | { source: 'archive'; content: string; archivedAt: string; degradationNotes?: [string, ...string[]] }
   | { source: 'archive'; content: string; archivedAt: string; hashVerified: true; degradationNotes?: [string, ...string[]] }
   | { source: 'unavailable'; reason: 'io_error'; detail: [string, ...string[]] }
+  | { source: 'unavailable'; reason: 'corrupted'; detail: [string, ...string[]] }
   | { source: 'unavailable'; reason: 'not_in_current' | 'not_in_archive' | 'hash_mismatch' | 'all_failed' };
 
 export interface LookupOptions {
@@ -136,15 +137,25 @@ export function lookupContentByToolUseId(
     }
     return { source: 'unavailable', reason: 'io_error', detail: assertNonEmpty(details) };
   }
+  // phase 1850 Step G: corruption (JSON parse 失败) 优先于 generic not_found 桶，
+  // detail 列全部失败文件名（current parse_failed 或 archive parse 失败 ≥1）.
+  const corruptedFiles: string[] = [];
+  if (currentResult !== undefined && !currentResult.found && currentResult.reason === 'parse_failed') {
+    corruptedFiles.push(filename);
+  }
+  if (!archiveResult.found) {
+    corruptedFiles.push(...archiveResult.corruptedFiles);
+  }
+  if (corruptedFiles.length > 0) {
+    return { source: 'unavailable', reason: 'corrupted', detail: assertNonEmpty(corruptedFiles) };
+  }
   // phase 918: archive 目录读失败单独报告 not_in_archive
   if (archiveResult.inaccessible) {
     return { source: 'unavailable', reason: 'not_in_archive' };
   }
-  // phase 919: current 不可访问（不存在或解析失败）→ not_in_current；current 已解析但未命中 → all_failed
-  if (
-    !currentAccessible ||
-    (currentResult !== undefined && !currentResult.found && currentResult.reason === 'parse_failed')
-  ) {
+  // phase 919: current 不可访问（不存在）→ not_in_current；current 已解析但未命中 → all_failed
+  // (parse 失败已归入上方 corrupted)
+  if (!currentAccessible) {
     return { source: 'unavailable', reason: 'not_in_current' };
   }
   return { source: 'unavailable', reason: 'all_failed' };
@@ -192,16 +203,22 @@ function lookupInCurrent(
     const content = findContentInMessages(session.messages ?? [], toolUseId);
     return content !== null ? { found: true, content } : { found: false, reason: 'not_found' };
   } catch (err) {
-    process.stderr.write(`[dialog-lookup] ${filename} parse failed: ${err}\n`); // silent: fallback log, non-critical
+    // phase 1850 Step G: owner 事件为唯一结构化通道（stderr 通道移除）
+    audit?.write?.(
+      DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+      `file=${filename}`,
+      `toolUseId=${toolUseId}`,
+      `reason=${formatErr(err)}`,
+    );
     return { found: false, reason: 'parse_failed' };
   }
 }
 
 type ArchiveLookupResult =
   | { found: true; content: string; archivedAt: string; inaccessible: false }
-  | { found: false; inaccessible: false; ioError: false }
-  | { found: false; inaccessible: true; ioError: false }
-  | { found: false; inaccessible: true; ioError: true; ioErrorDetail: string };
+  | { found: false; inaccessible: false; ioError: false; corruptedFiles: string[] }
+  | { found: false; inaccessible: true; ioError: false; corruptedFiles: string[] }
+  | { found: false; inaccessible: true; ioError: true; ioErrorDetail: string; corruptedFiles: string[] };
 
 function lookupInArchive(
   fs: FileSystem,
@@ -220,9 +237,9 @@ function lookupInArchive(
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
-    return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err) };
+    return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err), corruptedFiles: [] };
   }
-  if (!archiveExists) return { found: false, inaccessible: false, ioError: false };
+  if (!archiveExists) return { found: false, inaccessible: false, ioError: false, corruptedFiles: [] };
 
   let entries;
   try {
@@ -230,7 +247,7 @@ function lookupInArchive(
   } catch (err) {
     if (isFileNotFound(err)) {
       process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`); // silent: fallback log, non-critical
-      return { found: false, inaccessible: true, ioError: false };
+      return { found: false, inaccessible: true, ioError: false, corruptedFiles: [] };
     }
     // Phase 990: any non-ENOENT list fault is an I/O error.
     audit?.write?.(
@@ -239,7 +256,7 @@ function lookupInArchive(
       `toolUseId=${toolUseId}`,
       `reason=${formatErr(err)}`,
     );
-    return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err) };
+    return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err), corruptedFiles: [] };
   }
 
   // archive entries 形态：`<timestamp>_<uuid>.json` 文件（store.ts archive() 生成）
@@ -252,6 +269,7 @@ function lookupInArchive(
       return tb - ta;
     });
 
+  const corruptedFiles: string[] = [];
   for (const entry of sorted) {
     const sessionPath = `${archiveDir}/${entry.name}`;
 
@@ -270,7 +288,7 @@ function lookupInArchive(
         `toolUseId=${toolUseId}`,
         `reason=${formatErr(err)}`,
       );
-      return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err) };
+      return { found: false, inaccessible: true, ioError: true, ioErrorDetail: formatErr(err), corruptedFiles };
     }
 
     try {
@@ -283,12 +301,19 @@ function lookupInArchive(
         return { found: true, content, archivedAt, inaccessible: false };
       }
     } catch (err) {
-      process.stderr.write(`[dialog-lookup] archive ${entry.name} parse failed: ${err}\n`);
+      // phase 1850 Step G: owner 事件为唯一结构化通道（stderr 通道移除）
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+        `file=${entry.name}`,
+        `toolUseId=${toolUseId}`,
+        `reason=${formatErr(err)}`,
+      );
+      corruptedFiles.push(entry.name);
       continue;
     }
   }
 
-  return { found: false, inaccessible: false, ioError: false };
+  return { found: false, inaccessible: false, ioError: false, corruptedFiles };
 }
 
 function parseArchiveTs(name: string): number {
@@ -336,6 +361,7 @@ function computeSha8(content: string): string {
 
 export type BlockIdLookupResult =
   | { source: 'archive'; content: string; blockType: string; toolUseId?: string; archivedAt: string; blockId: string }
+  | { source: 'unavailable'; reason: 'corrupted'; detail: [string, ...string[]] }
   | { source: 'unavailable'; reason: 'not_found' | 'io_error'; detail?: string };
 
 export function lookupContentByBlockId(
@@ -391,14 +417,18 @@ export function lookupContentByBlockId(
   if (archiveResult.ioError) {
     return { source: 'unavailable', reason: 'io_error', detail: archiveResult.ioErrorDetail };
   }
+  // phase 1850 Step G: archive parse 失败 ≥1 → corrupted（detail 列全部失败文件名）
+  if (archiveResult.corruptedFiles.length > 0) {
+    return { source: 'unavailable', reason: 'corrupted', detail: assertNonEmpty(archiveResult.corruptedFiles) };
+  }
 
   return { source: 'unavailable', reason: 'not_found' };
 }
 
 type BlockIdArchiveLookupResult =
   | { found: true; content: string; blockType: string; toolUseId?: string; blockId: string; archivedAt: string; ioError: false }
-  | { found: false; ioError: false }
-  | { found: false; ioError: true; ioErrorDetail: string };
+  | { found: false; ioError: false; corruptedFiles: string[] }
+  | { found: false; ioError: true; ioErrorDetail: string; corruptedFiles: string[] };
 
 function lookupBlockIdInArchive(
   fs: FileSystem,
@@ -417,9 +447,9 @@ function lookupBlockIdInArchive(
       `blockId=${fullBlockId}`,
       `reason=${formatErr(err)}`,
     );
-    return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
+    return { found: false, ioError: true, ioErrorDetail: formatErr(err), corruptedFiles: [] };
   }
-  if (!archiveExists) return { found: false, ioError: false };
+  if (!archiveExists) return { found: false, ioError: false, corruptedFiles: [] };
 
   let entries;
   try {
@@ -427,7 +457,7 @@ function lookupBlockIdInArchive(
   } catch (err) {
     if (isFileNotFound(err)) {
       process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`);
-      return { found: false, ioError: false };
+      return { found: false, ioError: false, corruptedFiles: [] };
     }
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.LOOKUP_IO_ERROR,
@@ -435,7 +465,7 @@ function lookupBlockIdInArchive(
       `blockId=${fullBlockId}`,
       `reason=${formatErr(err)}`,
     );
-    return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
+    return { found: false, ioError: true, ioErrorDetail: formatErr(err), corruptedFiles: [] };
   }
 
   const sorted = entries
@@ -446,6 +476,7 @@ function lookupBlockIdInArchive(
       return tb - ta;
     });
 
+  const corruptedFiles: string[] = [];
   for (const entry of sorted) {
     const sessionPath = `${archiveDir}/${entry.name}`;
 
@@ -463,7 +494,7 @@ function lookupBlockIdInArchive(
         `blockId=${fullBlockId}`,
         `reason=${formatErr(err)}`,
       );
-      return { found: false, ioError: true, ioErrorDetail: formatErr(err) };
+      return { found: false, ioError: true, ioErrorDetail: formatErr(err), corruptedFiles };
     }
 
     try {
@@ -475,12 +506,19 @@ function lookupBlockIdInArchive(
         return { found: true, ...result, archivedAt, ioError: false };
       }
     } catch (err) {
-      process.stderr.write(`[dialog-lookup] archive ${entry.name} parse failed: ${err}\n`);
+      // phase 1850 Step G: owner 事件为唯一结构化通道（stderr 通道移除）
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.LOOKUP_CORRUPTION,
+        `file=${entry.name}`,
+        `blockId=${fullBlockId}`,
+        `reason=${formatErr(err)}`,
+      );
+      corruptedFiles.push(entry.name);
       continue;
     }
   }
 
-  return { found: false, ioError: false };
+  return { found: false, ioError: false, corruptedFiles };
 }
 
 function findBlockByFullId(

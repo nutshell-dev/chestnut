@@ -16,6 +16,7 @@ export const DIALOG_AUDIT_EVENTS = {
   ARCHIVE_PARSE_FAILED: 'session_archive_parse_failed',
   ARCHIVE_DIR_FAILED: 'session_archive_dir_failed',
   LOOKUP_IO_ERROR: 'dialog_lookup_io_error',
+  LOOKUP_CORRUPTION: 'dialog_lookup_corruption', // ← NEW phase 1850 Step G (lookup 腐化 owner 事件)
   ARCHIVE_ALREADY_ARCHIVED: 'dialog_archive_already_archived',
   VERSION_UNKNOWN: 'dialog_session_version_unknown',  // ← NEW phase 1019 r124 E fork
   VERSION_MIGRATE: 'dialog_session_version_migrate',  // ← NEW phase 1019 r124 E fork (v1→v2 observability)

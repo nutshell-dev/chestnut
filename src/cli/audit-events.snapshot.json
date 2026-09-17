@@ -717,6 +717,7 @@
       "dialog_cold_start",
       "dialog_invariant_failed",
       "dialog_invariant_violated",
+      "dialog_lookup_corruption",
       "dialog_lookup_io_error",
       "dialog_session_version_migrate",
       "dialog_session_version_unknown",
