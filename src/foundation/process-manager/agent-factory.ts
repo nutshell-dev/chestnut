@@ -9,7 +9,7 @@
  */
 
 import { ProcessManager } from './manager.js';
-import type { AuditLog } from '../audit/index.js';
+import type { ProcessManagerAuditSink } from './audit-sink.js';
 import type { FileSystem } from '../fs/index.js';
 
 export function createAgentProcessManager(
@@ -17,7 +17,7 @@ export function createAgentProcessManager(
     fsFactory: (baseDir: string) => FileSystem;
     baseDir: string;
   },
-  audit: AuditLog,
+  audit: ProcessManagerAuditSink,
 ): ProcessManager {
   const baseDir = deps.baseDir;
   const fs = deps.fsFactory(baseDir);

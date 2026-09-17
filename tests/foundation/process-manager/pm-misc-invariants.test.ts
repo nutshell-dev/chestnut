@@ -10,10 +10,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
 import { signalCleanStop } from '../../../src/foundation/process-manager/signal-clean-stop.js';
-import { makeDaemonDir } from '../../../src/foundation/process-manager/index.js';
+import { makeDaemonDir, ProcessGenerationStateError, ProcessSpawnConflictError } from '../../../src/foundation/process-manager/index.js';
 import { liveness } from '../../../src/foundation/process-manager/alive.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { ProcessGenerationStateError, ProcessSpawnConflictError, makeDaemonDir as makeDaemonDirFromTypes, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
+import { makeDaemonDir as makeDaemonDirFromTypes, type ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDirSync, cleanupTempDirSync } from '../../utils/temp.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 

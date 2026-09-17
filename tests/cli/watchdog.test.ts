@@ -12,12 +12,12 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 
-// Phase 1235: 从 types.js 直导（无 runtime 依赖链），避免与本文件 vi.mock hoist 环冲突
+// Phase 1235 + phase 1852 Step B: 失败协议已经 barrel 开放，改从 index.js 导入
 import {
   ProcessGenerationStateError,
   ProcessSpawnConflictError,
   makeDaemonDir,
-} from '../../src/foundation/process-manager/types.js';
+} from '../../src/foundation/process-manager/index.js';
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_ALT } from '../helpers/test-pids.js';
 
 // Mock config so getChestnutDir() and getGlobalConfig() return controllable values

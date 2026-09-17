@@ -17,7 +17,7 @@
 
 import type { FileSystem } from '../fs/index.js';
 import type { DaemonDir } from './types.js';
-import type { AuditLog } from '../audit/index.js';
+import type { ProcessManagerAuditSink } from './audit-sink.js';
 import type { ProcessStartTime } from '../process-exec/index.js';
 import { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
 
@@ -48,7 +48,7 @@ export class ProcessManager {
 
   constructor(
     fs: FileSystem,
-    audit: AuditLog,
+    audit: ProcessManagerAuditSink,
     l1IsAlive?: typeof defaultL1IsAlive,
     spawnDetached?: typeof defaultSpawnDetached,
     getProcessStartTime?: typeof defaultGetProcessStartTime,

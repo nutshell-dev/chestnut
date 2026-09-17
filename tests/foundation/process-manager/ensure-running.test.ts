@@ -37,7 +37,7 @@ import {
   ProcessGenerationStateError,
   ProcessSpawnConflictError,
   ProcessWinnerConvergenceError,
-} from '../../../src/foundation/process-manager/types.js';
+} from '../../../src/foundation/process-manager/index.js';
 import type { ProcessManagerContext, SpawnOptions } from '../../../src/foundation/process-manager/types.js';
 import { createTrackedTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
