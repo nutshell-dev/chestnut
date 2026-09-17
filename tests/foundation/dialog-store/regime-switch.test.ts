@@ -130,4 +130,51 @@ describe('performRegimeSwitch dialog repair', () => {
       }],
     });
   });
+
+  // phase 1850 Step D: post-commit cleanup 是 Runtime 的显式后续动作，
+  // performRegimeSwitch 不再持有/调用任何 caller 注入回调（opts 类型层已无该字段）。
+  it('phase 1850 Step D: invokes no caller-injected post-commit callback after commit', async () => {
+    const currentStore = {
+      load: vi.fn().mockResolvedValue({
+        source: 'current',
+        session: {
+          version: 2,
+          systemPrompt: 'old prompt',
+          messages: [{ role: 'user', content: 'msg1' }],
+          toolsForLLM: [],
+        },
+      }),
+      save: vi.fn().mockResolvedValue({ blockIndexPersisted: true, assignedBlockIds: [] }),
+      beginTurn: vi.fn(),
+      commitTurn: vi.fn(),
+      rollbackTurn: vi.fn(),
+      archive: vi.fn().mockResolvedValue(undefined),
+    } satisfies DialogSessionLifecycle;
+    const newStore = { ...currentStore } satisfies DialogSessionLifecycle;
+
+    const strayCallback = vi.fn().mockResolvedValue(undefined);
+    // 历史 caller 若仍携带 onSwitchComplete 字段（类型层已拒、运行时亦不得被调用）
+    const optsWithStrayCallback = {
+      strategy: 'all',
+      newSystemPrompt: 'new prompt',
+      currentStore,
+      dialogStoreFactory: () => newStore,
+      toolsForLLM: [],
+      clawDir: '/unused',
+      systemFs: {} as FileSystem,
+      audit: { write: vi.fn() } as unknown as AuditLog,
+      auditEvents: {
+        REGIME_SWITCH: 'regime_switch',
+        REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
+        REGIME_SWITCH_FAILED: 'regime_switch_failed',
+        REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
+      },
+      onSwitchComplete: strayCallback,
+    } as unknown as Parameters<typeof performRegimeSwitch>[0];
+
+    const result = await performRegimeSwitch(optsWithStrayCallback);
+
+    expect(result.newStore).toBe(newStore);
+    expect(strayCallback).not.toHaveBeenCalled();
+  });
 });

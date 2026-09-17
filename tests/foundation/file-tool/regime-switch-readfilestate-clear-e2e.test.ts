@@ -1,175 +1,191 @@
 /**
- * phase 1452 (F-NEXT.4 治理) + Phase 1229 Step A: performRegimeSwitch + readFileState clear hook 端到端验证。
+ * phase 1452 (F-NEXT.4 治理) + Phase 1229 Step A + phase 1850 Step D:
+ * regime switch post-commit readFileState clear 端到端验证（Runtime 路径语义）。
  *
- * phase 1443 已落:
- *   - PerformRegimeSwitchOpts 新增 onSwitchComplete? callback
- *   - performRegimeSwitch 末尾 await onSwitchComplete?.()
- *   - Runtime._performRegimeSwitch 注入 () => clearReadFileState(this.execContext)
+ * phase 1850 Step D 控制流变更:
+ *   - PerformRegimeSwitchOpts.onSwitchComplete 注入路径移除；
+ *   - Runtime._checkRegimeSwitch 在 `lastIdentityHash = identityContent`（提交判定）
+ *     之后显式 `await clearReadFileState(this.execContext)`；
+ *   - switch 失败路径不执行 cleanup（lastIdentityHash 不更新、下 turn 重试自愈 D7）。
  *
  * Phase 1229 Step A: clear no longer drains a background Promise-chain. Tool mutations only
  * update the in-memory Map; Runtime calls persist once per complete step. Therefore
  * clearReadFileState can directly delete the disk file.
  *
  * 本 phase 验证:
- *   1. 当 performRegimeSwitch 成功提交时、onSwitchComplete 被调用
- *   2. clearReadFileState 真清 in-memory Map + 删 disk file
- *   3. 跨 regime switch 的 gate 决策连续性：清后下次 overwrite 必拒（reason=not-read）
+ *   1. regime switch 提交后 Runtime 执行 cleanup：真清 in-memory Map + 删 disk file
+ *   2. 跨 regime switch 的 gate 决策连续性：清后下次 overwrite 必拒（reason=not-read）
+ *   3. switch 失败（archive throw）时不执行 cleanup：in-memory + disk 不动
  *
- * 实施模式：直接调 performRegimeSwitch（不构造 Runtime 整体）+ 真 NodeFileSystem + 最小 mock DialogStore。
+ * 实施模式：真 TestRuntime（initialize + processTurn 全链路）+ mock LLM +
+ * mock buildSystemPromptForRegime identity 序列触发 switch。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 
-import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { readTool } from '../../../src/foundation/file-tool/index.js';
 import { writeTool } from '../../../src/foundation/file-tool/write.js';
 import {
   persistReadFileState,
-  clearReadFileState,
   READ_STATE_FILE,
 } from '../../../src/foundation/file-tool/file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from '../../../src/foundation/file-tool/audit-events.js';
-import { performRegimeSwitch } from '../../../src/foundation/dialog-store/index.js';
-import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
-import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
+import type { LLMOrchestratorConfig, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/types.js';
+import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
 
+import { TestRuntime } from '../../helpers/test-runtime.js';
+import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
+import { processRuntimeMessage } from '../../helpers/process-runtime-message.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
+import { makeAudit } from '../../helpers/audit.js';
+import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
-interface E2eCtx {
-  ctx: ExecContextImpl;
-  audit: ReturnType<typeof makeAudit>;
+async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<LLMStreamChunk> {
+  for (const block of response.content) {
+    if (block.type === 'text') {
+      yield { type: 'text_delta', delta: (block as { text: string }).text };
+    }
+  }
+  yield { type: 'done' };
 }
 
-async function makeCtx(clawDir: string): Promise<E2eCtx> {
-  const audit = makeAudit();
-  const nfs = new NodeFileSystem({ baseDir: clawDir });
-  const ctx = new ExecContextImpl({
-    clawsDir: '/tmp/test/claws',
-    clawId: 'test-claw',
-    clawDir,
-    workspaceDir: path.join(clawDir, 'clawspace'),
-    syncDir: path.join(clawDir, 'tasks', 'sync'),
-    profile: 'full',
-    fs: nfs,
-    fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-    permissionChecker: createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs: nfs }),
-    auditWriter: audit.audit,
-    persistReadFileState: true,
-    maxSteps: 20,
-  });
-  return { ctx, audit };
-}
-
-function makeMockDialogStore(): DialogStore {
+function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
-    load: vi.fn().mockResolvedValue({
-      session: {
-        version: 2,
-        systemPrompt: 'old prompt',
-        messages: [{ role: 'user', content: 'msg1' }],
-        toolsForLLM: [],
-      },
-      source: 'current',
-    }),
-    save: vi.fn().mockResolvedValue(undefined),
-    archive: vi.fn().mockResolvedValue(undefined),
-    beginTurn: vi.fn().mockResolvedValue(undefined),
-    commitTurn: vi.fn().mockResolvedValue(undefined),
-    rollbackTurn: vi.fn().mockResolvedValue(undefined),
-  } as unknown as DialogStore;
+    primary: {
+      name: 'mock',
+      apiKey: 'test-key',
+      model: 'test-model',
+      maxTokens: 1024,
+      temperature: 0.7,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
+      apiFormat: 'anthropic' as const,
+    },
+    maxAttempts: 1,
+    retryDelayMs: 100,
+  };
 }
 
-const RGS_AUDIT_EVENTS = {
-  REGIME_SWITCH: 'regime_switch',
-  REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
-  REGIME_SWITCH_FAILED: 'regime_switch_failed',
-  REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
-};
+function createMockLLM(responses: LLMResponse[]) {
+  let index = 0;
+  const callMock = vi.fn(async () => {
+    const response = responses[index++] || responses[responses.length - 1];
+    return response;
+  });
+  return {
+    call: callMock,
+    stream: vi.fn((...args: unknown[]) => {
+      const result = callMock(...args);
+      if (result instanceof Promise) {
+        return (async function* () {
+          const response = await result;
+          yield* responseToStreamChunks(response as LLMResponse);
+        })();
+      }
+      return responseToStreamChunks(result as LLMResponse);
+    }),
+    close: vi.fn(),
+    healthCheck: vi.fn().mockResolvedValue(true),
+    getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
+  };
+}
 
-describe('performRegimeSwitch + readFileState clear hook e2e (phase 1452 / F-NEXT.4)', () => {
+function textResponse(text: string): LLMResponse {
+  return { content: [{ type: 'text', text }], stop_reason: 'end_turn' };
+}
+
+describe('regime switch post-commit readFileState clear e2e (phase 1850 Step D / Runtime path)', () => {
+  let tempDir: string;
   let clawDir: string;
+  const runtimesToStop: TestRuntime[] = [];
 
   beforeEach(async () => {
-    clawDir = await createTempDir();
-    await fs.mkdir(path.join(clawDir, 'clawspace'), { recursive: true });
-    await fs.mkdir(path.join(clawDir, 'tasks', 'sync'), { recursive: true });
+    vi.restoreAllMocks();
+    tempDir = await createTempDir();
+    clawDir = path.join(tempDir, 'claws', 'test-claw');
   });
 
   afterEach(async () => {
-    await cleanupTempDir(clawDir);
+    for (const r of runtimesToStop.splice(0)) {
+      await r.stop().catch(() => { /* silent: shutdown */ });
+    }
+    await cleanupTempDir(tempDir);
   });
 
-  it('case 1: onSwitchComplete callback fires after successful regime switch; clears in-memory Map + disk file', async () => {
-    await fs.writeFile(path.join(clawDir, 'clawspace/note.md'), 'before switch');
+  async function makeRuntimeWithState(
+    fileName: string,
+    fileContent: string,
+    opts?: { archiveFails?: boolean },
+  ) {
+    const audit = makeAudit();
+    const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw', auditOverride: audit.audit });
+    const runtime = new TestRuntime({
+      clawId: 'test-claw',
+      clawDir,
+      llmConfig: createMockLLMConfig(),
+      dependencies: deps,
+    });
+    runtimesToStop.push(runtime);
+
+    await runtime.initialize();
+    // isolate switch path from real archive disk move（case 3 覆盖 archive 失败路径）
+    const archiveSpy = vi.spyOn(deps.sessionManager, 'archive');
+    if (opts?.archiveFails) {
+      archiveSpy.mockRejectedValue(new Error('archive disk full'));
+    } else {
+      archiveSpy.mockResolvedValue(undefined);
+    }
+    runtime.testSetLLM(createMockLLM([textResponse('First'), textResponse('Second')]));
 
     // populate ctx state via real read + persist
-    const { ctx } = await makeCtx(clawDir);
-    await readTool.execute({ path: 'note.md' }, ctx);
+    const workspaceFile = path.join(clawDir, 'clawspace', fileName);
+    await fs.mkdir(path.dirname(workspaceFile), { recursive: true });
+    await fs.writeFile(workspaceFile, fileContent);
+    const ctx = runtime.testGetExecContext();
+    await readTool.execute({ path: fileName }, ctx);
     await persistReadFileState(ctx);
 
+    return { runtime, deps, audit, ctx };
+  }
+
+  function mockIdentitySequence(runtime: TestRuntime): void {
+    vi.spyOn(runtime.contextInjector, 'buildSystemPromptForRegime')
+      .mockResolvedValueOnce({ full: 'system-prompt-A', identityContent: 'identity-A' })
+      .mockResolvedValueOnce({ full: 'system-prompt-B', identityContent: 'identity-B' });
+  }
+
+  async function diskStateExists(): Promise<boolean> {
+    return fs.access(path.join(clawDir, READ_STATE_FILE)).then(() => true).catch(() => false);
+  }
+
+  it('case 1: switch 提交后 Runtime 执行 cleanup — 清 in-memory Map + 删 disk file', async () => {
+    const { runtime, audit, ctx } = await makeRuntimeWithState('note.md', 'before switch');
+
     expect(ctx.readFileState.size).toBe(1);
-    const diskBefore = await fs.access(path.join(clawDir, READ_STATE_FILE))
-      .then(() => true)
-      .catch(() => false);
-    expect(diskBefore).toBe(true);
+    expect(await diskStateExists()).toBe(true);
 
-    // run regime switch with the wired onSwitchComplete = clearReadFileState
-    const callbackFired = { value: false };
-    const currentStore = makeMockDialogStore();
-    const newStore = makeMockDialogStore();
+    mockIdentitySequence(runtime);
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
-    await performRegimeSwitch({
-      strategy: 'last-turn',
-      newSystemPrompt: 'new prompt',
-      currentStore,
-      dialogStoreFactory: () => newStore,
-      toolsForLLM: [],
-      clawDir,
-      systemFs: ctx.fs,
-      audit: ctx.auditWriter!,
-      auditEvents: RGS_AUDIT_EVENTS,
-      onSwitchComplete: async () => {
-        callbackFired.value = true;
-        await clearReadFileState(ctx);
-      },
-    });
-
-    expect(callbackFired.value).toBe(true);
+    // 提交判定已落 + post-commit cleanup 已执行
+    expect(runtime.testGetLastIdentityHash()).toBe('identity-B');
+    expect(audit.events.some(e => e[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED)).toBe(true);
     expect(ctx.readFileState.size).toBe(0);
-
-    const diskAfter = await fs.access(path.join(clawDir, READ_STATE_FILE))
-      .then(() => true)
-      .catch(() => false);
-    expect(diskAfter).toBe(false);
+    expect(await diskStateExists()).toBe(false);
   });
 
   it('case 2: after regime switch, next overwrite is rejected (gate state purged, reason=not-read)', async () => {
-    await fs.writeFile(path.join(clawDir, 'clawspace/doc.md'), 'doc v1');
-
-    const { ctx, audit } = await makeCtx(clawDir);
-    await readTool.execute({ path: 'doc.md' }, ctx);
-    await persistReadFileState(ctx);
+    const { runtime, audit, ctx } = await makeRuntimeWithState('doc.md', 'doc v1');
 
     // pre-switch: gate would accept overwrite
     expect(ctx.readFileState.get('clawspace/doc.md')?.isFullRead).toBe(true);
 
-    // regime switch with cleanup hook
-    await performRegimeSwitch({
-      strategy: 'last-turn',
-      newSystemPrompt: 'new',
-      currentStore: makeMockDialogStore(),
-      dialogStoreFactory: () => makeMockDialogStore(),
-      toolsForLLM: [],
-      clawDir,
-      systemFs: ctx.fs,
-      audit: ctx.auditWriter!,
-      auditEvents: RGS_AUDIT_EVENTS,
-      onSwitchComplete: () => clearReadFileState(ctx),
-    });
+    mockIdentitySequence(runtime);
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     // post-switch: gate must reject overwrite (state purged)
     const writeRes = await writeTool.execute({ path: 'doc.md', content: 'post-switch attack' }, ctx);
@@ -185,44 +201,21 @@ describe('performRegimeSwitch + readFileState clear hook e2e (phase 1452 / F-NEX
     expect(onDisk).toBe('doc v1');
   });
 
-  it('case 3: onSwitchComplete callback NOT invoked when regime switch hard-fails (archive throw)', async () => {
-    await fs.writeFile(path.join(clawDir, 'clawspace/keep.md'), 'before fail');
-
-    const { ctx } = await makeCtx(clawDir);
-    await readTool.execute({ path: 'keep.md' }, ctx);
-    await persistReadFileState(ctx);
+  it('case 3: switch 失败（archive throw）时不执行 cleanup — in-memory + disk 不动、hash 不更新', async () => {
+    const { runtime, audit, ctx } = await makeRuntimeWithState('keep.md', 'before fail', { archiveFails: true });
 
     expect(ctx.readFileState.size).toBe(1);
+    expect(await diskStateExists()).toBe(true);
 
-    // archive throw → regime switch fails before reaching onSwitchComplete
-    const failingStore = makeMockDialogStore();
-    (failingStore.archive as any).mockRejectedValueOnce(new Error('archive disk full'));
+    mockIdentitySequence(runtime);
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 1' });
+    await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
-    const callbackFired = { value: false };
-    await expect(
-      performRegimeSwitch({
-        strategy: 'last-turn',
-        newSystemPrompt: 'new',
-        currentStore: failingStore,
-        dialogStoreFactory: () => makeMockDialogStore(),
-        toolsForLLM: [],
-        clawDir,
-        systemFs: ctx.fs,
-        audit: ctx.auditWriter!,
-        auditEvents: RGS_AUDIT_EVENTS,
-        onSwitchComplete: async () => {
-          callbackFired.value = true;
-          await clearReadFileState(ctx);
-        },
-      }),
-    ).rejects.toThrow(/archive disk full/);
-
-    // 失败路径：onSwitchComplete 0 触发、ctx state 不动、disk file 不动
-    expect(callbackFired.value).toBe(false);
+    // 失败路径：auditError REGIME_SWITCH_FAILED、hash 不更新（D7 自愈）、state 不动
+    expect(audit.events.some(e => e[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED)).toBe(true);
+    expect(audit.events.some(e => e[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED)).toBe(false);
+    expect(runtime.testGetLastIdentityHash()).toBe('identity-A');
     expect(ctx.readFileState.size).toBe(1);
-    const diskExists = await fs.access(path.join(clawDir, READ_STATE_FILE))
-      .then(() => true)
-      .catch(() => false);
-    expect(diskExists).toBe(true);
+    expect(await diskStateExists()).toBe(true);
   });
 });

@@ -16,6 +16,7 @@ import { Runtime } from '../../src/core/runtime/runtime.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/registry.js';
+import type { ExecContext } from '../../src/foundation/tools/index.js';
 
 export class TestRuntime extends Runtime {
   /** Override LLM after initialize() — used by regime switch tests with mock LLM. */
@@ -41,6 +42,11 @@ export class TestRuntime extends Runtime {
   /** Get toolRegistry — for tool name inspection in motion tests. */
   testGetToolRegistry(): ToolRegistry {
     return this.toolRegistry;
+  }
+
+  /** Get execContext — for regime switch post-commit cleanup observation (phase 1850 Step D). */
+  testGetExecContext(): ExecContext {
+    return this.execContext;
   }
 
   /** Call buildSystemPrompt() — for motion tests verifying prompt assembly. */

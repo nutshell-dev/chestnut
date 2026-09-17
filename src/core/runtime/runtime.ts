@@ -1383,13 +1383,18 @@ export class Runtime {
   private async _checkRegimeSwitch(newSystemPrompt: string, identityContent: string): Promise<void> {
     if (this.lastIdentityHash !== undefined && this.lastIdentityHash !== identityContent) {
       try {
-        await this._performRegimeSwitch(newSystemPrompt);
-        this.lastIdentityHash = identityContent;
+        await this._performRegimeSwitch(newSystemPrompt);   // 仅 switch 语义
+        this.lastIdentityHash = identityContent;            // 提交判定先落
       } catch (err) {
         // phase 573: 加 trace_id forensic field（_checkRegimeSwitch 由 turn 末调、trace_id 已设）
         auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED, err, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
         // lastIdentityHash 不更新 → 下 turn 重试自愈（D7）
+        return;
       }
+      // post-commit 清理（phase 1443 语义保留）：gate state 随 dialog 上下文清除。
+      // 时序理由：清理失败不得回溯提交判定，否则已提交切换会被重复执行。
+      // 失败由 clearReadFileState 内部审计（READ_FILE_STATE_PERSIST_FAILED op=clear）。
+      await clearReadFileState(this.execContext);
     } else {
       this.lastIdentityHash = identityContent;
     }
@@ -1423,10 +1428,6 @@ export class Runtime {
         REGIME_SWITCH_FAILED: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
         REGIME_SWITCH_HARD_FAIL: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL,
       },
-      // phase 1443: clear readFileState (in-memory + disk) after regime switch commits.
-      // Dialog context was just purged; gate state must be purged too, else next overwrite
-      // bypasses the "claw must have seen the file" intent post-compaction.
-      onSwitchComplete: () => clearReadFileState(this.execContext),
     });
     // commit 替换（caller responsibility per regime-switch.ts JSDoc）
     this.sessionManager = result.newStore;
