@@ -43,8 +43,8 @@ export interface InboxMessageOptionsBase {
   to?: string;
   idPrefix?: string;
   extraFields?: Record<string, string>;
-  // phase 434 Step C (review N11 partial、outbox 对称): writeSync 路径 contract_id
-  // 跨源 join，可选；caller 在 contract context 内时 set。
+  // metadata is opaque passthrough for the codec; messaging never interprets it
+  // (phase 1851 Step B). Producers own any business keys they put inside.
   metadata?: Record<string, string>;
 }
 
@@ -89,11 +89,11 @@ export class InboxWriter {
         emitInboxBodyOversize(this.audit, {
           source: msg.from,
           to: msg.to,
+          id: msg.id,
           type: msg.type,
           bodySize: Buffer.byteLength(msg.content, 'utf-8'),
           wireSize,
           cap: maxBytes,
-          contractId: msg.metadata?.contract_id,
         });
         throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
       }
@@ -105,10 +105,10 @@ export class InboxWriter {
       filename = `${source}-${timestamp}_${priority}_${filenameUuid}.md`;
       const filePath = path.join(this.inboxDir, filename);
       await this.fs.writeAtomic(filePath, encoded);
-      emitInboxWritten(this.audit, { file: filename as string, to: msg.to, contractId: msg.metadata?.contract_id });
+      emitInboxWritten(this.audit, { file: filename as string, to: msg.to, id: msg.id, type: msg.type });
     } catch (e) {
       const reason = formatErr(e);
-      emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: msg.to, reason, contractId: msg.metadata?.contract_id });
+      emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: msg.to, reason, id: msg.id, type: msg.type });
       throw e;
     }
   }
@@ -186,11 +186,11 @@ export class InboxWriter {
       emitInboxBodyOversize(this.audit, {
         source: opts.source,
         to: opts.to,
+        id: message.id,
         type: opts.type,
         bodySize: Buffer.byteLength(opts.body, 'utf-8'),
         wireSize,
         cap: maxBytes,
-        contractId: opts.metadata?.contract_id,
       });
       throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
     }
@@ -203,10 +203,10 @@ export class InboxWriter {
       this.fs.writeAtomicSync(path.join(this.inboxDir, filename), encoded);
     } catch (e) {
       const reason = formatErr(e);
-      emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: opts.to, reason, contractId: opts.metadata?.contract_id });
+      emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: opts.to, reason, id: message.id, type: message.type });
       throw e;
     }
-    emitInboxWritten(this.audit, { file: filename as string, to: opts.to, contractId: opts.metadata?.contract_id });
+    emitInboxWritten(this.audit, { file: filename as string, to: opts.to, id: message.id, type: message.type });
     return filename as string;
   }
 

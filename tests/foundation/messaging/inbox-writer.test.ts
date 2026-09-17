@@ -121,7 +121,11 @@ describe('InboxWriter', () => {
       content: 'Hello', priority: 'normal', timestamp: new Date().toISOString(),
     };
     await writer.write(msg);
-    expect(auditCalls.some(c => c.startsWith('inbox_written:'))).toBe(true);
+    const written = auditCalls.find(c => c.startsWith('inbox_written:'));
+    expect(written).toBeDefined();
+    // phase 1851 Step B: messaging events record message identity only
+    expect(written).toContain(`id=${msg.id}`);
+    expect(written).toContain('type=message');
   });
 
   it('write audits INBOX_WRITE_FAILED and throws on failure', async () => {
@@ -137,7 +141,10 @@ describe('InboxWriter', () => {
 
     try {
       await expect(writer.write(msg)).rejects.toThrow();
-      expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
+      const failed = auditCalls.find(c => c.startsWith('inbox_write_failed:'));
+      expect(failed).toBeDefined();
+      expect(failed).toContain(`id=${msg.id}`);
+      expect(failed).toContain('type=message');
     } finally {
       await fs.chmod(pendingDir, 0o755);
     }
@@ -212,7 +219,11 @@ describe('InboxWriter', () => {
 
   it('writeSync audits INBOX_WRITTEN on success', () => {
     writer.writeSync({ type: 'ping', source: 'motion', priority: 'normal', body: 'test' });
-    expect(auditCalls.some(c => c.startsWith('inbox_written:'))).toBe(true);
+    const written = auditCalls.find(c => c.startsWith('inbox_written:'));
+    expect(written).toBeDefined();
+    // phase 1851 Step B: messaging events record message identity only
+    expect(written).toMatch(/id=ping-[0-9a-f-]+/);
+    expect(written).toContain('type=ping');
   });
 
   it('writeSync includes metadata in the written message', () => {
@@ -228,6 +239,8 @@ describe('InboxWriter', () => {
     expect(files).toHaveLength(1);
     const content = fsSync.readFileSync(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
     expect(content).toContain('contract_id: "c1"');
+    // phase 1851 Step B: metadata stays opaque — audit events never echo it
+    expect(auditCalls.some(c => c.includes('contract_id'))).toBe(false);
   });
 
   it('audits INBOX_WRITE_FAILED when ensureDir fails', () => {
@@ -244,7 +257,11 @@ describe('InboxWriter', () => {
         metadata: { contract_id: 'c1' },
       }),
     ).toThrow();
-    expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
+    const failed = auditCalls.find(c => c.startsWith('inbox_write_failed:'));
+    expect(failed).toBeDefined();
+    expect(failed).toContain('type=ping');
+    // phase 1851 Step B: metadata stays opaque — audit events never echo it
+    expect(failed).not.toContain('contract_id');
   });
 
   // ─── .readMeta() ─────────────────────────────────────────────────────────

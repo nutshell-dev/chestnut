@@ -53,19 +53,25 @@ describe('OutboxWriter', () => {
     expect(sent.some((c: any) => String(c).includes('type=response'))).toBe(true);
   });
 
-  it('write with contract_id includes contract_id column in audit', async () => {
+  it('write with contract_id keeps metadata opaque: passthrough in file, no business key in audit', async () => {
     const { audit, events } = makeAudit();
     const writer = createOutboxWriter('claw-a', tmpDir, fs, audit, MESSAGING_WRITER_LIMITS_DEFAULT);
 
-    await writer.write({
+    const filePath = await writer.write({
       type: 'contract_update',
       to: 'claw-b',
       content: 'Update',
       metadata: { contract_id: 'contract-123' },
     });
 
+    // phase 1851 Step B: metadata opaque passthrough unchanged (codec round-trip)
+    const content = await fsp.readFile(filePath, 'utf-8');
+    expect(content).toContain('contract_id: "contract-123"');
+    // audit event records message identity only; business correlation is the producer's job
     const sent = events.find(e => e[0] === MESSAGING_AUDIT_EVENTS.OUTBOX_SENT)!;
-    expect(sent.some((c: any) => String(c).includes('contractId=contract-123'))).toBe(true);
+    expect(sent.some((c: any) => String(c).startsWith('id='))).toBe(true);
+    expect(sent.some((c: any) => String(c).includes('type=contract_update'))).toBe(true);
+    expect(sent.some((c: any) => String(c).includes('contract_id') || String(c).includes('contractId'))).toBe(false);
   });
 
   it('write failure audits OUTBOX_SEND_FAILED and throws', async () => {

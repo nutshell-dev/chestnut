@@ -118,7 +118,7 @@ interface DrainInboxResult {
 type PendingViewIssue =
   | { kind: 'transient_read'; filePath: string; error: InboxReadError }
   | { kind: 'malformed'; filePath: string; error: Error }
-  | { kind: 'duplicate'; filePath: string; duplicateOf: string; shortTaskId?: string; fullTaskId?: string; contractId?: string };
+  | { kind: 'duplicate'; filePath: string; duplicateOf: string; shortTaskId?: string; fullTaskId?: string; id?: string; type?: string };
 
 interface PendingView {
   entries: InboxEntry[];
@@ -650,7 +650,8 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
             duplicateOf,
             shortTaskId,
             fullTaskId,
-            contractId: message.metadata?.contract_id,
+            id: message.id,
+            type: message.type,
           });
         } else {
           if (key) firstPathByTaskId.set(key, filePath);
@@ -707,7 +708,8 @@ export class InboxReader implements InboxDeliverySession, InboxMaintenance {
           file: fileName,
           shortTaskId: issue.shortTaskId,
           fullTaskId: issue.fullTaskId,
-          contractId: issue.contractId,
+          id: issue.id,
+          type: issue.type,
         });
         try {
           await this.markDone(issue.filePath);

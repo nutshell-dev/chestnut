@@ -16,59 +16,62 @@ import type { ClawId } from '../claw-identity/index.js';
 
 
 // ─── INBOX_WRITTEN ────────────────────────────────────────────────────────────
-// phase 437 Step A (phase 434 cluster follow-up): contract_id forensic join
+// phase 1851 Step B: business-key opacity — messaging events record message
+// identity (id/type) only; metadata stays opaque (producer owns correlation).
 export function emitInboxWritten(
   audit: MessagingAuditSink,
-  opts: { file: string; to?: string; contractId?: string },
+  opts: { file: string; to?: string; id: string; type: string },
 ): void {
   audit.write(
     MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN,
     `file=${opts.file}`,
     `to=${opts.to ?? 'broadcast'}`,
-    `contract_id=${opts.contractId ?? ''}`,
+    `id=${opts.id}`,
+    `type=${opts.type}`,
   );
 }
 
 // ─── INBOX_WRITE_FAILED ───────────────────────────────────────────────────────
-// phase 437 Step A (phase 434 cluster follow-up): contract_id forensic join
+// phase 1851 Step B: business-key opacity — message identity only (id/type).
 export function emitInboxWriteFailed(
   audit: MessagingAuditSink,
-  opts: { file: string; to?: string; reason: string; contractId?: string },
+  opts: { file: string; to?: string; reason: string; id: string; type: string },
 ): void {
   audit.write(
     MESSAGING_AUDIT_EVENTS.INBOX_WRITE_FAILED,
     `file=${opts.file}`,
     `to=${opts.to ?? 'broadcast'}`,
     `reason=${opts.reason}`,
-    `contract_id=${opts.contractId ?? ''}`,
+    `id=${opts.id}`,
+    `type=${opts.type}`,
   );
 }
 
 // ─── INBOX_BODY_OVERSIZE ──────────────────────────────────────────────────────
 // phase 429 Step A (review medium): inbox body 超 cap、emit + caller 收 throw
-// phase 434 Step C (review N11 partial、outbox 对称): contract_id forensic join
 // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
+// phase 1851 Step B: business-key opacity — message identity only (id/type).
 export function emitInboxBodyOversize(
   audit: MessagingAuditSink,
   opts: {
     source: string;
     to?: string;
+    id: string;
     type: string;
     bodySize: number;
     wireSize: number;
     cap: number;
-    contractId?: string;
   },
 ): void {
   audit.write(
     MESSAGING_AUDIT_EVENTS.INBOX_BODY_OVERSIZE,
     `source=${opts.source}`,
     `to=${opts.to ?? 'broadcast'}`,
+    `id=${opts.id}`,
     `type=${opts.type}`,
     `body_size=${opts.bodySize}`,
     `wire_size=${opts.wireSize}`,
     `cap=${opts.cap}`,
-    `contract_id=${opts.contractId ?? ''}`,
   );
 }
 
@@ -112,11 +115,13 @@ export function emitInboxLegacyClawIdField(
 }
 
 // ─── INBOX_DEDUPED ────────────────────────────────────────────────────────────
-// phase 437 Step B (phase 434 cluster follow-up): contract_id forensic join
 // phase 849: dual-key task IDs — emit both short and full ID when available
+// phase 1851 Step B: business-key opacity — taskId cols stay (dedupe key comes
+// from the message content task protocol, not metadata); id/type recorded when
+// the decoded message is available (recovery paths only know the file).
 export function emitInboxDeduped(
   audit: MessagingAuditSink,
-  opts: { file: string; shortTaskId?: string; fullTaskId?: string; contractId?: string },
+  opts: { file: string; shortTaskId?: string; fullTaskId?: string; id?: string; type?: string },
 ): void {
   const cols: string[] = [`file=${opts.file}`];
   // phase 849: dual-key IDs; keep legacy taskId= column for backward compatibility
@@ -124,7 +129,8 @@ export function emitInboxDeduped(
   if (legacyTaskId !== undefined) cols.push(`taskId=${legacyTaskId}`);
   if (opts.shortTaskId !== undefined) cols.push(`shortTaskId=${opts.shortTaskId}`);
   if (opts.fullTaskId !== undefined) cols.push(`fullTaskId=${opts.fullTaskId}`);
-  cols.push(`contract_id=${opts.contractId ?? ''}`);
+  if (opts.id !== undefined) cols.push(`id=${opts.id}`);
+  if (opts.type !== undefined) cols.push(`type=${opts.type}`);
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED, ...cols);
 }
 
@@ -262,7 +268,6 @@ export function emitOutboxSent(
     to: string;
     type: string;
     id: string;
-    contractId?: string;
   },
 ): void {
   const cols: string[] = [
@@ -271,7 +276,6 @@ export function emitOutboxSent(
     `type=${opts.type}`,
     `id=${opts.id}`,
   ];
-  if (opts.contractId !== undefined) cols.push(`contractId=${opts.contractId}`);
   audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_SENT, ...cols);
 }
 
@@ -355,8 +359,6 @@ export function emitOutboxSendFailed(
     type: string;
     id: string;
     reason: string;
-    // phase 434 Step B (review N11 partial、emitOutboxSent 对称): contract_id forensic join
-    contractId?: string;
   },
 ): void {
   audit.write(
@@ -366,7 +368,6 @@ export function emitOutboxSendFailed(
     `type=${opts.type}`,
     `id=${opts.id}`,
     `reason=${opts.reason}`,
-    `contract_id=${opts.contractId ?? ''}`,
   );
 }
 
@@ -378,22 +379,21 @@ export function emitOutboxBodyOversize(
   opts: {
     clawId: string;
     to: string;
+    id: string;
     type: string;
     bodySize: number;
     wireSize: number;
     cap: number;
-    // phase 434 Step B (review N11 partial、emitOutboxSent 对称): contract_id 同型
-    contractId?: string;
   },
 ): void {
   audit.write(
     MESSAGING_AUDIT_EVENTS.OUTBOX_BODY_OVERSIZE,
     `from=${opts.clawId}`,
     `to=${opts.to}`,
+    `id=${opts.id}`,
     `type=${opts.type}`,
     `body_size=${opts.bodySize}`,
     `wire_size=${opts.wireSize}`,
     `cap=${opts.cap}`,
-    `contract_id=${opts.contractId ?? ''}`,
   );
 }

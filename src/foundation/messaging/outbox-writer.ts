@@ -90,11 +90,11 @@ export class OutboxWriter {
         emitOutboxBodyOversize(this.audit, {
           clawId: this.clawId,
           to: options.to,
+          id: message.id,
           type: options.type,
           bodySize: Buffer.byteLength(options.content, 'utf-8'),
           wireSize,
           cap: maxBytes,
-          contractId: options.metadata?.contract_id,
         });
         throw new Error(`Outbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
       }
@@ -114,7 +114,6 @@ export class OutboxWriter {
         to: options.to,
         type: options.type,
         id: message.id,
-        contractId: options.metadata?.contract_id,
       });
       return filePath;
     } catch (err) {
@@ -124,7 +123,6 @@ export class OutboxWriter {
         type: options.type,
         id: messageId,
         reason: formatErr(err),
-        contractId: options.metadata?.contract_id,
       });
       throw err;
     }
