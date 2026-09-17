@@ -33,4 +33,9 @@ export const DIALOG_AUDIT_EVENTS = {
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
   BLOCK_ID_INDEX_LOAD_FAILED: 'block_id_index_load_failed', // ← NEW phase 1822 (owner catalog registration)
   BLOCK_ID_INDEX_SAVE_FAILED: 'block_id_index_save_failed', // ← NEW phase 1850 Step B (save 双文件提交协议)
+  // phase 1850: regime switch 事件归 DialogStore owner（原 Runtime 命名空间 caller 注入）
+  REGIME_SWITCH: 'regime_switch',
+  REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
+  REGIME_SWITCH_FAILED: 'regime_switch_failed',
+  REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
 } as const;

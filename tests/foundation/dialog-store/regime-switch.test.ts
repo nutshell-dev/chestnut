@@ -79,6 +79,7 @@ describe('performRegimeSwitch dialog repair', () => {
       content: [{ type: 'tool_use', id: 'tu1', name: 'old_tool', input: {} }],
     }];
     const currentStore = {
+      dialogDir: '/unused-dialog',
       load: vi.fn().mockResolvedValue({
         source: 'current',
         session: {
@@ -107,15 +108,8 @@ describe('performRegimeSwitch dialog repair', () => {
       currentStore,
       dialogStoreFactory: () => newStore,
       toolsForLLM: [],
-      clawDir: '/unused',
       systemFs: {} as FileSystem,
       audit: { write: vi.fn() } as unknown as AuditLog,
-      auditEvents: {
-        REGIME_SWITCH: 'regime_switch',
-        REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
-        REGIME_SWITCH_FAILED: 'regime_switch_failed',
-        REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
-      },
     });
 
     expect(newStore.save).toHaveBeenCalledOnce();
@@ -135,6 +129,7 @@ describe('performRegimeSwitch dialog repair', () => {
   // performRegimeSwitch 不再持有/调用任何 caller 注入回调（opts 类型层已无该字段）。
   it('phase 1850 Step D: invokes no caller-injected post-commit callback after commit', async () => {
     const currentStore = {
+      dialogDir: '/unused-dialog',
       load: vi.fn().mockResolvedValue({
         source: 'current',
         session: {
@@ -160,15 +155,8 @@ describe('performRegimeSwitch dialog repair', () => {
       currentStore,
       dialogStoreFactory: () => newStore,
       toolsForLLM: [],
-      clawDir: '/unused',
       systemFs: {} as FileSystem,
       audit: { write: vi.fn() } as unknown as AuditLog,
-      auditEvents: {
-        REGIME_SWITCH: 'regime_switch',
-        REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
-        REGIME_SWITCH_FAILED: 'regime_switch_failed',
-        REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
-      },
       onSwitchComplete: strayCallback,
     } as unknown as Parameters<typeof performRegimeSwitch>[0];
 

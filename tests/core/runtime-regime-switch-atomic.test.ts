@@ -18,7 +18,7 @@ import type { LLMOrchestratorConfig, LLMStreamChunk } from '../../src/foundation
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
-import { RUNTIME_AUDIT_EVENTS } from '../../src/core/runtime/runtime-audit-events.js';
+import { DIALOG_AUDIT_EVENTS } from '../../src/foundation/dialog-store/index.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { processRuntimeMessage } from '../helpers/process-runtime-message.js';
 
@@ -253,7 +253,7 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
     await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     const failedCall = auditSpy.mock.calls.find(c =>
-      c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED && c[1] === 'phase=save_and_dump'
+      c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_FAILED && c[1] === 'phase=save_and_dump'
     );
     expect(failedCall).toBeDefined();
     expect(failedCall![2]).toMatch(/^recovery_path=/);
@@ -316,7 +316,7 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
     expect(runtime.testGetLastIdentityHash()).toBe('identity-B');
 
     // Audit success
-    const regimeSwitchCall = auditSpy.mock.calls.find(c => c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH);
+    const regimeSwitchCall = auditSpy.mock.calls.find(c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH);
     expect(regimeSwitchCall).toBeDefined();
     expect(regimeSwitchCall![1]).toBe('strategy=all');
     expect(regimeSwitchCall![2]).toMatch(/^inherited=/);
@@ -375,7 +375,7 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
     expect(sessionManagerAtCleanup).toBe(capturedNewSessionManager);
     expect(hashAtCleanup).toBe('identity-B');
     const committedIdx = auditSpy.mock.calls.findIndex(
-      c => c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED,
+      c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED,
     );
     expect(committedIdx).toBeGreaterThanOrEqual(0);
     expect(auditSpy.mock.invocationCallOrder[committedIdx])
@@ -422,7 +422,7 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
     expect(result2.status).toBe('failed');
     expect(runtime.testGetLastIdentityHash()).toBe('identity-B');
     const switchCallsAfter2 = auditSpy.mock.calls.filter(
-      c => c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH,
+      c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH,
     );
     expect(switchCallsAfter2).toHaveLength(1);
 
@@ -430,7 +430,7 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
     const result3 = await processRuntimeMessage(runtime, { role: 'user', content: 'Message 3' });
     expect(result3.status).toBe('success');
     const switchCallsAfter3 = auditSpy.mock.calls.filter(
-      c => c[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH,
+      c => c[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH,
     );
     expect(switchCallsAfter3).toHaveLength(1);
   });

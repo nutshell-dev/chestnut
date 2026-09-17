@@ -14,8 +14,11 @@ describe('DialogStore PerformRegimeSwitchOpts deep surface', () => {
   it('keeps the opts interface local behind performRegimeSwitch', () => {
     expect(regimeSwitchSource).not.toMatch(/export\s+interface\s+PerformRegimeSwitchOpts\s*\{/);
     expect(regimeSwitchSource).toMatch(
-      /(?:^|\n)interface\s+PerformRegimeSwitchOpts\s*\{[\s\S]*?\bstrategy:\s*RegimeStrategy;[\s\S]*?\bnewSystemPrompt:\s*string;[\s\S]*?\bcurrentStore:\s*DialogSessionLifecycle;[\s\S]*?\bdialogStoreFactory:\s*\(\)\s*=>\s*DialogSessionLifecycle;[\s\S]*?\bauditEvents:\s*RegimeSwitchAuditEvents;[\s\S]*?\}/,
+      /(?:^|\n)interface\s+PerformRegimeSwitchOpts\s*\{[\s\S]*?\bstrategy:\s*RegimeStrategy;[\s\S]*?\bnewSystemPrompt:\s*string;[\s\S]*?\bcurrentStore:\s*DialogSessionLifecycle;[\s\S]*?\bdialogStoreFactory:\s*\(\)\s*=>\s*DialogSessionLifecycle;[\s\S]*?\}/,
     );
+    // phase 1850 Step E 反向锁：opts 无 caller 语义注入残留（事件词汇/recovery 路径归 owner）
+    expect(regimeSwitchSource).not.toMatch(/\bauditEvents\s*:/);
+    expect(regimeSwitchSource).not.toMatch(/\bclawDir\s*:/);
     expect(regimeSwitchSource).toMatch(/opts:\s*PerformRegimeSwitchOpts,/);
     expect(barrelSource).toMatch(
       /export\s*\{[^}]*\bperformRegimeSwitch\b[^}]*\}\s*from\s*'\.\/regime-switch\.js';/,

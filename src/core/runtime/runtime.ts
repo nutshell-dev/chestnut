@@ -19,6 +19,7 @@ import { renderStandardInboxMessage } from '../../foundation/messaging/index.js'
 
 import {
   applyBlockIdAssignments,
+  DIALOG_AUDIT_EVENTS,
   performRegimeSwitch,
   repairDialogMessages,
   type DialogSessionLifecycle,
@@ -1387,7 +1388,7 @@ export class Runtime {
         this.lastIdentityHash = identityContent;            // 提交判定先落
       } catch (err) {
         // phase 573: 加 trace_id forensic field（_checkRegimeSwitch 由 turn 末调、trace_id 已设）
-        auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED, err, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+        auditError(this.auditWriter, DIALOG_AUDIT_EVENTS.REGIME_SWITCH_FAILED, err, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
         // lastIdentityHash 不更新 → 下 turn 重试自愈（D7）
         return;
       }
@@ -1419,15 +1420,8 @@ export class Runtime {
       currentStore: this.sessionManager,
       dialogStoreFactory: this.dialogStoreFactory,
       toolsForLLM: regimeTools,
-      clawDir: this.options.clawDir,
       systemFs: this.systemFs,
       audit: this.auditWriter,
-      auditEvents: {
-        REGIME_SWITCH: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH,
-        REGIME_SWITCH_COMMITTED: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED,
-        REGIME_SWITCH_FAILED: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
-        REGIME_SWITCH_HARD_FAIL: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL,
-      },
     });
     // commit 替换（caller responsibility per regime-switch.ts JSDoc）
     this.sessionManager = result.newStore;

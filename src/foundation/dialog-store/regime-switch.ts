@@ -8,7 +8,9 @@
  * 服务业务）+ M#3 资源唯一归属（dialog messages + archive + factory 全在
  * DialogStore 持）+ DP「中断可恢复」原子性。
  *
- * 实施立场：保留 audit 命名空间灵活性（caller 注入 `auditEvents` consts），
+ * 实施立场（phase 1850 Step E）：regime switch audit 事件词汇归 owner
+ * `DIALOG_AUDIT_EVENTS`（原 caller 注入 `auditEvents` 的 Runtime 命名空间迁入，
+ * 字符串值 0 漂移）；recovery dump 路径由 owner `currentStore.dialogDir` 派生。
  * phase 521+539+600+646+1054 audit invariants 不破。
  *
  * 实然 prior：原在 `src/core/runtime/runtime.ts:_performRegimeSwitch` ~80 行
@@ -24,24 +26,10 @@ import type { Message } from './canonical-message.js';
 import { formatErr } from '../node-utils/index.js';
 import { DialogStore } from './store.js';
 import type { DialogSessionLifecycle } from './types.js';
-import { DIALOG_DIR } from './dirs.js';
+import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 
 /** Regime switch 继承策略：identity 变化时 inherited messages 算法。*/
 type RegimeStrategy = 'all' | 'last-turn' | 'none';
-
-/**
- * Audit event const namespace (caller 注入)。
- *
- * 当前 caller 是 Runtime / 使用 `RUNTIME_AUDIT_EVENTS` 命名空间。phase 521
- * 历史立项时挂在 Runtime audit namespace、本次迁移保持兼容（snapshot.json
- * lock 不破）。未来可考虑迁 `DIALOG_AUDIT_EVENTS` 命名空间。
- */
-interface RegimeSwitchAuditEvents {
-  REGIME_SWITCH: string;
-  REGIME_SWITCH_COMMITTED: string;
-  REGIME_SWITCH_FAILED: string;
-  REGIME_SWITCH_HARD_FAIL: string;
-}
 
 interface PerformRegimeSwitchOpts {
   /** 继承策略 */
@@ -54,14 +42,10 @@ interface PerformRegimeSwitchOpts {
   dialogStoreFactory: () => DialogSessionLifecycle;
   /** 新 regime 的工具列表（caller's toolRegistry 已 format） */
   toolsForLLM: ToolDefinition[];
-  /** clawDir（用于 recovery dump path 构造） */
-  clawDir: string;
   /** system fs (recovery dump 写入) */
   systemFs: FileSystem;
   /** caller 注入的 audit write 能力（最小 sink） */
   audit: DialogStoreAuditSink;
-  /** caller's audit event consts namespace */
-  auditEvents: RegimeSwitchAuditEvents;
 }
 
 interface PerformRegimeSwitchResult {
@@ -104,7 +88,7 @@ export function extractLastTurn(messages: Message[]): Message[] {
  * Audit field symmetry 保证（phase 646 ratify）：
  *   phase=save 与 phase=save_and_dump 都含 `recovery_path` 字段。
  *
- * @param opts 所有依赖 + audit 命名空间（DI）
+ * @param opts 所有依赖（DI；audit 事件词汇归 owner `DIALOG_AUDIT_EVENTS`）
  * @returns 新 DialogStore 实例 + 继承/丢弃统计
  */
 export async function performRegimeSwitch(
@@ -116,10 +100,8 @@ export async function performRegimeSwitch(
     currentStore,
     dialogStoreFactory,
     toolsForLLM,
-    clawDir,
     systemFs,
     audit,
-    auditEvents,
   } = opts;
 
   // 1. 加载 oldMessages
@@ -141,7 +123,7 @@ export async function performRegimeSwitch(
     } else {
       const msg = formatErr(e);
       // phase 595: 加 phase=archive col、与 REGIME_SWITCH_FAILED L174 (phase=save) / L183 (phase=save_and_dump) 对齐
-      audit.write(auditEvents.REGIME_SWITCH_HARD_FAIL, `phase=archive`, `reason=${msg}`);
+      audit.write(DIALOG_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL, `phase=archive`, `reason=${msg}`);
       throw e;
     }
   }
@@ -175,7 +157,7 @@ export async function performRegimeSwitch(
     });
   } catch (saveErr) {
     // catch recovery dump (D1+D5 兜底 / 类 phase 586 audit fallback dump 模板)
-    const recoveryPath = path.join(clawDir, DIALOG_DIR, `regime-switch-recovery-${Date.now()}.json`);
+    const recoveryPath = path.join(currentStore.dialogDir, `regime-switch-recovery-${Date.now()}.json`);
     try {
       const recoveryData = JSON.stringify({
         systemPrompt: newSystemPrompt,
@@ -187,7 +169,7 @@ export async function performRegimeSwitch(
       }, null, 2);
       await systemFs.writeAtomic(recoveryPath, recoveryData);
       audit.write(
-        auditEvents.REGIME_SWITCH_FAILED,
+        DIALOG_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
         `phase=save`,
         `recovery_path=${recoveryPath}`,
         `inherited_count=${repaired.length}`,
@@ -196,7 +178,7 @@ export async function performRegimeSwitch(
     } catch (dumpErr) {
       // dump 失败的 final fallback：纯 audit / inherited 极端场景丢失
       audit.write(
-        auditEvents.REGIME_SWITCH_FAILED,
+        DIALOG_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
         `phase=save_and_dump`,
         `recovery_path=${recoveryPath}`,
         `save_reason=${formatErr(saveErr)}`,
@@ -209,12 +191,12 @@ export async function performRegimeSwitch(
 
   // 7+8. audit 成功（caller 拿 newStore 后自行 sessionManager = newStore commit 替换）
   audit.write(
-    auditEvents.REGIME_SWITCH_COMMITTED,
+    DIALOG_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED,
     `strategy=${strategy}`,
     `inherited=${repaired.length}`,
   );
   audit.write(
-    auditEvents.REGIME_SWITCH,
+    DIALOG_AUDIT_EVENTS.REGIME_SWITCH,
     `strategy=${strategy}`,
     `inherited=${repaired.length}`,
     `discarded=${oldMessages.length - repaired.length}`,

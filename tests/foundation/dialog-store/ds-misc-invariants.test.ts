@@ -374,13 +374,6 @@ describe('regime-switch-atomicity', () => {
     } as unknown as AuditLog & { getCalls: () => typeof calls };
   }
 
-  const REGIME_SWITCH_AUDIT_EVENTS = {
-    REGIME_SWITCH: 'regime_switch',
-    REGIME_SWITCH_COMMITTED: 'regime_switch_committed',
-    REGIME_SWITCH_FAILED: 'regime_switch_failed',
-    REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
-  };
-
   describe('DialogStore regime switch archive idempotency (phase 985)', () => {
     it('first new-session save fails; retry succeeds and preserves old session in archive', async () => {
       const tempDir = await createTempDir();
@@ -429,10 +422,8 @@ describe('regime-switch-atomicity', () => {
           currentStore,
           dialogStoreFactory,
           toolsForLLM: [] as ToolDefinition[],
-          clawDir: tempDir,
           systemFs: fs,
           audit: audit as unknown as AuditLog,
-          auditEvents: REGIME_SWITCH_AUDIT_EVENTS,
         };
 
         // First attempt: archive succeeds, new-session save fails.

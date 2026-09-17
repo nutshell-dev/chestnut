@@ -32,7 +32,7 @@ import {
   READ_STATE_FILE,
 } from '../../../src/foundation/file-tool/file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from '../../../src/foundation/file-tool/audit-events.js';
-import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
+import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/index.js';
 import type { LLMOrchestratorConfig, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/types.js';
 import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
 
@@ -172,7 +172,7 @@ describe('regime switch post-commit readFileState clear e2e (phase 1850 Step D /
 
     // 提交判定已落 + post-commit cleanup 已执行
     expect(runtime.testGetLastIdentityHash()).toBe('identity-B');
-    expect(audit.events.some(e => e[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED)).toBe(true);
+    expect(audit.events.some(e => e[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED)).toBe(true);
     expect(ctx.readFileState.size).toBe(0);
     expect(await diskStateExists()).toBe(false);
   });
@@ -212,8 +212,8 @@ describe('regime switch post-commit readFileState clear e2e (phase 1850 Step D /
     await processRuntimeMessage(runtime, { role: 'user', content: 'Message 2' });
 
     // 失败路径：auditError REGIME_SWITCH_FAILED、hash 不更新（D7 自愈）、state 不动
-    expect(audit.events.some(e => e[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED)).toBe(true);
-    expect(audit.events.some(e => e[0] === RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED)).toBe(false);
+    expect(audit.events.some(e => e[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_FAILED)).toBe(true);
+    expect(audit.events.some(e => e[0] === DIALOG_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED)).toBe(false);
     expect(runtime.testGetLastIdentityHash()).toBe('identity-A');
     expect(ctx.readFileState.size).toBe(1);
     expect(await diskStateExists()).toBe(true);

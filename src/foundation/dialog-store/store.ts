@@ -108,7 +108,7 @@ export class DialogStore implements DialogSessionLifecycle {
 
   constructor(
     private readonly fs: FileSystem,
-    dialogDir: string,
+    public readonly dialogDir: string,
     private readonly audit: DialogStoreAuditSink,
     filename: string,                                 // phase 450: 必填 / caller 注入
     private readonly clawId?: string,                 // phase 450: 可选 / subagent ephemeral 用例 0 clawId

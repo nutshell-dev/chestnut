@@ -76,6 +76,8 @@ export interface DialogSaveResult {
  * instead of the concrete store and its unrelated lookup/restore capabilities.
  */
 export interface DialogSessionLifecycle {
+  /** 本 session 的 dialog 目录绝对路径（owner 资源位置；recovery/取证 artifact 派生用） */
+  readonly dialogDir: string;
   load(): Promise<LoadResult>;
   save(snapshot: DialogSaveSnapshot): Promise<DialogSaveResult>;
   beginTurn(): Promise<void>;

@@ -30,12 +30,7 @@ export const RUNTIME_AUDIT_EVENTS = {
   // phase 1781: init reconcile 返回 degraded（list/read/move 失败已留证据）——显式降级继续，不伪造 ready
   INBOX_INIT_DEGRADED: 'runtime_inbox_init_degraded',
   SESSION_REPAIR_FAILED: 'runtime_session_repair_failed',
-  // phase 521: regime switch audit event
-  REGIME_SWITCH: 'regime_switch',
-  REGIME_SWITCH_COMMITTED: 'regime_switch_committed', // NEW phase1108
-  // phase 539: regime switch failed audit event
-  REGIME_SWITCH_FAILED: 'regime_switch_failed',
-  REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
+  // phase 1850 Step E: regime switch 事件迁 DIALOG_AUDIT_EVENTS（DialogStore owner / 字符串值 0 漂移）
   // phase 598: optional section read failed audit event
   OPTIONAL_SECTION_READ_FAILED: 'runtime_optional_section_read_failed',
   // phase 446 (review): onStepComplete 内 fire-and-forget maybeAuditStep 防御 catch

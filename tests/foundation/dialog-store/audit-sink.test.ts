@@ -5,7 +5,7 @@
  * 1. DialogStore 保存 → 校验 → 重载（invariant 审计行精确断言）；
  * 2. 公开校验入口 migrateAndValidateSession / validateSessionData 的可选 audit sink；
  * 3. lookup 两条 io_error 首 exists 故障路径（结果协议与审计行精确断言）；
- * 4. performRegimeSwitch 真实流程（同一最小 sink 全程，fixture 事件字符串）。
+ * 4. performRegimeSwitch 真实流程（同一最小 sink 全程，owner 事件常量）。
  *
  * 不用 vi.mock；不用 as AuditLog / unknown / any 类型逃逸；不给 sink 加
  * brand / preview / message / summary 等伪方法。
@@ -151,23 +151,14 @@ describe('DialogStore write-only audit capability', () => {
       toolsForLLM: [],
     });
 
-    const regimeEvents = {
-      REGIME_SWITCH: 'fixture_regime_switch',
-      REGIME_SWITCH_COMMITTED: 'fixture_regime_switch_committed',
-      REGIME_SWITCH_FAILED: 'fixture_regime_switch_failed',
-      REGIME_SWITCH_HARD_FAIL: 'fixture_regime_switch_hard_fail',
-    };
-
     const result = await performRegimeSwitch({
       strategy: 'all',
       newSystemPrompt: 'new',
       currentStore: oldStore,
       dialogStoreFactory: () => new DialogStore(fs, '', sink, 'current.json', 'claw-regime'),
       toolsForLLM: [],
-      clawDir: root,
       systemFs: fs,
       audit: sink,
-      auditEvents: regimeEvents,
     });
 
     expect(result.inheritedCount).toBe(1);
@@ -184,10 +175,10 @@ describe('DialogStore write-only audit capability', () => {
     const archiveEntries = fs.listSync('archive');
     expect(archiveEntries.filter(e => e.isFile && e.name.endsWith('.json'))).toHaveLength(1);
 
-    // 全程审计行精确：仅两条 regime 成功事件、列逐字匹配。
+    // 全程审计行精确：仅两条 regime 成功事件、列逐字匹配（owner 常量 / phase 1850 Step E）。
     expect(rows).toEqual([
-      [regimeEvents.REGIME_SWITCH_COMMITTED, 'strategy=all', 'inherited=1'],
-      [regimeEvents.REGIME_SWITCH, 'strategy=all', 'inherited=1', 'discarded=0'],
+      [DIALOG_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED, 'strategy=all', 'inherited=1'],
+      [DIALOG_AUDIT_EVENTS.REGIME_SWITCH, 'strategy=all', 'inherited=1', 'discarded=0'],
     ]);
   });
 });
