@@ -6,7 +6,7 @@ export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
  * ProcessManager module (L2a 通用基础设施)
  *
  * 进程生命周期管理。spawn、stop、存活检查。
- * 依赖：ProcessExec、FileSystem、AuditLog、NodeUtils
+ * 依赖：ProcessExec、FileSystem、ProcessManagerAuditSink（AuditLog 最小结构面）、NodeUtils
  *
  * phase 694: 撤 ClawId / CLAWS_DIR 业务依赖、API take daemonDir: DaemonDir brand。
  * Phase 1204 Step E: generation directory 是唯一权威；legacy lock/pidfile API 已删除。

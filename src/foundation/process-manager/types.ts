@@ -1,5 +1,5 @@
 import type { FileSystem } from '../fs/index.js';
-import type { AuditLog } from '../audit/index.js';
+import type { ProcessManagerAuditSink } from './audit-sink.js';
 
 import type { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
 
@@ -290,7 +290,7 @@ export interface SpawnOptions {
  */
 export interface ProcessManagerContext {
   fs: FileSystem;
-  audit: AuditLog;
+  audit: ProcessManagerAuditSink;
   /** Optional ready override (used by tests spying on ProcessManager.prototype.isReady) */
   isReady?: (daemonDir: DaemonDir) => boolean;
   /** Optional l1IsAlive override (used by tests injecting process-exec level liveness probe) */
