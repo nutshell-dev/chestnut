@@ -17,6 +17,7 @@ export type {
   LoadResult,
   StableLoadResult,
   DialogSaveSnapshot,
+  DialogSaveResult,
   DialogSessionLifecycle,
 } from './types.js';
 export { repairMessages as repairDialogMessages } from './repair.js';

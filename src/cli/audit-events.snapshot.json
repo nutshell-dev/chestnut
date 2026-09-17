@@ -714,6 +714,7 @@
     ],
     "foundation_dialog-store_audit-events": [
       "block_id_index_load_failed",
+      "block_id_index_save_failed",
       "dialog_archive_all_corrupted",
       "dialog_archive_already_archived",
       "dialog_archive_empty",

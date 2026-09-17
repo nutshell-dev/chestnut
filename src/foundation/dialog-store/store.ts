@@ -22,6 +22,7 @@ import type {
   LoadResult,
   StableLoadResult,
   DialogSaveSnapshot,
+  DialogSaveResult,
   DialogSessionLifecycle,
 } from './types.js';
 import type { DialogStoreAuditSink } from './audit-sink.js';
@@ -399,7 +400,7 @@ export class DialogStore implements DialogSessionLifecycle {
    * Phase 1218 Step C: DialogStore no longer serializes concurrent saves. The
    * single writer authority (Runtime / SubAgent) is responsible for ordering.
    */
-  async save(snapshot: DialogSaveSnapshot): Promise<void> {
+  async save(snapshot: DialogSaveSnapshot): Promise<DialogSaveResult> {
     await this.ensureTurnTransactionRecovered();
     // phase 227: schema invariant check（违例 emit audit、不 throw、不阻 save）
     assertDialogShapeInvariants(snapshot.messages, this.audit);
@@ -452,16 +453,28 @@ export class DialogStore implements DialogSessionLifecycle {
       // phase 988 (audit-2026-05-17 NEW.P1 G.1): reset corruptedPoisoned 防 sticky data loss
       // save 写新 current.json → current.json 实然不再 corrupted、应然 align
       this.corruptedPoisoned = false;
-      // Phase 1186: persist block-id index after successful dialog write
-      this.blockIdIndex.save();
     } catch (err) {
       this.audit.write(
         DIALOG_AUDIT_EVENTS.SAVE_FAILED,
         `path=${this.currentPath}`,
         `reason=${formatErr(err)}`,
       );
-      throw err;
+      throw err;                                     // 主快照失败：无部分提交
     }
+    // Phase 1186: persist block-id index after successful dialog write
+    // phase 1850 Step B: index 是取证加速结构、不阻主快照提交——失败独立 audit + 结构化交付，
+    // dirty 保持 true、下次 save 自动重试；本进程内 index 内存映射保留（resolve() 可用）
+    try {
+      this.blockIdIndex.save();                      // dirty=false 时早退
+    } catch (err) {
+      this.audit.write(
+        DIALOG_AUDIT_EVENTS.BLOCK_ID_INDEX_SAVE_FAILED,
+        `path=${this.blockIdIndex.indexPath}`,
+        `reason=${formatErr(err)}`,
+      );
+      return { blockIndexPersisted: false };         // 主快照已提交，事实不丢、不伪报失败
+    }
+    return { blockIndexPersisted: true };
   }
 
   /**

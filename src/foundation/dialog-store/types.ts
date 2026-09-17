@@ -46,6 +46,16 @@ export interface DialogSaveSnapshot {
 }
 
 /**
+ * phase 1850 Step B: save 双文件提交协议的结构化交付。
+ * 主快照（current.json）失败 = reject（无部分提交）；index 失败 = 主快照已提交的事实不丢，
+ * 以 blockIndexPersisted=false 回传（dirty 保持、下次 save 自动重试），不 reject。
+ */
+export interface DialogSaveResult {
+  /** 主快照（current.json）提交后，block-index 是否已同步持久化；false 时 dirty 保持、下次 save 重试 */
+  blockIndexPersisted: boolean;
+}
+
+/**
  * Minimal lifecycle required by a dialog-session consumer.
  *
  * DialogStore owns the persistence semantics; consumers depend on this protocol
@@ -53,7 +63,7 @@ export interface DialogSaveSnapshot {
  */
 export interface DialogSessionLifecycle {
   load(): Promise<LoadResult>;
-  save(snapshot: DialogSaveSnapshot): Promise<void>;
+  save(snapshot: DialogSaveSnapshot): Promise<DialogSaveResult>;
   beginTurn(): Promise<void>;
   commitTurn(reason?: string): Promise<void>;
   rollbackTurn(reason?: string): Promise<void>;

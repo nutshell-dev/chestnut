@@ -32,4 +32,5 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_CLEANUP_FAILED: 'dialog_turn_cleanup_failed',
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
   BLOCK_ID_INDEX_LOAD_FAILED: 'block_id_index_load_failed', // ← NEW phase 1822 (owner catalog registration)
+  BLOCK_ID_INDEX_SAVE_FAILED: 'block_id_index_save_failed', // ← NEW phase 1850 Step B (save 双文件提交协议)
 } as const;

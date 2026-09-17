@@ -4,7 +4,7 @@
  */
 
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
-import type { Message } from '../../foundation/dialog-store/index.js';
+import type { Message, DialogSaveResult } from '../../foundation/dialog-store/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
 import {
   estimateTextTokens,
@@ -22,12 +22,13 @@ export type TriggerKind = 'reactive_overflow' | 'proactive_cache_idle';
  */
 export interface DialogStoreMutationCapability {
   archive(): Promise<void>;
+  // phase 1850 Step B: save 双文件提交协议——返回结构化 DialogSaveResult（helper 不消费返回值、语义兼容）
   save(snapshot: {
     systemPrompt: string;
     messages: Message[];
     toolsForLLM: ToolDefinition[];
     trace_id?: TraceId;
-  }): Promise<void>;
+  }): Promise<DialogSaveResult>;
 }
 
 interface TrimAndPersistInputs {
