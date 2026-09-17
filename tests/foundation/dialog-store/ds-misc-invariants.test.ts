@@ -194,10 +194,11 @@ describe('validate-session-invariant', () => {
       await cleanupTempDir(tempDir);
     });
 
-    it('validateSession version > 2 emits INVARIANT_FAILED + fallback to 2', () => {
-      // Directly test private validateSession (bypass detectAndMigrateVersion which already rejects > 2)
+    it('validateSession version < 1 emits INVARIANT_FAILED + fallback to 2', () => {
+      // Directly test private validateSession (shared normalization; version adjudication
+      // for > SESSION_CURRENT_VERSION lives in parseSessionData, which rejects it)
       const session = (store as any).validateSession({
-        version: 99,
+        version: 0,
         clawId,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -215,7 +216,7 @@ describe('validate-session-invariant', () => {
         expect.arrayContaining([
           DIALOG_AUDIT_EVENTS.INVARIANT_FAILED,
           'field=version',
-          'got=99',
+          'got=0',
           'fallback=2',
         ]),
       );

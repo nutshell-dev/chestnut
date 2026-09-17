@@ -32,7 +32,7 @@ import { newShortUuid, newUuid, uuidToShort } from '../node-utils/index.js';
 import { DialogStoreError, DialogIOError, CorruptionError } from './errors.js';
 import { BlockIdIndex } from './block-id-index.js';
 
-import { detectAndMigrateVersion, validateSessionData } from './validate.js';
+import { normalizeSessionData, parseSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE, DIALOG_ARCHIVE_SUBDIR, TURN_TRANSACTION_FILE } from './dirs.js';
 import { repairMessages } from './repair.js';
 import { assertDialogShapeInvariants } from './invariants.js';
@@ -156,13 +156,16 @@ export class DialogStore implements DialogSessionLifecycle {
     try {
       const content = await this.fs.read(this.currentPath);
       try {
-        const parsed = JSON.parse(content) as Partial<SessionData>;
-        const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, this.audit);
-        if (detected === null) {
-          this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
-          throw new DialogStoreError('session version unknown');
+        const parsed: unknown = JSON.parse(content);
+        const outcome = parseSessionData(parsed, CURRENT_DIALOG_FILE, this.audit, this.clawId);
+        if (outcome.kind === 'rejected') {
+          if (outcome.reason === 'future_version') {
+            this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
+            throw new DialogStoreError('session version unknown');
+          }
+          throw new DialogStoreError('session data has invalid shape');
         }
-        const data = this.validateSession(detected);
+        const data = outcome.session;
         // Cache createdAt for subsequent saves
         this.createdAt = data.createdAt;
         this.prevMessagesLength = data.messages.length;
@@ -705,7 +708,7 @@ export class DialogStore implements DialogSessionLifecycle {
 
   /**
    * 读取指定 archive 文件，返完整 SessionData。
-   * 内部自动做 detectAndMigrateVersion + validateSession。
+   * 内部自动做 parseSessionData（shape 判定 + 版本裁决 + 迁移 + 归一）。
    * @throws 文件不存在时底层 fs 抛 ENOENT/FS_NOT_FOUND
    * @throws 文件格式损坏时抛 CorruptionError（含 corrupted 隔离 + audit）
    * @throws 读取 I/O 错误时抛 DialogIOError
@@ -730,13 +733,16 @@ export class DialogStore implements DialogSessionLifecycle {
     }
 
     try {
-      const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = detectAndMigrateVersion(parsed, filename, this.audit);
-      if (detected === null) {
-        this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `reason=version_unknown`);
-        throw new CorruptionError(`session version unknown in archive ${filename}`, null);
+      const parsed: unknown = JSON.parse(content);
+      const outcome = parseSessionData(parsed, filename, this.audit, this.clawId);
+      if (outcome.kind === 'rejected') {
+        if (outcome.reason === 'future_version') {
+          this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `reason=version_unknown`);
+          throw new CorruptionError(`session version unknown in archive ${filename}`, null);
+        }
+        throw new CorruptionError(`invalid session shape in archive ${filename}`, null);
       }
-      return this.validateSession(detected);
+      return outcome.session;
     } catch (err) {
       if (isFileNotFound(err)) {
         throw err; // should not happen since read() succeeded, but keep defensive
@@ -812,14 +818,16 @@ export class DialogStore implements DialogSessionLifecycle {
       }
 
       try {
-        const parsed = JSON.parse(content) as Partial<SessionData>;
-        const detected = detectAndMigrateVersion(parsed, entry.name, this.audit);
-        if (detected === null) {
-          this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED, `file=${entry.name}`, `reason=version_unknown`);
-          continue;
+        const parsed: unknown = JSON.parse(content);
+        const outcome = parseSessionData(parsed, entry.name, this.audit, this.clawId);
+        if (outcome.kind === 'rejected') {
+          if (outcome.reason === 'future_version') {
+            this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED, `file=${entry.name}`, `reason=version_unknown`);
+            continue;
+          }
+          throw new DialogStoreError('session data has invalid shape');
         }
-        const session = this.validateSession(detected);
-        return { session, name: entry.name };
+        return { session: outcome.session, name: entry.name };
       } catch (err) {
         // Data corruption in this archive: isolate and try the next older archive.
         try {
@@ -893,11 +901,12 @@ export class DialogStore implements DialogSessionLifecycle {
 
   /**
    * Validate and normalize session data
-   * phase 1400: 委托 validateSessionData / 消 DRY 违反 / clawId fallback 来源传 this.clawId
-   * phase 46 Step B: validateSessionData 迁至 validate.ts
+   * phase 1400: 委托共享归一 / 消 DRY 违反 / clawId fallback 来源传 this.clawId
+   * phase 46 Step B: 归一实现迁至 validate.ts
+   * phase 1850 Step F: 委托 validate.ts 内部共享归一 normalizeSessionData
    */
   private validateSession(data: SessionData): SessionData {
-    return validateSessionData(data, this.audit, this.clawId);
+    return normalizeSessionData(data, this.audit, this.clawId);
   }
 }
 
@@ -912,5 +921,3 @@ export function createDialogStore(
   return new DialogStore(fs, dialogDir, audit, filename, clawId, archiveDir);
 }
 
-// phase 46 Step B: re-export 保直接从 store.js import 的 caller 0 改（barrel 透明）
-export { migrateAndValidateSession, validateSessionData } from './validate.js';

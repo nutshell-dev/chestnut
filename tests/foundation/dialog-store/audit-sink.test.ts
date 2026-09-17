@@ -3,7 +3,7 @@
  *
  * 无品牌、单 write 方法 sink 走真实产品路径的回归（四类）：
  * 1. DialogStore 保存 → 校验 → 重载（invariant 审计行精确断言）；
- * 2. 公开校验入口 migrateAndValidateSession / validateSessionData 的可选 audit sink；
+ * 2. 公开校验入口 parseSessionData（单一结果协议）的可选 audit sink；
  * 3. lookup 两条 io_error 首 exists 故障路径（结果协议与审计行精确断言）；
  * 4. performRegimeSwitch 真实流程（同一最小 sink 全程，owner 事件常量）。
  *
@@ -20,9 +20,8 @@ import {
   DialogStore,
   lookupContentByBlockId,
   lookupContentByToolUseId,
-  migrateAndValidateSession,
+  parseSessionData,
   performRegimeSwitch,
-  validateSessionData,
 } from '../../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { cleanupTempDir, createTempDir } from '../../utils/temp.js';
@@ -69,46 +68,48 @@ describe('DialogStore write-only audit capability', () => {
     ]]);
   });
 
-  describe('public validation entries accept optional write-only sinks', () => {
-    it('migrateAndValidateSession writes the exact version-unknown row and returns null', () => {
+  describe('public validation entry accepts optional write-only sinks', () => {
+    it('parseSessionData rejects a future version with the exact version-unknown row', () => {
       const rows: (string | number)[][] = [];
       const sink = collectSink(rows);
-      const migrated = migrateAndValidateSession({ version: 999 }, 'future.json', sink);
-      expect(migrated).toBeNull();
+      const outcome = parseSessionData({ version: 999 }, 'future.json', sink);
+      expect(outcome).toEqual({ kind: 'rejected', reason: 'future_version' });
       expect(rows).toEqual([[
         DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN,
         'file=future.json', 'actual=999', 'current=2',
       ]]);
     });
 
-    it('validateSessionData fills the clawId fallback and keeps messages unchanged via a sink', () => {
+    it('parseSessionData fills the clawId fallback and keeps messages unchanged via a sink', () => {
       const rows: (string | number)[][] = [];
       const sink = collectSink(rows);
-      const validated = validateSessionData({
+      const outcome = parseSessionData({
         version: 2,
         createdAt: '2026-08-09T00:00:00.000Z',
         updatedAt: '2026-08-09T00:00:00.000Z',
         systemPrompt: 'prompt',
         messages: [{ role: 'user', content: 'hello' }],
         toolsForLLM: [],
-      }, sink, 'fallback-claw');
-      expect(validated.clawId).toBe('fallback-claw');
-      expect(validated.messages).toEqual([{ role: 'user', content: 'hello' }]);
+      }, 'session.json', sink, 'fallback-claw');
+      if (outcome.kind !== 'ok') throw new Error('expected ok outcome');
+      expect(outcome.session.clawId).toBe('fallback-claw');
+      expect(outcome.session.messages).toEqual([{ role: 'user', content: 'hello' }]);
       expect(rows).toEqual([]);
     });
 
-    it('validateSessionData stays callable with the audit argument omitted', () => {
-      const validated = validateSessionData({
+    it('parseSessionData stays callable with the audit argument omitted', () => {
+      const outcome = parseSessionData({
         version: 2,
         createdAt: '2026-08-09T00:00:00.000Z',
         updatedAt: '2026-08-09T00:00:00.000Z',
         systemPrompt: 'prompt',
         messages: [{ role: 'user', content: 'hello' }],
         toolsForLLM: [],
-      });
-      expect(validated.version).toBe(2);
-      expect(validated.clawId).toBeUndefined();
-      expect(validated.messages).toEqual([{ role: 'user', content: 'hello' }]);
+      }, 'session.json');
+      if (outcome.kind !== 'ok') throw new Error('expected ok outcome');
+      expect(outcome.session.version).toBe(2);
+      expect(outcome.session.clawId).toBeUndefined();
+      expect(outcome.session.messages).toEqual([{ role: 'user', content: 'hello' }]);
     });
   });
 

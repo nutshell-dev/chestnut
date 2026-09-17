@@ -11,7 +11,9 @@ export { DialogStore } from './store.js';
 export type { Message } from './canonical-message.js';
 // phase 483: audit-events barrel re-export
 export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-export { migrateAndValidateSession, validateSessionData } from './validate.js';
+// phase 1850 Step F: 单一公开校验入口 + 结果协议类型
+export { parseSessionData } from './validate.js';
+export type { SessionParseOutcome } from './validate.js';
 export type {
   SessionData,
   LoadResult,

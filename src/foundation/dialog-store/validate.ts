@@ -3,6 +3,8 @@
  * 校验 / 迁移。
  *
  * 抽出自 store.ts、dialogstore-auditor §M-01 follow-up（SRP 拆分）。
+ * phase 1850 Step F: 公开校验入口统一为单一 `parseSessionData` 结果协议
+ * （shape 判定 + 版本裁决 + v1→v2 迁移 + 默认值归一，一次完成）。
  */
 
 import type { Message } from './canonical-message.js';
@@ -12,36 +14,27 @@ import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 
 const SESSION_CURRENT_VERSION = 2;
 
-/** v1 → v2 schema migration. */
-export function detectAndMigrateVersion(
-  parsed: Partial<SessionData>,
-  filename: string,
-  audit?: DialogStoreAuditSink,
-): SessionData | null {
-  // NEW unknown version reject（phase 1019 r124 E fork）
-  if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
-    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
-      `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
-    return null;  // caller treats as corrupt
-  }
-  // v1 → v2 intentional migration (phase 713 logic 保留)
-  if (!parsed.toolsForLLM) {
-    (parsed as SessionData).toolsForLLM = [];
-    (parsed as SessionData).version = SESSION_CURRENT_VERSION;
-    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=${SESSION_CURRENT_VERSION}`);
-    return parsed as SessionData;
-  }
-  return parsed as SessionData;
-}
+/**
+ * phase 1850 Step F: 单一公开校验入口的结果协议。
+ * - ok: 归一完成的 SessionData
+ * - rejected: future_version（> 当前版，已审计 VERSION_UNKNOWN）/ invalid_shape（非对象或数组）
+ */
+export type SessionParseOutcome =
+  | { kind: 'ok'; session: SessionData }
+  | { kind: 'rejected'; reason: 'future_version' | 'invalid_shape' };
 
-/** Standalone validateSessionData（外部 caller 用：cli/trace + cli/_message-renderer）*/
-export function validateSessionData(
+/**
+ * 默认值归一（内部共享实现；非公开入口，不走 barrel）。
+ * 版本裁决（> 当前版 → rejected）由 parseSessionData 唯一承担，此处只处理
+ * version <1 / 非整数 → INVARIANT_FAILED 审计 + 回落当前版。
+ */
+export function normalizeSessionData(
   data: SessionData,
   audit?: DialogStoreAuditSink,
   clawIdFallback?: string,
 ): SessionData {
   let version: number = data.version ?? SESSION_CURRENT_VERSION;
-  if (typeof version !== 'number' || version > SESSION_CURRENT_VERSION || version < 1) {
+  if (typeof version !== 'number' || version < 1) {
     audit?.write?.(DIALOG_AUDIT_EVENTS.INVARIANT_FAILED, `field=version`, `got=${String(data.version)}`, `fallback=${SESSION_CURRENT_VERSION}`);
     version = SESSION_CURRENT_VERSION;
   }
@@ -70,26 +63,36 @@ export function validateSessionData(
   };
 }
 
-/** Standalone migrateAndValidateSession（外部 caller 用：cli/trace + cli/_message-renderer）*/
-export function migrateAndValidateSession(
+/**
+ * 单一公开校验入口：shape 判定 → 版本裁决 → v1→v2 迁移 → 默认值归一。
+ *
+ * 版本裁决唯一规则：
+ * - `> SESSION_CURRENT_VERSION` → rejected（VERSION_UNKNOWN 审计）；
+ * - `<1 / 非整数` → INVARIANT_FAILED 审计 + 回落当前版（归一内）。
+ * v1→v2 迁移（缺 toolsForLLM）语义与 VERSION_MIGRATE 审计字符串不变。
+ */
+export function parseSessionData(
   raw: unknown,
   filename: string,
   audit?: DialogStoreAuditSink,
-): SessionData | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  clawIdFallback?: string,
+): SessionParseOutcome {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { kind: 'rejected', reason: 'invalid_shape' };
+  }
   const parsed = raw as Partial<SessionData>;
 
-  // unknown version reject
+  // unknown version reject（phase 1019 r124 E fork）— future 拒绝为唯一答案
   if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
     audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
       `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
-    return null;
+    return { kind: 'rejected', reason: 'future_version' };
   }
-  // v1 → v2 migration
+  // v1 → v2 intentional migration (phase 713 logic 保留)
   if (!parsed.toolsForLLM) {
     (parsed as SessionData).toolsForLLM = [];
     (parsed as SessionData).version = SESSION_CURRENT_VERSION;
     audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=${SESSION_CURRENT_VERSION}`);
   }
-  return parsed as SessionData;
+  return { kind: 'ok', session: normalizeSessionData(parsed as SessionData, audit, clawIdFallback) };
 }

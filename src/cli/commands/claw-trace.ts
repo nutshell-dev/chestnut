@@ -14,7 +14,7 @@ import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js
 import { CliError } from '../errors.js';
 import { getContractMetadata, readContractYamlLightweight } from '../../core/contract/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';
-import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/index.js';
+import { parseSessionData } from '../../foundation/dialog-store/index.js';
 import type { ContractId } from '../../core/contract/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
 
@@ -387,10 +387,9 @@ async function showStepDetail(
     try {
       const content = await fileSystem.read(relPath);
       const raw = JSON.parse(content);
-      const session = migrateAndValidateSession(raw, path.basename(relPath));
-      if (!session) continue; // version unknown → skip
-      const validated = validateSessionData(session);
-      if (validated.messages.length > 0) messages.push(...validated.messages as DialogMessage[]);
+      const outcome = parseSessionData(raw, path.basename(relPath));
+      if (outcome.kind !== 'ok') continue; // rejected (version unknown / invalid shape) → skip
+      if (outcome.session.messages.length > 0) messages.push(...outcome.session.messages as DialogMessage[]);
     } catch { /* silent: skip */ }
   }
 

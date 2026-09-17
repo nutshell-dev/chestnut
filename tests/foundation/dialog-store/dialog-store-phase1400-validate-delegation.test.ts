@@ -1,21 +1,21 @@
 /**
- * phase 1400 — `validateSession` 委托 `validateSessionData` 行为等价 reverse test
+ * phase 1400 — `validateSession` 委托共享归一实现行为等价 reverse test
  *
- * 报告项：M-02 `validateSession` 与 `validateSessionData` 重复代码（违 DRY）
- * fix：private `validateSession(data)` → `return validateSessionData(data, this.audit, this.clawId)`
+ * 报告项：M-02 `validateSession` 与独立校验函数重复代码（违 DRY）
+ * fix：private `validateSession(data)` → 委托 validate.ts 共享归一实现
+ * phase 1850 Step F：公开入口统一为 `parseSessionData` 结果协议，直接路径对照改走新入口
  *
  * 覆盖 5 路：
  * (i) 完整 valid input
- * (ii) version invalid（> 2 / < 1 / 非整数）→ fallback 2 + INVARIANT_FAILED audit
+ * (ii) version future（> 2 → rejected / VERSION_UNKNOWN audit + corrupted 路径）
+ * (ii-b) version invalid（< 1 → 回落 2 + INVARIANT_FAILED audit）
  * (iii) messages 含 invalid entry → filter + INVARIANT_FAILED audit
  * (iv) data.clawId undefined + this.clawId 给值 → fallback 走 this.clawId
  * (v) data.clawId 给值 + this.clawId undefined → data.clawId 不被 fallback 覆盖
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
-  DialogStore,
-  validateSessionData,
-} from '../../../src/foundation/dialog-store/store.js';
+import { DialogStore } from '../../../src/foundation/dialog-store/store.js';
+import { parseSessionData } from '../../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -48,7 +48,7 @@ function eventPayload(e: AuditEventTuple): (string | number)[] {
   return e.slice(1) as (string | number)[];
 }
 
-describe('phase 1400 — validateSession delegates to validateSessionData (M-02 DRY fix)', () => {
+describe('phase 1400 — validateSession delegates to the shared normalization (M-02 DRY fix)', () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -59,7 +59,7 @@ describe('phase 1400 — validateSession delegates to validateSessionData (M-02 
     await cleanupTempDir(tempDir);
   });
 
-  it('(i) 完整 valid input — load 与 validateSessionData 直接调用结果同 shape', async () => {
+  it('(i) 完整 valid input — load 与 parseSessionData 直接调用结果同 shape', async () => {
     const raw: SessionData = {
       version: 2,
       clawId: 'c1',
@@ -70,7 +70,9 @@ describe('phase 1400 — validateSession delegates to validateSessionData (M-02 
       toolsForLLM: [],
     };
     const { session } = await loadViaStore(tempDir, raw, 'c1');
-    const direct = validateSessionData(structuredClone(raw), undefined, 'c1');
+    const directOutcome = parseSessionData(structuredClone(raw), filename, undefined, 'c1');
+    if (directOutcome.kind !== 'ok') throw new Error('expected ok outcome');
+    const direct = directOutcome.session;
     expect(session.version).toBe(2);
     expect(session.clawId).toBe('c1');
     expect(session.systemPrompt).toBe('sp');
@@ -95,11 +97,11 @@ describe('phase 1400 — validateSession delegates to validateSessionData (M-02 
     const { session, auditWrites } = await loadViaStore(tempDir, raw, 'c1');
     expect(session.version).toBe(2);
     expect(session.messages).toEqual([]);
-    // detectAndMigrateVersion 在 validateSession 前拦截 version>SESSION_CURRENT_VERSION
+    // parseSessionData 在归一前裁决 version>SESSION_CURRENT_VERSION → rejected
     expect(auditWrites.some((e) => eventName(e) === DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN)).toBe(true);
   });
 
-  it('(ii-b) version invalid (=0 < 1) — validateSessionData 直接路径 fallback 2 + INVARIANT_FAILED', () => {
+  it('(ii-b) version invalid (=0 < 1) — parseSessionData 直接路径 fallback 2 + INVARIANT_FAILED', () => {
     const audit = makeAudit();
     const raw = {
       version: 0,
@@ -110,8 +112,9 @@ describe('phase 1400 — validateSession delegates to validateSessionData (M-02 
       messages: [],
       toolsForLLM: [],
     } as unknown as SessionData;
-    const out = validateSessionData(raw, audit.audit, undefined);
-    expect(out.version).toBe(2);
+    const outcome = parseSessionData(raw, filename, audit.audit, undefined);
+    if (outcome.kind !== 'ok') throw new Error('expected ok outcome');
+    expect(outcome.session.version).toBe(2);
     const invariantEvents = audit.events.filter((e) => eventName(e) === DIALOG_AUDIT_EVENTS.INVARIANT_FAILED);
     expect(invariantEvents.length).toBeGreaterThanOrEqual(1);
     expect(
@@ -173,7 +176,7 @@ describe('phase 1400 — validateSession delegates to validateSessionData (M-02 
     expect(session.clawId).toBe('data-claw');
   });
 
-  it('(vi) 双 path 等价 — store.load() 输出与 validateSessionData(data, audit, this.clawId) 直接输出对照同 shape', async () => {
+  it('(vi) 双 path 等价 — store.load() 输出与 parseSessionData(data, filename, audit, this.clawId) 直接输出对照同 shape', async () => {
     const raw = {
       version: 2,
       clawId: 'c1',
@@ -189,7 +192,9 @@ describe('phase 1400 — validateSession delegates to validateSessionData (M-02 
     };
     const { session } = await loadViaStore(tempDir, raw, 'c1');
     const audit2 = makeAudit();
-    const direct = validateSessionData(structuredClone(raw) as SessionData, audit2.audit, 'c1');
+    const directOutcome = parseSessionData(structuredClone(raw), filename, audit2.audit, 'c1');
+    if (directOutcome.kind !== 'ok') throw new Error('expected ok outcome');
+    const direct = directOutcome.session;
     expect(session.version).toEqual(direct.version);
     expect(session.clawId).toEqual(direct.clawId);
     expect(session.systemPrompt).toEqual(direct.systemPrompt);
