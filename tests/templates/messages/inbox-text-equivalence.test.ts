@@ -92,8 +92,14 @@ const SEMANTICALLY_REDESIGNED_GROUPS = new Set(['M03', 'M06', 'M07']);
  * 重启重复；只陈述启动检查所见），由本测试现场完整 literal 断言与
  * tests/templates/messages/startup-check-semantics.test.ts 真实呈现链接管；
  * M02 不作整组接管。
+ * phase 1845: M01 唯一 case（stalled-contract）移交新语义（正文只提供当次唤醒
+ * 所需信息——检查时所见与唤醒用途，不含调度次数；attempt 证据留在 record/
+ * delivery/审计），由本测试现场完整 literal 断言与
+ * tests/templates/messages/execution-recovery-semantics.test.ts 真实链接管；
+ * M01 不作整组接管，golden 旧记录保留。
  */
 const SEMANTICALLY_REDESIGNED_CASES: Record<string, ReadonlySet<string>> = {
+  M01: new Set(['stalled-contract']),
   M02: new Set(['startup-check']),
   M04: new Set(['contract_events', 'contract_cancelled']),
   M05: new Set([
@@ -177,7 +183,8 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     // Phase 1842: M01 harness 迁到真实异步链——真实 store 预置旧 attempt=1/过期
     // lastAttemptAt，真实 controller（固定时钟）登记 attempt=2 并经实际 EventLoop
     // protected 适配器（类型化测试子类公开，不复制控制逻辑）投递，再读真实消息。
-    // golden 字节约束不变；模板文本不复制、不手造 delivery 替代产品调度。
+    // Phase 1845: 唯一 case 移交新语义完整 literal 断言；golden 旧记录保留不重录。
+    // 模板文本不复制、不手造 delivery 替代产品调度。
     const baseDir = tmpDir('p1828-m01-');
     const agentDir = path.join(baseDir, 'claws', 'claw-1');
     const pendingDir = path.join(agentDir, 'inbox', 'pending');
@@ -238,12 +245,19 @@ describe('phase 1828 inbox 文案等价（迁移后入口 vs 迁移前 golden）
     const files = fsNative.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
     expect(files).toHaveLength(1);
     const msg = decodeInbox(fsNative.readFileSync(path.join(pendingDir, files[0]!), 'utf8'));
-    expectCases('M01', [{
+    // phase 1845: M01/stalled-contract 移交新语义，现场完整 literal 断言（不经模板生成）
+    const takenOver = expectCasesExceptRedesigned('M01', [{
       case: 'stalled-contract',
       body: msg.content,
       envelope: { type: msg.type, from: msg.from, to: msg.to, priority: msg.priority },
     }]);
-    expect(msg.content).toContain('Execution stalled');
+    expect(takenOver).toEqual([{
+      case: 'stalled-contract',
+      body:
+        '系统在检查时发现契约 1700000000000-abcd 仍活跃，且一段时间未观察到新的执行活动。'
+        + '本消息用于唤醒你继续该契约尚未完成的工作。',
+      envelope: { type: 'execution_recovery', from: 'claw-1', to: '', priority: 'high' },
+    }]);
     // Phase 1842 额外断言（不进 golden）：义务经 owner 证实后 confirmed，
     // 消息以稳定 delivery id 关联（metadata 键，不依赖文件名）
     const recordPath = path.join(agentDir, EXECUTION_RECOVERY_DIR, `${CONTRACT_ID}.json`);

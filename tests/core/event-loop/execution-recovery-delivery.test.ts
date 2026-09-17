@@ -1044,4 +1044,66 @@ describe('execution-recovery delivery obligation (phase 1842)', () => {
       expect(fs.readFileSync(recordPath(h, CONTRACT_ID), 'utf8')).toBe(resetBytes);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 1845: 旧英文正文 pending 义务原样补投——冻结 body 不重写为新正文
+  // -------------------------------------------------------------------------
+
+  it('旧英文正文 pending 义务（phase 1845 前落盘）：原样补投并 confirmed，id/attempt/scheduledAt/body 不变、不加次', async () => {
+    const h = makeHarness('delivery-legacy-body-');
+    // phase 1845 之前的旧正文 literal（含调度次数措辞）；用真实 store.save 预置
+    // 合法 pending 义务，不 mock 模板制造旧 body。
+    const LEGACY_BODY =
+      `Execution stalled with no persisted activity; resume work on active contract ${CONTRACT_ID} (recovery attempt 1).`;
+    const observedActivityAt = BASE_NOW - 2 * TIMEOUT_MS;
+    const scheduledAt = BASE_NOW - TIMEOUT_MS - 1;
+    h.store.save({
+      schema_version: 1,
+      contractId: CONTRACT_ID,
+      observedActivityAt,
+      attempts: 1,
+      lastAttemptAt: scheduledAt,
+      delivery: {
+        kind: 'pending',
+        id: 'execution_recovery-legacy-body',
+        attempt: 1,
+        scheduledAt,
+        body: LEGACY_BODY,
+      },
+    });
+
+    // snapshot.lastActivityAt 与 record.observedActivityAt 相等（无新 activity）且
+    // 三个 inFlight=false → 真实 observe 直接补投该冻结义务
+    await h.controller.observe(stalled(CONTRACT_ID, observedActivityAt));
+
+    // 补投同一冻结义务：不重新渲染模板、不增加 attempt、不登记新义务
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0].delivery).toEqual({
+      kind: 'pending',
+      id: 'execution_recovery-legacy-body',
+      attempt: 1,
+      scheduledAt,
+      body: LEGACY_BODY,
+    });
+    // 消息正文原样为旧英文冻结 body（不重写为新正文）
+    const messages = readPendingMessages(h);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe('execution_recovery-legacy-body');
+    expect(messages[0].content).toBe(LEGACY_BODY);
+    expect(messages[0].metadata?.contract_id).toBe(CONTRACT_ID);
+    expect(messages[0].metadata?.[EXECUTION_RECOVERY_DELIVERY_META_KEY]).toBe('execution_recovery-legacy-body');
+    // record 原字段保留，仅 kind 转 confirmed（confirmedAt=当前时刻）
+    const record = readRecord(h, CONTRACT_ID)!;
+    expect(record.attempts).toBe(1);
+    expect(record.observedActivityAt).toBe(observedActivityAt);
+    expect(record.lastAttemptAt).toBe(scheduledAt);
+    expect(record.delivery).toEqual({
+      kind: 'confirmed',
+      id: 'execution_recovery-legacy-body',
+      attempt: 1,
+      scheduledAt,
+      body: LEGACY_BODY,
+      confirmedAt: BASE_NOW,
+    });
+  });
 });

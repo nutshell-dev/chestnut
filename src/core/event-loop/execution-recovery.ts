@@ -699,7 +699,7 @@ export function createExecutionRecoveryController(
         id: `${DELIVERY_ID_PREFIX}${newUuid()}`,
         attempt: record.attempts + 1,
         scheduledAt: currentMs,
-        body: executionRecoveryMessage(contractId, record.attempts + 1),
+        body: executionRecoveryMessage(contractId),
       };
       const next: ExecutionRecoveryRecord = {
         ...record,

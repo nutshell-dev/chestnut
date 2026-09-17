@@ -36,7 +36,18 @@ interface MigratedSource {
 }
 
 const MIGRATED: MigratedSource[] = [
-  { id: 'M01', file: 'core/event-loop/event-loop.ts', fragments: ['Execution stalled with no persisted activity'] },
+  {
+    id: 'M01',
+    // phase 1845: 真实消费者是 controller（execution-recovery.ts）；旧 event-loop.ts
+    // 位置由独立检查核正文不回流，不要求其 import 模板。新语义片段同样不得在
+    // 模板外定义第二份（旧英文保留防回潮）。
+    file: 'core/event-loop/execution-recovery.ts',
+    fragments: [
+      'Execution stalled with no persisted activity',
+      '系统在检查时发现契约',
+      '本消息用于唤醒你继续',
+    ],
+  },
   {
     id: 'M02',
     file: 'daemon/daemon-loop.ts',
@@ -158,6 +169,15 @@ describe('phase 1828: inbox message template boundary', () => {
       );
     });
   }
+
+  it('M01 旧位置 event-loop.ts：新旧执行提醒正文均不回流（模板调用已迁至 execution-recovery.ts）', () => {
+    // phase 1845: 独立核旧文件不含新旧正文；不再要求该文件 import 模板（真实消费
+    // 者是 execution-recovery.ts，不为迁就旧检查给 event-loop.ts 加无用 import）。
+    const text = readStripped('core/event-loop/event-loop.ts');
+    expect(text).not.toContain('Execution stalled with no persisted activity');
+    expect(text).not.toContain('系统在检查时发现契约');
+    expect(text).not.toContain('本消息用于唤醒你继续');
+  });
 
   it('M11 退役 composer：只采用 NO_GUIDANCE，不再引用 guidance 模板（不为空 composer 保留无用 import）', () => {
     // phase 1836: composer 已无正文资源职责，从 MIGRATED 移除；定向核 NO_GUIDANCE 出口
