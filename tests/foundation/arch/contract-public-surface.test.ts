@@ -20,6 +20,9 @@ const REQUIRED_ENTRIES = [
   "export { ContractSystem, createContractSystem } from './manager.js';",
   'type ContractId',
   'makeContractId',
+  // phase 1846 Step B: read-only terminal fact query minimal entry
+  'readContractTerminalFact',
+  'ContractTerminalFact',
 ] as const;
 
 const FORBIDDEN_EXPORTS = [

@@ -99,3 +99,7 @@ export {
 
 export { listArchiveContractLocations, archiveContainerDir } from './locations.js';
 export { CONTRACT_FILE_ROUTING } from './audit-events.js';
+
+// phase 1846 Step B: read-only terminal fact query (directory location is the lifecycle authority)
+export { readContractTerminalFact } from './terminal-fact.js';
+export type { ContractTerminalFact } from './terminal-fact.js';
