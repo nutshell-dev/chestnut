@@ -17,6 +17,10 @@ export { ProcessManager } from './manager.js';
 export { describeLiveness } from './alive.js';
 export { ProcessSpawnConflictError } from './types.js';
 export type { ProcessSpawnConflictReason } from './types.js';
+// phase 1852 Step B: barrel 一次性开放最小失败协议（真实 caller 可命名；
+// src 跨模块禁止 deep import types.js —— 反向锁见 arch/process-manager-failure-surface）
+export { ProcessGenerationStateError, ProcessWinnerConvergenceError } from './types.js';
+export type { ProcessWinnerConvergenceReason, EnsureRunningOutcome } from './types.js';
 // Phase 1464 Step B: Daemon spawn specification capability 消费通用 SpawnOptions type
 export type { SpawnOptions } from './types.js';
 export type { StopProcessOutcome, StopFailureStage } from './types.js';

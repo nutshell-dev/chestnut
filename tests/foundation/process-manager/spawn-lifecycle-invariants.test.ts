@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
-import { ProcessSpawnConflictError } from '../../../src/foundation/process-manager/types.js';
+import { ProcessSpawnConflictError } from '../../../src/foundation/process-manager/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import { writeActiveGenerationSync } from '../../helpers/generation-fixtures.js';
 import { makeAudit } from '../../helpers/audit.js';

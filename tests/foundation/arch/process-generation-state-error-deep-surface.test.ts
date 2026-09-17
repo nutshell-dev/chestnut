@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ProcessGenerationStateError,
   makeDaemonDir,
-} from '../../../src/foundation/process-manager/types.js';
+} from '../../../src/foundation/process-manager/index.js';
 import * as managerDeepSurface from '../../../src/foundation/process-manager/manager.js';
 
 describe('ProcessGenerationStateError deep surface', () => {
