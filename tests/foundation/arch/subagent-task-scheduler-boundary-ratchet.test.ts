@@ -25,13 +25,22 @@ describe('phase 1358: subagent task scheduling capabilities', () => {
       'src/core/shadow-system/types.ts',
       'src/core/shadow-system/tools/shadow.ts',
       'src/core/spawn-system/tools/spawn.ts',
-      'src/core/summon-system/tools/summon.ts',
     ]) {
       const source = read(relative);
       expect(source).toContain('SubAgentTaskScheduler');
       expect(source).not.toMatch(/taskSystem\??:\s*AsyncTaskSystem/);
       expect(source).not.toMatch(/schedule\(kind: string, payload: Record<string, unknown>\)/);
     }
+
+    // phase 1866 Step F（SU-D6）：summon 消费自有 capability（不穿透 ATS 协议名），
+    // 但载荷仍是 owner 的 typed 形状、且不得退化为 ad-hoc Record / 完整类。
+    const summon = read('src/core/summon-system/types.ts');
+    expect(summon).toContain('export interface SummonSchedulerCapability');
+    expect(summon).toContain("Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>");
+    const summonTool = read('src/core/summon-system/tools/summon.ts');
+    expect(summonTool).not.toContain('SubAgentTaskScheduler');
+    expect(summonTool).not.toMatch(/taskSystem\??:\s*AsyncTaskSystem/);
+    expect(summonTool).not.toMatch(/schedule\(kind: string, payload: Record<string, unknown>\)/);
   });
 
   it('Evolution durable dispatch sees only prepared scheduling', () => {

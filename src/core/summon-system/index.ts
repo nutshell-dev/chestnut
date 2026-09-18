@@ -5,7 +5,12 @@
  */
 
 export { SummonTool } from './tools/summon.js';
-export type { SummonToolDeps, SummonCorrelation } from './types.js';
+export type {
+  SummonToolDeps,
+  SummonCorrelation,
+  SummonSchedulerCapability,
+  SummonExecutionRequest,
+} from './types.js';
 export { createSummonVerifyPolicy } from './summon-verify-policy.js';
 export type { SummonVerifyPolicyDeps } from './summon-verify-policy.js';
 export { SUMMON_CALLER_TYPES } from './caller-types.js';
