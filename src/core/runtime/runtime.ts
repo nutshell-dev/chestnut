@@ -27,7 +27,8 @@ import {
 import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
 import { loadReadFileState, clearReadFileState, persistReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
-import { runReact, type StreamCallbacks } from '../agent-executor/index.js';
+import { runReact } from '../agent-executor/index.js';
+import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
@@ -887,7 +888,7 @@ export class Runtime {
    * Run the LLM ReAct loop over the given messages and save the session.
    * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
-  protected async _runReact(messages: Message[], systemPrompt: string, tools: ToolDefinition[], callbacks?: StreamCallbacks): Promise<void> {
+  protected async _runReact(messages: Message[], systemPrompt: string, tools: ToolDefinition[], callbacks?: RuntimeTurnCallbacks): Promise<void> {
     // phase 786: stopRequested 是 per-turn flag，每 turn 起首 reset
     // 防 P0.14 跨 turn sticky bug（done 工具误调后下 turn silent empty）
     this.execContext.stopRequested = false;
@@ -1082,7 +1083,7 @@ export class Runtime {
     messages: Message[],
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
-    callbacks?: StreamCallbacks,
+    callbacks?: RuntimeTurnCallbacks,
     reuseTraceId?: TraceId,
   ): Promise<TurnResult> {
     if (!this.initialized) {
@@ -1099,7 +1100,7 @@ export class Runtime {
     messages: Message[],
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
-    callbacks?: StreamCallbacks,
+    callbacks?: RuntimeTurnCallbacks,
     reuseTraceId?: TraceId,
   ): Promise<TurnResult> {
     const { cleanup } = this._setupTurnContext(reuseTraceId);
@@ -1508,7 +1509,7 @@ export class Runtime {
 export function handleTurnInterrupt(
   err: unknown,
   audit: AuditLog,
-  callbacks?: StreamCallbacks,
+  callbacks?: RuntimeTurnCallbacks,
   traceId?: string,  // phase 571: forensic field、optional 兼容既有 test caller
 ): void {
   // phase 571: trace_id col fallback ''、test 不传时为空 col 保 forensic 形态一致

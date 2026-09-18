@@ -1,15 +1,17 @@
 /**
  * @module L5.EventLoop.StreamCallbacks
  * @layer L5 服务层
- * @depends L2.AuditLog, L2.Stream, L3.AgentExecutor, L3.SubAgent（phase 1789 事件 owner）
+ * @depends L2.AuditLog, L2.Stream, L3.SubAgent（phase 1789 事件 owner）
  * @consumers L5.EventLoop
  *
  * 装配层：将 ReAct 循环业务事件名映射为 stream.jsonl 的 StreamEvent 记录。
+ * phase 1856 (AE-D5): 返回型为 EventLoopStreamCallbacks —— 各段语义归 invoke owner
+ * （stream 段 = AgentExecutor / turn+provider 生命周期 = Runtime / onTurnStart = EventLoop），
+ * 本装配层只做组合、不再自 L3 整包引 StreamCallbacks。
  */
 
 import type { StreamLog } from '../../foundation/stream/index.js';
-import type { StreamCallbacks } from '../agent-executor/index.js';
-import type { EventLoopTraceSource } from './types.js';
+import type { EventLoopStreamCallbacks, EventLoopTraceSource } from './types.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
 import { SUBAGENT_EVENTS } from '../subagent/index.js';
@@ -23,7 +25,7 @@ import { createSendContentTracker, feedSendContentDelta } from '../../foundation
 export function createStreamCallbacks(
   sink: StreamLog,
   runtime: EventLoopTraceSource,
-): StreamCallbacks {
+): EventLoopStreamCallbacks {
   const checkWrite = (event: import('../../foundation/stream/index.js').StreamEvent) => {
     const traceId = runtime.getCurrentTraceId();
     if (traceId) {

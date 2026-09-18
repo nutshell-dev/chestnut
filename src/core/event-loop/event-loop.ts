@@ -14,7 +14,6 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { TurnResult } from '../runtime/index.js';
-import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
@@ -56,7 +55,7 @@ import {
   type ExecutionRecoveryDeliveryRequest,
   type PendingExecutionResume,
 } from './execution-recovery.js';
-import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps } from './types.js';
+import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps, EventLoopStreamCallbacks } from './types.js';
 import type { PreparedInboxBatch } from '../runtime/index.js';
 
 /**
@@ -604,7 +603,7 @@ export class EventLoop {
   private async _processDrainedBatch(args: {
     prepared: PreparedInboxBatch;
     turnFingerprint: string;
-    wrappedCallbacks?: StreamCallbacks;
+    wrappedCallbacks?: EventLoopStreamCallbacks;
   }): Promise<'continue' | 'break' | 'failed'> {
     type PostDrainStage =
       | 'inbox_format'

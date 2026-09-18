@@ -8,7 +8,7 @@
  */
 
 import type { Runtime } from '../../src/core/runtime/index.js';
-import type { StreamCallbacks } from '../../src/core/agent-executor/index.js';
+import type { EventLoopStreamCallbacks } from '../../src/core/event-loop/index.js';
 import { isContextExceededError } from '../../src/foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
@@ -33,7 +33,7 @@ const LEGACY_PROCESS_BATCH_AUDIT_EVENTS = {
  */
 export async function runLegacyBatch(
   runtime: Runtime,
-  callbacks?: StreamCallbacks,
+  callbacks?: EventLoopStreamCallbacks,
 ): Promise<number> {
   const { injected, sources, count, infos, addressedHandles } = await runtime.drainInbox();
   if (count === 0) return 0;

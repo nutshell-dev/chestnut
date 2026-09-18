@@ -8,7 +8,7 @@ import { Runtime } from '../../../src/core/runtime/runtime.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import type { StreamCallbacks } from '../../../src/core/agent-executor/index.js';
+import type { RuntimeTurnCallbacks } from '../../../src/core/runtime/index.js';
 import type { TurnResult } from '../../../src/core/runtime/types.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -28,7 +28,7 @@ class AuthorityTestRuntime extends Runtime {
     _messages: Message[],
     _systemPrompt: string,
     _toolsForLLM: ToolDefinition[],
-    _callbacks?: StreamCallbacks,
+    _callbacks?: RuntimeTurnCallbacks,
     _reuseTraceId?: string,
   ): Promise<TurnResult> {
     this.turnStarted = true;
