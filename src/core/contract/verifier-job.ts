@@ -29,7 +29,7 @@ import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 // phase 1488: TASKS_SYNC_DIR namespace name owned by ClawIdentity
 import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
-import type { VerifierConfig, VerifierResult } from './types.js';
+import type { VerifierConfig, VerifierResult, VerifierRunRequest, VerifierRunRawResult } from './types.js';
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
   // phase 19 Step D: explicit runtime check replaces non-null assertion (LSP/M#4).
@@ -105,32 +105,25 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
 
     registry.register(doneTool);
 
-    // 调 runSubagent helper（替代 createSubAgent + 自治 audit/stream/workspace）
-    const subagentImpl = config.runSubagent ?? defaultRunSubagent;
-    const { text, capturedResult } = await subagentImpl({
+    // 调 typed verifier runner（phase 1862 Step D / CT-D4：owner 语义 request；
+    // SubAgent opts 映射归 defaultRunVerifier 唯一映射点）
+    const runVerifier = config.runVerifier ?? defaultRunVerifier;
+    const { text, capturedResult } = await runVerifier({
       agentId: config.agentId,
-      toolProfile: 'subagent',
+      prompt: config.prompt,
       clawDir: config.clawDir,
+      clawId: config.clawId,
+      contractId: config.contractId,
+      llm: config.llm,
       fs: config.fs,
       fsFactory: config.fsFactory,
-      llm: config.llm,
-      registry,
-      prompt: config.prompt,
-      systemPrompt: buildSubagentSystemPrompt({
-        taskId: config.agentId,
-        callerClawId: config.clawId,
-        subagentsDir: TASKS_SUBAGENTS_DIR,
-        systemPrompt: CONTRACT_VERIFIER_SYSTEM_PROMPT,
-      }),
-      resultDir: `${TASKS_SYNC_SUBAGENT_DIR}/${config.agentId}`,
-      syncDir: path.join(config.clawDir, TASKS_SYNC_DIR),
+      toolRegistry: registry,
       maxSteps: config.maxSteps,
       idleTimeoutMs: config.idleTimeoutMs,
       onIdleTimeout: config.onIdleTimeout,
-      resultTool: DONE_TOOL_NAME,
-      signal: config.signal,   // phase 993 D.1: cancel chain propagation
+      signal: config.signal,           // phase 993 D.1: cancel chain propagation
       toolTimeoutMs: config.toolTimeoutMs, // phase 1029 / F-2
-      currentContractId: config.contractId,
+      resultTool: DONE_TOOL_NAME,
     });
 
     // 结果解析（既有 fallback 逻辑保留）
@@ -275,4 +268,37 @@ function isValidVerifierResult(
     if (!o.issues.every((s: unknown) => typeof s === 'string')) return false;
   }
   return true;
+}
+
+/**
+ * phase 1862 Step D (CT-D4): 默认 verifier runner——VerifierRunRequest → SubAgent opts
+ * 的唯一映射点（Contract-owned request 到 L3 runSubagent 的 adapter）。
+ * 注入 runVerifier 时本默认实现被整体替换（测试 mock 到 owner 语义层）。
+ */
+async function defaultRunVerifier(req: VerifierRunRequest): Promise<VerifierRunRawResult> {
+  return defaultRunSubagent({
+    agentId: req.agentId,
+    toolProfile: 'subagent',
+    clawDir: req.clawDir,
+    fs: req.fs,
+    fsFactory: req.fsFactory,
+    llm: req.llm,
+    registry: req.toolRegistry,
+    prompt: req.prompt,
+    systemPrompt: buildSubagentSystemPrompt({
+      taskId: req.agentId,
+      callerClawId: req.clawId,
+      subagentsDir: TASKS_SUBAGENTS_DIR,
+      systemPrompt: CONTRACT_VERIFIER_SYSTEM_PROMPT,
+    }),
+    resultDir: `${TASKS_SYNC_SUBAGENT_DIR}/${req.agentId}`,
+    syncDir: path.join(req.clawDir, TASKS_SYNC_DIR),
+    maxSteps: req.maxSteps,
+    idleTimeoutMs: req.idleTimeoutMs,
+    onIdleTimeout: req.onIdleTimeout,
+    resultTool: req.resultTool,
+    signal: req.signal,
+    toolTimeoutMs: req.toolTimeoutMs,
+    currentContractId: req.contractId,
+  });
 }

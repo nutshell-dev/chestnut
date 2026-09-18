@@ -63,7 +63,7 @@ describe('phase 993: verifier-job D.1 signal + D.2 catch audit emit', () => {
         getForProfile: vi.fn().mockReturnValue([]),
       } as unknown as VerifierConfig['toolRegistry'],
       fsFactory: vi.fn(() => ({}) as unknown as VerifierConfig['fs']),
-      runSubagent: mockRunSubagentSignalAudit,
+      runVerifier: mockRunSubagentSignalAudit,
       ...overrides,
     };
   }
@@ -157,7 +157,7 @@ describe('phase 1080: verifier-job cancel skip', () => {
         getForProfile: vi.fn().mockReturnValue([]),
       } as unknown as VerifierConfig['toolRegistry'],
       fsFactory: vi.fn(() => ({}) as unknown as VerifierConfig['fs']),
-      runSubagent: mockRunSubagentCancelSkip,
+      runVerifier: mockRunSubagentCancelSkip,
       ...overrides,
     };
   }
@@ -449,7 +449,7 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
         getForProfile: vi.fn().mockReturnValue([]),
       } as unknown as VerifierConfig['toolRegistry'],
       fsFactory: vi.fn(() => ({}) as unknown as VerifierConfig['fs']),
-      runSubagent: mockRunSubagentRobustness,
+      runVerifier: mockRunSubagentRobustness,
       ...overrides,
     };
   }
@@ -621,7 +621,7 @@ function makeUnitConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig
       getForProfile: vi.fn().mockReturnValue([]),
     } as unknown as VerifierConfig['toolRegistry'],
     fsFactory: vi.fn(() => ({}) as unknown as VerifierConfig['fs']),
-    runSubagent: mockRunSubagentUnit,
+    runVerifier: mockRunSubagentUnit,
     ...overrides,
   };
 }

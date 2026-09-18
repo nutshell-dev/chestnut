@@ -284,7 +284,7 @@ describe('ContractSystem Acceptance Flow', () => {
       llm: mockLLM,
       toolRegistry: createToolRegistry(),
       fsFactory,
-      runSubagent: mockRunSubagent,
+      runVerifier: mockRunSubagent,
       clawsDir: '/tmp/test/claws',
       notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
     });
@@ -510,7 +510,7 @@ describe('ContractSystem Acceptance Flow', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-        runSubagent: mockRunSubagent,
+        runVerifier: mockRunSubagent,
         clawsDir: '/tmp/test/claws',
         notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
       });

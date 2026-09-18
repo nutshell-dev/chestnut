@@ -38,7 +38,7 @@ type Internals = {
   toolRegistry: ToolRegistry;
   toolTimeoutMs?: number;
   fsFactory: (baseDir: string) => FileSystem;
-  runSubagent?: VerifierConfig['runSubagent'];
+  runVerifier?: VerifierConfig['runVerifier'];
   contractDir: (id: ContractId) => Promise<string>;
   loadContractYaml: (id: ContractId) => Promise<ContractYaml | null>;
   getProgress: (id: ContractId) => Promise<ProgressData | null>;
@@ -130,7 +130,7 @@ function buildVerificationContext(manager: ContractSystem, signal?: AbortSignal)
       const effectiveSignal = signal
         ? AbortSignal.any([controller.signal, signal])
         : controller.signal;
-      const promise = self.runContractVerifier({ ...config, signal: effectiveSignal, contractId, fsFactory: self.fsFactory, runSubagent: self.runSubagent });
+      const promise = self.runContractVerifier({ ...config, signal: effectiveSignal, contractId, fsFactory: self.fsFactory, runVerifier: self.runVerifier });
       self._registerVerifierController(contractId, controller, promise);
       try {
         return await promise;

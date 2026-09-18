@@ -145,7 +145,8 @@ export interface ContractSystemDeps {
   toolTimeoutMs?: number;
   fsFactory: (baseDir: string) => FileSystem;
   runContractVerifier?: typeof defaultRunContractVerifier;
-  runSubagent?: VerifierConfig['runSubagent'];
+  /** phase 1862 Step D (CT-D4): typed verifier runner 注入（owner 语义 request/raw result）。 */
+  runVerifier?: VerifierConfig['runVerifier'];
   /**
    * phase 1445 Step D（裁定②例外）：boot reconcile（init()）由工厂内参数触发。
    * 仅 daemon 装配主路径（core-infrastructure、自有 claw）传 true；
@@ -167,7 +168,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   private toolTimeoutMs?: number;
   private fsFactory: (baseDir: string) => FileSystem;
   private runContractVerifier: typeof defaultRunContractVerifier;
-  private runSubagent?: VerifierConfig['runSubagent'];
+  private runVerifier?: VerifierConfig['runVerifier'];
   private activeDir = CONTRACT_ACTIVE_DIR;
   private pausedDir = CONTRACT_PAUSED_DIR;
   private archiveDir: ArchiveDir = makeArchiveDir(CONTRACT_ARCHIVE_DIR);
@@ -283,7 +284,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     this.toolTimeoutMs = deps.toolTimeoutMs;
     this.fsFactory = deps.fsFactory;
     this.runContractVerifier = deps.runContractVerifier ?? defaultRunContractVerifier;
-    this.runSubagent = deps.runSubagent;
+    this.runVerifier = deps.runVerifier;
     this.progressMutationQueue = new ProgressMutationQueue(this.audit);
 
   }
@@ -865,7 +866,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         const effectiveSignal = signal
           ? AbortSignal.any([controller.signal, signal])
           : controller.signal;
-        const promise = self.runContractVerifier({ ...config, signal: effectiveSignal, contractId, fsFactory: self.fsFactory, runSubagent: self.runSubagent });
+        const promise = self.runContractVerifier({ ...config, signal: effectiveSignal, contractId, fsFactory: self.fsFactory, runVerifier: self.runVerifier });
         self._registerVerifierController(contractId, controller, promise);
         try {
           return await promise;
@@ -1769,7 +1770,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
 /**
  * ContractSystem 工厂 —— 严格对齐 ctor 7 参数
  *
- * 输入：clawDir / clawId / fs 必填；llm / verifierScheduler 可选
+ * 输入：clawDir / clawId / fs 必填；llm / runContractVerifier / runVerifier 可选
  * 输出：ContractSystem 实例
  * 边界：可选参数未传时运行期能力降级（见 design/modules/l4_contract_system.md §2.a）
  * 失败：不抛；能力降级延迟到方法调用

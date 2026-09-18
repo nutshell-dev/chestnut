@@ -234,8 +234,44 @@ interface VerifierRuntimeConfig {
   toolTimeoutMs?: number;
   /** Factory for cross-claw FileSystem access (injected by ContractSystem) */
   fsFactory?: (baseDir: string) => FileSystem;
-  /** phase 91: optional runSubagent injection for DI (replaces vi.mock pattern in tests) */
-  runSubagent?: (opts: unknown) => Promise<{ text: string; capturedResult?: unknown }>;
+  /**
+   * phase 1862 Step D (CT-D4): typed verifier runner injection（owner 语义 request /
+   * raw result）。替代原 unknown-opts 泄漏面（untyped opts 与 raw
+   * { text, capturedResult } 均为 SubAgent 内部面）。SubAgent opts 映射归默认实现
+   *（verifier-job.ts defaultRunVerifier，唯一映射点）。
+   */
+  runVerifier?: (req: VerifierRunRequest) => Promise<VerifierRunRawResult>;
+}
+
+/**
+ * phase 1862 Step D (CT-D4): Contract-owned verifier run 输入契约。
+ * 只含 owner 语义字段，不含 SubAgent/AsyncTask 内部 opts 型。
+ */
+export interface VerifierRunRequest {
+  readonly agentId: string;
+  readonly prompt: string;
+  readonly clawDir: string;
+  readonly clawId: ClawId;
+  readonly contractId: ContractId;
+  readonly llm: LLMOrchestrator;
+  readonly fs: FileSystem;
+  readonly fsFactory: (baseDir: string) => FileSystem;
+  /** verifier 工具面：owner 已派生 readonly profile + done tool（唯一注册权威）。 */
+  readonly toolRegistry: ToolRegistry;
+  readonly maxSteps?: number;
+  readonly idleTimeoutMs: number;
+  readonly onIdleTimeout?: () => void;
+  /** AbortSignal for cancel propagation / phase 993 D.1 */
+  readonly signal?: AbortSignal;
+  readonly toolTimeoutMs?: number;
+  /** done tool 名（owner 常量面，runner 据此刻意从 registry 提取 capturedResult）。 */
+  readonly resultTool: string;
+}
+
+/** Contract-owned raw run result：runner 返回的原始事实（final text + done-tool capturedResult）。 */
+export interface VerifierRunRawResult {
+  readonly text: string;
+  readonly capturedResult?: unknown;
 }
 
 export type VerifierConfig = VerifierIdentityConfig & VerifierRuntimeConfig;
