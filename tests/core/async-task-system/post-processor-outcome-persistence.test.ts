@@ -145,7 +145,7 @@ function executorDeps(fs: FileSystem, auditWriter: AuditLog, overrides?: {
     moveTaskToFailed: overrides?.moveTaskToFailed ?? vi.fn().mockResolvedValue(undefined),
     // phase 1863 (AT-D5)：执行/交付经最小面注入
     taskExecutor: { execute: overrides?.execute ?? (async () => ({ content: 'raw result', sourceIsError: false })) },
-    deliverySink: { deliver: overrides?.deliver ?? vi.fn().mockResolvedValue(undefined) },
+    deliverySink: { deliver: overrides?.deliver ?? vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
   };
 }
 
@@ -339,7 +339,7 @@ describe('Phase 1396 Step L: executor phases', () => {
     const task = makeSubAgentTask({ postProcessor: 'success' });
     const envelope: ProcessedTaskResult = { schema_version: 1, content: 'processed ok', isError: false, metadata: { k: 'v' } };
     const postProcessors = new Map<string, PostProcessor>([['success', async () => envelope]]);
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true });
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
@@ -368,7 +368,7 @@ describe('Phase 1396 Step L: executor phases', () => {
 
   it('execution failure flows through the processor into an isError envelope and moves failed', async () => {
     const task = makeSubAgentTask();
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true });
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
@@ -453,7 +453,7 @@ describe('Phase 1396 Step L: executor phases', () => {
 
   it('missing postProcessor → terminal failed + TASK_POSTPROCESSOR_MISSING (phase 1863 AT-D14)', async () => {
     const task = makeSubAgentTask({ postProcessor: 'missing' });
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true });
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
@@ -509,7 +509,7 @@ describe('Phase 1396 Step L: executor phases', () => {
     const postProcessors = new Map<string, PostProcessor>([
       ['bad', async () => { throw new Error('processor exploded'); }],
     ]);
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true });
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
       deliver,
@@ -531,7 +531,7 @@ describe('Phase 1396 Step L: executor phases', () => {
     const postProcessors = new Map<string, PostProcessor>([
       ['identity', async (input) => ({ schema_version: 1 as const, content: input.content, isError: input.sourceIsError })],
     ]);
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true });
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
@@ -554,7 +554,7 @@ describe('Phase 1396 Step L: executor phases', () => {
     const task = makeSubAgentTask();
     const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
     fs.setFailOnWrite(`${resultDir}/result.txt`);
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true });
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {

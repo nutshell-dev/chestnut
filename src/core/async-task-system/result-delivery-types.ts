@@ -28,6 +28,27 @@ export interface ResultDeliveryDeps {
   writeInboxAsync?: WriteInboxAsync;
 }
 
+/**
+ * phase 1863 (AT-D12)：投递证据（统一形态）——投递状态在 lifecycle 可表达。
+ * - `delivered`：本次投递已落 inbox（含 at-least-once 窗口语义标注）；
+ * - `resend_window`：投递未完成但存在恢复重发窗口（任务留 running、由恢复扫描重投）；
+ * - `failed`：投递失败且无自动重发窗口（携带 reason）。
+ */
+export interface DeliveryEvidence {
+  readonly kind: 'delivered' | 'resend_window' | 'failed';
+  /** at-least-once 窗口（marker 语义统一表达）。 */
+  readonly atLeastOnceWindow?: boolean;
+  readonly reason?: string;
+}
+
+/**
+ * phase 1863 (AT-D12)：投递策略（两路径差异显式声明，非路径分支猜测）——
+ * - `marker_before_delete`：subagent 路径——成功投递先写 SENT_MARKER（≥10ms 级 race
+ *   窗口内重复投递由 marker 收敛；accepted-stable）；
+ * - `idempotent_redeliver`：tool 路径——无 marker；恢复 re-queue、幂等由 caller 契约承担。
+ */
+export type DeliveryPolicy = 'marker_before_delete' | 'idempotent_redeliver';
+
 /** phase 1042 / Phase 1396 Step J: function shape for sending a subagent task result. */
 export type SendResult<TTask> = (
   fs: FileSystem,
@@ -35,7 +56,7 @@ export type SendResult<TTask> = (
   task: TTask,
   result: ProcessedTaskResult,
   deps?: ResultDeliveryDeps,
-) => Promise<void>;
+) => Promise<DeliveryEvidence>;
 
 /**
  * Phase 1396 Step L: fallback delivery takes the full ProcessedTaskResult
@@ -52,7 +73,7 @@ export type SendToolResult<TTask> = (
   toolResult: ToolResult | string,
   isError: boolean,
   deps?: ResultDeliveryDeps,
-) => Promise<void>;
+) => Promise<DeliveryEvidence>;
 
 /** phase 1042: function shape for writing an inbox message asynchronously. */
 export type WriteInboxAsync = (

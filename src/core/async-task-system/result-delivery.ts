@@ -12,7 +12,7 @@ import {
 import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 
 import type { SubAgentTask, ToolTask, FullTaskId, ShortTaskId, DeliverySink } from './types.js';
-import type { WriteInboxAsync } from './result-delivery-types.js';
+import type { WriteInboxAsync, DeliveryEvidence } from './result-delivery-types.js';
 import { deriveShortIdFromTaskId, taskShortId } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { TaskId } from './types.js';
@@ -178,7 +178,7 @@ export async function sendToolResult(
   result: ToolResult | string,
   isError: boolean,
   deps?: ResultDeliveryDeps,
-): Promise<void> {
+): Promise<DeliveryEvidence> {
   const fullContent = typeof result === 'string' ? result : result.content;
   const shortId = taskShortId(task);
   await sendResultCore({
@@ -208,6 +208,8 @@ export async function sendToolResult(
     auditContexts: { initialWrite: 'write_result', orphanDelete: 'orphan_delete' },
     deps,
   });
+  // phase 1863 (AT-D12)：tool 路径策略 = idempotent_redeliver（无 marker；恢复 re-queue、幂等归 caller 契约）
+  return { kind: 'delivered', atLeastOnceWindow: false };
 }
 
 function envelopeToJson(envelope: ProcessedTaskResult, taskId: ShortTaskId, fullTaskId: FullTaskId, resultRef?: string, summary?: string): string {
@@ -233,7 +235,7 @@ export async function sendResult(
   task: SubAgentTask,
   result: ProcessedTaskResult,
   deps?: ResultDeliveryDeps,
-): Promise<void> {
+): Promise<DeliveryEvidence> {
   const shortId = taskShortId(task);
   await sendResultCore({
     fs,
@@ -249,6 +251,8 @@ export async function sendResult(
     auditContexts: { initialWrite: 'send_result_write', orphanDelete: 'orphan_delete_send' },
     deps,
   });
+  // phase 1863 (AT-D12)：统一投递证据（marker-before-delete 策略——at-least-once 窗口在 marker 语义）
+  return { kind: 'delivered', atLeastOnceWindow: true };
 }
 
 /**
@@ -258,7 +262,8 @@ export async function sendResult(
 export function createStandardDeliverySink(opts?: { writeInboxAsync?: WriteInboxAsync }): DeliverySink {
   return {
     async deliver(task, envelope, runtime) {
-      await sendResult(runtime.fs, runtime.auditWriter, task, envelope, { writeInboxAsync: opts?.writeInboxAsync });
+      // phase 1863 (AT-D12)：投递证据经最小面返回（lifecycle 可表达投递状态）
+      return await sendResult(runtime.fs, runtime.auditWriter, task, envelope, { writeInboxAsync: opts?.writeInboxAsync });
     },
   };
 }
@@ -276,7 +281,7 @@ export async function sendFallbackResult(
   task: SubAgentTask | ToolTask,
   result: ProcessedTaskResult,
   deps?: ResultDeliveryDeps,
-): Promise<void> {
+): Promise<DeliveryEvidence> {
   const writeInbox = deps?.writeInboxAsync ?? writeInboxAsync;
   const msgId = newUuid();
   const msg: InboxMessage = {
@@ -311,4 +316,5 @@ export async function sendFallbackResult(
     });
     await writeSentMarker(fs, auditWriter, task.id, taskShortId(task));
   }
+  return { kind: 'delivered', atLeastOnceWindow: task.kind === 'subagent' };
 }

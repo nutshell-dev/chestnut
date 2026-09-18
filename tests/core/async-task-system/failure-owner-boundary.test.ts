@@ -117,7 +117,7 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
 
   it('executeSubAgentTask failure sends exactly one is_error=true result to parentClawId', async () => {
     const task = makeSubAgentTask();
-    const deliver = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true });
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 

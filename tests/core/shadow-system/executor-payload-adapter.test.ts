@@ -84,7 +84,7 @@ describe('executor payload adapter (phase 1863 AT-D7)', () => {
         executorPayloadAdapter: interpretShadowExecutorPayload,
         runSubagent: mockRunSubagent,
       }),
-      deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
+      deliverySink: { deliver: vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
     };
   }
 

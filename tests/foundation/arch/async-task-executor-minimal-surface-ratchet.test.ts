@@ -14,7 +14,7 @@ describe('phase 1863 (AT-D5): AsyncTaskSystem minimal execution/delivery surface
   it('types.ts 定义 TaskExecutor/DeliverySink 最小面并作为 AsyncTaskSystemOptions 注入项', () => {
     const types = read('src/core/async-task-system/types.ts');
     expect(types).toMatch(/export interface TaskExecutor \{[\s\S]*?execute\(task: SubAgentTask, signal: AbortSignal, runtime: TaskExecutionRuntime\): Promise<TaskExecutionOutcome>[\s\S]*?\n\}/);
-    expect(types).toMatch(/export interface DeliverySink \{[\s\S]*?deliver\(task: SubAgentTask, envelope: ProcessedTaskResult, runtime: TaskDeliveryRuntime\): Promise<void>[\s\S]*?\n\}/);
+    expect(types).toMatch(/export interface DeliverySink \{[\s\S]*?deliver\(task: SubAgentTask, envelope: ProcessedTaskResult, runtime: TaskDeliveryRuntime\): Promise<DeliveryEvidence>[\s\S]*?\n\}/);
     expect(types).toMatch(/taskExecutor: TaskExecutor;/);
     expect(types).toMatch(/deliverySink: DeliverySink;/);
   });

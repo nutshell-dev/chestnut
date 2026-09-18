@@ -16,7 +16,7 @@ import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 
 import { uuidToShort } from '../../foundation/node-utils/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
-import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync, ProcessedTaskResult } from './result-delivery-types.js';
+import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync, ProcessedTaskResult, DeliveryEvidence } from './result-delivery-types.js';
 
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
 // 「物理迁自 core/async-task-system/types.ts」(phase 1365)
@@ -260,7 +260,8 @@ export interface TaskDeliveryRuntime {
  * phase 1863 (AT-D5)：最小交付面——subagent envelope 投递；失败抛错由调用方留 running。
  */
 export interface DeliverySink {
-  deliver(task: SubAgentTask, envelope: ProcessedTaskResult, runtime: TaskDeliveryRuntime): Promise<void>;
+  /** phase 1863 (AT-D12)：返回统一投递证据（lifecycle 可见的投递状态）。 */
+  deliver(task: SubAgentTask, envelope: ProcessedTaskResult, runtime: TaskDeliveryRuntime): Promise<DeliveryEvidence>;
 }
 
 /**

@@ -86,7 +86,7 @@ function makeDeps() {
       } as unknown as import('../../src/foundation/tools/index.js').ToolRegistry,
       runSubagent: mockRunSubagent,
     }),
-    deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
+    deliverySink: { deliver: vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
     parentStreamLog,
   };
 }

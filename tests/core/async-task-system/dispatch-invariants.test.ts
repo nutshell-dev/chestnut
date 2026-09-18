@@ -570,7 +570,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
         } as any,
         runSubagent: mockRunSubagent,
       }),
-      deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
+      deliverySink: { deliver: vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
     });
 
     expect(mockRunSubagent).toHaveBeenCalled();
@@ -622,7 +622,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
         } as any,
         runSubagent: mockRunSubagent,
       }),
-      deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
+      deliverySink: { deliver: vi.fn().mockResolvedValue({ kind: 'delivered', atLeastOnceWindow: true }) },
     });
 
     expect(mockRunSubagent).toHaveBeenCalled();

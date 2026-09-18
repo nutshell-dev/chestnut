@@ -310,8 +310,9 @@ export async function executeSubAgentTask(
     // committed envelope/content/isError stay untouched, the task stays in
     // running, and startup recovery resends the committed envelope.
     // phase 1863 (AT-D5)：投递经最小交付面（DeliverySink）。
+    let deliveryEvidence: import('./result-delivery-types.js').DeliveryEvidence;
     try {
-      await deps.deliverySink.deliver(task, envelope, { fs, auditWriter });
+      deliveryEvidence = await deps.deliverySink.deliver(task, envelope, { fs, auditWriter });
     } catch (deliveryErr) {
       emitResultDeliveryFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,
@@ -322,6 +323,16 @@ export async function executeSubAgentTask(
       return;
     }
 
+    // phase 1863 (AT-D12)：lifecycle 可见投递状态——证据 kind 参与终态判定前的可观测面
+    // （delivered 才进入终态；其余 kind 视为投递未完成、留 running 待恢复——当前标准实现仅返 delivered）。
+    if (deliveryEvidence.kind !== 'delivered') {
+      auditWriter.write(
+        TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED,   // 复用既有 deferred 面：投递未完成留 running
+        `taskId=${task.id}`,
+        `reason=delivery_${deliveryEvidence.kind}${deliveryEvidence.reason ? `_${deliveryEvidence.reason}` : ''}`,
+      );
+      return;
+    }
     outcome = envelope.isError ? 'failed' : 'done';
 
     // task_completed records the SOURCE execution outcome (status=ok|err) after
