@@ -24,7 +24,8 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 // TASKS_SYNC_DIR namespace name is now owned by ClawIdentity; L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import { SubAgent } from './agent.js';
-import { DONE_TOOL_NAME, type CapturableTool } from './tools/done.js';
+import { DONE_TOOL_NAME, createResultCaptureChannel } from './tools/done.js';
+import { bindRunCapture } from './registry-helper.js';
 
 export interface RunSubagentOptions {
   // 标识
@@ -120,8 +121,13 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // dialog store
   const messageStore = createDialogStore(opts.fs, opts.resultDir, auditWriter, 'messages.json');
 
+  // phase 1858 Step F (SA-D5): 每 run 独占 capture channel；registry 视图把 DONE tool 条目
+  // 绑定到本 run 通道（caller registry 不被修改）——结果由执行侧写入、本 helper 直接读取。
+  const capture = createResultCaptureChannel<{ result: string }>();
+  const runRegistry = bindRunCapture(opts.registry, capture);
+
   // tools for LLM — caller 可 override；默认用 registry 全量（caller 已负责 profile filter）
-  const toolsForLLM = opts.toolsForLLM ?? opts.registry.formatForLLM(opts.registry.getAll());
+  const toolsForLLM = opts.toolsForLLM ?? runRegistry.formatForLLM(runRegistry.getAll());
 
   // workspace shared with caller workspaceDir 路径决策（mirror async / verifier 既有 phase 518 决策）
   const sharedWorkspaceDir = path.join(opts.clawDir, CLAWSPACE_DIR);
@@ -129,7 +135,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // phase 1489 (M#8 derive): caller (run.ts) own ToolExecutor 构造、SubAgent 不再 own
   // 7 个 executor-only 字段、SubAgentOptions 收窄到「SubAgent 自身真正需要的」最小集合。
   const toolExecutor = new ToolExecutor({
-    registry: opts.registry,
+    registry: runRegistry,
     defaultTimeoutMs: opts.toolTimeoutMs,
     clawDir: opts.clawDir,
     syncDir: opts.syncDir,
@@ -148,7 +154,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     systemPrompt: opts.systemPrompt,
     toolExecutor,
     llm: opts.llm,
-    registry: opts.registry,
+    registry: runRegistry,
     fs: opts.fs,
     maxSteps: opts.maxSteps,
     idleTimeoutMs: opts.idleTimeoutMs,
@@ -171,9 +177,12 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // 检 capturedResult（verifier 等用 / phase 765 扩 resultTool option）
   // phase 805 设计意图：by-name string 0 import (避 L3→L4 反向 import / mirror shadow-system/system.ts:129 'done')
   // phase 1056: default 改为 DONE_TOOL_NAME — done 是单一 result-capture 工具。
+  // phase 1858 Step F (SA-D5): 主路径（DONE_TOOL_NAME）读本 run 独占通道；
+  // 自定义 resultTool 名（无生产调用方的遗留 seam）保留按名读取——其捕获机制不在本模块职责内。
   const toolName = opts.resultTool ?? DONE_TOOL_NAME;
-  const resultToolInstance = opts.registry.get(toolName) as (CapturableTool | undefined);
-  const capturedResult = resultToolInstance?.capturedResult;
+  const capturedResult = toolName === DONE_TOOL_NAME
+    ? capture.get()
+    : (opts.registry.get(toolName) as { capturedResult?: unknown } | undefined)?.capturedResult;
 
   return { text, capturedResult };
 }

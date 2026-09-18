@@ -58,20 +58,26 @@ vi.mock('child_process', async (importOriginal) => {
 
 // Mock SubAgent
 const mockSubAgentRun = vi.fn();
-let capturedSubAgentRegistry: import('../../src/foundation/tools/registry.js').ToolRegistryImpl | null = null;
+let capturedSubAgentRegistry: import('../../src/foundation/tools/index.js').ToolRegistry | null = null;
 let capturedOnIdleTimeout: (() => void) | null = null;
 
 const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(async (opts: any) => {
     // phase 1862 Step D (CT-D4)：注入面为 owner 语义 VerifierRunRequest——
     // prepared registry 经 toolRegistry 传递、resultTool 为 owner 常量面。
-    capturedSubAgentRegistry = opts.toolRegistry ?? null;
+    // phase 1858 Step F (SA-D5): mimic runSubagent 的 per-run capture channel ——
+    // LLM 侧执行的 done 经 run-scoped 绑定实例写通道、结果从通道直接读取（非实例字段）
+    const { createResultCaptureChannel } = await import('../../src/core/subagent/tools/done.js');
+    const { bindRunCapture } = await import('../../src/core/subagent/registry-helper.js');
+    const capture = createResultCaptureChannel<{ result: string }>();
+    const runRegistry = opts.toolRegistry ? bindRunCapture(opts.toolRegistry, capture) : null;
+    capturedSubAgentRegistry = runRegistry;
     capturedOnIdleTimeout = opts.onIdleTimeout ?? null;
     const text = await mockSubAgentRun();
-    // 模拟 defaultRunVerifier → runSubagent 内部从 registry 提取 capturedResult 的逻辑
     const toolName = opts.resultTool ?? 'done';
-    const resultToolInstance = opts.toolRegistry?.get(toolName);
-    const capturedResult = resultToolInstance?.capturedResult;
+    const capturedResult = toolName === 'done'
+      ? capture.get()
+      : opts.toolRegistry?.get(toolName)?.capturedResult;
     return { text, capturedResult };
   }),
 }));

@@ -280,31 +280,30 @@ describe('shadow tool (phase 767)', () => {
       });
     });
 
-    describe('done capturedResult isolation (phase 780)', () => {
-      it('uses fresh done instance, isolated from main registry capturedResult', async () => {
-        // 1. pre-set main registry done with stale capturedResult
-        const mainDone = baseCtx.registry?.get(DONE_TOOL_NAME) as { capturedResult?: { result: string } } | undefined;
+    describe('done instance isolation (phase 780; phase 1858 Step F reframe)', () => {
+      it('uses fresh done instance, isolated from main registry instance', async () => {
+        // 1. main registry 的共享 done 实例
+        const mainDone = baseCtx.registry?.get(DONE_TOOL_NAME);
         if (!mainDone) throw new Error('test setup: main registry should have done tool');
-        mainDone.capturedResult = { result: 'STALE_RESULT_FROM_PREVIOUS_SHADOW' };
 
-        // 2. mock runSubagent to not write capturedResult (simulates LLM not calling done)
+        // 2. mock runSubagent 返回文本（模拟 LLM 未调 done）
         mockRunSubagent.mockResolvedValue({ text: 'fresh shadow text result' });
 
-        // 3. run shadow; internal shadowRegistry should have fresh done, not read main stale
+        // 3. run shadow
         const result = await shadowTool.execute({ task: 'isolation test', async: false }, baseCtx);
 
-        // 4. assert text fallback, not stale result
+        // 4. 无捕获结果 → text fallback
         expect(result.success).toBe(true);
         expect(result.content).toBe('fresh shadow text result');
-        expect(result.content).not.toContain('STALE_RESULT_FROM_PREVIOUS_SHADOW');
         expect(result.metadata?.source).toBe('text');
 
-        // 5. assert runSubagent received shadowRegistry with done as fresh instance
+        // 5. runSubagent 收到的 registry 中 done 为 fresh 实例（≠ 主 registry 实例）。
+        //    phase 1858 Step F：捕获状态改为 per-run 通道（实例不再持有可变字段），
+        //    run 级「不读共享实例状态」由 run-capture-isolation.test.ts 覆盖。
         const callArgs = mockRunSubagent.mock.calls[0][0];
         const shadowDone = callArgs.registry.get(DONE_TOOL_NAME);
         expect(shadowDone).toBeDefined();
         expect(shadowDone).not.toBe(mainDone); // fresh instance !== main instance
-        expect((shadowDone as { capturedResult?: unknown }).capturedResult).toBeUndefined(); // fresh, no stale state
       });
     });
   });

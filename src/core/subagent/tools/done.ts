@@ -15,11 +15,23 @@ import { SUBAGENT_AUDIT_EVENTS } from '../audit-events.js';
 export const DONE_TOOL_NAME = 'done' as const;
 
 /**
- * phase 1489: M#9 显式表达「Tool 实例携带 captured result 回 caller」这条不可消除的耦合。
- * caller (run.ts) 凭 registry.get(name) 拿 Tool 后读 capturedResult / 类型推断成立、不需 `as` 断言绕过编译器。
+ * phase 1858 Step F (SA-D5): per-run 独占 capture channel。
+ *
+ * 取代 phase 1489 的「Tool 实例携带 capturedResult 字段」设计（该设计在 caller 复用/共享
+ * registry 时产生竞争或陈旧 result）：结果由执行侧（done 工具）直接写入本 run 通道、
+ * run helper（run.ts）直接读取；工具实例不再持有可变捕获状态。
  */
-export interface CapturableTool<T = unknown> {
-  capturedResult?: T;
+export interface ResultCaptureChannel<T> {
+  set(value: T): void;
+  get(): T | undefined;
+}
+
+export function createResultCaptureChannel<T>(): ResultCaptureChannel<T> {
+  let value: T | undefined;
+  return {
+    set(v: T): void { value = v; },
+    get(): T | undefined { return value; },
+  };
 }
 
 /**
@@ -40,10 +52,12 @@ function captureDoneResult(
 
 /**
  * 通用 done 工具
- * capturedResult mechanism：tool instance 自身存 `capturedResult` 字段 / runSubagent 取
+ * capture mechanism：结果写入注入的 per-run 通道（未注入时用实例内建通道 /
+ * 供独立使用与测试；runSubagent 路径恒注入本 run 通道）。
  */
-export function createDoneTool(): Tool & CapturableTool<{ result: string }> {
-  const tool: Tool & CapturableTool<{ result: string }> = {
+export function createDoneTool(capture?: ResultCaptureChannel<{ result: string }>): Tool {
+  const channel = capture ?? createResultCaptureChannel<{ result: string }>();
+  const tool: Tool = {
     name: DONE_TOOL_NAME,
     profiles: ['subagent'],
     description: 'Submit your final result and exit. ' +
@@ -69,11 +83,12 @@ export function createDoneTool(): Tool & CapturableTool<{ result: string }> {
       }
       // phase 337 M5 (review-2026-06-13): 拒第二次 done 调用、防 LLM 自相矛盾的
       // result 静默覆盖首次。第一次 result 保留为权威；二次调返 tool error + audit。
-      if (tool.capturedResult !== undefined) {
+      const existing = channel.get();
+      if (existing !== undefined) {
         ctx.auditWriter?.write(
           SUBAGENT_AUDIT_EVENTS.DONE_TOOL_DUPLICATE_CALL,
           `tool_use_id=${ctx.currentToolUseId ?? ''}`,
-          `first_result_len=${tool.capturedResult.result.length}`,
+          `first_result_len=${existing.result.length}`,
           `second_result_len=${result.length}`,
         );
         return {
@@ -82,8 +97,8 @@ export function createDoneTool(): Tool & CapturableTool<{ result: string }> {
           error: 'duplicate done call',
         };
       }
-      // 存 capturedResult 给 runSubagent 取
-      tool.capturedResult = { result };
+      // 写入本 run capture 通道给 runSubagent 取
+      channel.set({ result });
       // phase 1459 α-5: delegate to narrow helper（仅 ExecutionControl 子接口 sufficient）。
       // phase 777: hard-stop agent loop (kimi-k2.6 audit shows ~30 wasted LLM calls without this)
       return captureDoneResult(result, ctx);
