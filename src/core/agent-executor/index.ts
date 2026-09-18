@@ -11,7 +11,7 @@
 
 // runReact shim（装配 StepExecutor + AgentExecutor 完整 React 循环）
 export { runReact } from './loop.js';
-export type { ReactOptions, ReactResult } from './loop.js';
+export type { ReactOptions, ReactResult, ReactStepCallbacks } from './loop.js';
 export { commitTurnEvent } from './turn-event-commit.js';
 export type { TurnEvent, TurnEventCommitDeps } from './turn-event-commit.js';
 export {

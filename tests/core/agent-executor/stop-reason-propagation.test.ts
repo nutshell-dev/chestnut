@@ -49,7 +49,7 @@ async function runWithStopReason(stopReason: string): Promise<string> {
     tools: [],
     executor: makeNoopExecutor(),
     ctx: makeExecContext(),
-    onUnparseableToolUse: () => {},
+    stepCallbacks: { onUnparseableToolUse: () => {} },
   });
   return result.stopReason;
 }

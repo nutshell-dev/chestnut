@@ -118,7 +118,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
-        opts.onToolResult?.('test_tool', 'tu1', { success: true, content: 'ok result' }, 0, 5);
+        opts.stepCallbacks?.onToolResult?.('test_tool', 'tu1', { success: true, content: 'ok result' }, 0, 5);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
@@ -161,7 +161,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
-        opts.onToolResult?.('test_tool', 'tu1', { success: true, content: 'ok result' }, 0, 5);
+        opts.stepCallbacks?.onToolResult?.('test_tool', 'tu1', { success: true, content: 'ok result' }, 0, 5);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
@@ -192,7 +192,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
-        opts.onToolResult?.('my_tool', 'mid42', { success: false, content: 'error detail' }, 2, 10);
+        opts.stepCallbacks?.onToolResult?.('my_tool', 'mid42', { success: false, content: 'error detail' }, 2, 10);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
@@ -234,7 +234,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
         await new Promise<void>(resolve => { runReactRelease = resolve; }); // barrier: mock runReact ghost-callback delay
-        opts.onToolResult?.('ghost_tool', 'gt1', { success: true, content: 'ghost' }, 0, 5);
+        opts.stepCallbacks?.onToolResult?.('ghost_tool', 'gt1', { success: true, content: 'ghost' }, 0, 5);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );

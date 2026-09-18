@@ -1,12 +1,15 @@
 /**
  * ReAct loop - **facade pattern (long-term ratify per phase 1180 r129 E fork)**
  *
- * 对外保持原 `runReact` 签名（11 平铺回调 + onStepComplete）作为稳定 API、
+ * phase 1856 (AE-D8): 对外 API 改命名最小组合协议 —— ReactOptions 持
+ * `stepCallbacks?: ReactStepCallbacks`（StepExecutor 契约的命名组合，编译器保证
+ * 字段完整、StepCallbacks 演化时消费方编译期提示），不再平铺复制二十余项回调；
+ * step/maxSteps 追加参数适配保留在本 facade 唯一适配点。
  * 内部 adapt 到新契约：StepCallbacks（给 StepExecutor） + onAfterStep（给 AgentExecutor）。
  * 真实实现见 step-executor.ts 和 agent-executor.ts。
  *
- * **NOT a transitional shim** — runtime.ts 3 site 真生产依赖、tests/ 6 file mock + import
- * facade-pattern 长留稳定、0 sunset 计划 / 升档锚：if NEW caller 同型「11 平铺回调展平」需求出现 N≥2
+ * **NOT a transitional shim** — runtime.ts 1 site + subagent 1 site 真生产依赖、tests/ mock + import
+ * facade-pattern 长留稳定、0 sunset 计划 / 升档锚：if NEW caller 同型组合需求出现 N≥2
  * → 抽 generic `ReactFacade` (per phase 1180 升档锚 (a))
  */
 
@@ -20,10 +23,21 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
-import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
+import type { StepCallbacks, FinalStopReason } from '../step-executor/index.js';
 
 import type { TurnEventCommitDeps } from './turn-event-commit.js';
 
+
+/**
+ * phase 1856 (AE-D8): StepExecutor 契约的命名组合。
+ * 除下列两项外与 StepCallbacks 逐字段一致（Omit 直通、StepCallbacks 演化编译期同步）；
+ * onToolCallInput/onToolResult 由本 facade 唯一适配点追加 step(/maxSteps) 参数。
+ */
+export type ReactStepCallbacks = Omit<StepCallbacks, 'onToolCallInput' | 'onToolResult'> & {
+  /** phase 1411: fires when tool args fully parsed (post-stream, pre-execute). Facade 追加 step 参数。 */
+  onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>, step: number) => void;
+  onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult, step: number, maxSteps: number) => void;
+};
 
 export interface ReactOptions {
   messages: Message[];
@@ -36,48 +50,12 @@ export interface ReactOptions {
   maxConsecutiveMaxTokensToolUse?: number;
   idleTimeoutMs?: number;
   wallTimeDeadlineMs?: number;
-  onToolCall?: (toolName: string, toolUseId: ToolUseId) => void | Promise<void>;
-  /** phase 1411: fires when tool args fully parsed (post-stream, pre-execute). See StepCallbacks.onToolCallInput. */
-  onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>, step: number) => void;
-  /** phase 688: fires inside flushToolUse (stream + catch drain). See StepCallbacks.onToolUseInput. */
-  onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
-  /** phase 1180: fires on each tool_use_delta with raw partial JSON input. */
-  onToolUseInputDelta?: (toolName: string, toolUseId: ToolUseId, partialInput: string) => void;
-  /** phase 688: fires in collector catch path after drain; carries discard 决策摘要. */
-  onPartialAssistantDiscarded?: (info: {
-    cause: 'all_providers_failed' | 'idle_timeout' | 'unknown';
-    toolUseCount: number;
-    hasText: boolean;
-    hasThinking: boolean;
-    startTs: number;
-    endTs: number;
-    errMessage: string;
-  }) => void;
-  onBeforeLLMCall?: () => void;
-  onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult, step: number, maxSteps: number) => void;
+  /** phase 1856 (AE-D8): StepExecutor 契约的命名组合（编译器保证字段完整）。 */
+  stepCallbacks?: ReactStepCallbacks;
   /** phase 706: receives the step count after a successful step for caller persistence/audit. */
   onStepComplete?: (stepCount: number) => Promise<void>;
   tools?: ToolDefinition[];
   registry?: ToolRegistry;
-  onTextDelta?: (delta: string) => void;
-  onTextEnd?: () => void;
-  onThinkingDelta?: (delta: string) => void;
-  onReset?: (provider: string, timeoutMs: number) => void;
-  onProviderFailed?: (provider: string, model: string, error: string) => void;
-  onLLMResult?: (info: LLMCallInfo) => void;
-  onEmptyResponse?: (stopReason: string) => void;
-  onUnknownStopReason?: (stopReason: string) => void;
-  onUnparseableToolUse?: (stopReason: string) => void;
-  onToolInputParseError?: (toolName: string, toolUseId: ToolUseId, rawInput: string) => void;
-  onToolExecutionFailed?: (toolName: string, toolUseId: ToolUseId, errorType: string, errorMsg: string) => void;
-  onSafeCallbackError?: (label: string, err: unknown) => void;
-  onMaxTokensPrebuiltOnlyFinal?: (meta: { prebuiltCount: number; llm: LLMCallInfo }) => void;
-  onMaxTokensAssistantEmptySkipped?: (meta: { llm: LLMCallInfo }) => void;
-  /** phase 1383: State A orphan prebuilt drop observability */
-  onMaxTokensStateAOrphanDrop?(args: {
-    orphans: Array<{ tool_use_id: string; content: string; is_error: boolean }>;
-    llm: LLMCallInfo;
-  }): void;
   // phase 706: AgentExecutor needs audit writer + per-turn contract id for tool_call_input.
   auditWriter?: AuditLog;
   currentContractId?: string;
@@ -104,49 +82,28 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
     wallTimeDeadlineMs,
-    onToolCall, onToolCallInput, onToolUseInput, onToolUseInputDelta, onPartialAssistantDiscarded, onBeforeLLMCall, onToolResult, onStepComplete,
+    stepCallbacks,
+    onStepComplete,
     tools = [],
     registry,
-    onTextDelta, onTextEnd, onThinkingDelta,
-    onReset, onProviderFailed, onLLMResult,
-    onEmptyResponse, onUnknownStopReason, onUnparseableToolUse, onToolInputParseError, onToolExecutionFailed, onSafeCallbackError,
-    onMaxTokensPrebuiltOnlyFinal, onMaxTokensAssistantEmptySkipped,
-    onMaxTokensStateAOrphanDrop,
     auditWriter,
     currentContractId,
   } = options;
 
-  // 用闭包捕获 stepCount（适配旧 onToolResult 签名的 step/maxSteps 参数）
+  // 用闭包捕获 stepCount（onToolCallInput/onToolResult 的 step/maxSteps 追加参数——唯一适配点；
+  // 其余字段 spread 直通，StepCallbacks 演化时编译器在消费方提示）
   let stepCount = 0;
+  const onToolCallInput = stepCallbacks?.onToolCallInput;
+  const onToolResult = stepCallbacks?.onToolResult;
 
-  const stepCallbacks: StepCallbacks = {
-    onBeforeLLMCall,
-    onLLMResult,
-    onTextDelta,
-    onTextEnd,
-    onThinkingDelta,
-    onToolCall,
+  const adaptedStepCallbacks: StepCallbacks = {
+    ...stepCallbacks,
     onToolCallInput: onToolCallInput
       ? (name, toolUseId, args) => onToolCallInput(name, toolUseId, args, stepCount)
       : undefined,
-    onToolUseInput,
-    onToolUseInputDelta,
-    onPartialAssistantDiscarded,
     onToolResult: onToolResult
       ? (name, toolUseId, result) => onToolResult(name, toolUseId, result, stepCount, maxSteps)
       : undefined,
-    onReset,
-    onProviderFailed,
-    onEmptyResponse,
-    onUnknownStopReason,
-    onUnparseableToolUse,
-    onToolInputParseError,
-    onToolExecutionFailed,
-    onSafeCallbackError,
-    onMaxTokensPrebuiltOnlyFinal,
-    onMaxTokensAssistantEmptySkipped,
-    // phase 1856 (AE-D2): 完整透传 — 此前 ReactOptions 声明了该回调但未透传、永不触发
-    onMaxTokensStateAOrphanDrop,
   };
 
   const result = await runAgent({
@@ -156,7 +113,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
     wallTimeDeadlineMs,
-    stepCallbacks,
+    stepCallbacks: adaptedStepCallbacks,
     auditWriter,
     currentContractId,
     streamCallbacks: options.streamCallbacks,

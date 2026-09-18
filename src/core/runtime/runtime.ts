@@ -941,7 +941,8 @@ export class Runtime {
         idleTimeoutMs: this.options.idleTimeoutMs,
         auditWriter: this.auditWriter,
         currentContractId,
-        onLLMResult: (info) => {
+        stepCallbacks: {
+          onLLMResult: (info) => {
           // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
           this.lastLLMCallAt = Date.now();
           if (info.error) {
@@ -953,6 +954,25 @@ export class Runtime {
             // phase 560: 同上
             this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
           }
+        },
+        onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
+        onTextEnd: callbacks?.onTextEnd,
+        onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
+        onToolCall: callbacks?.onToolCall,
+        // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
+        // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
+        onToolUseInput: callbacks?.onToolUseInput,
+        onToolUseInputDelta: callbacks?.onToolUseInputDelta,
+        // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
+        onToolResult: callbacks?.onToolResult,
+        onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
+        onReset: (provider, timeoutMs) => {
+          providerInfoEmitted = false;
+          callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
+        },
+        onProviderFailed: (provider, model, error) => {
+          callbacks?.onProviderFailed?.({ provider, model, error });
+        },
         },
         onStepComplete: async (stepCount) => {
           const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
@@ -979,24 +999,6 @@ export class Runtime {
           if (await this._hasHighPriorityInbox()) {
             this.currentAbortController?.abort({ type: 'step_yield' });
           }
-        },
-        onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
-        onTextEnd: callbacks?.onTextEnd,
-        onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
-        onToolCall: callbacks?.onToolCall,
-        // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
-        // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
-        onToolUseInput: callbacks?.onToolUseInput,
-        onToolUseInputDelta: callbacks?.onToolUseInputDelta,
-        // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
-        onToolResult: callbacks?.onToolResult,
-        onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
-        onReset: (provider, timeoutMs) => {
-          providerInfoEmitted = false;
-          callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
-        },
-        onProviderFailed: (provider, model, error) => {
-          callbacks?.onProviderFailed?.({ provider, model, error });
         },
 
         streamCallbacks: callbacks,

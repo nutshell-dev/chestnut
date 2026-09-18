@@ -107,7 +107,7 @@ describe('Phase 1411 — onToolCallInput audit emit (index row)', () => {
       async (opts: {
         onToolCallInput?: (name: string, toolUseId: string, args: Record<string, unknown>, step: number) => void;
       }) => {
-        opts.onToolCallInput?.('summon', 'toolu_x1', { goal: 'do the thing' }, 3);
+        opts.stepCallbacks?.onToolCallInput?.('summon', 'toolu_x1', { goal: 'do the thing' }, 3);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
@@ -142,7 +142,7 @@ describe('Phase 1411 — onToolCallInput audit emit (index row)', () => {
       async (opts: {
         onToolCallInput?: (name: string, toolUseId: string, args: Record<string, unknown>, step: number) => void;
       }) => {
-        opts.onToolCallInput?.('noop', 'toolu_x2', {}, 0);
+        opts.stepCallbacks?.onToolCallInput?.('noop', 'toolu_x2', {}, 0);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );

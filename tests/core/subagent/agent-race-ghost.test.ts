@@ -124,8 +124,8 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
       }) => {
         await new Promise<void>(resolve => { runReactRelease = resolve; }); // barrier: mock runReact ghost-callback delay
         // timeout 后这些 callback 是 "ghost"
-        opts.onTextDelta?.('ghost text');
-        opts.onToolCall?.('ghost_tool', 'gt1');
+        opts.stepCallbacks?.onTextDelta?.('ghost text');
+        opts.stepCallbacks?.onToolCall?.('ghost_tool', 'gt1');
         return { finalText: 'result', stopReason: 'end_turn' };
       },
     );
@@ -163,8 +163,8 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
         onTextDelta?: (delta: string) => void;
         onToolCall?: (name: string, toolUseId: string) => void;
       }) => {
-        opts.onTextDelta?.('hello');
-        opts.onToolCall?.('my_tool', 'mt1');
+        opts.stepCallbacks?.onTextDelta?.('hello');
+        opts.stepCallbacks?.onToolCall?.('my_tool', 'mt1');
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );

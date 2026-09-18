@@ -60,7 +60,7 @@ describe('onMaxTokensStateAOrphanDrop 透传（phase 1856 AE-D2）', () => {
       tools: [],
       executor: makeNoopExecutor(),
       ctx: makeExecContext(),
-      onMaxTokensStateAOrphanDrop,
+      stepCallbacks: { onMaxTokensStateAOrphanDrop },
     });
 
     expect(capturedCallbacks?.onMaxTokensStateAOrphanDrop).toBeDefined();

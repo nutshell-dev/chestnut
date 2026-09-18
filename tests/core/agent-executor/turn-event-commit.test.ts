@@ -92,9 +92,11 @@ describe('streamCallbacks 组合而非覆盖（phase 1856 AE-D1）', () => {
       tools: [],
       executor: makeNoopExecutor(),
       ctx: makeExecContext(),
-      onTextEnd: caller.onTextEnd,
-      onToolCall: caller.onToolCall,
-      onToolResult: caller.onToolResult,
+      stepCallbacks: {
+        onTextEnd: caller.onTextEnd,
+        onToolCall: caller.onToolCall,
+        onToolResult: caller.onToolResult,
+      },
       streamCallbacks: sink,
     });
 
@@ -122,9 +124,11 @@ describe('streamCallbacks 组合而非覆盖（phase 1856 AE-D1）', () => {
       tools: [],
       executor: makeNoopExecutor(),
       ctx: makeExecContext(),
-      onTextEnd: caller.onTextEnd,
-      onToolCall: caller.onToolCall,
-      onToolResult: caller.onToolResult,
+      stepCallbacks: {
+        onTextEnd: caller.onTextEnd,
+        onToolCall: caller.onToolCall,
+        onToolResult: caller.onToolResult,
+      },
     });
 
     expect(result.finalText).toBe('done');

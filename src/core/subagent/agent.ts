@@ -249,37 +249,39 @@ export class SubAgent {
           maxConsecutiveMaxTokensToolUse: this.maxConsecutiveMaxTokensToolUse,
           registry: this.registry,  // Enable parallel execution for readonly tools
           tools,                    // Enable native tool_use
-          onLLMResult: (info) => {
-            if (info.error) {
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
-            } else {
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
-            }
+          stepCallbacks: {
+            onLLMResult: (info) => {
+              if (info.error) {
+                this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
+              } else {
+                this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
+              }
+            },
+            onBeforeLLMCall: stream.callbacks.onBeforeLLMCall,
+            onTextDelta: (delta: string) => { timeout.resetIdle?.(); stream.callbacks.onTextDelta(delta); },
+            onThinkingDelta: (delta: string) => { timeout.resetIdle?.(); stream.callbacks.onThinkingDelta(delta); },
+            onTextEnd: () => {
+              this.textEndCount++;
+              commitTurnEvent({ kind: 'text_end' }, emitDeps);
+            },
+            onToolCall: async (name, toolUseId) => {
+              timeout.resetIdle?.();
+              commitTurnEvent({ kind: 'tool_call', name, toolUseId }, emitDeps);
+              auditStepTools.push(name);
+              await this.appendToLog(`Tool called: ${name}\n`);
+            },
+            onToolCallInput: stream.callbacks.onToolCallInput,
+            onToolUseInput: stream.callbacks.onToolUseInput,  // phase 688: stream.jsonl 落 args body
+            onToolUseInputDelta: stream.callbacks.onToolUseInputDelta,  // phase 1180
+            onPartialAssistantDiscarded: (info) => {
+              // phase 688: catch 路径 partial 丢弃决策 → audit 落「partial_assistant_discarded」
+              emitPartialAssistantDiscarded(this.auditWriter, { ...info, agentId: this.agentId });
+            },
+            onToolResult: (name, toolUseId, result, step, maxSteps) => {
+              commitTurnEvent({ kind: 'tool_result', name, toolUseId, result, step, maxSteps }, emitDeps);
+            },
+            onUnparseableToolUse: () => {},
           },
-          onBeforeLLMCall: stream.callbacks.onBeforeLLMCall,
-          onTextDelta: (delta: string) => { timeout.resetIdle?.(); stream.callbacks.onTextDelta(delta); },
-          onThinkingDelta: (delta: string) => { timeout.resetIdle?.(); stream.callbacks.onThinkingDelta(delta); },
-          onTextEnd: () => {
-            this.textEndCount++;
-            commitTurnEvent({ kind: 'text_end' }, emitDeps);
-          },
-          onToolCall: async (name, toolUseId) => {
-            timeout.resetIdle?.();
-            commitTurnEvent({ kind: 'tool_call', name, toolUseId }, emitDeps);
-            auditStepTools.push(name);
-            await this.appendToLog(`Tool called: ${name}\n`);
-          },
-          onToolCallInput: stream.callbacks.onToolCallInput,
-          onToolUseInput: stream.callbacks.onToolUseInput,  // phase 688: stream.jsonl 落 args body
-          onToolUseInputDelta: stream.callbacks.onToolUseInputDelta,  // phase 1180
-          onPartialAssistantDiscarded: (info) => {
-            // phase 688: catch 路径 partial 丢弃决策 → audit 落「partial_assistant_discarded」
-            emitPartialAssistantDiscarded(this.auditWriter, { ...info, agentId: this.agentId });
-          },
-          onToolResult: (name, toolUseId, result, step, maxSteps) => {
-            commitTurnEvent({ kind: 'tool_result', name, toolUseId, result, step, maxSteps }, emitDeps);
-          },
-          onUnparseableToolUse: () => {},
           onStepComplete: async () => {
             try {
               const entryData = {
