@@ -2,8 +2,9 @@
  * Agent Executor - Multi-step agent loop with circuit breakers
  *
  * Repeatedly calls StepExecutor (executeStep) until a final result or exception.
- * Maintains cross-step counters (stepCount, consecutiveParseErrors,
- * consecutiveMaxTokensToolUse). Calls onAfterStep callback after each
+ * Maintains cross-step counters (stepCount, parseErrorStrikes,
+ * maxTokensToolUseStrikes — strike 语义：自上次成功起累计、另类失败不重置).
+ * Calls onAfterStep callback after each
  * successful step for caller to persist (see loop.ts shim + design
  * l3_agent_executor.md §A.invariant-2; SessionStore 落盘 phase409 已迁 caller).
  */
@@ -71,13 +72,15 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   const maxConsecutiveMaxTokensToolUse = input.maxConsecutiveMaxTokensToolUse ?? MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE;
 
   let stepCount = 0;
-  let consecutiveParseErrors = 0;
-  // phase 1483 doc: 两个熔断器计数器独立累积、互不重置。
-  // 'continue' 路径在无 parse error 时重置 consecutiveParseErrors=0、并无条件重置 consecutiveMaxTokensToolUse=0；
-  // 'max_tokens_tool_use' 路径只递增自身、不动 consecutiveParseErrors。
-  // 设计后果：parse_err → max_tokens → parse_err 交替序列里 parse counter 不被 max_tokens 步重置（合规：交替仍计入连续 parse 失败）；
-  //          max_tokens → continue(成功) → max_tokens 序列里 max_tokens counter 被成功 'continue' 重置。
-  let consecutiveMaxTokensToolUse = 0;
+  // phase 1856 (AE-D4) strike 语义契约（取代旧「连续 consecutive」表述）：
+  // strike = 自上次成功步以来累计的该类失败步数；另类失败不重置、仅成功步双清。
+  // phase 1483 doc（行为保留、表述修正）：两个熔断器计数器独立累积、互不重置。
+  // 'continue' 路径在无 parse error 时重置 parseErrorStrikes=0、并无条件重置 maxTokensToolUseStrikes=0；
+  // 'max_tokens_tool_use' 路径只递增自身、不动 parseErrorStrikes。
+  // 设计后果：parse_err → max_tokens → parse_err 交替序列里 parse strike 不被 max_tokens 步重置（累计语义：交替仍计入 parse strike）；
+  //          max_tokens → continue(成功) → max_tokens 序列里 max_tokens strike 被成功 'continue' 重置。
+  let parseErrorStrikes = 0;
+  let maxTokensToolUseStrikes = 0;
 
   const startMs = Date.now();
   const deadline = input.wallTimeDeadlineMs;
@@ -199,15 +202,15 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
 
       // 4. 熔断判定（parse errors）
       if (result.meta.allParseErrors) {
-        consecutiveParseErrors++;
+        parseErrorStrikes++;
         // Strike 2: warn agent before termination at strike 3
-        if (consecutiveParseErrors === maxConsecutiveParseErrors - 1) {
+        if (parseErrorStrikes === maxConsecutiveParseErrors - 1) {
           messages.push({
             role: 'user' as const,
-            content: `[system warning] 连续 ${consecutiveParseErrors} 次工具参数 JSON 解析失败。下一次将终止当前任务。请检查工具调用中的 JSON 格式是否正确。`,
+            content: `[system warning] 工具参数 JSON 解析失败已累计 ${parseErrorStrikes} 次（自上次成功起）。下一次将终止当前任务。请检查工具调用中的 JSON 格式是否正确。`,
           });
         }
-        if (consecutiveParseErrors >= maxConsecutiveParseErrors) {
+        if (parseErrorStrikes >= maxConsecutiveParseErrors) {
           // 从最近一条 assistant 消息的 tool_use blocks 提取工具名（为错误消息保留上下文）
           const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
           const lastContent = lastAssistant?.content;
@@ -222,10 +225,10 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
           throw new ConsecutiveParseErrorsExceededError(maxConsecutiveParseErrors, toolNames);
         }
       } else {
-        consecutiveParseErrors = 0;
-        // phase 454 (review N3-M): max-tokens 计数仅在 parse-success 时重置；
+        parseErrorStrikes = 0;
+        // phase 454 (review N3-M): max-tokens strike 仅在 parse-success 时重置；
         // parse-error continue 不再重置 max-tokens、保 strike independence
-        consecutiveMaxTokensToolUse = 0;
+        maxTokensToolUseStrikes = 0;
       }
 
       continue;
@@ -253,15 +256,15 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         await onAfterStep(result.meta, stepCount);
       }
 
-      consecutiveMaxTokensToolUse++;
+      maxTokensToolUseStrikes++;
       // Strike 2: warn agent before termination at strike 3
-      if (consecutiveMaxTokensToolUse === maxConsecutiveMaxTokensToolUse - 1) {
+      if (maxTokensToolUseStrikes === maxConsecutiveMaxTokensToolUse - 1) {
         messages.push({
           role: 'user' as const,
-          content: `[system warning] 连续 ${consecutiveMaxTokensToolUse} 次因 token 上限截断工具调用。下一次将终止当前任务。请将内容拆分为多次较小的调用。`,
+          content: `[system warning] 因 token 上限截断工具调用已累计 ${maxTokensToolUseStrikes} 次（自上次成功起）。下一次将终止当前任务。请将内容拆分为多次较小的调用。`,
         });
       }
-      if (consecutiveMaxTokensToolUse >= maxConsecutiveMaxTokensToolUse) {
+      if (maxTokensToolUseStrikes >= maxConsecutiveMaxTokensToolUse) {
         throw new ConsecutiveMaxTokensToolUseError(maxConsecutiveMaxTokensToolUse);
       }
 
