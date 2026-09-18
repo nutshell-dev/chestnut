@@ -14,41 +14,51 @@ import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 
 const SUMMON_STATE_SUBDIR = 'summon-state';
 
+/** phase 1866 Step H（SU-D8）：legacy 扫描报告（scanned=false = 扫描不可用）。 */
+export interface LegacySummonStateScan {
+  readonly scanned: boolean;
+  readonly leftover: number;
+}
+
+/**
+ * 扫 summon-state/ 残留（装配期/恢复入口一次性观察）。
+ * 行为不变（audit 行逐字不变）；phase 1866 Step H 起返回 typed 报告供恢复入口汇总。
+ */
 export async function checkLegacySummonStateFiles(
   fs: FileSystem,
   audit?: AuditLog,
-): Promise<void> {
-  if (!audit) return;
+): Promise<LegacySummonStateScan> {
+  if (!audit) return { scanned: false, leftover: 0 };
 
   let exists: boolean;
   try {
     exists = await fs.exists(SUMMON_STATE_SUBDIR);
   } catch (err) {
-    if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return; // dir absent → no legacy state
+    if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return { scanned: true, leftover: 0 }; // dir absent → no legacy state
     audit.write(
       SUMMON_AUDIT_EVENTS.SUMMON_LEGACY_STATE_FILE_DETECTED,
       `dir=${SUMMON_STATE_SUBDIR}`,
       `error=exists_failed`,
       `reason=${formatErr(err)}`,
     );
-    return;
+    return { scanned: false, leftover: 0 };
   }
-  if (!exists) return;
+  if (!exists) return { scanned: true, leftover: 0 };
 
   let entries: { name: string }[];
   try {
     entries = await fs.list(SUMMON_STATE_SUBDIR, { includeDirs: false });
   } catch (err) {
-    if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return;
+    if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return { scanned: true, leftover: 0 };
     audit.write(
       SUMMON_AUDIT_EVENTS.SUMMON_LEGACY_STATE_FILE_DETECTED,
       `dir=${SUMMON_STATE_SUBDIR}`,
       `error=list_failed`,
       `reason=${formatErr(err)}`,
     );
-    return;
+    return { scanned: false, leftover: 0 };
   }
-  if (entries.length === 0) return;
+  if (entries.length === 0) return { scanned: true, leftover: 0 };
 
   audit.write(
     SUMMON_AUDIT_EVENTS.SUMMON_LEGACY_STATE_FILE_DETECTED,
@@ -56,4 +66,5 @@ export async function checkLegacySummonStateFiles(
     `dir=${SUMMON_STATE_SUBDIR}`,
     `action=manual_cleanup_required`,
   );
+  return { scanned: true, leftover: entries.length };
 }

@@ -25,6 +25,7 @@
 import { z } from 'zod';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 /** claim 根目录（相对 chestnutRoot）。 */
 export const SUMMON_CREATION_CLAIMS_DIR = 'summons' as const;
@@ -78,6 +79,18 @@ export class SummonCreationClaimCorruptedError extends Error {
 export interface SummonCreationClaimStore {
   claim(input: SummonCreationClaimInput): Promise<SummonCreationClaimResult>;
   read(summonId: string): Promise<SummonCreationClaim | undefined>;
+  /**
+   * phase 1866 Step H（SU-D8）：列全部 claim（authority 面恢复核对）。
+   * 逐项读取失败不静默：进 `unreadable`（summonId + detail），其余照常返回。
+   */
+  list(): Promise<SummonCreationClaimListing>;
+}
+
+/** claim 列举结果（owner 侧扫描；损坏/不可读项显式列出）。 */
+export interface SummonCreationClaimListing {
+  readonly readable: boolean;
+  readonly claims: readonly SummonCreationClaim[];
+  readonly unreadable: readonly { readonly summonId: string; readonly detail: string }[];
 }
 
 function isAlreadyExists(err: unknown): boolean {
@@ -177,6 +190,30 @@ export function createSummonCreationClaimStore(deps: { fs: FileSystem }): Summon
         throw err;
       }
       return parseClaim(raw, path);
+    },
+
+    async list() {
+      let entries: { name: string; isDirectory: boolean }[];
+      try {
+        entries = fs.listSync(SUMMON_CREATION_CLAIMS_DIR, { includeDirs: true });
+      } catch (err) {
+        if (isFileNotFound(err)) return { readable: true, claims: [], unreadable: [] };
+        // silent: 目录级不可读以 readable=false 交付（DP：恢复入口把它记进 issues，不吞没）
+        return { readable: false, claims: [], unreadable: [] };
+      }
+      const claims: SummonCreationClaim[] = [];
+      const unreadable: { summonId: string; detail: string }[] = [];
+      for (const entry of entries.filter(e => e.isDirectory)) {
+        const summonId = entry.name;
+        const path = claimPath(summonId);
+        try {
+          claims.push(parseClaim(await fs.read(path), path));
+        } catch (err) {
+          if (isFileNotFound(err)) continue; // 目录存在但 claim 未落盘 = 无创建事实记录，非异常项
+          unreadable.push({ summonId, detail: formatErr(err) });
+        }
+      }
+      return { readable: true, claims, unreadable };
     },
   };
 }

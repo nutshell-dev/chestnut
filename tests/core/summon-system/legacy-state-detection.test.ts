@@ -77,7 +77,8 @@ describe('checkLegacySummonStateFiles (phase 281 Step B)', () => {
     const { fs } = await createTempFs();
     await fs.ensureDir('summon-state');
     await fs.writeAtomic('summon-state/old-task.json', '{}');
-    await expect(checkLegacySummonStateFiles(fs, undefined)).resolves.toBeUndefined();
+    // phase 1866 Step H（SU-D8）：返回 typed 扫描报告（无 audit = 未扫描）
+    await expect(checkLegacySummonStateFiles(fs, undefined)).resolves.toEqual({ scanned: false, leftover: 0 });
   });
 
   it('fs.exists throw FS_NOT_FOUND → 0 emit', async () => {

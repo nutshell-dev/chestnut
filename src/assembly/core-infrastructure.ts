@@ -19,7 +19,7 @@ import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index
 import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
-import { checkLegacySummonStateFiles } from '../core/summon-system/index.js';
+import { createSummonCreationClaimStore, restoreSummonFacts } from '../core/summon-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
@@ -120,7 +120,14 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     // phase 281 Step B: scan legacy summon-state/ files and emit audit (no auto-delete)
     try {
-      await checkLegacySummonStateFiles(systemFs, auditWriter);
+      // phase 1866 Step H（SU-D8）：恢复事实经唯一入口（legacy 扫描子面在其内、audit 行为不变）。
+      await restoreSummonFacts({
+        fs: systemFs,
+        audit: auditWriter,
+        claimStore: createSummonCreationClaimStore({
+          fs: fsFactory(resolveChestnutRoot(clawDir, isMotion)),
+        }),
+      });
     } catch (err) {
       // phase 703: 加 context col 区分 2 caller 路径、与 phase 582/584 context col 同模式
       auditWriter.write(
