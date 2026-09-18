@@ -310,7 +310,8 @@ describe('summon-verify-param', () => {
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
       // 内部固定 shadow 路径；决策字段已从调用方协议中退场
-      expect(tasks[0].callerType).toBe('shadow_subagent');
+      // phase 1863 (AT-D8)：callerType → opaque correlation.source
+      expect((tasks[0].correlation as Record<string, unknown>).source).toBe('shadow_subagent');
       // Phase 1402 Step B: active writer 停写 summonDecision；identity 由 canonical postProcessor 承担
       expect(tasks[0].summonDecision).toBeUndefined();
       expect(tasks[0].postProcessor).toBe('summon-contract-extract');
@@ -463,7 +464,8 @@ describe('summon-default-mode-shadow', () => {
       expect(result.success).toBe(true);
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].callerType).toBe('shadow_subagent');
+      // phase 1863 (AT-D8)：callerType → opaque correlation.source
+      expect((tasks[0].correlation as Record<string, unknown>).source).toBe('shadow_subagent');
       const payload = tasks[0].executorPayload as Record<string, unknown>;
       expect(payload).toBeDefined();
       expect(Array.isArray(payload.messages)).toBe(true);

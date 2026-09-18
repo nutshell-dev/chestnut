@@ -50,7 +50,7 @@ export async function spawnShadowSubagent(
     maxSteps: payload.budget.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
     parentClawId: opts.ctx.clawId ?? '',
     originClawId: payload.identity.originClawId ?? '',
-    callerType: 'shadow_subagent',
+    correlation: { source: 'shadow_subagent' },   // phase 1863 (AT-D8)：opaque correlation
     toolProfile: 'full',
     postProcessor: payload.postProcessor,
   });

@@ -134,7 +134,7 @@ describe('shadow tool async (phase 1087)', () => {
       expect((shadowMessages[1] as { content: string }).content).toContain('SHADOW INSTRUCTION');
       expect(callArgs.parentClawId).toBe('test-claw');
       expect(callArgs.originClawId).toBe('test-claw');
-      expect(callArgs.callerType).toBe('shadow_subagent');
+      expect((callArgs.correlation as Record<string, unknown>).source).toBe('shadow_subagent');
       expect(callArgs.mode).toBeUndefined();
     });
 

@@ -78,16 +78,19 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem; sh
         // 下游 `.intent` NPE。先验对象 shape、否则 skip 当 partial 文件。
         const raw: unknown = JSON.parse(clawFs.readSync(taskRel));
         if (typeof raw !== 'object' || raw === null) continue;
-        const task = raw as { intent?: unknown; systemPrompt?: unknown; callerType?: unknown; postProcessor?: unknown };
+        const task = raw as { intent?: unknown; systemPrompt?: unknown; callerType?: unknown; correlation?: { source?: unknown }; postProcessor?: unknown };
         const intentText = typeof task.intent === 'string' ? task.intent : undefined;
         const systemPrompt = typeof task.systemPrompt === 'string' ? task.systemPrompt : undefined;
         if (systemPrompt?.includes('RANDOM_DREAM') || intentText?.includes('[DREAM_OUTPUT]')) {
           return 'random_dream';
         }
-        if (task.callerType === SUMMON_CALLER_TYPES.SHADOW || task.callerType === SUMMON_CALLER_TYPES.MINER || task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME || task.postProcessor === 'dispatch-contract-extract') {
+        // phase 1863 (AT-D8)：新任务写 correlation.source；legacy callerType 双读（旧任务文件）
+        const correlationSource = typeof task.correlation?.source === 'string' ? task.correlation.source : undefined;
+        const callerSource = correlationSource ?? (typeof task.callerType === 'string' ? task.callerType : undefined);
+        if (callerSource === SUMMON_CALLER_TYPES.SHADOW || callerSource === SUMMON_CALLER_TYPES.MINER || task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME || task.postProcessor === 'dispatch-contract-extract') {
           return 'summon';
         }
-        if (task.callerType === 'spawn_subagent') {
+        if (callerSource === 'spawn_subagent') {
           return 'spawn';
         }
         return 'spawn';

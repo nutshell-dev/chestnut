@@ -10,8 +10,11 @@
 import { z } from 'zod';
 
 
-// 字符串值与 system.ts CallerType 等价（保持单一真相 / type-import）
-const CallerTypeSchema = z.enum(['spawn_subagent', 'verifier', 'shadow_subagent', 'miner_subagent']);
+// phase 1863 (AT-D8)：opaque correlation（ATS 不预设 caller universe；source 为 caller 自声明字符串）
+const TaskCorrelationSchema = z.object({
+  source: z.string(),
+  ref: z.string().optional(),
+});
 
 /**
  * Phase 1396 Step K: SummonDecision 版本化 metadata。
@@ -56,7 +59,7 @@ const commonSubAgentFields = {
   maxSteps: z.number().optional(),
   parentClawId: z.string(),
   createdAt: z.string(),
-  callerType: CallerTypeSchema.optional(),
+  correlation: TaskCorrelationSchema.optional(),
   toolProfile: z.string().optional(),
   originClawId: z.string().optional(),
   // phase 1863 (AT-D6): 删 legacy motionClawDir（无 active writer；存量任务读取经 zod strip

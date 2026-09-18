@@ -55,7 +55,18 @@ export function taskShortId(task: { id: TaskId; shortId?: ShortTaskId | string }
   return task.shortId ? makeShortTaskId(task.shortId) : deriveShortIdFromTaskId(task.id);
 }
 
-export type CallerType = 'spawn_subagent' | 'verifier' | 'shadow_subagent' | 'miner_subagent';
+/**
+ * phase 1863 (AT-D8)：opaque typed correlation——记录来源事实（caller 自声明 source），
+ * 通用模块不预设 caller universe、不参与执行裁决（tool profile 由显式 toolProfile 决定）。
+ * 取值由各 caller 自声明（当前：'spawn_subagent' | 'shadow_subagent' | 任意）；
+ * 不参与执行裁决。
+ */
+export interface TaskCorrelation {
+  /** caller 自声明来源（opaque string）。 */
+  readonly source: string;
+  /** 可选引用（caller 语义）。 */
+  readonly ref?: string;
+}
 
 /** Read-only task identity capability for query consumers. */
 export interface TaskIdResolver {
@@ -143,7 +154,8 @@ interface CommonSubAgentTaskFields {
   maxSteps?: number;
   parentClawId: string;
   createdAt: string;
-  callerType?: CallerType;
+  /** phase 1863 (AT-D8)：opaque correlation（替换封闭 CallerType 枚举）。 */
+  correlation?: TaskCorrelation;
   /** Persisted declarative tool capability; execution never derives it from caller identity. */
   toolProfile?: ToolProfile;
   originClawId?: string;                   // 创建链路源头，传给子 SubAgent

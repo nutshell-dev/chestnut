@@ -270,7 +270,8 @@ Content.
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
       expect(payloadMessages(tasks[0])).toBeDefined();
-      expect(tasks[0].callerType).toBe('shadow_subagent');
+      // phase 1863 (AT-D8)：callerType → opaque correlation.source
+      expect((tasks[0].correlation as Record<string, unknown>).source).toBe('shadow_subagent');
       expect(tasks[0].motionClawDir).toBeUndefined();
     });
 
@@ -288,7 +289,8 @@ Content.
       expect(tasks).toHaveLength(1);
       expect(payloadOf(tasks[0]).systemPrompt).toBe(mockMotionPrompt);
       expect(payloadMessages(tasks[0])).toBeDefined();
-      expect(tasks[0].callerType).toBe('shadow_subagent');
+      // phase 1863 (AT-D8)：callerType → opaque correlation.source
+      expect((tasks[0].correlation as Record<string, unknown>).source).toBe('shadow_subagent');
     });
   });
 

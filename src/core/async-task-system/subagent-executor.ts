@@ -37,19 +37,13 @@ import { taskShortId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
 
-/** Compatibility for already-persisted tasks written before toolProfile existed.
- * Phase 1396 Step K: 'miner_subagent' branch is legacy v1 read-only; no new writer
- * should schedule miner callerType tasks.
+/**
+ * phase 1863 (AT-D8)：profile 全由显式 toolProfile 决定（不再从 caller 身份派生——
+ * 执行裁决去 callerType 化）。缺失时按 standard subagent 默认 + INVARIANT_VIOLATION 留痕。
  */
-function legacyCallerTypeToProfile(ct: string) {
-  if (ct === 'miner_subagent') return 'miner';
-  if (ct === 'shadow_subagent') return 'full';
-  return 'subagent';
-}
-
 function resolveTaskToolProfile(task: SubAgentTask, auditWriter: AuditLog): string {
   if (task.toolProfile) return task.toolProfile;
-  const profile = legacyCallerTypeToProfile(task.callerType ?? 'spawn_subagent');
+  const profile = 'subagent';
   auditWriter.write(
     TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
     'site=async-task-system/subagent-executor:resolveTaskToolProfile',
@@ -234,7 +228,7 @@ export async function executeSubAgentTask(
     ts: Date.now(),
     type: STREAM_TASK_EVENTS.TASK_STARTED,
     taskId: task.id,
-    taskKind: task.callerType ?? 'spawn_subagent',
+    taskKind: task.correlation?.source ?? 'spawn_subagent',
     silent: false,
   });
   const taskStreamPath = `${taskResultDir}/${STREAM_FILE}`;
@@ -427,7 +421,7 @@ export async function executeSubAgentTask(
       status: source.sourceIsError ? 'err' : 'ok',
       kind: 'subagent',
       parent: task.parentClawId,
-      callerType: task.callerType ?? 'spawn_subagent',
+      callerType: task.correlation?.source ?? 'spawn_subagent',
       intent: auditWriter.preview(task.intent),  // phase 218: union 简化后两 mode 均有 intent
       ...(execErrorCategory !== undefined ? { errorCategory: execErrorCategory } : {}),
       elapsedMs: Date.now() - taskStartTime,
