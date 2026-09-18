@@ -10,6 +10,25 @@ import { readTool, lsTool, searchTool } from '../../../src/foundation/file-tool/
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ExecContext } from '../../../src/foundation/tools/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import type { CrossTargetAccess } from '../../../src/core/claw-topology/agent-tools.js';
+
+/**
+ * phase 1864 Step G（CT-D10）：测试用跨目标 access capability——
+ * 授权主体显式 + 按 target 构造 checker（对象标识与 caller 的不同）。
+ */
+const crossTargetAccess: CrossTargetAccess = {
+  grantedBy: 'test-cross-target',
+  createChecker: () => ({
+    checkRead: () => {},
+    checkWrite: () => {},
+    resolveAndCheck: (relPath: string) => relPath,
+    prepareWrite: async (relPath: string) => ({
+      target: relPath,
+      write: async () => {},
+      append: async () => {},
+    }),
+  }),
+};
 
 describe('createCrossClawReadTool', () => {
   const mockTopology = {
@@ -64,14 +83,14 @@ describe('createCrossClawReadTool', () => {
   });
 
   it('schema 含 claw 属性', () => {
-    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     expect(tool.schema.properties).toHaveProperty('claw');
     expect(tool.name).toBe(readTool.name);
   });
 
   it('args.claw === undefined → delegate base tool（同 claw fallback）', async () => {
     const spy = vi.spyOn(readTool, 'execute').mockResolvedValue({ success: true, content: 'hello' });
-    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: 'test.txt' }, ctx);
     expect(result).toEqual({ success: true, content: 'hello' });
@@ -88,7 +107,7 @@ describe('createCrossClawReadTool', () => {
       expect(passedCtx.fs).toBeDefined();
       return { success: true, content: 'cross-claw content' };
     });
-    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx({ readFileState: callerReadFileState, persistReadFileState: true });
     const result = await tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx);
     expect(result.success).toBe(true);
@@ -102,8 +121,46 @@ describe('createCrossClawReadTool', () => {
     expect(ctx.persistReadFileState).toBe(true);
   });
 
+  it('phase 1864 Step G（CT-D10）：target ctx 的 permissionChecker 为注入 capability（≠ caller 的）', async () => {
+    const callerChecker = makeBaseCtx().permissionChecker;
+    let seenChecker: unknown;
+    let seenClawDir: string | undefined;
+    const spy = vi.spyOn(readTool, 'execute').mockImplementation(async (_args, passedCtx) => {
+      seenChecker = passedCtx.permissionChecker;
+      seenClawDir = passedCtx.clawDir;
+      return { success: true, content: 'cross-claw content' };
+    });
+    const access: CrossTargetAccess = {
+      grantedBy: 'test-cross-target',
+      createChecker: ({ clawDir }) => {
+        expect(clawDir).toBe('/chestnut/claws/claw1');
+        return {
+          checkRead: () => {},
+          checkWrite: () => {},
+          resolveAndCheck: (relPath: string) => relPath,
+          prepareWrite: async (relPath: string) => ({
+            target: relPath,
+            write: async () => {},
+            append: async () => {},
+          }),
+        };
+      },
+    };
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess: access });
+    const ctx = makeBaseCtx();
+    await tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(seenClawDir).toBe('/chestnut/claws/claw1');
+    // 显式 capability：调用形态为 target clawDir + target fs；与 caller 的 checker 不同实例
+    expect(seenChecker).toBeDefined();
+    expect(seenChecker).not.toBe(callerChecker);
+    // caller ctx 未被污染
+    expect(ctx.permissionChecker).toBe(callerChecker);
+  });
+
   it('args.claw === "*" → 拒（read 不支持 broadcast）', async () => {
-    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: 'test.txt', claw: '*' }, ctx);
     expect(result.success).toBe(false);
@@ -111,7 +168,7 @@ describe('createCrossClawReadTool', () => {
   });
 
   it('args.claw 无效 → 返回错误', async () => {
-    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: 'test.txt', claw: '../bad' }, ctx);
     expect(result.success).toBe(false);
@@ -126,7 +183,7 @@ describe('createCrossClawReadTool', () => {
       }),
     };
     const auditSpy = vi.fn();
-    const tool = createCrossClawReadTool({ topology: failingTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: failingTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx({
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
     });
@@ -141,7 +198,7 @@ describe('createCrossClawReadTool', () => {
 
   it('preserves actual error cause instead of reporting "not found"', async () => {
     const auditSpy = vi.fn();
-    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx({
       fsFactory: (_dir: string) => {
         throw new Error('EACCES: permission denied, open /chestnut/claws/claw1/clawspace/test.txt');
@@ -163,7 +220,7 @@ describe('createCrossClawReadTool', () => {
     const abortErr = new Error('Execution aborted');
     abortErr.name = 'AbortError';
     vi.spyOn(readTool, 'execute').mockRejectedValue(abortErr);
-    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     await expect(tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx)).rejects.toThrow('Execution aborted');
   });
@@ -176,7 +233,7 @@ describe('createCrossClawReadTool', () => {
       }),
     };
     const auditSpy = vi.fn();
-    const tool = createCrossClawReadTool({ topology: failingTopology, allowed: true });
+    const tool = createCrossClawReadTool({ topology: failingTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx({
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
     });
@@ -230,7 +287,7 @@ describe('createCrossClawLsTool', () => {
 
   it('无 claw → delegate base', async () => {
     const spy = vi.spyOn(lsTool, 'execute').mockResolvedValue({ success: true, content: 'dir' });
-    const tool = createCrossClawLsTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawLsTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: '.' }, ctx);
     expect(result).toEqual({ success: true, content: 'dir' });
@@ -238,7 +295,7 @@ describe('createCrossClawLsTool', () => {
   });
 
   it('claw "*" → 拒', async () => {
-    const tool = createCrossClawLsTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawLsTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: '.', claw: '*' }, ctx);
     expect(result.success).toBe(false);
@@ -288,7 +345,7 @@ describe('createCrossClawSearchTool broadcast', () => {
     const spy = vi.spyOn(searchTool, 'execute').mockImplementation(async (_args, passedCtx) => {
       return { success: true, content: `found in ${path.basename(passedCtx.clawDir)}` };
     });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
     expect(result.success).toBe(true);
@@ -299,7 +356,7 @@ describe('createCrossClawSearchTool broadcast', () => {
 
   it('非 motion 调 claw: "*" → 拒 + emit cross_claw_broadcast_motion_only_violation', async () => {
     const auditSpy = vi.fn();
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: false });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: false, crossTargetAccess });
     const ctx = makeBaseCtx({
       clawId: 'claw1',
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
@@ -316,7 +373,7 @@ describe('createCrossClawSearchTool broadcast', () => {
 
   it('装配误传 allowed=true 时仍以运行时 clawId 拒绝非 motion broadcast', async () => {
     const auditSpy = vi.fn();
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx({
       clawId: 'claw1',
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
@@ -342,7 +399,7 @@ describe('createCrossClawSearchTool broadcast', () => {
     };
     const auditSpy = vi.fn();
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: true, content: 'found' });
-    const tool = createCrossClawSearchTool({ topology: failingTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: failingTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx({
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
     });
@@ -358,7 +415,7 @@ describe('createCrossClawSearchTool broadcast', () => {
 
   it('无 claw → delegate base tool', async () => {
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: true, content: 'ok' });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ text: 'foo' }, ctx);
     expect(result).toEqual({ success: true, content: 'ok' });
@@ -367,7 +424,7 @@ describe('createCrossClawSearchTool broadcast', () => {
 
   it('broadcast 所有 claw 失败 → 返回 success:false 并含 all X claws failed', async () => {
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: false, content: 'disk error' });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
     expect(spy).toHaveBeenCalledTimes(2);
@@ -384,7 +441,7 @@ describe('createCrossClawSearchTool broadcast', () => {
       }
       return { success: true, content: 'found in claw2' };
     });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
     expect(spy).toHaveBeenCalledTimes(2);
@@ -397,7 +454,7 @@ describe('createCrossClawSearchTool broadcast', () => {
     const abortedSignal = new AbortController();
     abortedSignal.abort();
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: true, content: 'found' });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx({ signal: abortedSignal.signal });
     await expect(tool.execute({ text: 'foo', claw: '*' }, ctx)).rejects.toThrow('Execution aborted');
     expect(spy).toHaveBeenCalledTimes(0);
@@ -407,7 +464,7 @@ describe('createCrossClawSearchTool broadcast', () => {
     const abortErr = new Error('Execution aborted');
     abortErr.name = 'AbortError';
     vi.spyOn(searchTool, 'execute').mockRejectedValue(abortErr);
-    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     await expect(tool.execute({ text: 'foo', claw: '*' }, ctx)).rejects.toThrow('Execution aborted');
   });
@@ -419,7 +476,7 @@ describe('createCrossClawSearchTool broadcast', () => {
         throw new Error('resolve boom');
       }),
     };
-    const tool = createCrossClawSearchTool({ topology: failingTopology, allowed: true });
+    const tool = createCrossClawSearchTool({ topology: failingTopology, allowed: true, crossTargetAccess });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
     expect(result.success).toBe(false);

@@ -12,6 +12,7 @@
 import {
   createClawTopology,
   type ClawTopology,
+  type CrossTargetAccess,
 } from '../core/claw-topology/index.js';
 import {
   createCrossClawReadTool,
@@ -30,6 +31,8 @@ interface WireClawTopologyDeps {
   toolRegistry: ToolRegistry;
   motionDir?: string;
   isMotion: boolean;
+  /** phase 1864 Step G（CT-D10）：跨目标访问 capability（装配期授予）。 */
+  crossTargetAccess: CrossTargetAccess;
 }
 
 export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
@@ -39,7 +42,11 @@ export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
     audit: deps.audit,
     motionDir: deps.motionDir ?? 'motion',
   });
-  const wrapDeps = { topology, allowed: deps.isMotion };
+  const wrapDeps = {
+    topology,
+    allowed: deps.isMotion,
+    crossTargetAccess: deps.crossTargetAccess,
+  };
   deps.toolRegistry.register(createCrossClawReadTool(wrapDeps));
   deps.toolRegistry.register(createCrossClawLsTool(wrapDeps));
   deps.toolRegistry.register(createCrossClawSearchTool(wrapDeps));

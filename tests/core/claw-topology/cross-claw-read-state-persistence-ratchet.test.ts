@@ -17,6 +17,7 @@ import { readTool } from '../../../src/foundation/file-tool/index.js';
 import { createCrossClawReadTool } from '../../../src/core/claw-topology/agent-tools.js';
 import { CLAWSPACE_DIR } from '../../../src/foundation/claw-identity/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import type { CrossTargetAccess } from '../../../src/core/claw-topology/agent-tools.js';
 import { READ_STATE_FILE } from '../../../src/foundation/file-tool/file-state-persist.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit, makeMockAudit } from '../../helpers/audit.js';
@@ -25,6 +26,16 @@ interface TestTopology {
   resolve: (clawId: string) => { kind: 'local'; clawDir: string };
   enumerate: () => string[];
 }
+
+/**
+ * phase 1864 Step G（CT-D10）：跨目标 capability——target 面真实 checker
+ * （claw-scoped、与 caller 的实例不同）。
+ */
+const crossTargetAccess: CrossTargetAccess = {
+  grantedBy: 'test-cross-target',
+  createChecker: ({ clawDir, fs }) =>
+    createClawPermissionChecker({ audit: makeMockAudit(), clawDir, strict: true, fs }),
+};
 
 describe('cross-claw read-state persistence ratchet (Phase 1229 Step B)', () => {
   let tempDir: string;
@@ -69,7 +80,7 @@ describe('cross-claw read-state persistence ratchet (Phase 1229 Step B)', () => 
       resolve: () => ({ kind: 'local', clawDir: targetDir }),
       enumerate: () => ['target'],
     };
-    const tool = createCrossClawReadTool({ topology, allowed: true });
+    const tool = createCrossClawReadTool({ topology, allowed: true, crossTargetAccess });
     const { ctx } = makeCallerCtx();
 
     const result = await tool.execute({ path: 'note.md', claw: 'target' }, ctx);
@@ -88,7 +99,7 @@ describe('cross-claw read-state persistence ratchet (Phase 1229 Step B)', () => 
       resolve: () => ({ kind: 'local', clawDir: targetDir }),
       enumerate: () => ['target'],
     };
-    const tool = createCrossClawReadTool({ topology, allowed: true });
+    const tool = createCrossClawReadTool({ topology, allowed: true, crossTargetAccess });
     const { ctx } = makeCallerCtx();
 
     expect(ctx.readFileState.size).toBe(0);

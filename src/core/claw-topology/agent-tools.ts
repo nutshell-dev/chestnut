@@ -1,6 +1,8 @@
 import * as path from 'path';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { Tool, ExecContext } from '../../foundation/tools/index.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { readTool } from '../../foundation/file-tool/index.js';
 import { lsTool } from '../../foundation/file-tool/index.js';
@@ -12,21 +14,44 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
 import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
 
+/**
+ * phase 1864 Step G（CT-D10）：跨目标访问 access capability——装配期授予、明确授权主体。
+ *
+ * caller 的 permissionChecker 是 caller-claw scoped；target 操作必须用 target 面
+ * checker（本 capability 按 target 构造），不再以 spread 隐式沿用 caller 的 checker。
+ */
+export interface CrossTargetAccess {
+  /** 授权主体标签（装配期决定；如 motion 面 / 普通 agent 面跨目标 adapter）。 */
+  readonly grantedBy: string;
+  /** 为具体 target 构造 checker（fs = 该 target 的 fs）。 */
+  createChecker(target: { readonly clawDir: string; readonly fs: FileSystem }): PermissionChecker;
+}
+
 /** phase 520: motionClawId DI 删除（caller 不再传）、agent-tools 直 import 自家 const */
 interface CrossClawToolDeps {
   topology: ClawTopology;
   allowed: boolean;
+  /** phase 1864 Step G（CT-D10）：跨目标访问 capability（装配期注入）。 */
+  crossTargetAccess: CrossTargetAccess;
 }
 
-function buildTargetCtx(baseCtx: ExecContext, targetClawDir: string): ExecContext {
+function buildTargetCtx(
+  baseCtx: ExecContext,
+  targetClawDir: string,
+  access: CrossTargetAccess,
+): ExecContext {
   if (!baseCtx.fsFactory) {
     throw new Error('Cross-claw access requires fsFactory in ExecContext');
   }
+  const targetFs = baseCtx.fsFactory(targetClawDir);
   return {
     ...baseCtx,
     clawDir: targetClawDir,
     workspaceDir: path.join(targetClawDir, CLAWSPACE_DIR),
-    fs: baseCtx.fsFactory(targetClawDir),
+    fs: targetFs,
+    // phase 1864 Step G（CT-D10）：permission 面显式替换为 target 面 capability——
+    // 不继承 caller 的 claw-scoped checker。
+    permissionChecker: access.createChecker({ clawDir: targetClawDir, fs: targetFs }),
     readFileState: new Map(),
     // Phase 1229 Step B: cross-claw target ctx must not persist read-state to target claw disk.
     // The wrapped read only returns content; caller and target claw overwrite-gate states
@@ -84,7 +109,7 @@ export function createCrossClawReadTool(deps: CrossClawToolDeps): Tool {
       if (validation) return validation;
       try {
         const location = deps.topology.resolve(makeClawId(clawParam));
-        const targetCtx = buildTargetCtx(ctx, location.clawDir);
+        const targetCtx = buildTargetCtx(ctx, location.clawDir, deps.crossTargetAccess);
         return readTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
@@ -138,7 +163,7 @@ export function createCrossClawLsTool(deps: CrossClawToolDeps): Tool {
       if (validation) return validation;
       try {
         const location = deps.topology.resolve(makeClawId(clawParam));
-        const targetCtx = buildTargetCtx(ctx, location.clawDir);
+        const targetCtx = buildTargetCtx(ctx, location.clawDir, deps.crossTargetAccess);
         return lsTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
@@ -229,7 +254,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
           }
           try {
             const location = deps.topology.resolve(clawId);
-            const targetCtx = buildTargetCtx(ctx, location.clawDir);
+            const targetCtx = buildTargetCtx(ctx, location.clawDir, deps.crossTargetAccess);
             const result = await searchTool.execute(stripClaw(args), targetCtx);
             results.push({ clawId, result });
           } catch (err) {
@@ -254,7 +279,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
       if (validation) return validation;
       try {
         const location = deps.topology.resolve(makeClawId(clawParam));
-        const targetCtx = buildTargetCtx(ctx, location.clawDir);
+        const targetCtx = buildTargetCtx(ctx, location.clawDir, deps.crossTargetAccess);
         return searchTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {

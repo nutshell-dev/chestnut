@@ -5,6 +5,7 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { createFileTools } from '../../src/foundation/file-tool/index.js';
 import { wireClawTopology } from '../../src/assembly/wire-claw-topology.js';
+import { createCrossTargetAccess } from '../../src/assembly/cross-target-access.js';
 import { MOTION_CLAW_ID } from '../../src/core/claw-topology/index.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../src/core/claw-topology/audit-events.js';
 import type { ExecContext } from '../../src/foundation/tools/index.js';
@@ -47,6 +48,11 @@ describe('wireClawTopology', () => {
       chestnutRoot: tempDir,
       toolRegistry,
       isMotion,
+      // phase 1864 Step G（CT-D10）：跨目标 capability（真实 target 面 checker）。
+      crossTargetAccess: createCrossTargetAccess({
+        grantedBy: isMotion ? 'motion-cross-target' : 'claw-cross-target',
+        audit: makeAudit(),
+      }),
     });
     return { toolRegistry, topology };
   }

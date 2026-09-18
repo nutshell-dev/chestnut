@@ -308,12 +308,18 @@ contractCmd
         toolRegistry.register(tool);
       }
       const { wireClawTopology } = await import('../assembly/index.js');
+      const { createCrossTargetAccess } = await import('../assembly/index.js');
       wireClawTopology({
         fs: clawFs,
         chestnutRoot,
         audit: clawAudit,
         toolRegistry,
         isMotion: false,
+        // phase 1864 Step G（CT-D10）：跨目标 capability 装配期授予。
+        crossTargetAccess: createCrossTargetAccess({
+          grantedBy: 'claw-cross-target',
+          audit: clawAudit,
+        }),
       });
 
       const contractSystem = await createContractSystem({

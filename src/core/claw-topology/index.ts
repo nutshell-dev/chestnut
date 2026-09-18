@@ -16,6 +16,7 @@ export {
   createCrossClawLsTool,
   createCrossClawSearchTool,
 } from './agent-tools.js';
+export type { CrossTargetAccess } from './agent-tools.js';
 export { decodeOutboxSummaryGuidance } from './jobs/outbox-summary/guidance-state.js';
 export type { OutboxSummaryGuidanceState } from './jobs/outbox-summary/guidance-state.js';
 export { createOutboxSummaryJob } from './jobs/outbox-summary/index.js';

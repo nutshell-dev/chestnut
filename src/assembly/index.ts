@@ -34,3 +34,4 @@ export { initializeClawLayout } from './claw-subdirs.js';
 export { ASSEMBLY_STREAM_EVENTS } from './stream-events.js';
 export type { ClawGlobalConfig } from './config/compose-config.js';
 export { wireClawTopology } from './wire-claw-topology.js';
+export { createCrossTargetAccess } from './cross-target-access.js';

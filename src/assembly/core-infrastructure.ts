@@ -232,12 +232,18 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
       // phase 257: wire ClawTopology（替换 read/ls/search via Map.set 同名替换）
       const { wireClawTopology } = await import('./wire-claw-topology.js');
+      const { createCrossTargetAccess } = await import('./cross-target-access.js');
       topology = wireClawTopology({
         fs: parentFs,
         chestnutRoot,
         audit: auditWriter,
         toolRegistry,
         isMotion,
+        // phase 1864 Step G（CT-D10）：跨目标 capa 装配期授予（motion / claw 面主体）。
+        crossTargetAccess: createCrossTargetAccess({
+          grantedBy: isMotion ? 'motion-cross-target' : 'claw-cross-target',
+          audit: auditWriter,
+        }),
       });
 
       // phase378 后 exec 业务归 CommandTool L2 / 不再经 registerBuiltinTools / Assembly 显式注册
