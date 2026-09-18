@@ -50,7 +50,7 @@ describe('notify-claw', () => {
         },
         defaultSource: 'motion',
         authorized: true,
-        audit: { write: vi.fn(), preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as unknown as AuditLog,
+        sink: { write: vi.fn(), preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s } as unknown as AuditLog,
         isClawAlive: () => true,
         formatClawStatusHint: () => undefined,
         clawExists: () => true,

@@ -33,7 +33,7 @@ describe('createClawTopology', () => {
   it('enumerate 含 motion + claws 子目录', async () => {
     await fs.ensureDir('claws/claw1');
     await fs.ensureDir('claws/claw2');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const ids = topology.enumerate();
     expect(ids).toContain(makeClawId('motion'));
     expect(ids).toContain('claw1');
@@ -42,7 +42,7 @@ describe('createClawTopology', () => {
   });
 
   it('resolve motion → chestnutRoot/motion', () => {
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const loc = topology.resolve(makeClawId('motion'));
     expect(loc.kind).toBe('local');
     expect(loc.clawDir).toBe(path.join(tempDir, 'motion'));
@@ -50,14 +50,14 @@ describe('createClawTopology', () => {
 
   it('resolve claw_id → chestnutRoot/claws/<id>', async () => {
     await fs.ensureDir('claws/alpha');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const loc = topology.resolve('alpha');
     expect(loc.kind).toBe('local');
     expect(loc.clawDir).toBe(path.join(tempDir, 'claws', 'alpha'));
   });
 
   it('resolve 不存在 claw → throw ClawIdResolveError + audit', () => {
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     expect(() => topology.resolve('nonexistent')).toThrow(ClawIdResolveError);
     expect(auditWrites).toHaveLength(1);
     expect(auditWrites[0][0]).toBe(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED);
@@ -66,7 +66,7 @@ describe('createClawTopology', () => {
   it('read + readJSON 成功路径（限定在 clawspace）', async () => {
     await fs.ensureDir('claws/beta/clawspace');
     await fs.writeAtomic('claws/beta/clawspace/data.json', '{"hello":"world"}');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const text = await topology.read('beta', 'data.json');
     expect(text).toBe('{"hello":"world"}');
     const raw = await topology.readJSON('beta', 'data.json');
@@ -78,7 +78,7 @@ describe('createClawTopology', () => {
 
   it('read 不存在文件 → throw CrossClawReadError + audit', async () => {
     await fs.ensureDir('claws/gamma/clawspace');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     await expect(topology.read('gamma', 'missing.txt')).rejects.toThrow(CrossClawReadError);
     expect(auditWrites).toHaveLength(1);
     expect(auditWrites[0][0]).toBe(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED);
@@ -87,7 +87,7 @@ describe('createClawTopology', () => {
   it('read 合法子目录 relPath → 成功', async () => {
     await fs.ensureDir('claws/delta/clawspace/notes');
     await fs.writeAtomic('claws/delta/clawspace/notes/2026.md', '# notes');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const text = await topology.read('delta', 'notes/2026.md');
     expect(text).toBe('# notes');
   });
@@ -95,13 +95,13 @@ describe('createClawTopology', () => {
   it('read 穿越 clawspace 的 relPath → throw CrossClawReadError', async () => {
     await fs.ensureDir('claws/delta/clawspace');
     await fs.writeAtomic('claws/delta/clawspace/data.json', '{}');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     await expect(topology.read('delta', '../data.json')).rejects.toThrow(CrossClawReadError);
   });
 
   it('read ".." 或 "." → throw CrossClawReadError（path traversal not allowed）', async () => {
     await fs.ensureDir('claws/epsilon/clawspace');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     await expect(topology.read('epsilon', '..')).rejects.toThrow(CrossClawReadError);
     await expect(topology.read('epsilon', '.')).rejects.toThrow(CrossClawReadError);
   });
@@ -111,7 +111,7 @@ describe('createClawTopology', () => {
     await fs.ensureDir('claws/.trash');
     await fs.ensureDir('claws/a..b');
     const audit = makeAudit();
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const ids = topology.enumerate();
     expect(ids).toContain(makeClawId('motion'));
     expect(ids).toContain('valid-claw');
@@ -126,7 +126,7 @@ describe('createClawTopology', () => {
     await fs.ensureDir('claws/valid-claw');
     await fs.ensureDir('claws/.trash');
     const audit = makeAudit();
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const snapshot = topology.enumerateSnapshot();
     expect(snapshot.valid).toEqual([makeClawId('motion'), makeClawId('valid-claw')]);
     expect(snapshot.invalid).toEqual([{ dir: '.trash', reason: 'invalid_claw_id_format' }]);
@@ -137,18 +137,33 @@ describe('createClawTopology', () => {
   it('enumerateSnapshot 去重 claws/ 下的 motion 目录', async () => {
     await fs.ensureDir('claws/motion');
     await fs.ensureDir('claws/claw1');
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const snapshot = topology.enumerateSnapshot();
     expect(snapshot.valid).toEqual([makeClawId('motion'), makeClawId('claw1')]);
     expect(snapshot.invalid).toEqual([]);
     expect(topology.enumerate()).toEqual([...snapshot.valid]);
   });
 
+  // phase 1864 Step I（CT-D12）：sink 省略（无观察装配）/ 注入 / throw 三态语义
+  it('sink 省略 → 拓扑查询静默可用（观察缺失不改变主结果）', async () => {
+    await fs.ensureDir('claws/valid-claw');
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    expect(topology.enumerate()).toEqual([makeClawId('motion'), makeClawId('valid-claw')]);
+    expect(topology.resolve(makeClawId('valid-claw')).clawDir).toBe(path.join(tempDir, 'claws', 'valid-claw'));
+  });
+
+  it('sink.write throw 传播（Topology 不吞观察失败）', async () => {
+    await fs.ensureDir('claws/.trash');
+    const throwingSink = { write: () => { throw new Error('sink down'); } };
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: throwingSink, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    expect(() => topology.enumerateSnapshot()).toThrow('sink down');
+  });
+
   it('resolve throws for non-directory claw entry', async () => {
     await fs.ensureDir('claws');
     await fs.writeAtomic('claws/claw-file', 'not a directory');
     const audit = makeAudit();
-    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, sink: audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
     expect(() => topology.resolve('claw-file')).toThrow(ClawIdResolveError);
     expect(auditWrites).toHaveLength(1);
     expect(auditWrites[0][0]).toBe(CLAW_TOPOLOGY_AUDIT_EVENTS.CLAW_DIR_NOT_DIRECTORY);

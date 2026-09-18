@@ -50,7 +50,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
       ...defaultDeps,
       notifyClaw: (targetClawId, intent) =>
         createClawNotifier({ fs, audit: auditLog, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
-      audit: auditLog,
+      sink: auditLog,
       ...overrides,
     });
   }

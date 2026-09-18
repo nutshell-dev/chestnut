@@ -27,6 +27,8 @@ const ALLOWED_PATTERNS = [
   // Audit
   /\baudit/,
   /\bauditWriter\??\.write\(/,
+  // phase 1864 Step I（CT-D12）：最小事件 sink 名——与 audit 同性质的观察面
+  /\bsink\??\??\.write\(/,
   // Throw
   /\bthrow\b/,
   // Console
@@ -69,6 +71,8 @@ const ALLOWED_PATTERNS = [
   /\bformatErr\(/,
   // Generic write/error calls from audit-like objects
   /\b\w*[Aa]udit\w*\.write\(/,
+  // phase 1864 Step I（CT-D12）：最小 sink write（Topology 观察失败不吞没）
+  /\b\w*[Ss]ink\w*\.write\(/,
   /\b\w*[Ee]rror\w*\(/,
 ];
 

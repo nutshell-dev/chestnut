@@ -202,7 +202,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // claw:   agentDir=.chestnut/claws/<n> → ../.. =.chestnut
   // 改前非 motion 漏一层 → chestnutRoot = clawDir 自身 → clawTopology 误路由
   const chestnutRoot = isMotion ? path.join(options.agentDir, '..') : path.join(options.agentDir, '..', '..');
-  const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, audit: options.audit, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
+  const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, sink: options.audit, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
   const clawTrackMap = new Map<string, ClawTrack>();
 
   const clawPanel = createClawPanel({ attachedClawBar, requestRender: () => tui.requestRender() });

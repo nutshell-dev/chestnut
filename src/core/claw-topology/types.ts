@@ -1,6 +1,18 @@
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+
+/**
+ * phase 1864 Step I（CT-D12）：最小事件 sink——Topology 只消费 `write` 形状。
+ *
+ * 语义（显式立定，不再隐式）：
+ * - optional：无观察场景（测试 / 无 audit 装配）可省；resolve/read 主结果不因此变化
+ *   （不因观察缺失改变拓扑结果）。
+ * - write throw：**传播**——Topology 不 own 观察失败处置、不吞没；写入失败时
+ *   caller 得到与 sink owner 一致的失败，与 phase 944 起现状语义一致。
+ */
+export interface TopologyEventSink {
+  write(event: string, ...cols: (string | number)[]): void;
+}
 
 /**
  * claw 物理位置 discriminated union。
@@ -13,7 +25,8 @@ export type Location = { kind: 'local'; clawDir: string };
 export interface ClawTopologyDeps {
   fs: FileSystem;
   chestnutRoot: string;
-  audit?: AuditLog;
+  /** phase 1864 Step I（CT-D12）：最小 sink（不再依赖完整 AuditLog 面）。 */
+  sink?: TopologyEventSink;
   /** phase 520: motionClawId DI 删除、topology 直 import MOTION_CLAW_ID 自家 const */
   motionDir: string;
 }

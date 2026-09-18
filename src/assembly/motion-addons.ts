@@ -131,7 +131,8 @@ export async function createMotionAddons(
     notifyClaw: (targetClawId, intent) => clawNotifier.notifyIntentAsync(targetClawId, intent),
     defaultSource: MOTION_CLAW_ID,
     authorized: true,
-    audit: auditWriter,
+    // phase 1864 Step I（CT-D12）：最小 sink（AuditLog 结构兼容）。
+    sink: auditWriter,
     isClawAlive: (clawId: string) => core.processManager.isAlive(resolveClawDaemonDir(makeClawId(clawId))), // phase 232
     formatClawStatusHint, // phase 232: M#1 single source
     clawExists: (clawId: string) => parentFs.existsSync(getRelativeClawDir(clawId)), // phase 241

@@ -12,8 +12,8 @@ import { makeExternalAbortError } from '../../../foundation/llm-provider/index.j
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ClawNotifyIntent } from '../../../foundation/messaging/index.js';
+import type { TopologyEventSink } from '../types.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/index.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
@@ -35,7 +35,8 @@ interface NotifyClawDeps {
    * true = motion/main registry authorized; false = shadow registry unauthorized.
    */
   authorized?: boolean;
-  audit: AuditLog;        // NOTIFY_CLAW_SENT/FAILED emit
+  /** phase 1864 Step I（CT-D12）：最小 sink（NOTIFY_CLAW_* / topology violation 行 emit）。 */
+  sink: TopologyEventSink;
   isClawAlive: (clawId: string) => boolean; // phase 232: status hint callback
   formatClawStatusHint: (clawName: string, isAlive: boolean) => string | undefined; // phase 232: M#1 single source
   clawExists: (clawId: string) => boolean; // phase 241: exist check callback
@@ -77,7 +78,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       // Phase 807: authorization via DI flag (replaces ctx.callerLabel + isCallerAuthorized predicate).
       // 默认 true 保持主 registry 兼容；shadow registry 注入 authorized=false。
       if (this.authorized === false) {
-        deps.audit.write(
+        deps.sink.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.NOTIFY_CLAW_MOTION_ONLY_VIOLATION,
           `callerClawId=${deps.defaultSource}`,
           'reason=not_motion_chain',
@@ -92,7 +93,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       // phase 895 / audit-2026-05-16 NEW.P0.2: validation guard (mirror read.ts:75 cross-claw guard)
       // 防 LLM 通过 `to` 字段绕 claws/ namespace 或建 orphan claw dir
       if (typeof to !== 'string' || to.includes('/') || to.includes('..') || to === '' || to === '.' || to.startsWith('.')) {
-        deps.audit.write(
+        deps.sink.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
           `claw=${to}`,
           `reason=invalid_claw_id`,
@@ -105,7 +106,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       try {
         // phase 241:前置 exist check — target claw 不存在时不调 wrapper、显式失败
         if (!deps.clawExists(to)) {
-          deps.audit.write(
+          deps.sink.write(
             MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
             `claw=${to}`,
             `reason=claw_not_found`,
@@ -125,7 +126,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
           throw makeExternalAbortError(ctx.signal.reason);
         }
         const reason = formatErr(error);
-        deps.audit.write(
+        deps.sink.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
           `claw=${to}`,
           `reason=${reason}`,
@@ -139,7 +140,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       // notify succeeded — audit SENT
       // Phase 943: SENT audit failure must NOT reverse a successful delivery.
       try {
-        deps.audit.write(
+        deps.sink.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT,
           `claw=${to}`,
           `type=${type}`,
@@ -164,7 +165,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
           hints.push(`No active contract for "${to}". Ask claw to reply via send tool in message body.`);
         }
       } catch (hintErr) {
-        deps.audit.write(
+        deps.sink.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_HINT_FAILED,
           `claw=${to}`,
           `reason=${formatErr(hintErr)}`,

@@ -164,7 +164,8 @@ describe('motion-callerType', () => {
         hasActiveContract: () => false,
         defaultSource: 'motion',
         notifyClaw: (targetClawId: string, intent: any) => notifier.notifyIntentAsync(targetClawId, intent),
-        audit: audit.audit,
+        // phase 1864 Step I（CT-D12）：notify 工具消费最小 sink。
+        sink: audit.audit,
       };
     }
 

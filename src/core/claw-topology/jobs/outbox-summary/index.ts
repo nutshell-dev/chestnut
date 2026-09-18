@@ -13,11 +13,10 @@
  * Design: design/architecture.md §27b ClawTopology + design/modules/l2a_cron.md (Cron protocol)
  */
 
-import type { AuditLog } from '../../../../foundation/audit/index.js';
 import { formatErr } from '../../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../../foundation/fs/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
-import type { ClawTopology } from '../../types.js';
+import type { ClawTopology, TopologyEventSink } from '../../types.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { runOutboxSummaryTick } from './tick.js';
 import type { CronJob } from '../../../../foundation/cron/index.js';
@@ -33,7 +32,7 @@ interface OutboxSummaryJobOptions {
   /** phase 259: caller (装配期) 注入的 claw topology */
   clawTopology: ClawTopology;
   fs: FileSystem;
-  audit: AuditLog;
+  audit: TopologyEventSink;
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
   outboxReader: OutboxReader;
@@ -43,7 +42,7 @@ interface OutboxSummaryJobOptions {
 interface OutboxSummaryJobDeps {
   clawTopology: ClawTopology;
   fs: FileSystem;
-  audit: AuditLog;
+  audit: TopologyEventSink;
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
   outboxReader: OutboxReader;

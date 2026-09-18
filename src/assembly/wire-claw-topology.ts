@@ -40,7 +40,8 @@ export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
   const topology = createClawTopology({
     fs: deps.fs,
     chestnutRoot: deps.chestnutRoot,
-    audit: deps.audit,
+    // phase 1864 Step I（CT-D12）：AuditLog 结构兼容最小 sink（零适配）。
+    sink: deps.audit,
     motionDir: deps.motionDir ?? 'motion',
   });
   const wrapDeps = {

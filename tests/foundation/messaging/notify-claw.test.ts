@@ -40,7 +40,7 @@ function makeTool(auditLog: any, overrides: Record<string, unknown> = {}) {
     ...defaultDeps,
     notifyClaw: (targetClawId, intent) =>
       createClawNotifier({ fs, audit: auditLog, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
-    audit: auditLog,
+    sink: auditLog,
     ...overrides,
   });
 }
@@ -55,13 +55,13 @@ const defaultDeps = {
 
   describe('schema + identity', () => {
     it('tool name = notify_claw', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), sink: audit.audit });
       expect(tool.name).toBe('notify_claw');
       expect(tool.name).toBe(NOTIFY_CLAW_TOOL_NAME);
     });
 
     it('schema required = to + body', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), sink: audit.audit });
       expect(tool.schema.required).toEqual(['to', 'body']);
       expect(tool.schema.properties).toHaveProperty('to');
       expect(tool.schema.properties).toHaveProperty('body');
@@ -70,7 +70,7 @@ const defaultDeps = {
     });
 
     it('readonly=false + idempotent=false（motion-only push write tool）', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), sink: audit.audit });
       expect(tool.readonly).toBe(false);
       expect(tool.idempotent).toBe(false);
     });
@@ -279,7 +279,7 @@ const defaultDeps = {
       const tool = createNotifyClawTool({
         ...defaultDeps,
         notifyClaw: async () => { throw new Error('disk full'); },
-        audit: audit.audit,
+        sink: audit.audit,
       });
       const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);
 
@@ -297,7 +297,7 @@ const defaultDeps = {
         ...defaultDeps,
         notifyClaw: (targetClawId, intent) =>
           createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
-        audit: audit.audit,
+        sink: audit.audit,
         isClawAlive: () => { throw new Error('hint boom'); },
       });
       const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);
@@ -318,7 +318,7 @@ const defaultDeps = {
         authorized: undefined,
         notifyClaw: (targetClawId, intent) =>
           createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
-        audit: audit.audit,
+        sink: audit.audit,
       });
       const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);
 

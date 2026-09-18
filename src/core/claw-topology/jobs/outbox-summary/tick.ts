@@ -14,9 +14,8 @@
  */
 
 import type { FileSystem } from '../../../../foundation/fs/index.js';
-import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
-import type { ClawTopology } from '../../types.js';
+import type { ClawTopology, TopologyEventSink } from '../../types.js';
 import { scanOutboxes } from './scan.js';
 import { findExistingSummaryByHash, findHistoricalSummaryByHash } from './dedup.js';
 import { writeNewSummary } from './write.js';
@@ -29,7 +28,7 @@ interface OutboxSummaryTickDeps {
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
   outboxReader: OutboxReader;
-  audit: AuditLog;
+  audit: TopologyEventSink;
   now?: () => number;
   /** phase 938: cooperative abort signal checked at stage boundaries. */
   signal?: AbortSignal;

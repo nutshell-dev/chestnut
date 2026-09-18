@@ -450,7 +450,7 @@ describe('shadow-di-restrictions', () => {
         notifyClaw: vi.fn().mockResolvedValue(undefined),
         defaultSource: 'motion',
         authorized: true,
-        audit: audit.audit,
+        sink: audit.audit,
         isClawAlive: () => true,
         formatClawStatusHint: () => undefined,
         clawExists: () => true,

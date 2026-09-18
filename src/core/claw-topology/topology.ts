@@ -9,7 +9,7 @@ import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
 
 export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
-  const { fs, chestnutRoot, audit, motionDir } = deps;
+  const { fs, chestnutRoot, sink, motionDir } = deps;
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
 
   const enumerateSnapshot = (): ClawEnumerationSnapshot => {
@@ -25,7 +25,7 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
       try {
         clawIds.push(makeClawId(name));
       } catch {
-        audit?.write(
+        sink?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR,
           `dir=${name}`,
           'reason=invalid_claw_id_format',
@@ -48,12 +48,12 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
       }
       const clawDir = path.join(clawsDir, clawId);
       if (!fs.existsSync(clawDir)) {
-        audit?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED, `clawId=${clawId}`, 'reason=not_found');
+        sink?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED, `clawId=${clawId}`, 'reason=not_found');
         throw new ClawIdResolveError(clawId, 'not_found');
       }
       // phase 944: ensure the resolved path is a directory, not a regular file
       if (!fs.isDirectorySync(clawDir)) {
-        audit?.write(
+        sink?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.CLAW_DIR_NOT_DIRECTORY,
           `clawId=${clawId}`,
           `path=${clawDir}`,
@@ -84,7 +84,7 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
         if (err instanceof CrossClawReadError) throw err;
         if (!isFileNotFound(err)) {
           // EACCES/ELOOP 等 canonical 观察失败：与 read 失败同语义上抛，不回退词法判断
-          audit?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED, `clawId=${clawId}`, `relPath=${relPath}`, `error=${String(err)}`);
+          sink?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED, `clawId=${clawId}`, `relPath=${relPath}`, `error=${String(err)}`);
           throw new CrossClawReadError(clawId, relPath, err);
         }
         // ENOENT：由下方 fs.read 产出既有缺文件错误语义
@@ -92,7 +92,7 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
       try {
         return await fs.read(absPath);
       } catch (err) {
-        audit?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED, `clawId=${clawId}`, `relPath=${relPath}`, `error=${String(err)}`);
+        sink?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED, `clawId=${clawId}`, `relPath=${relPath}`, `error=${String(err)}`);
         throw new CrossClawReadError(clawId, relPath, err);
       }
     },

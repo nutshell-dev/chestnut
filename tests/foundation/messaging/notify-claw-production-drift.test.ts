@@ -47,7 +47,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       defaultSource: 'motion',
       authorized: true,
       notifyClaw: (targetClawId, intent) => createClawNotifier({ fs: correctFs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(chestnutDir) }).notifyIntentAsync(targetClawId, intent),
-      audit: audit.audit,
+      sink: audit.audit,
     });
 
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
@@ -79,7 +79,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       defaultSource: 'motion',
       authorized: true,
       notifyClaw: (targetClawId, intent) => createClawNotifier({ fs: correctFs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(chestnutDir) }).notifyIntentAsync(targetClawId, intent),
-      audit: audit.audit,
+      sink: audit.audit,
     });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
 
@@ -104,7 +104,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       defaultSource: 'motion',
       authorized: true,
       notifyClaw: (targetClawId, intent) => createClawNotifier({ fs: correctFs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(chestnutDir) }).notifyIntentAsync(targetClawId, intent),
-      audit: audit.audit,
+      sink: audit.audit,
     });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
 

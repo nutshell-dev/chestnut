@@ -11,10 +11,10 @@
  * 提示改由 templates 静态文案承载（M07 语义治理）。
  */
 
-import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxWriter } from '../../../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../../../foundation/messaging/index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
+import type { TopologyEventSink } from '../../types.js';
 import {
   outboxSummaryBody,
   outboxSummaryClawLine,
@@ -31,7 +31,7 @@ export const SUMMARY_INBOX_TYPE = 'claw_outbox_summary';
 
 interface WriteDeps {
   inboxWriter: InboxWriter;
-  audit: AuditLog;
+  audit: TopologyEventSink;
   now?: () => number;
 }
 
