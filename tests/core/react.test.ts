@@ -831,8 +831,8 @@ describe('ReAct Loop', () => {
       maxSteps: 5,
     });
 
-    // runReact preserves max_tokens stopReason
-    expect(result.stopReason).toBe('max_tokens');
+    // runReact preserves the owner stopReason verbatim (phase 1856 AE-D12: 不再改名 max_tokens)
+    expect(result.stopReason).toBe('max_tokens_text');
     expect(result.finalText).toContain('Partial answer due to token limit');
     expect(result.finalText).toContain('[Response truncated due to length limit]');
     // messages should have user + assistant appended
@@ -991,7 +991,7 @@ describe('ReAct Loop', () => {
       expect(result.finalText).toBe('OK, will split.');
     });
 
-    it('should return stopReason=max_tokens immediately when no tool_use in truncated response', async () => {
+    it('should return stopReason=max_tokens_text immediately when no tool_use in truncated response', async () => {
       (mockLLM.stream as ReturnType<typeof vi.fn>)
         .mockReturnValueOnce((async function* () {
           yield { type: 'text_delta' as const, delta: 'Some partial text' };
@@ -1001,7 +1001,7 @@ describe('ReAct Loop', () => {
       const messages: Message[] = [{ role: 'user', content: 'Tell me something long' }];
       const result = await runReact({ messages, systemPrompt: '', llm: mockLLM, executor: mockExecutor, ctx: mockCtx });
 
-      expect(result.stopReason).toBe('max_tokens');
+      expect(result.stopReason).toBe('max_tokens_text');
       expect(mockLLM.stream).toHaveBeenCalledTimes(1);
     });
 

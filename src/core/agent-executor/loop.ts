@@ -74,9 +74,10 @@ export interface ReactResult {
   finalText: string;
   stepsUsed: number;
   // phase 788: 'unknown' propagate（audit-2026-05-14 P0.15）
-  // LLM 返 unrecognized stop_reason（refusal、safety、stop_sequence 等）经 step-executor 映射 'unknown'，本字段保留区分 true end_turn。
-  // phase 1483: 'content_filter' 字面单独保留（不再折叠为 'unknown'）— Design Principle「运行中信息不丢弃」+ 唯一 caller subagent/agent.ts:411 仅 appendToLog 字符串拼接安全。
-  stopReason: 'end_turn' | 'no_tool' | 'max_tokens' | 'content_filter' | 'unknown';
+  // phase 1483: 'content_filter' 字面单独保留（不再折叠为 'unknown'）
+  // phase 1856 (AE-D12): 直接复用 StepExecutor owner type（FinalStopReason），删有损映射
+  // （'stop' 不再折叠为 'end_turn'、'max_tokens_text' 不改名 'max_tokens'）。
+  stopReason: FinalStopReason;
   /** phase 1856 (AE-D10): typed loop stop request（如 result_capture 早停；替代伪造 'end_turn'）。 */
   stopRequest?: LoopStopRequest;
 }
@@ -134,27 +135,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
   return {
     finalText: result.finalText,
     stepsUsed: result.stepsUsed,
-    stopReason: mapStopReason(result.stopReason),
+    stopReason: result.stopReason,
     stopRequest: result.stopRequest,
   };
-}
-
-function mapStopReason(
-  r: FinalStopReason
-): 'end_turn' | 'no_tool' | 'max_tokens' | 'content_filter' | 'unknown' {
-  // phase 398 Step C (review N8): switch + assertNever default — 新 FinalStopReason
-  // 变体编译期失败 (vs phase 1483 / 788 if-cascade + 'end_turn' default 静默折叠)。
-  switch (r) {
-    case 'max_tokens_text': return 'max_tokens';
-    case 'no_tool': return 'no_tool';
-    case 'content_filter': return 'content_filter';   // phase 1483 distinct propagate
-    case 'unknown': return 'unknown';                 // phase 788 distinct propagate
-    case 'end_turn':
-    case 'stop':
-      return 'end_turn';  // 'end_turn' 与 'stop' 均映射为 'end_turn'（向后兼容 shim）
-    default: {
-      const _exhaustive: never = r;
-      return _exhaustive;
-    }
-  }
 }
