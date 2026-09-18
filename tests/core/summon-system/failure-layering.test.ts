@@ -50,7 +50,7 @@ describe('phase 1866 Step E: summon failure layering', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toBe('Summon failed (creation_rejected): no_contract_created');
+    expect(result.content).toBe('Summon failed: no contract was created.');
     expect(result.metadata).toEqual({
       kind: 'creation_rejected',
       cause: 'no_contract_created',
@@ -91,7 +91,7 @@ describe('phase 1866 Step E: summon failure layering', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toBe('Summon failed (execution_failed): contract_not_committed');
+    expect(result.content).toBe('Summon failed: the contract creation did not complete.');
     expect(result.metadata).toEqual({
       kind: 'execution_failed',
       reason: 'contract_not_committed',

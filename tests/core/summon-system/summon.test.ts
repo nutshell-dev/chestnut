@@ -469,7 +469,7 @@ Content.
       }, { id: 'task-missing', callerType: 'shadow_subagent' } as any, mockFs, auditWriter as any);
 
       // phase 1866 Step E（SU-D4）：失败按 owner 分层——claim 在但未提交 = execution_failed
-      expect(result.content).toBe('Summon failed (execution_failed): contract_not_committed');
+      expect(result.content).toBe('Summon failed: the contract creation did not complete.');
       expect(result.metadata).toMatchObject({ kind: 'execution_failed', reason: 'contract_not_committed' });
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_claim_contract_missing',
@@ -514,7 +514,7 @@ Content.
         'summon_no_contract_created',
         'taskId=task-no-audit',
       );
-      expect(result.content).toBe('Summon failed (creation_rejected): no_contract_created');
+      expect(result.content).toBe('Summon failed: no contract was created.');
       expect(result.metadata).toMatchObject({ kind: 'creation_rejected', cause: 'no_contract_created' });
     });
 

@@ -153,10 +153,15 @@ function buildFailureResult(failure: SummonCreationFailure): ProcessedTaskResult
     failure.kind === 'creation_rejected'
       ? { kind: failure.kind, cause: failure.cause, sourceError: String(failure.sourceError) }
       : { kind: failure.kind, reason: failure.reason, sourceError: String(failure.sourceError) };
-  const detail = failure.kind === 'creation_rejected' ? failure.cause : failure.reason;
+  // phase 1866 Step G（SU-D7）对外文本净化：content 只给 human 陈述，
+  // 内部 kind/cause/reason 留在 metadata（程序面），不直出内部码与实现词。
+  const content =
+    failure.kind === 'creation_rejected'
+      ? 'Summon failed: no contract was created.'
+      : 'Summon failed: the contract creation did not complete.';
   return {
     schema_version: 1,
-    content: `Summon failed (${failure.kind}): ${detail}`,
+    content,
     isError: true,
     metadata,
   };
