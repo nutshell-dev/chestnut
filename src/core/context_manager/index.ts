@@ -14,10 +14,12 @@ export {
 } from './maybe-trim-proactive.js';
 export {
   CONTEXT_TRIM_RECENT_WINDOW_MS,
+  CONTEXT_TRIM_TARGET_RATIO,
   REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
   CACHE_TTL_MS,
 } from './constants.js';
+export type { TrimRuntimePolicy } from './constants.js';
 export {
   buildReactiveTrimPolicy,
 

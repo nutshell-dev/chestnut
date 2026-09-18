@@ -104,25 +104,35 @@ interface ToolStat {
 }
 
 /** 构造 reactive 裁剪策略：完整 prompt 必须落在 [floor, ceiling]。 */
-export function buildReactiveTrimPolicy(input: {
-  contextWindow: number;
-  explicitMaxTokens: number | undefined;
-}): Extract<TrimPolicy, { kind: 'reactive' }> {
+export function buildReactiveTrimPolicy(
+  input: {
+    contextWindow: number;
+    explicitMaxTokens: number | undefined;
+  },
+  opts?: { floorRatio?: number },
+): Extract<TrimPolicy, { kind: 'reactive' }> {
   const reserveOutputTokens = input.explicitMaxTokens ?? 0;
+  // phase 1861 (CM-D1)：floor ratio 经注入面传入，常量仅为默认值。
+  const floorRatio = opts?.floorRatio ?? REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO;
   return {
     kind: 'reactive',
     completeFloorTokens: Math.floor(
-      input.contextWindow * REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+      input.contextWindow * floorRatio,
     ),
     completeCeilingTokens: input.contextWindow - reserveOutputTokens,
   };
 }
 
 /** 构造 proactive 顺手裁策略：消息历史目标上限。 */
-export function buildProactiveTrimPolicy(contextWindow: number): Extract<TrimPolicy, { kind: 'proactive' }> {
+export function buildProactiveTrimPolicy(
+  contextWindow: number,
+  opts?: { targetRatio?: number },
+): Extract<TrimPolicy, { kind: 'proactive' }> {
+  // phase 1861 (CM-D1)：target ratio 经注入面传入，常量仅为默认值。
+  const targetRatio = opts?.targetRatio ?? CONTEXT_TRIM_TARGET_RATIO;
   return {
     kind: 'proactive',
-    targetCompleteTokens: Math.floor(contextWindow * CONTEXT_TRIM_TARGET_RATIO),
+    targetCompleteTokens: Math.floor(contextWindow * targetRatio),
   };
 }
 

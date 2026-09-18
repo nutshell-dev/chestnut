@@ -76,7 +76,10 @@ describe('runtime proactive trim integration', () => {
     await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  async function makeRuntime(contextTrimmingEnabled?: boolean) {
+  async function makeRuntime(
+    contextTrimmingEnabled?: boolean,
+    contextTrimPolicy?: Record<string, number>,
+  ) {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'test-claw' });
     const runtime = new ProactiveTrimTestRuntime({
       clawId: 'test-claw',
@@ -85,6 +88,7 @@ describe('runtime proactive trim integration', () => {
       dependencies: deps,
       idleTimeoutMs: 0,
       ...(contextTrimmingEnabled === undefined ? {} : { contextTrimmingEnabled }),
+      ...(contextTrimPolicy === undefined ? {} : { contextTrimPolicy }),
     });
     runtimes.push(runtime);
     await runtime.initialize();
@@ -184,5 +188,29 @@ describe('runtime proactive trim integration', () => {
     await runLegacyBatch(runtime);
 
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('6. contextTrimPolicy injection flows into maybeTrimProactive inputs (CM-D1)', async () => {
+    const spy = vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
+    const runtime = await makeRuntime(true, {
+      targetRatio: 0.5,
+      recentWindowMs: 1_234,
+      previewBytes: 56,
+      floorRatio: 0.6,
+    });
+    runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
+
+    await runLegacyBatch(runtime);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policy: expect.objectContaining({
+          targetRatio: 0.5,
+          recentWindowMs: 1_234,
+          previewBytes: 56,
+          floorRatio: 0.6,
+        }),
+      }),
+    );
   });
 });

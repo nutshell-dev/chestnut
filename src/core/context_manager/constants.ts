@@ -23,3 +23,18 @@ export const CONTEXT_TRIM_PREVIEW_BYTES = 100;
  * 不预判（在「即将失效」时裁等于主动放弃 cache）、不延后（cache TTL 是 hard limit）。
  */
 export const CACHE_TTL_MS = 300_000;
+
+/**
+ * phase 1861 (CM-D1)：裁剪规则运行时 policy——规则值经注入链（Assembly/Runtime → CM 入口）传入，
+ * 算法只消费边界值；上方常量降级为默认值来源。
+ */
+export interface TrimRuntimePolicy {
+  /** 24h 保护窗口（用户无感边界）。 */
+  recentWindowMs: number;
+  /** 头部预览字节数（折叠时保头）。 */
+  previewBytes: number;
+  /** proactive 目标占用率（整 prompt 上限 = 上下文窗口 × 此值）。 */
+  targetRatio: number;
+  /** reactive 上下文保留下限比率。 */
+  floorRatio: number;
+}

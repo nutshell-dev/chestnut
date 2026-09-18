@@ -8,6 +8,12 @@ import {
 } from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as tokenEstimator from '../../../src/foundation/llm-provider/token-estimator.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
+import {
+  CONTEXT_TRIM_RECENT_WINDOW_MS,
+  CONTEXT_TRIM_PREVIEW_BYTES,
+  CONTEXT_TRIM_TARGET_RATIO,
+  REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+} from '../../../src/core/context_manager/constants.js';
 
 const NOW = 1_700_000_000_000;
 
@@ -29,6 +35,12 @@ function makeInputs(overrides?: Partial<MaybeTrimProactiveInputs>): MaybeTrimPro
     toolsForLLM: [],
     contextWindow: 2_000,
     cacheExpired: true,
+    policy: {
+      recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+      previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+      targetRatio: CONTEXT_TRIM_TARGET_RATIO,
+      floorRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+    },
     dialogStore: makeDialogStore(),
     audit: makeAudit(),
     now: NOW,
@@ -135,7 +147,32 @@ describe('maybeTrimProactive', () => {
     await maybeTrimProactive(makeInputs({ contextWindow: 2_000 }));
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
+        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
         policy: expect.objectContaining({ kind: 'proactive', targetCompleteTokens: 1_500 }),
+      }),
+    );
+  });
+
+  it('9. policy.targetRatio 注入覆盖生效（CM-D1）', async () => {
+    vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
+    vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
+    // 默认 ratio 0.75 → target 1500（不触发）；注入 0.5 → target 1000（触发）
+    vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(1_200);
+    const spy = vi
+      .spyOn(trimAndPersistModule, 'trimAndPersist')
+      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
+    const policy = {
+      recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+      previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+      targetRatio: 0.5,
+      floorRatio: REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
+    };
+    const result = await maybeTrimProactive(makeInputs({ contextWindow: 2_000, policy }));
+    expect(result).not.toBeNull();
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policy: expect.objectContaining({ kind: 'proactive', targetCompleteTokens: 1_000 }),
       }),
     );
   });

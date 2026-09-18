@@ -12,10 +12,7 @@ import {
 } from '../../foundation/llm-provider/index.js';
 import { trimAndPersist, type DialogStoreMutationCapability } from './trim-and-persist.js';
 import type { ContextTrimOutcome } from './trim-v2.js';
-import {
-  CONTEXT_TRIM_RECENT_WINDOW_MS,
-  CONTEXT_TRIM_PREVIEW_BYTES,
-} from './constants.js';
+import type { TrimRuntimePolicy } from './constants.js';
 import { buildProactiveTrimPolicy } from './trim-v2.js';
 
 import type { AuditWriter } from './trim-v2.js';
@@ -34,6 +31,9 @@ export interface MaybeTrimProactiveInputs {
 
   /** phase 1861 (CM-D8)：时钟值必传（caller 侧取得）。 */
   now: number;
+
+  /** phase 1861 (CM-D1)：裁剪规则边界值（recentWindowMs/previewBytes/targetRatio 由 caller 注入）。 */
+  policy: TrimRuntimePolicy;
 }
 
 /**
@@ -55,7 +55,9 @@ export async function maybeTrimProactive(
   if (!inputs.cacheExpired) return null;
 
   // 2. 算消息历史上限（proactive target 为完整 prompt 上限；减去 fixed 得消息上限）
-  const proactivePolicy = buildProactiveTrimPolicy(inputs.contextWindow);
+  const proactivePolicy = buildProactiveTrimPolicy(inputs.contextWindow, {
+    targetRatio: inputs.policy.targetRatio,
+  });
   const targetMessagesTokens = proactivePolicy.targetCompleteTokens
     - estimateTextTokens(inputs.systemPrompt)
     - estimateToolsTokens(inputs.toolsForLLM);
@@ -70,12 +72,14 @@ export async function maybeTrimProactive(
     systemPrompt: inputs.systemPrompt,
     toolsForLLM: inputs.toolsForLLM,
     contextWindow: inputs.contextWindow,
-    recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-    previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+    recentWindowMs: inputs.policy.recentWindowMs,
+    previewBytes: inputs.policy.previewBytes,
     dialogStore: inputs.dialogStore,
     audit: inputs.audit,
     triggerKind: 'proactive_cache_idle',
-    policy: buildProactiveTrimPolicy(inputs.contextWindow),
+    policy: buildProactiveTrimPolicy(inputs.contextWindow, {
+      targetRatio: inputs.policy.targetRatio,
+    }),
     now,
   });
 }
