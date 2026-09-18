@@ -5,7 +5,11 @@
 
 import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import { classifyMessage } from '../../foundation/dialog-store/index.js';
+import {
+  classifyMessage,
+  buildContextTrimSummaryMessage,
+  type ContextTrimSummaryStats,
+} from '../../foundation/dialog-store/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
 import {
@@ -94,14 +98,8 @@ interface CompressResult {
   boundaryIndex: number;
 }
 
-interface SubtypeStat {
-  preserved: Record<string, number>;
-}
-
-interface ToolStat {
-  total: number;
-  byTool: Record<string, number>;
-}
+type SubtypeStat = ContextTrimSummaryStats['subtypeStat'];
+type ToolStat = ContextTrimSummaryStats['toolStat'];
 
 /** 构造 reactive 裁剪策略：完整 prompt 必须落在 [floor, ceiling]。 */
 export function buildReactiveTrimPolicy(
@@ -269,7 +267,12 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
 /** 在 24h 边界处注入摘要消息（顺手裁用：摘要放在 Tier 3 和 Tier 2 之间） */
 function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message[] {
   const processedCount = Math.max(0, result.boundaryIndex);
-  const summary = buildSummaryMessage(processedCount, result.subtypeStat, result.toolStat, nowMs);
+  const summary = buildContextTrimSummaryMessage({
+    processedCount,
+    subtypeStat: result.subtypeStat,
+    toolStat: result.toolStat,
+    nowMs,
+  });
 
   const insertAt = result.boundaryIndex;
   const newMessages = [...result.messages];
@@ -280,7 +283,12 @@ function injectSummaryAtBoundary(result: CompressResult, nowMs: number): Message
 /** 在消息列表末尾注入摘要消息（触底裁用：全部消息都参与了压缩） */
 function injectSummaryAtEnd(result: CompressResult, nowMs: number): Message[] {
   const processedCount = result.messages.length;
-  const summary = buildSummaryMessage(processedCount, result.subtypeStat, result.toolStat, nowMs);
+  const summary = buildContextTrimSummaryMessage({
+    processedCount,
+    subtypeStat: result.subtypeStat,
+    toolStat: result.toolStat,
+    nowMs,
+  });
   return [...result.messages, summary];
 }
 
@@ -940,29 +948,6 @@ function collapseAssistantMessage(
     toolNames,
     collapsedText,
     collapsedThinking,
-  };
-}
-
-function buildSummaryMessage(
-  processedCount: number,
-  subtypeStat: SubtypeStat,
-  toolStat: ToolStat,
-  nowMs: number,
-): Message {
-  const nowIso = new Date(nowMs).toISOString();
-  const preservedStr = Object.entries(subtypeStat.preserved)
-    .map(([k, v]) => `${k} × ${v}`)
-    .join('、') || '无';
-  const toolStr = Object.entries(toolStat.byTool)
-    .map(([k, v]) => `${k} ${v}`)
-    .join('、') || '无';
-  const content = `[context-trim summary] 以下为裁剪边界（裁剪时间：${nowIso}）。前 ${processedCount} 条消息已处理：系统通知（保留预览）：${preservedStr}；工具调用：${toolStat.total} 次（${toolStr}）。查回原文：dialog 归档 archive/<ts>_<uuid>.json`;
-  return {
-    role: 'user',
-    content,
-    origin: 'system',
-    systemSubtype: 'context_trim_summary',
-    addedAt: nowIso,
   };
 }
 
