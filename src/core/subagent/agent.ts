@@ -38,6 +38,29 @@ import { commitTurnEvent, type TurnEventCommitDeps } from '../agent-executor/ind
 
 
 
+/**
+ * phase 1858 Step G (SA-D6): 持久化/结算降级证据单元（哪些 artifact、何阶段失败）。
+ * 由 SubAgent 在 best-effort 写点失败时收集；run helper 并入 typed outcome（成功路径）
+ * 或随错误对象移交（失败路径）。同 (artifact, stage, error) 重复失败折叠为一项。
+ */
+export interface DegradedArtifact {
+  artifact: 'steps_log' | 'dialog' | 'log' | 'completeness';
+  stage: string;
+  error: string;
+}
+
+/**
+ * phase 1858 Step G (SA-D6): 审计写失败不改变被记录的原失败/执行结果（同 step-executor
+ * writeAuditGuarded 形态、本模块同型 helper）；审计通道自身失败时 stderr 最后手段留证、永不抛出。
+ */
+function writeAuditGuarded(sink: AuditLog, event: string, ...cols: string[]): void {
+  try {
+    sink.write(event, ...cols);
+  } catch (auditErr) {
+    process.stderr.write(`[subagent] audit write failed: ${event}: ${formatErr(auditErr)}\n`);
+  }
+}
+
 export interface SubAgentOptions {
   agentId: string;
   resultDir: string;        // phase443: caller 注入完整 path（如 `tasks/results/${task.id}`）/ SubAgent 0 知字符串约定
@@ -104,6 +127,9 @@ export class SubAgent {
 
   // phase 283: textEndCount retained for AC-4; other counters dropped (by-construction equal via commitTurnEvent)
   private textEndCount = 0;
+
+  /** phase 1858 Step G (SA-D6): best-effort 写点降级证据 */
+  private degradedArtifacts: DegradedArtifact[] = [];
 
   constructor(options: SubAgentOptions) {
     this.agentId = options.agentId;
@@ -298,7 +324,9 @@ export class SubAgent {
               const entry = JSON.stringify(entryData);
               await this.fs.append(stepsLogPath, entry + '\n');
             } catch (err) {
-              this.auditWriter.write(
+              this.recordDegraded('steps_log', 'step_complete', err);
+              writeAuditGuarded(
+                this.auditWriter,
                 SUBAGENT_AUDIT_EVENTS.STEP_COMPLETE_FAILED,
                 `agentId=${this.agentId}`,
                 `error=${formatErr(err)}`,
@@ -316,7 +344,9 @@ export class SubAgent {
               // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
               applyBlockIdAssignments(messages, saved.assignedBlockIds);
             } catch (err) {
-              this.auditWriter.write(
+              this.recordDegraded('dialog', 'step_save', err);
+              writeAuditGuarded(
+                this.auditWriter,
                 SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
                 `agentId=${this.agentId}`,
                 `error=${formatErr(err)}`,
@@ -414,7 +444,9 @@ export class SubAgent {
         // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
         applyBlockIdAssignments(finalMessages, saved.assignedBlockIds);
       } catch (e) {
-        this.auditWriter.write(
+        this.recordDegraded('dialog', 'final_save', e);
+        writeAuditGuarded(
+          this.auditWriter,
           SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
           `agentId=${this.agentId}`,
           `error=${formatErr(e)}`,
@@ -435,7 +467,9 @@ export class SubAgent {
           this.auditWriter,
         );
       } catch (err) {
-        this.auditWriter.write(
+        this.recordDegraded('completeness', 'artifact_completeness', err);
+        writeAuditGuarded(
+          this.auditWriter,
           SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
           `agentId=${this.agentId}`,
           `stage=artifact_completeness`,
@@ -455,12 +489,30 @@ export class SubAgent {
     } catch (e) {
       // Log failures are non-fatal
       // phase 715: 加 path col、与 phase 580/586/684-688/709-711 path forensic 形态对齐
-      this.auditWriter.write(
+      this.recordDegraded('log', 'append_log', e);
+      writeAuditGuarded(
+        this.auditWriter,
         SUBAGENT_AUDIT_EVENTS.LOG_APPEND_FAILED,
         `agentId=${this.agentId}`,
         `path=${this.logPath}`,
         `error=${formatErr(e)}`,
       );
     }
+  }
+
+  /**
+   * phase 1858 Step G (SA-D6): 收集降级证据（同 artifact+stage+error 重复失败折叠为一项）。
+   */
+  private recordDegraded(artifact: DegradedArtifact['artifact'], stage: string, err: unknown): void {
+    const error = formatErr(err);
+    const exists = this.degradedArtifacts.some(
+      (d) => d.artifact === artifact && d.stage === stage && d.error === error,
+    );
+    if (!exists) this.degradedArtifacts.push({ artifact, stage, error });
+  }
+
+  /** phase 1858 Step G (SA-D6): 本次 run 的降级证据（run 结束/失败后由 run helper 读取）。 */
+  getDegradedArtifacts(): readonly DegradedArtifact[] {
+    return this.degradedArtifacts;
   }
 }

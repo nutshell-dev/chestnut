@@ -11,7 +11,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createAuditWriter } from '../../foundation/audit/index.js';
 import { makeTraceId, type TraceId } from '../../foundation/audit/index.js';
-import { randomHex } from '../../foundation/node-utils/index.js';
+import { formatErr, randomHex } from '../../foundation/node-utils/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js';
@@ -23,7 +23,7 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 // phase 691 Step C / phase 1488: removed import of TASKS_SYNC_DIR from async-task-system.
 // TASKS_SYNC_DIR namespace name is now owned by ClawIdentity; L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
-import { SubAgent } from './agent.js';
+import { SubAgent, type DegradedArtifact } from './agent.js';
 import { DONE_TOOL_NAME, createResultCaptureChannel } from './tools/done.js';
 import { bindRunCapture } from './registry-helper.js';
 
@@ -84,6 +84,11 @@ export interface RunSubagentOptions {
 export interface RunSubagentResult {
   text: string;
   capturedResult?: unknown;
+  /**
+   * phase 1858 Step G (SA-D6): 持久化/结算降级证据（哪些 artifact、何阶段失败）。
+   * best-effort 写点失败不改变执行结果，但必须可见；全成功时缺省。
+   */
+  degraded?: DegradedArtifact[];
 }
 
 /**
@@ -172,7 +177,19 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     permissionChecker: opts.permissionChecker,
   });
 
-  const text = await agent.run();
+  let text: string;
+  try {
+    text = await agent.run();
+  } catch (err) {
+    // phase 1858 Step G (SA-D6): 失败路径透传——降级证据随错误对象移交 owner（同 Step E 承载模式）
+    const degraded = agent.getDegradedArtifacts();
+    if (degraded.length > 0) {
+      const carrier = typeof err === 'object' && err !== null ? err : new Error(formatErr(err));
+      Object.assign(carrier, { degraded: [...degraded] });
+      throw carrier;
+    }
+    throw err;
+  }
 
   // 检 capturedResult（verifier 等用 / phase 765 扩 resultTool option）
   // phase 805 设计意图：by-name string 0 import (避 L3→L4 反向 import / mirror shadow-system/system.ts:129 'done')
@@ -184,7 +201,9 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     ? capture.get()
     : (opts.registry.get(toolName) as { capturedResult?: unknown } | undefined)?.capturedResult;
 
-  return { text, capturedResult };
+  // phase 1858 Step G (SA-D6): 降级证据并入 typed outcome（成功路径）
+  const degraded = agent.getDegradedArtifacts();
+  return { text, capturedResult, degraded: degraded.length > 0 ? [...degraded] : undefined };
 }
 
 // caller 负责 registry 装配（含 profile filter + 特殊工具如 done）
