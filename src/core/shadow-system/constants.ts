@@ -1,7 +1,15 @@
 /** shadow tool name constant */
 export const SHADOW_TOOL_NAME = 'shadow' as const;
 
-/** tasks/sync/shadow — shadow 工具自身 sync 路径 */
+/**
+ * tasks/sync/shadow — shadow 工具 sync 路径（结果产物目录）的命名空间引用。
+ *
+ * phase 1865 (SH-D6) 归属划界：
+ * - 目录位于 ATS 的 `tasks/` 命名空间（`tasks/sync/*` 为同步执行区，由装配方 admitted，
+ *   见 assembly/claw-subdirs.ts）——本常量是 shadow 侧对该子空间名的引用；
+ * - shadow 只 own 本子空间名与其下 shadowId 产物命名；
+ * - 任务持久化（queues/结果投递/任务记录）归 AsyncTaskSystem，不在任务记录面渗 shadow 命名。
+ */
 export const TASKS_SYNC_SHADOW_DIR = 'tasks/sync/shadow';
 
 /**
