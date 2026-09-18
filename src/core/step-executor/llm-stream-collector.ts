@@ -67,7 +67,8 @@ export function flushText(state: StreamState, callbacks?: StepCallbacks): void {
   if (state.currentText) {
     state.contentBlocks.push({ type: 'text', text: state.currentText });
     state.currentText = '';
-    callbacks?.onTextEnd?.();
+    // phase 1857 Step F (SE-D6): [B:safe] 失败经 onSafeCallbackError 留证，不终止 step
+    safeCallback('onTextEnd', () => callbacks?.onTextEnd?.(), callbacks);
   }
 }
 
@@ -149,7 +150,8 @@ export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, a
   }
   if (state.currentText) {
     state.contentBlocks.push({ type: 'text', text: state.currentText });
-    callbacks?.onTextEnd?.();
+    // phase 1857 Step F (SE-D6): [B:safe]
+    safeCallback('onTextEnd', () => callbacks?.onTextEnd?.(), callbacks, auditWriter);
   }
   if (state.currentToolUse) {
     const toolName = state.currentToolUse.name;
@@ -224,14 +226,18 @@ export async function collectStreamResponse(
         case 'text_delta':
           flushThinking(state);
           if (chunk.delta) {
-            state.currentText += chunk.delta;
-            callbacks?.onTextDelta?.(chunk.delta);
+            const delta = chunk.delta;
+            state.currentText += delta;
+            // phase 1857 Step F (SE-D6): [B:safe]
+            safeCallback('onTextDelta', () => callbacks?.onTextDelta?.(delta), callbacks, auditWriter);
           }
           break;
         case 'thinking_delta':
           if (chunk.delta) {
-            state.currentThinking += chunk.delta;
-            callbacks?.onThinkingDelta?.(chunk.delta);
+            const delta = chunk.delta;
+            state.currentThinking += delta;
+            // phase 1857 Step F (SE-D6): [B:safe]
+            safeCallback('onThinkingDelta', () => callbacks?.onThinkingDelta?.(delta), callbacks, auditWriter);
           }
           break;
         case 'thinking_signature':
@@ -255,19 +261,32 @@ export async function collectStreamResponse(
           if (state.currentToolUse && chunk.toolUse?.partialInput) {
             state.currentToolUse.input += chunk.toolUse.partialInput;
             // phase 1180: forward raw partial input for streaming content extraction
-            callbacks?.onToolUseInputDelta?.(
-              state.currentToolUse.name,
-              makeToolUseId(state.currentToolUse.id),
-              chunk.toolUse.partialInput,
+            // phase 1857 Step F (SE-D6): [B:safe]
+            safeCallback(
+              'onToolUseInputDelta',
+              () => callbacks?.onToolUseInputDelta?.(
+                state.currentToolUse!.name,
+                makeToolUseId(state.currentToolUse!.id),
+                chunk.toolUse!.partialInput!,
+              ),
+              callbacks,
+              auditWriter,
             );
           }
           break;
         case 'reset':
           resetState(state);
-          callbacks?.onReset?.(chunk.provider ?? 'unknown', chunk.timeoutMs ?? 0);
+          // phase 1857 Step F (SE-D6): [B:safe] reset 已发生，通知失败不改变已发生提交
+          safeCallback('onReset', () => callbacks?.onReset?.(chunk.provider ?? 'unknown', chunk.timeoutMs ?? 0), callbacks, auditWriter);
           break;
         case 'provider_failed':
-          callbacks?.onProviderFailed?.(chunk.provider ?? 'unknown', chunk.model ?? 'unknown', chunk.error ?? 'unknown error');
+          // phase 1857 Step F (SE-D6): [B:safe] provider 失败已发生，通知失败不改变已记录失败
+          safeCallback(
+            'onProviderFailed',
+            () => callbacks?.onProviderFailed?.(chunk.provider ?? 'unknown', chunk.model ?? 'unknown', chunk.error ?? 'unknown error'),
+            callbacks,
+            auditWriter,
+          );
           break;
         case 'done':
           if (chunk.usage) {

@@ -345,3 +345,109 @@ describe('tool-input-parse-error-audit', () => {
     });
   });
 });
+
+
+describe('phase 1857 Step F (SE-D6): 失败策略声明矩阵', () => {
+  // 矩阵：每组代表 callback 故障 → 声明行为（B 级不中止 + 留证；S 级传播）
+
+  function makeTextLLM(stopReason = 'end_turn'): LLMOrchestrator {
+    async function* stream(): AsyncIterableIterator<LLMStreamChunk> {
+      yield { type: 'text_delta', delta: 'hello' };
+      yield { type: 'done', stopReason, usage: { inputTokens: 1, outputTokens: 1 } };
+    }
+    return {
+      call: vi.fn(),
+      stream: vi.fn(() => stream()),
+      healthCheck: vi.fn(async () => true),
+      getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
+      close: vi.fn(),
+    } as unknown as LLMOrchestrator;
+  }
+
+  function makeSink() {
+    const entries: Array<unknown[]> = [];
+    const sink = {
+      write: (...cols: unknown[]) => { entries.push(cols); },
+      message: (s: string) => s,
+      preview: (s: string) => s,
+    };
+    return { sink, entries };
+  }
+
+  async function runStep(callbacks: Record<string, unknown>, stopReason = 'end_turn', auditWriter?: unknown) {
+    return executeStep({
+      messages: [] as Message[],
+      systemPrompt: 'sys',
+      llm: makeTextLLM(stopReason),
+      tools: [],
+      executor: {
+        execute: vi.fn(async () => ({ success: true, content: 'ok' })),
+        executeParallel: vi.fn(),
+        validateArgs: vi.fn(),
+      } as unknown as IToolExecutor,
+      registry: { get: () => ({ readonly: false }) } as unknown as ToolRegistry,
+      ctx: makeExecContext(),
+      auditWriter: auditWriter as never,
+      callbacks: callbacks as never,
+    });
+  }
+
+  it('[B:safe][提交通知] onMessageAppended throw → step 完成 final + onSafeCallbackError 留证 + audit 行', async () => {
+    const onSafeCallbackError = vi.fn();
+    const { sink, entries } = makeSink();
+
+    const result = await runStep({
+      onMessageAppended: vi.fn(() => { throw new Error('append-boom'); }),
+      onSafeCallbackError,
+    }, 'end_turn', sink);
+
+    expect(result.kind).toBe('final');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onMessageAppended', expect.any(Error));
+    expect(entries.some(c => c[0] === 'step_executor_callback_failed' && String(c[1]).includes('onMessageAppended'))).toBe(true);
+    expect(sink).toBeDefined();
+  });
+
+  it('[B:safe][stream delivery] onTextDelta throw → step 完成 final（stream loop 不中断）', async () => {
+    const onSafeCallbackError = vi.fn();
+
+    const result = await runStep({
+      onTextDelta: vi.fn(() => { throw new Error('delta-boom'); }),
+      onSafeCallbackError,
+    });
+
+    expect(result.kind).toBe('final');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onTextDelta', expect.any(Error));
+  });
+
+  it('[B:safe][裁决事件] onUnknownStopReason throw → step 完成 final(unknown)（通知失败不改变已发生提交）', async () => {
+    const onSafeCallbackError = vi.fn();
+
+    const result = await runStep({
+      onUnknownStopReason: vi.fn(() => { throw new Error('unknown-boom'); }),
+      onSafeCallbackError,
+    }, 'refusal');
+
+    expect(result.kind).toBe('final');
+    if (result.kind === 'final') expect(result.stopReason).toBe('unknown');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onUnknownStopReason', expect.any(Error));
+  });
+
+  it('[S:strict][提交通知] onLLMResult throw → executeStep 拒绝、错误原样传播（可中止 step）', async () => {
+    const onLLMResult = vi.fn(() => { throw new Error('result-boom'); });
+
+    await expect(runStep({ onLLMResult })).rejects.toThrow('result-boom');
+    expect(onLLMResult).toHaveBeenCalledOnce();
+  });
+
+  it('[B:safe] onBeforeLLMCall throw → step 完成 final（phase 890 契约保持，不中断）', async () => {
+    const onSafeCallbackError = vi.fn();
+
+    const result = await runStep({
+      onBeforeLLMCall: vi.fn(() => { throw new Error('before-boom'); }),
+      onSafeCallbackError,
+    });
+
+    expect(result.kind).toBe('final');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onBeforeLLMCall', expect.any(Error));
+  });
+});

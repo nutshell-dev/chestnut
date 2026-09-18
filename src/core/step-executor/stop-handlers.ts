@@ -7,7 +7,7 @@ import type { LLMResponse } from '../../foundation/llm-provider/index.js';
 import type { ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';
-import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults } from './utils.js';
+import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults, safeCallback } from './utils.js';
 import { executeToolCalls } from './tool-execution.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { throwAbortError } from './abort-helpers.js';
@@ -28,8 +28,9 @@ export async function handleToolUseStop(
   if (toolCalls.length === 0 && prebuiltResults.length === 0) {
     const text = extractText(response.content);
     appendAssistantMessage(messages, response.content);
-    callbacks?.onMessageAppended?.('assistant', response.content.length);
-    callbacks?.onUnparseableToolUse?.(response.stop_reason);
+    // phase 1857 Step F (SE-D6): [B:safe] 副作用已发生，通知失败不改变 step 终态
+    safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.length), callbacks, input.auditWriter);
+    safeCallback('onUnparseableToolUse', () => callbacks?.onUnparseableToolUse?.(response.stop_reason), callbacks, input.auditWriter);
     input.auditWriter?.write(
       STEP_EXECUTOR_AUDIT_EVENTS.LLM_UNPARSEABLE_TOOL_USE,
       `stop_reason=${response.stop_reason}`,
@@ -37,7 +38,8 @@ export async function handleToolUseStop(
     return { kind: 'final', stopReason: asFinalStopReason('no_tool'), finalText: text };
   }
   appendAssistantMessage(messages, response.content.filter(b => b.type !== 'tool_result'));
-  callbacks?.onMessageAppended?.('assistant', response.content.filter(b => b.type !== 'tool_result').length);
+  // phase 1857 Step F (SE-D6): [B:safe]
+  safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.filter(b => b.type !== 'tool_result').length), callbacks, input.auditWriter);
 
   let newParseErrorCount = 0;
   const trackingCallbacks: import('./types.js').StepCallbacks = {
@@ -56,7 +58,8 @@ export async function handleToolUseStop(
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
   appendToolResults(messages, [...prebuiltResults, ...toolResults]);
-  callbacks?.onMessageAppended?.('user', toolResults.length + prebuiltResults.length);
+  // phase 1857 Step F (SE-D6): [B:safe]
+  safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('user', toolResults.length + prebuiltResults.length), callbacks, input.auditWriter);
 
   const totalToolCallCount = toolCallsToExecute.length + prebuiltResults.length;
   const totalParseErrorCount = prebuiltResults.length + newParseErrorCount;
@@ -99,9 +102,11 @@ export function handleMaxTokensStop(
     // Guard: skip append if assistantBlocks is empty (prevent content: [])
     if (assistantBlocks.length > 0) {
       appendAssistantMessage(messages, assistantBlocks);
-      input.callbacks?.onMessageAppended?.('assistant', assistantBlocks.length);
+      // phase 1857 Step F (SE-D6): [B:safe]
+      safeCallback('onMessageAppended', () => input.callbacks?.onMessageAppended?.('assistant', assistantBlocks.length), input.callbacks, input.auditWriter);
     } else {
-      input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo });
+      // phase 1857 Step F (SE-D6): [B:safe]
+      safeCallback('onMaxTokensAssistantEmptySkipped', () => input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo }), input.callbacks, input.auditWriter);
       input.auditWriter?.write(
         STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_ASSISTANT_EMPTY_SKIPPED,
         `model=${llmInfo.model}`,
@@ -123,7 +128,8 @@ export function handleMaxTokensStop(
       !toolCallIdSet.has(pr.tool_use_id)
     );
     if (orphanPrebuilt.length > 0) {
-      input.callbacks?.onMaxTokensStateAOrphanDrop?.({
+      // phase 1857 Step F (SE-D6): [B:safe]
+      safeCallback('onMaxTokensStateAOrphanDrop', () => input.callbacks?.onMaxTokensStateAOrphanDrop!({
         orphans: orphanPrebuilt.map(pr => ({
           tool_use_id: pr.tool_use_id,
           // phase 215/218: producer 传全文、消费侧 (runtime audit emit) 末端 .preview 截、字段重命名为 content
@@ -131,7 +137,7 @@ export function handleMaxTokensStop(
           is_error: pr.is_error === true,
         })),
         llm: llmInfo,
-      });
+      }), input.callbacks, input.auditWriter);
       for (const orphan of orphanPrebuilt) {
         input.auditWriter?.write(
           STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_STATE_A_ORPHAN_DROP,
@@ -169,10 +175,11 @@ export function handleMaxTokensStop(
   //        Original code synthesized orphan tool_result + empty content [] → violates DP「no silent drop」
   //        Correct: final wrap-up with warning text
   if (prebuiltResults.length > 0) {
-    input.callbacks?.onMaxTokensPrebuiltOnlyFinal?.({
+    // phase 1857 Step F (SE-D6): [B:safe]
+    safeCallback('onMaxTokensPrebuiltOnlyFinal', () => input.callbacks?.onMaxTokensPrebuiltOnlyFinal?.({
       prebuiltCount: prebuiltResults.length,
       llm: llmInfo,
-    });
+    }), input.callbacks, input.auditWriter);
     input.auditWriter?.write(
       STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_PREBUILT_ONLY_FINAL,
       `prebuilt_count=${prebuiltResults.length}`,
@@ -193,7 +200,8 @@ export function handleMaxTokensStop(
   if (assistantBlocks.length > 0) {
     appendAssistantMessage(messages, response.content);
   } else {
-    input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo });
+    // phase 1857 Step F (SE-D6): [B:safe]
+    safeCallback('onMaxTokensAssistantEmptySkipped', () => input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo }), input.callbacks, input.auditWriter);
   }
   return {
     kind: 'final',

@@ -19,14 +19,51 @@ export interface LLMCallInfo {
   error?: string;
 }
 
+/**
+ * phase 1857 Step F (SE-D6): 逐项失败策略声明（契约）。
+ *
+ * 三组分类与策略：
+ * - **stream delivery**（流式展示面）：onTextDelta / onTextEnd / onThinkingDelta /
+ *   onToolUseInputDelta / onToolUseInput / onToolCall / onReset / onProviderFailed
+ * - **提交通知**（提交/交付事实通知）：onToolCallInput / onMessageAppended /
+ *   onToolResult / onLLMResult
+ * - **裁决事件**（决策可观测点）：onPartialAssistantDiscarded / onEmptyResponse /
+ *   onUnknownStopReason / onUnparseableToolUse / onToolInputParseError /
+ *   onToolExecutionFailed / onMaxTokens*(3)
+ *
+ * 策略两级：
+ * - `[B:safe]` 失败经 onSafeCallbackError 留证（+ audit 写点，writer 在作用域时），不终止 step。
+ *   副作用已发生的通知一律 B 级——callback 失败不得改变已发生提交。
+ * - `[S:strict]` 失败传播、可中止 step（裸调，无 safeCallback 包裹）。
+ *   仅用于副作用发生前的事实交付决策点：onLLMResult。
+ *   （实施注记：计划基线曾列 onBeforeLLMCall 为 S 级；其现状为 safeCallback 包裹且
+ *   phase 890 reverse 测试锁定「throw 不中断 step」，按既有契约保留 B 级，偏差已登记。）
+ */
 export interface StepCallbacks {
+  /** [B:safe][提交通知] 既有契约（phase 890）：失败经 onSafeCallbackError 留证，不终止 step。 */
   onBeforeLLMCall?: () => void;
+  /** [S:strict][提交通知] LLM 调用事实交付（成功/失败两路，副作用提交前）；失败传播、可中止 step。 */
   onLLMResult?: (info: LLMCallInfo) => void;
+  /** [B:safe][stream delivery] */
   onTextDelta?: (delta: string) => void;
+  /** [B:safe][stream delivery] */
   onTextEnd?: () => void;
+  /** [B:safe][stream delivery] */
   onThinkingDelta?: (delta: string) => void;
+  /** [B:safe][stream delivery] */
   onToolCall?: (toolName: string, toolUseId: ToolUseId) => void | Promise<void>;
   /**
+   * phase 1411: fires after args fully parsed (post LLM stream complete) and
+   * before executor.execute. Carries full args (post parse-failure guard).
+   *
+   * Distinct from onToolCall (tool_use_start, args not yet streamed) —
+   * onToolCallInput is the audit-quality emit point. SubAgent uses it to emit
+   * `tool_call_input` index row (name + tool_use_id + args_size) per
+   * design/modules/l3_subagent.md §A.phase1409-on-tool-call-args-emit
+   * (amended-by phase 1411).
+   */
+  /**
+   * [B:safe][提交通知]
    * phase 1411: fires after args fully parsed (post LLM stream complete) and
    * before executor.execute. Carries full args (post parse-failure guard).
    *
@@ -45,10 +82,26 @@ export interface StepCallbacks {
    * 失败 parse 分支不 fire（占位 tool_use input={} 已由 phase 1282 既有路径处理）。
    * 正常成功路径 + 异常 catch 路径 drain 都走此回调（API 发来的 input 必落盘、不被静默丢弃）。
    */
+  /**
+   * [B:safe][stream delivery]
+   * phase 688: fires inside flushToolUse / finalizeContent when args parse succeeds.
+   * Distinct from onToolCallInput (post-stream, pre-execute, audit-only args_size index).
+   * onToolUseInput is the stream.jsonl emit point for the **args body**, restoring
+   * stream.jsonl 流式产物全文契约（既有 text_delta / thinking_delta 已落 body、tool_use 仍漏）。
+   * 失败 parse 分支不 fire（占位 tool_use input={} 已由 phase 1282 既有路径处理）。
+   * 正常成功路径 + 异常 catch 路径 drain 都走此回调（API 发来的 input 必落盘、不被静默丢弃）。
+   */
   onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
-  /** phase 1180: raw partial JSON input on each tool_use_delta */
+  /** [B:safe][stream delivery] phase 1180: raw partial JSON input on each tool_use_delta */
   onToolUseInputDelta?: (toolName: string, toolUseId: ToolUseId, partialInput: string) => void;
   /**
+   * phase 688: catch 路径丢弃 partial assistant content（含 in-flight tool_use + text + thinking）
+   * 这一**决策动作**的可观测点。args body 已由 onToolUseInput 落 stream.jsonl、本回调只载决策摘要。
+   * cause = 丢弃原因分类（与 classifyLLMError 互补、聚焦 collector catch 触发场景）。
+   * 不传 tool_use_id 列表（audit 不膨胀、CLI 凭 trace_id + ts_range join stream.jsonl）。
+   */
+  /**
+   * [B:safe][裁决事件] 副作用（丢弃）已发生，通知失败不得改变 step 终态。
    * phase 688: catch 路径丢弃 partial assistant content（含 in-flight tool_use + text + thinking）
    * 这一**决策动作**的可观测点。args body 已由 onToolUseInput 落 stream.jsonl、本回调只载决策摘要。
    * cause = 丢弃原因分类（与 classifyLLMError 互补、聚焦 collector catch 触发场景）。
@@ -63,19 +116,35 @@ export interface StepCallbacks {
     endTs: number;
     errMessage: string;
   }) => void;
+  /** [B:safe][提交通知] */
   onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult) => void;
+  /** [B:safe][stream delivery] provider reset 已发生后的展示通知。 */
   onReset?: (provider: string, timeoutMs: number) => void;
+  /** [B:safe][stream delivery] provider 失败已发生后的展示通知。 */
   onProviderFailed?: (provider: string, model: string, error: string) => void;
+  /** [B:safe][裁决事件] */
   onEmptyResponse?: (stopReason: string) => void;
+  /** [B:safe][裁决事件] */
   onUnknownStopReason?: (stopReason: string) => void;
+  /** [B:safe][裁决事件] */
   onUnparseableToolUse?: (stopReason: string) => void;
+  /** [B:safe][裁决事件] */
   onToolInputParseError?: (toolName: string, toolUseId: ToolUseId, rawInput: string) => void;
+  /** [B:safe][裁决事件] 工具失败已发生，通知失败不得改变已记录失败。 */
   onToolExecutionFailed?: (toolName: string, toolUseId: ToolUseId, errorType: string, errorMsg: string) => void;
+  /**
+   * [reporter] safeCallback 失败上报通道（B 级 callback 的首错留证）。
+   * 由 safeCallback 内部受保护调用：本 reporter 自身 throw 不逃逸、不覆盖首错、
+   * 不阻断 audit 留证（零递归 console 边界承接二级失败，phase 1812 Step B）。
+   */
   onSafeCallbackError?: (label: string, err: unknown) => void;
+  /** [B:safe][提交通知] 消息已提交入 buffer，通知失败不得改变已发生提交。 */
   onMessageAppended?: (role: 'assistant' | 'user', blocks: number) => void;
+  /** [B:safe][裁决事件] */
   onMaxTokensPrebuiltOnlyFinal?: (meta: { prebuiltCount: number; llm: LLMCallInfo }) => void;
+  /** [B:safe][裁决事件] */
   onMaxTokensAssistantEmptySkipped?: (meta: { llm: LLMCallInfo }) => void;
-  /** phase 1383: State A orphan prebuilt drop observability */
+  /** [B:safe][裁决事件] phase 1383: State A orphan prebuilt drop observability */
   onMaxTokensStateAOrphanDrop?(args: {
     orphans: Array<{ tool_use_id: string; content: string; is_error: boolean }>;
     llm: LLMCallInfo;
