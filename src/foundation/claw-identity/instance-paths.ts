@@ -68,12 +68,31 @@ export function getClawConfigPath(name: string): string {
 
 declare const ChestnutRootBrand: unique symbol;
 export type ChestnutRoot = string & { readonly [ChestnutRootBrand]: true };
-export function makeChestnutRoot(s: string): ChestnutRoot { return s as ChestnutRoot; }
 
+/**
+ * ChestnutRoot brand factory。
+ *
+ * phase 1864 Step J（CT-D13）：brand 构造持真实验证——输入必须是绝对且已归一
+ * （canonical，无 `..` / 无尾分隔符残留）的路径；非规范输入显式失败，
+ * 不留 unchecked cast。
+ */
+export function makeChestnutRoot(s: string): ChestnutRoot {
+  if (!path.isAbsolute(s) || path.resolve(s) !== s) {
+    throw new Error(
+      `makeChestnutRoot: input must be an absolute canonical path (no '..' / trailing separator), got ${JSON.stringify(s)}`,
+    );
+  }
+  return s as ChestnutRoot;
+}
+
+/**
+ * 从 claw 目录反推 chestnut root（motion 一层 up / 普通 claw 两层 up）。
+ * phase 1864 Step J（CT-D13）：先归一化再构造，保证产出恒过 brand 验证。
+ */
 export function resolveChestnutRoot(clawDir: string, isMotion: boolean): ChestnutRoot {
-  return isMotion
-    ? makeChestnutRoot(path.join(clawDir, '..'))
-    : makeChestnutRoot(path.join(clawDir, '..', '..'));
+  return makeChestnutRoot(
+    path.resolve(path.join(clawDir, '..', ...(isMotion ? [] : ['..']))),
+  );
 }
 
 /** 复数 claws 容器目录名。phase 705 自 foundation/claw-paths.ts 迁入。 */
