@@ -5,9 +5,8 @@ import type { UserActionHint } from '../../foundation/llm-orchestrator/index.js'
 import type { InboxHandle, InboxMessage } from '../../foundation/messaging/index.js';
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { ContextTrimOutcome } from '../context_manager/index.js';
-import type { TurnResult } from '../runtime/index.js';
+import type { TurnResult, RuntimeTurnCallbacks } from '../runtime/index.js';
 // Phase 1847: 原始批次交接 / 可失败格式化边界类型（自 Runtime barrel 导入，type-only，
 // 不新增对 Runtime 类的运行依赖）。
 import type { PreparedInboxBatch, FormattedInboxBatch } from '../runtime/index.js';
@@ -16,6 +15,20 @@ import type { PreparedInboxBatch, FormattedInboxBatch } from '../runtime/index.j
 export interface EventLoopTraceSource {
   getCurrentTraceId(): TraceId | undefined;
 }
+
+/**
+ * phase 1856 (AE-D5): onTurnStart 语义归 EventLoop —— 唯一 invoke 点在
+ * event-loop.ts 的 turn_start_callback 阶段（此前由 L3 StreamCallbacks 跨层持有）。
+ */
+export interface TurnStartCallback {
+  onTurnStart?: (sources: Array<{ text: string; type: string }>) => void;
+}
+
+/**
+ * EventLoop 装配的完整 stream 投影面：Runtime turn sink（stream 段 + turn/provider
+ * 生命周期，各归 owner）+ 本模块 invoke 的 onTurnStart。
+ */
+export type EventLoopStreamCallbacks = RuntimeTurnCallbacks & TurnStartCallback;
 
 /**
  * Runtime capability actually consumed by EventLoop.
@@ -56,7 +69,7 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
     messages: Message[],
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
-    callbacks?: StreamCallbacks,
+    callbacks?: RuntimeTurnCallbacks,
   ): Promise<TurnResult>;
   reactiveTrim(): Promise<ContextTrimOutcome>;
 }

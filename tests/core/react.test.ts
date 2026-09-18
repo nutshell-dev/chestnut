@@ -277,7 +277,7 @@ describe('ReAct Loop', () => {
       llm: mockLLM,
       executor: mockExecutor,
       ctx: mockCtx,
-      onToolCall: (name) => toolCalls.push(name),
+      stepCallbacks: { onToolCall: (name) => toolCalls.push(name) },
     });
 
     expect(toolCalls).toEqual(['read', 'read']);
@@ -416,7 +416,7 @@ describe('ReAct Loop', () => {
       llm: mockLLM,
       executor: mockExecutor,
       ctx: mockCtx,
-      onBeforeLLMCall: () => { callCount++; },
+      stepCallbacks: { onBeforeLLMCall: () => { callCount++; } },
     });
 
     // one before the tool-use call, one before the final answer
@@ -437,7 +437,9 @@ describe('ReAct Loop', () => {
       executor: mockExecutor,
       ctx: mockCtx,
       maxSteps: 10,
-      onToolResult: (name, _toolUseId, _result, step, maxSteps) => calls.push({ name, step, maxSteps }),
+      stepCallbacks: {
+        onToolResult: (name, _toolUseId, _result, step, maxSteps) => calls.push({ name, step, maxSteps }),
+      },
     });
 
     expect(calls).toHaveLength(1);
@@ -461,7 +463,7 @@ describe('ReAct Loop', () => {
       llm: mockLLM,
       executor: mockExecutor,
       ctx: mockCtx,
-      onTextDelta: (d) => deltas.push(d),
+      stepCallbacks: { onTextDelta: (d) => deltas.push(d) },
     });
 
     expect(deltas).toEqual(['Hello', ' world']);
@@ -484,7 +486,7 @@ describe('ReAct Loop', () => {
       llm: mockLLM,
       executor: mockExecutor,
       ctx: mockCtx,
-      onThinkingDelta: (d) => thinkingDeltas.push(d),
+      stepCallbacks: { onThinkingDelta: (d) => thinkingDeltas.push(d) },
     });
 
     expect(thinkingDeltas).toEqual(['Let me think...']);
@@ -684,7 +686,7 @@ describe('ReAct Loop', () => {
         executor: mockExecutor,
         ctx: mockCtx,
         maxSteps: 5,
-        onBeforeLLMCall: () => { throw new Error('cb error'); },
+        stepCallbacks: { onBeforeLLMCall: () => { throw new Error('cb error'); } },
       });
 
       expect(result.finalText).toBe('hello');
@@ -706,7 +708,7 @@ describe('ReAct Loop', () => {
         executor: mockExecutor,
         ctx: mockCtx,
         maxSteps: 5,
-        onToolCall: () => { throw new Error('cb error'); },
+        stepCallbacks: { onToolCall: () => { throw new Error('cb error'); } },
       });
 
       expect(result.finalText).toBe('done');
@@ -728,7 +730,7 @@ describe('ReAct Loop', () => {
         executor: mockExecutor,
         ctx: mockCtx,
         maxSteps: 5,
-        onToolResult: () => { throw new Error('cb error'); },
+        stepCallbacks: { onToolResult: () => { throw new Error('cb error'); } },
       });
 
       expect(result.finalText).toBe('done');
@@ -829,8 +831,8 @@ describe('ReAct Loop', () => {
       maxSteps: 5,
     });
 
-    // runReact preserves max_tokens stopReason
-    expect(result.stopReason).toBe('max_tokens');
+    // runReact preserves the owner stopReason verbatim (phase 1856 AE-D12: 不再改名 max_tokens)
+    expect(result.stopReason).toBe('max_tokens_text');
     expect(result.finalText).toContain('Partial answer due to token limit');
     expect(result.finalText).toContain('[Response truncated due to length limit]');
     // messages should have user + assistant appended
@@ -863,7 +865,7 @@ describe('ReAct Loop', () => {
         llm: mockLLM,
         executor: mockExecutor,
         ctx: mockCtx,
-      })).rejects.toThrow('工具输入 JSON 连续解析失败 3 次');
+      })).rejects.toThrow('工具输入 JSON 解析失败累计 3 次（自上次成功起；工具: write），终止执行');
 
       // executor.execute should never be called — parse error short-circuits before tool execution
       expect(mockExecutor.execute).not.toHaveBeenCalled();
@@ -989,7 +991,7 @@ describe('ReAct Loop', () => {
       expect(result.finalText).toBe('OK, will split.');
     });
 
-    it('should return stopReason=max_tokens immediately when no tool_use in truncated response', async () => {
+    it('should return stopReason=max_tokens_text immediately when no tool_use in truncated response', async () => {
       (mockLLM.stream as ReturnType<typeof vi.fn>)
         .mockReturnValueOnce((async function* () {
           yield { type: 'text_delta' as const, delta: 'Some partial text' };
@@ -999,7 +1001,7 @@ describe('ReAct Loop', () => {
       const messages: Message[] = [{ role: 'user', content: 'Tell me something long' }];
       const result = await runReact({ messages, systemPrompt: '', llm: mockLLM, executor: mockExecutor, ctx: mockCtx });
 
-      expect(result.stopReason).toBe('max_tokens');
+      expect(result.stopReason).toBe('max_tokens_text');
       expect(mockLLM.stream).toHaveBeenCalledTimes(1);
     });
 
@@ -1012,7 +1014,7 @@ describe('ReAct Loop', () => {
       const messages: Message[] = [{ role: 'user', content: 'Write a very long file' }];
       await expect(
         runReact({ messages, systemPrompt: '', llm: mockLLM, executor: mockExecutor, ctx: mockCtx })
-      ).rejects.toThrow(/连续.*次.*max_tokens.*截断/);
+      ).rejects.toThrow(/已累计 .* 次（自上次成功起）max_tokens 截断/);
 
       expect(mockLLM.stream).toHaveBeenCalledTimes(3);
       expect(mockExecutor.execute).not.toHaveBeenCalled();

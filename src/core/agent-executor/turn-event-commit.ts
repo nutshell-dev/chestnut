@@ -16,7 +16,13 @@
 
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 
-type TurnEvent =
+/**
+ * phase 1856 (AE-D7): 导出补全公共签名 —— commitTurnEvent 为公开函数并自 barrel 出，
+ * 其参数类型此前未导出（SubAgent 经 agent.ts 消费本 delivery 协议）。
+ * 语义注记：本类型承载的是 turn 生命周期事件到 sink 的 **delivery**，不承载
+ * dialog/stream 持久化提交语义（「commit」名为历史遗留，函数体仅调用 sink callback）。
+ */
+export type TurnEvent =
   | { kind: 'text_end' }
   | { kind: 'tool_call'; name: string; toolUseId: ToolUseId }
   | { kind: 'tool_result'; name: string; toolUseId: ToolUseId; result: { success: boolean; content: string }; step: number; maxSteps: number };
@@ -30,6 +36,10 @@ export interface TurnEventCommitDeps {
   onToolResult?: (name: string, toolUseId: ToolUseId, result: { success: boolean; content: string }, step: number, maxSteps: number) => void;
 }
 
+/**
+ * Delivery one turn event to the given sink（仅调用 sink callback；不做持久化提交）。
+ * AgentExecutor-owned turn event delivery 协议（跨模块消费：SubAgent stream delivery）。
+ */
 export function commitTurnEvent(event: TurnEvent, deps: TurnEventCommitDeps): void {
   switch (event.kind) {
     case 'text_end':

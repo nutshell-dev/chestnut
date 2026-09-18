@@ -1,7 +1,9 @@
 /**
- * ReactResult.stopReason propagation — phase 1483 + phase 324 (review-2026-06-13 C6)
+ * ReactResult.stopReason propagation — phase 1856 AE-D12（复用 owner type）
  *
- * 守护：loop.mapStopReason 把 step-executor 的 FinalStopReason 正确投射到 ReactResult.stopReason，
+ * phase 1856 (AE-D12): ReactResult.stopReason 直接复用 StepExecutor owner type
+ * （FinalStopReason），loop.mapStopReason 有损映射已删 —— provider 'stop' 输出
+ * 'stop'（不再折叠 'end_turn'）、'max_tokens_text' 输出原名（不改名 'max_tokens'）。
  *
  * - phase 1483: 'content_filter' 字面单独保留（不再折叠为 'unknown'）— audit-2026-05-30 finding #3 修复
  * - phase 324 C6: 'refusal' / 'safety' / 'stop_sequence' / 新 SDK 值在 step-executor 不再
@@ -49,7 +51,7 @@ async function runWithStopReason(stopReason: string): Promise<string> {
     tools: [],
     executor: makeNoopExecutor(),
     ctx: makeExecContext(),
-    onUnparseableToolUse: () => {},
+    stepCallbacks: { onUnparseableToolUse: () => {} },
   });
   return result.stopReason;
 }
@@ -69,7 +71,11 @@ describe('ReactResult.stopReason propagation (phase 1483 + phase 324 C6 桶分�
     expect(await runWithStopReason('end_turn')).toBe('end_turn');
   });
 
-  it('stop → end_turn（向后兼容 shim）', async () => {
-    expect(await runWithStopReason('stop')).toBe('end_turn');
+  it('phase 1856 AE-D12: stop → stop（owner 值直传，不再折叠 end_turn）', async () => {
+    expect(await runWithStopReason('stop')).toBe('stop');
+  });
+
+  it('phase 1856 AE-D12: max_tokens → max_tokens_text（owner 值直传，不改名）', async () => {
+    expect(await runWithStopReason('max_tokens')).toBe('max_tokens_text');
   });
 });

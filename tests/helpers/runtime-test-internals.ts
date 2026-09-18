@@ -20,7 +20,7 @@ import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/inde
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
-import type { StreamCallbacks } from '../../src/core/agent-executor/index.js';
+import type { RuntimeTurnCallbacks } from '../../src/core/runtime/index.js';
 
 export interface RuntimeTestInternals {
   llm: LLMOrchestrator;
@@ -29,6 +29,6 @@ export interface RuntimeTestInternals {
   auditWriter: AuditLog;
   lastIdentityHash?: string;
   buildSystemPrompt(): Promise<{ full: string; identityContent: string }>;
-  _handleTurnInterrupt(err: unknown, callbacks?: StreamCallbacks): void;
+  _handleTurnInterrupt(err: unknown, callbacks?: RuntimeTurnCallbacks): void;
   _hasHighPriorityInbox(): Promise<boolean>;
 }

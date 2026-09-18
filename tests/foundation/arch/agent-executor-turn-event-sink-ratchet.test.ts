@@ -30,4 +30,11 @@ describe('phase 1356: AgentExecutor turn-event sink boundary', () => {
     expect(body).toBeDefined();
     expect(body?.match(/^\s*on[A-Z][A-Za-z]+\?/gm)).toHaveLength(3);
   });
+
+  it('phase 1856 (AE-D7): TurnEvent 命名导出存在（公共签名完整）', () => {
+    expect(read('src/core/agent-executor/turn-event-commit.ts')).toMatch(/export type TurnEvent =/);
+    expect(read('src/core/agent-executor/index.ts')).toMatch(
+      /export type \{ TurnEvent, TurnEventCommitDeps \} from '\.\/turn-event-commit\.js';/,
+    );
+  });
 });

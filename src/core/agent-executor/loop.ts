@@ -1,12 +1,15 @@
 /**
  * ReAct loop - **facade pattern (long-term ratify per phase 1180 r129 E fork)**
  *
- * 对外保持原 `runReact` 签名（11 平铺回调 + onStepComplete）作为稳定 API、
+ * phase 1856 (AE-D8): 对外 API 改命名最小组合协议 —— ReactOptions 持
+ * `stepCallbacks?: ReactStepCallbacks`（StepExecutor 契约的命名组合，编译器保证
+ * 字段完整、StepCallbacks 演化时消费方编译期提示），不再平铺复制二十余项回调；
+ * step/maxSteps 追加参数适配保留在本 facade 唯一适配点。
  * 内部 adapt 到新契约：StepCallbacks（给 StepExecutor） + onAfterStep（给 AgentExecutor）。
  * 真实实现见 step-executor.ts 和 agent-executor.ts。
  *
- * **NOT a transitional shim** — runtime.ts 3 site 真生产依赖、tests/ 6 file mock + import
- * facade-pattern 长留稳定、0 sunset 计划 / 升档锚：if NEW caller 同型「11 平铺回调展平」需求出现 N≥2
+ * **NOT a transitional shim** — runtime.ts 1 site + subagent 1 site 真生产依赖、tests/ mock + import
+ * facade-pattern 长留稳定、0 sunset 计划 / 升档锚：if NEW caller 同型组合需求出现 N≥2
  * → 抽 generic `ReactFacade` (per phase 1180 升档锚 (a))
  */
 
@@ -20,10 +23,23 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
-import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
+import type { StepCallbacks, FinalStopReason } from '../step-executor/index.js';
 
 import type { TurnEventCommitDeps } from './turn-event-commit.js';
+import type { AgentExecutorEventSink } from './event-sink.js';
+import type { LoopStopRequest } from './loop-stop.js';
 
+
+/**
+ * phase 1856 (AE-D8): StepExecutor 契约的命名组合。
+ * 除下列两项外与 StepCallbacks 逐字段一致（Omit 直通、StepCallbacks 演化编译期同步）；
+ * onToolCallInput/onToolResult 由本 facade 唯一适配点追加 step(/maxSteps) 参数。
+ */
+export type ReactStepCallbacks = Omit<StepCallbacks, 'onToolCallInput' | 'onToolResult'> & {
+  /** phase 1411: fires when tool args fully parsed (post-stream, pre-execute). Facade 追加 step 参数。 */
+  onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>, step: number) => void;
+  onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult, step: number, maxSteps: number) => void;
+};
 
 export interface ReactOptions {
   messages: Message[];
@@ -35,52 +51,19 @@ export interface ReactOptions {
   maxConsecutiveParseErrors?: number;
   maxConsecutiveMaxTokensToolUse?: number;
   idleTimeoutMs?: number;
-  wallTimeDeadlineMs?: number;
-  onToolCall?: (toolName: string, toolUseId: ToolUseId) => void | Promise<void>;
-  /** phase 1411: fires when tool args fully parsed (post-stream, pre-execute). See StepCallbacks.onToolCallInput. */
-  onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>, step: number) => void;
-  /** phase 688: fires inside flushToolUse (stream + catch drain). See StepCallbacks.onToolUseInput. */
-  onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
-  /** phase 1180: fires on each tool_use_delta with raw partial JSON input. */
-  onToolUseInputDelta?: (toolName: string, toolUseId: ToolUseId, partialInput: string) => void;
-  /** phase 688: fires in collector catch path after drain; carries discard 决策摘要. */
-  onPartialAssistantDiscarded?: (info: {
-    cause: 'all_providers_failed' | 'idle_timeout' | 'unknown';
-    toolUseCount: number;
-    hasText: boolean;
-    hasThinking: boolean;
-    startTs: number;
-    endTs: number;
-    errMessage: string;
-  }) => void;
-  onBeforeLLMCall?: () => void;
-  onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult, step: number, maxSteps: number) => void;
+  /** per-loop wall-time 预算（自 loop 起始计时；仅每 step 顶部检查——非硬中断） */
+  wallTimeBudgetMs?: number;
+  /** phase 1856 (AE-D8): StepExecutor 契约的命名组合（编译器保证字段完整）。 */
+  stepCallbacks?: ReactStepCallbacks;
   /** phase 706: receives the step count after a successful step for caller persistence/audit. */
   onStepComplete?: (stepCount: number) => Promise<void>;
   tools?: ToolDefinition[];
   registry?: ToolRegistry;
-  onTextDelta?: (delta: string) => void;
-  onTextEnd?: () => void;
-  onThinkingDelta?: (delta: string) => void;
-  onReset?: (provider: string, timeoutMs: number) => void;
-  onProviderFailed?: (provider: string, model: string, error: string) => void;
-  onLLMResult?: (info: LLMCallInfo) => void;
-  onEmptyResponse?: (stopReason: string) => void;
-  onUnknownStopReason?: (stopReason: string) => void;
-  onUnparseableToolUse?: (stopReason: string) => void;
-  onToolInputParseError?: (toolName: string, toolUseId: ToolUseId, rawInput: string) => void;
-  onToolExecutionFailed?: (toolName: string, toolUseId: ToolUseId, errorType: string, errorMsg: string) => void;
-  onSafeCallbackError?: (label: string, err: unknown) => void;
-  onMaxTokensPrebuiltOnlyFinal?: (meta: { prebuiltCount: number; llm: LLMCallInfo }) => void;
-  onMaxTokensAssistantEmptySkipped?: (meta: { llm: LLMCallInfo }) => void;
-  /** phase 1383: State A orphan prebuilt drop observability */
-  onMaxTokensStateAOrphanDrop?(args: {
-    orphans: Array<{ tool_use_id: string; content: string; is_error: boolean }>;
-    llm: LLMCallInfo;
-  }): void;
-  // phase 706: AgentExecutor needs audit writer + per-turn contract id for tool_call_input.
+  // phase 706: audit writer + per-turn contract id（仅 executeStep 透传；AgentExecutor 自身事件走 eventSink）。
   auditWriter?: AuditLog;
   currentContractId?: string;
+  /** phase 1856 (AE-D9): AgentExecutor-owned 结构化事件 sink；身份绑定/审计行格式化归 caller adapter。 */
+  eventSink?: AgentExecutorEventSink;
   /** Minimal stream sink used only for AgentExecutor-owned turn event commits. */
   streamCallbacks?: TurnEventCommitDeps;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
@@ -91,9 +74,12 @@ export interface ReactResult {
   finalText: string;
   stepsUsed: number;
   // phase 788: 'unknown' propagate（audit-2026-05-14 P0.15）
-  // LLM 返 unrecognized stop_reason（refusal、safety、stop_sequence 等）经 step-executor 映射 'unknown'，本字段保留区分 true end_turn。
-  // phase 1483: 'content_filter' 字面单独保留（不再折叠为 'unknown'）— Design Principle「运行中信息不丢弃」+ 唯一 caller subagent/agent.ts:411 仅 appendToLog 字符串拼接安全。
-  stopReason: 'end_turn' | 'no_tool' | 'max_tokens' | 'content_filter' | 'unknown';
+  // phase 1483: 'content_filter' 字面单独保留（不再折叠为 'unknown'）
+  // phase 1856 (AE-D12): 直接复用 StepExecutor owner type（FinalStopReason），删有损映射
+  // （'stop' 不再折叠为 'end_turn'、'max_tokens_text' 不改名 'max_tokens'）。
+  stopReason: FinalStopReason;
+  /** phase 1856 (AE-D10): typed loop stop request（如 result_capture 早停；替代伪造 'end_turn'）。 */
+  stopRequest?: LoopStopRequest;
 }
 
 export async function runReact(options: ReactOptions): Promise<ReactResult> {
@@ -103,47 +89,29 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveParseErrors,
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
-    wallTimeDeadlineMs,
-    onToolCall, onToolCallInput, onToolUseInput, onToolUseInputDelta, onPartialAssistantDiscarded, onBeforeLLMCall, onToolResult, onStepComplete,
+    wallTimeBudgetMs,
+    stepCallbacks,
+    onStepComplete,
     tools = [],
     registry,
-    onTextDelta, onTextEnd, onThinkingDelta,
-    onReset, onProviderFailed, onLLMResult,
-    onEmptyResponse, onUnknownStopReason, onUnparseableToolUse, onToolInputParseError, onToolExecutionFailed, onSafeCallbackError,
-    onMaxTokensPrebuiltOnlyFinal, onMaxTokensAssistantEmptySkipped,
     auditWriter,
     currentContractId,
   } = options;
 
-  // 用闭包捕获 stepCount（适配旧 onToolResult 签名的 step/maxSteps 参数）
+  // 用闭包捕获 stepCount（onToolCallInput/onToolResult 的 step/maxSteps 追加参数——唯一适配点；
+  // 其余字段 spread 直通，StepCallbacks 演化时编译器在消费方提示）
   let stepCount = 0;
+  const onToolCallInput = stepCallbacks?.onToolCallInput;
+  const onToolResult = stepCallbacks?.onToolResult;
 
-  const stepCallbacks: StepCallbacks = {
-    onBeforeLLMCall,
-    onLLMResult,
-    onTextDelta,
-    onTextEnd,
-    onThinkingDelta,
-    onToolCall,
+  const adaptedStepCallbacks: StepCallbacks = {
+    ...stepCallbacks,
     onToolCallInput: onToolCallInput
       ? (name, toolUseId, args) => onToolCallInput(name, toolUseId, args, stepCount)
       : undefined,
-    onToolUseInput,
-    onToolUseInputDelta,
-    onPartialAssistantDiscarded,
     onToolResult: onToolResult
       ? (name, toolUseId, result) => onToolResult(name, toolUseId, result, stepCount, maxSteps)
       : undefined,
-    onReset,
-    onProviderFailed,
-    onEmptyResponse,
-    onUnknownStopReason,
-    onUnparseableToolUse,
-    onToolInputParseError,
-    onToolExecutionFailed,
-    onSafeCallbackError,
-    onMaxTokensPrebuiltOnlyFinal,
-    onMaxTokensAssistantEmptySkipped,
   };
 
   const result = await runAgent({
@@ -152,10 +120,11 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveParseErrors,
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
-    wallTimeDeadlineMs,
-    stepCallbacks,
+    wallTimeBudgetMs,
+    stepCallbacks: adaptedStepCallbacks,
     auditWriter,
     currentContractId,
+    eventSink: options.eventSink,
     streamCallbacks: options.streamCallbacks,
     onAfterStep: async (_meta, newStepCount) => {
       stepCount = newStepCount;  // AgentExecutor 已执行步进
@@ -166,26 +135,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
   return {
     finalText: result.finalText,
     stepsUsed: result.stepsUsed,
-    stopReason: mapStopReason(result.stopReason),
+    stopReason: result.stopReason,
+    stopRequest: result.stopRequest,
   };
-}
-
-function mapStopReason(
-  r: FinalStopReason
-): 'end_turn' | 'no_tool' | 'max_tokens' | 'content_filter' | 'unknown' {
-  // phase 398 Step C (review N8): switch + assertNever default — 新 FinalStopReason
-  // 变体编译期失败 (vs phase 1483 / 788 if-cascade + 'end_turn' default 静默折叠)。
-  switch (r) {
-    case 'max_tokens_text': return 'max_tokens';
-    case 'no_tool': return 'no_tool';
-    case 'content_filter': return 'content_filter';   // phase 1483 distinct propagate
-    case 'unknown': return 'unknown';                 // phase 788 distinct propagate
-    case 'end_turn':
-    case 'stop':
-      return 'end_turn';  // 'end_turn' 与 'stop' 均映射为 'end_turn'（向后兼容 shim）
-    default: {
-      const _exhaustive: never = r;
-      return _exhaustive;
-    }
-  }
 }

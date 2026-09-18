@@ -6,6 +6,8 @@
 
 export { Runtime } from './runtime.js';
 export type { RuntimeOptions, RuntimeDependencies, TurnResult, GuidanceCompose, GuidanceEnvelope } from './types.js';
+// phase 1856 (AE-D5): turn/provider 生命周期回调归 Runtime（invoke owner）；stream 段协议不转发
+export type { TurnLifecycleCallbacks, ProviderLifecycleCallbacks, RuntimeTurnCallbacks } from './turn-callbacks.js';
 // phase 1847: 原始批次交接 / 可失败格式化边界类型
 export type { PreparedInboxEntry, PreparedInboxBatch, FormattedInboxBatch } from './types.js';
 export { createRuntime } from './create-runtime.js';

@@ -1,7 +1,7 @@
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
 import type { Runtime } from '../../src/core/runtime/runtime.js';
-import type { StreamCallbacks } from '../../src/core/agent-executor/index.js';
+import type { EventLoopStreamCallbacks } from '../../src/core/event-loop/index.js';
 import type { TurnResult } from '../../src/core/runtime/types.js';
 import type { RuntimeTestInternals } from './runtime-test-internals.js';
 
@@ -12,7 +12,7 @@ import type { RuntimeTestInternals } from './runtime-test-internals.js';
 export async function processRuntimeMessage(
   runtime: Runtime,
   message: Message,
-  callbacks?: StreamCallbacks,
+  callbacks?: EventLoopStreamCallbacks,
 ): Promise<TurnResult> {
   const loadResult = await (runtime as unknown as RuntimeTestInternals).sessionManager.load();
   if (loadResult.source === 'io_error') {

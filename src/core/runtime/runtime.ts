@@ -27,7 +27,9 @@ import {
 import { resolveContextWindow } from '../../foundation/llm-provider/index.js';
 import { loadReadFileState, clearReadFileState, persistReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
-import { runReact, type StreamCallbacks } from '../agent-executor/index.js';
+import { runReact } from '../agent-executor/index.js';
+import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
+import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
@@ -887,7 +889,7 @@ export class Runtime {
    * Run the LLM ReAct loop over the given messages and save the session.
    * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
-  protected async _runReact(messages: Message[], systemPrompt: string, tools: ToolDefinition[], callbacks?: StreamCallbacks): Promise<void> {
+  protected async _runReact(messages: Message[], systemPrompt: string, tools: ToolDefinition[], callbacks?: RuntimeTurnCallbacks): Promise<void> {
     // phase 786: stopRequested 是 per-turn flag，每 turn 起首 reset
     // 防 P0.14 跨 turn sticky bug（done 工具误调后下 turn silent empty）
     this.execContext.stopRequested = false;
@@ -940,7 +942,15 @@ export class Runtime {
         idleTimeoutMs: this.options.idleTimeoutMs,
         auditWriter: this.auditWriter,
         currentContractId,
-        onLLMResult: (info) => {
+        // phase 1856 (AE-D9): AgentExecutor-owned 结构化事件经 caller adapter 绑定
+        // contract_id/trace_id 并格式化为审计行（行内容与原循环内直写逐列一致）。
+        eventSink: createAgentExecutorAuditSink({
+          auditWriter: this.auditWriter,
+          currentContractId,
+          execContext: this.execContext,
+        }),
+        stepCallbacks: {
+          onLLMResult: (info) => {
           // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
           this.lastLLMCallAt = Date.now();
           if (info.error) {
@@ -952,6 +962,25 @@ export class Runtime {
             // phase 560: 同上
             this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
           }
+        },
+        onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
+        onTextEnd: callbacks?.onTextEnd,
+        onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
+        onToolCall: callbacks?.onToolCall,
+        // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
+        // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
+        onToolUseInput: callbacks?.onToolUseInput,
+        onToolUseInputDelta: callbacks?.onToolUseInputDelta,
+        // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
+        onToolResult: callbacks?.onToolResult,
+        onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
+        onReset: (provider, timeoutMs) => {
+          providerInfoEmitted = false;
+          callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
+        },
+        onProviderFailed: (provider, model, error) => {
+          callbacks?.onProviderFailed?.({ provider, model, error });
+        },
         },
         onStepComplete: async (stepCount) => {
           const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
@@ -978,24 +1007,6 @@ export class Runtime {
           if (await this._hasHighPriorityInbox()) {
             this.currentAbortController?.abort({ type: 'step_yield' });
           }
-        },
-        onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
-        onTextEnd: callbacks?.onTextEnd,
-        onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
-        onToolCall: callbacks?.onToolCall,
-        // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
-        // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
-        onToolUseInput: callbacks?.onToolUseInput,
-        onToolUseInputDelta: callbacks?.onToolUseInputDelta,
-        // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
-        onToolResult: callbacks?.onToolResult,
-        onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
-        onReset: (provider, timeoutMs) => {
-          providerInfoEmitted = false;
-          callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
-        },
-        onProviderFailed: (provider, model, error) => {
-          callbacks?.onProviderFailed?.({ provider, model, error });
         },
 
         streamCallbacks: callbacks,
@@ -1082,7 +1093,7 @@ export class Runtime {
     messages: Message[],
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
-    callbacks?: StreamCallbacks,
+    callbacks?: RuntimeTurnCallbacks,
     reuseTraceId?: TraceId,
   ): Promise<TurnResult> {
     if (!this.initialized) {
@@ -1099,7 +1110,7 @@ export class Runtime {
     messages: Message[],
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
-    callbacks?: StreamCallbacks,
+    callbacks?: RuntimeTurnCallbacks,
     reuseTraceId?: TraceId,
   ): Promise<TurnResult> {
     const { cleanup } = this._setupTurnContext(reuseTraceId);
@@ -1508,7 +1519,7 @@ export class Runtime {
 export function handleTurnInterrupt(
   err: unknown,
   audit: AuditLog,
-  callbacks?: StreamCallbacks,
+  callbacks?: RuntimeTurnCallbacks,
   traceId?: string,  // phase 571: forensic field、optional 兼容既有 test caller
 ): void {
   // phase 571: trace_id col fallback ''、test 不传时为空 col 保 forensic 形态一致

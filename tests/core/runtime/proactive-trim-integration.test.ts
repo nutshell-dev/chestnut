@@ -137,7 +137,7 @@ describe('runtime proactive trim integration', () => {
   it('4. _runReact onLLMResult callback updates lastLLMCallAt', async () => {
     vi.spyOn(maybeTrimModule, 'maybeTrimProactive').mockResolvedValue(null);
     const runReactSpy = vi.spyOn(loopModule, 'runReact').mockImplementation(async (options) => {
-      options.onLLMResult?.({ model: 'test', inputTokens: 1, outputTokens: 1, latencyMs: 1 });
+      options.stepCallbacks?.onLLMResult?.({ model: 'test', inputTokens: 1, outputTokens: 1, latencyMs: 1 });
       return { finalText: '', stepsUsed: 1, stopReason: 'end_turn' } as ReactResult;
     });
     const runtime = await makeRuntime({ filterSubtypes: new Set() });

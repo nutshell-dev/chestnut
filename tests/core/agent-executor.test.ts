@@ -187,7 +187,7 @@ describe('runAgent circuit breaker thresholds (caller injection)', () => {
       executor: makeExecutor({}),
       registry: makeRegistry({ foo: { readonly: false } }),
       ctx: makeCtx(),
-    })).rejects.toThrow(/工具输入 JSON 连续解析失败/);
+    })).rejects.toThrow(/工具输入 JSON 解析失败累计 .* 次（自上次成功起/);
   });
 
   it('should respect caller-injected maxConsecutiveMaxTokensToolUse', async () => {
