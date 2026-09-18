@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { executeStep } from '../../../src/core/step-executor/index.js';
-import { IdleTimeoutSignal } from '../../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../../src/core/step-executor/index.js';
 import { INIT_LLM_IDLE_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
@@ -85,7 +85,7 @@ describe('StepExecutor abort handling (Phase 538)', () => {
     await expect(executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: exec, registry: makeRegistry({ slowWrite: { readonly: false } }), ctx,
-    })).rejects.toThrow(IdleTimeoutSignal);
+    })).rejects.toThrow(StepAbortError);
 
     // Phase 538 D.1: abort 期不剥 signal / executeToolCalls 内 check ctx.signal?.aborted
     // → 工具不执行（不是旧代码的「剥 signal → 执行工具 → 再兜底 throw」）
@@ -116,7 +116,7 @@ describe('StepExecutor abort handling (Phase 538)', () => {
     await expect(executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: exec, registry: makeRegistry({}), ctx,
-    })).rejects.toThrow(IdleTimeoutSignal);
+    })).rejects.toThrow(StepAbortError);
 
     // finalize 未执行 → 工具不被调用
     expect(exec.execute).not.toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe('StepExecutor abort handling (Phase 538)', () => {
     await expect(executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: makeExecutor({}), registry: makeRegistry({}), ctx,
-    })).rejects.toThrow(IdleTimeoutSignal);
+    })).rejects.toThrow(StepAbortError);
   });
 
   it('正常 tool_use stream 完整收 / regression 防', async () => {

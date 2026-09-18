@@ -10,7 +10,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
-import { UserInterrupt, IdleTimeoutSignal } from '../../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../../src/core/step-executor/index.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
@@ -122,9 +122,9 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
       addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
     };
     runtime.midTurnSaves = 3;
-    runtime.reactThrow = new UserInterrupt();
+    runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalled();
@@ -174,9 +174,9 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
       addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
     };
     runtime.midTurnSaves = 1;
-    runtime.reactThrow = new UserInterrupt();
+    runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(
@@ -227,9 +227,9 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
       addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
     };
     runtime.midTurnSaves = 2;
-    runtime.reactThrow = new IdleTimeoutSignal(30000);
+    runtime.reactThrow = new StepAbortError({ kind: 'idle_timeout', ms: 30000 });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(IdleTimeoutSignal);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
     expect(commitCallSpy).toHaveBeenCalledWith('idle_timeout');
     expect(nackSpy).toHaveBeenCalled();

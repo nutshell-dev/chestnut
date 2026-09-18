@@ -14,7 +14,7 @@ import { MaxStepsExceededError } from '../../src/core/agent-executor/errors.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../src/core/step-executor/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
 import { handleTurnInterrupt } from '../../src/core/runtime/runtime.js';
@@ -242,7 +242,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
       const audit = makeMockAudit();
-      handleTurnInterrupt(new IdleTimeoutSignal(30000), audit, { onTurnInterrupted, onTurnError });
+      handleTurnInterrupt(new StepAbortError({ kind: 'idle_timeout', ms: 30000 }), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('idle_timeout', expect.stringContaining('30s'));
       expect(onTurnError).not.toHaveBeenCalled();
       // phase 571: 加 trace_id col（test 不传 traceId、col 形态 trace_id=）
@@ -253,7 +253,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
       const audit = makeMockAudit();
-      handleTurnInterrupt(new PriorityInboxInterrupt(), audit, { onTurnInterrupted, onTurnError });
+      handleTurnInterrupt(new StepAbortError({ kind: 'step_yield' }), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('priority_inbox', expect.any(String));
       expect(onTurnError).not.toHaveBeenCalled();
       expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=priority_inbox', 'trace_id=');
@@ -263,7 +263,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
       const audit = makeMockAudit();
-      handleTurnInterrupt(new UserInterrupt(), audit, { onTurnInterrupted, onTurnError });
+      handleTurnInterrupt(new StepAbortError({ kind: 'user_interrupt' }), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('user_interrupt');  // 无 message，让 viewport 自行决定显示
       expect(onTurnError).not.toHaveBeenCalled();
       expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt', 'trace_id=');

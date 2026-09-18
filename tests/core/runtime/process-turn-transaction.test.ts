@@ -14,7 +14,7 @@ import { Runtime } from '../../../src/core/runtime/index.js';
 import type { RuntimeOptions } from '../../../src/core/runtime/types.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import { UserInterrupt, IdleTimeoutSignal, PriorityInboxInterrupt } from '../../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../../src/core/step-executor/index.js';
 
 class TransactionTestRuntime extends Runtime {
   public reactError: Error | null = null;
@@ -174,7 +174,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
 
   it('UserInterrupt -> commitTurn(user_interrupt) -> {status:interrupted}', async () => {
     const { runtime, deps } = makeRuntime();
-    runtime.reactError = new UserInterrupt();
+    runtime.reactError = new StepAbortError({ kind: 'user_interrupt' });
 
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
@@ -188,7 +188,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
 
   it('IdleTimeoutSignal -> commitTurn(idle_timeout) -> {status:interrupted}', async () => {
     const { runtime, deps } = makeRuntime();
-    runtime.reactError = new IdleTimeoutSignal(30000);
+    runtime.reactError = new StepAbortError({ kind: 'idle_timeout', ms: 30000 });
 
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
@@ -201,7 +201,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
 
   it('PriorityInboxInterrupt -> commitTurn(priority_inbox) -> {status:interrupted}', async () => {
     const { runtime, deps } = makeRuntime();
-    runtime.reactError = new PriorityInboxInterrupt();
+    runtime.reactError = new StepAbortError({ kind: 'step_yield' });
 
     const result = await runtime.processTurn([{ role: 'user', content: 'hi' }], 'sp', []);
 
@@ -214,7 +214,7 @@ describe('processTurn transaction total-result (phase 1158 step B)', () => {
 
   it('interrupt commit fails -> rollback with AggregateError([interrupt, commitError])', async () => {
     const { runtime, deps } = makeRuntime();
-    const interrupt = new UserInterrupt();
+    const interrupt = new StepAbortError({ kind: 'user_interrupt' });
     const commitError = new Error('commit failed');
     runtime.reactError = interrupt;
     (deps.sessionManager as any).commitTurn.mockRejectedValue(commitError);

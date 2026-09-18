@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { IdleTimeoutSignal } from '../../../src/core/step-executor/index.js';
+import { StepAbortError } from '../../../src/core/step-executor/index.js';
 import { dispatchError } from '../../../src/core/event-loop/error-handlers.js';
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import {
@@ -44,7 +44,7 @@ describe('EventLoop error recovery delays', () => {
     vi.useFakeTimers();
     const audit = makeAudit();
     const controller = new AbortController();
-    const dispatched = dispatchError(new IdleTimeoutSignal(), {
+    const dispatched = dispatchError(new StepAbortError({ kind: 'idle_timeout', ms: 0 }), {
       audit,
       signal: controller.signal,
     });

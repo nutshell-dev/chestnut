@@ -17,7 +17,7 @@ import {
   ConsecutiveMaxTokensToolUseError,
 } from '../../src/core/agent-executor/errors.js';
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
+import { isStepAbortError } from '../../src/core/step-executor/index.js';
 import { formatErr } from '../../src/foundation/node-utils/index.js';
 import type { TurnResult } from '../../src/core/runtime/types.js';
 
@@ -108,7 +108,7 @@ export async function runLegacyBatch(
           `reason=${formatErr(err)}`,
         );
       }
-    } else if (!(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal)) {
+    } else if (!isStepAbortError(err)) {
       auditWriter.write(
         LEGACY_PROCESS_BATCH_AUDIT_EVENTS.CATCH_UNHANDLED,
         `path=non_interrupt_error`,

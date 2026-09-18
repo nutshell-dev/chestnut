@@ -12,7 +12,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
 import { INTERRUPT_RECOVERY_DELAY_MS, UNKNOWN_ERROR_RECOVERY_DELAY_MS } from './constants.js';
 import type { LoopErrorContext } from './types.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
+import { isStepAbortError, type StepAbortError, type StepAbortReason } from '../step-executor/index.js';
 import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
@@ -54,11 +54,15 @@ interface ErrorHandler {
   handle: (err: unknown, ctx: LoopErrorContext) => Promise<void>;
 }
 
+const stepAbortKindIs = (kind: StepAbortReason['kind']) =>
+  (err: unknown): err is StepAbortError => isStepAbortError(err) && err.reason.kind === kind;
+
 // ----- 4 handlers（Phase 1268 Step B: llm_retry handler 已退役） -----
 
 const idleTimeoutHandler: ErrorHandler = {
   name: 'idle_timeout',
-  match: (err) => err instanceof IdleTimeoutSignal,
+  // phase 1857 Step B (SE-D1): instanceof 判据改 reason.kind 数据判据
+  match: stepAbortKindIs('idle_timeout'),
   handle: async (_err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
@@ -71,7 +75,7 @@ const idleTimeoutHandler: ErrorHandler = {
 
 const userInterruptHandler: ErrorHandler = {
   name: 'user_interrupt',
-  match: (err) => err instanceof UserInterrupt,
+  match: stepAbortKindIs('user_interrupt'),
   handle: async (_err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
@@ -86,7 +90,7 @@ const userInterruptHandler: ErrorHandler = {
 
 const priorityInboxHandler: ErrorHandler = {
   name: 'priority_inbox',
-  match: (err) => err instanceof PriorityInboxInterrupt,
+  match: stepAbortKindIs('step_yield'),
   handle: async (_err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,

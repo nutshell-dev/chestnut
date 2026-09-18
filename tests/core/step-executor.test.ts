@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeStep } from '../../src/core/step-executor/step-executor.js';
-import { IdleTimeoutSignal } from '../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../src/core/step-executor/index.js';
 import type { LLMCallInfo } from '../../src/core/step-executor/step-executor.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
@@ -329,7 +329,7 @@ describe('StepExecutor', () => {
     await expect(executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: exec, registry: makeRegistry({ testTool: { readonly: false } }), ctx,
-    })).rejects.toThrow(IdleTimeoutSignal);
+    })).rejects.toThrow(StepAbortError);
 
     // Phase 538: abort 期 stream 一致 throwAbortError / partial tool_use 丢弃 / 工具不执行
     expect(exec.execute).not.toHaveBeenCalled();
