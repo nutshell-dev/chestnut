@@ -8,7 +8,6 @@ import {
 } from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as tokenEstimator from '../../../src/foundation/llm-provider/token-estimator.js';
 import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
-import { CACHE_TTL_MS } from '../../../src/core/context_manager/constants.js';
 
 const NOW = 1_700_000_000_000;
 
@@ -29,7 +28,7 @@ function makeInputs(overrides?: Partial<MaybeTrimProactiveInputs>): MaybeTrimPro
     systemPrompt: 'sys',
     toolsForLLM: [],
     contextWindow: 2_000,
-    lastLLMCallAt: NOW - CACHE_TTL_MS - 1,
+    cacheExpired: true,
     dialogStore: makeDialogStore(),
     audit: makeAudit(),
     now: NOW,
@@ -42,36 +41,16 @@ describe('maybeTrimProactive', () => {
     vi.restoreAllMocks();
   });
 
-  it('1. 首次不触发（lastLLMCallAt = 0）', async () => {
+  it('1. 缓存未失效（cacheExpired = false，含首 turn 语义）不触发', async () => {
     const spy = vi
       .spyOn(trimAndPersistModule, 'trimAndPersist')
       .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
-    const result = await maybeTrimProactive(makeInputs({ lastLLMCallAt: 0 }));
+    const result = await maybeTrimProactive(makeInputs({ cacheExpired: false }));
     expect(result).toBeNull();
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('2. 缓存仍有效（idle ≤ CACHE_TTL_MS）不触发', async () => {
-    const spy = vi
-      .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
-    const result = await maybeTrimProactive(
-      makeInputs({ lastLLMCallAt: NOW - CACHE_TTL_MS + 1 }),
-    );
-    expect(result).toBeNull();
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('3. idle 恰等于 CACHE_TTL_MS 不触发', async () => {
-    const spy = vi
-      .spyOn(trimAndPersistModule, 'trimAndPersist')
-      .mockResolvedValue({ status: 'target_reached', before: 0, after: 0, newMessages: [], archived: true });
-    const result = await maybeTrimProactive(makeInputs({ lastLLMCallAt: NOW - CACHE_TTL_MS }));
-    expect(result).toBeNull();
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('4. idle > TTL 但占用率 < 0.75 不触发', async () => {
+  it('2. idle > TTL 但占用率 < 0.75 不触发', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(1_499); // target = 1500
@@ -83,7 +62,7 @@ describe('maybeTrimProactive', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('5. idle > TTL + 占用率 ≥ 0.75 触发', async () => {
+  it('3. idle > TTL + 占用率 ≥ 0.75 触发', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
@@ -95,7 +74,7 @@ describe('maybeTrimProactive', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('6. 触发时 triggerKind = proactive_cache_idle', async () => {
+  it('4. 触发时 triggerKind = proactive_cache_idle', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
@@ -120,13 +99,12 @@ describe('maybeTrimProactive', () => {
       makeInputs({
         contextWindow: 2_000,
         now: customNow,
-        lastLLMCallAt: customNow - CACHE_TTL_MS - 1,
       }),
     );
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ now: customNow }));
   });
 
-  it('8. trimAndPersist throw 上抛', async () => {
+  it('6. trimAndPersist throw 上抛', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);
@@ -135,7 +113,7 @@ describe('maybeTrimProactive', () => {
     await expect(maybeTrimProactive(makeInputs({ contextWindow: 2_000 }))).rejects.toThrow(err);
   });
 
-  it('9. 占用率恰等于 target 触发（≥）', async () => {
+  it('7. 占用率恰等于 target 触发（≥）', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(1_500); // target = 1500
@@ -147,7 +125,7 @@ describe('maybeTrimProactive', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it('10. proactive policy 透传', async () => {
+  it('8. proactive policy 透传', async () => {
     vi.spyOn(tokenEstimator, 'estimateTextTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateToolsTokens').mockReturnValue(0);
     vi.spyOn(tokenEstimator, 'estimateMessagesTokens').mockReturnValue(2_000);

@@ -62,6 +62,7 @@ import {
 } from './types.js';
 import {
   maybeTrimProactive,
+  CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_PREVIEW_BYTES,
   REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
@@ -1481,12 +1482,16 @@ export class Runtime {
     }
     const providerInfo = this.llm.getProviderInfo?.();
     const contextWindow = resolveContextWindow(providerInfo?.model);
+    // phase 1861 (CM-D2+D8)：缓存失效判据归 caller——TTL 比较与「非首次」在此计算注入。
+    const now = Date.now();
     const trimResult = await maybeTrimProactive({
       messages,
       systemPrompt,
       toolsForLLM,
       contextWindow,
-      lastLLMCallAt: this.lastLLMCallAt,
+      now,
+      cacheExpired:
+        this.lastLLMCallAt !== 0 && now - this.lastLLMCallAt > CACHE_TTL_MS,
       dialogStore: this.sessionManager,
       audit: this.auditWriter,
     });

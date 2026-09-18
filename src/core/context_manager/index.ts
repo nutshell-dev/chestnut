@@ -16,6 +16,7 @@ export {
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   REACTIVE_CONTEXT_RETENTION_FLOOR_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
+  CACHE_TTL_MS,
 } from './constants.js';
 export {
   buildReactiveTrimPolicy,

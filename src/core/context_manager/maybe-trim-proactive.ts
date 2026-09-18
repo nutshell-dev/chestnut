@@ -13,7 +13,6 @@ import {
 import { trimAndPersist, type DialogStoreMutationCapability } from './trim-and-persist.js';
 import type { ContextTrimOutcome } from './trim-v2.js';
 import {
-  CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from './constants.js';
@@ -27,45 +26,41 @@ export interface MaybeTrimProactiveInputs {
   toolsForLLM: ToolDefinition[];
   contextWindow: number;
 
-  /** 上次 LLM 调用完成时刻 (ms epoch)；0 = 从未调用过 */
-  lastLLMCallAt: number;
+  /** phase 1861 (CM-D2)：缓存已失效事实（含「非首次」语义）——由 owner（caller/Runtime）判定注入。 */
+  cacheExpired: boolean;
 
   dialogStore: DialogStoreMutationCapability;
   audit: AuditWriter;
 
-  /** 注入测试用、默认 Date.now() */
-  now?: number;
+  /** phase 1861 (CM-D8)：时钟值必传（caller 侧取得）。 */
+  now: number;
 }
 
 /**
  * 顺手裁触发：turn 入口判断「占用率 ≥ 0.75 AND 缓存已失效」、满足则调 trimAndPersist。
  *
- * 触发条件（4 件全满足）：
- * 1. 非首次（lastLLMCallAt !== 0）
- * 2. 缓存已失效（Date.now() - lastLLMCallAt > CACHE_TTL_MS）
- * 3. 占用率 ≥ 0.75（estimateMessagesTokens ≥ targetMessagesTokens）
- * 4. dialogStore 可用（caller 已提供）
+ * 触发条件（3 件全满足）：
+ * 1. 缓存已失效（caller 注入 cacheExpired；TTL 判据与「非首次」归 caller/Runtime）
+ * 2. 占用率 ≥ 0.75（estimateMessagesTokens ≥ targetMessagesTokens）
+ * 3. dialogStore 可用（caller 已提供）
  *
  * 不触发返 null；触发则返 TrimAndPersistResult（含 newMessages 引用、caller 替换自身引用）。
  */
 export async function maybeTrimProactive(
   inputs: MaybeTrimProactiveInputs,
 ): Promise<ContextTrimOutcome | null> {
-  const now = inputs.now ?? Date.now();
+  const now = inputs.now;
 
-  // 1. 首次不触发
-  if (inputs.lastLLMCallAt === 0) return null;
+  // 1. 缓存未失效不触发（失效判据由 caller 计算注入）
+  if (!inputs.cacheExpired) return null;
 
-  // 2. 缓存未失效不触发
-  if (now - inputs.lastLLMCallAt <= CACHE_TTL_MS) return null;
-
-  // 3. 算消息历史上限（proactive target 为完整 prompt 上限；减去 fixed 得消息上限）
+  // 2. 算消息历史上限（proactive target 为完整 prompt 上限；减去 fixed 得消息上限）
   const proactivePolicy = buildProactiveTrimPolicy(inputs.contextWindow);
   const targetMessagesTokens = proactivePolicy.targetCompleteTokens
     - estimateTextTokens(inputs.systemPrompt)
     - estimateToolsTokens(inputs.toolsForLLM);
 
-  // 4. 占用率 < 0.75 不触发
+  // 3. 占用率 < 0.75 不触发
   const estimatedTokens = estimateMessagesTokens(inputs.messages);
   if (estimatedTokens < targetMessagesTokens) return null;
 
