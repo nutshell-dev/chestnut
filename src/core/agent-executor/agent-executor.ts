@@ -19,11 +19,11 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { asFinalStopReason } from '../step-executor/index.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';
+import type { AgentExecutorEventSink } from './event-sink.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from './constants.js';
-import { AGENT_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 interface AgentInput {
   messages: Message[];
@@ -45,7 +45,13 @@ interface AgentInput {
   streamCallbacks?: TurnEventCommitDeps;
   /** phase 706: stepCount is maintained internally; caller receives it for persistence/audit. */
   onAfterStep?: (meta: StepMeta, stepCount: number) => void | Promise<void>;
-  // phase 706: audit writer + per-turn contract id for tool_call_input emit.
+  /**
+   * phase 1856 (AE-D9): AgentExecutor-owned 结构化事件 sink（toolCallInput/toolResult/
+   * stepCompleted）。身份绑定与审计行格式化归 caller adapter；本循环只发结构化事实。
+   */
+  eventSink?: AgentExecutorEventSink;
+  // auditWriter + currentContractId 仅作 executeStep 透传（StepExecutor 内部审计面，
+  // 其 sink 化属 1857 SE-D3 范围）；AgentExecutor 自身事件不再直用。
   auditWriter?: AuditLog;
   currentContractId?: string;
   // phase 690: 撤 dialogStore + contextManagerConfig 透传 — proactive trim
@@ -84,26 +90,23 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
 
   const startMs = Date.now();
   const deadline = input.wallTimeDeadlineMs;
+  const eventSink = input.eventSink;
 
-  // phase 706: AgentExecutor owns TOOL_CALL_INPUT audit (per-step owner).
+  // phase 1856 (AE-D9): TOOL_CALL_INPUT 事件改走结构化 sink（列格式化归 caller adapter）。
   const callbacks: StepCallbacks = {
     ...stepCallbacks,
     onUnparseableToolUse: stepCallbacks?.onUnparseableToolUse ?? (() => {}),
   };
-  if (auditWriter) {
+  if (eventSink) {
     const existingOnToolCallInput = stepCallbacks?.onToolCallInput;
     callbacks.onToolCallInput = (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>) => {
       existingOnToolCallInput?.(toolName, toolUseId, args);
-      const argsSize = JSON.stringify(args).length;
-      auditWriter.write(
-        AGENT_EXECUTOR_AUDIT_EVENTS.TOOL_CALL_INPUT,
+      eventSink.toolCallInput({
         toolName,
-        `tool_use_id=${String(toolUseId)}`,
-        `step=${stepCount}`,
-        `contract_id=${currentContractId ?? ''}`,
-        `trace_id=${String(ctx.trace_id ?? '')}`,
-        `args_size=${argsSize}`,
-      );
+        toolUseId,
+        step: stepCount,
+        argsSize: JSON.stringify(args).length,
+      });
     };
   }
 
@@ -125,25 +128,19 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     };
     const prevOnToolResult = callbacks.onToolResult;
     callbacks.onToolResult = (name, toolUseId, result) => {
-      // phase 730: AgentExecutor owns TOOL_RESULT audit write + stream emit.
+      // phase 730: AgentExecutor owns TOOL_RESULT event + stream emit.
+      // phase 1856 (AE-D9): 审计写改走结构化 sink（列格式化归 caller adapter）。
       commitTurnEvent(
         { kind: 'tool_result', name, toolUseId, result, step: stepCount, maxSteps },
         turnEventSink,
       );
-      if (auditWriter) {
-        const content = result.content ?? '';
-        auditWriter.write(
-          AGENT_EXECUTOR_AUDIT_EVENTS.TOOL_RESULT,
-          name,
-          `tool_use_id=${String(toolUseId)}`,
-          `step=${stepCount}`,
-          `contract_id=${currentContractId ?? ''}`,
-          `trace_id=${String(ctx.trace_id ?? '')}`,
-          `status=${result.success ? 'ok' : 'err'}`,
-          `content_size=${Buffer.byteLength(content, 'utf-8')}`,
-          `summary=${auditWriter.summary(content)}`,
-        );
-      }
+      eventSink?.toolResult({
+        toolName: name,
+        toolUseId,
+        step: stepCount,
+        success: result.success,
+        content: result.content ?? '',
+      });
       prevOnToolResult?.(name, toolUseId, result);
     };
   }
@@ -183,17 +180,11 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       // 1. 步进（落盘归 caller 经 onAfterStep callback / phase409 align M#1+M#3）
       stepCount++;
 
-      // 2. step audit (phase 730: AgentExecutor owns step completion audit)
-      // phase 1856 (AE-D3): 完整 step 的提交证据（step audit + onAfterStep）先于熔断终态落定，
+      // 2. step 完成事件 (phase 730: AgentExecutor owns step completion event)
+      // phase 1856 (AE-D3): 完整 step 的提交证据（stepCompleted + onAfterStep）先于熔断终态落定，
       // 熔断抛出时最后一个已修改 messages 的 step 也有持久化 hook / DP「运行中信息不丢弃」。
-      if (auditWriter) {
-        auditWriter.write(
-          AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
-          `step=${stepCount}`,
-          `contract_id=${currentContractId ?? ''}`,
-          `trace_id=${String(ctx.trace_id ?? '')}`,
-        );
-      }
+      // phase 1856 (AE-D9): 结构化 sink；身份绑定与列格式化归 caller adapter。
+      eventSink?.stepCompleted({ step: stepCount });
 
       // 3. onAfterStep（步进之后、熔断检查之前）
       if (onAfterStep) {
@@ -239,15 +230,9 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       // 熔断终态（ConsecutiveMaxTokensToolUseError）抛出前，该 step 的提交证据已落定。
       stepCount++;
 
-      // phase 730: step completion audit in max_tokens_tool_use path too
-      if (auditWriter) {
-        auditWriter.write(
-          AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
-          `step=${stepCount}`,
-          `contract_id=${currentContractId ?? ''}`,
-          `trace_id=${String(ctx.trace_id ?? '')}`,
-        );
-      }
+      // phase 730: step completion event in max_tokens_tool_use path too
+      // phase 1856 (AE-D9): 结构化 sink（同上）。
+      eventSink?.stepCompleted({ step: stepCount });
 
       // phase 337 M4 (review-2026-06-13): max_tokens_tool_use 分支也调 onAfterStep
       // 与 'continue' 分支对齐。否则该步 session save / contract auditor maybeAuditStep

@@ -5,8 +5,9 @@
  * max_tokens 分支：计数与熔断（超限 throw）→ 步进 → audit → onAfterStep。
  * 熔断抛出时，最后一个已修改 messages 的 step 没有 step audit / 持久化 hook。
  *
- * 修后两分支同序：步进 → step audit → onAfterStep → 计数与熔断。
+ * 修后两分支同序：步进 → stepCompleted 事件 → onAfterStep → 计数与熔断。
  * guard 终态不被吞（仍 throw），但证据已落定。
+ * （phase 1856 AE-D9 后：step 完成证据经 AgentExecutorEventSink 结构化事件观测。）
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -15,10 +16,9 @@ import {
   ConsecutiveParseErrorsExceededError,
   ConsecutiveMaxTokensToolUseError,
 } from '../../../src/core/agent-executor/errors.js';
-import { AGENT_EXECUTOR_AUDIT_EVENTS } from '../../../src/core/agent-executor/audit-events.js';
+import type { AgentExecutorEventSink } from '../../../src/core/agent-executor/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { IToolExecutor } from '../../../src/foundation/tools/executor.js';
-import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 
 function makeParseErrorLLM(): LLMOrchestrator {
@@ -60,19 +60,18 @@ function makeNoopExecutor(): IToolExecutor {
   } as unknown as IToolExecutor;
 }
 
-function makeAuditWriter(): AuditLog & { write: ReturnType<typeof vi.fn> } {
+function makeEventSink(): AgentExecutorEventSink & { stepCompleted: ReturnType<typeof vi.fn> } {
   return {
-    write: vi.fn(),
-    summary: vi.fn((s: string) => s),
-    preview: vi.fn((s: string) => s),
-    message: vi.fn((s: string) => s),
-  } as unknown as AuditLog & { write: ReturnType<typeof vi.fn> };
+    toolCallInput: vi.fn(),
+    toolResult: vi.fn(),
+    stepCompleted: vi.fn(),
+  };
 }
 
 describe('熔断前完整 step 提交证据（phase 1856 AE-D3）', () => {
-  it('parse-error 熔断抛出前：onAfterStep 已含该 step、STEP_COMPLETED 已写', async () => {
+  it('parse-error 熔断抛出前：onAfterStep 已含该 step、stepCompleted 事件已发', async () => {
     const onStepComplete = vi.fn(async () => {});
-    const auditWriter = makeAuditWriter();
+    const eventSink = makeEventSink();
 
     await expect(
       runReact({
@@ -84,23 +83,20 @@ describe('熔断前完整 step 提交证据（phase 1856 AE-D3）', () => {
         ctx: makeExecContext(),
         maxConsecutiveParseErrors: 2,
         onStepComplete,
-        auditWriter,
+        eventSink,
       }),
     ).rejects.toThrow(ConsecutiveParseErrorsExceededError);
 
     // 熔断步（step 2）的提交证据已落定
     expect(onStepComplete).toHaveBeenCalledTimes(2);
     expect(onStepComplete).toHaveBeenNthCalledWith(2, 2);
-    const stepCompletedWrites = auditWriter.write.mock.calls.filter(
-      (args) => args[0] === AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
-    );
-    expect(stepCompletedWrites).toHaveLength(2);
-    expect(stepCompletedWrites[1]).toContain('step=2');
+    expect(eventSink.stepCompleted).toHaveBeenCalledTimes(2);
+    expect(eventSink.stepCompleted).toHaveBeenNthCalledWith(2, { step: 2 });
   });
 
-  it('max_tokens 熔断抛出前：onAfterStep 已含该 step、STEP_COMPLETED 已写（两分支同序）', async () => {
+  it('max_tokens 熔断抛出前：onAfterStep 已含该 step、stepCompleted 事件已发（两分支同序）', async () => {
     const onStepComplete = vi.fn(async () => {});
-    const auditWriter = makeAuditWriter();
+    const eventSink = makeEventSink();
 
     await expect(
       runReact({
@@ -112,16 +108,13 @@ describe('熔断前完整 step 提交证据（phase 1856 AE-D3）', () => {
         ctx: makeExecContext(),
         maxConsecutiveMaxTokensToolUse: 2,
         onStepComplete,
-        auditWriter,
+        eventSink,
       }),
     ).rejects.toThrow(ConsecutiveMaxTokensToolUseError);
 
     expect(onStepComplete).toHaveBeenCalledTimes(2);
     expect(onStepComplete).toHaveBeenNthCalledWith(2, 2);
-    const stepCompletedWrites = auditWriter.write.mock.calls.filter(
-      (args) => args[0] === AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
-    );
-    expect(stepCompletedWrites).toHaveLength(2);
-    expect(stepCompletedWrites[1]).toContain('step=2');
+    expect(eventSink.stepCompleted).toHaveBeenCalledTimes(2);
+    expect(eventSink.stepCompleted).toHaveBeenNthCalledWith(2, { step: 2 });
   });
 });

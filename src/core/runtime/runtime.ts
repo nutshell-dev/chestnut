@@ -29,6 +29,7 @@ import { loadReadFileState, clearReadFileState, persistReadFileState } from '../
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
 import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
+import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
@@ -941,6 +942,13 @@ export class Runtime {
         idleTimeoutMs: this.options.idleTimeoutMs,
         auditWriter: this.auditWriter,
         currentContractId,
+        // phase 1856 (AE-D9): AgentExecutor-owned 结构化事件经 caller adapter 绑定
+        // contract_id/trace_id 并格式化为审计行（行内容与原循环内直写逐列一致）。
+        eventSink: createAgentExecutorAuditSink({
+          auditWriter: this.auditWriter,
+          currentContractId,
+          execContext: this.execContext,
+        }),
         stepCallbacks: {
           onLLMResult: (info) => {
           // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁

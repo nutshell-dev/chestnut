@@ -26,6 +26,7 @@ import { runAgent } from './agent-executor.js';
 import type { StepCallbacks, FinalStopReason } from '../step-executor/index.js';
 
 import type { TurnEventCommitDeps } from './turn-event-commit.js';
+import type { AgentExecutorEventSink } from './event-sink.js';
 
 
 /**
@@ -56,9 +57,11 @@ export interface ReactOptions {
   onStepComplete?: (stepCount: number) => Promise<void>;
   tools?: ToolDefinition[];
   registry?: ToolRegistry;
-  // phase 706: AgentExecutor needs audit writer + per-turn contract id for tool_call_input.
+  // phase 706: audit writer + per-turn contract id（仅 executeStep 透传；AgentExecutor 自身事件走 eventSink）。
   auditWriter?: AuditLog;
   currentContractId?: string;
+  /** phase 1856 (AE-D9): AgentExecutor-owned 结构化事件 sink；身份绑定/审计行格式化归 caller adapter。 */
+  eventSink?: AgentExecutorEventSink;
   /** Minimal stream sink used only for AgentExecutor-owned turn event commits. */
   streamCallbacks?: TurnEventCommitDeps;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
@@ -116,6 +119,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     stepCallbacks: adaptedStepCallbacks,
     auditWriter,
     currentContractId,
+    eventSink: options.eventSink,
     streamCallbacks: options.streamCallbacks,
     onAfterStep: async (_meta, newStepCount) => {
       stepCount = newStepCount;  // AgentExecutor 已执行步进

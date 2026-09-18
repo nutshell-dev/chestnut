@@ -14,6 +14,8 @@ export { runReact } from './loop.js';
 export type { ReactOptions, ReactResult, ReactStepCallbacks } from './loop.js';
 export { commitTurnEvent } from './turn-event-commit.js';
 export type { TurnEvent, TurnEventCommitDeps } from './turn-event-commit.js';
+export { AGENT_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
+export type { AgentExecutorEventSink } from './event-sink.js';
 export {
   MaxStepsExceededError,
   ConsecutiveParseErrorsExceededError,
