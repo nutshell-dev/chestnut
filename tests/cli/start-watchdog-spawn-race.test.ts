@@ -83,11 +83,16 @@ vi.mock('../../src/core/contract/index.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/core/claw-topology/index.js')>();
+// phase 1864 Step C（CT-D2）：notify 发送归 Messaging（createClawNotifier）；mock 目标随 owner 迁移。
+vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/messaging/index.js')>();
   return {
     ...actual,
-    routeNotifyClaw: vi.fn(() => { h.counts.notify++; }),
+    createClawNotifier: vi.fn(() => ({
+      notify: vi.fn(() => { h.counts.notify++; }),
+      notifyAsync: vi.fn(async () => {}),
+      notifyIntentAsync: vi.fn(async () => {}),
+    })),
   };
 });
 

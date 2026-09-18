@@ -12,19 +12,19 @@ import { makeExternalAbortError } from '../../../foundation/llm-provider/index.j
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
-import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
+import type { ClawNotifyIntent } from '../../../foundation/messaging/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/index.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
 interface NotifyClawDeps {
-  fs: FileSystem;
   /**
-   * phase 705: caller-provided delivery callback；L4+ caller 负责解析 chestnut 拓扑路径。
+   * phase 705 / phase 1864 Step C（CT-D2）: caller-provided delivery capability。
+   * 发送归 Messaging（createClawNotifier），位置由拓扑 resolver 注入、
+   * 本工具只提交意图（source/body/type/interrupt）。
    */
-  notifyClaw: (targetClawId: string, message: InboxMessageOptionsBase) => Promise<void>;
+  notifyClaw: (targetClawId: string, intent: ClawNotifyIntent) => Promise<void>;
   /**
    * phase 550: caller-provided source identity for outgoing notifications + 透传 notifyClaw 的源 arg。
    * (e.g. MOTION_CLAW_ID).
@@ -88,7 +88,6 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       const body = args.body as string;
       const type = (args.type as string) ?? 'message';
       const interrupt = (args.interrupt as boolean) ?? true;
-      const priority = interrupt ? 'high' : 'normal';
 
       // phase 895 / audit-2026-05-16 NEW.P0.2: validation guard (mirror read.ts:75 cross-claw guard)
       // 防 LLM 通过 `to` 字段绕 claws/ namespace 或建 orphan claw dir
@@ -114,10 +113,11 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
           return { success: false, content: `Failed to notify ${to}: claw "${to}" does not exist` };
         }
 
+        // phase 1864 Step C（CT-D2）：只提交意图——envelope（type 默认 / priority 派生）归 Messaging。
         await deps.notifyClaw(to, {
           type,
           source: deps.defaultSource,
-          priority,
+          interrupt,
           body,
         });
       } catch (error) {

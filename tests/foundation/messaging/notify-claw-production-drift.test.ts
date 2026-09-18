@@ -14,7 +14,8 @@ import { createNotifyClawTool } from '../../../src/core/claw-topology/tools/noti
 import { formatClawStatusHint } from '../../../src/cli-protocol/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { routeNotifyClawAsync } from '../../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -45,8 +46,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       hasActiveContract: () => false,
       defaultSource: 'motion',
       authorized: true,
-      fs: correctFs,
-      notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      notifyClaw: (targetClawId, intent) => createClawNotifier({ fs: correctFs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(chestnutDir) }).notifyIntentAsync(targetClawId, intent),
       audit: audit.audit,
     });
 
@@ -78,8 +78,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       hasActiveContract: () => false,
       defaultSource: 'motion',
       authorized: true,
-      fs: correctFs,
-      notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      notifyClaw: (targetClawId, intent) => createClawNotifier({ fs: correctFs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(chestnutDir) }).notifyIntentAsync(targetClawId, intent),
       audit: audit.audit,
     });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
@@ -104,8 +103,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       hasActiveContract: () => false,
       defaultSource: 'motion',
       authorized: true,
-      fs: correctFs,
-      notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      notifyClaw: (targetClawId, intent) => createClawNotifier({ fs: correctFs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(chestnutDir) }).notifyIntentAsync(targetClawId, intent),
       audit: audit.audit,
     });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);

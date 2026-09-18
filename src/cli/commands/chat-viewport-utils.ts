@@ -9,8 +9,8 @@ import { getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { makeChestnutRoot } from '../../foundation/claw-identity/index.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { routeNotifyClaw } from '../../core/claw-topology/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
+import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
@@ -47,13 +47,18 @@ export function writeUserChat(
     body = message;
   }
 
-  routeNotifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, clawId, {
+  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+  createClawNotifier({
+    fs,
+    audit,
+    resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+  }).notify(clawId, {
     type: 'user_chat',
     source: 'user',
     priority: 'high',
     body,
     idPrefix: 'chat',
-  }, audit);
+  });
 }
 
 /** 写 attachment 到 inbox/attachments/<ts>_<uuid>.txt、返回 clawspace-relative path 或 null（写失败）。 */
@@ -105,4 +110,3 @@ export function fmtDuration(ms: number): string {
   if (h > 0) return `${h}h ${m % 60}m`;
   return `${m}m`;
 }
-

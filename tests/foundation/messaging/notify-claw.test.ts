@@ -5,7 +5,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/core/claw-topology/tools/notify-claw.js';
-import { routeNotifyClawAsync } from '../../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { formatClawStatusHint } from '../../../src/cli-protocol/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../../src/core/claw-topology/audit-events.js';
@@ -37,9 +38,8 @@ describe('notify_claw tool', () => {
 function makeTool(auditLog: any, overrides: Record<string, unknown> = {}) {
   return createNotifyClawTool({
     ...defaultDeps,
-    fs,
-    notifyClaw: async (targetClawId: string, message: any) =>
-      routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, auditLog),
+    notifyClaw: (targetClawId, intent) =>
+      createClawNotifier({ fs, audit: auditLog, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
     audit: auditLog,
     ...overrides,
   });
@@ -55,13 +55,13 @@ const defaultDeps = {
 
   describe('schema + identity', () => {
     it('tool name = notify_claw', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), audit: audit.audit });
       expect(tool.name).toBe('notify_claw');
       expect(tool.name).toBe(NOTIFY_CLAW_TOOL_NAME);
     });
 
     it('schema required = to + body', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), audit: audit.audit });
       expect(tool.schema.required).toEqual(['to', 'body']);
       expect(tool.schema.properties).toHaveProperty('to');
       expect(tool.schema.properties).toHaveProperty('body');
@@ -70,7 +70,7 @@ const defaultDeps = {
     });
 
     it('readonly=false + idempotent=false（motion-only push write tool）', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, notifyClaw: (targetClawId, intent) => createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent), audit: audit.audit });
       expect(tool.readonly).toBe(false);
       expect(tool.idempotent).toBe(false);
     });
@@ -278,7 +278,6 @@ const defaultDeps = {
     it('notifyClaw callback rejects → tool reports failure + NOTIFY_CLAW_FAILED audit', async () => {
       const tool = createNotifyClawTool({
         ...defaultDeps,
-        fs,
         notifyClaw: async () => { throw new Error('disk full'); },
         audit: audit.audit,
       });
@@ -296,9 +295,8 @@ const defaultDeps = {
     it('hint query throws after successful notify → tool still succeeds + NOTIFY_CLAW_HINT_FAILED audit', async () => {
       const tool = createNotifyClawTool({
         ...defaultDeps,
-        fs,
-        notifyClaw: async (targetClawId, message) =>
-          routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit),
+        notifyClaw: (targetClawId, intent) =>
+          createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
         audit: audit.audit,
         isClawAlive: () => { throw new Error('hint boom'); },
       });
@@ -318,9 +316,8 @@ const defaultDeps = {
       const tool = createNotifyClawTool({
         ...defaultDeps,
         authorized: undefined,
-        fs,
-        notifyClaw: async (targetClawId, message) =>
-          routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit),
+        notifyClaw: (targetClawId, intent) =>
+          createClawNotifier({ fs, audit: audit.audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
         audit: audit.audit,
       });
       const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);

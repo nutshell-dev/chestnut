@@ -7,14 +7,15 @@ import * as path from 'path';
 
 import { getChestnutRoot, getClawConfigPath, getRelativeClawDir } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
-import { routeNotifyClaw } from '../../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
+import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { formatNoActiveContractHint } from './claw-shared.js';
 import { formatClawStatusHint } from '../../cli-protocol/index.js';
 import type { Priority } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { hasActiveContract } from '../../core/contract/index.js';
 import type { ClawCommandDeps } from './claw-command-deps.js';
@@ -37,12 +38,17 @@ export async function sendCommand(
   const fileSystem = deps.fsFactory(baseDir);
   const audit = createSystemAudit(fileSystem, clawDir);
 
-  routeNotifyClaw(fileSystem, baseDir, MOTION_CLAW_ID, name, {
+  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+  createClawNotifier({
+    fs: fileSystem,
+    audit,
+    resolveTarget: makeClawNotifyTargetResolver(baseDir),
+  }).notify(name, {
     type: 'user_inbox_message',
     source: 'user',
     priority: options?.priority ?? 'normal',
     body: message,
-  }, audit);
+  });
 
   console.log(`Message sent to "${name}"`);
 

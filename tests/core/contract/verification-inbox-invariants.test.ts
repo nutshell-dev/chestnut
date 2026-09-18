@@ -18,7 +18,8 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { VerificationContext } from '../../../src/core/contract/verification-types.js';
 import type { ContractNotification } from '../../../src/core/contract/notification.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { makeAudit, waitForAuditEvent, makeMockAudit } from '../../helpers/audit.js';
@@ -41,7 +42,7 @@ describe('phase 1405 Fix 1: writeForceAcceptInbox', () => {
       clawId: clawId as any,
       audit,
       fs: nodeFs as any,
-      notifyClaw: (targetClawId, message) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', targetClawId, message, audit),
+      notifyClaw: (targetClawId, message) => createClawNotifier({ fs: nodeFs, audit: audit, resolveTarget: makeClawNotifyTargetResolver(chestnutRoot) }).notify(targetClawId, message),
       contractDir: vi.fn(async (id: string) => path.join(clawDir, 'contract', 'active', id)),
       loadContractYaml: vi.fn(async () => ({
         title: 'Test', goal: 'Test',
@@ -155,7 +156,7 @@ describe('phase 1829 verification inbox content invariants', () => {
       clawId: 'test-claw' as any,
       audit,
       fs: nodeFs as any,
-      notifyClaw: (targetClawId: string, message: any) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', targetClawId, message, audit),
+      notifyClaw: (targetClawId: string, message: any) => createClawNotifier({ fs: nodeFs, audit: audit, resolveTarget: makeClawNotifyTargetResolver(chestnutRoot) }).notify(targetClawId, message),
     } as unknown as VerificationContext;
     return { ctx, inboxPending };
   }
@@ -434,7 +435,7 @@ describe('phase 1388 Bug B: verification-notify Motion 端写正确 motion/inbox
       clawId: clawId as any,
       audit,
       fs: nodeFs as any,
-      notifyClaw: (targetClawId, message) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', targetClawId, message, audit),
+      notifyClaw: (targetClawId, message) => createClawNotifier({ fs: nodeFs, audit: audit, resolveTarget: makeClawNotifyTargetResolver(chestnutRoot) }).notify(targetClawId, message),
       contractDir: vi.fn(async (id: string) => path.join(clawDir, 'contract', 'active', id)),
       loadContractYaml: vi.fn(async () => ({
         title: 'Test',

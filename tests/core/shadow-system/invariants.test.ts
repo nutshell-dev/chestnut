@@ -447,7 +447,6 @@ describe('shadow-di-restrictions', () => {
       mainRegistry.register(createSpawnTool());
       mainRegistry.register(new SummonTool());
       mainRegistry.register(createNotifyClawTool({
-        fs,
         notifyClaw: vi.fn().mockResolvedValue(undefined),
         defaultSource: 'motion',
         authorized: true,

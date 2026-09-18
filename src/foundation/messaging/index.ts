@@ -95,6 +95,17 @@ export {
 
 export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 
+// phase 1864 Step C（CT-D2）：cross-target claw 投递 adapter（Messaging own 发送；
+// 目标位置由拓扑 owner 经 resolver 注入）。
+export { createClawNotifier, clawNotifyPriority } from './claw-notify.js';
+export type {
+  ClawNotifier,
+  ClawNotifierDeps,
+  ClawNotifyIntent,
+  ClawNotifyTarget,
+  ClawNotifyTargetResolver,
+} from './claw-notify.js';
+
 export { createSendContentTracker, feedSendContentDelta } from './tools/send-content-extractor.js';
 export { createSendTool } from './tools/send.js';
 

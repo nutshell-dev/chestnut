@@ -19,7 +19,8 @@ import { createNotifyClawTool } from '../../src/core/claw-topology/tools/notify-
 import { formatClawStatusHint } from '../../src/cli-protocol/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
-import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../src/foundation/messaging/index.js';
 
 describe('tool-context-resolution', () => {
   /**
@@ -150,15 +151,19 @@ describe('motion-callerType', () => {
     });
 
     function makeDeps(fs: NodeFileSystem) {
+      // phase 1864 Step C（CT-D2）：发送归 Messaging（notifier）+ 拓扑位置 resolver。
+      const notifier = createClawNotifier({
+        fs,
+        audit: audit.audit,
+        resolveTarget: makeClawNotifyTargetResolver(chestnutDir),
+      });
       return {
         isClawAlive: () => true,
         formatClawStatusHint,
         clawExists: () => true,
         hasActiveContract: () => false,
         defaultSource: 'motion',
-        fs,
-        notifyClaw: (targetClawId: string, message: any) =>
-          routeNotifyClaw(fs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+        notifyClaw: (targetClawId: string, intent: any) => notifier.notifyIntentAsync(targetClawId, intent),
         audit: audit.audit,
       };
     }

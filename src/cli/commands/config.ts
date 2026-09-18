@@ -22,7 +22,8 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { RootConfigAdmin, RootConfigLegacyMigration } from '../../assembly/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
-import { routeNotifyClaw } from '../../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
+import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { CLAWS_DIR, enumerateClaws, getChestnutRoot } from '../../foundation/claw-identity/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -53,16 +54,22 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
   }
 
   let notified = 0;
+  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+  const clawNotifier = createClawNotifier({
+    fs: rootFs,
+    audit,
+    resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+  });
   for (const id of candidates) {
     const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
     if (!pm.isAlive(resolveClawDaemonDir(clawId))) continue;
-    routeNotifyClaw(rootFs, chestnutRoot, MOTION_CLAW_ID, id, {
+    clawNotifier.notify(id, {
       type: RELOAD_LLM_CONFIG_MESSAGE_TYPE,
       // source must not contain '/'; it goes into the inbox file name
       source: `cli-${source}`,
       priority: 'high',
       body: 'LLM config changed on disk; please reload.',
-    }, audit);
+    });
     notified++;
   }
 

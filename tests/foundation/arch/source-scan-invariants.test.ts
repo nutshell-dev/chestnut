@@ -130,9 +130,9 @@ describe('source-scan-invariants', () => {
       expect(hits).toEqual([]);
     });
 
-    it('src/watchdog has no routeNotifyClaw/notifyClaw call sites', () => {
+    it('src/watchdog has no notify call sites (notifyClaw / createClawNotifier)', () => {
       const targetDir = path.join(srcRoot, 'watchdog');
-      const hits = grepInDir(targetDir, '\\b(?:routeNotifyClaw|notifyClaw)\\s*\\(');
+      const hits = grepInDir(targetDir, '\\b(?:routeNotifyClaw|notifyClaw|createClawNotifier)\\s*\\(');
       expect(hits).toEqual([]);
     });
   });

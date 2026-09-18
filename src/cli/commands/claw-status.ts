@@ -22,8 +22,8 @@ import { getClawDir, getClawConfigPath } from '../../foundation/claw-identity/in
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 // CLAWS_DIR removed: phase 263
-import { routeNotifyClaw } from '../../core/claw-topology/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
+import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -60,6 +60,12 @@ export async function clawStatusCommand(
   const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
 
   const audit = createSystemAudit(clawFs, clawDir);
+  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+  const clawNotifier = createClawNotifier({
+    fs: clawFs,
+    audit,
+    resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+  });
   const contractSystem = new ContractSystem({
     clawDir,
     clawId,
@@ -68,7 +74,7 @@ export async function clawStatusCommand(
     toolRegistry: createToolRegistry(),
     fsFactory: deps.fsFactory,
     // clawsDir removed: phase 263
-    notifyClaw: (targetClawId, message) => routeNotifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, audit),
+    notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
   });
 
   const [contractView, taskView, storageView] = await Promise.all([

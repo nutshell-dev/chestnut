@@ -68,7 +68,8 @@ import type { GuidanceCompose } from '../core/runtime/index.js';
 import type { InboxMessageTypeRegistry } from '../foundation/messaging/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
-import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
+import { createClawNotifier } from '../foundation/messaging/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { ToolRegistry } from '../foundation/tools/index.js';
@@ -176,6 +177,12 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       clawContractManagerFactory: async (d: string, id: string, fs: typeof systemFs) => {
         const cr = resolveChestnutRoot(d, false);
         const perClawAudit = createSystemAudit(fs, d);
+        // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+        const clawNotifier = createClawNotifier({
+          fs,
+          audit: perClawAudit,
+          resolveTarget: makeClawNotifyTargetResolver(cr),
+        });
         // phase 1445 Step D：旁路 per-claw 实例故意不传 bootReconcile（不 init、只读用途）
         return createContractSystem({
           clawDir: d,
@@ -186,8 +193,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
           toolTimeoutMs,
           fsFactory,
           // phase 104: pre-bound notifyClaw
-          notifyClaw: (targetClawId, message) =>
-            notifyClawFn(fs, cr, MOTION_CLAW_ID, targetClawId, message, perClawAudit),
+          notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
         });
       },
     };
@@ -241,6 +247,12 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         const execDir = path.join(chestnutRoot, CLAWS_DIR, targetExecutorId);
         const execFs = fsFactory(execDir);
         const execAudit = createSystemAudit(execFs, execDir);
+        // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+        const execNotifier = createClawNotifier({
+          fs: execFs,
+          audit: execAudit,
+          resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+        });
         // phase 1445 Step D：旁路只读实例故意不传 bootReconcile（不 init）
         const execContracts = await createContractSystem({
           clawDir: execDir,
@@ -250,8 +262,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
           toolRegistry,
           toolTimeoutMs,
           fsFactory,
-          notifyClaw: (targetClawId, message) =>
-            notifyClawFn(execFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, execAudit),
+          notifyClaw: (targetClawId, message) => execNotifier.notify(targetClawId, message),
         });
         return execContracts.hasContract(makeContractId(contractId));
       },

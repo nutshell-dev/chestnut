@@ -12,10 +12,8 @@ describe('phase 894 NEW.P0.1 — notify_claw profile advertise pipeline', () => 
   it('motion runtime (profile=full) gets notify_claw in LLM tools array', async () => {
     const registry = new ToolRegistryImpl();
     // 最小 fs / audit mock（仅满足 createNotifyClawTool factory ctor、不调实际 invoke）
-    const fakeFs = {} as any;
     const fakeAudit = { write: () => {} } as any;
     registry.register(createNotifyClawTool({
-      fs: fakeFs,
       notifyClaw: async () => undefined,
       defaultSource: 'motion',
       authorized: true,
@@ -35,10 +33,8 @@ describe('phase 894 NEW.P0.1 — notify_claw profile advertise pipeline', () => 
 
   it('non-motion profiles do NOT advertise notify_claw', async () => {
     const registry = new ToolRegistryImpl();
-    const fakeFs = {} as any;
     const fakeAudit = { write: () => {} } as any;
     registry.register(createNotifyClawTool({
-      fs: fakeFs,
       notifyClaw: async () => undefined,
       defaultSource: 'motion',
       authorized: true,

@@ -28,10 +28,11 @@ import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memor
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 import { MEMORY_INBOX_MESSAGE_TYPES } from '../../../src/core/memory/inbox-formatter.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { createClawTopology, routeNotifyClawAsync, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
+import { createClawTopology, makeClawNotifyTargetResolver, MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 import {
   InboxReader,
   INBOX_INFLIGHT_DIR,
+  createClawNotifier,
   createInboxMessageTypeRegistry,
   registerInboxMessageTypes,
 } from '../../../src/foundation/messaging/index.js';
@@ -176,7 +177,12 @@ describe('phase 1835: random_dream_completed 保存通知新语义真实生产�
 
   /** 真实 routeNotifyClawAsync 落 motion inbox。 */
   const realNotify = (): RandomDreamOptions['notifyMotion'] =>
-    (msg) => routeNotifyClawAsync(fileSystem, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, audit as never);
+    (msg) =>
+      createClawNotifier({
+        fs: fileSystem,
+        audit: audit as never,
+        resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+      }).notifyAsync(MOTION_CLAW_ID, msg);
 
   async function writeTaskCompletion(taskId: string, logContent: string): Promise<void> {
     const resultDir = path.join(motionDir, 'tasks', 'queues', 'results', taskId);

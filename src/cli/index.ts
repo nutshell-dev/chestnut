@@ -55,7 +55,8 @@ import {
 import type { SubAgentTask, TaskId } from '../core/async-task-system/index.js';
 // CLAWS_DIR removed: phase 263
 import { AUDIT_FILE_STEM, createSystemAudit } from '../foundation/audit/index.js';
-import { routeNotifyClaw } from '../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
+import { createClawNotifier } from '../foundation/messaging/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolRegistry } from '../foundation/tools/index.js';
@@ -322,7 +323,13 @@ contractCmd
         audit: clawAudit,
         toolRegistry,
         fsFactory,
-        notifyClaw: (targetClawId, message) => routeNotifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, clawAudit),
+        // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+        notifyClaw: (targetClawId, message) =>
+          createClawNotifier({
+            fs: clawFs,
+            audit: clawAudit,
+            resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+          }).notify(targetClawId, message),
       });
       contractSystem.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 

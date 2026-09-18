@@ -12,7 +12,8 @@ import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit } from '../../helpers/audit.js';
-import { routeNotifyClaw, routeNotifyClawAsync } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/notify-target.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 
 describe('notify-claw', () => {
   function makeBaseCtx(overrides?: Partial<ExecContext>): ExecContext {
@@ -43,7 +44,6 @@ describe('notify-claw', () => {
     it('propagates abort from notifyClaw delivery catch', async () => {
       const controller = new AbortController();
       const tool = createNotifyClawTool({
-        fs: {} as ExecContext['fs'],
         notifyClaw: async () => {
           controller.abort();
           throw new Error('delivery boom');
@@ -63,8 +63,8 @@ describe('notify-claw', () => {
   });
 });
 
-describe('claw-instance-paths', () => {
-  describe('claw-instance-paths', () => {
+describe('notify target resolution (phase 1864 Step C: Messaging owns send)', () => {
+  describe('makeClawNotifyTargetResolver', () => {
     let tempDir: string;
     let fs: NodeFileSystem;
 
@@ -86,14 +86,16 @@ describe('claw-instance-paths', () => {
 
     it('routeNotifyClaw rejects invalid targetClawId before path derivation', () => {
       const { audit, events } = makeAudit();
-      expect(() => routeNotifyClaw(fs, tempDir, 'motion', '../foo', message, audit)).toThrow();
+      const notifier = createClawNotifier({ fs, audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) });
+      expect(() => notifier.notify('../foo', message)).toThrow();
       // phase 944: validation fails before any disk write or audit emit
       expect(events).toHaveLength(0);
     });
 
     it('routeNotifyClawAsync rejects invalid targetClawId before path derivation', async () => {
       const { audit, events } = makeAudit();
-      await expect(routeNotifyClawAsync(fs, tempDir, 'motion', '../foo', message, audit)).rejects.toThrow();
+      const notifier = createClawNotifier({ fs, audit, resolveTarget: makeClawNotifyTargetResolver(tempDir) });
+      await expect(notifier.notifyAsync('../foo', message)).rejects.toThrow();
       // phase 944: validation fails before any disk write or audit emit
       expect(events).toHaveLength(0);
     });

@@ -18,7 +18,8 @@ import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { completeSubtask } from '../../helpers/contract-subtask.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
-import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import {
   createInboxMessageTypeRegistry,
@@ -119,7 +120,7 @@ describe('phase 1829: 验收通知 → inbox → Runtime → provider 全链路'
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       clawsDir: '/tmp/test/claws',
       notifyClaw: notifyClaw ?? ((targetClawId: string, message: any) =>
-        routeNotifyClaw(nodeFs, rootDir, 'motion', targetClawId, message, audit)),
+        createClawNotifier({ fs: nodeFs, audit: audit, resolveTarget: makeClawNotifyTargetResolver(rootDir) }).notify(targetClawId, message)),
     });
   }
 

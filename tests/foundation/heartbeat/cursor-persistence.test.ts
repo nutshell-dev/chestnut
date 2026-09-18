@@ -18,7 +18,8 @@ import { HEARTBEAT_AUDIT_EVENTS } from '../../../src/core/heartbeat/audit-events
 import { createInboxReader } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeChestnutRoot } from '../../../src/foundation/claw-identity/index.js';
-import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 
 const CURSOR_PATH = 'motion/heartbeat-cursor.json';
@@ -52,7 +53,7 @@ describe('Heartbeat cursor persistence (phase 1791)', () => {
       inboxReader,
       notifyInbox: (msg) => {
         notified += 1;
-        routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit);
+        createClawNotifier({ fs: nodeFs, audit, resolveTarget: makeClawNotifyTargetResolver(chestnutRoot) }).notify('motion', msg);
       },
       now: () => clock.now,
       cursorStore: store ?? createHeartbeatCursorStore(nodeFs, CURSOR_PATH),

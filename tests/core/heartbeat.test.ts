@@ -16,7 +16,8 @@ import { makeAudit } from '../helpers/audit.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { createInboxReader } from '../../src/foundation/messaging/index.js';
-import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../src/foundation/messaging/index.js';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 
 function createTestHeartbeat(tempDir: string, intervalSec?: number): Heartbeat {
@@ -30,7 +31,8 @@ function createTestHeartbeat(tempDir: string, intervalSec?: number): Heartbeat {
     ...(intervalSec === undefined ? {} : { interval: intervalSec }),
     audit,
     inboxReader,
-    notifyInbox: (msg) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
+    notifyInbox: (msg) =>
+      createClawNotifier({ fs: nodeFs, audit, resolveTarget: makeClawNotifyTargetResolver(chestnutRoot) }).notify('motion', msg),
     // phase 1791: cursor store 必填（motion claw 根下单文件）
     cursorStore: createHeartbeatCursorStore(nodeFs, 'motion/heartbeat-cursor.json'),
   });
@@ -219,7 +221,8 @@ describe('Heartbeat', () => {
         interval: intervalSec,
         audit,
         inboxReader,
-        notifyInbox: (msg) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
+        notifyInbox: (msg) =>
+      createClawNotifier({ fs: nodeFs, audit, resolveTarget: makeClawNotifyTargetResolver(chestnutRoot) }).notify('motion', msg),
         now: () => clock.now,
         cursorStore: createHeartbeatCursorStore(nodeFs, 'motion/heartbeat-cursor.json'),
       });

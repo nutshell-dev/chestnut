@@ -14,7 +14,8 @@ import { createNotifyClawTool } from '../../../src/core/claw-topology/tools/noti
 import { formatClawStatusHint } from '../../../src/cli-protocol/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { routeNotifyClawAsync } from '../../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../../src/foundation/messaging/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -47,9 +48,8 @@ describe('notify_claw tool status hint (phase 232)', () => {
   function makeTool(auditLog: any, overrides: Record<string, unknown> = {}) {
     return createNotifyClawTool({
       ...defaultDeps,
-      fs,
-      notifyClaw: async (targetClawId: string, message: any) =>
-        routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, auditLog),
+      notifyClaw: (targetClawId, intent) =>
+        createClawNotifier({ fs, audit: auditLog, resolveTarget: makeClawNotifyTargetResolver(tempDir) }).notifyIntentAsync(targetClawId, intent),
       audit: auditLog,
       ...overrides,
     });

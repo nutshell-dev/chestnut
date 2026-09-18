@@ -3,7 +3,7 @@
  * guidanceRegistry register（含 NO_GUIDANCE sentinel 表态）。
  *
  * Sender 站点（balanced-paren scan）：
- *   - notifyClaw(...) / routeNotifyClaw(...) / notifyInbox(...) call body 内 type: 'X' 字面量
+ *   - notifyClaw(...) / notifyInbox(...) / ClawNotifier.notify(...) call body 内 type: 'X' 字面量
  *   - InboxWriter.writeSync({ type: 'X', ... }) 直调
  *   - writeInboxAsync(...) call body 内 type: 'X' 字面量
  *   - 三元 `type: cond ? 'X' : 'Y'` 表达式中两 branch 字面量（如 verification_result/rejection）
@@ -108,7 +108,9 @@ function extractBindingType(indexContent: string, ident: string): string {
 function extractSenderTypes(): Map<string, string[]> {
   const byType = new Map<string, string[]>();
   const callRes = [
-    /\b(?:notify(?:Claw|Inbox|System)|routeNotifyClaw)\s*\(/g,
+    /\b(?:notify(?:Claw|Inbox|System))\s*\(/g,
+    // phase 1864 Step C（CT-D2）：cross-target 投递归 Messaging notifier
+    /\.\s*notify(?:Async|IntentAsync)?\s*\(/g,
     /\.\s*writeSync\s*\(/g,
     /\bwriteInboxAsync\s*\(/g,
   ];

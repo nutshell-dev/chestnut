@@ -31,7 +31,8 @@ import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { routeNotifyClaw } from '../../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
+import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { CliError } from '../errors.js';
@@ -165,6 +166,14 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
   await runtime.ensureSupervision();
   // Step 2: motion init
   const { fs: notifyFs, audit: notifyAudit } = createDirContext(deps, motionDir);
+  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+  // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot。
+  const notifyChestnutRoot = makeChestnutRoot(path.dirname(motionDir));
+  const clawNotifier = createClawNotifier({
+    fs: notifyFs,
+    audit: notifyAudit,
+    resolveTarget: makeClawNotifyTargetResolver(notifyChestnutRoot),
+  });
   // Phase 1464 Step B: spawn specification 归 Daemon 唯一 owner；motionSpawnOptions
   // 继续作为 supervision input（ensureRunning），只替换构造来源
   const motionSpawnOptions = createDaemonSpawnOptions({
@@ -209,7 +218,7 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
     const language = await pickLanguage();
     await daemonReady;
 
-    const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
+    const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message) });
     const contractId = await manager.create({
       schema_version: 1,
       title: 'Onboarding',
@@ -219,20 +228,19 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
     });
 
     
-    // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-    routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
+    clawNotifier.notify(MOTION_CLAW_ID, {
       type: 'contract_created',
       source: 'system',
       priority: 'high',
       body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
       idPrefix: 'start',
-    }, notifyAudit);
+    });
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
     await daemonReady;
     if (onboarding.state === 'not_found') {
-      const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
+      const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message) });
       const contractId = await manager.create({
         schema_version: 1,
         title: 'Onboarding',
@@ -240,20 +248,18 @@ async function _start(deps: StartCommandDeps, runtime: StartCommandRuntime): Pro
         subtasks: buildOnboardingSubtasks('auto'),
         verification: [],
       });
-      // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-      routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
+      clawNotifier.notify(MOTION_CLAW_ID, {
         type: 'contract_created', source: 'system', priority: 'high',
         body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
         idPrefix: 'start',
-      }, notifyAudit);
+      });
     } else {
       const pendingList = onboarding.pending?.join(', ') ?? '';
-      // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-      routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
+      clawNotifier.notify(MOTION_CLAW_ID, {
         type: 'contract_resume', source: 'system', priority: 'high',
         body: `Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.`,
         idPrefix: 'start',
-      }, notifyAudit);
+      });
     }
   }
 

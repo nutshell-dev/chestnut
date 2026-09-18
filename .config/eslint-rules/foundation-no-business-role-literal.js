@@ -96,6 +96,9 @@ const CORE_ALLOW_LIST_SUFFIXES = [
   'src/core/claw-topology/motion-claw-id.ts',
   'src/core/claw-topology/daemon-dir.ts',
   'src/core/claw-topology/topology.ts',
+  // phase 1864 Step C（CT-D2）: notify 目标位置解析（motion-vs-claw 位置事实）—
+  // 同 phase 553 家族、拓扑 owner 声明 motion identity 的合法面
+  'src/core/claw-topology/notify-target.ts',
 ];
 
 const BANNED_REEXPORTS = ['CallerType', 'DispatchCallerType', 'callerTypeToProfile'];

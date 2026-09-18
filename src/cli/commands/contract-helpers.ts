@@ -7,8 +7,8 @@ import * as yaml from 'js-yaml';
 import { ContractYamlSchema } from '../../core/contract/index.js';
 import type { ContractYaml } from '../../core/contract/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
-import { routeNotifyClaw } from '../../core/claw-topology/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../core/claw-topology/index.js';
+import { createClawNotifier } from '../../foundation/messaging/index.js';
 import { STREAM_FILE, STREAM_EVENT_NAMES, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -74,12 +74,10 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
   lines.push(`After each subtask, submit verification via done:`);
   lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<output path or completion summary>" }`);
   const body = lines.join('\n');
-  routeNotifyClaw(
+  // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+  createClawNotifier({
     fs,
-    chestnutRoot,
-    MOTION_CLAW_ID,
-    clawId,
-    { type: 'contract_created', source: 'system', priority: 'high', body, idPrefix: 'contract-new' },
-    contractAudit,
-  );
+    audit: contractAudit,
+    resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+  }).notify(clawId, { type: 'contract_created', source: 'system', priority: 'high', body, idPrefix: 'contract-new' });
 }

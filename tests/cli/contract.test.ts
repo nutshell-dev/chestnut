@@ -19,6 +19,12 @@ vi.mock('../../src/foundation/messaging/index.js', () => ({
   notifyClaw: vi.fn(),
   INBOX_PENDING_DIR: 'inbox/pending',
   resolveDlqDir: (inboxDir: string) => `${inboxDir}/dead-letter`,
+  // phase 1864 Step C（CT-D2）：inbox 投递归 Messaging notifier（本 test 只锁 stream 面）。
+  createClawNotifier: vi.fn(() => ({
+    notify: vi.fn(),
+    notifyAsync: vi.fn(async () => {}),
+    notifyIntentAsync: vi.fn(async () => {}),
+  })),
 }));
 
 import { notifyContractCreated } from '../../src/cli/commands/contract.js';

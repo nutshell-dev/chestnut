@@ -7,7 +7,8 @@
  */
 
 import { resolveChestnutRoot, getRelativeClawDir } from '../foundation/claw-identity/index.js';
-import { routeNotifyClaw, routeNotifyClawAsync } from '../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
+import { createClawNotifier } from '../foundation/messaging/index.js';
 import { AUDIT_FILE, AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../foundation/audit/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
 import path from 'path';
@@ -120,10 +121,14 @@ export async function createMotionAddons(
   // motion → claw inbox push、与 send（claw → 自己 outbox pull）物理不同、§10.3 不对称设计
   // fs = parentFs (baseDir = .chestnut/) align chestnutRoot、避免 systemFs (baseDir = motion/) 沙箱拒 sibling claws/<to> absolute path
   const chestnutRoot = resolveChestnutRoot(clawDir, true);  // phase 241: hoist for callbacks
-  toolRegistry.register(createNotifyClawTool({
+  // phase 1864 Step C（CT-D2）：发送归 Messaging（createClawNotifier）；目标位置经拓扑 resolver 注入。
+  const clawNotifier = createClawNotifier({
     fs: parentFs,
-    notifyClaw: async (targetClawId, message) =>
-      routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
+    audit: auditWriter,
+    resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+  });
+  toolRegistry.register(createNotifyClawTool({
+    notifyClaw: (targetClawId, intent) => clawNotifier.notifyIntentAsync(targetClawId, intent),
     defaultSource: MOTION_CLAW_ID,
     authorized: true,
     audit: auditWriter,
@@ -150,7 +155,7 @@ export async function createMotionAddons(
         interval: heartbeatIntervalMs / 1000,
         audit: auditWriter,
         inboxReader,
-        notifyInbox: (msg) => routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+        notifyInbox: (msg) => clawNotifier.notify(MOTION_CLAW_ID, msg),
         // phase 1791: Heartbeat-owned 单 cursor 文件（motion claw 根），装配期注入路径
         cursorStore: createHeartbeatCursorStore(systemFs, 'heartbeat-cursor.json'),
       });
@@ -207,8 +212,7 @@ export async function createMotionAddons(
             toolTimeoutMs,
             fsFactory,
             // phase 104: pre-bound notifyClaw
-            notifyClaw: (notifyTarget, message) =>
-              routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, notifyTarget, message, auditWriter),
+            notifyClaw: (notifyTarget, message) => clawNotifier.notify(notifyTarget, message),
           });
           bridgeContractSystems.push({ clawId: targetClawId, cs });
           return { getProgress: (id) => cs.getProgress(id) };
@@ -237,10 +241,9 @@ export async function createMotionAddons(
           clawFsFactory: fsFactory,
           getContractProgress: clawContractBridge.getContractProgress,
           // phase 92 / phase 1159 Step C: DI callback for random-dream notify motion inbox (fail-loud async)
-          notifyMotion: (msg) => routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          notifyMotion: (msg) => clawNotifier.notifyAsync(MOTION_CLAW_ID, msg),
           // phase 1162 Step C: DI callback for deep-dream notify target claw inbox (fail-loud async)
-          notifyClaw: (targetClawId, msg) =>
-            routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, msg, auditWriter),
+          notifyClaw: (targetClawId, msg) => clawNotifier.notifyAsync(targetClawId, msg),
         });
       } catch (e) {
         auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=memory_system`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -250,6 +253,12 @@ export async function createMotionAddons(
     }
 
     try {
+      // phase 1864 Step C（CT-D2）：cron 面以 chestnutFs 绑定（原 routeNotify* 的 fs 入参保持）。
+      const cronClawNotifier = createClawNotifier({
+        fs: chestnutFs,
+        audit: auditWriter,
+        resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+      });
       const cronJobs = [
         createDreamTriggerJob({ memorySystem: memorySystem! }, globalConfig),
         createContractObserverJob({
@@ -257,7 +266,7 @@ export async function createMotionAddons(
           motionDir: path.join(chestnutRoot, 'motion'),  // phase 101
           fs: chestnutFs,
           motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
-          notifyMotion: (msg) => routeNotifyClawAsync(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          notifyMotion: (msg) => cronClawNotifier.notifyAsync(MOTION_CLAW_ID, msg),
           // Phase 1396 Step M：observer at-least-once 完成事实 → EvolutionSystem.observeContractCompleted
           // （幂等 v2 work item ensure + 自行 dispatch/recover），不再经过 notifyContractCompleted
           onCompletedContract: business.evolutionSystem && business.motionReviewContext

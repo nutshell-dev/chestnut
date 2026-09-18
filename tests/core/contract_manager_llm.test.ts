@@ -5,7 +5,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { routeNotifyClaw as notifyClawFn } from '../../src/core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../../src/core/claw-topology/index.js';
+import { createClawNotifier } from '../../src/foundation/messaging/index.js';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { EventEmitter, once } from 'events';
@@ -294,7 +295,7 @@ describe('ContractSystem Acceptance Flow', () => {
       fsFactory,
       runVerifier: mockRunSubagent,
       clawsDir: '/tmp/test/claws',
-      notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
+      notifyClaw: (targetClawId, message) => createClawNotifier({ fs: nodeFs, audit: mockAudit as any, resolveTarget: makeClawNotifyTargetResolver(path.resolve(clawDir, '..', '..')) }).notify(targetClawId, message),
     });
   });
 
@@ -520,7 +521,7 @@ describe('ContractSystem Acceptance Flow', () => {
         fsFactory,
         runVerifier: mockRunSubagent,
         clawsDir: '/tmp/test/claws',
-        notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
+        notifyClaw: (targetClawId, message) => createClawNotifier({ fs: nodeFs, audit: mockAudit as any, resolveTarget: makeClawNotifyTargetResolver(path.resolve(clawDir, '..', '..')) }).notify(targetClawId, message),
       });
 
       await setupContract(tempDir, contractId, makeContractYaml({

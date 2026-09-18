@@ -24,10 +24,10 @@ import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../f
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type MessagingWriterLimits, type OutboxWriter } from '../foundation/messaging/index.js';
-import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
+import { makeClawNotifyTargetResolver } from '../core/claw-topology/index.js';
+import { createClawNotifier } from '../foundation/messaging/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { createAggregatedFileRouting } from './file-routing-aggregator.js';
 import { initializeClawLayout } from './claw-subdirs.js';
@@ -270,6 +270,12 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       // PermissionError、外层 try/catch 静默吞 → 跨 claw 通知 0 落。
       // 改 bind 一个 chestnut-root-scoped fs、绝对路径在合法范围。
       const rootFs = fsFactory(chestnutRoot);
+      // phase 1864 Step C（CT-D2）：发送归 Messaging；位置经拓扑 resolver 注入。
+      const clawNotifier = createClawNotifier({
+        fs: rootFs,
+        audit: auditWriter!,
+        resolveTarget: makeClawNotifyTargetResolver(chestnutRoot),
+      });
       // phase 1445 Step D（裁定②例外）：bootReconcile 经工厂参数传入、init 内化进工厂；
       // init 失败由工厂抛错、并入本 catch（phase=construct）。旁路调用点（CLI/watchdog/
       // bridge/summonQuery）不传 bootReconcile、保持不 init（详 manager.ts deps 注释）。
@@ -281,8 +287,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         bootReconcile: true,
         // phase 104: pre-bound notifyClaw (bind fs + chestnutRoot + audit)
         // phase 324 H12: fs 改用 rootFs（chestnut-root-scoped）让绝对 inbox 路径能落。
-        notifyClaw: (targetClawId, message) =>
-          notifyClawFn(rootFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter!),
+        notifyClaw: (targetClawId, message) => clawNotifier.notify(targetClawId, message),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${formatErr(e)}`);
