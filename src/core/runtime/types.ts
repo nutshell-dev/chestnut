@@ -26,6 +26,15 @@ import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 
 /**
+ * phase 1860 (RT-D6)：MemoryOnlyState 显式登记——以下 Runtime 实例内存态经设计决策
+ * 不进入 checkpoint/恢复；登记即决策（DP「未经显式设计决策不得丢弃」）。
+ * 恢复 SoT = DialogStore session + read-state 磁盘 + snapshot 提交（initialize 路径）：
+ * - turnCount：进程内 turn 序号（audit context `turn-N`）；跨重启关联由 trace_id 承载。
+ * - lastLLMCallAt：proactive trim 判据；重启归 0 = 首 turn 不触发顺手裁（runtime.ts by-design）。
+ * - currentTraceId：per-turn 重设，不跨 turn 存活。
+ */
+
+/**
  * Phase 1847: 原始消息交接 —— 一条已领取（inflight）消息及其结算句柄。
  * handle 由 Messaging mint（branded），Runtime 只关联不伪造。
  */

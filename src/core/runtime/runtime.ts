@@ -125,9 +125,13 @@ export class Runtime {
   /** phase 1860 (RT-D4)：stop() 首调缓存的 typed outcome（幂等重入返回同结果）。 */
   private _stopOutcome?: RuntimeStopOutcome;
   private currentAbortController: AbortController | null = null;
+  /** phase 1860 (RT-D6)：MemoryOnlyState 登记（types.ts 登记段）——进程内 turn 序号。 */
   private turnCount = 0;
   protected auditWriter!: AuditLog;
-  /** phase 1343 α-6: current turn-level trace id for cross-module audit correlation */
+  /**
+   * phase 1343 α-6: current turn-level trace id for cross-module audit correlation。
+   * phase 1860 (RT-D6)：MemoryOnlyState 登记——per-turn 重设、不跨 turn 存活、不进恢复。
+   */
   private currentTraceId?: TraceId;
 
   /** Phase 1218 Step A: single active dialog mutation operation join handle */
@@ -232,7 +236,10 @@ export class Runtime {
   private contextTrimmingEnabled: boolean;
   /** Phase 1826: 已应用的配置身份修订（幂等 reload 防重复替换 breaker）。 */
   private appliedConfigRevision?: string;
-  /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
+  /**
+   * phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁。
+   * phase 1860 (RT-D6)：MemoryOnlyState 登记——重启归 0 为 by-design（proactive trim 判据）。
+   */
   private lastLLMCallAt: number = 0;
   constructor(options: RuntimeOptions) {
     // phase 1485: ctor 不再 fallback DEFAULT_MAX_STEPS — assemble 层 undefined 直传、
@@ -1298,10 +1305,6 @@ export class Runtime {
       initialized: this.initialized,
       clawId: this.options.clawId,
     };
-  }
-
-  getTurnCount(): number {
-    return this.turnCount;
   }
 
   // ============================================================================
