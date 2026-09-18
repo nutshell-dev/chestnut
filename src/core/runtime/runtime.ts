@@ -1031,13 +1031,8 @@ export class Runtime {
         },
         },
         onStepComplete: async (stepCount) => {
-          const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
-          // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
-          applyBlockIdAssignments(messages, saved.assignedBlockIds);
-          // Phase 1229 Step A: after the complete step's dialog snapshot is saved, commit the
-          // aggregated read-state once. FileTool owns the entry/schema and persistence primitive;
-          // Runtime owns the boundary timing. Order is fixed: dialog → read-state.
-          await persistReadFileState(this.execContext);
+          // phase 1860 (RT-D2)：step 提交经单一编排协议（dialog save → blockId 回写 → read-state persist）。
+          await this._commitStepBoundary(systemPrompt, messages, tools);
           // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
           // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
           // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
@@ -1059,14 +1054,41 @@ export class Runtime {
 
         streamCallbacks: callbacks,
       });
-      const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
-      // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
-      applyBlockIdAssignments(messages, saved.assignedBlockIds);
+      // phase 1860 (RT-D2)：turn 尾提交经同一编排协议；read-state 已由最后 step persist、
+      // 不重复提交（保持原 turn 尾语义）。
+      await this._commitStepBoundary(systemPrompt, messages, tools, { persistReadState: false });
 
       // phase 521: turn 末 regime change 检测（per L5.G3 (a) 自动检测）
       await this._checkRegimeSwitch(resolvedSystemPrompt, identityContent);
     } finally {
       // phase 146: mirror state removed — no reset needed
+    }
+  }
+
+  /**
+   * phase 1860 (RT-D2)：单一提交编排协议——定点序 DialogStore.save → blockId 回写 →
+   * FileTool read-state persist；step 边界（onStepComplete）与 turn 结束后统一经此，
+   * 禁止在本方法外重排提交序。
+   *
+   * phase 1850 Step C: save 不隐式写 caller 数组——blockId 经 applyBlockIdAssignments 显式回传。
+   * Phase 1229 Step A: FileTool owns the entry/schema and persistence primitive;
+   * Runtime owns the boundary timing. Order is fixed: dialog → read-state.
+   *
+   * @param opts.persistReadState 默认 true（step 边界）；turn 尾传 false——read-state 已由
+   *   最后 step persist，turn 尾不重复提交（保持 phase1860 前 turn 尾原语义）。
+   */
+  private async _commitStepBoundary(
+    systemPrompt: string,
+    messages: Message[],
+    tools: ToolDefinition[],
+    opts?: { persistReadState?: boolean },
+  ): Promise<void> {
+    const saved = await this.sessionManager.save({
+      systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId,
+    });
+    applyBlockIdAssignments(messages, saved.assignedBlockIds);
+    if (opts?.persistReadState !== false) {
+      await persistReadFileState(this.execContext);
     }
   }
 

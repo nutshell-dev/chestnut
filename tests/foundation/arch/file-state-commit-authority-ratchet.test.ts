@@ -65,16 +65,28 @@ describe('Phase 1229 Step A: read-state commit authority ratchet', () => {
     expect(offenders.filter(line => fileOf(line) !== selfFile)).toEqual([]);
   });
 
-  it('Runtime onStepComplete awaits persistReadFileState after dialog save', () => {
+  it('Runtime step-commit protocol keeps dialog save before read-state persist (phase 1860 RT-D2)', () => {
+    // phase 1860 (RT-D2)：提交序列收敛为单一编排方法 _commitStepBoundary；
+    // 定点序 save → blockId 回写 → persistReadFileState 在该方法体内锁定，
+    // onStepComplete / turn 尾仅允许调用协议（禁止方法外重排）。
     const file = path.join(srcRoot, 'core', 'runtime', 'runtime.ts');
     const text = fs.readFileSync(file, 'utf8');
-    const onStepComplete = text.match(/onStepComplete:[\s\S]{0,800}/);
-    expect(onStepComplete).not.toBeNull();
-    const snippet = onStepComplete![0];
-    expect(snippet).toMatch(/await this\.sessionManager\.save\(/);
-    expect(snippet).toMatch(/await persistReadFileState\(this\.execContext\)/);
-    const saveIndex = snippet.indexOf('await this.sessionManager.save(');
-    const persistIndex = snippet.indexOf('await persistReadFileState(this.execContext)');
-    expect(saveIndex).toBeLessThan(persistIndex);
+    const protocol = text.match(/private async _commitStepBoundary\([\s\S]{0,900}?\n  \}/);
+    expect(protocol).not.toBeNull();
+    const body = protocol![0];
+    expect(body).toMatch(/await this\.sessionManager\.save\(/);
+    expect(body).toMatch(/applyBlockIdAssignments\(messages, saved\.assignedBlockIds\)/);
+    expect(body).toMatch(/await persistReadFileState\(this\.execContext\)/);
+    const saveIndex = body.indexOf('await this.sessionManager.save(');
+    const blockIdIndex = body.indexOf('applyBlockIdAssignments(messages, saved.assignedBlockIds)');
+    const persistIndex = body.indexOf('await persistReadFileState(this.execContext)');
+    expect(saveIndex).toBeLessThan(blockIdIndex);
+    expect(blockIdIndex).toBeLessThan(persistIndex);
+
+    // onStepComplete 与 turn 尾必须经协议调用、且方法体外不得出现散点提交。
+    expect(text).toMatch(/onStepComplete:[\s\S]{0,400}?await this\._commitStepBoundary\(systemPrompt, messages, tools\)/);
+    expect(text).toContain('await this._commitStepBoundary(systemPrompt, messages, tools, { persistReadState: false });');
+    const outsideProtocol = text.replace(protocol![0], '');
+    expect(outsideProtocol).not.toMatch(/await persistReadFileState\(this\.execContext\)/);
   });
 });
