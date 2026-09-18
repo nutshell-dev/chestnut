@@ -4,9 +4,9 @@
  *
  * 行为契约（与原 agent.ts:420-448 catch 块等价）：
  * - ToolTimeoutError       → TURN_INTERRUPTED + cause=turn_timeout + turn_timeout_ms
- * - IdleTimeoutSignal      → TURN_INTERRUPTED + cause=idle_timeout + idle_timeout_ms
- * - UserInterrupt          → TURN_INTERRUPTED + cause=user_interrupt
- * - PriorityInboxInterrupt → TURN_INTERRUPTED + cause=priority_inbox
+ * - StepAbortError(idle_timeout) → TURN_INTERRUPTED + cause=idle_timeout + idle_timeout_ms
+ * - StepAbortError(user_interrupt) → TURN_INTERRUPTED + cause=user_interrupt
+ * - StepAbortError(step_yield) → TURN_INTERRUPTED + cause=priority_inbox
  * - AbortError (external)  → TURN_INTERRUPTED + cause=external + (type=...) 可选
  * - 其它                    → TURN_ERROR + error=<msg>
  *
@@ -17,7 +17,7 @@ import type { StreamEvent } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
+import { isStepAbortError } from '../step-executor/index.js';
 import { ExternalAbortError } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_EVENTS } from './stream-events.js';
 import { REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
@@ -37,15 +37,18 @@ export function classifyAndAuditError(opts: ClassifyErrorOptions): void {
   if (error instanceof ToolTimeoutError) {
     safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'turn_timeout', message: `Timeout after ${timeoutMs}ms` });
     auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=turn_timeout', `turn_timeout_ms=${timeoutMs}`);
-  } else if (error instanceof IdleTimeoutSignal) {
-    safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'idle_timeout', message: `Idle timeout after ${error.timeoutMs}ms` });
-    auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${error.timeoutMs}`);
-  } else if (error instanceof UserInterrupt) {
-    safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'user_interrupt', message: 'User interrupt' });
-    auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt');
-  } else if (error instanceof PriorityInboxInterrupt) {
-    safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'priority_inbox', message: 'Priority inbox' });
-    auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');
+  } else if (isStepAbortError(error)) {
+    // phase 1857 Step B (SE-D1): 三信号 class 归一为 StepAbortError 数据协议载体
+    if (error.reason.kind === 'idle_timeout') {
+      safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'idle_timeout', message: `Idle timeout after ${error.reason.ms}ms` });
+      auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${error.reason.ms}`);
+    } else if (error.reason.kind === 'user_interrupt') {
+      safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'user_interrupt', message: 'User interrupt' });
+      auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt');
+    } else {
+      safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_INTERRUPTED, cause: 'priority_inbox', message: 'Priority inbox' });
+      auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');
+    }
   } else if (error instanceof ExternalAbortError) {
     const cause = error.abortReason;
     // phase 1802: abortReason 是 opaque evidence —— 结构提取 type（如有），不依赖 L1 枚举

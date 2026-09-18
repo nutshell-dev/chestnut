@@ -1,88 +1,103 @@
 /**
- * Runtime signal classes — basic invariants
+ * phase 1857 Step B (SE-D1): StepAbortReason 数据协议 + StepAbortError 载体 invariants
  *
- * These tests verify properties that broke or could break across the phase101
- * refactor: signal classes are NOT Errors, instanceof narrowing works, and
- * throw/catch semantics are intact despite not extending Error.
+ * 控制信号（idle_timeout / step_yield / user_interrupt）不再以三个独立 class 表达：
+ * StepExecutor 只消费最小 abort reason 数据协议（判别联合），经单一载体抛出；
+ * 上层按 reason.kind 数据判据消费。
  */
 
-import { describe, it, expect } from 'vitest';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../../src/core/step-executor/signals.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  StepAbortError, isStepAbortError, throwAbortError,
+} from '../../../src/core/step-executor/abort-helpers.js';
+import { makeAuditCollector, makeStepEventSink } from '../../helpers/step-event-sink.js';
 
-describe('IdleTimeoutSignal', () => {
-  it('is NOT an instance of Error', () => {
-    const sig = new IdleTimeoutSignal(30000);
-    expect(sig instanceof Error).toBe(false);
+function abortWith(reason: unknown): AbortSignal {
+  const controller = new AbortController();
+  controller.abort(reason);
+  return controller.signal;
+}
+
+describe('StepAbortError 载体', () => {
+  it('is an Error（优于旧非 Error 信号对象，catch/格式化语义不变更差）', () => {
+    expect(new StepAbortError({ kind: 'step_yield' }) instanceof Error).toBe(true);
   });
 
-  it('stores timeoutMs', () => {
-    expect(new IdleTimeoutSignal(5000).timeoutMs).toBe(5000);
-    expect(new IdleTimeoutSignal(0).timeoutMs).toBe(0);
+  it('name = "StepAbortError"，message 含 kind', () => {
+    const err = new StepAbortError({ kind: 'idle_timeout', ms: 30000 });
+    expect(err.name).toBe('StepAbortError');
+    expect(err.message).toBe('step aborted: idle_timeout');
   });
 
-  it('has name = "IdleTimeoutSignal"', () => {
-    expect(new IdleTimeoutSignal(1000).name).toBe('IdleTimeoutSignal');
+  it('isStepAbortError 判别守卫收窄 reason', () => {
+    expect(isStepAbortError(new StepAbortError({ kind: 'user_interrupt' }))).toBe(true);
+    expect(isStepAbortError(new Error('x'))).toBe(false);
+    expect(isStepAbortError({ reason: { kind: 'step_yield' } })).toBe(false);
+    expect(isStepAbortError(undefined)).toBe(false);
   });
+});
 
-  it('instanceof narrows correctly after throw/catch', () => {
-    let caught: unknown;
-    try { throw new IdleTimeoutSignal(10000); } catch (e) { caught = e; }
-    expect(caught instanceof IdleTimeoutSignal).toBe(true);
-    if (caught instanceof IdleTimeoutSignal) {
-      expect(caught.timeoutMs).toBe(10000);
+describe('throwAbortError — abort reason 数据协议矩阵', () => {
+  it('idle_timeout 载荷 → StepAbortError { kind: idle_timeout, ms }', () => {
+    try {
+      throwAbortError(abortWith({ type: 'idle_timeout', ms: 30000 }));
+      expect.unreachable();
+    } catch (e) {
+      expect(isStepAbortError(e)).toBe(true);
+      if (isStepAbortError(e)) {
+        expect(e.reason).toEqual({ kind: 'idle_timeout', ms: 30000 });
+      }
     }
   });
 
-  it('instanceof does NOT match Error', () => {
-    let caught: unknown;
-    try { throw new IdleTimeoutSignal(1000); } catch (e) { caught = e; }
-    expect(caught instanceof Error).toBe(false);
-  });
-});
-
-describe('PriorityInboxInterrupt', () => {
-  it('is NOT an instance of Error', () => {
-    expect(new PriorityInboxInterrupt() instanceof Error).toBe(false);
+  it('ms 缺失时 idle_timeout 兜底 0', () => {
+    try {
+      throwAbortError(abortWith({ type: 'idle_timeout' }));
+      expect.unreachable();
+    } catch (e) {
+      expect(isStepAbortError(e)).toBe(true);
+      if (isStepAbortError(e)) expect(e.reason).toEqual({ kind: 'idle_timeout', ms: 0 });
+    }
   });
 
-  it('has name = "PriorityInboxInterrupt"', () => {
-    expect(new PriorityInboxInterrupt().name).toBe('PriorityInboxInterrupt');
+  it('step_yield 载荷 → StepAbortError { kind: step_yield }', () => {
+    try {
+      throwAbortError(abortWith({ type: 'step_yield' }));
+      expect.unreachable();
+    } catch (e) {
+      expect(isStepAbortError(e)).toBe(true);
+      if (isStepAbortError(e)) expect(e.reason).toEqual({ kind: 'step_yield' });
+    }
   });
 
-  it('instanceof narrows correctly after throw/catch', () => {
-    let caught: unknown;
-    try { throw new PriorityInboxInterrupt(); } catch (e) { caught = e; }
-    expect(caught instanceof PriorityInboxInterrupt).toBe(true);
-  });
-});
-
-describe('UserInterrupt', () => {
-  it('is NOT an instance of Error', () => {
-    expect(new UserInterrupt() instanceof Error).toBe(false);
+  it('user 载荷 → StepAbortError { kind: user_interrupt }', () => {
+    try {
+      throwAbortError(abortWith({ type: 'user' }));
+      expect.unreachable();
+    } catch (e) {
+      expect(isStepAbortError(e)).toBe(true);
+      if (isStepAbortError(e)) expect(e.reason).toEqual({ kind: 'user_interrupt' });
+    }
   });
 
-  it('has name = "UserInterrupt"', () => {
-    expect(new UserInterrupt().name).toBe('UserInterrupt');
+  it('未知载荷 → INVARIANT_VIOLATION 审计 + Error（非 StepAbortError）', () => {
+    const { audit, entries } = makeAuditCollector();
+    const sink = makeStepEventSink({ audit });
+    try {
+      throwAbortError(abortWith({ type: 'something_else' }), sink);
+      expect.unreachable();
+    } catch (e) {
+      expect(isStepAbortError(e)).toBe(false);
+      expect(e).toBeInstanceOf(Error);
+      expect((e as Error).message).toContain('[INVARIANT VIOLATION]');
+    }
+    // phase 1857 Step I: 纯审计行经单一事件出口（adapter 持久化）
+    expect(entries).toHaveLength(1);
+    expect(entries[0]![0]).toBe('step_executor_invariant_violation');
+    expect(String(entries[0]!.some(c => String(c).includes('unexpected_abort_reason')))).toBe('true');
   });
 
-  it('instanceof narrows correctly after throw/catch', () => {
-    let caught: unknown;
-    try { throw new UserInterrupt(); } catch (e) { caught = e; }
-    expect(caught instanceof UserInterrupt).toBe(true);
-  });
-});
-
-describe('signal instanceof exclusivity', () => {
-  it('each signal class only matches its own instanceof', () => {
-    const timeout = new IdleTimeoutSignal(1000);
-    const inbox = new PriorityInboxInterrupt();
-    const user = new UserInterrupt();
-
-    expect(timeout instanceof PriorityInboxInterrupt).toBe(false);
-    expect(timeout instanceof UserInterrupt).toBe(false);
-    expect(inbox instanceof IdleTimeoutSignal).toBe(false);
-    expect(inbox instanceof UserInterrupt).toBe(false);
-    expect(user instanceof IdleTimeoutSignal).toBe(false);
-    expect(user instanceof PriorityInboxInterrupt).toBe(false);
+  it('无审计 writer 时未知载荷仍抛 invariant Error', () => {
+    expect(() => throwAbortError(abortWith(null))).toThrow('[INVARIANT VIOLATION]');
   });
 });

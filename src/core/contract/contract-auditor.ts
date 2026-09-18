@@ -8,7 +8,7 @@
  * 反馈：on_track=false 时 inbox.write({ priority:'high', from:`contract-auditor-${contractId}`, ... })
  * 去重：同 from sender 的 pending 消息先删（保最新）/ 防连续 stuck 时刷屏
  *
- * 复用：PriorityInboxInterrupt 路径（runtime.ts:565-567）— 0 新中断 API、0 partial state 风险
+ * 复用：StepAbortError(step_yield) 路径（runtime 中断处理）— 0 新中断 API、0 partial state 风险
  *
  * phase 1830: 有效性门 + 处置审计链。LLM 原始返回（含非文本 block）与实际 prompt 先经
  * CONTRACT_AUDIT_RESULT_RECORDED 留 audit（reviewId 关联），再解析分类；不完整结果

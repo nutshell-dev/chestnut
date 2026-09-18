@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { makeStepEventSink } from '../../helpers/step-event-sink.js';
 import {
   collectStreamResponse,
   createStreamState,
@@ -30,6 +31,50 @@ function makeLLM(chunks: LLMStreamChunk[], errToThrow: Error): LLMOrchestrator {
   } as unknown as LLMOrchestrator;
 }
 
+describe('phase 1857 Step E (SE-D4): partial-discard 审计写失败不替代原 LLM err', () => {
+  it('write-throws sink → 原 err 原样抛出 + stderr 留证一行', async () => {
+    const chunks: LLMStreamChunk[] = [
+      { type: 'thinking_delta', delta: 'plan' },
+    ];
+    const err = new LLMAllProvidersFailedError([{ provider: 'p1', error: new Error('fail') }]);
+    const llm = makeLLM(chunks, err);
+
+    const failingSink = {
+      write: vi.fn(() => { throw new Error('audit channel down'); }),
+      message: (s: string) => s,
+      preview: (s: string) => s,
+    };
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // phase 1857 Step I: 经 caller adapter（持久化在 adapter 内、guarded）
+    const eventSink = makeStepEventSink({ audit: failingSink });
+
+    // 原错原样抛出（不被审计失败替代）
+    await expect(collectStreamResponse(llm, {} as LLMCallOptions, undefined, eventSink)).rejects.toBe(err);
+
+    // 审计通道失败留证：stderr 恰好一行、注明审计通道自身失败
+    expect(failingSink.write).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledTimes(1);
+    const line = String(stderrSpy.mock.calls[0]![0]);
+    expect(line).toContain('audit write failed');
+    expect(line).toContain('audit channel down');
+    stderrSpy.mockRestore();
+  });
+
+  it('sink 缺席 → 行为零变化（无 stderr、无 TypeError、原 err 抛出）', async () => {
+    const chunks: LLMStreamChunk[] = [
+      { type: 'thinking_delta', delta: 'plan' },
+    ];
+    const err = new LLMAllProvidersFailedError([{ provider: 'p1', error: new Error('fail') }]);
+    const llm = makeLLM(chunks, err);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await expect(collectStreamResponse(llm, {} as LLMCallOptions)).rejects.toBe(err);
+
+    expect(stderrSpy).not.toHaveBeenCalled();
+    stderrSpy.mockRestore();
+  });
+});
+
 describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', () => {
   it('LLMAllProvidersFailedError → cause=all_providers_failed + 正确 count/range', async () => {
     const chunks: LLMStreamChunk[] = [
@@ -48,7 +93,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
       onPartialAssistantDiscarded,
     };
 
-    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks)).rejects.toBe(err);
+    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks, makeStepEventSink({ callbacks }))).rejects.toBe(err);
 
     expect(onPartialAssistantDiscarded).toHaveBeenCalledTimes(1);
     const info = onPartialAssistantDiscarded.mock.calls[0]![0]!;
@@ -76,7 +121,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
       onPartialAssistantDiscarded,
     };
 
-    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks)).rejects.toBe(err);
+    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks, makeStepEventSink({ callbacks }))).rejects.toBe(err);
 
     expect(onPartialAssistantDiscarded).toHaveBeenCalledTimes(1);
     const info = onPartialAssistantDiscarded.mock.calls[0]![0]!;
@@ -99,7 +144,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
       onPartialAssistantDiscarded,
     };
 
-    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks)).rejects.toBe(err);
+    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks, makeStepEventSink({ callbacks }))).rejects.toBe(err);
 
     const info = onPartialAssistantDiscarded.mock.calls[0]![0]!;
     expect(info.cause).toBe('unknown');
@@ -142,7 +187,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
       onPartialAssistantDiscarded,
     };
 
-    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks)).rejects.toBe(err);
+    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks, makeStepEventSink({ callbacks }))).rejects.toBe(err);
 
     expect(onPartialAssistantDiscarded).not.toHaveBeenCalled();
   });
@@ -159,7 +204,7 @@ describe('phase 688: collector catch 路径 emit onPartialAssistantDiscarded', (
       onSafeCallbackError,
     };
 
-    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks)).rejects.toBe(err);
+    await expect(collectStreamResponse(llm, {} as LLMCallOptions, callbacks, makeStepEventSink({ callbacks }))).rejects.toBe(err);
     expect(onSafeCallbackError).toHaveBeenCalled();
   });
 });
@@ -391,7 +436,8 @@ describe('step-executor — stream parseError pair invariant (phase 1282)', () =
       onToolInputParseError,
     };
 
-    flushToolUse(state, callbacks);
+    // phase 1857 Step I: 裁决事件经单一事件出口（adapter 展示）
+    flushToolUse(state, callbacks, makeStepEventSink({ callbacks }));
 
     expect(onToolInputParseError).toHaveBeenCalledTimes(1);
     expect(onToolInputParseError).toHaveBeenCalledWith('edit', 'call-z', '{bad');

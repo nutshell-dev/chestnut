@@ -17,6 +17,8 @@ import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../../src/foundation/tools/executor.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { parseToolInput } from '../../../src/core/step-executor/utils.js';
+import { ToolError } from '../../../src/foundation/tools/index.js';
+import { makeStepEventSink } from '../../helpers/step-event-sink.js';
 
 describe('callback-safe-wrap', () => {
   /**
@@ -53,8 +55,9 @@ describe('callback-safe-wrap', () => {
           input: {},
         };
 
+        // phase 1857 Step H (SE-D8): 可呈现执行失败须以公开 ToolError 声明——plain Error 现 rethrow
         const executor = {
-          execute: vi.fn(async () => { throw new Error('exec-boom'); }),
+          execute: vi.fn(async () => { throw new ToolError('exec-boom'); }),
         } as unknown as IToolExecutor;
 
         const ctx = {
@@ -69,7 +72,11 @@ describe('callback-safe-wrap', () => {
           maxSteps: 10,
         } as ExecContext;
 
-        const result = await executeSingleTool(toolCall as any, executor, ctx, callbacks as any);
+        // phase 1857 Step I: 裁决事件经单一事件出口（adapter 组合展示+持久化）
+        const result = await executeSingleTool(
+          toolCall as any, executor, ctx, callbacks as any,
+          makeStepEventSink({ callbacks: callbacks as any }),
+        );
 
         // 验证 1：structured return 不被 bypass、原 error 信息保留
         expect(result.success).toBe(false);
@@ -78,7 +85,7 @@ describe('callback-safe-wrap', () => {
 
         // 验证 2：callback 被 call 一次（throw 之前）
         expect(callbacks.onToolExecutionFailed).toHaveBeenCalledTimes(1);
-        expect(callbacks.onToolExecutionFailed).toHaveBeenCalledWith('failTool', 'tu2', 'Error', 'exec-boom');
+        expect(callbacks.onToolExecutionFailed).toHaveBeenCalledWith('failTool', 'tu2', 'ToolError', '[TOOL_EXECUTION_FAILED] exec-boom');
 
         // 验证 3：onSafeCallbackError 被触发、label 对
         expect(safeCallbackErrors).toHaveLength(1);
@@ -343,5 +350,112 @@ describe('tool-input-parse-error-audit', () => {
         expect(result.error.length).toBeGreaterThan(0);
       }
     });
+  });
+});
+
+
+describe('phase 1857 Step F (SE-D6): 失败策略声明矩阵', () => {
+  // 矩阵：每组代表 callback 故障 → 声明行为（B 级不中止 + 留证；S 级传播）
+
+  function makeTextLLM(stopReason = 'end_turn'): LLMOrchestrator {
+    async function* stream(): AsyncIterableIterator<LLMStreamChunk> {
+      yield { type: 'text_delta', delta: 'hello' };
+      yield { type: 'done', stopReason, usage: { inputTokens: 1, outputTokens: 1 } };
+    }
+    return {
+      call: vi.fn(),
+      stream: vi.fn(() => stream()),
+      healthCheck: vi.fn(async () => true),
+      getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
+      close: vi.fn(),
+    } as unknown as LLMOrchestrator;
+  }
+
+  function makeSink() {
+    const entries: Array<unknown[]> = [];
+    const sink = {
+      write: (...cols: unknown[]) => { entries.push(cols); },
+      message: (s: string) => s,
+      preview: (s: string) => s,
+    };
+    return { sink, entries };
+  }
+
+  async function runStep(callbacks: Record<string, unknown>, stopReason = 'end_turn', auditWriter?: unknown) {
+    return executeStep({
+      messages: [] as Message[],
+      systemPrompt: 'sys',
+      llm: makeTextLLM(stopReason),
+      tools: [],
+      executor: {
+        execute: vi.fn(async () => ({ success: true, content: 'ok' })),
+        executeParallel: vi.fn(),
+        validateArgs: vi.fn(),
+      } as unknown as IToolExecutor,
+      registry: { get: () => ({ readonly: false }) } as unknown as ToolRegistry,
+      ctx: makeExecContext(),
+      // phase 1857 Step I: 单一事件出口——展示+持久化经 caller adapter
+      eventSink: makeStepEventSink({ callbacks: callbacks as never, audit: auditWriter }),
+      callbacks: callbacks as never,
+    });
+  }
+
+  it('[B:safe][提交通知] onMessageAppended throw → step 完成 final + onSafeCallbackError 留证 + audit 行', async () => {
+    const onSafeCallbackError = vi.fn();
+    const { sink: audit, entries } = makeSink();
+
+    const result = await runStep({
+      onMessageAppended: vi.fn(() => { throw new Error('append-boom'); }),
+      onSafeCallbackError,
+    }, 'end_turn', audit);
+
+    expect(result.kind).toBe('final');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onMessageAppended', expect.any(Error));
+    expect(entries.some(c => c[0] === 'step_executor_callback_failed' && String(c[1]).includes('onMessageAppended'))).toBe(true);
+    expect(audit).toBeDefined();
+  });
+
+  it('[B:safe][stream delivery] onTextDelta throw → step 完成 final（stream loop 不中断）', async () => {
+    const onSafeCallbackError = vi.fn();
+
+    const result = await runStep({
+      onTextDelta: vi.fn(() => { throw new Error('delta-boom'); }),
+      onSafeCallbackError,
+    });
+
+    expect(result.kind).toBe('final');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onTextDelta', expect.any(Error));
+  });
+
+  it('[B:safe][裁决事件] onUnknownStopReason throw → step 完成 final(unknown)（通知失败不改变已发生提交）', async () => {
+    const onSafeCallbackError = vi.fn();
+
+    const result = await runStep({
+      onUnknownStopReason: vi.fn(() => { throw new Error('unknown-boom'); }),
+      onSafeCallbackError,
+    }, 'refusal');
+
+    expect(result.kind).toBe('final');
+    if (result.kind === 'final') expect(result.stopReason).toBe('unknown');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onUnknownStopReason', expect.any(Error));
+  });
+
+  it('[S:strict][提交通知] onLLMResult throw → executeStep 拒绝、错误原样传播（可中止 step）', async () => {
+    const onLLMResult = vi.fn(() => { throw new Error('result-boom'); });
+
+    await expect(runStep({ onLLMResult })).rejects.toThrow('result-boom');
+    expect(onLLMResult).toHaveBeenCalledOnce();
+  });
+
+  it('[B:safe] onBeforeLLMCall throw → step 完成 final（phase 890 契约保持，不中断）', async () => {
+    const onSafeCallbackError = vi.fn();
+
+    const result = await runStep({
+      onBeforeLLMCall: vi.fn(() => { throw new Error('before-boom'); }),
+      onSafeCallbackError,
+    });
+
+    expect(result.kind).toBe('final');
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onBeforeLLMCall', expect.any(Error));
   });
 });

@@ -9,19 +9,32 @@
 import { describe, expect, it, vi } from 'vitest';
 import { safeCallback } from '../../../src/core/step-executor/utils.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from '../../../src/core/step-executor/audit-events.js';
+// phase 1857 Step C (SE-D2): barrel 公共契约编译断言 —— StepInput/StepResult 必须自 barrel 命名导入
+import type { StepInput, StepResult } from '../../../src/core/step-executor/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+
+type _PublicContractSurface = [
+  StepInput,
+  StepResult,
+];
 
 function makeAudit() {
   const entries: Array<unknown[]> = [];
   const audit = {
     write: (...cols: unknown[]) => { entries.push(cols); },
   } as unknown as AuditLog;
-  return { audit, entries };
+  // phase 1857 Step I (SE-D9): safeCallback 的 B 级留证改经单一事件出口 sink.callbackFailed
+  const eventSink = {
+    callbackFailed: (e: { label: string; error: string }) => {
+      entries.push([STEP_EXECUTOR_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, `label=${e.label}`, `error=${e.error}`]);
+    },
+  };
+  return { audit, entries, eventSink };
 }
 
 describe('phase 1812: safeCallback 二级 reporter 零递归边界（SE-D5）', () => {
   it('callback 正常：无 reporter、无 audit、无 console', () => {
-    const { audit, entries } = makeAudit();
+    const { audit, entries, eventSink } = makeAudit();
     const reporter = vi.fn();
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -34,11 +47,11 @@ describe('phase 1812: safeCallback 二级 reporter 零递归边界（SE-D5）', 
   });
 
   it('首错：reporter 收到 (label, 原始 error)，audit 留证首错', () => {
-    const { audit, entries } = makeAudit();
+    const { audit, entries, eventSink } = makeAudit();
     const first = new Error('first boom');
     const reporter = vi.fn();
 
-    safeCallback('onToolResult', () => { throw first; }, { onSafeCallbackError: reporter }, audit);
+    safeCallback('onToolResult', () => { throw first; }, { onSafeCallbackError: reporter }, eventSink);
 
     expect(reporter).toHaveBeenCalledTimes(1);
     expect(reporter).toHaveBeenCalledWith('onToolResult', first);
@@ -49,7 +62,7 @@ describe('phase 1812: safeCallback 二级 reporter 零递归边界（SE-D5）', 
   });
 
   it('二级 reporter throw：不逃逸、不覆盖首错，三份证据（label/首错/reporter error）进 console 边界，audit 仍留证首错', () => {
-    const { audit, entries } = makeAudit();
+    const { audit, entries, eventSink } = makeAudit();
     const first = new Error('first boom');
     const reportErr = new Error('reporter boom');
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -57,7 +70,7 @@ describe('phase 1812: safeCallback 二级 reporter 零递归边界（SE-D5）', 
     expect(() =>
       safeCallback('onToolCall', () => { throw first; }, {
         onSafeCallbackError: () => { throw reportErr; },
-      }, audit),
+      }, eventSink),
     ).not.toThrow();
 
     // console 边界：label + 首错 + 二级 error 均可观察（零递归出口）
@@ -77,11 +90,11 @@ describe('phase 1812: safeCallback 二级 reporter 零递归边界（SE-D5）', 
   });
 
   it('无 reporter 时首错仅 audit 留证（回归）', () => {
-    const { audit, entries } = makeAudit();
+    const { audit, entries, eventSink } = makeAudit();
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     expect(() =>
-      safeCallback('onBeforeLLMCall', () => { throw new Error('boom'); }, undefined, audit),
+      safeCallback('onBeforeLLMCall', () => { throw new Error('boom'); }, undefined, eventSink),
     ).not.toThrow();
 
     expect(entries).toHaveLength(1);

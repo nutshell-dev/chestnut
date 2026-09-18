@@ -6,7 +6,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeStep } from '../../src/core/step-executor/step-executor.js';
-import { IdleTimeoutSignal } from '../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../src/core/step-executor/index.js';
+import { makeStepEventSink } from '../helpers/step-event-sink.js';
 import type { LLMCallInfo } from '../../src/core/step-executor/step-executor.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
@@ -329,7 +330,7 @@ describe('StepExecutor', () => {
     await expect(executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: exec, registry: makeRegistry({ testTool: { readonly: false } }), ctx,
-    })).rejects.toThrow(IdleTimeoutSignal);
+    })).rejects.toThrow(StepAbortError);
 
     // Phase 538: abort 期 stream 一致 throwAbortError / partial tool_use 丢弃 / 工具不执行
     expect(exec.execute).not.toHaveBeenCalled();
@@ -342,10 +343,13 @@ describe('StepExecutor', () => {
   it('empty response triggers onEmptyResponse callback', async () => {
     const llm = makeStreamLLM([{ type: 'done', stopReason: 'end_turn' }]);
     const emptyReasons: string[] = [];
+    const callbacks = { onEmptyResponse: (reason: string) => emptyReasons.push(reason) };
     const result = await executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-      callbacks: { onEmptyResponse: (reason) => emptyReasons.push(reason) },
+      // phase 1857 Step I: 裁决事件经单一事件出口（caller adapter 组合展示）
+      eventSink: makeStepEventSink({ callbacks }),
+      callbacks,
     });
     expect(result.kind).toBe('final');
     expect(emptyReasons).toEqual(['end_turn']);
@@ -406,10 +410,12 @@ describe('StepExecutor', () => {
       { type: 'done', stopReason: 'custom_reason' },
     ]);
     const unknownReasons: string[] = [];
+    const callbacks = { onUnknownStopReason: (r: string) => unknownReasons.push(r) };
     const result = await executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-      callbacks: { onUnknownStopReason: (r) => unknownReasons.push(r) },
+      eventSink: makeStepEventSink({ callbacks }),
+      callbacks,
     });
     expect(result.kind).toBe('final');
     expect(unknownReasons).toEqual(['custom_reason']);
@@ -434,10 +440,12 @@ describe('StepExecutor', () => {
       { type: 'done', stopReason: 'tool_use' },
     ]);
     const reasons: string[] = [];
+    const callbacks = { onUnparseableToolUse: (r: string) => reasons.push(r) };
     const result = await executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-      callbacks: { onUnparseableToolUse: (r) => reasons.push(r) },
+      eventSink: makeStepEventSink({ callbacks }),
+      callbacks,
     });
     expect(result.kind).toBe('final');
     expect(reasons).toEqual(['tool_use']);
@@ -459,10 +467,12 @@ describe('StepExecutor', () => {
       { type: 'done', stopReason: 'tool_use' },
     ]);
     const emptyReasons: string[] = [];
+    const callbacks = { onEmptyResponse: (r: string) => emptyReasons.push(r) };
     const result = await executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-      callbacks: { onEmptyResponse: (r) => emptyReasons.push(r) },
+      eventSink: makeStepEventSink({ callbacks }),
+      callbacks,
     });
     expect(result.kind).toBe('final');
     expect(emptyReasons).toEqual(['tool_use']);

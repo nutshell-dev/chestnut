@@ -23,7 +23,6 @@ import type { LLMOrchestrator, LLMCallOptions } from '../../foundation/llm-orche
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';
 
-import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { throwAbortError } from './abort-helpers.js';
 import { safeCallback, extractText, appendAssistantMessage } from './utils.js';
 import { collectStreamResponse } from './llm-stream-collector.js';
@@ -38,7 +37,9 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   const maxTokens = input.maxTokens;
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-  safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.(), callbacks, input.auditWriter);
+  // phase 1857 Step F (SE-D6): [B:safe][提交通知] 既有契约（phase 890 reverse 锁定：
+  // throw 不中断 step）保持 safeCallback 包裹；计划基线曾议 S 级，经判为偏差并登记。
+  safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.(), callbacks, input.eventSink);
 
   const llmStartTime = Date.now();
   const callOptions: LLMCallOptions = {
@@ -51,11 +52,8 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   const { response, llmInfo } = await runLLMCall(llm, callOptions, llmStartTime, input);
 
   if (response.content.length === 0) {
-    callbacks?.onEmptyResponse?.(response.stop_reason);
-    input.auditWriter?.write(
-      STEP_EXECUTOR_AUDIT_EVENTS.LLM_EMPTY_RESPONSE,
-      `stop_reason=${response.stop_reason}`,
-    );
+    // phase 1857 Step I (SE-D9): 裁决事实经单一事件出口（展示+持久化归 caller adapter）
+    input.eventSink?.llmEmptyResponse({ stopReason: response.stop_reason });
   }
 
   if (response.stop_reason === 'tool_use') return await handleToolUseStop(response, input, llmInfo);
@@ -63,7 +61,7 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   if (response.stop_reason === 'end_turn' || response.stop_reason === 'stop') {
     const text = extractText(response.content);
     appendAssistantMessage(messages, response.content);
-    callbacks?.onMessageAppended?.('assistant', response.content.length);
+    safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.length), callbacks, input.eventSink);
     return { kind: 'final', stopReason: asFinalStopReason(response.stop_reason), finalText: text };
   }
 
@@ -74,18 +72,15 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   if (response.stop_reason === 'content_filter') {
     const text = extractText(response.content);
     appendAssistantMessage(messages, response.content);
-    callbacks?.onMessageAppended?.('assistant', response.content.length);
+    safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.length), callbacks, input.eventSink);
     return { kind: 'final', stopReason: asFinalStopReason('content_filter'), finalText: text };
   }
 
-  callbacks?.onUnknownStopReason?.(response.stop_reason);
-  input.auditWriter?.write(
-    STEP_EXECUTOR_AUDIT_EVENTS.LLM_UNKNOWN_STOP_REASON,
-    `stop_reason=${response.stop_reason}`,
-  );
+  // phase 1857 Step I (SE-D9): 单一事件出口
+  input.eventSink?.llmUnknownStopReason({ stopReason: response.stop_reason });
   const text = extractText(response.content);
   appendAssistantMessage(messages, response.content);
-  callbacks?.onMessageAppended?.('assistant', response.content.length);
+  safeCallback('onMessageAppended', () => callbacks?.onMessageAppended?.('assistant', response.content.length), callbacks, input.eventSink);
   return { kind: 'final', stopReason: asFinalStopReason('unknown'), finalText: text };
 }
 
@@ -98,7 +93,7 @@ async function runLLMCall(
   const { callbacks } = input;
   let response: LLMResponse;
   try {
-    response = await collectStreamResponse(llm, callOptions, callbacks, input.auditWriter, input.currentContractId, String(input.ctx.trace_id ?? ''));
+    response = await collectStreamResponse(llm, callOptions, callbacks, input.eventSink);
   } catch (err) {
     const info: LLMCallInfo = {
       model: llm.getProviderInfo?.()?.model ?? 'unknown',
@@ -111,6 +106,8 @@ async function runLLMCall(
             ? JSON.stringify(err, Object.getOwnPropertyNames(err))
             : String(err)),
     };
+    // phase 1857 Step F (SE-D6): [S:strict][提交通知] 唯一 S 级——副作用提交前调用事实交付；
+    // 现状即裸调，失败传播、可中止 step（原错在 error 路径保留并 rethrow）
     callbacks?.onLLMResult?.(info);
     throw err;
   }
@@ -120,6 +117,8 @@ async function runLLMCall(
     outputTokens: response.usage?.output_tokens ?? 0,
     latencyMs: Date.now() - llmStartTime,
   };
+  // phase 1857 Step F (SE-D6): [S:strict][提交通知] 唯一 S 级——副作用提交前调用事实交付；
+  // 现状即裸调，失败传播、可中止 step
   callbacks?.onLLMResult?.(llmInfo);
   return { response, llmInfo };
 }

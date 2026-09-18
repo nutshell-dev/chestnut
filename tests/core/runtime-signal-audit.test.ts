@@ -14,7 +14,7 @@ import { writeSessionWithIncompleteToolUse } from '../helpers/session-fixtures.j
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../src/foundation/dialog-store/index.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../src/core/step-executor/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
 import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
@@ -117,22 +117,22 @@ describe('Runtime SignalAudit', () => {
 
     it('IdleTimeoutSignal — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
-      r.reactThrow = new IdleTimeoutSignal(30000);
-      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(IdleTimeoutSignal);
+      r.reactThrow = new StepAbortError({ kind: 'idle_timeout', ms: 30000 });
+      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(StepAbortError);
       expect(await outboxFiles()).toHaveLength(0);
     });
 
     it('PriorityInboxInterrupt — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
-      r.reactThrow = new PriorityInboxInterrupt();
-      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(PriorityInboxInterrupt);
+      r.reactThrow = new StepAbortError({ kind: 'step_yield' });
+      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(StepAbortError);
       expect(await outboxFiles()).toHaveLength(0);
     });
 
     it('UserInterrupt — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
-      r.reactThrow = new UserInterrupt();
-      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(UserInterrupt);
+      r.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
+      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(StepAbortError);
       expect(await outboxFiles()).toHaveLength(0);
     });
 

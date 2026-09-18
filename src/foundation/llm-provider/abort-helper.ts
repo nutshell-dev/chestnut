@@ -97,7 +97,7 @@ export function classifyFetchAbortError(
  * phase 1802: Abort reason 是上层业务的 opaque evidence —— L1 只承载、不枚举。
  *
  * reason 词汇（user/step_yield/turn_timeout/tool_timeout/…）由发起业务 owner 各自定义
- * 并在边界映射（如 SubAgent timeout-controller → ToolTimeoutError/UserInterrupt）；
+ * 并在边界映射（如 SubAgent timeout-controller → ToolTimeoutError/StepAbortError）；
  * provider 仅检查 signal.aborted 与原样透传 signal.reason，不对 reason 做业务裁决。
  */
 export class ExternalAbortError extends Error {

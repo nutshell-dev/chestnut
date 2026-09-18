@@ -6,9 +6,14 @@
  */
 
 export { executeStep } from './step-executor.js';
-export { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './signals.js';
-export { throwAbortError } from './abort-helpers.js';
+export { StepAbortError, isStepAbortError, throwAbortError, abortEvidenceAuditCols } from './abort-helpers.js';
+export type { StepAbortReason } from './abort-helpers.js';
+export type { StepExecutorEventSink, StepEventLlmCallInfo } from './audit-sink.js';
+export { safeCallback, writeAuditGuarded } from './utils.js';
+export { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
+export { createStepExecutorEventSink } from './caller-event-sink.js';
 export { asFinalStopReason } from './types.js';
 export type {
   StepCallbacks, StepMeta, LLMCallInfo, FinalStopReason,
+  StepInput, StepResult,
 } from './types.js';

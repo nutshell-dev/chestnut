@@ -30,7 +30,7 @@ import { loadReadFileState, clearReadFileState, persistReadFileState } from '../
 import { runReact } from '../agent-executor/index.js';
 import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
 import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
+import { isStepAbortError, abortEvidenceAuditCols } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './inbox-message-types.js';
@@ -1068,7 +1068,7 @@ export class Runtime {
           // phase 1860 (RT-D2)：step 提交经单一编排协议（dialog save → blockId 回写 → read-state persist）。
           await this._commitStepBoundary(systemPrompt, messages, tools);
           // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
-          // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
+          // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 step_yield 中断）
           // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
           void this.contractManager.maybeAuditStep(makeStepNumber(stepCount))
             .catch(err => {
@@ -1249,12 +1249,11 @@ export class Runtime {
         return { status: 'success' };
       } catch (error) {
         handleTurnInterrupt(error, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
-        if (error instanceof PriorityInboxInterrupt
-            || error instanceof UserInterrupt
-            || error instanceof IdleTimeoutSignal) {
-          const cause = error instanceof PriorityInboxInterrupt ? 'priority_inbox'
-                       : error instanceof UserInterrupt          ? 'user_interrupt'
-                       :                                         'idle_timeout';
+        // phase 1857 Step B (SE-D1): 中断判据改 StepAbortError.reason.kind 数据判据
+        if (isStepAbortError(error)) {
+          const cause = error.reason.kind === 'step_yield'      ? 'priority_inbox'
+                      : error.reason.kind === 'user_interrupt'  ? 'user_interrupt'
+                      :                                          'idle_timeout';
           try {
             await this.sessionManager.commitTurn(cause);
             outcome = 'interrupted';
@@ -1624,16 +1623,19 @@ export function handleTurnInterrupt(
 ): void {
   // phase 571: trace_id col fallback ''、test 不传时为空 col 保 forensic 形态一致
   const traceCol = `trace_id=${traceId ?? ''}`;
-  if (err instanceof IdleTimeoutSignal) {
-    const msg = `Interrupted (idle timeout: ${Math.round(err.timeoutMs / 1000)}s)`;
-    callbacks?.onTurnInterrupted?.('idle_timeout', msg);
-    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.timeoutMs}`, traceCol);
-  } else if (err instanceof PriorityInboxInterrupt) {
-    callbacks?.onTurnInterrupted?.('priority_inbox', 'Interrupted (priority inbox)');
-    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox', traceCol);
-  } else if (err instanceof UserInterrupt) {
-    callbacks?.onTurnInterrupted?.('user_interrupt');
-    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt', traceCol);
+  if (isStepAbortError(err)) {
+    // phase 1857 Step B (SE-D1): 中断信号按 reason.kind 数据判据分发，展示语义本地
+    if (err.reason.kind === 'idle_timeout') {
+      const msg = `Interrupted (idle timeout: ${Math.round(err.reason.ms / 1000)}s)`;
+      callbacks?.onTurnInterrupted?.('idle_timeout', msg);
+      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.reason.ms}`, traceCol, ...abortEvidenceAuditCols(err));
+    } else if (err.reason.kind === 'step_yield') {
+      callbacks?.onTurnInterrupted?.('priority_inbox', 'Interrupted (priority inbox)');
+      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox', traceCol, ...abortEvidenceAuditCols(err));
+    } else {
+      callbacks?.onTurnInterrupted?.('user_interrupt');
+      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt', traceCol, ...abortEvidenceAuditCols(err));
+    }
   } else {
     const errorMsg = formatErr(err);
     callbacks?.onTurnError?.(errorMsg);

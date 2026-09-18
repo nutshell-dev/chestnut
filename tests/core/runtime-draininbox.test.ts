@@ -26,7 +26,7 @@ import { INBOX_MISROUTED_DIR } from '../../src/foundation/messaging/index.js';
 import type { Message } from '../../src/foundation/dialog-store/index.js';
 import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
-import { UserInterrupt } from '../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../src/core/step-executor/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
 import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
@@ -362,7 +362,7 @@ Test message`;
           };
         }
         protected override async _runReact(_messages: Message[]) {
-          throw new UserInterrupt();
+          throw new StepAbortError({ kind: 'user_interrupt' });
         }
       }
 
@@ -375,7 +375,7 @@ Test message`;
       }));
       await runtime.initialize();
 
-      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
       // Verify NO error response was written to outbox
       const outboxDir = path.join(clawDir, 'outbox', 'pending');

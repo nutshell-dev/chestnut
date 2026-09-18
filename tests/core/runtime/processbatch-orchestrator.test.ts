@@ -14,7 +14,7 @@ import { MaxStepsExceededError } from '../../../src/core/agent-executor/errors.j
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import { UserInterrupt } from '../../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../../src/core/step-executor/index.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
@@ -108,9 +108,9 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
       } as InboxMessage],
       addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
     };
-    runtime.reactThrow = new UserInterrupt();
+    runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalled();
@@ -135,9 +135,9 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
       } as InboxMessage],
       addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
     };
-    runtime.reactThrow = new UserInterrupt();
+    runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(
@@ -175,9 +175,9 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
         { filePath: 'inflight/msg2.md', originalFileName: 'msg2.md' },
       ],
     };
-    runtime.reactThrow = new UserInterrupt();
+    runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({ filePath: 'inflight/msg1.md' }));

@@ -24,7 +24,7 @@ import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
-import { UserInterrupt } from '../../../src/core/step-executor/signals.js';
+import { StepAbortError } from '../../../src/core/step-executor/index.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
@@ -223,9 +223,9 @@ describe('userinterrupt-system-message-no-redrive', () => {
           infos: [makeInfo(c.type, 'msg-x', c.from)],
           addressedHandles: [{ filePath: 'inflight/msg-x.md', originalFileName: 'msg-x.md' }],
         };
-        runtime.reactThrow = new UserInterrupt();
+        runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-        await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+        await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
         expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
         expect(ackSpy).toHaveBeenCalledTimes(1);
@@ -259,9 +259,9 @@ describe('userinterrupt-system-message-no-redrive', () => {
           { filePath: 'inflight/c3.md', originalFileName: 'c3.md' },
         ],
       };
-      runtime.reactThrow = new UserInterrupt();
+      runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
       expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
       expect(ackSpy).toHaveBeenCalledTimes(3);
@@ -281,9 +281,9 @@ describe('userinterrupt-system-message-no-redrive', () => {
         infos: [makeInfo('message', 'm1', 'system')],
         addressedHandles: [{ filePath: 'inflight/m1.md', originalFileName: 'm1.md' }],
       };
-      runtime.reactThrow = new UserInterrupt();
+      runtime.reactThrow = new StepAbortError({ kind: 'user_interrupt' });
 
-      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
+      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(StepAbortError);
 
       // 反向守：若 UserInterrupt 分支被回退到 phase 1403 形态、nack 会被调用 → 本测 fail
       expect(nackSpy).toHaveBeenCalledTimes(0);

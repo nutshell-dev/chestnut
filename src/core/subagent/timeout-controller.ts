@@ -8,19 +8,22 @@
  * - externalSignal abort → abort(externalSignal.reason)
  * - timeoutPromise 落地时 auditWriter emit SUBAGENT_AUDIT_EVENTS.TIMEOUT_REJECTION
  * - cleanup() 清两个 timer + remove external signal listener (idempotent)
+ *
+ * phase 1857 Step B (SE-D1): 中断统一经 step-executor 的 StepAbortError 数据协议载体
+ * （idle_timeout/step_yield/user_interrupt），不再构造三独立信号 class。
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/index.js';
+import { StepAbortError } from '../step-executor/index.js';
 import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
 
 /**
  * phase 1802: SubAgent 超时 owner 自定义的 abort reason（发起业务 owner 持有词汇，
  * L1 provider 只作 opaque evidence 承载）。turn/idle 由本控制器发起；user/step_yield
- * 由 Runtime 发起、本边界负责映射到 typed interrupt。
+ * 由 Runtime 发起、本边界负责映射到 StepAbortError 数据协议。
  */
 type TurnTimerAbortReason =
   | { type: 'turn_timeout'; ms: number }
@@ -79,11 +82,11 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
       if (r?.type === 'turn_timeout' && typeof r.ms === 'number') {
         reject(new ToolTimeoutError('subagent_run', r.ms));
       } else if (r?.type === 'idle_timeout' && typeof r.ms === 'number') {
-        reject(new IdleTimeoutSignal(r.ms));
+        reject(new StepAbortError({ kind: 'idle_timeout', ms: r.ms }));
       } else if (r?.type === 'user') {
-        reject(new UserInterrupt());
+        reject(new StepAbortError({ kind: 'user_interrupt' }));
       } else if (r?.type === 'step_yield') {
-        reject(new PriorityInboxInterrupt());
+        reject(new StepAbortError({ kind: 'step_yield' }));
       } else {
         reject(makeExternalAbortError(r));
       }
