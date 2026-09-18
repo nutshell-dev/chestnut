@@ -51,7 +51,7 @@ export async function spawnShadowSubagent(
     originClawId: payload.identity.originClawId ?? '',
     callerType: 'shadow_subagent',
     toolProfile: 'full',
-    isShadow: true,
+    isShadow: payload.identity.isShadow,
     systemPrompt: payload.systemPrompt,
     shadowSystemPrompt: payload.systemPrompt,
     shadowToolsForLLM: payload.toolsForLLM,

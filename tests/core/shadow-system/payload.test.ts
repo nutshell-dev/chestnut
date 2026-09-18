@@ -7,7 +7,7 @@
  * - messages = synthesizeFormB 产物（instruction 含 SHADOW INSTRUCTION prefix + task）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildShadowPayload } from '../../../src/core/shadow-system/payload.js';
+import { buildShadowPayload, createShadowIdentity } from '../../../src/core/shadow-system/payload.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -88,6 +88,17 @@ describe('buildShadowPayload (phase 1865 SH-D1)', () => {
       shadowIdPrefix: 'summon',
     });
     expect(summon.identity.shadowId).toMatch(/^summon-/);
+  });
+
+  it('identity: isShadow 事实由单源携带（phase 1865 SH-D3）', () => {
+    const payload = buildShadowPayload({ task: 't', mainMessages: [], ctx, systemPrompt: 'sp', toolsForLLM: [] });
+    expect(payload.identity.isShadow).toBe(true);
+
+    expect(createShadowIdentity({ originClawId: 'o1' })).toEqual({
+      shadowId: expect.stringMatching(/^shadow-/),
+      originClawId: 'o1',
+      isShadow: true,
+    });
   });
 
   it('identity.originClawId: explicit opts wins, else falls back to ctx.clawId', () => {

@@ -12,14 +12,25 @@ import { makeToolUseId } from '../../foundation/llm-provider/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 
 import { synthesizeFormB } from './_helpers.js';
-import type { ShadowExecutorPayload, SpawnShadowSubagentOptions } from './types.js';
+import type { ShadowExecutorPayload, ShadowIdentity, SpawnShadowSubagentOptions } from './types.js';
+
+/** phase 1865 (SH-D3)：身份单一构造点——shadowId 生成 + isShadow 事实（消费面派生自此）。 */
+export function createShadowIdentity(opts: { prefix?: string; originClawId?: string }): ShadowIdentity {
+  return {
+    shadowId: `${opts.prefix ?? 'shadow'}-${newShortUuid()}`,
+    originClawId: opts.originClawId,
+    isShadow: true,
+  };
+}
 
 export function buildShadowPayload(opts: SpawnShadowSubagentOptions): ShadowExecutorPayload {
-  const prefix = opts.shadowIdPrefix ?? 'shadow';
-  const shadowId = `${prefix}-${newShortUuid()}`;
+  const identity = createShadowIdentity({
+    prefix: opts.shadowIdPrefix,
+    originClawId: opts.originClawId ?? opts.ctx.clawId,
+  });
 
   const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
-    shadowId,
+    shadowId: identity.shadowId,
     spawnedAt: new Date().toISOString(),
     spawnedByClawId: opts.ctx.clawId ?? '',
     toolUseId: opts.ctx.currentToolUseId
@@ -36,10 +47,7 @@ export function buildShadowPayload(opts: SpawnShadowSubagentOptions): ShadowExec
     systemPrompt: opts.systemPrompt,
     messages,
     toolsForLLM: opts.toolsForLLM,
-    identity: {
-      shadowId,
-      originClawId: opts.originClawId ?? opts.ctx.clawId,
-    },
+    identity,
     budget: {
       timeoutMs: opts.timeoutMs,
       maxSteps: opts.maxSteps,

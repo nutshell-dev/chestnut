@@ -32,6 +32,17 @@ export type SpawnShadowSubagentResult =
   | { success: false; content: string; error: string };
 
 /**
+ * phase 1865 (SH-D3)：单一身份上下文（执行 owner 生成——async 路径经 buildShadowPayload /
+ * sync 路径经 runShadow）。消费面的 isShadow 事实由本单源派生，不再各自硬编码。
+ */
+export interface ShadowIdentity {
+  readonly shadowId: string;
+  readonly originClawId?: string;
+  /** 身份事实：本执行是 shadow（恒 true；schedule payload 派生自此）。 */
+  readonly isShadow: true;
+}
+
+/**
  * phase 1865 (SH-D1)：shadow 执行 payload 契约（owner 定义；构造经 {@link buildShadowPayload}）。
  * ATS 侧 opaque 消费与字段形态迁移归 phase 1863 E。
  */
@@ -42,11 +53,8 @@ export interface ShadowExecutorPayload {
   readonly messages: Message[];
   /** shadow 继承的工具全集。 */
   readonly toolsForLLM: ToolDefinition[];
-  /** 身份事实（phase 1865 Step D 的单一身份上下文对齐点）。 */
-  readonly identity: {
-    readonly shadowId: string;
-    readonly originClawId?: string;
-  };
+  /** 身份事实（单源：{@link ShadowIdentity}）。 */
+  readonly identity: ShadowIdentity;
   /** 执行预算（Assembly/SubAgent 注入面——phase 1865 Step H 对齐）。 */
   readonly budget: {
     readonly timeoutMs?: number;

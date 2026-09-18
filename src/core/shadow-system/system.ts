@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import { formatErr, newShortUuid } from '../../foundation/node-utils/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import { applyRestrictedOverrides } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
@@ -17,6 +17,7 @@ import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayRes
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB } from './_helpers.js';
+import { createShadowIdentity } from './payload.js';
 import { classifyTaskError } from '../async-task-system/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 
@@ -54,7 +55,9 @@ function findLastAssistantWithToolUse(messages: Message[], toolUseId: ToolUseId)
 }
 
 export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
-  const shadowId = `shadow-${newShortUuid()}`;
+  // phase 1865 (SH-D3)：单一身份上下文（isShadow 事实派生自此，不再硬编码）。
+  const identity = createShadowIdentity({ originClawId: opts.ctx.clawId });
+  const shadowId = identity.shadowId;
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SHADOW_DIR, shadowId);
   const spawnedAt = new Date().toISOString();
 
