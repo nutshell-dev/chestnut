@@ -168,7 +168,8 @@ describe('shadow tool async (phase 1087)', () => {
       expect(mockRunSubagent).toHaveBeenCalledOnce();
 
       const callArgs = mockRunSubagent.mock.calls[0][0];
-      expect(callArgs.isShadow).toBe(true);
+      // phase 1858 Step J (SA-D9): SubAgentOptions.isShadow 已删——反向锁：不再传该字段
+      expect(callArgs).not.toHaveProperty('isShadow');
       expect(callArgs.resultTool).toBe('done');
     });
 

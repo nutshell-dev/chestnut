@@ -83,7 +83,6 @@ export interface SubAgentOptions {
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
   toolProfile?: ToolProfile;             // caller 直接声明 capability profile
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
-  isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
   traceId: TraceId;
@@ -117,7 +116,6 @@ export class SubAgent {
   private toolProfile?: ToolProfile;
   private messages?: Message[];
   private _hasRun = false;
-  isShadow?: boolean;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
   private traceId: TraceId;
@@ -152,7 +150,6 @@ export class SubAgent {
     this.systemPrompt = options.systemPrompt;
     this.toolProfile = options.toolProfile;
     this.messages = options.messages;
-    this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
     this.traceId = options.traceId;

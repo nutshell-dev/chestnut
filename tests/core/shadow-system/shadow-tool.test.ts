@@ -207,7 +207,8 @@ describe('shadow tool (phase 767)', () => {
         expect(callArgs.resultDir).toContain('tasks/sync/shadow');
         expect(callArgs.messages).toBeDefined();
         expect(callArgs.messages.length).toBeGreaterThan(0);
-        expect(callArgs.isShadow).toBe(true);
+        // phase 1858 Step J (SA-D9): SubAgentOptions.isShadow 已删——反向锁：不再传该字段
+        expect(callArgs).not.toHaveProperty('isShadow');
         expect(callArgs.resultTool).toBe('done');
         expect(callArgs.prompt).toBe('');
       });

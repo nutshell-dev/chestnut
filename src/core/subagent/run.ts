@@ -70,7 +70,6 @@ export interface RunSubagentOptions {
 
   // NEW (phase 767)：shadow 需要传完整合成 messages
   messages?: Message[];
-  isShadow?: boolean;
 
   // NEW (phase 1029 / F-2)：tool-level timeout inheritance from caller ExecContext
   toolTimeoutMs?: number;
@@ -174,7 +173,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     traceId,
     currentContractId: opts.currentContractId,
     messages: opts.messages,
-    isShadow: opts.isShadow,
     permissionChecker: opts.permissionChecker,
   });
 

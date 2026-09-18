@@ -119,8 +119,9 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     return { success: false, content: `[chestnut shadow] prefix synthesis failed: ${errMsg}`, error: 'prefix_synthesis_failed' };
   }
 
-  // shadow ctx 注入 isShadow=true（透传到所有工具 execute()）
-  // shadow 用 full profile（C2 cache prefix 保护，mirror main agent 字节相同）
+  // shadow 用 full profile（C2 cache prefix 保护，mirror main agent 字节相同）；
+  // phase 1858 Step J (SA-D9): 删 SubAgentOptions.isShadow 传参（该字段无消费、亦非 ctx 注入）。
+  // shadow 隔离由 applyRestrictedOverrides 覆盖受限工具表达。
   try {
     const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
     if (!baseRegistry) {
@@ -158,7 +159,6 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
       // phase 369 §4 (review-2026-06-13): 用 const、tool 重命名时 shadow-system 跟住
       resultTool: DONE_TOOL_NAME,
-      isShadow: true,
       // phase 1162 r128 D fork DD2: shadow 独立 lifecycle (phase 1084 ratify 维持)。
       // 显式不传 signal 字段而非 fake `new AbortController().signal` (M#9 显式表达 / honesty fix)。
       // ratify chain: phase 874 (α-propagate) → phase 1084 (β-independent fake AC) → phase 1162 (β-independent honest omit)。

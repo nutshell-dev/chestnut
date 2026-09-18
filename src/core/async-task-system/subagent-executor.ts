@@ -247,7 +247,6 @@ export async function executeSubAgentTask(
       toolTimeoutMs: deps.toolTimeoutMs,
       permissionChecker: deps.permissionChecker,
       messages: task.shadowMessages,
-      isShadow,
       resultTool: isShadow ? DONE_TOOL_NAME : undefined,
     });
 
