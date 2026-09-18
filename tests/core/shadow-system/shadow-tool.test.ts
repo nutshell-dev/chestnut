@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { createShadowTool } from '../../../src/core/shadow-system/index.js';
+import { runShadow } from '../../../src/core/shadow-system/system.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
@@ -247,6 +248,112 @@ describe('shadow tool (phase 767)', () => {
         const result = await shadowTool.execute({ task: 'timeout test', async: false }, baseCtx);
 
         expect(result.error).toBe('tool_timeout');
+      });
+    });
+
+    describe('run failure typed outcomes (phase 1865 SH-D5)', () => {
+      const failedRows = () => audit.events.filter(e => e[0] === SHADOW_AUDIT_EVENTS.FAILED);
+
+      it('no_main_context（dialogMessages 缺失）→ FAILED 留痕 phase=main_context + missing 证据', async () => {
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: undefined }),
+          runSubagent: mockRunSubagent,
+        });
+
+        const result = await tool.execute({ task: 't', async: false }, baseCtx);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('no_main_context');
+        expect(failedRows()).toHaveLength(1);
+        expect(failedRows()[0]).toContain('phase=main_context');
+        expect(failedRows()[0]).toContain('error=missing=dialogMessages');
+        expect(mockRunSubagent).not.toHaveBeenCalled();
+      });
+
+      it('no_main_context（多字段缺失）→ missing 列全列', async () => {
+        const ctxNoToolUse = new ExecContextImpl({
+          clawId: 'test-claw',
+          clawDir: tempDir,
+          syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full',
+          fs,
+          auditWriter: audit.audit,
+          llm: makeLLM(),
+          registry: makeRegistry(),
+        });
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({ tools: [], messages: [{ role: 'user', content: 'x' }] }),
+        });
+
+        const result = await tool.execute({ task: 't', async: false }, ctxNoToolUse);
+
+        expect(result.error).toBe('no_main_context');
+        expect(failedRows()[0]).toContain('error=missing=currentToolUseId,systemPrompt');
+      });
+
+      it('prefix_synthesis 失败 → FAILED 留痕 phase=prefix_restore + 原始 error 证据', async () => {
+        // marker 查找仅在 mainMessages 缺省时执行（工具路径已预 strip）——直接调 runShadow 触发该路径。
+        const result = await runShadow({
+          task: 't',
+          ctx: baseCtx,
+          runSubagent: mockRunSubagent,
+          turnSnapshot: { systemPrompt: 'sp', tools: [], messages: [{ role: 'user', content: 'no marker here' }] },
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('prefix_synthesis_failed');
+        expect(failedRows()).toHaveLength(1);
+        expect(failedRows()[0]).toContain('phase=prefix_restore');
+        expect(failedRows()[0].join(' ')).toContain('marker not found');
+        expect(mockRunSubagent).not.toHaveBeenCalled();
+      });
+
+      it('registry 缺失 → registry_unavailable + FAILED 留痕 phase=registry', async () => {
+        const ctxNoRegistry = new ExecContextImpl({
+          clawId: 'test-claw',
+          clawDir: tempDir,
+          syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full',
+          fs,
+          auditWriter: audit.audit,
+          llm: makeLLM(),
+          currentToolUseId: 'tu-1',
+        });
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: [{ role: 'user', content: 'hi' }] }),
+          runSubagent: mockRunSubagent,
+        });
+
+        const result = await tool.execute({ task: 't', async: false }, ctxNoRegistry);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('registry_unavailable');
+        expect(failedRows()[0]).toContain('phase=registry');
+        expect(mockRunSubagent).not.toHaveBeenCalled();
+      });
+
+      it('llm 缺失 → llm_unavailable + FAILED 留痕 phase=llm', async () => {
+        const ctxNoLlm = new ExecContextImpl({
+          clawId: 'test-claw',
+          clawDir: tempDir,
+          syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full',
+          fs,
+          auditWriter: audit.audit,
+          registry: makeRegistry(),
+          currentToolUseId: 'tu-1',
+        });
+        const tool = createShadowTool({
+          getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: [{ role: 'user', content: 'hi' }] }),
+          runSubagent: mockRunSubagent,
+        });
+
+        const result = await tool.execute({ task: 't', async: false }, ctxNoLlm);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('llm_unavailable');
+        expect(failedRows()[0]).toContain('phase=llm');
+        expect(mockRunSubagent).not.toHaveBeenCalled();
       });
     });
 

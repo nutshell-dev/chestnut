@@ -39,6 +39,16 @@ export type SpawnShadowSubagentResult =
   | { success: false; content: string; error: string };
 
 /**
+ * phase 1865 (SH-D5)：shadow 运行失败 typed outcome——各早退点产出同构记录
+ * （kind + evidence），audit 与工具层返回由同源派生。
+ */
+export type ShadowRunFailure =
+  | { readonly kind: 'no_main_context'; readonly missing: readonly string[] }
+  | { readonly kind: 'prefix_synthesis'; readonly error: string }
+  | { readonly kind: 'registry_unavailable'; readonly detail: string }
+  | { readonly kind: 'llm_unavailable'; readonly detail: string };
+
+/**
  * phase 1865 (SH-D3)：单一身份上下文（执行 owner 生成——async 路径经 buildShadowPayload /
  * sync 路径经 runShadow）。消费面的 isShadow 事实由本单源派生，不再各自硬编码。
  */

@@ -20,6 +20,40 @@ import { synthesizeFormB } from './_helpers.js';
 import { createShadowIdentity } from './payload.js';
 import { classifyTaskError } from '../async-task-system/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
+import type { ShadowRunFailure } from './types.js';
+
+/** phase 1865 (SH-D5)：kind → 工具层 error 字段（由 kind 派生；既有字符串值保持）。 */
+const FAILURE_ERROR_CODE: Record<ShadowRunFailure['kind'], string> = {
+  no_main_context: 'no_main_context',
+  prefix_synthesis: 'prefix_synthesis_failed',
+  registry_unavailable: 'registry_unavailable',
+  llm_unavailable: 'llm_unavailable',
+};
+
+/** phase 1865 (SH-D5)：kind → FAILED 事件的 phase col（留痕阶段标识）。 */
+const FAILURE_AUDIT_PHASE: Record<ShadowRunFailure['kind'], string> = {
+  no_main_context: 'main_context',
+  prefix_synthesis: 'prefix_restore',
+  registry_unavailable: 'registry',
+  llm_unavailable: 'llm',
+};
+
+/** phase 1865 (SH-D5)：失败统一产出——一条 FAILED 留痕 + typed outcome 派生的工具层返回。 */
+function failShadow(
+  ctx: ExecContext,
+  shadowId: string,
+  failure: ShadowRunFailure,
+  message: string,
+  auditError: string,
+): ToolResult {
+  ctx.auditWriter?.write(
+    SHADOW_AUDIT_EVENTS.FAILED,
+    `shadowId=${shadowId}`,
+    `phase=${FAILURE_AUDIT_PHASE[failure.kind]}`,
+    `error=${auditError}`,
+  );
+  return { success: false, content: message, error: FAILURE_ERROR_CODE[failure.kind] };
+}
 
 
 
@@ -74,19 +108,28 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     ts?.systemPrompt === undefined ||
     ts?.tools === undefined
   ) {
-    return {
-      success: false,
-      content:
-        '[chestnut shadow] missing main agent in-memory state (clawId, currentToolUseId, systemPrompt, or tools)',
-      error: 'no_main_context',
-    };
+    const missing = [
+      ...(!opts.ctx.clawId ? ['clawId'] : []),
+      ...(!opts.ctx.currentToolUseId ? ['currentToolUseId'] : []),
+      ...(ts?.systemPrompt === undefined ? ['systemPrompt'] : []),
+      ...(ts?.tools === undefined ? ['tools'] : []),
+    ];
+    return failShadow(
+      opts.ctx,
+      shadowId,
+      { kind: 'no_main_context', missing },
+      '[chestnut shadow] missing main agent in-memory state (clawId, currentToolUseId, systemPrompt, or tools)',
+      `missing=${missing.join(',')}`,
+    );
   }
   if (!opts.mainMessages && !ts?.messages) {
-    return {
-      success: false,
-      content: '[chestnut shadow] missing main agent in-memory state (dialogMessages)',
-      error: 'no_main_context',
-    };
+    return failShadow(
+      opts.ctx,
+      shadowId,
+      { kind: 'no_main_context', missing: ['dialogMessages'] },
+      '[chestnut shadow] missing main agent in-memory state (dialogMessages)',
+      'missing=dialogMessages',
+    );
   }
 
   const restoredSystemPrompt: string = ts!.systemPrompt!;
@@ -117,25 +160,33 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.PREFIX_RESTORED, `shadowId=${shadowId}`);
   } catch (err) {
     const errMsg = formatErr(err);
-    // phase 712: raw cols 加 key= prefix + phase= 标识失败阶段
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, `shadowId=${shadowId}`, `phase=prefix_restore`, `error=${errMsg}`);
-    return { success: false, content: `[chestnut shadow] prefix synthesis failed: ${errMsg}`, error: 'prefix_synthesis_failed' };
+    return failShadow(
+      opts.ctx,
+      shadowId,
+      { kind: 'prefix_synthesis', error: errMsg },
+      `[chestnut shadow] prefix synthesis failed: ${errMsg}`,
+      errMsg,
+    );
   }
 
   // shadow 用 full profile（C2 cache prefix 保护，mirror main agent 字节相同）；
   // phase 1858 Step J (SA-D9): 删 SubAgentOptions.isShadow 传参（该字段无消费、亦非 ctx 注入）。
   // shadow 隔离由 applyRestrictedOverrides 覆盖受限工具表达。
+  const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
+  if (!baseRegistry) {
+    const detail = 'Tool registry not available in execution context';
+    return failShadow(opts.ctx, shadowId, { kind: 'registry_unavailable', detail }, `[chestnut shadow] registry unavailable: ${detail}`, detail);
+  }
+  if (!opts.ctx.registry) {
+    const detail = 'Main tool registry not available in execution context';
+    return failShadow(opts.ctx, shadowId, { kind: 'registry_unavailable', detail }, `[chestnut shadow] registry unavailable: ${detail}`, detail);
+  }
+  if (!opts.ctx.llm) {
+    const detail = 'LLM not available in execution context';
+    return failShadow(opts.ctx, shadowId, { kind: 'llm_unavailable', detail }, `[chestnut shadow] llm unavailable: ${detail}`, detail);
+  }
+
   try {
-    const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
-    if (!baseRegistry) {
-      throw new Error('Tool registry not available in execution context');
-    }
-    if (!opts.ctx.registry) {
-      throw new Error('Main tool registry not available in execution context');
-    }
-    if (!opts.ctx.llm) {
-      throw new Error('LLM not available in execution context');
-    }
 
     const shadowRegistry = createPerTaskRegistry(baseRegistry, 'full');
 
