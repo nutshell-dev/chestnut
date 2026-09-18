@@ -14,7 +14,7 @@ describe('phase 1360: Runtime contract lifecycle boundary', () => {
     expect(body?.match(/^\s*[a-zA-Z][A-Za-z]+\(/gm)).toHaveLength(3);
     expect(body).toContain('loadActive(): Promise<Contract | null>');
     expect(body).toContain('maybeAuditStep(currentStep: number): Promise<void>');
-    expect(body).toContain('close(): Promise<void>');
+    expect(body).toContain('close(): Promise<ContractCloseOutcome>');
   });
 
   it('the complete owner explicitly implements the capability', () => {

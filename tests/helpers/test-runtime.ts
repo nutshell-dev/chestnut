@@ -15,6 +15,7 @@
 import { Runtime } from '../../src/core/runtime/runtime.js';
 import type { LLMRuntimeCapability } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { ContractCloseOutcome } from '../../src/core/contract/index.js';
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/registry.js';
 import type { ExecContext } from '../../src/foundation/tools/index.js';
@@ -49,6 +50,11 @@ export class TestRuntime extends Runtime {
   /** Get execContext — for regime switch post-commit cleanup observation (phase 1850 Step D). */
   testGetExecContext(): ExecContext {
     return this.execContext;
+  }
+
+  /** Get contract close outcome captured by stop() (phase 1860 RT-D5, consumed by Step F). */
+  testGetContractCloseOutcome(): ContractCloseOutcome | undefined {
+    return this._contractCloseOutcome;
   }
 
   /** Call buildSystemPrompt() — for motion tests verifying prompt assembly. */

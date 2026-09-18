@@ -39,6 +39,7 @@ export {
   type ContractCreatePolicy,
   type CreatePolicyContext,
   type ContractRuntimeLifecycle,
+  type ContractCloseOutcome,
   type ContractProgressReader,
   // Phase 1396 Step D: ContractSystem-owned failed terminal state public intake
   type ContractFailure,

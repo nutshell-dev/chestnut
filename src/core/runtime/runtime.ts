@@ -49,7 +49,7 @@ import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../../foundation/claw-identity/in
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, ToolRegistryRuntimeCapability, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from './injector.js';
-import type { ContractRuntimeLifecycle } from '../contract/index.js';
+import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
@@ -207,6 +207,12 @@ export class Runtime {
   }
   private taskSystem!: AsyncTaskRuntimeLifecycle;
   private contractManager!: ContractRuntimeLifecycle;
+  /**
+   * phase 1860 (RT-D5)：stop() 链上 contract close 的 typed outcome（失败证据不吞）。
+   * Step F 组装 RuntimeStopOutcome 时消费；close 自身异常经 catch 转为 outcome（failures 承载）。
+   * protected：TestRuntime 测试 helper 读取断言（src 内零消费至 Step F）。
+   */
+  protected _contractCloseOutcome?: ContractCloseOutcome;
   protected execContext!: ExecContext;
   protected toolExecutor!: IToolExecutor;
   private inboxReader!: InboxDeliverySession;
@@ -467,9 +473,9 @@ export class Runtime {
     // phase 324 H5: 关 ContractSystem、abort 仍活的 verifier AbortController 串、
     // await 其 termination promise。否则 SIGTERM 留 verifier LLM stream 泄漏
     // —— 正是 phase 1332 N4 + close() 引入要防的。
-    await this.contractManager.close().catch(() => {
-      /* close error 已 audit emit / barrier 不阻塞 stop */
-    });
+    // phase 1860 (RT-D5)：close 失败不吞——typed outcome 承载证据（barrier 语义不变）。
+    this._contractCloseOutcome = await this.contractManager.close()
+      .catch((e): ContractCloseOutcome => ({ alreadyClosed: false, failures: [formatErr(e)] }));
     await this.llm.close();
   }
 
