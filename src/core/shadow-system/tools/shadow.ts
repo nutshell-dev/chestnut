@@ -16,7 +16,7 @@ import type { ToolDefinition } from '../../../foundation/llm-provider/index.js';
 import type { Message } from '../../../foundation/dialog-store/index.js';
 import { runShadow } from '../system.js';
 import { runSubagent as defaultRunSubagent } from '../../subagent/index.js';
-import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';
+import { emitShadowRecursionRejected } from '../lifecycle-audit.js';
 import { spawnShadowSubagent } from '../spawn-shadow-subagent.js';
 import { stripIncompleteToolUse } from '../_helpers.js';
 import { SHADOW_TOOL_NAME, SHADOW_DEFAULT_TIMEOUT_MS } from '../constants.js';
@@ -133,9 +133,9 @@ export function createShadowTool(deps: ShadowToolDeps): Tool {
     defaultTimeoutMs: SHADOW_DEFAULT_TIMEOUT_MS,
 
     async execute(this: Tool & { allowRecursion?: boolean }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-      // 防递归（D6 A ratify）：DI 注入替代 ctx.callerLabel
+      // 防递归（D6 A ratify）：DI 注入替代 ctx.callerLabel；审计写入经 lifecycle owner。
       if (this.allowRecursion === false) {
-        ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.RECURSION_REJECTED, String(ctx.clawId ?? 'unknown'));
+        emitShadowRecursionRejected(ctx.auditWriter, String(ctx.clawId ?? 'unknown'));
         return {
           success: false,
           content: 'shadow is not callable from within a shadow (no recursion).',

@@ -15,9 +15,14 @@ import type { Message } from '../../foundation/dialog-store/index.js';
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
 
-import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB } from './_helpers.js';
 import { createShadowIdentity } from './payload.js';
+import {
+  emitShadowStarted,
+  emitShadowPrefixRestored,
+  emitShadowFinished,
+  emitShadowFailed,
+} from './lifecycle-audit.js';
 import { classifyTaskError } from '../async-task-system/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 import type { ShadowRunFailure } from './types.js';
@@ -46,12 +51,7 @@ function failShadow(
   message: string,
   auditError: string,
 ): ToolResult {
-  ctx.auditWriter?.write(
-    SHADOW_AUDIT_EVENTS.FAILED,
-    `shadowId=${shadowId}`,
-    `phase=${FAILURE_AUDIT_PHASE[failure.kind]}`,
-    `error=${auditError}`,
-  );
+  emitShadowFailed(ctx.auditWriter, shadowId, auditError, FAILURE_AUDIT_PHASE[failure.kind]);
   return { success: false, content: message, error: FAILURE_ERROR_CODE[failure.kind] };
 }
 
@@ -95,10 +95,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SHADOW_DIR, shadowId);
   const spawnedAt = new Date().toISOString();
 
-  const aw = opts.ctx.auditWriter;
-  if (aw) {
-    aw.write(SHADOW_AUDIT_EVENTS.STARTED, shadowId, aw.preview(opts.task));
-  }
+  emitShadowStarted(opts.ctx.auditWriter, shadowId, opts.task);
 
   const ts = opts.turnSnapshot;
   // V1 validation: needs turnSnapshot
@@ -156,8 +153,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       mainMessagesBeforeMarker,
       instructionArgs,
     });
-    // phase 712: raw shadowId 加 key= prefix
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.PREFIX_RESTORED, `shadowId=${shadowId}`);
+    emitShadowPrefixRestored(opts.ctx.auditWriter, shadowId);
   } catch (err) {
     const errMsg = formatErr(err);
     return failShadow(
@@ -220,8 +216,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     });
 
     const finalResult = getDisplayResult(text, capturedResult);
-    // phase 712: raw shadowId 加 key= prefix
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FINISHED, `shadowId=${shadowId}`);
+    emitShadowFinished(opts.ctx.auditWriter, shadowId);
     return {
       success: true,
       content: finalResult,
@@ -229,8 +224,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     };
   } catch (err) {
     const errMsg = formatErr(err);
-    // phase 712: raw cols 加 key= prefix
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, `shadowId=${shadowId}`, `error=${errMsg}`);
+    emitShadowFailed(opts.ctx.auditWriter, shadowId, errMsg);
     return {
       success: false,
       content: `[chestnut shadow] execution failed: ${errMsg}`,
