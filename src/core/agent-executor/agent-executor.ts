@@ -180,7 +180,24 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       // 1. 步进（落盘归 caller 经 onAfterStep callback / phase409 align M#1+M#3）
       stepCount++;
 
-      // 2. 熔断判定（parse errors）
+      // 2. step audit (phase 730: AgentExecutor owns step completion audit)
+      // phase 1856 (AE-D3): 完整 step 的提交证据（step audit + onAfterStep）先于熔断终态落定，
+      // 熔断抛出时最后一个已修改 messages 的 step 也有持久化 hook / DP「运行中信息不丢弃」。
+      if (auditWriter) {
+        auditWriter.write(
+          AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
+          `step=${stepCount}`,
+          `contract_id=${currentContractId ?? ''}`,
+          `trace_id=${String(ctx.trace_id ?? '')}`,
+        );
+      }
+
+      // 3. onAfterStep（步进之后、熔断检查之前）
+      if (onAfterStep) {
+        await onAfterStep(result.meta, stepCount);
+      }
+
+      // 4. 熔断判定（parse errors）
       if (result.meta.allParseErrors) {
         consecutiveParseErrors++;
         // Strike 2: warn agent before termination at strike 3
@@ -211,36 +228,12 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         consecutiveMaxTokensToolUse = 0;
       }
 
-      // 3. step audit (phase 730: AgentExecutor owns step completion audit)
-      if (auditWriter) {
-        auditWriter.write(
-          AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
-          `step=${stepCount}`,
-          `contract_id=${currentContractId ?? ''}`,
-          `trace_id=${String(ctx.trace_id ?? '')}`,
-        );
-      }
-
-      // 4. onAfterStep（步进之后、熔断检查之后）
-      if (onAfterStep) {
-        await onAfterStep(result.meta, stepCount);
-      }
-
       continue;
     }
 
     if (result.kind === 'max_tokens_tool_use') {
-      consecutiveMaxTokensToolUse++;
-      // Strike 2: warn agent before termination at strike 3
-      if (consecutiveMaxTokensToolUse === maxConsecutiveMaxTokensToolUse - 1) {
-        messages.push({
-          role: 'user' as const,
-          content: `[system warning] 连续 ${consecutiveMaxTokensToolUse} 次因 token 上限截断工具调用。下一次将终止当前任务。请将内容拆分为多次较小的调用。`,
-        });
-      }
-      if (consecutiveMaxTokensToolUse >= maxConsecutiveMaxTokensToolUse) {
-        throw new ConsecutiveMaxTokensToolUseError(maxConsecutiveMaxTokensToolUse);
-      }
+      // phase 1856 (AE-D3): 与 'continue' 分支同序 — 步进 → step audit → onAfterStep → 计数与熔断。
+      // 熔断终态（ConsecutiveMaxTokensToolUseError）抛出前，该 step 的提交证据已落定。
       stepCount++;
 
       // phase 730: step completion audit in max_tokens_tool_use path too
@@ -258,6 +251,18 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       // / inbox check 全跳、违 DP「运行中信息不丢弃」。
       if (onAfterStep) {
         await onAfterStep(result.meta, stepCount);
+      }
+
+      consecutiveMaxTokensToolUse++;
+      // Strike 2: warn agent before termination at strike 3
+      if (consecutiveMaxTokensToolUse === maxConsecutiveMaxTokensToolUse - 1) {
+        messages.push({
+          role: 'user' as const,
+          content: `[system warning] 连续 ${consecutiveMaxTokensToolUse} 次因 token 上限截断工具调用。下一次将终止当前任务。请将内容拆分为多次较小的调用。`,
+        });
+      }
+      if (consecutiveMaxTokensToolUse >= maxConsecutiveMaxTokensToolUse) {
+        throw new ConsecutiveMaxTokensToolUseError(maxConsecutiveMaxTokensToolUse);
       }
 
       continue;
