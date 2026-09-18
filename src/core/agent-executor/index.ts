@@ -13,7 +13,7 @@
 export { runReact } from './loop.js';
 export type { ReactOptions, ReactResult } from './loop.js';
 export { commitTurnEvent } from './turn-event-commit.js';
-export type { TurnEventCommitDeps } from './turn-event-commit.js';
+export type { TurnEvent, TurnEventCommitDeps } from './turn-event-commit.js';
 export {
   MaxStepsExceededError,
   ConsecutiveParseErrorsExceededError,

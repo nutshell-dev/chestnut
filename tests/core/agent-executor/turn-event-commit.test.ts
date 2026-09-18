@@ -6,6 +6,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { commitTurnEvent } from '../../../src/core/agent-executor/turn-event-commit.js';
+// phase 1856 (AE-D7): 公共导入编译断言 —— TurnEvent 自 barrel 可导入（公共签名完整）
+import type { TurnEvent } from '../../../src/core/agent-executor/index.js';
 import { runReact } from '../../../src/core/agent-executor/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { IToolExecutor } from '../../../src/foundation/tools/executor.js';
@@ -29,6 +31,13 @@ describe('commitTurnEvent', () => {
     const result = { success: true, content: 'ok' };
     commitTurnEvent({ kind: 'tool_result', name: 'read', toolUseId: 'tu-1', result, step: 2, maxSteps: 10 }, { onToolResult });
     expect(onToolResult).toHaveBeenCalledWith('read', 'tu-1', result, 2, 10);
+  });
+
+  it('phase 1856 (AE-D7): TurnEvent 自 barrel 导入可标注事件（公共签名完整）', () => {
+    const event: TurnEvent = { kind: 'tool_call', name: 'read', toolUseId: 'tu-1' };
+    const onToolCall = vi.fn();
+    commitTurnEvent(event, { onToolCall });
+    expect(onToolCall).toHaveBeenCalledWith('read', 'tu-1');
   });
 
   it('缺少 callback 时不抛错', () => {
