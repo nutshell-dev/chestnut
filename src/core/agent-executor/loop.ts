@@ -51,7 +51,8 @@ export interface ReactOptions {
   maxConsecutiveParseErrors?: number;
   maxConsecutiveMaxTokensToolUse?: number;
   idleTimeoutMs?: number;
-  wallTimeDeadlineMs?: number;
+  /** per-loop wall-time 预算（自 loop 起始计时；仅每 step 顶部检查——非硬中断） */
+  wallTimeBudgetMs?: number;
   /** phase 1856 (AE-D8): StepExecutor 契约的命名组合（编译器保证字段完整）。 */
   stepCallbacks?: ReactStepCallbacks;
   /** phase 706: receives the step count after a successful step for caller persistence/audit. */
@@ -87,7 +88,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveParseErrors,
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
-    wallTimeDeadlineMs,
+    wallTimeBudgetMs,
     stepCallbacks,
     onStepComplete,
     tools = [],
@@ -118,7 +119,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveParseErrors,
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
-    wallTimeDeadlineMs,
+    wallTimeBudgetMs,
     stepCallbacks: adaptedStepCallbacks,
     auditWriter,
     currentContractId,

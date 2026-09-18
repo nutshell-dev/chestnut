@@ -71,12 +71,16 @@ export class ConsecutiveMaxTokensToolUseError extends AgentError {
   }
 }
 
+/**
+ * phase 1856 (AE-D11): 字段/文案同步为 budget 语义 —— per-loop wall-time 预算
+ * （自 loop 起始计时、仅每 step 顶部检查，非硬中断；硬限制归 AbortSignal owner）。
+ */
 export class WallTimeExceededError extends AgentError {
-  constructor(deadlineMs: number, elapsedMs: number) {
+  constructor(budgetMs: number, elapsedMs: number) {
     super(
       'WALL_TIME_EXCEEDED',
-      `Wall-time deadline ${deadlineMs}ms exceeded (elapsed ${elapsedMs}ms)`,
-      { deadlineMs, elapsedMs }
+      `Wall-time budget ${budgetMs}ms exceeded (elapsed ${elapsedMs}ms)`,
+      { budgetMs, elapsedMs }
     );
   }
 }

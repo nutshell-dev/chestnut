@@ -1,7 +1,10 @@
 /**
  * AgentExecutor wall-time cap — reverse test for phase 903 B4
  *
- * When wallTimeDeadlineMs is exceeded, WallTimeExceededError must be thrown.
+ * When wallTimeBudgetMs is exceeded, WallTimeExceededError must be thrown.
+ *
+ * phase 1856 (AE-D11): 命名与语义统一为 duration 预算（自 loop 起始计时、
+ * 仅每 step 顶部检查——非绝对 deadline 也非硬 wall-time limit）。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -45,7 +48,7 @@ describe('AgentExecutor wall-time cap (phase 903 B4)', () => {
     vi.restoreAllMocks();
   });
 
-  it('throws WallTimeExceededError when deadline exceeded', async () => {
+  it('throws WallTimeExceededError when budget exceeded（step 粒度：超预算在该步顶部抛）', async () => {
     const llm = makeSlowLLM();
 
     let now = 0;
@@ -62,13 +65,13 @@ describe('AgentExecutor wall-time cap (phase 903 B4)', () => {
         tools: [],
         executor: makeNoopExecutor(),
         ctx: makeExecContext(),
-        wallTimeDeadlineMs: 5000,
+        wallTimeBudgetMs: 5000,
         maxSteps: 10000,
       }),
     ).rejects.toThrow(WallTimeExceededError);
   });
 
-  it('does not throw when deadline is not exceeded', async () => {
+  it('does not throw when budget is not exceeded', async () => {
     const llm = makeSlowLLM();
 
     // Make the LLM return final on first call to avoid infinite loop
@@ -84,7 +87,7 @@ describe('AgentExecutor wall-time cap (phase 903 B4)', () => {
       tools: [],
       executor: makeNoopExecutor(),
       ctx: makeExecContext(),
-      wallTimeDeadlineMs: 5000,
+      wallTimeBudgetMs: 5000,
     });
 
     expect(result).toMatchObject({

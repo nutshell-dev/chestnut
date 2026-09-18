@@ -40,7 +40,8 @@ interface AgentInput {
   maxConsecutiveMaxTokensToolUse?: number;        // 默认 constants.ts MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE (=3)
   maxTokens?: number;                  // 透传给 executeStep
   idleTimeoutMs?: number;              // 透传给 StepInput
-  wallTimeDeadlineMs?: number;         // 总 wall-time 上限（可选）
+  /** per-loop wall-time 预算（自 loop 起始计时；仅每 step 顶部检查——非硬中断，硬限制归 AbortSignal owner） */
+  wallTimeBudgetMs?: number;
   stepCallbacks?: StepCallbacks;
   /** Minimal stream sink for AgentExecutor-owned turn event commits. */
   streamCallbacks?: TurnEventCommitDeps;
@@ -92,7 +93,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   let maxTokensToolUseStrikes = 0;
 
   const startMs = Date.now();
-  const deadline = input.wallTimeDeadlineMs;
+  const wallTimeBudgetMs = input.wallTimeBudgetMs;
   const eventSink = input.eventSink;
 
   // phase 1856 (AE-D9): TOOL_CALL_INPUT 事件改走结构化 sink（列格式化归 caller adapter）。
@@ -149,10 +150,10 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   }
 
   while (stepCount < maxSteps) {
-    if (deadline !== undefined) {
+    if (wallTimeBudgetMs !== undefined) {
       const elapsed = Date.now() - startMs;
-      if (elapsed > deadline) {
-        throw new WallTimeExceededError(deadline, elapsed);
+      if (elapsed > wallTimeBudgetMs) {
+        throw new WallTimeExceededError(wallTimeBudgetMs, elapsed);
       }
     }
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
