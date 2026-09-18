@@ -35,6 +35,34 @@ export function createResultCaptureChannel<T>(): ResultCaptureChannel<T> {
 }
 
 /**
+ * phase 1858 Step H (SA-D7): result tool 的 typed capture 协议形状。
+ * 生产侧（本模块 done 工具经 capture channel）恒产出本形状；消费侧（getDisplayResult 与
+ * 自定义 resultTool 的遗留读取）在边界按本协议校验。
+ */
+export interface CapturedResult {
+  result: string;
+}
+
+export type CaptureParseOutcome =
+  | { kind: 'ok'; value: CapturedResult }
+  | { kind: 'malformed'; reason: string };
+
+/**
+ * 边界验证：捕获原始值（unknown、可能来自非本模块的 result tool）是否合协议。
+ * 不合 → 显式 malformed（调用侧登记/回退），不静默折叠成 text。
+ */
+export function parseCapturedResult(raw: unknown): CaptureParseOutcome {
+  if (typeof raw !== 'object' || raw === null) {
+    return { kind: 'malformed', reason: `expected object, got ${raw === null ? 'null' : typeof raw}` };
+  }
+  const candidate = (raw as Record<string, unknown>).result;
+  if (typeof candidate !== 'string') {
+    return { kind: 'malformed', reason: `result field must be string, got ${candidate === null ? 'null' : typeof candidate}` };
+  }
+  return { kind: 'ok', value: { result: candidate } };
+}
+
+/**
  * phase 1459 α-5 ISP narrow helper: done 真依赖仅 `ctx.requestStop` → `ExecutionControl` 子接口 sufficient。
  * Tool.execute 签名保完整 ExecContext（implements Tool 兼容性约束）、内部 delegate 到 narrow ctx。
  * 收益：编译期 audit 真依赖范围 / 测试 fixture 可只 mock `{ requestStop }` / 未来如 stopRequested 迁出可静态 trace。

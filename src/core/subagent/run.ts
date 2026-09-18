@@ -23,8 +23,9 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 // phase 691 Step C / phase 1488: removed import of TASKS_SYNC_DIR from async-task-system.
 // TASKS_SYNC_DIR namespace name is now owned by ClawIdentity; L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
-import { SubAgent, type DegradedArtifact } from './agent.js';
-import { DONE_TOOL_NAME, createResultCaptureChannel } from './tools/done.js';
+import { SubAgent, writeAuditGuarded, type DegradedArtifact } from './agent.js';
+import { DONE_TOOL_NAME, createResultCaptureChannel, parseCapturedResult } from './tools/done.js';
+import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
 import { bindRunCapture } from './registry-helper.js';
 
 export interface RunSubagentOptions {
@@ -201,6 +202,18 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     ? capture.get()
     : (opts.registry.get(toolName) as { capturedResult?: unknown } | undefined)?.capturedResult;
 
+  // phase 1858 Step H (SA-D7): capture 协议边界验证 —— 不合协议登记 audit（不静默折叠）
+  const parsedCapture = capturedResult === undefined ? undefined : parseCapturedResult(capturedResult);
+  if (parsedCapture?.kind === 'malformed') {
+    writeAuditGuarded(
+      auditWriter,
+      SUBAGENT_AUDIT_EVENTS.CAPTURE_PROTOCOL_MALFORMED,
+      `agentId=${opts.agentId}`,
+      `tool=${toolName}`,
+      `reason=${parsedCapture.reason}`,
+    );
+  }
+
   // phase 1858 Step G (SA-D6): 降级证据并入 typed outcome（成功路径）
   const degraded = agent.getDegradedArtifacts();
   return { text, capturedResult, degraded: degraded.length > 0 ? [...degraded] : undefined };
@@ -211,7 +224,11 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
 
 /**
  * phase 1091: 统一 capturedResult 读取，消除 3 处重复 cast
+ * phase 1858 Step H (SA-D7): 按 typed capture 协议边界验证——合协议 → 显示值；
+ * 无 capture → text；畸形 → text 显式回退（typed 判定经 parseCapturedResult、登记在 run 边界）。
  */
 export function getDisplayResult(text: string, capturedResult?: unknown): string {
-  return (capturedResult as { result?: string } | undefined)?.result ?? text;
+  if (capturedResult === undefined) return text;
+  const parsed = parseCapturedResult(capturedResult);
+  return parsed.kind === 'ok' ? parsed.value.result : text;
 }

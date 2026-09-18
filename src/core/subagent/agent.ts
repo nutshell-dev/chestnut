@@ -53,7 +53,7 @@ export interface DegradedArtifact {
  * phase 1858 Step G (SA-D6): 审计写失败不改变被记录的原失败/执行结果（同 step-executor
  * writeAuditGuarded 形态、本模块同型 helper）；审计通道自身失败时 stderr 最后手段留证、永不抛出。
  */
-function writeAuditGuarded(sink: AuditLog, event: string, ...cols: string[]): void {
+export function writeAuditGuarded(sink: AuditLog, event: string, ...cols: string[]): void {
   try {
     sink.write(event, ...cols);
   } catch (auditErr) {
