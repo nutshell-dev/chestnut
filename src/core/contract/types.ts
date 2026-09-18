@@ -303,6 +303,13 @@ export function makeArchiveDir(s: string): ArchiveDir { return s as ArchiveDir; 
 // Phase 230: ContractCreatePolicy plug-in registry framework
 // ============================================================================
 
+/**
+ * Phase 1396 Step B: create policy 输入上下文。
+ *
+ * phase 1862 Step H (CT-D9) 归属声明：policy 由调用方（caller 模块，如
+ * summon-verify）构造并持有；ContractSystem 只注册引用并在 create() 固定挂点
+ * 迭代。本上下文全为只读值类型，不含 Contract 内部 mutable 引用。
+ */
 export interface CreatePolicyContext {
   /** caller 调用上下文中的 subagent task id（CLI 命令可从 env.CHESTNUT_SUBAGENT_TASK_ID 拿、in-process 路径自定） */
   subagentTaskId?: string;
@@ -317,6 +324,14 @@ export interface CreatePolicyContext {
   proposedContractId: string;
 }
 
+/**
+ * Phase 230: ContractCreatePolicy plug-in registry framework。
+ *
+ * phase 1862 Step H (CT-D9) 归属声明：policy 实例由 caller 模块构造并持有
+ *（系统 Map 只存引用、不解释 caller correlation）；policy 只返回 void——
+ * 通过 = void、拒 = throw ContractCreatePolicyViolationError（系统 emit
+ * contract_create_policy_rejected 后上抛，契约不创建）。
+ */
 export interface ContractCreatePolicy {
   /** policy 命名空间（caller 模块自负、如 'summon-verify'） */
   name: string;

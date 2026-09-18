@@ -1310,6 +1310,19 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   // class own logic（不下沉的部分）
   // ============================================================================
 
+  /**
+   * phase 1862 Step H (CT-D9)：create policy 注册面显式化。
+   *
+   * 注册时机约定：装配期（construction / assembly phase）一次性注册——系统只注册
+   * /迭代，不构造、不解释 policy（「policy 由调用方拥有」：caller 模块构造并持有
+   * 实例，本 Map 只存引用）。
+   *
+   * 重名语义：last-write-wins 覆盖（装配期重复 wire 以最后一次为准），非报错——
+   * 运行期重注册无真实 caller，若出现视为装配错误，由覆盖语义显式暴露而非静默并存。
+   *
+   * 迭代契约：create() 在 schema/ID 规范化之后、creation claim publish 之前按
+   * 注册顺序逐个 await policy.check（见 types.ts ContractCreatePolicy）。
+   */
   registerCreatePolicy(name: string, policy: ContractCreatePolicy): void {
     // by-design: 后注册覆盖（caller 模块装配期通常只注册一次、Assembly 集中 wire）
     this.createPolicies.set(name, policy);
