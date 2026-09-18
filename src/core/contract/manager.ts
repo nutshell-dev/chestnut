@@ -48,6 +48,7 @@ import {
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
+import { classifyCorruption, classifySchemaViolation, isolationReasonFor } from './corruption.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
 import { resolveContractLocation, resolveActiveContractLocation, listPhysicalActiveContractIds, type ActiveContractLocation } from './locations.js';
 import { type ClawId } from '../../foundation/claw-identity/index.js';
@@ -1558,7 +1559,8 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     try {
       content = await this.fs.read(progressPath);
     } catch (err) {
-      if (!isFileNotFound(err)) throw err;
+      // phase 1862 Step E (CT-D6)：FNF 竞态 = retryable_io（不隔离、可重读）；其余原样上抛。
+      if (classifyCorruption(err, { kind: 'progress' }).disposition !== 'retryable_io') throw err;
       // Legacy active progress.json should exist; one race retry for TOCTOU.
       content = await this.fs.read(progressPath);
     }
@@ -1566,8 +1568,10 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     try {
       rawParsed = JSON.parse(content);
     } catch (parseErr) {
-      // phase 958: JSON.parse SyntaxError → same isolation path as schema validation failure
-      if (parseErr instanceof SyntaxError) {
+      // phase 958 + 1862 Step E (CT-D6)：JSON.parse SyntaxError → 经单一 classify 判定
+      // （schema 类 → isolate），隔离路径与 schema validation failure 相同。
+      const classification = classifyCorruption(parseErr, { kind: 'progress' });
+      if (classification.disposition === 'isolate') {
         this.audit.write(
           CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
           `contractId=${contractId}`,
@@ -1576,7 +1580,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         );
         const isolated = await isolateCorruptedFile(this.fs, this.audit, {
           contractId, contractDir: contractRoot, filename: PROGRESS_FILE,
-          reason: 'json_parse_error',
+          reason: isolationReasonFor(classification),
         });
         if (!isolated) {
           this.audit.write(
@@ -1588,7 +1592,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
           throw new Error(`Cannot isolate corrupt progress.json for ${contractId} — aborting to avoid recursive getProgress`);
         }
         await this.markCorrupted(contractId, {
-          reason: 'progress_json_parse_error',
+          reason: classification.reason as ContractCorruptionEvidence['reason'],
           relativePath: isolated.relativePath,
         }, path.dirname(contractRoot));
         return null;
@@ -1619,10 +1623,12 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     }
 
     // phase 319: Zod SoT safeParse (mirror phase 311 ContractYamlSchema pattern)
+    // phase 1862 Step E (CT-D6)：schema 事实判定经单一 classifySchemaViolation。
     const result = ContractProgressPersistedSchema.safeParse(rawObj);
     if (!result.success) {
       const firstIssue = result.error.issues[0];
-      const isSchemaVersionIssue = firstIssue?.path[0] === 'schema_version';
+      const classification = classifySchemaViolation('progress', firstIssue?.path[0]);
+      const isSchemaVersionIssue = classification.reason === 'progress_unknown_schema_version';
       if (isSchemaVersionIssue) {
         emitContractProgressSchemaInvalid(
           this.audit,
@@ -1644,13 +1650,12 @@ export class ContractSystem implements ContractRuntimeLifecycle {
           },
         );
       }
-      const isolationReason = isSchemaVersionIssue ? 'unknown_schema_version' : 'schema_invalid';
       // phase 958: isolate corrupted progress.json first, then markCorrupted with known dir.
       // markCorrupted internally re-resolves contractDir via progress.json existence;
       // after isolation progress.json is gone, so pass the known dir to avoid orphan.
       const isolated = await isolateCorruptedFile(this.fs, this.audit, {
         contractId, contractDir: contractRoot, filename: PROGRESS_FILE,
-        reason: isolationReason,
+        reason: isolationReasonFor(classification),
       });
       if (!isolated) {
         this.audit.write(
@@ -1661,11 +1666,8 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         );
         throw new Error(`Cannot isolate corrupt progress.json for ${contractId} — aborting to avoid recursive getProgress`);
       }
-      const corruptionReason: ContractCorruptionEvidence['reason'] = isSchemaVersionIssue
-        ? 'progress_unknown_schema_version'
-        : 'progress_schema_invalid';
       await this.markCorrupted(contractId, {
-        reason: corruptionReason,
+        reason: classification.reason as ContractCorruptionEvidence['reason'],
         relativePath: isolated.relativePath,
       }, path.dirname(contractRoot));
       return null;

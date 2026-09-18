@@ -31,7 +31,8 @@ interface IsolationArgs {
   contractId: ContractId;
   contractDir: string;
   filename: string;        // e.g. 'contract.yaml' | 'progress.json' | 'progress.lock'
-  reason: string;          // 'unknown_schema_version' | 'schema_invalid'
+  /** 隔离 audit reason——经 corruption.ts isolationReasonFor 单一映射（勿手写散点）。 */
+  reason: string;
 }
 
 interface IsolationResult {

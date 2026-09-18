@@ -18,6 +18,7 @@ import { CONTRACT_YAML_FILE } from './dirs.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
+import { classifyCorruption, classifySchemaViolation, isolationReasonFor } from './corruption.js';
 // phase 282 Step B: cross-source audit 整文件已删除（status + contract_id + yaml-dep 均 derive）
 
 const CONTRACT_DEFAULTS = {
@@ -50,10 +51,13 @@ export async function loadContractYaml(
   const content = await ctx.fs.read(contractPath);
 
   // phase 959: YAML parse errors must follow the same isolation path as schema errors.
+  // phase 1862 Step E (CT-D6)：判定经单一 classifyCorruption（schema 类 → isolate）。
   let rawParsed: unknown;
   try {
     rawParsed = yaml.load(content);
   } catch (yamlErr) {
+    const classification = classifyCorruption(yamlErr, { kind: 'yaml' });
+    if (classification.disposition !== 'isolate') throw yamlErr;
     emitContractYamlSchemaInvalid(
       ctx.audit,
       {
@@ -66,7 +70,7 @@ export async function loadContractYaml(
     const contractDir = await ctx.contractDir(contractId);
     const isolated = await isolateCorruptedFile(ctx.fs, ctx.audit, {
       contractId, contractDir: `${contractDir}/${contractId}`, filename: CONTRACT_YAML_FILE,
-      reason: 'yaml_parse_error',
+      reason: isolationReasonFor(classification),
     });
     if (isolated && ctx.markCorrupted) {
       await ctx.markCorrupted(contractId, {
@@ -77,8 +81,10 @@ export async function loadContractYaml(
     return null;
   }
 
+  // phase 1862 Step E (CT-D6)：schema 事实判定经单一 classifySchemaViolation。
   const result = ContractYamlSchema.safeParse(rawParsed);
   if (!result.success) {
+    const classification = classifySchemaViolation('yaml', result.error.issues[0]?.path[0]);
     emitContractYamlSchemaInvalid(
       ctx.audit,
       {
@@ -92,7 +98,7 @@ export async function loadContractYaml(
     const contractDir = await ctx.contractDir(contractId);
     const isolated = await isolateCorruptedFile(ctx.fs, ctx.audit, {
       contractId, contractDir: `${contractDir}/${contractId}`, filename: CONTRACT_YAML_FILE,
-      reason: 'schema_invalid',
+      reason: isolationReasonFor(classification),
     });
     if (isolated && ctx.markCorrupted) {
       await ctx.markCorrupted(contractId, {
