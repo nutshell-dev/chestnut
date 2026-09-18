@@ -570,9 +570,12 @@ describe('Task System + SubAgent', () => {
 
     describe('addPostProcessor / postProcessor field', () => {
       test('should throw when registering duplicate name', ({ ctx }) => {
+        // phase 1863 (AT-D4)：装配窗口=initialize 前——fixture 实例已 initialize，
+        // 此处用未 initialize 的 fresh 实例核重复注册语义。
+        const fresh = createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, undefined, { createWatcher: ctx.createWatcher });
         const mockProcessor = vi.fn();
-        ctx.taskSystem.addPostProcessor('test-proc', mockProcessor as any);
-        expect(() => ctx.taskSystem.addPostProcessor('test-proc', mockProcessor as any)).toThrow(
+        fresh.addPostProcessor('test-proc', mockProcessor as any);
+        expect(() => fresh.addPostProcessor('test-proc', mockProcessor as any)).toThrow(
           'PostProcessor "test-proc" already registered',
         );
       });

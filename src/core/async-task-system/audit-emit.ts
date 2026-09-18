@@ -91,6 +91,31 @@ export function emitTaskCompleted(
   audit.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, ...cols);
 }
 
+// ─── TASK_POSTPROCESSOR_MISSING (phase 1863 AT-D14) ───────────────────────────
+/**
+ * post-processor 无法完成 → 任务 terminal failed 的专属留痕。
+ * `reason=not_registered`：未注册（装配面 initialize 后冻结，缺失=永久，不再留 running 等待注册）；
+ * `reason=defer_bounded`：handler 内部 defer 累计达上限（有界重试界外）。
+ * task 记录移入 failed/、result 目录保留 post-process input 作为证据。
+ */
+export function emitTaskPostProcessorMissing(
+  audit: AuditLog,
+  opts: {
+    fullTaskId: FullTaskId;
+    shortTaskId: ShortTaskId;
+    processorName: string;
+    reason: 'not_registered' | 'defer_bounded';
+  },
+): void {
+  audit.write(
+    TASK_AUDIT_EVENTS.TASK_POSTPROCESSOR_MISSING,
+    `taskId=${opts.fullTaskId}`,
+    `shortId=${opts.shortTaskId}`,
+    `processorName=${opts.processorName}`,
+    `reason=${opts.reason}`,
+  );
+}
+
 // ─── PENDING_INGEST_FAILED ────────────────────────────────────────────────────
 export function emitPendingIngestFailed(
   audit: AuditLog,

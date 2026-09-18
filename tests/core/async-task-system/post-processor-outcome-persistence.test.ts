@@ -453,20 +453,57 @@ describe('Phase 1396 Step L: executor phases', () => {
     expect(moveTaskToFailed).not.toHaveBeenCalled();
   });
 
-  it('defers and persists input when postProcessor is missing', async () => {
+  it('missing postProcessor → terminal failed + TASK_POSTPROCESSOR_MISSING (phase 1863 AT-D14)', async () => {
     const task = makeSubAgentTask({ postProcessor: 'missing' });
     const sendResult = vi.fn().mockResolvedValue(undefined);
+    const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
       sendResult,
       postProcessors: new Map(),
+      moveTaskToFailed,
     }));
 
     const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+    // durable input 保留为证据；无 envelope、无投递
     expect(fs.files.has(`${resultDir}/${POST_PROCESS_INPUT_FILE}`)).toBe(true);
     expect(fs.files.has(`${resultDir}/${RESULT_ENVELOPE_FILE}`)).toBe(false);
     expect(sendResult).not.toHaveBeenCalled();
-    expect(audit.events.some(e => e[0] === TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED)).toBe(true);
+    // 未注册 = 永久（装配面 initialize 后冻结）→ terminal failed，不再留 running
+    expect(moveTaskToFailed).toHaveBeenCalledWith(task.id);
+    const missingRow = audit.events.find(e => e[0] === TASK_AUDIT_EVENTS.TASK_POSTPROCESSOR_MISSING);
+    expect(missingRow).toBeDefined();
+    expect(missingRow!.join(' ')).toContain('processorName=missing');
+    expect(missingRow!.join(' ')).toContain('reason=not_registered');
+    expect(audit.events.some(e => e[0] === TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED)).toBe(false);
+  });
+
+  it('handler defer 界内重试、第 3 次（上限）terminal failed（phase 1863 AT-D14）', async () => {
+    const task = makeSubAgentTask({ postProcessor: 'always-defers' });
+    const postProcessors = new Map<string, PostProcessor>([
+      ['always-defers', async () => { throw new Error('not ready yet'); }],
+    ]);
+    const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
+    const deps = executorDeps(fs, audit.audit, { postProcessors, moveTaskToFailed });
+
+    // 连续执行 3 次（live 一次 + 模拟恢复重放两次；计数持久在 result 目录、跨执行累计）
+    await executeSubAgentTask(task, new AbortController().signal, deps);
+    await executeSubAgentTask(task, new AbortController().signal, deps);
+    expect(moveTaskToFailed).not.toHaveBeenCalled();
+
+    await executeSubAgentTask(task, new AbortController().signal, deps);
+
+    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+    const deferredRows = audit.events.filter(e => e[0] === TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED);
+    expect(deferredRows.map(r => r.join(' '))).toEqual([
+      expect.stringContaining('deferCount=1'),
+      expect.stringContaining('deferCount=2'),
+    ]);
+    expect(fs.files.get(`${resultDir}/post-process.defer-count`)).toBe('3');
+    const boundedRow = audit.events.find(e => e[0] === TASK_AUDIT_EVENTS.TASK_POSTPROCESSOR_MISSING);
+    expect(boundedRow).toBeDefined();
+    expect(boundedRow!.join(' ')).toContain('reason=defer_bounded');
+    expect(moveTaskToFailed).toHaveBeenCalledTimes(1);
   });
 
   it('defers and persists input when postProcessor throws', async () => {
@@ -840,7 +877,7 @@ describe('Phase 1396 Step L: recovery classification from the committed envelope
     expect(audit.events.some(e => e[0] === TASK_AUDIT_EVENTS.LEGACY_RESULT_CLASSIFICATION_UNKNOWN)).toBe(true);
   });
 
-  it('recovery leaves task in running when input replay cannot resolve processor', async () => {
+  it('recovery: replay 遇未注册 processor → terminal failed（phase 1863 AT-D14）', async () => {
     const task = makeSubAgentTask({ postProcessor: 'not-registered' });
     seedRunningTask(task);
     const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
@@ -854,8 +891,36 @@ describe('Phase 1396 Step L: recovery classification from the committed envelope
     await recoverTasks(recoveryDeps({ sendResult, postProcessors: new Map() }));
 
     expect(sendResult).not.toHaveBeenCalled();
-    expect(fs.files.has(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`)).toBe(true);
-    expect(audit.events.some(e => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && String(e[2]).includes('post_process_replay_failed'))).toBe(true);
+    // 未注册=永久（装配面 initialize 后冻结）→ 移入 failed/、不再留 running
+    expect(fs.files.has(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`)).toBe(false);
+    expect(fs.files.has(`${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)).toBe(true);
+    const missingRow = audit.events.find(e => e[0] === TASK_AUDIT_EVENTS.TASK_POSTPROCESSOR_MISSING);
+    expect(missingRow).toBeDefined();
+    expect(missingRow!.join(' ')).toContain('reason=not_registered');
+  });
+
+  it('recovery: handler defer 累计到上限 → terminal failed（phase 1863 AT-D14）', async () => {
+    const task = makeSubAgentTask({ postProcessor: 'flaky' });
+    seedRunningTask(task);
+    const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
+    fs.files.set(`${resultDir}/${POST_PROCESS_INPUT_FILE}`, JSON.stringify({
+      schema_version: 1,
+      content: 'raw from disk',
+      source_is_error: false,
+    }));
+    fs.files.set(`${resultDir}/post-process.defer-count`, '2');
+    const postProcessors = new Map<string, PostProcessor>([
+      ['flaky', async () => { throw new Error('still not ready'); }],
+    ]);
+
+    await recoverTasks(recoveryDeps({ postProcessors }));
+
+    // 累计 defer 3 次 = 上限 → terminal failed
+    expect(fs.files.has(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`)).toBe(false);
+    expect(fs.files.has(`${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)).toBe(true);
+    const boundedRow = audit.events.find(e => e[0] === TASK_AUDIT_EVENTS.TASK_POSTPROCESSOR_MISSING);
+    expect(boundedRow).toBeDefined();
+    expect(boundedRow!.join(' ')).toContain('reason=defer_bounded');
   });
 
   it('two restarts: committed envelope is never recomputed and classification stays stable across at-least-once delivery', async () => {

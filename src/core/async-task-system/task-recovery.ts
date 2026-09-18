@@ -19,6 +19,7 @@ import {
   emitMigratedExecTermination,
   emitMigratedLegacyIdentity,
   emitLegacyResultClassificationUnknown,
+  emitTaskPostProcessorMissing,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 
@@ -40,7 +41,12 @@ import {
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync, ResultDeliveryDeps } from './result-delivery-types.js';
 import type { ProcessedTaskResult } from './result-delivery-types.js';
 import { POST_PROCESS_INPUT_FILE } from './dirs.js';
-import { applyPostProcessor } from './subagent-executor.js';
+import {
+  applyPostProcessor,
+  recordProcessorDefer,
+  PostProcessorDeferredError,
+  MAX_POST_PROCESSOR_DEFERS,
+} from './subagent-executor.js';
 import { createProcessedResultStore, type ProcessedResultStore } from './processed-result-store.js';
 import { AUDIT_PATHS, AUDIT_LEGACY_PATHS } from '../../foundation/audit/index.js';
 import type { TaskId } from './types.js';
@@ -800,12 +806,36 @@ async function _recoverWithInput(
       deps.auditWriter,
     );
   } catch (err) {
+    // phase 1863 (AT-D14)：defer 分道——未注册=永久、handler defer=有界；其余保持原重试语义。
+    if (err instanceof PostProcessorDeferredError) {
+      if (err.kind === 'not_registered') {
+        emitTaskPostProcessorMissing(deps.auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          processorName: task.postProcessor ?? '',
+          reason: 'not_registered',
+        });
+        await _recoverToFailed(deps, filePath, task, 'post_processor_not_registered', 'post_processor_missing_move_failed');
+        return 0;
+      }
+      const deferCount = await recordProcessorDefer(deps.fs, deps.auditWriter, task);
+      if (deferCount >= MAX_POST_PROCESSOR_DEFERS) {
+        emitTaskPostProcessorMissing(deps.auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          processorName: task.postProcessor ?? '',
+          reason: 'defer_bounded',
+        });
+        await _recoverToFailed(deps, filePath, task, 'post_processor_defer_bounded', 'post_processor_defer_bounded_move_failed');
+        return 0;
+      }
+    }
     emitRecoveryFailed(deps.auditWriter, {
       taskId: task.id,
       context: 'post_process_replay_failed',
       error: formatErr(err),
     });
-    // Leave in running; next recovery will retry after the processor registry is ready.
+    // Leave in running; next recovery will retry (bounded for handler defers).
     return 0;
   }
 

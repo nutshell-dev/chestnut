@@ -1,4 +1,4 @@
-import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
@@ -16,6 +16,8 @@ import {
   emitHandlerFailed,
   emitResultWriteFailed,
   emitResultDeliveryFailed,
+  emitRecoveryFailed,
+  emitTaskPostProcessorMissing,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -87,11 +89,75 @@ interface ExecuteSubAgentTaskDeps {
   writeInboxAsync?: WriteInboxAsync;
 }
 
-class PostProcessorDeferredError extends Error {
-  constructor(message: string) {
+/**
+ * phase 1863 (AT-D14)：defer 来源可分辨——
+ * `not_registered`=装配面缺失（initialize 后冻结 → 永久，terminal）；
+ * `handler_deferred`=handler 内部 defer（有界重试）。
+ */
+export class PostProcessorDeferredError extends Error {
+  constructor(message: string, readonly kind: 'not_registered' | 'handler_deferred') {
     super(message);
     this.name = 'PostProcessorDeferredError';
   }
+}
+
+/**
+ * phase 1863 (AT-D14)：handler defer 累计上限（跨 live/recovery 的持久计数）。
+ * Derivation: 3 = 与 MAX_RECOVERY_RETRIES 同型经验值（1 首跑 + 2 重试）；
+ * 防 handler 永久 defer 使任务永留 running。
+ */
+export const MAX_POST_PROCESSOR_DEFERS = 3;
+
+/** phase 1863 (AT-D14)：defer 计数持久化路径（result 目录内，跨重启累计）。 */
+const POST_PROCESS_DEFER_COUNT_PATH = (taskId: TaskId) =>
+  `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/post-process.defer-count`;
+
+/**
+ * phase 1863 (AT-D14)：记录一次 defer（读-增-写，result 目录内持久化）。
+ * 异常不改变 defer 语义（任务仍留 running 重试）——均经 audit 显式：
+ * 读取非 ENOENT 失败按 0 起算（宁延后触顶、不误杀）；计数损坏按已达上限
+ * （mirror retry-counter corrupt→terminal，防损坏计数致无限 defer）。
+ */
+export async function recordProcessorDefer(
+  fs: FileSystem,
+  auditWriter: AuditLog,
+  task: SubAgentTask,
+): Promise<number> {
+  let count = 0;
+  try {
+    const raw = await fs.read(POST_PROCESS_DEFER_COUNT_PATH(task.id));
+    const parsed = parseInt(raw, 10);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'defer_counter_corrupt',
+        raw: auditWriter.preview(raw),
+      });
+      count = MAX_POST_PROCESSOR_DEFERS;
+    } else {
+      count = parsed;
+    }
+  } catch (err) {
+    if (!isFileNotFound(err)) {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'defer_counter_read_failed',
+        error: formatErr(err),
+      });
+    }
+  }
+  count += 1;
+  try {
+    await fs.writeAtomic(POST_PROCESS_DEFER_COUNT_PATH(task.id), String(count));
+  } catch (err) {
+    emitResultWriteFailed(auditWriter, {
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: taskShortId(task),
+      context: 'defer_counter_write_failed',
+      error: formatErr(err),
+    });
+  }
+  return count;
 }
 
 function makeIdentityResult(content: string, isError: boolean): ProcessedTaskResult {
@@ -128,7 +194,7 @@ export async function applyPostProcessor(
       context: 'postProcessor_not_found',
       name: task.postProcessor,
     });
-    throw new PostProcessorDeferredError(`postProcessor "${task.postProcessor}" not registered`);
+    throw new PostProcessorDeferredError(`postProcessor "${task.postProcessor}" not registered`, 'not_registered');
   }
   try {
     return await handler(input, task, fs, auditWriter);
@@ -141,7 +207,7 @@ export async function applyPostProcessor(
       context: ctx,
       error: formatErr(handlerErr),
     });
-    throw new PostProcessorDeferredError(formatErr(handlerErr));
+    throw new PostProcessorDeferredError(formatErr(handlerErr), 'handler_deferred');
   }
 }
 
@@ -280,17 +346,41 @@ export async function executeSubAgentTask(
       return;
     }
 
-    // Phase 3 — post-processor: decide the business outcome. Deferred keeps the
-    // task in running with the durable input for startup recovery replay.
+    // Phase 3 — post-processor: decide the business outcome. Bounded-deferred keeps
+    // the task in running with the durable input for startup recovery replay.
     let envelope: ProcessedTaskResult;
     try {
       envelope = await applyPostProcessor(source, task, postProcessors, fs, auditWriter);
     } catch (processorErr) {
       if (processorErr instanceof PostProcessorDeferredError) {
+        // phase 1863 (AT-D14)：未注册=永久（装配面 initialize 后冻结）→ terminal failed，不再留 running。
+        if (processorErr.kind === 'not_registered') {
+          emitTaskPostProcessorMissing(auditWriter, {
+            fullTaskId: task.id as FullTaskId,
+            shortTaskId: taskShortId(task),
+            processorName: task.postProcessor ?? '',
+            reason: 'not_registered',
+          });
+          outcome = 'failed';
+          return;
+        }
+        // handler 内部 defer：有界重试（累计 defer 次数达上限 → terminal failed）。
+        const deferCount = await recordProcessorDefer(fs, auditWriter, task);
+        if (deferCount >= MAX_POST_PROCESSOR_DEFERS) {
+          emitTaskPostProcessorMissing(auditWriter, {
+            fullTaskId: task.id as FullTaskId,
+            shortTaskId: taskShortId(task),
+            processorName: task.postProcessor ?? '',
+            reason: 'defer_bounded',
+          });
+          outcome = 'failed';
+          return;
+        }
         auditWriter.write(
           TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED,
           `taskId=${task.id}`,
           `reason=${auditWriter.message(processorErr.message)}`,
+          `deferCount=${deferCount}`,
         );
         return;
       }
