@@ -9,7 +9,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { safeCallback } from '../../../src/core/step-executor/utils.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from '../../../src/core/step-executor/audit-events.js';
+// phase 1857 Step C (SE-D2): barrel 公共契约编译断言 —— StepInput/StepResult 必须自 barrel 命名导入
+import type { StepInput, StepResult } from '../../../src/core/step-executor/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+
+type _PublicContractSurface = [
+  StepInput,
+  StepResult,
+];
 
 function makeAudit() {
   const entries: Array<unknown[]> = [];

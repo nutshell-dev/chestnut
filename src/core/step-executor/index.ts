@@ -11,4 +11,5 @@ export type { StepAbortReason } from './abort-helpers.js';
 export { asFinalStopReason } from './types.js';
 export type {
   StepCallbacks, StepMeta, LLMCallInfo, FinalStopReason,
+  StepInput, StepResult,
 } from './types.js';
