@@ -105,14 +105,22 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   }
 
   // phase 729: stream dispatch moved from Runtime to AgentExecutor (M#2 own business semantics).
+  // phase 1856 (AE-D1): 组合而非覆盖 — caller 经 stepCallbacks 传入的同名 handler 不再被静默丢弃。
+  // 顺序：AgentExecutor-owned turn event commit 先行（stream 权威记录，不得被 caller handler 失败吞掉），
+  // caller handler 随后；caller handler 抛错按原语义传播（不新增吞没）。
   if (input.streamCallbacks) {
     const turnEventSink = input.streamCallbacks;
+    const prevOnTextEnd = callbacks.onTextEnd;
     callbacks.onTextEnd = () => {
       commitTurnEvent({ kind: 'text_end' }, turnEventSink);
+      prevOnTextEnd?.();
     };
+    const prevOnToolCall = callbacks.onToolCall;
     callbacks.onToolCall = (n, id) => {
       commitTurnEvent({ kind: 'tool_call', name: n, toolUseId: id }, turnEventSink);
+      prevOnToolCall?.(n, id);
     };
+    const prevOnToolResult = callbacks.onToolResult;
     callbacks.onToolResult = (name, toolUseId, result) => {
       // phase 730: AgentExecutor owns TOOL_RESULT audit write + stream emit.
       commitTurnEvent(
@@ -133,6 +141,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
           `summary=${auditWriter.summary(content)}`,
         );
       }
+      prevOnToolResult?.(name, toolUseId, result);
     };
   }
 
