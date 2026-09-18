@@ -5,6 +5,7 @@
 
 import type { ContentBlock, TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
+import { classifyMessage } from '../../foundation/dialog-store/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { truncateUtf8Prefix } from '../../foundation/node-utils/index.js';
 import {
@@ -349,7 +350,8 @@ function completeTurnSegments(messages: readonly Message[]): MessageSegment[] {
   const starts: number[] = [0];
   for (let i = 1; i < messages.length; i++) {
     const m = messages[i];
-    if (m.role === 'user' && m.origin === 'user') {
+    const { origin } = classifyMessage(m);
+    if (m.role === 'user' && origin === 'user') {
       starts.push(i);
     }
   }
@@ -372,7 +374,10 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
     return m.content.some(b => b.type === 'tool_use' && (b as ToolUseBlock).name === 'send');
   });
 
-  const hasUserMessage = turnMessages.some(m => m.role === 'user' && m.origin === 'user');
+  const hasUserMessage = turnMessages.some(m => {
+    const { origin } = classifyMessage(m);
+    return m.role === 'user' && origin === 'user';
+  });
 
   // 纯噪音 turn（无用户消息且无 send）→ 整 turn 丢弃
   if (!hasUserMessage && !hasSend) {
@@ -394,14 +399,15 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
   const dropped: Message[] = [];
 
   for (const m of turnMessages) {
+    const { origin } = classifyMessage(m);
     // 系统消息 → 丢弃
-    if (m.role === 'user' && m.origin === 'system') {
+    if (m.role === 'user' && origin === 'system') {
       dropped.push(m);
       continue;
     }
 
     // Tier 1：用户消息 → 保留
-    if (m.role === 'user' && m.origin === 'user') {
+    if (m.role === 'user' && origin === 'user') {
       kept.push(m);
       continue;
     }
@@ -449,9 +455,12 @@ function selectiveDropTurn(turnMessages: Message[]): { kept: Message[]; dropped:
 
   // API validity：若保留后只剩 1 条孤立的 user 消息（无后续 assistant），
   // 则这条 user 消息也会造成 user→user 或 user→EOF 违规 → 一并丢弃
-  if (kept.length === 1 && kept[0].role === 'user' && (kept[0] as Message).origin === 'user') {
-    dropped.push(kept[0]);
-    return { kept: [], dropped, modified: true };
+  if (kept.length === 1 && kept[0].role === 'user') {
+    const { origin } = classifyMessage(kept[0]);
+    if (origin === 'user') {
+      dropped.push(kept[0]);
+      return { kept: [], dropped, modified: true };
+    }
   }
 
   const modified = dropped.length > 0 || kept.some((m, i) => m !== turnMessages[i]);
@@ -669,8 +678,9 @@ function compressMessages(
     }
 
     // origin='system' → 统一压缩预览（不再按 filterSubtypes 分流删除）
-    if (m.role === 'user' && m.origin === 'system') {
-      const subtype = m.systemSubtype ?? 'unknown';
+    const { origin, systemSubtype } = classifyMessage(m);
+    if (m.role === 'user' && origin === 'system') {
+      const subtype = systemSubtype ?? 'unknown';
       const collapsed = collapseSystemMessage(m, opts.previewBytes, opts.now);
       subtypeStat.preserved[subtype] = (subtypeStat.preserved[subtype] ?? 0) + 1;
       if (collapsed !== null) {
