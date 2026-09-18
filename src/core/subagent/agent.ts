@@ -86,6 +86,8 @@ export class SubAgent {
   private signal?: AbortSignal;
   private logPath: string;
   private toolsForLLM?: ToolDefinition[];
+  /** phase 1858 Step C (SA-D2): 本次 run 实际解析出的工具集快照（finally 落盘与 run 期间同源） */
+  private resolvedToolsForLLM?: ToolDefinition[];
   private idleTimeoutMs?: number;
   private onIdleTimeout?: () => void;
   private systemPrompt?: string;
@@ -201,6 +203,8 @@ export class SubAgent {
       // Format tools for LLM native tool_use (use pre-filtered list if provided)
       const tools = this.toolsForLLM
         ?? this.registry.formatForLLM(this.registry.getAll());
+      // phase 1858 Step C (SA-D2): 解析一次实际使用集 — finally 落盘同源（替代 `this.toolsForLLM ?? []` 空覆盖）
+      this.resolvedToolsForLLM = tools;
 
       // Run ReAct loop，用 Promise.race 强制超时退出
       // Tool 层超时通过 timeout.signal 传到 ctx.signal；LLM stream
@@ -393,7 +397,7 @@ export class SubAgent {
           .save({
             systemPrompt: this.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT,
             messages: finalMessages,
-            toolsForLLM: this.toolsForLLM ?? [],
+            toolsForLLM: this.resolvedToolsForLLM ?? this.toolsForLLM ?? [],
           });
         // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
         applyBlockIdAssignments(finalMessages, saved.assignedBlockIds);
