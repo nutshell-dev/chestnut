@@ -75,8 +75,8 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     await fs.writeFile(progressPath, JSON.stringify(progress, null, 2));
 
     const outcome = await manager.cancel(contractId, 'test');
-    expect(outcome.kind).toBe('committed');
-    expect(outcome.state).toBe('cancelled');
+    expect(outcome.commit.kind).toBe('committed');
+    expect(outcome.commit.state).toBe('cancelled');
 
     const archiveDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
@@ -117,8 +117,8 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
     });
-    expect(outcome.kind).toBe('committed');
-    expect(outcome.state).toBe('corrupted');
+    expect(outcome.commit.kind).toBe('committed');
+    expect(outcome.commit.state).toBe('corrupted');
 
     const archiveDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
@@ -156,7 +156,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     });
 
     const outcome = await manager.cancel(contractId, 'test');
-    expect(outcome.kind).toBe('committed');
+    expect(outcome.commit.kind).toBe('committed');
 
     const auditWrite = manager['audit'].write as ReturnType<typeof vi.fn>;
     const cancelledCalls = auditWrite.mock.calls.filter(
@@ -193,7 +193,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     );
 
     const outcome = await manager.cancel(contractId, 'test unsafe abort');
-    expect(outcome.kind).toBe('committed');
+    expect(outcome.commit.kind).toBe('committed');
 
     const auditWrite = manager['audit'].write as ReturnType<typeof vi.fn>;
     // 无 reason 的 cancelled 行不再作为 abort 失败载体（历史混淆源）。
@@ -222,7 +222,7 @@ describe('ContractSystem lifecycle (Phase 966)', () => {
     });
 
     const outcome = await manager.cancel(contractId, 'test');
-    expect(outcome.kind).toBe('committed');
+    expect(outcome.commit.kind).toBe('committed');
 
     const auditWrite = manager['audit'].write as ReturnType<typeof vi.fn>;
     const abortFailedCalls = auditWrite.mock.calls.filter(
@@ -454,7 +454,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
     });
-    expect(outcome.kind).toBe('committed');
+    expect(outcome.commit.kind).toBe('committed');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
@@ -495,8 +495,8 @@ describe('phase 1121 Step C: markCorrupted', () => {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
     });
-    expect(outcome.kind).toBe('lost_to_state');
-    expect(outcome.committed).toBe('cancelled');
+    expect(outcome.commit.kind).toBe('lost_to_state');
+    expect(outcome.commit.committed).toBe('cancelled');
   });
 
   it('abortContractVerifiers failure does not break main flow', async () => {
@@ -515,7 +515,7 @@ describe('phase 1121 Step C: markCorrupted', () => {
       reason: 'progress_schema_invalid',
       relativePath: 'corrupted/123_progress.json',
     });
-    expect(outcome.kind).toBe('committed');
+    expect(outcome.commit.kind).toBe('committed');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'corrupted', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();

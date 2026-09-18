@@ -52,7 +52,10 @@ export async function contractCancelCommand(
     );
   }
 
-  if (outcome.kind === 'committed') {
+  // phase 1862 Step C (CT-D2)：终态 transition 单一 typed outcome，commit 字段承载 winner 判定。
+  const commit = outcome.commit;
+
+  if (commit.kind === 'committed') {
     audit?.write(
       CLI_AUDIT_EVENTS.CONTRACT_CANCEL,
       `claw=${clawId}`,
@@ -63,7 +66,7 @@ export async function contractCancelCommand(
     return;
   }
 
-  if (outcome.kind === 'already_committed') {
+  if (commit.kind === 'already_committed') {
     audit?.write(
       CLI_AUDIT_EVENTS.CONTRACT_CANCEL,
       `claw=${clawId}`,
@@ -74,16 +77,16 @@ export async function contractCancelCommand(
     return;
   }
 
-  if (outcome.kind === 'lost_to_state') {
+  if (commit.kind === 'lost_to_state') {
     throw new CliError(
-      `Contract "${resolvedId}" is already in terminal state: ${outcome.committed}`,
-      { cause: outcome },
+      `Contract "${resolvedId}" is already in terminal state: ${commit.committed}`,
+      { cause: commit },
     );
   }
 
   // retryable_failure
   throw new CliError(
-    `Failed to cancel contract "${resolvedId}": ${outcome.cause ?? 'unknown'}`,
-    { cause: outcome.cause ?? 'unknown' },
+    `Failed to cancel contract "${resolvedId}": ${commit.cause ?? 'unknown'}`,
+    { cause: commit.cause ?? 'unknown' },
   );
 }

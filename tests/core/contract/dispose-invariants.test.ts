@@ -278,7 +278,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     }));
 
     const outcome = await manager.cancel(contractId, 'user cancelled');
-    expect(outcome.kind).toBe('committed');
+    expect(outcome.commit.kind).toBe('committed');
 
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
@@ -316,7 +316,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
 
     // Should NOT throw — abort is best-effort wrapped in try/catch
     const outcome = await manager.cancel(contractId, 'test abort throw');
-    expect(outcome.kind).toBe('committed');
+    expect(outcome.commit.kind).toBe('committed');
 
     // contract should still be moved to archive
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', 'cancelled', contractId);

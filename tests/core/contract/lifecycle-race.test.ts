@@ -17,7 +17,8 @@ import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { readLifecycleIntentsForContract } from '../../../src/core/contract/lifecycle-intent.js';
 import { archiveAndEmit } from '../../../src/core/contract/verification-lifecycle.js';
 import { createManagerVerificationContext } from '../../helpers/contract-subtask.js';
-import type { ArchiveState, LifecycleCommitOutcome } from '../../../src/core/contract/types.js';
+import type { ArchiveState } from '../../../src/core/contract/types.js';
+import type { TerminalTransitionOutcome } from '../../../src/core/contract/lifecycle.js';
 
 // Poll cadence for the filesystem barrier: short enough to keep race tests
 // fast, long enough to avoid busy-looping the shared tmpdir under CI load.
@@ -152,10 +153,14 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     state?: ArchiveState;
   }
 
-  type RaceOutcome = LifecycleCommitOutcome | ArchiveResult | void;
+  /**
+   * phase 1862 Step C (CT-D2): cancel/fail return TerminalTransitionOutcome
+   * (winner 判定在 commit 字段); archiveAndEmit 仍返回 ArchiveResult。
+   */
+  type RaceOutcome = TerminalTransitionOutcome | ArchiveResult | void;
 
-  function isCommitOutcome(v: RaceOutcome): v is LifecycleCommitOutcome {
-    return typeof v === 'object' && v !== null && 'kind' in v;
+  function isTransitionOutcome(v: RaceOutcome): v is TerminalTransitionOutcome {
+    return typeof v === 'object' && v !== null && 'commit' in v;
   }
 
   function isArchiveResult(v: RaceOutcome): v is ArchiveResult {
@@ -165,7 +170,7 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
   /**
    * Race two terminal operations and verify the shared invariants.
    *
-   * `runA`/`runB` must each return either a `LifecycleCommitOutcome` or an
+   * `runA`/`runB` must each return either a `TerminalTransitionOutcome` or an
    * archive result shape `{ archived: boolean; state?: ArchiveState }` (e.g.
    * `archiveAndEmit`). The caller supplies the two intent states and a predicate
    * that checks side-effect counts from the notify callbacks.
@@ -187,40 +192,40 @@ describe('Phase 1198 Step D: terminal lifecycle races', () => {
     await assertSingleArchive(contractId, finalState!);
     await assertBothIntentsPreserved(contractId, intentStates);
 
-    const explicitOutcomes: LifecycleCommitOutcome[] = [];
+    const explicitOutcomes: TerminalTransitionOutcome[] = [];
     const archiveResults: ArchiveResult[] = [];
     for (const out of [outA, outB]) {
-      if (isCommitOutcome(out)) {
+      if (isTransitionOutcome(out)) {
         explicitOutcomes.push(out);
       } else if (isArchiveResult(out)) {
         archiveResults.push(out);
       }
     }
 
-    const committed = explicitOutcomes.filter(o => o.kind === 'committed');
+    const committed = explicitOutcomes.filter(o => o.commit.kind === 'committed');
     const archiveCommitted = archiveResults.filter(r => r.archived);
-    const nonCommitted = explicitOutcomes.filter(o => o.kind !== 'committed');
+    const nonCommitted = explicitOutcomes.filter(o => o.commit.kind !== 'committed');
 
     // At most one caller can observe a fresh commit.
     expect(committed.length + archiveCommitted.length).toBeLessThanOrEqual(1);
 
     // Any explicit non-commit must be a normal race result, not a retryable failure.
     for (const o of nonCommitted) {
-      expect(['already_committed', 'lost_to_state']).toContain(o.kind);
+      expect(['already_committed', 'lost_to_state']).toContain(o.commit.kind);
     }
 
-    // Determine the winner. The discriminated union narrows by `kind` alone;
+    // Determine the winner. The discriminated union narrows by `commit.kind`;
     // no field-level type assertion is needed anywhere below.
     if (committed.length === 1) {
-      expect(committed[0].state).toBe(finalState);
+      expect(committed[0].commit.state).toBe(finalState);
     } else if (archiveCommitted.length === 1) {
       expect(archiveCommitted[0].state ?? finalState).toBe(finalState);
     } else if (explicitOutcomes.length === 1) {
       const only = explicitOutcomes[0];
-      if (only.kind !== 'lost_to_state') {
-        throw new Error(`expected lost_to_state loser, got ${only.kind}`);
+      if (only.commit.kind !== 'lost_to_state') {
+        throw new Error(`expected lost_to_state loser, got ${only.commit.kind}`);
       }
-      expect(only.committed).toBe(finalState);
+      expect(only.commit.committed).toBe(finalState);
     } else if (archiveResults.length === 1) {
       const only = archiveResults[0];
       expect(only.archived).toBe(false);

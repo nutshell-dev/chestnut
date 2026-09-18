@@ -247,7 +247,7 @@ describe('progress mutation race (phase 1201 step B)', () => {
     await readEntered.promise;
     // mutation 已 fresh-read 阻塞中；此时 cancel 赢 rename。
     const cancelOutcome = await fx.manager.cancel(contractId, 'race cancel');
-    expect(cancelOutcome.kind).toBe('committed');
+    expect(cancelOutcome.commit.kind).toBe('committed');
     gate.resolve();
 
     const syncResult = await pSync;
@@ -383,7 +383,7 @@ describe('progress mutation race (phase 1201 step B)', () => {
 
     // recheck 已过、物理写暂停 → terminal rename 胜出。
     const cancelOutcome = await fx.manager.cancel(contractId, 'step-E ghost race');
-    expect(cancelOutcome.kind).toBe('committed');
+    expect(cancelOutcome.commit.kind).toBe('committed');
     gate.resolve();
 
     const syncResult = await pSync;
@@ -432,7 +432,7 @@ describe('progress mutation race (phase 1201 step B)', () => {
 
     // terminal rename 随后发生：新 progress 一并提交到 archive，无半写。
     const cancelOutcome = await fx.manager.cancel(contractId, 'after commit');
-    expect(cancelOutcome.kind).toBe('committed');
+    expect(cancelOutcome.commit.kind).toBe('committed');
 
     const archiveProgress = JSON.parse(await fsp.readFile(
       path.join(fx.clawDir, 'contract', 'archive', 'cancelled', contractId, 'progress.json'),

@@ -104,7 +104,7 @@ describe('Phase 1396 Step D: ContractSystem.fail', () => {
 
     const outcome = await fx.manager.fail(contractId as ContractId, FAILURE);
 
-    expect(outcome).toMatchObject({ kind: 'committed', state: 'failed', requested: 'failed' });
+    expect(outcome).toMatchObject({ contractId, commit: { kind: 'committed', state: 'failed', requested: 'failed' } });
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'failed', contractId))).toBe(true);
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'active', contractId))).toBe(false);
     expect(await fileExists(path.join(fx.clawDir, 'contract', 'archive', 'cancelled', contractId))).toBe(false);
@@ -138,8 +138,8 @@ describe('Phase 1396 Step D: ContractSystem.fail', () => {
     const first = await fx.manager.fail(contractId as ContractId, FAILURE, 'fail-req-1');
     const second = await fx.manager.fail(contractId as ContractId, FAILURE, 'fail-req-1');
 
-    expect(first.kind).toBe('committed');
-    expect(second).toMatchObject({ kind: 'already_committed', state: 'failed', requestId: 'fail-req-1' });
+    expect(first.commit.kind).toBe('committed');
+    expect(second).toMatchObject({ commit: { kind: 'already_committed', state: 'failed', requestId: 'fail-req-1' } });
     expect(failedAuditCalls(fx)).toHaveLength(1);
     expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(1);
   });
@@ -152,7 +152,7 @@ describe('Phase 1396 Step D: ContractSystem.fail', () => {
 
     const outcome = await fx.manager.fail(contractId as ContractId, FAILURE);
 
-    expect(outcome).toMatchObject({ kind: 'lost_to_state', requested: 'failed', committed: 'cancelled' });
+    expect(outcome).toMatchObject({ commit: { kind: 'lost_to_state', requested: 'failed', committed: 'cancelled' } });
     expect(failedAuditCalls(fx)).toHaveLength(0);
     expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(0);
     expect(fx.notifies.length).toBe(notifyCountBefore);
@@ -162,7 +162,7 @@ describe('Phase 1396 Step D: ContractSystem.fail', () => {
 
   it('returns retryable_failure for a contract that does not exist', async () => {
     const outcome = await fx.manager.fail('missing-contract' as ContractId, FAILURE);
-    expect(outcome.kind).toBe('retryable_failure');
+    expect(outcome.commit.kind).toBe('retryable_failure');
     expect(fx.notifies.filter(n => n.type === 'contract_failed')).toHaveLength(0);
   });
 });

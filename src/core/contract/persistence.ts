@@ -11,7 +11,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { ToolError } from '../../foundation/tools/index.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
-import type { ProgressData, ContractCorruptionEvidence, LifecycleCommitOutcome, ContractId } from './types.js';
+import type { ProgressData, ContractCorruptionEvidence, ContractId } from './types.js';
 import { stripProgressDerivedFields, ContractProgressInvariantViolatedError } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
@@ -37,7 +37,8 @@ export interface PersistenceContext {
   audit: AuditLog;
   contractDir: (contractId: ContractId) => Promise<string>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  markCorrupted?: (contractId: ContractId, evidence: ContractCorruptionEvidence) => Promise<LifecycleCommitOutcome>;
+  // phase 1862 Step C (CT-D2)：消费方只 await、不读 outcome 字段，返回型保持 unknown 窄面。
+  markCorrupted?: (contractId: ContractId, evidence: ContractCorruptionEvidence) => Promise<unknown>;
 }
 
 export async function loadContractYaml(

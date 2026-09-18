@@ -55,7 +55,7 @@ import { type ClawId } from '../../foundation/claw-identity/index.js';
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
-  LifecycleCommitOutcome, ContractRuntimeLifecycle, ContractCloseOutcome,
+  ContractRuntimeLifecycle, ContractCloseOutcome,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
@@ -79,6 +79,7 @@ import {
   isContractComplete,
   reconcilePendingLifecycleIntents,
   type LifecycleContext,
+  type TerminalTransitionOutcome,
 } from './lifecycle.js';
 import type { NotifyClawFn, VerificationGatewayResult, SyncCompletionGatewayResult } from './verification-types.js';
 import type { VerificationAttemptTransition } from './verification-transition-types.js';
@@ -1170,7 +1171,8 @@ export class ContractSystem implements ContractRuntimeLifecycle {
   }
 
   // Lifecycle
-  async cancel(contractId: ContractId, reason: string): Promise<LifecycleCommitOutcome> {
+  // phase 1862 Step C (CT-D2): 终态 transition 返回单一 typed outcome（commit + postCommit 事实）。
+  async cancel(contractId: ContractId, reason: string): Promise<TerminalTransitionOutcome> {
     const outcome = await cancelContract(this._lifecycleCtx(), contractId, reason);
     // phase 398 Step D (review N9): 终态清 auditorState、防 unbounded growth +
     // contract-id 复用残留。cancel 失败 throw、entry 留待重试。
@@ -1182,7 +1184,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     contractId: ContractId,
     evidence: ContractCorruptionEvidence,
     knownDir?: string,
-  ): Promise<LifecycleCommitOutcome> {
+  ): Promise<TerminalTransitionOutcome> {
     const outcome = await markCorrupted(this._lifecycleCtx(), contractId, evidence, knownDir);
     // phase 398 Step D (review N9): 同 cancel。
     this.auditorState.delete(contractId);
@@ -1199,7 +1201,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
     contractId: ContractId,
     failure: ContractFailure,
     requestId?: string,
-  ): Promise<LifecycleCommitOutcome> {
+  ): Promise<TerminalTransitionOutcome> {
     const outcome = await failContract(this._lifecycleCtx(), contractId, failure, requestId);
     // 同 cancel / markCorrupted：终态清 auditorState。
     this.auditorState.delete(contractId);
@@ -1244,7 +1246,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       activeDir: this.activeDir,
     });
 
-    let retryable: LifecycleCommitOutcome | null = null;
+    let retryable: TerminalTransitionOutcome | null = null;
     for (const contractId of activeIds) {
       const outcome = await this.fail(
         contractId,
@@ -1252,14 +1254,15 @@ export class ContractSystem implements ContractRuntimeLifecycle {
         executionFailureRequestId(contractId, input),
       );
       // 单个 retryable 只记录本轮未闭合，不阻断其他 active contract。
-      if (outcome.kind === 'retryable_failure' && retryable === null) {
+      if (outcome.commit.kind === 'retryable_failure' && retryable === null) {
         retryable = outcome;
       }
     }
     if (retryable !== null) {
+      const commit = retryable.commit;
       return {
         kind: 'retryable',
-        error: `Execution failure not closed this round: ${retryable.cause}`,
+        error: `Execution failure not closed this round: ${commit.kind === 'retryable_failure' ? commit.cause : 'unknown'}`,
       };
     }
     return { kind: 'committed' };

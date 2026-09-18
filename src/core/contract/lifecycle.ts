@@ -58,6 +58,23 @@ function makeRequestId(prefix: string): string {
   return `${prefix}-${Date.now()}-${newShortUuid()}`;
 }
 
+/**
+ * phase 1862 Step C (CT-D2): 终态 transition 单一 typed outcome。
+ * intent 持久化 + rename winner + post-commit 事实一体；audit emit 由本 outcome
+ * 字段派生（单一来源），不再三面（intent store / rename outcome / audit emit）重复建模。
+ */
+export interface TerminalTransitionOutcome {
+  readonly contractId: ContractId;
+  /** intent 持久化与 rename winner 判定结果（1198 语义保持）。 */
+  readonly commit: LifecycleCommitOutcome;
+  /** 仅 committed 时存在：提交后副作用的执行事实。 */
+  readonly postCommit?: {
+    readonly verifierAbort: 'none' | 'ok' | 'failed';
+    /** 已发出的 audit 事件名列表（outcome 驱动 emit 的证据）。 */
+    readonly emitted: readonly string[];
+  };
+}
+
 function safeNotify(
   ctx: LifecycleContext,
   event: ContractNotification,
@@ -80,45 +97,40 @@ export async function cancelContract(
   contractId: ContractId,
   reason: string,
   requestId?: string,
-): Promise<LifecycleCommitOutcome> {
+): Promise<TerminalTransitionOutcome> {
   const intent = buildCancelledIntent(
     contractId,
     requestId ?? makeRequestId('cancel'),
     reason,
   );
-  const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+  const commit = await commitTerminalLifecycle(ctx, contractId, intent);
 
-  if (outcome.kind === 'committed') {
-    try {
-      ctx.abortContractVerifiers(contractId, reason);
-    } catch (abortErr) {
-      // phase 1862 Step B (CT-D5): abort failure is an independent execution-
-      // failure fact; it never rides the cancelled payload.
-      emitVerifierAbortFailed(ctx.audit, { contractId, reason, error: formatErr(abortErr) });
-    }
-    emitContractCancelled(ctx.audit, { contractId, reason });
-    safeNotify(ctx, {
-      type: 'contract_cancelled',
-      contractId,
-      reason,
-    } satisfies ContractNotification);
-    return outcome;
+  if (commit.kind !== 'committed') {
+    // already_committed: 幂等，原始请求拥有成功副作用。
+    // lost_to_state / retryable_failure: 无成功副作用；committed winner（可能
+    // 是另一终态）拥有副作用，或 intent 已持久化由调用方决定重试。
+    return { contractId, commit };
   }
 
-  if (outcome.kind === 'already_committed') {
-    // Idempotent: intent already present and archive state matches. Do not re-emit
-    // success side effects; the original request owns those.
-    return outcome;
+  const emitted: string[] = [];
+  let verifierAbort: 'ok' | 'failed' = 'ok';
+  try {
+    ctx.abortContractVerifiers(contractId, reason);
+  } catch (abortErr) {
+    // phase 1862 Step B (CT-D5): abort failure is an independent execution-
+    // failure fact; it never rides the cancelled payload.
+    verifierAbort = 'failed';
+    emitVerifierAbortFailed(ctx.audit, { contractId, reason, error: formatErr(abortErr) });
+    emitted.push(CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED);
   }
-
-  if (outcome.kind === 'lost_to_state') {
-    // Terminal state is already committed to a different archive state.
-    // Return the real state without success side effects.
-    return outcome;
-  }
-
-  // retryable_failure: intent is persisted, caller decides whether to retry.
-  return outcome;
+  emitContractCancelled(ctx.audit, { contractId, reason });
+  emitted.push(CONTRACT_AUDIT_EVENTS.CANCELLED);
+  safeNotify(ctx, {
+    type: 'contract_cancelled',
+    contractId,
+    reason,
+  } satisfies ContractNotification);
+  return { contractId, commit, postCommit: { verifierAbort, emitted } };
 }
 
 /**
@@ -231,39 +243,36 @@ export async function markCorrupted(
   evidence: ContractCorruptionEvidence,
   _knownDir?: string,
   requestId?: string,
-): Promise<LifecycleCommitOutcome> {
+): Promise<TerminalTransitionOutcome> {
   const intent = buildCorruptedIntent(
     contractId,
     requestId ?? makeRequestId('corrupted'),
     evidence,
   );
-  const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+  const commit = await commitTerminalLifecycle(ctx, contractId, intent);
 
-  if (outcome.kind === 'committed') {
-    try {
-      ctx.abortContractVerifiers(contractId, evidence.reason);
-    } catch (abortErr) {
-      // phase 1862 Step B (CT-D5): abort failure is an independent execution-
-      // failure fact; it never rides the corrupted payload.
-      emitVerifierAbortFailed(ctx.audit, { contractId, reason: evidence.reason, error: formatErr(abortErr) });
-    }
-    emitContractCorrupted(ctx.audit, {
-      contractId,
-      reason: evidence.reason,
-      evidencePath: evidence.relativePath,
-    });
-    return outcome;
+  if (commit.kind !== 'committed') {
+    return { contractId, commit };
   }
 
-  if (outcome.kind === 'already_committed') {
-    return outcome;
+  const emitted: string[] = [];
+  let verifierAbort: 'ok' | 'failed' = 'ok';
+  try {
+    ctx.abortContractVerifiers(contractId, evidence.reason);
+  } catch (abortErr) {
+    // phase 1862 Step B (CT-D5): abort failure is an independent execution-
+    // failure fact; it never rides the corrupted payload.
+    verifierAbort = 'failed';
+    emitVerifierAbortFailed(ctx.audit, { contractId, reason: evidence.reason, error: formatErr(abortErr) });
+    emitted.push(CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED);
   }
-
-  if (outcome.kind === 'lost_to_state') {
-    return outcome;
-  }
-
-  return outcome;
+  emitContractCorrupted(ctx.audit, {
+    contractId,
+    reason: evidence.reason,
+    evidencePath: evidence.relativePath,
+  });
+  emitted.push(CONTRACT_AUDIT_EVENTS.CORRUPTED);
+  return { contractId, commit, postCommit: { verifierAbort, emitted } };
 }
 
 /**
@@ -278,7 +287,7 @@ export async function failContract(
   contractId: ContractId,
   failure: ContractFailure,
   requestId?: string,
-): Promise<LifecycleCommitOutcome> {
+): Promise<TerminalTransitionOutcome> {
   // Caller-driven retry reuses the same requestId. Re-read the persisted intent
   // so the retry is payload-identical (requested_at included) and the exclusive
   // persist stays idempotent instead of tripping the collision guard.
@@ -305,35 +314,40 @@ export async function failContract(
     requestId ?? makeRequestId('fail'),
     failure,
   );
-  const outcome = await commitTerminalLifecycle(ctx, contractId, intent);
+  const commit = await commitTerminalLifecycle(ctx, contractId, intent);
 
-  if (outcome.kind === 'committed') {
-    try {
-      ctx.abortContractVerifiers(contractId, failure.reason);
-    } catch (abortErr) {
-      // phase 1862 Step B (CT-D5): abort failure is an independent execution-
-      // failure fact; it never rides the failed payload.
-      emitVerifierAbortFailed(ctx.audit, { contractId, reason: failure.reason, error: formatErr(abortErr) });
-    }
-    emitContractFailed(ctx.audit, {
-      contractId,
-      reason: failure.reason,
-      evidenceRef: failure.evidenceRef,
-      producer: failure.producer,
-    });
-    safeNotify(ctx, {
-      type: 'contract_failed',
-      contractId,
-      reason: failure.reason,
-      evidenceRef: failure.evidenceRef,
-      producer: failure.producer,
-    } satisfies ContractNotification);
-    return outcome;
+  if (commit.kind !== 'committed') {
+    // already_committed / lost_to_state / retryable_failure: no success side
+    // effects; the committed winner (possibly a different terminal state) owns them.
+    return { contractId, commit };
   }
 
-  // already_committed / lost_to_state / retryable_failure: no success side
-  // effects; the committed winner (possibly a different terminal state) owns them.
-  return outcome;
+  const emitted: string[] = [];
+  let verifierAbort: 'ok' | 'failed' = 'ok';
+  try {
+    ctx.abortContractVerifiers(contractId, failure.reason);
+  } catch (abortErr) {
+    // phase 1862 Step B (CT-D5): abort failure is an independent execution-
+    // failure fact; it never rides the failed payload.
+    verifierAbort = 'failed';
+    emitVerifierAbortFailed(ctx.audit, { contractId, reason: failure.reason, error: formatErr(abortErr) });
+    emitted.push(CONTRACT_AUDIT_EVENTS.CONTRACT_VERIFIER_ABORT_FAILED);
+  }
+  emitContractFailed(ctx.audit, {
+    contractId,
+    reason: failure.reason,
+    evidenceRef: failure.evidenceRef,
+    producer: failure.producer,
+  });
+  emitted.push(CONTRACT_AUDIT_EVENTS.FAILED);
+  safeNotify(ctx, {
+    type: 'contract_failed',
+    contractId,
+    reason: failure.reason,
+    evidenceRef: failure.evidenceRef,
+    producer: failure.producer,
+  } satisfies ContractNotification);
+  return { contractId, commit, postCommit: { verifierAbort, emitted } };
 }
 
 interface ReconcilePendingIntentsResult {
