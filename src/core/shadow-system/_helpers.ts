@@ -13,6 +13,9 @@ import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../t
 /**
  * Strip trailing incomplete assistant message so subagent LLM doesn't see unpaired tool_uses.
  * phase 1142 mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers（SummonSystem 契约创建子代理）复用 API。
+ *
+ * phase 1865 (SH-D8) 输入不变量：仅用于快照副本——caller 的 main dialog 语义不得被本函数改变；
+ * 本函数不变异输入（返回原数组或浅副本，元素只读不写入）。
  */
 export function stripIncompleteToolUse(msgs: Message[] | undefined): Message[] | undefined {
   if (!msgs || msgs.length === 0) return msgs;

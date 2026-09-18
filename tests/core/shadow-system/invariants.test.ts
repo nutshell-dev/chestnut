@@ -21,7 +21,7 @@ import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/index.js';
 import { NoopAuditWriter } from '../../../src/core/subagent/noop-writers.js';
-import { synthesizeFormB } from '../../../src/core/shadow-system/_helpers.js';
+import { synthesizeFormB, stripIncompleteToolUse } from '../../../src/core/shadow-system/_helpers.js';
 import { SHADOW_INSTRUCTION_PREFIX } from '../../../src/templates/prompts/shadow.js';
 import { createSpawnTool } from '../../../src/core/spawn-system/index.js';
 import { SPAWN_TOOL_NAME } from '../../../src/core/spawn-system/tools/spawn.js';
@@ -271,6 +271,45 @@ describe('shadow-integration', () => {
       expect(result.content).toBe('Done without submit_subtask tool');
       expect(result.metadata?.source).toBe('text');
     });
+  });
+});
+
+describe('stripIncompleteToolUse input invariant (phase 1865 SH-D8)', () => {
+  const data: Message[] = [
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+  ];
+
+  it('剥离尾条 tool_use assistant 且不变异输入（同一性/内容前后一致）', () => {
+    const input: Message[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+    ];
+    const before = JSON.parse(JSON.stringify(input));
+
+    const result = stripIncompleteToolUse(input);
+
+    expect(result).toHaveLength(1);
+    expect(result).not.toBe(input);
+    expect(input).toHaveLength(2);                       // 原数组长度不变
+    expect(JSON.parse(JSON.stringify(input))).toEqual(before);  // 元素只读不写入
+  });
+
+  it('无尾条 tool_use → 原引用返回（不构造副本、亦不变异）', () => {
+    const input: Message[] = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'reply' }];
+    expect(stripIncompleteToolUse(input)).toBe(input);
+  });
+
+  it('undefined / 空数组透传', () => {
+    expect(stripIncompleteToolUse(undefined)).toBeUndefined();
+    const empty: Message[] = [];
+    expect(stripIncompleteToolUse(empty)).toBe(empty);
+  });
+
+  it('快照副本调用方（synthesizeFormB 链）不受影响', () => {
+    const input = [...data];
+    stripIncompleteToolUse(input);
+    expect(input).toHaveLength(data.length);
   });
 });
 
