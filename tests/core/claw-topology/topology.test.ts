@@ -121,6 +121,29 @@ describe('createClawTopology', () => {
     expect(auditWrites.some(e => e[0] === CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR)).toBe(true);
   });
 
+  // phase 1864 Step F（CT-D9）：invalid/incomplete 事实进 snapshot（不静默丢弃）
+  it('enumerateSnapshot 携带 invalid 目录（不静默丢弃）', async () => {
+    await fs.ensureDir('claws/valid-claw');
+    await fs.ensureDir('claws/.trash');
+    const audit = makeAudit();
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const snapshot = topology.enumerateSnapshot();
+    expect(snapshot.valid).toEqual([makeClawId('motion'), makeClawId('valid-claw')]);
+    expect(snapshot.invalid).toEqual([{ dir: '.trash', reason: 'invalid_claw_id_format' }]);
+    expect(auditWrites.filter(e => e[0] === CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR)).toHaveLength(1);
+  });
+
+  // phase 1864 Step F（CT-D9）：claws/ 下同名 motion 目录不产生重复 identity
+  it('enumerateSnapshot 去重 claws/ 下的 motion 目录', async () => {
+    await fs.ensureDir('claws/motion');
+    await fs.ensureDir('claws/claw1');
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const snapshot = topology.enumerateSnapshot();
+    expect(snapshot.valid).toEqual([makeClawId('motion'), makeClawId('claw1')]);
+    expect(snapshot.invalid).toEqual([]);
+    expect(topology.enumerate()).toEqual([...snapshot.valid]);
+  });
+
   it('resolve throws for non-directory claw entry', async () => {
     await fs.ensureDir('claws');
     await fs.writeAtomic('claws/claw-file', 'not a directory');

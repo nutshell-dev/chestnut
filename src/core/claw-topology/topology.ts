@@ -3,7 +3,7 @@ import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-identity/index.
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { makeClawId, CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import type { ClawTopology, ClawTopologyDeps } from './types.js';
+import type { ClawEnumerationSnapshot, ClawTopology, ClawTopologyDeps } from './types.js';
 import { ClawIdResolveError, CrossClawReadError } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
@@ -12,26 +12,36 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
   const { fs, chestnutRoot, audit, motionDir } = deps;
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
 
+  const enumerateSnapshot = (): ClawEnumerationSnapshot => {
+    // phase 944: isolate invalid claw directory names so one bad entry does not
+    // abort enumeration of the remaining valid claws.
+    const rawNames = enumerateClaws(fs, clawsDir);
+    const clawIds: ClawId[] = [];
+    const invalid: { dir: string; reason: string }[] = [];
+    for (const name of rawNames) {
+      // phase 1864 Step F（CT-D9）：claws/ 下同名 motion 目录 = motion identity 自身
+      // 的映射，不产生重复 identity（audit 行不变——现状本就无该行）。
+      if (name === MOTION_CLAW_ID) continue;
+      try {
+        clawIds.push(makeClawId(name));
+      } catch {
+        audit?.write(
+          CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR,
+          `dir=${name}`,
+          'reason=invalid_claw_id_format',
+        );
+        // phase 1864 Step F: 非法项进 snapshot.invalid（不再静默丢弃），继续枚举其余
+        invalid.push({ dir: name, reason: 'invalid_claw_id_format' });
+      }
+    }
+    return { valid: [MOTION_CLAW_ID, ...clawIds], invalid };
+  };
+
   return {
     enumerate() {
-      // phase 944: isolate invalid claw directory names so one bad entry does not
-      // abort enumeration of the remaining valid claws.
-      const rawNames = enumerateClaws(fs, clawsDir);
-      const clawIds: ClawId[] = [];
-      for (const name of rawNames) {
-        try {
-          clawIds.push(makeClawId(name));
-        } catch {
-          audit?.write(
-            CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR,
-            `dir=${name}`,
-            'reason=invalid_claw_id_format',
-          );
-          // skip invalid entry, continue enumerating valid claws
-        }
-      }
-      return [MOTION_CLAW_ID, ...clawIds];
+      return [...enumerateSnapshot().valid] as ClawId[];
     },
+    enumerateSnapshot,
     resolve(clawId) {
       if (clawId === MOTION_CLAW_ID) {
         return { kind: 'local', clawDir: path.join(chestnutRoot, motionDir) };

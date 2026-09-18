@@ -9,6 +9,7 @@ export { resolveClawDaemonDir } from './daemon-dir.js';
 export { createNotifyClawTool } from './tools/notify-claw.js';
 export type {
   ClawTopology,
+  ClawEnumerationSnapshot,
 } from './types.js';
 export {
   createCrossClawReadTool,

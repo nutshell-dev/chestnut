@@ -18,9 +18,24 @@ export interface ClawTopologyDeps {
   motionDir: string;
 }
 
+/**
+ * phase 1864 Step F（CT-D9）：枚举快照——valid 与 invalid 事实并列。
+ *
+ * 非法/损坏目录不再只进 audit 后静默丢弃：snapshot.invalid 携带目录名与原因，
+ * caller 可把部分列表与完整拓扑区分开（design §2 不变量）。
+ */
+export interface ClawEnumerationSnapshot {
+  /** 有效 claw identity（motion 恒在首位；不含 claws/ 下重复的 motion 目录）。 */
+  readonly valid: readonly ClawId[];
+  /** 未通过 identity 校验的 claws/ 目录项（不静默丢弃）。 */
+  readonly invalid: readonly { readonly dir: string; readonly reason: string }[];
+}
+
 export interface ClawTopology {
-  /** 列所有 claws（含 motion） */
+  /** 列所有 claws（含 motion）；= enumerateSnapshot().valid */
   enumerate(): ClawId[];
+  /** phase 1864 Step F（CT-D9）：完整枚举快照（valid + invalid）。 */
+  enumerateSnapshot(): ClawEnumerationSnapshot;
   /** claw_id → 物理位置抽象 */
   resolve(clawId: ClawId): Location;
   /** 跨 claw 读文本 */
