@@ -94,7 +94,6 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
         const clawId = e.name;
         if (deps.clawTrackMap.has(clawId)) continue;
         const location = deps.clawTopology.resolve(makeClawId(clawId));
-        if (location.kind !== 'local') continue;
         const clawDir = location.clawDir;
         // getActiveContractTimestamp 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
         const contractMs = getActiveContractTimestamp(deps.clawsFs, clawDir);
@@ -135,4 +134,3 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
     }
   };
 }
-

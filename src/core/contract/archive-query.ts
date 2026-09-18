@@ -52,8 +52,9 @@ function sortEntries(a: ArchiveQueryEntry, b: ArchiveQueryEntry): number {
  *
  * - Known times are filtered inclusively by `[sinceMs, untilMs]`; unknown entries
  *   are always retained and make the result incomplete.
- * - Per-claw resolve/list failures and remote locations are recorded as issues
- *   and do not empty the result set.
+ * - Per-claw resolve/list failures are recorded as issues and do not empty the
+ *   result set. (phase 1864 Step E / CT-D8: remote location 伪能力已删——单机
+ *   Location 只有 local，不再有 remote 分支。)
  * - Output order is stable by `(clawId, state, contractId)` only; it does not
  *   claim a complete historical ordering.
  */
@@ -78,16 +79,6 @@ export async function queryArchiveContracts(opts: {
         clawId,
         detail: `resolve failed for claw ${clawId}`,
         cause: err,
-      });
-      incomplete = true;
-      continue;
-    }
-
-    if (location.kind !== 'local') {
-      issues.push({
-        code: 'remote_claw_unsupported',
-        clawId,
-        detail: `claw ${clawId} is remote; archive query is local-only`,
       });
       incomplete = true;
       continue;

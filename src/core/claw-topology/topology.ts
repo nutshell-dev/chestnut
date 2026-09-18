@@ -54,9 +54,6 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
     },
     async read(clawId, relPath) {
       const location = this.resolve(clawId);
-      if (location.kind !== 'local') {
-        throw new CrossClawReadError(clawId, relPath, 'remote location not supported in single-host mode');
-      }
       // Resolve the full path within clawspace, then check it's contained within clawDir.
       const absPath = path.resolve(path.join(location.clawDir, CLAWSPACE_DIR, relPath));
       const clawspaceRoot = path.resolve(path.join(location.clawDir, CLAWSPACE_DIR)) + path.sep;

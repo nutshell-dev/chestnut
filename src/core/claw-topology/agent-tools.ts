@@ -84,12 +84,6 @@ export function createCrossClawReadTool(deps: CrossClawToolDeps): Tool {
       if (validation) return validation;
       try {
         const location = deps.topology.resolve(makeClawId(clawParam));
-        if (location.kind !== 'local') {
-          return {
-            success: false,
-            content: `Error: remote claw "${clawParam}" not supported in single-host mode.`,
-          };
-        }
         const targetCtx = buildTargetCtx(ctx, location.clawDir);
         return readTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
@@ -144,12 +138,6 @@ export function createCrossClawLsTool(deps: CrossClawToolDeps): Tool {
       if (validation) return validation;
       try {
         const location = deps.topology.resolve(makeClawId(clawParam));
-        if (location.kind !== 'local') {
-          return {
-            success: false,
-            content: `Error: remote claw "${clawParam}" not supported in single-host mode.`,
-          };
-        }
         const targetCtx = buildTargetCtx(ctx, location.clawDir);
         return lsTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
@@ -241,7 +229,6 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
           }
           try {
             const location = deps.topology.resolve(clawId);
-            if (location.kind !== 'local') continue;
             const targetCtx = buildTargetCtx(ctx, location.clawDir);
             const result = await searchTool.execute(stripClaw(args), targetCtx);
             results.push({ clawId, result });
@@ -267,12 +254,6 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
       if (validation) return validation;
       try {
         const location = deps.topology.resolve(makeClawId(clawParam));
-        if (location.kind !== 'local') {
-          return {
-            success: false,
-            content: `Error: remote claw "${clawParam}" not supported in single-host mode.`,
-          };
-        }
         const targetCtx = buildTargetCtx(ctx, location.clawDir);
         return searchTool.execute(stripClaw(args), targetCtx);
       } catch (err) {

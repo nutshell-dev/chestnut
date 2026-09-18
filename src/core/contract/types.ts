@@ -430,7 +430,6 @@ export type ArchiveTime =
 type ArchiveQueryIssueCode =
   | ArchiveTimeUnknownReason
   | 'claw_resolve_failed'
-  | 'remote_claw_unsupported'
   | 'archive_list_failed';
 
 export interface ArchiveQueryIssue {

@@ -79,9 +79,6 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
         return { descriptors: [textLine('\x1b[31m', '[attach] usage: /attach <clawId>')] };
       }
       const location = deps.clawTopology.resolve(makeClawId(clawId));
-      if (location.kind !== 'local') {
-        return { descriptors: [textLine('\x1b[31m', `[attach] claw "${clawId}" remote location not supported`)] };
-      }
       const clawDir = location.clawDir;
       if (!deps.fs.existsSync(clawDir)) {
         return { descriptors: [textLine('\x1b[31m', `[attach] claw "${clawId}" not found`)] };

@@ -2,10 +2,13 @@ import type { ClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
-/** claw 物理位置 discriminated union（单机 = local、未来分布式 = remote） */
-export type Location =
-  | { kind: 'local'; clawDir: string }
-  | { kind: 'remote'; endpoint: string }; // 占位、future distributed phase
+/**
+ * claw 物理位置 discriminated union。
+ *
+ * phase 1864 Step E（CT-D8）：remote 伪能力删除——单机实现只有 local 成员；
+ * `kind` 判别保留为未来（真正实现分布式时）的扩展缝，不留占位分支。
+ */
+export type Location = { kind: 'local'; clawDir: string };
 
 export interface ClawTopologyDeps {
   fs: FileSystem;

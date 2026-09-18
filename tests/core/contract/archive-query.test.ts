@@ -267,32 +267,6 @@ describe('queryArchiveContracts', () => {
     expect(issue?.cause).toBe(err);
   });
 
-  it('records remote_claw_unsupported issue and keeps local entries', async () => {
-    await makeClaw('c1');
-    await writeCurrentArchive('c1', 'completed', 'ok');
-    await writeAudit('c1', [terminalRow('ok', 'completed', 1, '2026-07-19T10:00:00.000Z')]);
-
-    const topology: Pick<ClawTopology, 'resolve'> = {
-      resolve: (clawId: ClawId): Location => {
-        if (clawId === 'r1') return { kind: 'remote', endpoint: 'https://example.invalid' };
-        return { kind: 'local', clawDir: clawDir(clawId) };
-      },
-    };
-
-    const result = await queryArchiveContracts({
-      fs: fsRoot(),
-      clawTopology: topology,
-      clawIds: ids('r1', 'c1'),
-    });
-
-    expect(result.entries).toHaveLength(1);
-    expect(result.entries[0].contractId).toBe('ok');
-    expect(result.incomplete).toBe(true);
-    const issue = result.issues.find(i => i.code === 'remote_claw_unsupported');
-    expect(issue).toBeDefined();
-    expect(issue?.clawId).toBe('r1');
-  });
-
   it('continues other claws when one archive list fails', async () => {
     await makeClaw('good');
     await makeClaw('bad');

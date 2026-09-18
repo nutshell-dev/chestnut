@@ -57,7 +57,6 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
 
     try {
       const location = clawTopology.resolve(clawId);
-      if (location.kind !== 'local') continue;
 
       const files = await outboxReader.listClawOutboxPending(location.clawDir);
       if (files.length === 0) continue;
