@@ -2,12 +2,11 @@
  * AsyncTaskSystem 装配依赖冻结测试 (phase 1863 AT-D4)
  *
  * Coverage:
- * - initialize 前：三 setter 可调用（装配窗口）
- * - initialize 后：三 setter 各 throw（依赖面冻结）
+ * - initialize 前：setter 可调用（装配窗口）
+ * - initialize 后：setter 各 throw（依赖面冻结）
  * - initialize 幂等重入：冻结语义不变
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import type { StreamLog } from '../../../src/foundation/stream/index.js';
 import type { PostProcessor } from '../../../src/core/async-task-system/post-processors/types.js';
 import { createTestTaskSystem } from '../../helpers/task-system.js';
@@ -35,17 +34,16 @@ describe('AsyncTaskSystem dependency freeze (phase 1863 AT-D4)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('装配窗口（initialize 前）三 setter 可调用', () => {
+  it('装配窗口（initialize 前）setter 可调用', () => {
+    // phase 1863 (AT-D5)：setMainDialogStore 随 dead pass-through 删除（装配面收窄）
     system.addPostProcessor('p-window', makeProcessor());
-    system.setMainDialogStore({} as unknown as DialogStore);
     system.setParentStreamLog({ write: vi.fn() } as unknown as StreamLog);
   });
 
-  it('initialize 后三 setter 各 throw（依赖面冻结）', async () => {
+  it('initialize 后 setter 各 throw（依赖面冻结）', async () => {
     await system.initialize();
 
     expect(() => system.addPostProcessor('p-late', makeProcessor())).toThrow(FROZEN_RE);
-    expect(() => system.setMainDialogStore({} as unknown as DialogStore)).toThrow(FROZEN_RE);
     expect(() => system.setParentStreamLog({ write: vi.fn() } as unknown as StreamLog)).toThrow(FROZEN_RE);
   });
 

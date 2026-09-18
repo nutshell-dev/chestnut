@@ -117,9 +117,7 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
 
   it('executeSubAgentTask failure sends exactly one is_error=true result to parentClawId', async () => {
     const task = makeSubAgentTask();
-    const sendResult = vi.fn().mockResolvedValue(undefined);
-    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
-    const writeInboxAsync = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
@@ -127,38 +125,30 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
       fs: makeFs(),
       fsFactory: vi.fn().mockReturnValue(makeFs()),
       auditWriter: makeMockAudit(),
-      llm: {} as LLMOrchestrator,
-      registry: makeRegistry(),
       clawDir: '/tmp/test-claw',
       postProcessors: new Map(),
       moveTaskToDone,
       moveTaskToFailed,
-      runSubagent: vi.fn().mockRejectedValue(new Error('subagent died')),
-      sendResult,
-      sendFallbackResult,
-      writeInboxAsync,
+      // phase 1863 (AT-D5)：execution/delivery 经最小面注入
+      taskExecutor: { execute: async () => ({ content: 'subagent died', sourceIsError: true, errorCategory: 'Error' }) },
+      deliverySink: { deliver },
     });
 
     expect(moveTaskToFailed).toHaveBeenCalledTimes(1);
     expect(moveTaskToFailed).toHaveBeenCalledWith(task.id);
     expect(moveTaskToDone).not.toHaveBeenCalled();
 
-    expect(sendResult).toHaveBeenCalledTimes(1);
-    const [, , sentTask, sentEnvelope] = sendResult.mock.calls[0];
+    expect(deliver).toHaveBeenCalledTimes(1);
+    const [sentTask, sentEnvelope] = deliver.mock.calls[0];
     expect(sentTask).toBe(task);
     expect(sentTask.parentClawId).toBe('caller-claw');
     expect(sentEnvelope.content).toContain('subagent died');
     expect(sentEnvelope.isError).toBe(true);
-
-    expect(sendFallbackResult).not.toHaveBeenCalled();
-    expect(writeInboxAsync).not.toHaveBeenCalled();
   });
 
-  it('executeSubAgentTask leaves task in running when sendResult itself throws', async () => {
+  it('executeSubAgentTask leaves task in running when delivery throws', async () => {
     const task = makeSubAgentTask();
-    const sendResult = vi.fn().mockRejectedValue(new Error('inbox full'));
-    const sendFallbackResult = vi.fn().mockResolvedValue(undefined);
-    const writeInboxAsync = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockRejectedValue(new Error('inbox full'));
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
@@ -166,24 +156,18 @@ describe('AsyncTaskSystem failure owner boundary (phase 1396 Step G)', () => {
       fs: makeFs(),
       fsFactory: vi.fn().mockReturnValue(makeFs()),
       auditWriter: makeMockAudit(),
-      llm: {} as LLMOrchestrator,
-      registry: makeRegistry(),
       clawDir: '/tmp/test-claw',
       postProcessors: new Map(),
       moveTaskToDone,
       moveTaskToFailed,
-      runSubagent: vi.fn().mockRejectedValue(new Error('subagent died')),
-      sendResult,
-      sendFallbackResult,
-      writeInboxAsync,
+      taskExecutor: { execute: async () => ({ content: 'subagent died', sourceIsError: true, errorCategory: 'Error' }) },
+      deliverySink: { deliver },
     });
 
     // Phase 1396 Step J: delivery failure does not fallback or move; the committed
     // envelope stays on disk and startup recovery will resend it.
-    expect(sendResult).toHaveBeenCalledTimes(1);
-    expect(sendFallbackResult).not.toHaveBeenCalled();
+    expect(deliver).toHaveBeenCalledTimes(1);
     expect(moveTaskToDone).not.toHaveBeenCalled();
     expect(moveTaskToFailed).not.toHaveBeenCalled();
-    expect(writeInboxAsync).not.toHaveBeenCalled();
   });
 });

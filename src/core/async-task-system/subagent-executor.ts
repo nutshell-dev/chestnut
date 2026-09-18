@@ -1,15 +1,10 @@
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
-import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 
-import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/tools/index.js';
-import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 
 import { STREAM_TASK_EVENTS } from './stream-events.js';
-import { classifyTaskError } from './_helpers.js';
 import {
   emitTaskCompleted,
   emitHandlerFailed,
@@ -23,62 +18,37 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
   POST_PROCESS_INPUT_FILE,
 } from './dirs.js';
-import { TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import { createProcessedResultStore } from './processed-result-store.js';
-import * as nodePath from 'path';
 
-import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
-import { sendResult as defaultSendResult } from './result-delivery.js';
-import type { SendResult, SendFallbackResult, WriteInboxAsync, ResultDeliveryDeps, ProcessedTaskResult } from './result-delivery-types.js';
+import type { ProcessedTaskResult } from './result-delivery-types.js';
 
 import type { PostProcessor } from './post-processors/types.js';
-import type { SubAgentTask, ToolTask, FullTaskId, ExecutorPayloadAdapter } from './types.js';
+import type { SubAgentTask, FullTaskId, TaskExecutor, DeliverySink } from './types.js';
 import { taskShortId } from './types.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
 
+
+
+
+
 /**
- * phase 1863 (AT-D8)：profile 全由显式 toolProfile 决定（不再从 caller 身份派生——
- * 执行裁决去 callerType 化）。缺失时按 standard subagent 默认 + INVARIANT_VIOLATION 留痕。
+ * phase 1863 (AT-D5)：deps 收窄为最小执行/交付面 + ATS 自有生命周期面。
+ * 执行业务装配（LLM/registry/runSubagent/payload 解释）归 TaskExecutor 实现方；
+ * 交付归 DeliverySink；本接口只留 ATS 自有的持久化/处理器/生命周期能力。
  */
-function resolveTaskToolProfile(task: SubAgentTask, auditWriter: AuditLog): string {
-  if (task.toolProfile) return task.toolProfile;
-  const profile = 'subagent';
-  auditWriter.write(
-    TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
-    'site=async-task-system/subagent-executor:resolveTaskToolProfile',
-    'kind=legacy_task_missing_tool_profile',
-    `taskId=${task.id}`,
-    `derived_profile=${profile}`,
-  );
-  return profile;
-}
-
-
-
-
-
-/** M9: 闭包 ≥ 6 依赖 → deps interface */
 interface ExecuteSubAgentTaskDeps {
   fs: FileSystem;
   fsFactory: (baseDir: string) => FileSystem;
   auditWriter: AuditLog;
-  llm: LLMOrchestrator;
-  registry: ToolRegistry;
   clawDir: string;
   parentStreamLog?: StreamLog;
   postProcessors: Map<string, PostProcessor>;
-  mainDialogStore?: DialogStore;
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
-  toolTimeoutMs?: number;
-  permissionChecker?: PermissionChecker;
-  /** phase 1863 (AT-D7)：executor payload 解释面（装配注入；owner 提供）。 */
-  executorPayloadAdapter?: ExecutorPayloadAdapter;
-  runSubagent?: typeof defaultRunSubagent;
-  sendResult?: SendResult<SubAgentTask>;
-  sendFallbackResult?: SendFallbackResult<SubAgentTask | ToolTask>;
-  writeInboxAsync?: WriteInboxAsync;
+  /** phase 1863 (AT-D5)：最小执行面（装配注入；owner 提供）。 */
+  taskExecutor: TaskExecutor;
+  /** phase 1863 (AT-D5)：最小交付面（装配注入）。 */
+  deliverySink: DeliverySink;
 }
 
 /**
@@ -211,10 +181,8 @@ export async function executeSubAgentTask(
   signal: AbortSignal,
   deps: ExecuteSubAgentTaskDeps,
 ): Promise<void> {
-  const { fs, fsFactory, auditWriter, llm, registry, clawDir, parentStreamLog, postProcessors, moveTaskToDone, moveTaskToFailed } = deps;
-  const sendResult = deps.sendResult ?? defaultSendResult;
+  const { fs, fsFactory, auditWriter, clawDir, parentStreamLog, postProcessors, moveTaskToDone, moveTaskToFailed } = deps;
   const taskStartTime = Date.now();
-  const resultDeliveryDeps: ResultDeliveryDeps = { writeInboxAsync: deps.writeInboxAsync };
 
   // outcome: 'done'|'failed' = terminal move performed; undefined = leave in
   // running for recovery (delivery or processor deferral).
@@ -240,78 +208,21 @@ export async function executeSubAgentTask(
   });
 
   try {
-    // Phase 1 — execution: produce {content, sourceIsError}; execution failure
-    // is recorded in audit here and becomes processor input, never delivered
-    // directly and never reclassified by a later phase's failure.
-    let source: { content: string; sourceIsError: boolean };
-    let execErrorCategory: string | undefined;
-    try {
-
-    // Build per-task registry filtered by caller profile.
-    // phase 1863 (AT-D7)：executor payload 语义归 owner——ATS 只把 opaque payload 交给装配注入
-    // 的 adapter 解释（不含任何上层模式枚举/解释）。
-    const interpretation = deps.executorPayloadAdapter?.(task.executorPayload);
-    const subagentProfile = resolveTaskToolProfile(task, auditWriter);
-    const effectiveRegistry = (() => {
-      const r = createPerTaskRegistry(registry, subagentProfile);
-
-      // Phase 815/816: 受限执行（如 shadow）经 owner 解释面声明 applyRestrictedOverrides
-      if (interpretation?.applyRestrictedOverrides) {
-        applyRestrictedOverrides(r, registry);
-      }
-
-      return r;
-    })();
-
-    const toolsForLLM = registry.formatForLLM(effectiveRegistry.getAll());
-
-    const finalSystemPrompt = buildSubagentSystemPrompt({
-      taskId: task.id,
-      callerClawId: task.parentClawId,
-      subagentsDir: TASKS_SUBAGENTS_DIR,
-      systemPrompt: task.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT,
-    });
-
-    // phase 1373 sub-5: task abort signal cascade to runSubagent
-    const compositeSignal = AbortSignal.any?.([signal].filter(Boolean)) ?? signal;
-
-    const { text, capturedResult } = await (deps.runSubagent ?? defaultRunSubagent)({
-      agentId: task.id,
-      toolProfile: subagentProfile,
-      clawDir,
+    // Phase 1 — execution：经最小执行面（TaskExecutor）产出 {content, sourceIsError}。
+    // 执行失败在 executor 实现方留痕（handler_failed）并成为 processor input，
+    // 不经本层投递、不被后续阶段的失败重新分类。
+    // phase 1863 (AT-D5)：LLM/registry/runSubagent/payload 解释装配归 executor 实现方。
+    const execution = await deps.taskExecutor.execute(task, signal, {
       fs,
       fsFactory,
-      llm,
-      registry: effectiveRegistry,
-      prompt: interpretation?.prompt ?? task.intent,
-      systemPrompt: interpretation?.systemPrompt ?? finalSystemPrompt,
-      resultDir: taskResultDir,
-      syncDir: nodePath.join(clawDir, TASKS_SYNC_DIR),
-      maxSteps: task.maxSteps,
-      signal: compositeSignal,
-      toolsForLLM,
-      timeoutMs: task.timeoutMs,
-      toolTimeoutMs: deps.toolTimeoutMs,
-      permissionChecker: deps.permissionChecker,
-      messages: interpretation?.messages,
-      resultTool: interpretation?.resultTool,
+      auditWriter,
+      clawDir,
     });
-
-      const displayResult = getDisplayResult(text, capturedResult);
-      source = { content: displayResult, sourceIsError: false };
-    } catch (error) {
-      const errorMsg = formatErr(error);
-      execErrorCategory = classifyTaskError(error);
-      // The original execution error is preserved in audit even when the
-      // business outcome is later recovered by a post-processor.
-      emitHandlerFailed(auditWriter, {
-        fullTaskId: task.id as FullTaskId,
-        shortTaskId: taskShortId(task),
-        parent: task.parentClawId,
-        error: errorMsg,
-      });
-      source = { content: errorMsg, sourceIsError: true };
-    }
+    const source: { content: string; sourceIsError: boolean } = {
+      content: execution.content,
+      sourceIsError: execution.sourceIsError,
+    };
+    const execErrorCategory = execution.errorCategory;
 
     // Phase 2 — persist durable post-process input. Failure leaves the task in
     // running; nothing has been committed yet, so recovery re-executes.
@@ -398,8 +309,9 @@ export async function executeSubAgentTask(
     // Phase 5 — deliver. A delivery failure only affects delivery status: the
     // committed envelope/content/isError stay untouched, the task stays in
     // running, and startup recovery resends the committed envelope.
+    // phase 1863 (AT-D5)：投递经最小交付面（DeliverySink）。
     try {
-      await sendResult(fs, auditWriter, task, envelope, resultDeliveryDeps);
+      await deps.deliverySink.deliver(task, envelope, { fs, auditWriter });
     } catch (deliveryErr) {
       emitResultDeliveryFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,

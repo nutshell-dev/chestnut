@@ -20,6 +20,7 @@ import { makeFullTaskId, deriveShortIdFromTaskId } from '../../../src/core/async
 import type { ShortIdIndex, AsyncTaskSystemOptions, SubAgentTask } from '../../../src/core/async-task-system/types.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { executeSubAgentTask } from '../../../src/core/async-task-system/subagent-executor.js';
+import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -542,6 +543,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       createdAt: new Date().toISOString(),
     };
 
+    // phase 1863 (AT-D5)：signal cascade 属执行面——经 adapter（最小执行面实现）验证
     await executeSubAgentTask(task, abortController.signal, {
       fs: {
         ensureDirSync: vi.fn(),
@@ -554,18 +556,21 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       } as any,
       fsFactory: vi.fn().mockReturnValue({} as any),
       auditWriter: makeMockAudit(),
-      llm: {} as any,
-      registry: {
-        formatForLLM: vi.fn().mockReturnValue([]),
-        getAll: vi.fn().mockReturnValue([]),
-        get: vi.fn().mockReturnValue(undefined),
-        getForProfile: vi.fn().mockReturnValue([]),
-      } as any,
       clawDir: '/tmp/test',
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      runSubagent: mockRunSubagent,
+      taskExecutor: createSubagentTaskExecutor({
+        llm: {} as any,
+        registry: {
+          formatForLLM: vi.fn().mockReturnValue([]),
+          getAll: vi.fn().mockReturnValue([]),
+          get: vi.fn().mockReturnValue(undefined),
+          getForProfile: vi.fn().mockReturnValue([]),
+        } as any,
+        runSubagent: mockRunSubagent,
+      }),
+      deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
     });
 
     expect(mockRunSubagent).toHaveBeenCalled();
@@ -590,6 +595,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       createdAt: new Date().toISOString(),
     };
 
+    // phase 1863 (AT-D5)：signal cascade 属执行面——经 adapter（最小执行面实现）验证
     await executeSubAgentTask(task, abortController.signal, {
       fs: {
         ensureDirSync: vi.fn(),
@@ -602,18 +608,21 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       } as any,
       fsFactory: vi.fn().mockReturnValue({} as any),
       auditWriter: makeMockAudit(),
-      llm: {} as any,
-      registry: {
-        formatForLLM: vi.fn().mockReturnValue([]),
-        getAll: vi.fn().mockReturnValue([]),
-        get: vi.fn().mockReturnValue(undefined),
-        getForProfile: vi.fn().mockReturnValue([]),
-      } as any,
       clawDir: '/tmp/test',
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      runSubagent: mockRunSubagent,
+      taskExecutor: createSubagentTaskExecutor({
+        llm: {} as any,
+        registry: {
+          formatForLLM: vi.fn().mockReturnValue([]),
+          getAll: vi.fn().mockReturnValue([]),
+          get: vi.fn().mockReturnValue(undefined),
+          getForProfile: vi.fn().mockReturnValue([]),
+        } as any,
+        runSubagent: mockRunSubagent,
+      }),
+      deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
     });
 
     expect(mockRunSubagent).toHaveBeenCalled();

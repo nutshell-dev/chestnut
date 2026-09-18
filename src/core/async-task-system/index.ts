@@ -30,6 +30,11 @@ export type {
   ShortIdIndex,
   ExecutorPayloadAdapter,
   ExecutorPayloadInterpretation,
+  TaskExecutor,
+  TaskExecutionRuntime,
+  TaskExecutionOutcome,
+  DeliverySink,
+  TaskDeliveryRuntime,
 } from './types.js';
 export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';
@@ -58,6 +63,10 @@ export {
 } from './dirs.js';
 
 export { classifyTaskError } from './_helpers.js';
+export { createStandardDeliverySink } from './result-delivery.js';
+// phase 1863 (AT-D5)：executor adapter 消费面（执行留痕 + shortId 派生）
+export { emitHandlerFailed } from './audit-emit.js';
+export { taskShortId } from './types.js';
 
 // phase 481: TASK_AUDIT_EVENTS barrel re-export
 export { TASK_AUDIT_EVENTS } from './audit-events.js';

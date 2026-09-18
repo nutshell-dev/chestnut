@@ -6,20 +6,17 @@
 
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 
 import { uuidToShort } from '../../foundation/node-utils/index.js';
 import type { SummonDecisionMetadata } from './task-schemas.js';
-import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
+import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync, ProcessedTaskResult } from './result-delivery-types.js';
 
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
 // 「物理迁自 core/async-task-system/types.ts」(phase 1365)
@@ -110,25 +107,22 @@ export interface AsyncTaskSystemOptions {
   retryBaseDelayMs?: number;
   parentStreamLog?: StreamLog;
 
-  llm: LLMOrchestrator;
+  /**
+   * phase 1863 (AT-D5)：最小执行面（装配期注入；LLM/registry/runSubagent 归实现方 adapter）。
+   */
+  taskExecutor: TaskExecutor;
+  /**
+   * phase 1863 (AT-D5)：最小交付面（装配期注入；标准实现见 result-delivery.createStandardDeliverySink）。
+   */
+  deliverySink: DeliverySink;
   /**
    * Self inbox for overflow notification (本 daemon 自家 inbox).
    * phase 37: rename from `motionInbox` 命名 hygiene (实际是本 daemon 自家、
    * worker case 不写 motion inbox)。motion daemon: 写 motion 自家; worker daemon: 写 worker 自家.
    */
   selfInbox?: InboxWriter;
-  // main dialog store ref for subagent context restoration
-  mainDialogStore?: DialogStore;
   registry: ToolRegistry;     // NEW: caller 注入填充好的 registry / Assembly own 装配
-  /** Tool-level wall-clock timeout inherited from globalConfig.tool_timeout_ms (phase 1029 / F-2) */
-  toolTimeoutMs?: number;
-  permissionChecker?: PermissionChecker;
   fsFactory: (baseDir: string) => FileSystem;
-  /**
-   * phase 1863 (AT-D7)：executor payload 解释面（装配期注入，owner 提供；ATS 不透语义）。
-   * 未注入或 payload 无匹配 → 走 standard 路径（task.intent + 默认 systemPrompt）。
-   */
-  executorPayloadAdapter?: ExecutorPayloadAdapter;
   /** phase 849: shortId ↔ fullId index for dual-key task IDs */
   shortIdIndex: ShortIdIndex;
   /** phase 86: optional WatcherFactory for DI (test mock injection) */
@@ -179,6 +173,45 @@ interface CommonSubAgentTaskFields {
 // phase 1863 (AT-D7): 去 standard/shadow discriminated union——mode 降为 opaque 可选字段
 // （ATS 不再枚举上层模式；legacy 'standard'/'shadow' 值读取容忍、不解释）。
 export type SubAgentTask = CommonSubAgentTaskFields & { intent: string; mode?: string };
+
+/**
+ * phase 1863 (AT-D5)：执行/交付 runtime 上下文——核心基础设施（fs/audit/clawDir），由 ATS 转交。
+ */
+export interface TaskExecutionRuntime {
+  readonly fs: FileSystem;
+  readonly fsFactory: (baseDir: string) => FileSystem;
+  readonly auditWriter: AuditLog;
+  readonly clawDir: string;
+}
+
+/** phase 1863 (AT-D5)：单次执行产出（成败经 typed outcome 返回、不抛控制流）。 */
+export interface TaskExecutionOutcome {
+  readonly content: string;
+  readonly sourceIsError: boolean;
+  /** 失败分类（classifyTaskError 产物；成功时缺省）。 */
+  readonly errorCategory?: string;
+}
+
+/**
+ * phase 1863 (AT-D5)：最小执行面——ATS 只持有并调用；业务装配（LLM/registry/runSubagent/
+ * payload 解释）归 executor 实现方（owner 侧 adapter，装配期注入）。
+ */
+export interface TaskExecutor {
+  execute(task: SubAgentTask, signal: AbortSignal, runtime: TaskExecutionRuntime): Promise<TaskExecutionOutcome>;
+}
+
+/** phase 1863 (AT-D5)：交付 runtime 上下文（核心基础设施；writeInboxAsync 绑在 sink 构造）。 */
+export interface TaskDeliveryRuntime {
+  readonly fs: FileSystem;
+  readonly auditWriter: AuditLog;
+}
+
+/**
+ * phase 1863 (AT-D5)：最小交付面——subagent envelope 投递；失败抛错由调用方留 running。
+ */
+export interface DeliverySink {
+  deliver(task: SubAgentTask, envelope: ProcessedTaskResult, runtime: TaskDeliveryRuntime): Promise<void>;
+}
 
 /**
  * phase 1863 (AT-D7)：executor payload 解释结果——owner 语义映射为通用执行参数。
@@ -271,9 +304,10 @@ export type TaskKind = SubAgentTask['kind'] | ToolTask['kind'];
 
 /**
  * Strategy entry: dispatches the body of a task after movePendingToRunning.
- * Stored in AsyncTaskSystem.executors: Record<TaskKind, TaskExecutor>.
+ * Stored in AsyncTaskSystem.executors: Record<TaskKind, TaskDispatchFn>.
+ * （phase 1863 AT-D5：原名 TaskExecutor；执行面接口 TaskExecutor 为装配注入的最小执行面）
  */
-export type TaskExecutor = (
+export type TaskDispatchFn = (
   task: SubAgentTask | ToolTask,
   signal: AbortSignal,
 ) => Promise<void>;

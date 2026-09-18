@@ -11,7 +11,8 @@ import {
 } from './audit-emit.js';
 import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 
-import type { SubAgentTask, ToolTask, FullTaskId, ShortTaskId } from './types.js';
+import type { SubAgentTask, ToolTask, FullTaskId, ShortTaskId, DeliverySink } from './types.js';
+import type { WriteInboxAsync } from './result-delivery-types.js';
 import { deriveShortIdFromTaskId, taskShortId } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { TaskId } from './types.js';
@@ -248,6 +249,18 @@ export async function sendResult(
     auditContexts: { initialWrite: 'send_result_write', orphanDelete: 'orphan_delete_send' },
     deps,
   });
+}
+
+/**
+ * phase 1863 (AT-D5)：标准交付面实现——DeliverySink 的 ATS 侧默认（sendResult 语义）。
+ * writeInboxAsync 在此绑定（与 recovery/overflow 共用的注入值一致）。
+ */
+export function createStandardDeliverySink(opts?: { writeInboxAsync?: WriteInboxAsync }): DeliverySink {
+  return {
+    async deliver(task, envelope, runtime) {
+      await sendResult(runtime.fs, runtime.auditWriter, task, envelope, { writeInboxAsync: opts?.writeInboxAsync });
+    },
+  };
 }
 
 /**

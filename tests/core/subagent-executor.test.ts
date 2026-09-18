@@ -7,6 +7,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
+import { createSubagentTaskExecutor } from '../../src/assembly/subagent-task-executor.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../src/templates/prompts/subagent.js';
 import type { SubAgentTask } from '../../src/core/async-task-system/system.js';
 import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../helpers/test-timeouts.js';
@@ -69,7 +70,23 @@ function makeDeps() {
     postProcessors: new Map(),
     moveTaskToDone: vi.fn().mockResolvedValue(undefined),
     moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-    runSubagent: mockRunSubagent,
+    // phase 1863 (AT-D5)：执行经最小面（real adapter + runSubagent mock）；交付 stub
+    taskExecutor: createSubagentTaskExecutor({
+      llm: {
+        call: vi.fn(),
+        stream: vi.fn(),
+        close: vi.fn(),
+        healthCheck: vi.fn().mockResolvedValue(true),
+        getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
+      } as unknown as import('../../src/foundation/llm-orchestrator/index.js').LLMOrchestrator,
+      registry: {
+        getAll: vi.fn().mockReturnValue([]),
+        formatForLLM: vi.fn().mockReturnValue([]),
+        getForProfile: vi.fn().mockReturnValue([]),
+      } as unknown as import('../../src/foundation/tools/index.js').ToolRegistry,
+      runSubagent: mockRunSubagent,
+    }),
+    deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
     parentStreamLog,
   };
 }

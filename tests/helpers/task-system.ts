@@ -5,6 +5,8 @@ import type { ContractSystem } from '../../src/core/contract/manager.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { AsyncTaskSystem, type AsyncTaskSystemOptions } from '../../src/core/async-task-system/system.js';
+import { createStandardDeliverySink } from '../../src/core/async-task-system/index.js';
+import { createSubagentTaskExecutor } from '../../src/assembly/subagent-task-executor.js';
 import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../src/core/async-task-system/index.js';
@@ -17,9 +19,14 @@ export function makeTestRegistry(): ToolRegistryImpl {
 
 export function makeTaskSystemDeps(
   llm?: LLMOrchestrator,
-): Pick<AsyncTaskSystemOptions, 'llm' | 'contractManager' | 'registry'> {
+): Pick<AsyncTaskSystemOptions, 'taskExecutor' | 'deliverySink' | 'contractManager' | 'registry'> {
   return {
-    llm: llm ?? ({} as unknown as LLMOrchestrator),
+    // phase 1863 (AT-D5)：最小执行/交付面——测试默认装配（真实 adapter + 标准 sink）
+    taskExecutor: createSubagentTaskExecutor({
+      llm: llm ?? ({} as unknown as LLMOrchestrator),
+      registry: makeTestRegistry(),
+    }),
+    deliverySink: createStandardDeliverySink(),
     contractManager: {
       loadPaused: vi.fn(),
       resume: vi.fn(),

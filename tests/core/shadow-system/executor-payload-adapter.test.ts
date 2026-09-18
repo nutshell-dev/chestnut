@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { executeSubAgentTask } from '../../../src/core/async-task-system/subagent-executor.js';
 import { interpretShadowExecutorPayload, buildShadowPayload } from '../../../src/core/shadow-system/index.js';
+import { createSubagentTaskExecutor } from '../../../src/assembly/subagent-task-executor.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
@@ -72,15 +73,18 @@ describe('executor payload adapter (phase 1863 AT-D7)', () => {
       fs: nodeFs,
       fsFactory: () => nodeFs,
       auditWriter: audit.audit,
-      llm: {} as unknown as LLMOrchestrator,
-      registry,
       clawDir: tempDir,
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      executorPayloadAdapter: interpretShadowExecutorPayload,
-      runSubagent: mockRunSubagent,
-      sendResult: vi.fn().mockResolvedValue(undefined),
+      // phase 1863 (AT-D5)：执行经最小面（real adapter + runSubagent mock）；交付 stub
+      taskExecutor: createSubagentTaskExecutor({
+        llm: {} as unknown as LLMOrchestrator,
+        registry,
+        executorPayloadAdapter: interpretShadowExecutorPayload,
+        runSubagent: mockRunSubagent,
+      }),
+      deliverySink: { deliver: vi.fn().mockResolvedValue(undefined) },
     };
   }
 

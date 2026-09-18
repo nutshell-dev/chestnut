@@ -11,7 +11,8 @@ import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR, interpretShadowExecutorPayload } from '../core/shadow-system/index.js';
 import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
-import { createAsyncTaskSystem } from '../core/async-task-system/index.js';
+import { createAsyncTaskSystem, createStandardDeliverySink } from '../core/async-task-system/index.js';
+import { createSubagentTaskExecutor } from './subagent-task-executor.js';
 import { PersistentShortIdIndex, type AsyncTaskSystem } from '../core/async-task-system/index.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
@@ -135,6 +136,16 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   const selfInbox = InboxWriter.__internal_create(systemFs, makeInboxPath(selfInboxDir), auditWriter, messagingLimits);
 
   // --- 9. AsyncTaskSystem（仅构造，不调 initialize / startDispatch；业务动作归 Runtime） ---
+  // phase 1863 (AT-D5)：执行/交付 adapter 在装配层构造（核心只持最小接口）
+  const subagentTaskExecutor = createSubagentTaskExecutor({
+    llm,
+    registry: toolRegistry,
+    toolTimeoutMs,
+    permissionChecker,
+    // phase 1863 (AT-D7)：executor payload 语义归 shadow owner——装配注入解释面
+    executorPayloadAdapter: interpretShadowExecutorPayload,
+  });
+  const deliverySink = createStandardDeliverySink();
   // Phase 849: dual-key shortId ↔ fullId index
   const shortIdIndex = new PersistentShortIdIndex(systemFs);
   let taskSystem: AsyncTaskSystem;
@@ -142,15 +153,13 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     taskSystem = createAsyncTaskSystem(clawDir, systemFs, {
       maxConcurrent,
       auditWriter,
-      llm,
       registry: toolRegistry,
-      toolTimeoutMs,
-      permissionChecker,
       selfInbox,
       fsFactory,
-      // phase 1863 (AT-D7)：executor payload 语义归 shadow owner——装配注入解释面
-      executorPayloadAdapter: interpretShadowExecutorPayload,
       shortIdIndex,
+      // phase 1863 (AT-D5)：最小执行/交付面——业务装配收口于 adapter
+      taskExecutor: subagentTaskExecutor,
+      deliverySink,
     });
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -314,7 +323,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     throw new Error(`Assembly: DialogStore construct failed: ${formatErr(e)}`, { cause: e });
   }
 
-  taskSystem.setMainDialogStore(sessionManager);
 
   let inboxReader: InboxReader;
   try {

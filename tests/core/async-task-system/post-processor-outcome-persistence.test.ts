@@ -129,9 +129,9 @@ function makeSubAgentTask(overrides?: Partial<SubAgentTask>): SubAgentTask {
 }
 
 function executorDeps(fs: FileSystem, auditWriter: AuditLog, overrides?: {
-  sendResult?: RecoverTasksDeps['sendResult'];
+  deliver?: (task: SubAgentTask, envelope: ProcessedTaskResult) => Promise<void>;
   postProcessors?: Map<string, PostProcessor>;
-  runSubagent?: () => Promise<{ text: string; capturedResult?: unknown }>;
+  execute?: () => Promise<{ content: string; sourceIsError: boolean; errorCategory?: string }>;
   moveTaskToDone?: (taskId: SubAgentTask['id']) => Promise<void>;
   moveTaskToFailed?: (taskId: SubAgentTask['id']) => Promise<void>;
 }) {
@@ -139,14 +139,13 @@ function executorDeps(fs: FileSystem, auditWriter: AuditLog, overrides?: {
     fs,
     fsFactory: () => fs,
     auditWriter,
-    llm: {} as LLMOrchestrator,
-    registry: makeRegistry(),
     clawDir: '/tmp/test-claw',
     postProcessors: overrides?.postProcessors ?? new Map(),
     moveTaskToDone: overrides?.moveTaskToDone ?? vi.fn().mockResolvedValue(undefined),
     moveTaskToFailed: overrides?.moveTaskToFailed ?? vi.fn().mockResolvedValue(undefined),
-    runSubagent: overrides?.runSubagent ?? (() => Promise.resolve({ text: 'raw result' })),
-    sendResult: overrides?.sendResult ?? vi.fn().mockResolvedValue(undefined),
+    // phase 1863 (AT-D5)：执行/交付经最小面注入
+    taskExecutor: { execute: overrides?.execute ?? (async () => ({ content: 'raw result', sourceIsError: false })) },
+    deliverySink: { deliver: overrides?.deliver ?? vi.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -340,14 +339,14 @@ describe('Phase 1396 Step L: executor phases', () => {
     const task = makeSubAgentTask({ postProcessor: 'success' });
     const envelope: ProcessedTaskResult = { schema_version: 1, content: 'processed ok', isError: false, metadata: { k: 'v' } };
     const postProcessors = new Map<string, PostProcessor>([['success', async () => envelope]]);
-    const sendResult = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
+      deliver,
       postProcessors,
-      runSubagent: () => Promise.resolve({ text: 'raw result' }),
+      execute: async () => ({ content: 'raw result', sourceIsError: false }),
       moveTaskToDone,
       moveTaskToFailed,
     }));
@@ -361,21 +360,21 @@ describe('Phase 1396 Step L: executor phases', () => {
     expect(fs.files.get(`${resultDir}/${RESULT_ENVELOPE_FILE}`)).toBe(envelopeDiskJson(envelope));
     expect(fs.files.get(`${resultDir}/result.txt`)).toBe('processed ok');
 
-    expect(sendResult).toHaveBeenCalledTimes(1);
-    expect(sendResult).toHaveBeenCalledWith(fs, audit.audit, task, envelope, { writeInboxAsync: undefined });
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledWith(task, envelope, { fs, auditWriter: audit.audit });
     expect(moveTaskToDone).toHaveBeenCalledWith(task.id);
     expect(moveTaskToFailed).not.toHaveBeenCalled();
   });
 
   it('execution failure flows through the processor into an isError envelope and moves failed', async () => {
     const task = makeSubAgentTask();
-    const sendResult = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
-      runSubagent: () => Promise.reject(new Error('subagent died')),
+      deliver,
+      execute: async () => ({ content: 'subagent died', sourceIsError: true, errorCategory: 'Error' }),
       moveTaskToDone,
       moveTaskToFailed,
     }));
@@ -389,8 +388,8 @@ describe('Phase 1396 Step L: executor phases', () => {
     expect(committed.is_error).toBe(true);
     expect(committed.content).toContain('subagent died');
 
-    expect(sendResult).toHaveBeenCalledTimes(1);
-    expect(sendResult.mock.calls[0][3].isError).toBe(true);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0][1].isError).toBe(true);
     expect(moveTaskToFailed).toHaveBeenCalledWith(task.id);
     expect(moveTaskToDone).not.toHaveBeenCalled();
   });
@@ -400,14 +399,14 @@ describe('Phase 1396 Step L: executor phases', () => {
     const envelope: ProcessedTaskResult = { schema_version: 1, content: 'processed ok', isError: false, metadata: { k: 'v' } };
     const processor = vi.fn().mockResolvedValue(envelope);
     const postProcessors = new Map<string, PostProcessor>([['success', processor]]);
-    const sendResult = vi.fn().mockRejectedValue(new Error('inbox full'));
+    const deliver = vi.fn().mockRejectedValue(new Error('inbox full'));
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
+      deliver,
       postProcessors,
-      runSubagent: () => Promise.resolve({ text: 'raw result' }),
+      execute: async () => ({ content: 'raw result', sourceIsError: false }),
       moveTaskToDone,
       moveTaskToFailed,
     }));
@@ -422,7 +421,7 @@ describe('Phase 1396 Step L: executor phases', () => {
     }));
     // committed envelope is still the original success outcome
     expect(fs.files.get(`${resultDir}/${RESULT_ENVELOPE_FILE}`)).toBe(envelopeDiskJson(envelope));
-    expect(sendResult).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledTimes(1);
     // delivery failure only affects delivery: task stays in running for recovery resend
     expect(moveTaskToDone).not.toHaveBeenCalled();
     expect(moveTaskToFailed).not.toHaveBeenCalled();
@@ -431,13 +430,13 @@ describe('Phase 1396 Step L: executor phases', () => {
 
   it('delivery failure on the execution-error path also keeps the original failure envelope (no double finalize)', async () => {
     const task = makeSubAgentTask();
-    const sendResult = vi.fn().mockRejectedValue(new Error('inbox full'));
+    const deliver = vi.fn().mockRejectedValue(new Error('inbox full'));
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
-      runSubagent: () => Promise.reject(new Error('subagent died')),
+      deliver,
+      execute: async () => ({ content: 'subagent died', sourceIsError: true, errorCategory: 'Error' }),
       moveTaskToDone,
       moveTaskToFailed,
     }));
@@ -447,18 +446,18 @@ describe('Phase 1396 Step L: executor phases', () => {
     // envelope holds the ORIGINAL execution error — not a reclassified delivery error
     expect(committed.content).toContain('subagent died');
     expect(committed.is_error).toBe(true);
-    expect(sendResult).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledTimes(1);
     expect(moveTaskToDone).not.toHaveBeenCalled();
     expect(moveTaskToFailed).not.toHaveBeenCalled();
   });
 
   it('missing postProcessor → terminal failed + TASK_POSTPROCESSOR_MISSING (phase 1863 AT-D14)', async () => {
     const task = makeSubAgentTask({ postProcessor: 'missing' });
-    const sendResult = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
+      deliver,
       postProcessors: new Map(),
       moveTaskToFailed,
     }));
@@ -467,7 +466,7 @@ describe('Phase 1396 Step L: executor phases', () => {
     // durable input 保留为证据；无 envelope、无投递
     expect(fs.files.has(`${resultDir}/${POST_PROCESS_INPUT_FILE}`)).toBe(true);
     expect(fs.files.has(`${resultDir}/${RESULT_ENVELOPE_FILE}`)).toBe(false);
-    expect(sendResult).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
     // 未注册 = 永久（装配面 initialize 后冻结）→ terminal failed，不再留 running
     expect(moveTaskToFailed).toHaveBeenCalledWith(task.id);
     const missingRow = audit.events.find(e => e[0] === TASK_AUDIT_EVENTS.TASK_POSTPROCESSOR_MISSING);
@@ -510,10 +509,10 @@ describe('Phase 1396 Step L: executor phases', () => {
     const postProcessors = new Map<string, PostProcessor>([
       ['bad', async () => { throw new Error('processor exploded'); }],
     ]);
-    const sendResult = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
+      deliver,
       postProcessors,
     }));
 
@@ -521,7 +520,7 @@ describe('Phase 1396 Step L: executor phases', () => {
     expect(fs.files.has(`${resultDir}/${POST_PROCESS_INPUT_FILE}`)).toBe(true);
     expect(fs.files.has(`${resultDir}/${RESULT_ENVELOPE_FILE}`)).toBe(false);
     expect(fs.files.has(`${resultDir}/result.txt`)).toBe(false);
-    expect(sendResult).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
     expect(audit.events.some(e => e[0] === TASK_AUDIT_EVENTS.POST_PROCESSOR_DEFERRED)).toBe(true);
   });
 
@@ -532,18 +531,18 @@ describe('Phase 1396 Step L: executor phases', () => {
     const postProcessors = new Map<string, PostProcessor>([
       ['identity', async (input) => ({ schema_version: 1 as const, content: input.content, isError: input.sourceIsError })],
     ]);
-    const sendResult = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
     const moveTaskToFailed = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
+      deliver,
       postProcessors,
       moveTaskToDone,
       moveTaskToFailed,
     }));
 
-    expect(sendResult).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
     expect(moveTaskToDone).not.toHaveBeenCalled();
     expect(moveTaskToFailed).not.toHaveBeenCalled();
     expect(audit.events.some(e =>
@@ -555,17 +554,17 @@ describe('Phase 1396 Step L: executor phases', () => {
     const task = makeSubAgentTask();
     const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
     fs.setFailOnWrite(`${resultDir}/result.txt`);
-    const sendResult = vi.fn().mockResolvedValue(undefined);
+    const deliver = vi.fn().mockResolvedValue(undefined);
     const moveTaskToDone = vi.fn().mockResolvedValue(undefined);
 
     await executeSubAgentTask(task, new AbortController().signal, executorDeps(fs, audit.audit, {
-      sendResult,
+      deliver,
       moveTaskToDone,
     }));
 
     // envelope committed; delivery still ran; terminal move still happened
     expect(fs.files.has(`${resultDir}/${RESULT_ENVELOPE_FILE}`)).toBe(true);
-    expect(sendResult).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledTimes(1);
     expect(moveTaskToDone).toHaveBeenCalledWith(task.id);
     expect(audit.events.some(e =>
       e[0] === TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED && e.some(c => String(c).includes('result_text_projection_failed')),

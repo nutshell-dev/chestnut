@@ -9,13 +9,11 @@ import { formatErr, newUuid, sha256Hex } from '../../foundation/node-utils/index
 
 import * as path from 'path';
 
-import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 
 import { CANCEL_SETTLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import {
@@ -27,9 +25,8 @@ import {
 } from './dirs.js';
 import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { Tool } from '../../foundation/tools/index.js';
-import { sendResult, sendFallbackResult, sendToolResult } from './result-delivery.js';
+import { sendResult, sendFallbackResult, sendToolResult, createStandardDeliverySink } from './result-delivery.js';
 import type { SendResult, SendFallbackResult, SendToolResult, WriteInboxAsync } from './result-delivery-types.js';
 import { recoverTasks, recoverMigratedToolTask } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
@@ -62,7 +59,8 @@ import {
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
 import { taskQueueOverflowBody } from '../../templates/messages/index.js';
-import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome, ExecutorPayloadAdapter } from './types.js';
+import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome } from './types.js';
+import type { TaskExecutor, DeliverySink, TaskDispatchFn } from './types.js';
 import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 
 
@@ -111,22 +109,20 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private _wakeupResolve: (() => void) | null = null;
   private readonly maxConcurrent: number;
   private readonly registry: ToolRegistry;
-  private readonly llm: LLMOrchestrator;
+  /** phase 1863 (AT-D5)：最小执行面（装配注入）。 */
+  private readonly taskExecutor: TaskExecutor;
+  /** phase 1863 (AT-D5)：最小交付面（装配注入；缺省走标准 sendResult 实现）。 */
+  private readonly deliverySink: DeliverySink;
   private readonly selfInbox?: InboxWriter;
   // phase 7: dedup overflow 通知 / 同 overflow 窗口 (queue 满) 多次 reject 仅 1 通知 / 队列降回 cap 以下后清 0 允许下次再发
   private overflowNotified = false;
   private auditWriter: AuditLog;
   private parentStreamLog?: StreamLog;
   private pendingWatcherHandle?: PendingWatcherHandle;
-  private mainDialogStore?: DialogStore;
 
   private postProcessors: Map<string, PostProcessor> = new Map();
   private cancellingIds: Set<FullTaskId> = new Set();
-  private readonly toolTimeoutMs?: number;
-  private permissionChecker?: PermissionChecker;
   private fsFactory: (baseDir: string) => FileSystem;
-  /** phase 1863 (AT-D7)：executor payload 解释面（装配注入；owner 提供）。 */
-  private readonly executorPayloadAdapter?: ExecutorPayloadAdapter;
   private readonly shortIdIndex: ShortIdIndex;
   private readonly pendingQueueMax: number;
   private readonly sendResult: SendResult<SubAgentTask>;
@@ -164,14 +160,6 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   /**
-   * inject mainDialogStore after construction (sessionManager is created later in Assembly)
-   */
-  setMainDialogStore(store: DialogStore): void {
-    this.assertConfigOpen('setMainDialogStore');
-    this.mainDialogStore = store;
-  }
-
-  /**
    * Phase 833: inject the parent stream log after construction so migrated exec
    * tasks can emit `task_started` / `task_completed` viewport events.
    */
@@ -202,7 +190,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   private readonly retryBaseDelayMs: number;
-  private readonly executors: Record<TaskKind, TaskExecutor>;
+  private readonly executors: Record<TaskKind, TaskDispatchFn>;
 
   constructor(
     private readonly clawDir: string,
@@ -213,14 +201,11 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     this.auditWriter = options.auditWriter;
     this.parentStreamLog = options.parentStreamLog;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
-    this.llm = options.llm;
+    this.taskExecutor = options.taskExecutor;
+    this.deliverySink = options.deliverySink ?? createStandardDeliverySink({ writeInboxAsync: options.writeInboxAsync });
     this.selfInbox = options.selfInbox;
-    this.mainDialogStore = options.mainDialogStore;
     this.registry = options.registry;
-    this.toolTimeoutMs = options.toolTimeoutMs;
-    this.permissionChecker = options.permissionChecker;
     this.fsFactory = options.fsFactory;
-    this.executorPayloadAdapter = options.executorPayloadAdapter;
     this.shortIdIndex = options.shortIdIndex;
     this.pendingQueueMax = options.pendingQueueMax ?? PENDING_QUEUE_MAX;
     this.sendResult = options.sendResult ?? sendResult;
@@ -282,24 +267,18 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       },
       subagent: async (task, signal) => {
         if (task.kind === 'tool') return;
+        // phase 1863 (AT-D5)：deps 收窄为最小执行/交付面 + ATS 自有生命周期面。
         await executeSubAgentTask(task, signal, {
           fs: this.fs,
           fsFactory: this.fsFactory,
           auditWriter: this.auditWriter,
-          llm: this.llm,
-          registry: this.registry,
           clawDir: this.clawDir,
           parentStreamLog: this.parentStreamLog,
           postProcessors: this.postProcessors,
-          mainDialogStore: this.mainDialogStore,
           moveTaskToDone: (id: TaskId) => this.moveTaskToDone(id),
           moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
-          toolTimeoutMs: this.toolTimeoutMs,
-          permissionChecker: this.permissionChecker,
-          executorPayloadAdapter: this.executorPayloadAdapter,
-          sendResult: this.sendResult,
-          sendFallbackResult: this.sendFallbackResult,
-          writeInboxAsync: this.writeInboxAsync,
+          taskExecutor: this.taskExecutor,
+          deliverySink: this.deliverySink,
         });
       },
     };
