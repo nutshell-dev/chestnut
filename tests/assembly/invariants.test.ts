@@ -261,7 +261,7 @@ vi.mock('../../src/core/contract/manager.js', () => {
 
 vi.mock('../../src/core/async-task-system/system.js', () => {
   const AsyncTaskSystem = vi.fn(() => {
-    const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn(), getRunningCount: vi.fn(() => 0) };
+    const instance = { initialize: vi.fn().mockResolvedValue(undefined), startDispatch: vi.fn(), shutdown: vi.fn(), addPostProcessor: vi.fn(), setMainDialogStore: vi.fn(), getInProcessRunningCount: vi.fn(() => 0) };
     capturedTaskSystems.push(instance);
     return instance;
   });

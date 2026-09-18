@@ -161,8 +161,8 @@ describe('Task System + SubAgent', () => {
       // Wait for dispatch to move from pending to running (file on disk)
       await waitFor(() => ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`));
 
-      // Check task is tracked in running list
-      expect(ctx.taskSystem.listRunning()).toContain(taskId);
+      // Check task is tracked in running list（phase 1863 AT-D13：磁盘派生视图）
+      expect((await ctx.taskSystem.listRunning()).map(v => v.id)).toContain(taskId);
     });
 
     test('should pass subagent task through watcher → ingest → dispatch chain (phase163)', async ({ ctx }) => {
@@ -193,8 +193,8 @@ describe('Task System + SubAgent', () => {
       expect(await ctx.mockFs.exists(`tasks/queues/pending/${fullTaskId}.json`)).toBe(false);
       expect(await ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`)).toBe(true);
 
-      // 4. listRunning reflects state using shortIds
-      expect(ctx.taskSystem.listRunning()).toContain(taskId);
+      // 4. listRunning reflects state using shortIds（phase 1863 AT-D13：磁盘派生视图）
+      expect((await ctx.taskSystem.listRunning()).map(v => v.id)).toContain(taskId);
     });
 
     test('should move task to done when completed', async ({ ctx }) => {
@@ -322,8 +322,8 @@ describe('Task System + SubAgent', () => {
       // Wait for task to be dispatched to running (TASK_STARTED emit 严格晚于 listRunning 更新)
       await waitForNextAuditEvent(testEmitter, TASK_AUDIT_EVENTS.TASK_STARTED);
 
-      // Verify task is in running state
-      expect(ctx.taskSystem.listRunning()).toContain(taskId);
+      // Verify task is in running state（phase 1863 AT-D13：磁盘派生视图）
+      expect((await ctx.taskSystem.listRunning()).map(v => v.id)).toContain(taskId);
 
       // Wait for the stream to yield its first chunk and reach the first gap barrier.
       await streamStartedP;
@@ -333,8 +333,8 @@ describe('Task System + SubAgent', () => {
       streamGapReleases.forEach(r => r());
       await cancelP;
 
-      // Task should be removed from running
-      expect(ctx.taskSystem.listRunning()).not.toContain(taskId);
+      // Task should be removed from running（phase 1863 AT-D13：磁盘派生视图）
+      expect((await ctx.taskSystem.listRunning()).map(v => v.id)).not.toContain(taskId);
       const runningExists = await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`);
       expect(runningExists).toBe(false);
     });
@@ -562,7 +562,7 @@ describe('Task System + SubAgent', () => {
       });
 
       // Wait for task to be dispatched to running
-      await waitFor(() => ctx.taskSystem.listRunning().includes(taskId));
+      await waitFor(async () => (await ctx.taskSystem.listRunning()).map(v => v.id).includes(taskId));
 
       // Should not throw even with null auditWriter
       await expect(shutdownWithVirtualGrace(ctx.taskSystem)).resolves.not.toThrow();

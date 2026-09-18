@@ -60,7 +60,7 @@ import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
 import { taskQueueOverflowBody } from '../../templates/messages/index.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome } from './types.js';
-import type { TaskExecutor, DeliverySink, TaskDispatchFn } from './types.js';
+import type { TaskExecutor, DeliverySink, TaskDispatchFn, RunningTaskView } from './types.js';
 import { type TaskId, makeFullTaskId, readShortTaskId, adoptLegacyShortTaskId, deriveShortIdFromTaskId, taskShortId, adoptLegacyFullTaskId } from './types.js';
 
 
@@ -1464,14 +1464,46 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   }
 
   /**
-   * List running task IDs (active executions).
+   * phase 1863 (AT-D13)：运行任务查询——磁盘 SoT（running/ 目录）派生 + runtime handle 附注。
+   * 重启后磁盘 running 残留（无句柄）仍可见（inProcess=false）；口径与 listPending 同源。
    */
-  listRunning(): ShortTaskId[] {
-    return Array.from(this.executingTasks.keys()).map(id => this.shortIdIndex.canonicalShortId(id) ?? this.shortIdIndex.deriveShortId(id));
+  async listRunning(): Promise<RunningTaskView[]> {
+    const ids = await this._getRunningTaskIds();
+    return Array.from(ids).map(fullId => ({
+      id: this.shortIdIndex.canonicalShortId(fullId) ?? this.shortIdIndex.deriveShortId(fullId),
+      inProcess: this.executingTasks.has(fullId),
+    }));
   }
 
-  getRunningCount(): number {
+  /**
+   * phase 1863 (AT-D13)：本进程执行句柄计数（显式命名——消费方语义为「现在是否在跑」，
+   * 与磁盘 SoT 的 listRunning().length 是两个视图）。
+   */
+  getInProcessRunningCount(): number {
     return this.executingTasks.size;
+  }
+
+  /** phase 1863 (AT-D13)：running/ 目录磁盘派生（镜像 _getPendingTaskIds 口径）。 */
+  private async _getRunningTaskIds(): Promise<Set<FullTaskId>> {
+    let entries: Awaited<ReturnType<FileSystem['list']>>;
+    try {
+      entries = await this.fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false });
+    } catch (err) {
+      // Race: running dir or an entry disappeared between list and stat.
+      if (isFileNotFound(err)) return new Set();
+      throw err;
+    }
+    const ids = new Set<FullTaskId>();
+    for (const e of entries) {
+      if (!e.name.endsWith('.json')) continue;
+      const nameId = e.name.slice(0, -5);
+      if (nameId.length === 36) {
+        ids.add(makeFullTaskId(nameId));
+      } else {
+        ids.add(this.shortIdIndex.resolve(nameId) ?? adoptLegacyFullTaskId(nameId));
+      }
+    }
+    return ids;
   }
 
   /**

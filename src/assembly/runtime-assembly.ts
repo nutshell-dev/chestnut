@@ -237,7 +237,8 @@ export async function createRuntimeAssembly(
           : (streamMs ?? createdMs);
         return { activeContractId, lastActivityAt };
       },
-      isAsyncTaskInFlight: async () => taskSystem.getRunningCount() > 0,
+      // phase 1863 (AT-D13)：语义 = 本进程是否有执行句柄（in-process 视图；磁盘 SoT 见 listRunning）
+      isAsyncTaskInFlight: async () => taskSystem.getInProcessRunningCount() > 0,
     };
 
     return { snapshot, streamWriter, runtime, executionRecovery, recoverySession };

@@ -98,6 +98,32 @@ describe('derive from fs (phase 284 Step A)', () => {
     expect(tasks.map((t: { id: string }) => t.id).sort()).toEqual(['11111111-1111-4111-9111-111111111111', '22222222-2222-4222-a222-222222222222']);
   });
 
+  it('listRunning 磁盘派生：重启残留 running 任务可见（inProcess=false）（phase 1863 AT-D13）', async () => {
+    await mockFs.writeAtomic('tasks/queues/running/11111111-1111-4111-9111-111111111111.json', makeTaskJson('11111111-1111-4111-9111-111111111111'));
+    await mockFs.writeAtomic('tasks/queues/pending/22222222-2222-4222-a222-222222222222.json', makeTaskJson('22222222-2222-4222-a222-222222222222'));
+
+    const running = await system.listRunning();
+
+    // 磁盘 SoT：running/ 文件列出（pending/ 文件不在内）；无内存句柄 → inProcess=false
+    expect(running).toHaveLength(1);
+    expect(running[0].id).toBe('11111111');
+    expect(running[0].inProcess).toBe(false);
+    expect(system.getInProcessRunningCount()).toBe(0);
+  });
+
+  it('listRunning handle 附注：本进程持句柄的 running 任务 inProcess=true（phase 1863 AT-D13）', async () => {
+    const fullId = '11111111-1111-4111-9111-111111111111' as import('../../../src/core/async-task-system/types.js').FullTaskId;
+    await mockFs.writeAtomic(`tasks/queues/running/${fullId}.json`, makeTaskJson(fullId));
+    // 模拟本进程执行句柄在场
+    (system as any).executingTasks.set(fullId, { abortController: new AbortController(), promise: Promise.resolve() });
+
+    const running = await system.listRunning();
+
+    expect(running).toHaveLength(1);
+    expect(running[0]).toMatchObject({ id: '11111111', inProcess: true });
+    expect(system.getInProcessRunningCount()).toBe(1);
+  });
+
   it('_getPendingTasks filters cancellingIds', async () => {
     await mockFs.writeAtomic('tasks/queues/pending/11111111-1111-4111-9111-111111111111.json', makeTaskJson('11111111-1111-4111-9111-111111111111'));
     await mockFs.writeAtomic('tasks/queues/pending/22222222-2222-4222-a222-222222222222.json', makeTaskJson('22222222-2222-4222-a222-222222222222'));

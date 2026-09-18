@@ -30,6 +30,7 @@ export type {
   ShortIdIndex,
   ExecutorPayloadAdapter,
   ExecutorPayloadInterpretation,
+  RunningTaskView,
   TaskExecutor,
   TaskExecutionRuntime,
   TaskExecutionOutcome,

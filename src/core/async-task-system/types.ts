@@ -301,6 +301,15 @@ export interface PreparedScheduleResult {
   disposition: 'created' | 'existing';
 }
 
+/**
+ * phase 1863 (AT-D13)：运行任务查询视图——磁盘 SoT（running/）派生 + runtime handle 附注。
+ */
+export interface RunningTaskView {
+  readonly id: ShortTaskId;
+  /** 本进程是否持执行句柄（false = 磁盘残留 / 崩溃前历史态——重启后仍可见）。 */
+  readonly inProcess: boolean;
+}
+
 /** Consumer capability for scheduling a typed subagent task. */
 export interface SubAgentTaskScheduler {
   schedule(
