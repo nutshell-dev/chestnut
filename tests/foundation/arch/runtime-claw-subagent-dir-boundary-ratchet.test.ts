@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+// phase 1858 Step B (SA-D1): barrel 公共契约编译断言 —— RunSubagentOptions/RunSubagentResult 必须自 barrel 命名导入
+import type { RunSubagentOptions, RunSubagentResult } from '../../../src/core/subagent/index.js';
+
+type _PublicContractSurface = [
+  RunSubagentOptions,
+  RunSubagentResult,
+];
 
 const root = process.cwd();
 const read = (relative: string): string => fs.readFileSync(path.join(root, relative), 'utf8');
