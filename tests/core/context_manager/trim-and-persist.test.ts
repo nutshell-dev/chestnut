@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { trimAndPersist, type TriggerKind } from '../../../src/core/context_manager/trim-and-persist.js';
 import { CONTEXT_TRIM_ARCHIVED } from '../../../src/core/context_manager/audit-events.js';
-import { buildProactiveTrimPolicy, buildReactiveTrimPolicy } from '../../../src/core/context_manager/trim-v2.js';
+import { ContextTrimPersistError } from '../../../src/core/context_manager/errors.js';
+import {
+  buildProactiveTrimPolicy,
+  buildReactiveTrimPolicy,
+} from '../../../src/core/context_manager/trim-v2.js';
+import * as trimV2Module from '../../../src/core/context_manager/trim-v2.js';
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
@@ -94,7 +99,12 @@ describe('trimAndPersist', () => {
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
       ],
     });
-    await expect(trimAndPersist(inputs)).rejects.toThrow(archiveErr);
+    await expect(trimAndPersist(inputs)).rejects.toMatchObject({
+      name: 'ContextTrimPersistError',
+      stage: 'archive',
+      cause: archiveErr,
+    });
+    await expect(trimAndPersist(inputs)).rejects.toBeInstanceOf(ContextTrimPersistError);
     expect(store.save).not.toHaveBeenCalled();
   });
 
@@ -112,8 +122,39 @@ describe('trimAndPersist', () => {
         { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
       ],
     });
-    await expect(trimAndPersist(inputs)).rejects.toThrow(saveErr);
+    await expect(trimAndPersist(inputs)).rejects.toMatchObject({
+      name: 'ContextTrimPersistError',
+      stage: 'save',
+      cause: saveErr,
+    });
     expect(store.archive).toHaveBeenCalledTimes(1);
+  });
+
+  it('6. invalid progress → ContextTrimPersistError stage=invalid_progress（CM-D7）', async () => {
+    vi.spyOn(trimV2Module, 'trimV2').mockReturnValue({
+      outcome: { status: 'target_reached', before: 10, after: 20, newMessages: [] },
+      droppedMessages: [],
+      metrics: {
+        droppedSystemMessages: 0,
+        collapsedSystemMessages: 0,
+        collapsedToolResults: 0,
+        collapsedToolUseFields: 0,
+        collapsedTextBlocks: 0,
+        collapsedThinkingBlocks: 0,
+        supersededRedundantResults: 0,
+        summaryMessageInjected: false,
+      },
+    } as unknown as ReturnType<typeof trimV2>);
+    const store = makeDialogStore();
+    const inputs = baseInputs({ dialogStore: store });
+
+    await expect(trimAndPersist(inputs)).rejects.toMatchObject({
+      name: 'ContextTrimPersistError',
+      stage: 'invalid_progress',
+    });
+    expect(store.archive).not.toHaveBeenCalled();
+    expect(store.save).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 
   it('5. trigger_kind = reactive_overflow → audit ARCHIVED 含 reactive', async () => {
