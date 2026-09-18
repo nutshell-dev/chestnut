@@ -5,6 +5,9 @@
  * phase boundary refactoring: factory pattern — L4 turn state (systemPrompt,
  * tools, dialogMessages) injected via getTurnSnapshot callback instead of
  * reading from ExecContext (M#5: L2 doesn't know L4 semantics).
+ *
+ * phase 1865 (SH-D2): 三职责拆分——快照获取（extractSnapshot）/ 提交产 task（submitShadow）/
+ * 同步执行跑至结果（runShadowSync）；工具面只做参数裁决与分发。三入口返回形状逐字段不变。
  */
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
@@ -19,16 +22,15 @@ import { stripIncompleteToolUse } from '../_helpers.js';
 import { SHADOW_TOOL_NAME, SHADOW_DEFAULT_TIMEOUT_MS } from '../constants.js';
 import type { SubAgentTaskScheduler } from '../../async-task-system/index.js';
 
-export function createShadowTool(deps: {
-  getTurnSnapshot: () => {
-    systemPrompt?: string;
-    tools?: ToolDefinition[];
-    messages?: Message[];
-  } | Promise<{
-    systemPrompt?: string;
-    tools?: ToolDefinition[];
-    messages?: Message[];
-  }>;
+interface TurnSnapshot {
+  systemPrompt?: string;
+  tools?: ToolDefinition[];
+  messages?: Message[];
+}
+
+/** 工具构造 deps（Assembly 注入面）。 */
+export interface ShadowToolDeps {
+  getTurnSnapshot: () => TurnSnapshot | Promise<TurnSnapshot>;
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
   taskSystem?: SubAgentTaskScheduler;
@@ -36,7 +38,61 @@ export function createShadowTool(deps: {
   subagentMaxSteps?: number;
   /** 允许递归调用。主 agent=true（默认），shadow registry=false */
   allowRecursion?: boolean;
-}): Tool {
+}
+
+/** 裁决后的单次调用参数（参数裁决留在 execute，三入口只消费）。 */
+interface ShadowCallArgs {
+  task: string;
+  timeoutMs: number;
+  maxSteps: number | undefined;
+}
+
+/** 快照面：turn 快照 + 剥离未配对 tool_use 尾条（两执行路径共用一个调用点）。 */
+async function extractSnapshot(deps: ShadowToolDeps): Promise<TurnSnapshot & { mainMessages: Message[] | undefined }> {
+  const { systemPrompt, tools, messages } = await deps.getTurnSnapshot();
+  return { systemPrompt, tools, messages, mainMessages: stripIncompleteToolUse(messages) };
+}
+
+/** 提交（异步路径）：快照 → payload → spawnShadowSubagent → queued 回执。 */
+async function submitShadow(deps: ShadowToolDeps, args: ShadowCallArgs, ctx: ExecContext): Promise<ToolResult> {
+  const snapshot = await extractSnapshot(deps);
+
+  const result = await spawnShadowSubagent({
+    task: args.task,
+    mainMessages: snapshot.mainMessages ?? [],
+    ctx,
+    taskSystem: deps.taskSystem,
+    originClawId: ctx.clawId,
+    systemPrompt: snapshot.systemPrompt ?? '',
+    toolsForLLM: snapshot.tools ?? [],
+    timeoutMs: args.timeoutMs,
+    maxSteps: args.maxSteps,
+  });
+  if (!('taskId' in result)) return result;
+
+  return {
+    success: true,
+    content: `Shadow queued. Task ID: ${result.taskId}. Result will be delivered to inbox when complete.`,
+    metadata: { taskId: result.taskId, async: true },
+  };
+}
+
+/** 同步执行（阻塞路径）：快照 → runShadow → inline 结果。 */
+async function runShadowSync(deps: ShadowToolDeps, args: ShadowCallArgs, ctx: ExecContext): Promise<ToolResult> {
+  const snapshot = await extractSnapshot(deps);
+
+  return runShadow({
+    task: args.task,
+    timeoutMs: args.timeoutMs,
+    maxSteps: args.maxSteps,
+    ctx,
+    mainMessages: snapshot.mainMessages,
+    turnSnapshot: { systemPrompt: snapshot.systemPrompt, tools: snapshot.tools, messages: snapshot.messages },
+    runSubagent: deps.runSubagent,
+  });
+}
+
+export function createShadowTool(deps: ShadowToolDeps): Tool {
   const tool: Tool & { allowRecursion?: boolean } = {
     name: SHADOW_TOOL_NAME,
     profiles: ['full'],
@@ -82,52 +138,22 @@ export function createShadowTool(deps: {
         };
       }
 
-      const asyncMode = args.async === undefined ? true : Boolean(args.async);
-
       const task = String(args.task ?? '');
       if (!task) return { success: false, content: 'shadow: task is required', error: 'missing_task' };
 
-      const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SHADOW_DEFAULT_TIMEOUT_MS;
-      const maxSteps = typeof args.maxSteps === 'number' ? args.maxSteps : deps.subagentMaxSteps;
-
-      const { systemPrompt, tools, messages } = await deps.getTurnSnapshot();
-
-      const mainMessages = stripIncompleteToolUse(messages);
-
-      if (asyncMode) {
-        const result = await spawnShadowSubagent({
-          task,
-          mainMessages: mainMessages ?? [],
-          ctx,
-          taskSystem: deps.taskSystem,
-          originClawId: ctx.clawId,
-          systemPrompt: systemPrompt ?? '',
-          toolsForLLM: tools ?? [],
-          timeoutMs,
-          maxSteps,
-        });
-        if (!('taskId' in result)) return result;
-
-        return {
-          success: true,
-          content: `Shadow queued. Task ID: ${result.taskId}. Result will be delivered to inbox when complete.`,
-          metadata: { taskId: result.taskId, async: true },
-        };
-      }
-
-      return runShadow({
+      const asyncMode = args.async === undefined ? true : Boolean(args.async);
+      const callArgs: ShadowCallArgs = {
         task,
-        timeoutMs,
-        maxSteps,
-        ctx,
-        mainMessages,
-        turnSnapshot: { systemPrompt, tools, messages },
-        runSubagent: deps.runSubagent,
-      });
+        timeoutMs: typeof args.timeoutMs === 'number' ? args.timeoutMs : SHADOW_DEFAULT_TIMEOUT_MS,
+        maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : deps.subagentMaxSteps,
+      };
+
+      return asyncMode
+        ? submitShadow(deps, callArgs, ctx)
+        : runShadowSync(deps, callArgs, ctx);
     },
     allowRecursion: deps.allowRecursion ?? true,
     restrictedOverrides: { allowRecursion: false },
   };
   return tool;
 }
-
