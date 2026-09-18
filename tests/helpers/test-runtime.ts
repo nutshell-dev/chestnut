@@ -13,19 +13,22 @@
  * Same constructor signature as Runtime — drop-in replacement.
  */
 import { Runtime } from '../../src/core/runtime/runtime.js';
+import type { LLMRuntimeCapability } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { ContractCloseOutcome } from '../../src/core/contract/index.js';
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/registry.js';
 import type { ExecContext } from '../../src/foundation/tools/index.js';
 
 export class TestRuntime extends Runtime {
-  /** Override LLM after initialize() — used by regime switch tests with mock LLM. */
+  /** Override LLM after initialize() — used by regime switch tests with mock LLM.
+   * phase 1860 (RT-D1)：窄消费面与转发面单一存储、同步可见。 */
   testSetLLM(llm: LLMOrchestrator): void {
     this.llm = llm;
   }
 
-  /** Get current LLM (for assertion or mock-replace patterns). */
-  testGetLLM(): LLMOrchestrator {
+  /** Get current LLM (Runtime 私有消费面；for assertion or mock-replace patterns). */
+  testGetLLM(): LLMRuntimeCapability {
     return this.llm;
   }
 
@@ -41,12 +44,17 @@ export class TestRuntime extends Runtime {
 
   /** Get toolRegistry — for tool name inspection in motion tests. */
   testGetToolRegistry(): ToolRegistry {
-    return this.toolRegistry;
+    return this.toolRegistryForwarding;
   }
 
   /** Get execContext — for regime switch post-commit cleanup observation (phase 1850 Step D). */
   testGetExecContext(): ExecContext {
     return this.execContext;
+  }
+
+  /** Get contract close outcome captured by stop() (phase 1860 RT-D5, consumed by Step F). */
+  testGetContractCloseOutcome(): ContractCloseOutcome | undefined {
+    return this._contractCloseOutcome;
   }
 
   /** Call buildSystemPrompt() — for motion tests verifying prompt assembly. */

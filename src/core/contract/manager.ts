@@ -55,7 +55,7 @@ import { type ClawId } from '../../foundation/claw-identity/index.js';
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
-  LifecycleCommitOutcome, ContractRuntimeLifecycle,
+  LifecycleCommitOutcome, ContractRuntimeLifecycle, ContractCloseOutcome,
 } from './types.js';
 import { ContractCreatePolicyViolationError, deriveProgressStatus, ARCHIVE_STATES } from './types.js';
 import type { ContractNotification, ContractNotificationSink } from './notification.js';
@@ -1719,16 +1719,19 @@ export class ContractSystem implements ContractRuntimeLifecycle {
    * phase 1217 (r131 C fork): true disposable / abort all active verifier controllers
    * phase 1335 (r138 F fork): async close / await verifier termination promises
    */
-  async close(): Promise<void> {
+  async close(): Promise<ContractCloseOutcome> {
     // phase 687 (audit T2.4): 幂等 guard、防双调 duplicate CONTRACT_SYSTEM_CLOSED audit emit
-    if (this._closed) return;
+    if (this._closed) return { alreadyClosed: true, failures: [] };
     this._closed = true;
+    // phase 1860 (RT-D5)：close 失败证据经 typed outcome 返回、不再静默吞。
+    const failures: string[] = [];
     // phase 517 B3: auditor 先 close（防 dispose 期间 fire-and-forget maybeAudit 又产生新 LLM call）
     if (this.auditor) {
       try {
         await this.auditor.close();
-      } catch {
-        // silent: auditor close 失败不阻其他 dispose / best-effort cleanup
+      } catch (e) {
+        // phase 1860 (RT-D5)：auditor close 失败收证据、best-effort cleanup 语义不变（不阻其他 dispose）
+        failures.push(formatErr(e));
       }
     }
 
@@ -1737,17 +1740,22 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       for (const { controller, promise } of entries) {
         try {
           controller.abort();
-        } catch {
-          // silent: abort 失败不影响 dispose 流程 / best-effort cleanup
+        } catch (e) {
+          // phase 1860 (RT-D5)：abort 失败收证据、不阻 dispose 流程
+          failures.push(formatErr(e));
         }
         terminationPromises.push(promise);
       }
     }
-    await Promise.allSettled(terminationPromises);
+    // phase 1860 (RT-D5)：termination promise rejection 不再静默——证据进 outcome。
+    for (const result of await Promise.allSettled(terminationPromises)) {
+      if (result.status === 'rejected') failures.push(formatErr(result.reason));
+    }
     this._activeContractControllers.clear();
     this.contractCompletedCallbacks.clear();
     // audit emit close event (additive const)
     this.audit?.write(CONTRACT_AUDIT_EVENTS.CONTRACT_SYSTEM_CLOSED, `clawId=${this.clawId}`);
+    return { alreadyClosed: false, failures };
   }
 }
 

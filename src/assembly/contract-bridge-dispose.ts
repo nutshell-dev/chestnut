@@ -28,7 +28,9 @@ export type ContractBridgeDisposeResult =
 
 /** 可关闭资源的最小 capability（ContractSystem 结构子集）。 */
 export interface ContractBridgeCloseable {
-  close(): Promise<void>;
+  // phase 1860 (RT-D5)：ContractSystem.close 返回 typed ContractCloseOutcome；
+  // 本桥接只关心 settle 状态、用 unknown 保持最小面（不引入 contract 类型依赖）。
+  close(): Promise<unknown>;
 }
 
 /**

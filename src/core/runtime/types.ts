@@ -4,19 +4,19 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRuntimeCapability } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
 import type { DialogSessionLifecycle } from '../../foundation/dialog-store/index.js';
 import type { InboxDeliverySession, InboxMessageRenderingResolver } from '../../foundation/messaging/index.js';
 
-import type { ToolRegistry } from '../../foundation/tools/index.js';
+import type { ToolRegistry, ToolRegistryRuntimeCapability } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from './injector.js';
 import type { SkillContextSource } from '../../foundation/skill-system/index.js';
-import type { ContractRuntimeLifecycle } from '../contract/index.js';
-import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
+import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
+import type { AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
@@ -24,6 +24,15 @@ import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
+
+/**
+ * phase 1860 (RT-D6)：MemoryOnlyState 显式登记——以下 Runtime 实例内存态经设计决策
+ * 不进入 checkpoint/恢复；登记即决策（DP「未经显式设计决策不得丢弃」）。
+ * 恢复 SoT = DialogStore session + read-state 磁盘 + snapshot 提交（initialize 路径）：
+ * - turnCount：进程内 turn 序号（audit context `turn-N`）；跨重启关联由 trace_id 承载。
+ * - lastLLMCallAt：proactive trim 判据；重启归 0 = 首 turn 不触发顺手裁（runtime.ts by-design）。
+ * - currentTraceId：per-turn 重设，不跨 turn 存活。
+ */
 
 /**
  * Phase 1847: 原始消息交接 —— 一条已领取（inflight）消息及其结算句柄。
@@ -74,6 +83,17 @@ export interface GuidanceEnvelope {
  */
 export type GuidanceCompose = (input: GuidanceEnvelope) => { text: string } | null;
 
+/** phase 1860 (RT-D4)：stop join 结果（typed，不丢）——超时证据经 outcome 交付。 */
+export interface RuntimeStopOutcome {
+  readonly kind: 'converged' | 'timed_out';
+  /** active dialog operation join 结果（'none' = 无在途）。 */
+  readonly dialogJoin: 'none' | 'joined' | 'failed';
+  /** AT-D3 typed 生命周期结果透传（timed_out 时含 pending identity 证据）。 */
+  readonly tasks: TaskLifecycleOutcome;
+  /** contract close outcome（RT-D5/Step E）。 */
+  readonly contractClose: ContractCloseOutcome;
+}
+
 /** 1:1 保 runtime.ts:47-72 body */
 export interface RuntimeDependencies {
   // === L1 ===
@@ -86,8 +106,15 @@ export interface RuntimeDependencies {
   readonly inboxReader: InboxDeliverySession;
 
   // === L3-L5 ===
-  readonly llm: LLMOrchestrator;
-  readonly toolRegistry: ToolRegistry;
+  /** phase 1860 (RT-D1)：Runtime 私有消费面——仅 getProviderInfo/resetLastSuccessProvider/reloadConfig/close 4 方法。 */
+  readonly llm: LLMRuntimeCapability;
+  /**
+   * phase 1860：转发面——ExecContext/AgentExecutor 消费的完整编排面（stream/call 等）；
+   * Runtime 不消费、仅传递（Assembly 注入同一对象）。
+   */
+  readonly llmOrchestrator: LLMOrchestrator;
+  /** phase 1860 (RT-D1)：Runtime 私有消费面——仅 getForProfile/formatForLLM 2 方法。 */
+  readonly toolRegistry: ToolRegistryRuntimeCapability;
   readonly toolExecutor: IToolExecutor;
   /** Phase 773: base registry with plain sync exec for subagent spawn paths. */
   readonly baseToolRegistry?: ToolRegistry;

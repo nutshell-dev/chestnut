@@ -8,7 +8,7 @@
 import * as path from 'path';
 import { randomHex, sha256Hex } from '../../foundation/node-utils/index.js';
 
-import type { LLMOrchestrator, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRuntimeCapability, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
@@ -47,9 +47,10 @@ import type { InboxDeliveryBatch, InboxDeliverySession, InboxEntry, InboxHandle 
 import { ExecContextImpl } from '../../foundation/tools/index.js';
 import { CLAWSPACE_DIR, TASKS_SYNC_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
-import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
+import type { ToolRegistry, ToolRegistryRuntimeCapability, IToolExecutor } from '../../foundation/tools/index.js';
 import { createContextInjector, type ContextInjector } from './injector.js';
-import type { ContractRuntimeLifecycle } from '../contract/index.js';
+import type { ContractRuntimeLifecycle, ContractCloseOutcome } from '../contract/index.js';
+import type { RuntimeStopOutcome } from './types.js';
 import type { AsyncTaskRuntimeLifecycle } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
@@ -121,10 +122,16 @@ export class Runtime {
   protected initialized = false;
   /** phase 522 C2: 防 stop 二次调用重 await 120s task timeout / contract close 二度 */
   private _stopped = false;
+  /** phase 1860 (RT-D4)：stop() 首调缓存的 typed outcome（幂等重入返回同结果）。 */
+  private _stopOutcome?: RuntimeStopOutcome;
   private currentAbortController: AbortController | null = null;
+  /** phase 1860 (RT-D6)：MemoryOnlyState 登记（types.ts 登记段）——进程内 turn 序号。 */
   private turnCount = 0;
   protected auditWriter!: AuditLog;
-  /** phase 1343 α-6: current turn-level trace id for cross-module audit correlation */
+  /**
+   * phase 1343 α-6: current turn-level trace id for cross-module audit correlation。
+   * phase 1860 (RT-D6)：MemoryOnlyState 登记——per-turn 重设、不跨 turn 存活、不进恢复。
+   */
   private currentTraceId?: TraceId;
 
   /** Phase 1218 Step A: single active dialog mutation operation join handle */
@@ -149,7 +156,30 @@ export class Runtime {
    * (phase 266 reframed MotionRuntime subclass to identity-based dispatch; preserve runtime encapsulation — no direct writes)
    */
   protected systemFs!: FileSystem;  // used by system components (no permission check)
-  protected llm!: LLMOrchestrator;
+  /**
+   * phase 1860 (RT-D1)：llm 单一存储 = Assembly 注入的完整编排对象（initialize 时自
+   * deps.llmOrchestrator 赋值；deps.llm / deps.llmOrchestrator 契约上同一对象）。
+   * 不直接访问本字段——经下方两个类型视图消费。
+   */
+  private _llmImpl!: LLMOrchestrator;
+  /**
+   * phase 1860 (RT-D1)：Runtime 私有消费面（窄 capability 视图）——仅
+   * getProviderInfo / resetLastSuccessProvider / reloadConfig / close 4 方法可编译调用。
+   */
+  protected get llm(): LLMRuntimeCapability {
+    return this._llmImpl;
+  }
+  protected set llm(value: LLMRuntimeCapability) {
+    // Test seam：既有测试以窄 mock poke 本字段；mock 实带 stream/call 宽面、存储保持宽类型。
+    this._llmImpl = value as LLMOrchestrator;
+  }
+  /**
+   * phase 1860 (RT-D1)：llm 转发面视图——ExecContext 构造与 runReact 消费的完整编排面；
+   * Runtime 不消费、仅传递；与 this.llm 同一底层对象。
+   */
+  protected get llmOrchestrator(): LLMOrchestrator {
+    return this._llmImpl;
+  }
 
   // Core
   protected sessionManager!: DialogSessionLifecycle;
@@ -158,9 +188,38 @@ export class Runtime {
    * (phase 266 reframed MotionRuntime subclass to identity-based dispatch; treat as read-only — no injector state mutation)
    */
   protected contextInjector!: ContextInjector;
-  protected toolRegistry!: ToolRegistry;
+  /**
+   * phase 1860 (RT-D1)：toolRegistry 单一存储。deps.toolRegistry 窄类型声明 Runtime 私有
+   * 消费面；Assembly 契约注入对象为完整 ToolRegistry（ExecContext/runReact/identityToolFilter
+   * 转发消费宽面），存储保持宽类型。
+   */
+  private _toolRegistryImpl!: ToolRegistry;
+  /**
+   * phase 1860 (RT-D1)：Runtime 私有消费面（窄 capability 视图）——仅
+   * getForProfile / formatForLLM 2 方法可编译调用。
+   */
+  protected get toolRegistry(): ToolRegistryRuntimeCapability {
+    return this._toolRegistryImpl;
+  }
+  protected set toolRegistry(value: ToolRegistryRuntimeCapability) {
+    // Assembly 契约：注入对象为完整 ToolRegistry；窄类型为消费面纪律（M#7）。
+    this._toolRegistryImpl = value as ToolRegistry;
+  }
+  /**
+   * phase 1860 (RT-D1)：toolRegistry 转发面视图——ExecContext 构造、runReact 与
+   * identityToolFilter 消费的完整注册表；Runtime 不消费、仅传递；与 this.toolRegistry 同一底层对象。
+   */
+  protected get toolRegistryForwarding(): ToolRegistry {
+    return this._toolRegistryImpl;
+  }
   private taskSystem!: AsyncTaskRuntimeLifecycle;
   private contractManager!: ContractRuntimeLifecycle;
+  /**
+   * phase 1860 (RT-D5)：stop() 链上 contract close 的 typed outcome（失败证据不吞）。
+   * Step F 组装 RuntimeStopOutcome 时消费；close 自身异常经 catch 转为 outcome（failures 承载）。
+   * protected：TestRuntime 测试 helper 读取断言（src 内零消费至 Step F）。
+   */
+  protected _contractCloseOutcome?: ContractCloseOutcome;
   protected execContext!: ExecContext;
   protected toolExecutor!: IToolExecutor;
   private inboxReader!: InboxDeliverySession;
@@ -177,7 +236,10 @@ export class Runtime {
   private contextTrimmingEnabled: boolean;
   /** Phase 1826: 已应用的配置身份修订（幂等 reload 防重复替换 breaker）。 */
   private appliedConfigRevision?: string;
-  /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
+  /**
+   * phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁。
+   * phase 1860 (RT-D6)：MemoryOnlyState 登记——重启归 0 为 by-design（proactive trim 判据）。
+   */
   private lastLLMCallAt: number = 0;
   constructor(options: RuntimeOptions) {
     // phase 1485: ctor 不再 fallback DEFAULT_MAX_STEPS — assemble 层 undefined 直传、
@@ -213,7 +275,9 @@ export class Runtime {
     // 1. 消费 dependencies；claw layout 已由 Assembly 在构造业务模块前初始化。
     this.systemFs = deps.systemFs;
     this.auditWriter = deps.auditWriter;
-    this.llm = deps.llm;
+    // phase 1860 (RT-D1)：llm 单一存储 = deps.llmOrchestrator（Assembly 契约：与 deps.llm
+    // 注入同一对象；deps.llm 窄字段 = Runtime 私有消费面的类型级声明）。
+    this._llmImpl = deps.llmOrchestrator;
     this.snapshot = deps.snapshot;
     this.sessionManager = deps.sessionManager;
     this.inboxReader = deps.inboxReader;
@@ -257,7 +321,7 @@ export class Runtime {
       permissionChecker: deps.permissionChecker,  // NEW phase 1273
       fs: this.systemFs,
       fsFactory: this.options.dependencies.fsFactory,
-      llm: this.llm,
+      llm: this.llmOrchestrator,   // phase 1860 (RT-D1)：转发面（非 Runtime 私有消费面）
       auditWriter: this.auditWriter,
       persistReadFileState: true,  // phase 1443: main claw ctx persists readFileState to <clawDir>/read-state.json
       // phase 146: M#3 资源唯一归属真治、直接 read 真 owner、不经 Runtime mirror state
@@ -277,7 +341,7 @@ export class Runtime {
           messages: session.messages,
         };
       },
-      registry: this.toolRegistry,
+      registry: this.toolRegistryForwarding,   // phase 1860 (RT-D1)：转发面（工具执行消费宽面）
       baseRegistry: deps.baseToolRegistry,
     });
 
@@ -305,7 +369,7 @@ export class Runtime {
     // （assemble.ts:251 toolRegistry.register(new SummonTool())）。
     // Runtime 不再反向 import 此 L4 Tool 类，G→F 单向依赖恢复。
     if (this.options.identityToolFilter) {
-      this.options.identityToolFilter(this.toolRegistry);
+      this.options.identityToolFilter(this.toolRegistryForwarding);
     }
 
     // phase 1443: load readFileState from disk to survive daemon restart
@@ -374,9 +438,14 @@ export class Runtime {
    * Stop gate prevents new public operations; we abort the current turn,
    * await the active operation settle, then close downstream dependencies.
    */
-  async stop(): Promise<void> {
+  /** phase 1860 (RT-D4)：stop() 返回 typed join outcome（组合 join/close/task 结果）。 */
+  async stop(): Promise<RuntimeStopOutcome> {
     // phase 522 C2: 幂等 guard — disassemble 路径 + 测试/异常路径可能重入
-    if (this._stopped) return;
+    if (this._stopped) {
+      // phase 1860 (RT-D4)：重入返回首调缓存的 typed outcome（首调在 llm.close 前已赋值，
+      // 故首调因 llm.close 抛出而 reject 时、重入仍拿到 typed 结果）。
+      return this._stopOutcome as RuntimeStopOutcome;
+    }
     this._stopped = true;
     // Phase 1218 Step A: reject new public operations and abort current turn
     this.stopping = true;
@@ -387,10 +456,13 @@ export class Runtime {
     // join here is only for shutdown barrier. Failure to join is audited but does
     // not block closing downstream resources (best-effort barrier).
     const active = this.activeDialogOperation;
+    let dialogJoin: RuntimeStopOutcome['dialogJoin'] = 'none';
     if (active) {
       try {
         await active;
+        dialogJoin = 'joined';
       } catch (e) {
+        dialogJoin = 'failed';
         this.auditWriter.write(
           RUNTIME_AUDIT_EVENTS.DIALOG_OPERATION_JOIN_FAILED,
           `reason=${formatErr(e)}`,
@@ -419,10 +491,20 @@ export class Runtime {
     // phase 324 H5: 关 ContractSystem、abort 仍活的 verifier AbortController 串、
     // await 其 termination promise。否则 SIGTERM 留 verifier LLM stream 泄漏
     // —— 正是 phase 1332 N4 + close() 引入要防的。
-    await this.contractManager.close().catch(() => {
-      /* close error 已 audit emit / barrier 不阻塞 stop */
-    });
+    // phase 1860 (RT-D5)：close 失败不吞——typed outcome 承载证据（barrier 语义不变）。
+    this._contractCloseOutcome = await this.contractManager.close()
+      .catch((e): ContractCloseOutcome => ({ alreadyClosed: false, failures: [formatErr(e)] }));
+    // phase 1860 (RT-D4)：组装 typed stop outcome 并缓存（llm.close 前赋值——llm.close
+    // 失败仍抛出使 stop reject（现行为），但重入幂等返回已缓存 outcome）。
+    const stopOutcome: RuntimeStopOutcome = {
+      kind: shutdownOutcome.kind === 'timed_out' ? 'timed_out' : 'converged',
+      dialogJoin,
+      tasks: shutdownOutcome,
+      contractClose: this._contractCloseOutcome,
+    };
+    this._stopOutcome = stopOutcome;
     await this.llm.close();
+    return stopOutcome;
   }
 
   /**
@@ -931,11 +1013,11 @@ export class Runtime {
       await runReact({
         messages,
         systemPrompt,
-        llm: this.llm,
+        llm: this.llmOrchestrator,   // phase 1860 (RT-D1)：转发面（AgentExecutor 消费宽面）
         executor: this.toolExecutor,
         ctx: this.execContext,
         tools,
-        registry: this.toolRegistry,  // Enable parallel execution for readonly tools
+        registry: this.toolRegistryForwarding,  // phase 1860 (RT-D1)：转发面（parallel readonly 执行消费）
         maxSteps: this.options.maxSteps,
         maxConsecutiveParseErrors: this.options.maxConsecutiveParseErrors,
         maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,
@@ -983,13 +1065,8 @@ export class Runtime {
         },
         },
         onStepComplete: async (stepCount) => {
-          const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
-          // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
-          applyBlockIdAssignments(messages, saved.assignedBlockIds);
-          // Phase 1229 Step A: after the complete step's dialog snapshot is saved, commit the
-          // aggregated read-state once. FileTool owns the entry/schema and persistence primitive;
-          // Runtime owns the boundary timing. Order is fixed: dialog → read-state.
-          await persistReadFileState(this.execContext);
+          // phase 1860 (RT-D2)：step 提交经单一编排协议（dialog save → blockId 回写 → read-state persist）。
+          await this._commitStepBoundary(systemPrompt, messages, tools);
           // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
           // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
           // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
@@ -1011,14 +1088,41 @@ export class Runtime {
 
         streamCallbacks: callbacks,
       });
-      const saved = await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
-      // phase 1850 Step C: save 不再隐式写 caller 数组——显式回传 blockId
-      applyBlockIdAssignments(messages, saved.assignedBlockIds);
+      // phase 1860 (RT-D2)：turn 尾提交经同一编排协议；read-state 已由最后 step persist、
+      // 不重复提交（保持原 turn 尾语义）。
+      await this._commitStepBoundary(systemPrompt, messages, tools, { persistReadState: false });
 
       // phase 521: turn 末 regime change 检测（per L5.G3 (a) 自动检测）
       await this._checkRegimeSwitch(resolvedSystemPrompt, identityContent);
     } finally {
       // phase 146: mirror state removed — no reset needed
+    }
+  }
+
+  /**
+   * phase 1860 (RT-D2)：单一提交编排协议——定点序 DialogStore.save → blockId 回写 →
+   * FileTool read-state persist；step 边界（onStepComplete）与 turn 结束后统一经此，
+   * 禁止在本方法外重排提交序。
+   *
+   * phase 1850 Step C: save 不隐式写 caller 数组——blockId 经 applyBlockIdAssignments 显式回传。
+   * Phase 1229 Step A: FileTool owns the entry/schema and persistence primitive;
+   * Runtime owns the boundary timing. Order is fixed: dialog → read-state.
+   *
+   * @param opts.persistReadState 默认 true（step 边界）；turn 尾传 false——read-state 已由
+   *   最后 step persist，turn 尾不重复提交（保持 phase1860 前 turn 尾原语义）。
+   */
+  private async _commitStepBoundary(
+    systemPrompt: string,
+    messages: Message[],
+    tools: ToolDefinition[],
+    opts?: { persistReadState?: boolean },
+  ): Promise<void> {
+    const saved = await this.sessionManager.save({
+      systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId,
+    });
+    applyBlockIdAssignments(messages, saved.assignedBlockIds);
+    if (opts?.persistReadState !== false) {
+      await persistReadFileState(this.execContext);
     }
   }
 
@@ -1201,10 +1305,6 @@ export class Runtime {
       initialized: this.initialized,
       clawId: this.options.clawId,
     };
-  }
-
-  getTurnCount(): number {
-    return this.turnCount;
   }
 
   // ============================================================================

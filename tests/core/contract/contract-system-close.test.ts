@@ -213,3 +213,81 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
     expect(closeEvents.length).toBe(1);
   });
 });
+
+
+// ───── phase 1860 (RT-D5)：close() typed ContractCloseOutcome、失败证据不吞 ─────
+describe('phase 1860 (RT-D5) — close() returns typed ContractCloseOutcome', () => {
+  let testDir: string;
+  let clawDir: string;
+  let manager: ContractSystem;
+  let events: Array<[string, ...(string | number)[]]>;
+
+  beforeEach(async () => {
+    testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
+      os.tmpdir(),
+      `.test-contract-close-outcome-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
+    );
+    clawDir = path.join(testDir, 'claws', 'test-claw');
+    await fs.mkdir(clawDir, { recursive: true });
+    const audit = makeAudit();
+    events = audit.events;
+    manager = new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: new NodeFileSystem({ baseDir: clawDir }),
+      audit: audit.audit as any,
+      llm: { id: 'mock-llm' } as any,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      clawsDir: '/tmp/test/claws',
+      notifyClaw: vi.fn(),
+    });
+  });
+
+  afterEach(async () => {
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    vi.restoreAllMocks();
+  });
+
+  it('正常路径返回 alreadyClosed=false 且 failures 为空', async () => {
+    const outcome = await manager.close();
+    expect(outcome.alreadyClosed).toBe(false);
+    expect(outcome.failures).toEqual([]);
+  });
+
+  it('auditor close 失败 → failures 承载证据（不吞、不阻 dispose）', async () => {
+    manager.attachAuditor({ close: vi.fn().mockRejectedValue(new Error('auditor boom')) } as any);
+    const outcome = await manager.close();
+    expect(outcome.alreadyClosed).toBe(false);
+    expect(outcome.failures).toHaveLength(1);
+    expect(outcome.failures[0]).toContain('auditor boom');
+  });
+
+  it('abort 失败 + termination rejection → 两类证据均进 outcome', async () => {
+    const failingController = {
+      abort: () => { throw new Error('abort boom'); },
+    } as unknown as AbortController;
+    const rejecting = Promise.reject(new Error('termination boom'));
+    // 预挂 catch：close 内 allSettled 亦消费，但 rejection 产生与 allSettled 挂勾之间存在 microtask 窗口。
+    rejecting.catch(() => { /* consumed by close() allSettled as well */ });
+    (manager as any)._activeContractControllers.set(
+      'c1',
+      new Set([{ controller: failingController, promise: rejecting }]),
+    );
+
+    const outcome = await manager.close();
+    expect(outcome.failures.some((f) => f.includes('abort boom'))).toBe(true);
+    expect(outcome.failures.some((f) => f.includes('termination boom'))).toBe(true);
+    // 失败证据不阻 dispose 语义：controllers 仍清空。
+    expect((manager as any)._activeContractControllers.size).toBe(0);
+  });
+
+  it('幂等二次调用返回 alreadyClosed=true、failures 为空', async () => {
+    const first = await manager.close();
+    expect(first.alreadyClosed).toBe(false);
+    const second = await manager.close();
+    expect(second.alreadyClosed).toBe(true);
+    expect(second.failures).toEqual([]);
+  });
+});

@@ -133,6 +133,23 @@ export interface LLMStreamProviderFailedChunk {
 export type LLMStreamChunk = ProviderStreamChunk | LLMStreamResetChunk | LLMStreamProviderFailedChunk;
 
 /**
+ * phase 1860 (RT-D1)：Runtime 私有消费面——仅 Runtime 实际调用集（M#7 最小）。
+ * 签名 1:1 取自 LLMOrchestrator（orchestrator.ts 实现）；Runtime 侧宽持有收窄后
+ * 经本 capability 消费，stream/call 等宽面仅经转发面（RuntimeDependencies.llmOrchestrator）传递。
+ */
+export interface LLMRuntimeCapability {
+  getProviderInfo(): { name: string; model: string; isFallback: boolean };
+  /** 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。Runtime 在每轮 turn 开始调。 */
+  resetLastSuccessProvider(): void;
+  close(): Promise<void>;
+  /**
+   * phase 320: 原地替换内部 primary/fallbacks/breakers，对象引用不变。
+   * 调用方持有的引用自动指向新 provider；events sink 引用不换；lastSuccessProvider 不重置。
+   */
+  reloadConfig(newConfig: LLMOrchestratorConfig): void;
+}
+
+/**
  * LLMOrchestrator interface — multi-provider fault-tolerant LLM orchestration
  *
  * Implemented by LLMOrchestratorImpl class.

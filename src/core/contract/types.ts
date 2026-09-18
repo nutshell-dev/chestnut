@@ -563,11 +563,19 @@ export interface ExecutionFailureSink {
   report(input: ExecutionFailureReportInput): Promise<ExecutionFailureReportOutcome>;
 }
 
+/** phase 1860 (RT-D5)：close 失败证据（不吞）——auditor/abort/termination 三类失败经 outcome 交付。 */
+export interface ContractCloseOutcome {
+  /** true = 幂等 guard 命中（首调已完成）；failures 为空。 */
+  readonly alreadyClosed: boolean;
+  /** 失败证据（formatErr 格式；空数组 = 全成功）。 */
+  readonly failures: readonly string[];
+}
+
 /** Runtime-owned lifecycle view of ContractSystem. */
 export interface ContractRuntimeLifecycle {
   loadActive(): Promise<Contract | null>;
   maybeAuditStep(currentStep: number): Promise<void>;
-  close(): Promise<void>;
+  close(): Promise<ContractCloseOutcome>;
 }
 
 /**
