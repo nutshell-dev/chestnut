@@ -30,7 +30,7 @@ import { loadReadFileState, clearReadFileState, persistReadFileState } from '../
 import { runReact } from '../agent-executor/index.js';
 import type { RuntimeTurnCallbacks } from './turn-callbacks.js';
 import { createAgentExecutorAuditSink } from './agent-executor-audit-sink.js';
-import { isStepAbortError } from '../step-executor/index.js';
+import { isStepAbortError, abortEvidenceAuditCols } from '../step-executor/index.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './inbox-message-types.js';
@@ -1528,13 +1528,13 @@ export function handleTurnInterrupt(
     if (err.reason.kind === 'idle_timeout') {
       const msg = `Interrupted (idle timeout: ${Math.round(err.reason.ms / 1000)}s)`;
       callbacks?.onTurnInterrupted?.('idle_timeout', msg);
-      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.reason.ms}`, traceCol);
+      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.reason.ms}`, traceCol, ...abortEvidenceAuditCols(err));
     } else if (err.reason.kind === 'step_yield') {
       callbacks?.onTurnInterrupted?.('priority_inbox', 'Interrupted (priority inbox)');
-      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox', traceCol);
+      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox', traceCol, ...abortEvidenceAuditCols(err));
     } else {
       callbacks?.onTurnInterrupted?.('user_interrupt');
-      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt', traceCol);
+      audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt', traceCol, ...abortEvidenceAuditCols(err));
     }
   } else {
     const errorMsg = formatErr(err);

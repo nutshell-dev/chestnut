@@ -12,7 +12,7 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 import { EVENTLOOP_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
 import { INTERRUPT_RECOVERY_DELAY_MS, UNKNOWN_ERROR_RECOVERY_DELAY_MS } from './constants.js';
 import type { LoopErrorContext } from './types.js';
-import { isStepAbortError, type StepAbortError, type StepAbortReason } from '../step-executor/index.js';
+import { isStepAbortError, abortEvidenceAuditCols, type StepAbortError, type StepAbortReason } from '../step-executor/index.js';
 import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import {
   MaxStepsExceededError,
@@ -63,11 +63,12 @@ const idleTimeoutHandler: ErrorHandler = {
   name: 'idle_timeout',
   // phase 1857 Step B (SE-D1): instanceof 判据改 reason.kind 数据判据
   match: stepAbortKindIs('idle_timeout'),
-  handle: async (_err, ctx) => {
+  handle: async (err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
       `cause=${LOOP_INTERRUPT_CAUSES.idle_timeout}`,
       `recovery_delay_ms=${INTERRUPT_RECOVERY_DELAY_MS}`,
+      ...abortEvidenceAuditCols(err),
     );
     await abortableDelay(INTERRUPT_RECOVERY_DELAY_MS, ctx.signal);
   },
@@ -76,10 +77,11 @@ const idleTimeoutHandler: ErrorHandler = {
 const userInterruptHandler: ErrorHandler = {
   name: 'user_interrupt',
   match: stepAbortKindIs('user_interrupt'),
-  handle: async (_err, ctx) => {
+  handle: async (err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
       `cause=${LOOP_INTERRUPT_CAUSES.user_interrupt}`,
+      ...abortEvidenceAuditCols(err),
     );
     // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 prepareInbox + processTurn，
     // 把被中断 turn 期间到达、仍残留在 inbox/pending 里的消息正常 drain 出来。
@@ -91,11 +93,12 @@ const userInterruptHandler: ErrorHandler = {
 const priorityInboxHandler: ErrorHandler = {
   name: 'priority_inbox',
   match: stepAbortKindIs('step_yield'),
-  handle: async (_err, ctx) => {
+  handle: async (err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
       `cause=${LOOP_INTERRUPT_CAUSES.priority_inbox}`,
       `recovery_delay_ms=0`,
+      ...abortEvidenceAuditCols(err),
     );
   },
 };

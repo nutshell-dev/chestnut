@@ -16,7 +16,7 @@ import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.j
 import type { StepInput, StepCallbacks } from './types.js';
 import type { StepExecutorAuditSink } from './audit-sink.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
-import { throwAbortError } from './abort-helpers.js';
+import { throwAbortError, type AbortExecutionEvidence } from './abort-helpers.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 import { makeToolUseId } from '../../foundation/llm-provider/index.js';
@@ -75,11 +75,14 @@ async function executeSequential(
   const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调（流式提前 emit / 不等 execute）
   const results: ToolResultBlock[] = [];
+  // phase 1857 Step G (SE-D7): 批内已完成证据——abort 时随终止载体交付（已执行未提交可证明）
+  const completed: AbortExecutionEvidence['completed'] = [];
   for (const call of toolCalls) {
-    if (ctx.signal?.aborted) throwAbortError(ctx.signal);
+    if (ctx.signal?.aborted) throwAbortError(ctx.signal, aw, { completed });
     const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
     results.push(toToolResultBlock(makeToolUseId(call.id), result));
+    completed.push({ toolName: call.name, toolUseId: makeToolUseId(call.id), success: result.success });
   }
   return results;
 }
@@ -127,11 +130,14 @@ async function executeWriteCalls(
 ): Promise<void> {
   const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调
+  // phase 1857 Step G (SE-D7): 写组批内已完成证据
+  const completed: AbortExecutionEvidence['completed'] = [];
   for (const { call, index } of group) {
-    if (ctx.signal?.aborted) throwAbortError(ctx.signal);
+    if (ctx.signal?.aborted) throwAbortError(ctx.signal, aw, { completed });
     const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
+    completed.push({ toolName: call.name, toolUseId: makeToolUseId(call.id), success: result.success });
   }
 }
 

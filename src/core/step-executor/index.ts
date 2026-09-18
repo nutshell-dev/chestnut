@@ -6,7 +6,7 @@
  */
 
 export { executeStep } from './step-executor.js';
-export { StepAbortError, isStepAbortError, throwAbortError } from './abort-helpers.js';
+export { StepAbortError, isStepAbortError, throwAbortError, abortEvidenceAuditCols } from './abort-helpers.js';
 export type { StepAbortReason } from './abort-helpers.js';
 export { asFinalStopReason } from './types.js';
 export type {

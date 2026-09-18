@@ -269,6 +269,25 @@ describe('Runtime RetryOutboxInterrupt', () => {
       expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt', 'trace_id=');
     });
 
+    it('phase 1857 Step G (SE-D7): StepAbortError 带 evidence → TURN_INTERRUPTED 行含 completed_tools 摘要列', () => {
+      const onTurnInterrupted = vi.fn();
+      const onTurnError = vi.fn();
+      const audit = makeMockAudit();
+      const err = new StepAbortError(
+        { kind: 'user_interrupt' },
+        { completed: [{ toolName: 'write_a', toolUseId: 'toolu_1', success: true }, { toolName: 'write_b', toolUseId: 'toolu_2', success: false }] },
+      );
+      handleTurnInterrupt(err, audit, { onTurnInterrupted, onTurnError });
+      expect(onTurnInterrupted).toHaveBeenCalledWith('user_interrupt');
+      expect(audit.write).toHaveBeenCalledWith(
+        'turn_interrupted',
+        'cause=user_interrupt',
+        'trace_id=',
+        'completed_tools=2',
+        'completed_tool_summary=write_a#toolu_1:ok,write_b#toolu_2:fail',
+      );
+    });
+
     it('Error → onTurnError with message', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
