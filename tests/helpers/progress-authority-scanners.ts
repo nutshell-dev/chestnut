@@ -17,6 +17,7 @@ export const RATCHET_PATHS = {
   srcRoot,
   contractSrc,
   managerFile: path.join(contractSrc, 'manager.ts'),
+  queueFile: path.join(contractSrc, 'progress-mutation-queue.ts'),
   verificationFile: path.join(contractSrc, 'verification.ts'),
   persistenceFile: path.join(contractSrc, 'persistence.ts'),
   verificationNotifyFile: path.join(contractSrc, 'verification-notify.ts'),
@@ -89,6 +90,43 @@ export function isPersistBeforeApply(fnBody: string): boolean {
   const applyIdx = fnBody.indexOf('applyVerificationOutcome(');
   if (persistIdx === -1 || applyIdx === -1) return false;
   return persistIdx < applyIdx;
+}
+
+/**
+ * 规则 7（phase 1862 Step F / CT-D7）：typed per-kind FIFO mutation 协议锁。
+ * - manager 不得绕过 private delegate 直接调 `progressMutationQueue.enqueue(`；
+ * - queue 不得回退 arbitrary-T 泛型回调面（`enqueue<T>`）。
+ */
+export function findUntypedMutationSurface(managerText: string, queueText: string): string[] {
+  const violations: string[] = [];
+  // private delegate 本体是唯一允许直调点：将其方法体剔除后再扫。
+  // 注意签名含泛型 `<K extends …>`，不能用 `async name(` 定位。
+  const delegateBody = extractDelegateBody(managerText);
+  const outsideDelegate = delegateBody.length > 0 ? managerText.replace(delegateBody, '') : managerText;
+  for (const line of outsideDelegate.split('\n')) {
+    if (/progressMutationQueue\.enqueue\(/.test(line)) violations.push(`manager direct enqueue: ${line.trim()}`);
+  }
+  for (const line of queueText.split('\n')) {
+    if (/enqueue\s*<\s*T\s*>/.test(line)) violations.push(`queue arbitrary-T enqueue: ${line.trim()}`);
+  }
+  return violations;
+}
+
+/** 提取 `_enqueueProgressMutation` 方法体（容忍泛型签名），找不到返回 ''。 */
+function extractDelegateBody(text: string): string {
+  const sigIdx = text.indexOf('async _enqueueProgressMutation');
+  if (sigIdx === -1) return '';
+  const braceIdx = text.indexOf('{', sigIdx);
+  if (braceIdx === -1) return '';
+  let depth = 0;
+  for (let i = braceIdx; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return text.slice(braceIdx, i + 1);
+    }
+  }
+  return '';
 }
 
 /** 提取 `export async function <name>` 的函数体（先括号配对跳过参数列表，再 brace 配对）。 */

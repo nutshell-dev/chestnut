@@ -107,7 +107,14 @@ import { reconcileArchiveStaleEntries } from './jobs/archive-reconciler.js';
 import { migrateLegacyArchiveEntries } from './jobs/archive-legacy-migrator.js';
 
 import { readArchivePayload } from './archive-reader.js';
-import { ProgressMutationQueue, type ProgressMutationMeta } from './progress-mutation-queue.js';
+import {
+  ProgressMutationQueue,
+  type ProgressMutationMeta,
+  type ProgressMutationKind,
+  type ProgressMutationResultMap,
+  type BootResetMutationOutcome,
+  type BootReplayMutationOutcome,
+} from './progress-mutation-queue.js';
 import { ContractAuditor } from './contract-auditor.js';
 import {
   CREATION_CLAIM_FILE,
@@ -128,11 +135,6 @@ export {
   type VerifierResult,
 };
 
-/** Phase 1201 Step C: queued boot reset mutation outcome。 */
-type BootResetOutcome =
-  | { kind: 'done'; resetIds: string[]; progress: ProgressData }
-  | { kind: 'not_active' }
-  | { kind: 'schema_failed' };
 
 export interface ContractSystemDeps {
   clawDir: string;
@@ -413,7 +415,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
       const replay = await this._enqueueProgressMutation(
         contractId,
         { mutationId: `boot-replay-${outcome.attempt_id}-${newShortUuid()}`, kind: 'boot_replay' },
-        async (): Promise<{ result: 'replayed' | 'already_applied' | 'superseded' | 'not_active' | 'invalid'; detail?: string }> => {
+        async (): Promise<BootReplayMutationOutcome> => {
           const activeLoc = await resolveActiveContractLocation({
             fs: this.fs,
             activeDir: this.activeDir,
@@ -490,11 +492,11 @@ export class ContractSystem implements ContractRuntimeLifecycle {
    * mutation callback 必须在执行时 fresh-read（不接受 caller 预读 snapshot）、
    * 不得包含长耗时 verifier/LLM/script 或 terminal side effect 等待。
    */
-  private async _enqueueProgressMutation<T>(
+  private async _enqueueProgressMutation<K extends ProgressMutationKind>(
     contractId: ContractId,
-    meta: ProgressMutationMeta,
-    mutation: () => Promise<T>,
-  ): Promise<T> {
+    meta: ProgressMutationMeta<K>,
+    mutation: () => Promise<ProgressMutationResultMap[K]>,
+  ): Promise<ProgressMutationResultMap[K]> {
     return this.progressMutationQueue.enqueue(contractId, meta, mutation);
   }
 
@@ -1019,7 +1021,7 @@ export class ContractSystem implements ContractRuntimeLifecycle {
           const bootReset = await this._enqueueProgressMutation(
             contractId,
             { mutationId: `boot-reset-${newShortUuid()}`, kind: 'boot_reset' },
-            async (): Promise<BootResetOutcome> => {
+            async (): Promise<BootResetMutationOutcome> => {
               const activeLoc = await resolveActiveContractLocation({
                 fs: this.fs,
                 activeDir: this.activeDir,

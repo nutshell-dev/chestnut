@@ -46,13 +46,13 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
       order.push('a:start');
       await gateA.promise;
       order.push('a:end');
-      return 'ra';
+      return { kind: 'duplicate' } as const;
     });
     let bEntered = false;
     const pB = queue.enqueue(C_A, meta('attempt_start', 'm2'), async () => {
       bEntered = true;
       order.push('b:start');
-      return 'rb';
+      return { kind: 'skipped', reason: 'b' } as const;
     });
 
     // B is queued but must not enter while A holds the tail.
@@ -61,8 +61,8 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
     expect(queue.pendingCount(C_A)).toBe(2);
 
     gateA.resolve();
-    await expect(pA).resolves.toBe('ra');
-    await expect(pB).resolves.toBe('rb');
+    await expect(pA).resolves.toEqual({ kind: 'duplicate' });
+    await expect(pB).resolves.toEqual({ kind: 'skipped', reason: 'b' });
     expect(order).toEqual(['a:start', 'a:end', 'b:start']);
   });
 
@@ -76,10 +76,12 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
     const pA = queue.enqueue(C_A, meta('sync_complete', 'm1'), async () => {
       aEntered = true;
       await gateA.promise;
+      return { kind: 'not_active' } as const;
     });
     const pB = queue.enqueue(C_B, meta('sync_complete', 'm2'), async () => {
       bEntered = true;
       await gateB.promise;
+      return { kind: 'not_active' } as const;
     });
 
     // Both callbacks entered before either resolves.
@@ -103,19 +105,19 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
     });
     const p2 = queue.enqueue(C_A, meta('attempt_start', 'm2'), async () => {
       secondRan = true;
-      return 'ok';
+      return { kind: 'skipped', reason: 'ok' } as const;
     });
 
     await expect(p1).rejects.toBe(boom);
-    await expect(p2).resolves.toBe('ok');
+    await expect(p2).resolves.toEqual({ kind: 'skipped', reason: 'ok' });
     expect(secondRan).toBe(true);
     expect(queue.trackedContractCount).toBe(0);
   });
 
   it('entries are reclaimed after settle (size back to 0)', async () => {
     const queue = new ProgressMutationQueue(makeMockAudit());
-    await queue.enqueue(C_A, meta('sync_complete', 'm1'), async () => 1);
-    await queue.enqueue(C_B, meta('sync_complete', 'm2'), async () => 2);
+    await queue.enqueue(C_A, meta('sync_complete', 'm1'), async () => ({ kind: 'duplicate' }) as const);
+    await queue.enqueue(C_B, meta('sync_complete', 'm2'), async () => ({ kind: 'not_active' }) as const);
     expect(queue.pendingCount(C_A)).toBe(0);
     expect(queue.pendingCount(C_B)).toBe(0);
     expect(queue.trackedContractCount).toBe(0);
@@ -128,9 +130,11 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
 
     const pA = queue.enqueue(C_A, meta('sync_complete', 'm1'), async () => {
       await gateA.promise;
+      return { kind: 'duplicate' } as const;
     });
     const pB = queue.enqueue(C_A, meta('sync_complete', 'm2'), async () => {
       await gateB.promise;
+      return { kind: 'duplicate' } as const;
     });
 
     gateA.resolve();
@@ -150,8 +154,9 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
     const gate = deferred();
     const p1 = queue.enqueue(C_A, meta('sync_complete', 'm1'), async () => {
       await gate.promise;
+      return { kind: 'duplicate' } as const;
     });
-    const p2 = queue.enqueue(C_A, meta('apply_outcome', 'm2'), async () => 'done');
+    const p2 = queue.enqueue(C_A, meta('attempt_pass', 'm2'), async () => ({ kind: 'skipped', reason: 'done' }) as const);
 
     gate.resolve();
     await p1;
@@ -161,7 +166,7 @@ describe('ProgressMutationQueue (phase 1201 step A)', () => {
     const byType = (t: string) => writes.filter(c => c[0] === t);
     expect(byType(CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_QUEUED)).toEqual([
       [CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_QUEUED, 'contractId=contract-a', 'mutationId=m1', 'kind=sync_complete', 'depth=1'],
-      [CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_QUEUED, 'contractId=contract-a', 'mutationId=m2', 'kind=apply_outcome', 'depth=2'],
+      [CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_QUEUED, 'contractId=contract-a', 'mutationId=m2', 'kind=attempt_pass', 'depth=2'],
     ]);
     expect(byType(CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_STARTED)).toHaveLength(2);
     expect(byType(CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_FINISHED)).toHaveLength(2);

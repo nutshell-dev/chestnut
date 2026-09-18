@@ -104,7 +104,7 @@ describe('contract progress mutation queue typed audit emit (phase 1201 step A)'
     const payload = {
       contractId: makeContractId('c_abc'),
       mutationId: 'm_2',
-      kind: 'apply_outcome',
+      kind: 'boot_replay',
       depth: 1,
     };
     emitProgressMutationStarted(audit, payload);
@@ -114,7 +114,7 @@ describe('contract progress mutation queue typed audit emit (phase 1201 step A)'
       CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_STARTED,
       'contractId=c_abc',
       'mutationId=m_2',
-      'kind=apply_outcome',
+      'kind=boot_replay',
       'depth=1',
     );
     expect(audit.write).toHaveBeenNthCalledWith(
@@ -122,7 +122,7 @@ describe('contract progress mutation queue typed audit emit (phase 1201 step A)'
       CONTRACT_AUDIT_EVENTS.PROGRESS_MUTATION_FINISHED,
       'contractId=c_abc',
       'mutationId=m_2',
-      'kind=apply_outcome',
+      'kind=boot_replay',
       'depth=1',
     );
   });

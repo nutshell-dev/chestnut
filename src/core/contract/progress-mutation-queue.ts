@@ -15,12 +15,15 @@
  * - The callback receives no arguments: callers must not pass a pre-read mutable
  *   ProgressData snapshot; mutations fresh-read at execution time.
  * - The callback must not host long-running verifier/LLM/script computation or wait
- *   on terminal side effects (enforced by ratchet in Step D).
+ *   on terminal side effects (enforced by ratchet 规则 5).
+ * - phase 1862 Step F (CT-D7): 泛型回调面收窄为 kind → typed result 映射
+ *   （ProgressMutationResultMap，穷尽）；不存在 arbitrary-T enqueue 表面。
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import type { ContractId } from './types.js';
+import type { ContractId, ProgressData } from './types.js';
+import type { VerificationGatewayResult, SyncCompletionGatewayResult } from './verification-types.js';
 import {
   emitProgressMutationFailed,
   emitProgressMutationFinished,
@@ -28,25 +31,38 @@ import {
   emitProgressMutationStarted,
 } from './audit-emit.js';
 
-/**
- * Typed mutation kinds. Step A introduces the primitive; later steps route
- * business mutations through these kinds.
- */
-type ProgressMutationKind =
-  | 'sync_complete'
-  | 'attempt_start'
-  | 'attempt_pass'
-  | 'attempt_reject'
-  | 'attempt_interrupt'
-  | 'apply_outcome'
-  | 'boot_replay'
-  | 'boot_reset'
-  | 'fallback_reset';
+/** Phase 1201 Step C: queued boot reset mutation outcome（manager 消费，map 单源）。 */
+export type BootResetMutationOutcome =
+  | { kind: 'done'; resetIds: string[]; progress: ProgressData }
+  | { kind: 'not_active' }
+  | { kind: 'schema_failed' };
 
-export interface ProgressMutationMeta {
+/** phase 1862 Step F (CT-D7): queued boot replay mutation outcome（map 单源）。 */
+export type BootReplayMutationOutcome = {
+  result: 'replayed' | 'already_applied' | 'superseded' | 'not_active' | 'invalid';
+  detail?: string;
+};
+
+/**
+ * phase 1862 Step F (CT-D7): per-kind typed mutation 协议。
+ * kind 穷尽映射到各自 typed result——enqueue 不接受 arbitrary-T 回调。
+ */
+export interface ProgressMutationResultMap {
+  sync_complete: SyncCompletionGatewayResult;
+  attempt_start: VerificationGatewayResult;
+  attempt_pass: VerificationGatewayResult;
+  attempt_reject: VerificationGatewayResult;
+  attempt_interrupt: VerificationGatewayResult;
+  boot_replay: BootReplayMutationOutcome;
+  boot_reset: BootResetMutationOutcome;
+}
+
+export type ProgressMutationKind = keyof ProgressMutationResultMap;
+
+export interface ProgressMutationMeta<K extends ProgressMutationKind = ProgressMutationKind> {
   /** Caller-generated unique mutation id (audit correlation). */
   mutationId: string;
-  kind: ProgressMutationKind;
+  kind: K;
 }
 
 interface PendingEntry {
@@ -71,11 +87,15 @@ export class ProgressMutationQueue {
     return this.entries.size;
   }
 
-  async enqueue<T>(
+  /**
+   * phase 1862 Step F (CT-D7)：kind → typed result 协议（ProgressMutationResultMap
+   * 穷尽）；返回型由 kind 决定，不接受 arbitrary-T 回调。
+   */
+  async enqueue<K extends ProgressMutationKind>(
     contractId: ContractId,
-    meta: ProgressMutationMeta,
-    mutation: () => Promise<T>,
-  ): Promise<T> {
+    meta: ProgressMutationMeta<K>,
+    mutation: () => Promise<ProgressMutationResultMap[K]>,
+  ): Promise<ProgressMutationResultMap[K]> {
     const key = contractId as string;
     const existing = this.entries.get(key);
     const depth = (existing?.depth ?? 0) + 1;
@@ -88,7 +108,7 @@ export class ProgressMutationQueue {
       depth,
     });
 
-    const run = (async (): Promise<T> => {
+    const run = (async (): Promise<ProgressMutationResultMap[K]> => {
       if (prevTail) await prevTail;
       emitProgressMutationStarted(this.audit, {
         contractId,

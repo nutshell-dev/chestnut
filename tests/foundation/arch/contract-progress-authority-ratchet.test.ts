@@ -19,9 +19,10 @@ import {
   findNonContractIdEnqueueKeys,
   findVerifierExecInEnqueueCallbacks,
   findPublicQueueSurface,
+  findUntypedMutationSurface,
 } from '../../helpers/progress-authority-scanners.js';
 
-const { repoRoot, srcRoot, managerFile, scannerHelperFile } = RATCHET_PATHS;
+const { repoRoot, srcRoot, managerFile, queueFile, scannerHelperFile } = RATCHET_PATHS;
 
 describe('Phase 1201: progress queue authority ratchet', () => {
   it('规则 1：VerificationMutex 在 src/tests 引用为 0（scanner/本文件除外）', () => {
@@ -91,5 +92,37 @@ describe('Phase 1201: progress queue authority ratchet', () => {
     ].join('\n');
     expect(findPublicQueueSurface(violating)).toHaveLength(2);
     expect(findPublicQueueSurface('  private async _enqueueProgressMutation<T>(')).toEqual([]);
+  });
+
+  it('规则 7（phase 1862 Step F / CT-D7）：manager 不得直调 queue.enqueue；queue 不得回退 arbitrary-T 面', () => {
+    const managerText = fs.readFileSync(managerFile, 'utf8');
+    const queueText = fs.readFileSync(queueFile, 'utf8');
+    expect(findUntypedMutationSurface(managerText, queueText)).toEqual([]);
+  });
+
+  it('规则 7 反向 fixture：delegate 外直调 enqueue / 泛型 enqueue<T> 会被检出', () => {
+    const managerWithExtraDirect = [
+      'class M {',
+      '  private async _enqueueProgressMutation<K extends ProgressMutationKind>(',
+      '    contractId: ContractId,',
+      '    meta: ProgressMutationMeta<K>,',
+      '    mutation: () => Promise<ProgressMutationResultMap[K]>,',
+      '  ): Promise<ProgressMutationResultMap[K]> {',
+      '    return this.progressMutationQueue.enqueue(contractId, meta, mutation);',
+      '  }',
+      '  async bypass(contractId: ContractId, meta: ProgressMutationMeta, fn: () => Promise<unknown>) {',
+      '    return this.progressMutationQueue.enqueue(contractId, meta, fn);',
+      '  }',
+      '}',
+    ].join('\n');
+    const violating = findUntypedMutationSurface(
+      managerWithExtraDirect,
+      '  async enqueue<T>(\n    contractId: ContractId,',
+    );
+    expect(violating).toHaveLength(2);
+    const compliantManager = managerWithExtraDirect.split('\n').filter(
+      line => !line.includes('bypass') && !line.includes('meta, fn'),
+    ).join('\n');
+    expect(findUntypedMutationSurface(compliantManager, '  async enqueue<K extends ProgressMutationKind>(')).toEqual([]);
   });
 });
