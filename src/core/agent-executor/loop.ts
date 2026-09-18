@@ -27,6 +27,7 @@ import type { StepCallbacks, FinalStopReason } from '../step-executor/index.js';
 
 import type { TurnEventCommitDeps } from './turn-event-commit.js';
 import type { AgentExecutorEventSink } from './event-sink.js';
+import type { LoopStopRequest } from './loop-stop.js';
 
 
 /**
@@ -75,6 +76,8 @@ export interface ReactResult {
   // LLM 返 unrecognized stop_reason（refusal、safety、stop_sequence 等）经 step-executor 映射 'unknown'，本字段保留区分 true end_turn。
   // phase 1483: 'content_filter' 字面单独保留（不再折叠为 'unknown'）— Design Principle「运行中信息不丢弃」+ 唯一 caller subagent/agent.ts:411 仅 appendToLog 字符串拼接安全。
   stopReason: 'end_turn' | 'no_tool' | 'max_tokens' | 'content_filter' | 'unknown';
+  /** phase 1856 (AE-D10): typed loop stop request（如 result_capture 早停；替代伪造 'end_turn'）。 */
+  stopRequest?: LoopStopRequest;
 }
 
 export async function runReact(options: ReactOptions): Promise<ReactResult> {
@@ -131,6 +134,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     finalText: result.finalText,
     stepsUsed: result.stepsUsed,
     stopReason: mapStopReason(result.stopReason),
+    stopRequest: result.stopRequest,
   };
 }
 

@@ -4,7 +4,7 @@
  * SubAgent runs with restricted permissions and cannot spawn other agents.
  */
 
-import { runReact, type ReactOptions, type ReactResult } from '../agent-executor/index.js';
+import { runReact, type ReactOptions, type ReactResult, type LoopStopRequest } from '../agent-executor/index.js';
 // phase 692 Step B: 删 MOTION_CLAW_ID import (L3 → L4 反向 import = M#5 违反)。
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
@@ -232,7 +232,7 @@ export class SubAgent {
       // tool 结果写盘形成 orphan write、违 phase 805 sub-3「subagent workspace 0 创建」.
       // signal 已通过 timeout.signal 抛 turn_timeout / idle_timeout、runReact 会感知 abort、
       // 我们等其自然 settle、再抛 race 的 timeout error 出。
-      const runReactPromise: Promise<{ finalText?: string; stopReason: string }> = this.runReact({
+      const runReactPromise: Promise<{ finalText?: string; stopReason: string; stopRequest?: LoopStopRequest }> = this.runReact({
         messages,
           systemPrompt,
           llm: this.llm,
@@ -343,7 +343,9 @@ export class SubAgent {
       // Log completion
       const duration = Date.now() - startTime;
       await this.appendToLog(`=== Completed in ${duration}ms ===\n`);
-      await this.appendToLog(`Stop reason: ${result.stopReason}\n`);
+      // phase 1856 (AE-D10): capture 停止按 typed stopRequest 识别（替代空文本 + 伪造 'end_turn' 隐式依赖）
+      const stopLabel = result.stopRequest?.kind === 'result_capture' ? 'result_capture' : result.stopReason;
+      await this.appendToLog(`Stop reason: ${stopLabel}\n`);
       await this.appendToLog(`Final text: ${result.finalText}\n`);
 
       stream.safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_END });

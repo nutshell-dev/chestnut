@@ -20,6 +20,7 @@ import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type F
 import { asFinalStopReason } from '../step-executor/index.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';
 import type { AgentExecutorEventSink } from './event-sink.js';
+import type { LoopStopRequest } from './loop-stop.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 
@@ -62,6 +63,8 @@ interface AgentResult {
   finalText: string;
   stepsUsed: number;
   stopReason: FinalStopReason;
+  /** phase 1856 (AE-D10): typed loop stop request（如 result_capture 早停）。 */
+  stopRequest?: LoopStopRequest;
 }
 
 export async function runAgent(input: AgentInput): Promise<AgentResult> {
@@ -155,8 +158,15 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     // phase 777: result-capture tools (done) request early stop.
     // capturedResult is read by runSubagent regardless of finalText.
+    // phase 1856 (AE-D10): typed stop request — 真实停止原因（result capture）入契约，
+    // stopReason 不再伪造 'end_turn'（消费方按 stopRequest.kind 识别）。
     if (ctx.stopRequested) {
-      return { finalText: '', stepsUsed: stepCount, stopReason: asFinalStopReason('end_turn') };
+      return {
+        finalText: '',
+        stepsUsed: stepCount,
+        stopReason: asFinalStopReason('unknown'),
+        stopRequest: { kind: 'result_capture' },
+      };
     }
 
     const result = await executeStep({
