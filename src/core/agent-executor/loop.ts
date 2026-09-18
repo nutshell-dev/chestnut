@@ -111,6 +111,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onReset, onProviderFailed, onLLMResult,
     onEmptyResponse, onUnknownStopReason, onUnparseableToolUse, onToolInputParseError, onToolExecutionFailed, onSafeCallbackError,
     onMaxTokensPrebuiltOnlyFinal, onMaxTokensAssistantEmptySkipped,
+    onMaxTokensStateAOrphanDrop,
     auditWriter,
     currentContractId,
   } = options;
@@ -144,6 +145,8 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onSafeCallbackError,
     onMaxTokensPrebuiltOnlyFinal,
     onMaxTokensAssistantEmptySkipped,
+    // phase 1856 (AE-D2): 完整透传 — 此前 ReactOptions 声明了该回调但未透传、永不触发
+    onMaxTokensStateAOrphanDrop,
   };
 
   const result = await runAgent({
