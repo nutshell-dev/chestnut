@@ -10,7 +10,7 @@ import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js'
 import type { LLMResponse } from '../../foundation/llm-provider/index.js';
 import type { StepExecutorAuditSink } from './audit-sink.js';
 import type { StepCallbacks } from './types.js';
-import { safeCallback, parseToolInput } from './utils.js';
+import { safeCallback, parseToolInput, writeAuditGuarded } from './utils.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { throwAbortError } from './abort-helpers.js';
@@ -317,17 +317,21 @@ export async function collectStreamResponse(
         callbacks,
         auditWriter,
       );
-      auditWriter?.write(
-        STEP_EXECUTOR_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
-        `cause=${classifyDiscardCause(err)}`,
-        `tool_use_count=${toolUseCount}`,
-        `has_text=${hasText}`,
-        `has_thinking=${hasThinking}`,
-        `ts_range=${state.startTs}-${Date.now()}`,
-        `trace_id=${String(traceId ?? '')}`,
-        `contract_id=${currentContractId ?? ''}`,
-        `err=${auditWriter.message(formatErr(err))}`,
-      );
+      // phase 1857 Step E (SE-D4): guarded 写——审计通道自身失败不得替代原 LLM err
+      if (auditWriter) {
+        writeAuditGuarded(
+          auditWriter,
+          STEP_EXECUTOR_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
+          `cause=${classifyDiscardCause(err)}`,
+          `tool_use_count=${toolUseCount}`,
+          `has_text=${hasText}`,
+          `has_thinking=${hasThinking}`,
+          `ts_range=${state.startTs}-${Date.now()}`,
+          `trace_id=${String(traceId ?? '')}`,
+          `contract_id=${currentContractId ?? ''}`,
+          `err=${auditWriter.message(formatErr(err))}`,
+        );
+      }
     }
     throw err;
   }

@@ -13,6 +13,21 @@ import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 
 /**
+ * phase 1857 Step E (SE-D4): 审计写失败不改变被记录的原失败。
+ * 审计通道自身失败时唯一可用留证通道是 stderr（最后手段，非主通道）；
+ * 本函数永不抛出。sink 缺失由调用点短路（保持 optional 链参数不求值语义）。
+ */
+export function writeAuditGuarded(sink: StepExecutorAuditSink | undefined, event: string, ...details: string[]): void {
+  if (!sink) return;
+  try {
+    sink.write(event, ...details);
+  } catch (auditErr) {
+    // 最后手段留证：审计通道自身失败，绝不能替代/遮蔽正在记录的原失败
+    process.stderr.write(`[step-executor] audit write failed: ${event}: ${formatErr(auditErr)}\n`);
+  }
+}
+
+/**
  * Execute a callback safely, swallowing errors to protect the executor loop.
  * Errors are logged and optionally forwarded via onSafeCallbackError for audit.
  * This resilience is intentional: callback failures must not break agent execution.
