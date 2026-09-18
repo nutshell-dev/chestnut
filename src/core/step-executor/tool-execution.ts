@@ -11,6 +11,7 @@
 import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ExecContext } from '../../foundation/tools/index.js';
+import { ToolError } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StepInput, StepCallbacks } from './types.js';
@@ -234,7 +235,12 @@ export async function executeSingleTool(
       timeoutMs: toSafeNumber(toolCall.input?.timeoutMs),
     });
   } catch (err) {
-    const errorType = err instanceof Error ? err.constructor.name : 'Error';
+    // phase 1857 Step H (SE-D8): 只收敛 Tools 公开声明的可呈现执行失败（ToolError/ToolTimeoutError）；
+    // 控制信号（StepAbortError）与系统故障（invariant / TypeError 等）保持原语义 rethrow，
+    // 不被业务化为 ToolResult。前置核（1857 Step H §7）：现存工具实现的可呈现失败均以
+    // { success:false } ToolResult 表达、无 plain-Error 工具面需 ToolError 化。
+    if (!(err instanceof ToolError)) throw err;
+    const errorType = err.name;
     const errorMsg = formatErr(err);
     safeCallback(
       'onToolExecutionFailed',

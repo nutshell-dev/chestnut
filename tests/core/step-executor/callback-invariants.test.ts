@@ -17,6 +17,7 @@ import type { Message } from '../../../src/foundation/dialog-store/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../../src/foundation/tools/executor.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { parseToolInput } from '../../../src/core/step-executor/utils.js';
+import { ToolError } from '../../../src/foundation/tools/index.js';
 
 describe('callback-safe-wrap', () => {
   /**
@@ -53,8 +54,9 @@ describe('callback-safe-wrap', () => {
           input: {},
         };
 
+        // phase 1857 Step H (SE-D8): 可呈现执行失败须以公开 ToolError 声明——plain Error 现 rethrow
         const executor = {
-          execute: vi.fn(async () => { throw new Error('exec-boom'); }),
+          execute: vi.fn(async () => { throw new ToolError('exec-boom'); }),
         } as unknown as IToolExecutor;
 
         const ctx = {
@@ -78,7 +80,7 @@ describe('callback-safe-wrap', () => {
 
         // 验证 2：callback 被 call 一次（throw 之前）
         expect(callbacks.onToolExecutionFailed).toHaveBeenCalledTimes(1);
-        expect(callbacks.onToolExecutionFailed).toHaveBeenCalledWith('failTool', 'tu2', 'Error', 'exec-boom');
+        expect(callbacks.onToolExecutionFailed).toHaveBeenCalledWith('failTool', 'tu2', 'ToolError', '[TOOL_EXECUTION_FAILED] exec-boom');
 
         // 验证 3：onSafeCallbackError 被触发、label 对
         expect(safeCallbackErrors).toHaveLength(1);
