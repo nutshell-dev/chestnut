@@ -1,3 +1,11 @@
+/**
+ * @module L4.SummonSystem.PendingRetrospective
+ *
+ * phase 1866 Step C（SU-D2）职责声明：本文件的 by-contract 记录是**观测/补报**面
+ * （contract 创建后的复盘补办），不是 summon 创建事实的 evidence/authority
+ * （authority = creation claim）。1869/1206 的 migration 链路只把这些 legacy 行迁入
+ * EvolutionSystem 的 ready store。
+ */
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";

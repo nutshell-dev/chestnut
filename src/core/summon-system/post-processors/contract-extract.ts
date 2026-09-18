@@ -133,6 +133,11 @@ export interface SummonContractExtractDeps {
  * 不再注册 retrospective、不调 EvolutionSystem；contract completed 后的复盘由
  * ContractObserver 观察 archive 事实并交给 EvolutionSystem 自行 own。
  *
+ * phase 1866 Step C（SU-D2）职责声明：
+ * - 本 post-processor 产出的 envelope 是**结果交付**（非创建 evidence）；
+ * - 创建事实唯一 authority = creation claim + ContractSystem query 核实；
+ * - sub-audit scan 只是 cross-check 证据面（Step D 分层显式化）。
+ *
  * 历史：
  * - phase 438 初立 marker 解析路径（寄生 LLM 文本）
  * - phase 1464 加 failure wrap framing（判 source 仍 LLM marker、根因未除）

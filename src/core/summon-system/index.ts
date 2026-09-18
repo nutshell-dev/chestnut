@@ -11,6 +11,8 @@ export type { SummonVerifyPolicyDeps } from './summon-verify-policy.js';
 export { SUMMON_CALLER_TYPES } from './caller-types.js';
 export { AskMotionTool } from './tools/ask-motion.js';
 export { checkLegacySummonStateFiles } from './legacy-state-detection.js';
+export { readSummonDecision } from './legacy-decision.js';
+export type { SummonDecisionRead } from './legacy-decision.js';
 
 export {
   createSummonCreationClaimStore,

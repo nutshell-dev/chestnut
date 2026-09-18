@@ -13,6 +13,13 @@
  *
  * M#3 资源唯一归属：`.chestnut/summons/<summonId>/creation-claim.json` 由 SummonSystem
  * 独占；ContractSystem 不理解 summon，也不保存 caller correlation。
+ *
+ * phase 1866 Step C（SU-D2）SoT 声明（创建 evidence 单一）：
+ * - 本 store 是**唯一**创建事实 authority（写点只有 policy 的 claimCreation；读点 =
+ *   post-processor 恢复核实 + 单一恢复入口的 claim 核对）；
+ * - 回执（task result envelope）= 结果交付面，不是 evidence；
+ * - legacy `summonDecision`（v1/v2）= migration 兼容读（`legacy-decision.ts`），不是第二 writer/authority；
+ * - pending-retrospective = 观测/补报面，不是创建 evidence。
  */
 
 import { z } from 'zod';

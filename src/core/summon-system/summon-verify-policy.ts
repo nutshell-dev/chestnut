@@ -4,6 +4,7 @@ import { ContractCreatePolicyViolationError } from '../contract/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from './post-processors/contract-extract.js';
 import type { SubAgentTask, LegacySummonDecisionV1 } from '../async-task-system/index.js';
+import { readSummonDecision } from './legacy-decision.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeTaskId, type TaskId } from '../async-task-system/index.js';
 import {
@@ -84,9 +85,11 @@ export function createSummonVerifyPolicy(
         );
       }
 
-      const decision = task.summonDecision;
+      // phase 1866 Step C（SU-D2）：decision 解释经 migration 读面（不内联版本判断）；
+      // legacy decision 是恢复兼容输入，不是创建 authority（authority = claim）。
+      const decisionRead = readSummonDecision(task);
 
-      if (!decision) {
+      if (decisionRead.kind === 'absent') {
         if (task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME) {
           // Phase 1402 Step A: 当前 summon task 由 canonical post-processor identity 识别，
           // 与 legacy v2 共用 no-verification + ctx.clawDir executor + claim 行为。
@@ -102,14 +105,14 @@ export function createSummonVerifyPolicy(
         return;
       }
 
-      if (decision.schema_version === 2) {
+      if (decisionRead.kind === 'legacy_v2') {
         // Phase 1402 Step A: legacy v2 decision 与 canonical 当前路径行为一致，共用 helper。
         await checkCurrent(ctx, contract, task, deps);
         return;
       }
 
-      if (decision.schema_version === 1) {
-        await checkLegacyV1(ctx, contract, task, decision, deps);
+      if (decisionRead.kind === 'legacy_v1') {
+        await checkLegacyV1(ctx, contract, task, decisionRead.decision, deps);
         return;
       }
 
@@ -117,14 +120,14 @@ export function createSummonVerifyPolicy(
       deps.auditWriter.write(
         SUMMON_AUDIT_EVENTS.SUMMON_GATE_UNKNOWN_SCHEMA_VERSION,
         `subagentTaskId=${subagentTaskId}`,
-        `schema_version=${(decision as Record<string, unknown>).schema_version ?? 'missing'}`,
+        `schema_version=${String(decisionRead.version)}`,
       );
       throw new ContractCreatePolicyViolationError(
         'summon-verify',
         'summon_unknown_schema_version',
         {
           subagentTaskId,
-          schemaVersion: (decision as Record<string, unknown>).schema_version,
+          schemaVersion: decisionRead.version,
           note: 'unsupported summon decision schema version',
         },
       );
