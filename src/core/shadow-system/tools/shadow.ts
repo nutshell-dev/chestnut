@@ -36,6 +36,11 @@ export interface ShadowToolDeps {
   taskSystem?: SubAgentTaskScheduler;
   /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
   subagentMaxSteps?: number;
+  /**
+   * phase 1865 (SH-D7)：shadow 执行的默认 timeoutMs（Assembly 注入，值初始化自
+   * SHADOW_DEFAULT_TIMEOUT_MS）。未注入时由执行层（spawn/runShadow）fallback 决定。
+   */
+  defaultTimeoutMs?: number;
   /** 允许递归调用。主 agent=true（默认），shadow registry=false */
   allowRecursion?: boolean;
 }
@@ -43,7 +48,7 @@ export interface ShadowToolDeps {
 /** 裁决后的单次调用参数（参数裁决留在 execute，三入口只消费）。 */
 interface ShadowCallArgs {
   task: string;
-  timeoutMs: number;
+  timeoutMs: number | undefined;
   maxSteps: number | undefined;
 }
 
@@ -108,12 +113,12 @@ export function createShadowTool(deps: ShadowToolDeps): Tool {
         },
         timeoutMs: {
           type: 'number',
-          description: `Timeout in milliseconds (default: ${SHADOW_DEFAULT_TIMEOUT_MS}).`,
+          description: 'Timeout in milliseconds.',
           minimum: 1,
         },
         maxSteps: {
           type: 'number',
-          description: 'Maximum ReAct steps (default: subagent max_steps).',
+          description: 'Maximum ReAct steps.',
           minimum: 1,
         },
         async: {
@@ -142,9 +147,10 @@ export function createShadowTool(deps: ShadowToolDeps): Tool {
       if (!task) return { success: false, content: 'shadow: task is required', error: 'missing_task' };
 
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
+      // phase 1865 (SH-D7)：默认策略经 deps 注入（工具层不再自持默认裁决）。
       const callArgs: ShadowCallArgs = {
         task,
-        timeoutMs: typeof args.timeoutMs === 'number' ? args.timeoutMs : SHADOW_DEFAULT_TIMEOUT_MS,
+        timeoutMs: typeof args.timeoutMs === 'number' ? args.timeoutMs : deps.defaultTimeoutMs,
         maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : deps.subagentMaxSteps,
       };
 

@@ -25,7 +25,7 @@ import { loadGlobalConfig, loadClawConfig, resolveLLMConfig } from './config/con
 import { getClawConfigPath } from '../core/claw-topology/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
-import { createShadowTool } from '../core/shadow-system/index.js';
+import { createShadowTool, SHADOW_DEFAULT_TIMEOUT_MS } from '../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { AssembleConfig } from './types.js';
 import { createExecWithHandle, EXEC_TOOL_NAME } from '../foundation/command-tool/index.js';
@@ -216,6 +216,8 @@ export async function createRuntimeAssembly(
       getTurnSnapshot: () => runtime.getCallerSnapshot(),
       taskSystem,
       subagentMaxSteps: maxSteps,
+      // phase 1865 (SH-D7)：默认执行策略由装配方注入（值来源 constants）
+      defaultTimeoutMs: SHADOW_DEFAULT_TIMEOUT_MS,
     }));
 
     // Phase 1396 Step E: EventLoop 执行停滞恢复的 Assembly DI。

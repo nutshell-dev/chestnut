@@ -27,6 +27,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 
 import { SHADOW_AUDIT_EVENTS } from '../../../src/core/shadow-system/audit-events.js';
+import { SHADOW_DEFAULT_TIMEOUT_MS } from '../../../src/core/shadow-system/constants.js';
 import { DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
 import { ToolTimeoutError } from '../../../src/foundation/tools/errors.js';  // phase 262: hoist
 
@@ -354,6 +355,46 @@ describe('shadow tool (phase 767)', () => {
         expect(result.error).toBe('llm_unavailable');
         expect(failedRows()[0]).toContain('phase=llm');
         expect(mockRunSubagent).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('policy injection (phase 1865 SH-D7)', () => {
+      it('schema 不承诺默认值/步数策略', () => {
+        const props = shadowTool.schema.properties as Record<string, { description?: string }>;
+        expect(props.timeoutMs.description).toBe('Timeout in milliseconds.');
+        expect(props.maxSteps.description).toBe('Maximum ReAct steps.');
+      });
+
+      it('注入的 defaultTimeoutMs/subagentMaxSteps 生效（args 缺省时）', async () => {
+        mockRunSubagent.mockResolvedValue({ text: 'ok' });
+        const injected = createShadowTool({
+          getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: [{ role: 'user', content: 'hi' }] }),
+          runSubagent: mockRunSubagent,
+          defaultTimeoutMs: 42_000,
+          subagentMaxSteps: 11,
+        });
+
+        await injected.execute({ task: 't', async: false }, baseCtx);
+
+        const callArgs = mockRunSubagent.mock.calls[0][0];
+        expect(callArgs.timeoutMs).toBe(42_000);
+        expect(callArgs.maxSteps).toBe(11);
+      });
+
+      it('显式 args 覆盖注入值；未注入时执行层 fallback=现行默认', async () => {
+        mockRunSubagent.mockResolvedValue({ text: 'ok' });
+        const injected = createShadowTool({
+          getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: [{ role: 'user', content: 'hi' }] }),
+          runSubagent: mockRunSubagent,
+          defaultTimeoutMs: 42_000,
+        });
+
+        await injected.execute({ task: 't', async: false, timeoutMs: 7_000 }, baseCtx);
+        expect(mockRunSubagent.mock.calls[0][0].timeoutMs).toBe(7_000);
+
+        // shadowTool（beforeEach 构造，未注入 defaultTimeoutMs）→ 执行层 fallback
+        await shadowTool.execute({ task: 't', async: false }, baseCtx);
+        expect(mockRunSubagent.mock.calls[1][0].timeoutMs).toBe(SHADOW_DEFAULT_TIMEOUT_MS);
       });
     });
 
