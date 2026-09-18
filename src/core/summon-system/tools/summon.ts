@@ -13,7 +13,8 @@ import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } f
 import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
-import { type SubAgentTaskScheduler, type TaskId } from '../../async-task-system/index.js';
+import type { SummonToolDeps } from '../types.js';
+import type { TaskId } from '../../async-task-system/index.js';
 
 /**
  * Summon subagent execution timeout（ms）= 1 hour.
@@ -31,7 +32,7 @@ export const SUMMON_TOOL_NAME = 'summon' as const;
  * 成功只表示 contract 创建完成；立即返回只表示 async accepted。
  */
 export class SummonTool implements Tool {
-  private readonly taskSystem?: SubAgentTaskScheduler;
+  private readonly scheduler?: SummonToolDeps['scheduler'];
   private readonly originClawId?: string;
   private readonly allowFromShadow?: boolean;
 
@@ -59,14 +60,12 @@ export class SummonTool implements Tool {
 
   // phase 281 Step B: SummonStateStore 已删；decision 内嵌 SubAgentTask metadata。
   // Phase 1396 Step K: 移除无行为的 _subagentMaxSteps 占位，避免位置参数误传。
-  constructor(
-    taskSystem?: SubAgentTaskScheduler,
-    originClawId?: string,
-    allowFromShadow: boolean = true,
-  ) {
-    this.taskSystem = taskSystem;
-    this.originClawId = originClawId;
-    this.allowFromShadow = allowFromShadow;
+  // phase 1866 Step B（SU-D1）: 位置参 → typed options（编译器强制迁移；
+  // 装配面不再穿透 shadow/ATS 具体类，只持能力 + 来源事实）。
+  constructor(deps: SummonToolDeps = {}) {
+    this.scheduler = deps.scheduler;
+    this.originClawId = deps.correlation?.originClawId;
+    this.allowFromShadow = deps.allowFromShadow ?? true;
   }
 
   schema = {
@@ -122,7 +121,7 @@ export class SummonTool implements Tool {
       userMessage,
       idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
       ctx,
-    }, this.taskSystem);
+    });
     if (!('taskId' in result)) return result;
 
     // audit + accepted return（只表示 async accepted，不宣称创建成功）
@@ -146,7 +145,6 @@ export class SummonTool implements Tool {
       idleTimeoutMs: number;
       ctx: ExecContext;
     },
-    taskSystem?: SubAgentTaskScheduler,
   ): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
     const { userMessage, idleTimeoutMs, ctx } = opts;
     if (!ctx.getCallerSnapshot) {
@@ -162,11 +160,15 @@ export class SummonTool implements Tool {
       ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.NO_DIALOG_CONTEXT);
     }
     const stripped = stripIncompleteToolUse(snap.messages) ?? snap.messages ?? [];
+    // phase 1866 Step B（SU-D1）装配面裁定：shadow 装配入口复用（1865 SH-D10 待裁项）——
+    // payload 构造归 Shadow owner（buildShadowPayload），ATS 侧 opaque 透传（1863 AT-D7）；
+    // Summon 不自装配（避免 phase 1185 的双 push 回归）。跨模块复用面 = 共享 primitives
+    // （stripIncompleteToolUse）+ 本装配入口（SpawnShadowSubagentOptions 为 Shadow owner 契约）。
     const result = await spawnShadowSubagent({
       task: userMessage,
       mainMessages: stripped,
       ctx,
-      taskSystem,
+      taskSystem: this.scheduler,
       originClawId: this.originClawId ?? ctx.clawId,
       systemPrompt: snap.systemPrompt ?? '',
       toolsForLLM: snap.tools ?? [],

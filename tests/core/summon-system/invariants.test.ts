@@ -78,7 +78,7 @@ describe('summon-rejected-shadow-audit', () => {
         }),
       });
       const taskSystem = createMockTaskSystem(mockFs, auditWriter);
-      const tool = new SummonTool(taskSystem, undefined, opts.allowFromShadow);
+      const tool = new SummonTool({ scheduler: taskSystem, allowFromShadow: opts.allowFromShadow });
       return { ctx, tool };
     }
 
@@ -164,7 +164,7 @@ describe('summon-dispatched-audit', () => {
           messages: snapshotMessages,
         }),
       } as any);
-      const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+      const tool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, auditWriter) });
       return { ctx, tool };
     }
 
@@ -269,7 +269,7 @@ describe('summon-verify-param', () => {
           messages: [],
         }),
       } as any);
-      const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+      const tool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, auditWriter) });
       return { ctx, tool };
     }
 
@@ -427,7 +427,7 @@ describe('summon-default-mode-shadow', () => {
         message: vi.fn((s: string) => s),
         summary: vi.fn((s: string) => s),
       } as any;
-      tool = new SummonTool(createMockTaskSystem(mockFs, defaultAuditWriter));
+      tool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, defaultAuditWriter) });
     });
 
     afterEach(async () => {
@@ -452,13 +452,13 @@ describe('summon-default-mode-shadow', () => {
           messages: snapshotMessages,
         }),
       } as any);
-      const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+      const tool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, auditWriter) });
       return { ctx, tool };
     }
 
     it('reverse 1 — 不传任何可选参数走 shadow 路径', async () => {
       const { ctx } = makeCtx([{ role: 'user', content: 'test' }]);
-      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
+      const customTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, (ctx as any).auditWriter) });
       const result = await customTool.execute({ goal: 'test goal' }, ctx);
 
       expect(result.success).toBe(true);
@@ -560,7 +560,7 @@ describe('summon-decision-metadata', () => {
           messages: options?.snapshot?.messages ?? [],
         }),
       } as any);
-      const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+      const tool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, auditWriter) });
       return { ctx, tool };
     }
 

@@ -98,7 +98,10 @@ describe('SummonTool', () => {
         messages: options?.snapshot?.messages ?? [],
       }),
     } as any);
-    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter), options?.toolOriginClawId);
+    const tool = new SummonTool({
+      scheduler: createMockTaskSystem(mockFs, auditWriter),
+      correlation: { originClawId: options?.toolOriginClawId },
+    });
     return { ctx, tool };
   }
 
@@ -185,7 +188,7 @@ Content.
         },
       ];
       const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
+      const customTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, (ctx as any).auditWriter) });
 
       await customTool.execute({ goal: 'audit L1 FileSystem' }, ctx);
 
@@ -214,7 +217,7 @@ Content.
         },
       ];
       const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
+      const customTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, (ctx as any).auditWriter) });
 
       await customTool.execute({ goal: 'create foo contract' }, ctx);
 
@@ -235,7 +238,7 @@ Content.
         { role: 'assistant', content: 'hello' },
       ];
       const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
+      const customTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, (ctx as any).auditWriter) });
 
       await customTool.execute({ goal: 'follow up' }, ctx);
 
@@ -281,7 +284,7 @@ Content.
         { role: 'user', content: 'test' },
       ];
       const { ctx, tool } = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt, messages: motionDialog } });
-      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
+      const customTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, (ctx as any).auditWriter) });
 
       await customTool.execute({ goal: 'describe intent' }, ctx);
 
@@ -298,7 +301,7 @@ Content.
     it('shadow mode passes Motion getSystemPrompt output', async () => {
       const mockMotionPrompt = 'MOTION_SYSTEM_PROMPT_FIXTURE';
       const { ctx, tool } = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt } });
-      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
+      const customTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, (ctx as any).auditWriter) });
       await customTool.execute({ goal: 'describe intent' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
@@ -676,7 +679,7 @@ Content.
         llm: {} as unknown as LLMOrchestrator,
         auditWriter: auditWriter as any,
       });
-      const testTool = new SummonTool(createMockTaskSystem(mockFs, auditWriter as any));
+      const testTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, auditWriter as any) });
 
       await testTool.execute({ goal: 'test task' }, ctx);
 
@@ -709,7 +712,7 @@ Content.
         }),
       } as any);
 
-      const testTool = new SummonTool(createMockTaskSystem(mockFs, auditWriter as any));
+      const testTool = new SummonTool({ scheduler: createMockTaskSystem(mockFs, auditWriter as any) });
       await testTool.execute({ goal: 'test task' }, ctx);
 
       expect(auditWriter.write).toHaveBeenCalledWith(

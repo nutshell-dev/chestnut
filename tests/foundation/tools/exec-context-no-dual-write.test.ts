@@ -29,7 +29,7 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
     const tempDir = path.join(tmpdir(), `ec-ndw-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     const mockFs = new NodeFileSystem({ baseDir: tempDir });
-    const tool = new SummonTool({ schedule: vi.fn().mockResolvedValue('task-xxx') });
+    const tool = new SummonTool({ scheduler: { schedule: vi.fn().mockResolvedValue('task-xxx') } });
     const auditWriter = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',

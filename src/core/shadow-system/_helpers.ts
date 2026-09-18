@@ -4,10 +4,10 @@
  * phase 1115：phase 945 立的 3-turn 锚定撤回到 1-turn baseline（empirical refutation per `feedback_design_claim_requires_empirical_evidence`）
  * phase 1142：stripIncompleteToolUse mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers（SummonSystem 契约创建子代理）复用 API。
  *
- * phase 1865 (SH-D10) 复用边界：本文件 primitives 是 Shadow 与 Summon 的唯一共享面——
+ * phase 1865 (SH-D10) 复用边界：本文件 primitives 是 Shadow↔Summon 的**状态零共享**面——
  * 纯消息合成（stripIncompleteToolUse / synthesizeFormB），不共享业务状态。
- * 装配面（spawnShadowSubagent）的复用形态（继续复用 vs Summon 经 payload 契约自装配）
- * 归 1866 SU-D1 裁定；本 phase 只显式化 primitives 边界。
+ * 装配面（spawnShadowSubagent）的复用形态已由 phase 1866 Step B（SU-D1）裁定为
+ * 「复用该装配入口」（payload 归 Shadow owner、ATS opaque、Summon 不自装配）。
  */
 
 

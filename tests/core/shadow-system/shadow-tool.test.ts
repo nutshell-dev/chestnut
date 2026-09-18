@@ -402,7 +402,7 @@ describe('shadow tool (phase 767)', () => {
       it('rejects summon when restricted instance has allowFromShadow=false', async () => {
         // Phase 1396 Step M: 三参数构造；注入完整 caller snapshot 并断言未被调用，
         // 确保拒绝真来自 allowFromShadow=false 分支而非 snapshot 缺失路径。
-        const summonTool = new SummonTool(undefined, undefined, false);
+        const summonTool = new SummonTool({ allowFromShadow: false });
         const getCallerSnapshot = vi.fn();
         const ctx = Object.create(baseCtx, {
           getCallerSnapshot: { value: getCallerSnapshot },

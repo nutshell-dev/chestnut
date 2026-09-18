@@ -5,8 +5,10 @@
  * 依赖：L3 SubAgent.runSubagent，L2 ToolProtocol（phase 769 后不直 dep DialogStore.restoreBefore、改 read ctx in-memory state）
  *
  * phase 1865 (SH-D10) 导出面按复用边界分列：
- * - 共享 primitives：Shadow ↔ Summon 唯一共享面（纯消息合成，无业务状态）；
- * - 装配面：shadow 自身工具/调度构造；spawnShadowSubagent 的跨模块复用形态待 1866 SU-D1 裁定；
+ * - 共享 primitives：Shadow ↔ Summon 共享面之一（纯消息合成，无业务状态）；
+ * - 装配面：shadow 自身工具/调度构造；spawnShadowSubagent 的跨模块复用形态已由
+ *   phase 1866 Step B（SU-D1）裁定 = **复用本装配入口**（payload 构造归 Shadow owner、
+ *   ATS 侧 opaque；Summon 不自装配，避免 phase 1185 双 push 回归）；
  * - 契约面：供 phase 1863 E 消费的 payload 契约与构造器；
  * - 目录/策略常量：装配与 CLI 消费（归属见各常量注释）。
  */

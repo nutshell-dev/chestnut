@@ -110,10 +110,11 @@ describe('Phase 1396 Step I: summon public surface inventory', () => {
     });
 
     it('shadow rejection error must not leak implementation words', async () => {
-      // Phase 1396 Step M: 三参数构造；注入完整 caller snapshot 并断言未被调用，
+      // Phase 1866 Step B（SU-D1）: typed options 构造（旧第 3 位置参 → allowFromShadow）；
+      // 注入完整 caller snapshot 并断言未被调用，
       // 确保拒绝真来自 allowFromShadow=false 分支而非 snapshot 缺失路径。
       const getCallerSnapshot = vi.fn();
-      const result = await new SummonTool(undefined, undefined, false).execute(
+      const result = await new SummonTool({ allowFromShadow: false }).execute(
         { goal: 'test' },
         {
           auditWriter: null,
@@ -126,15 +127,17 @@ describe('Phase 1396 Step I: summon public surface inventory', () => {
       expect(getCallerSnapshot).not.toHaveBeenCalled();
     });
 
-    it('SummonTool constructor arity ratchet: retired 4th positional arg must not reappear', () => {
-      expect(SummonTool.length).toBeLessThanOrEqual(3);
+    it('SummonTool typed-deps ratchet: 位置参不得回流（options-only 构造）', () => {
+      // phase 1866 Step B（SU-D1）：deps 有默认值 → 0 必填位置参
+      expect(SummonTool.length).toBe(0);
       const files = collectTsFiles(
         path.join(repoRoot, 'src'),
         path.join(repoRoot, 'tests'),
       );
-      const fourArgCall = /new SummonTool\([^()\n]*,[^()\n]*,[^()\n]*,[^()\n]+\)/;
+      // 带位置参的构造（首实参非 `{`）＝ 旧形态回流
+      const positionalCall = /new SummonTool\(\s*(?!\)|\{)[^)\n]+\)/;
       for (const f of files) {
-        expect(readAllText(f), f).not.toMatch(fourArgCall);
+        expect(readAllText(f), f).not.toMatch(positionalCall);
       }
     });
   });
