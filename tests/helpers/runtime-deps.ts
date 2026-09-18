@@ -99,7 +99,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
 
   return {
     systemFs, clawFs, auditWriter, snapshot, sessionManager,
-    inboxReader, llm, toolRegistry, toolExecutor,
+    inboxReader, llm, llmOrchestrator: llm, toolRegistry, toolExecutor,
     skillRegistry, contractManager, taskSystem,
     permissionChecker,
     // phase 521 mock

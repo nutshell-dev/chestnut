@@ -12,6 +12,7 @@ export type {
   LLMEvent,
   LLMCallOptions,
   LLMOrchestrator,
+  LLMRuntimeCapability,
   LLMStreamChunk,
 } from './types.js';
 

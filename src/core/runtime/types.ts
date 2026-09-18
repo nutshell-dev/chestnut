@@ -4,7 +4,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
-import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRuntimeCapability } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SnapshotCommitter } from '../../foundation/snapshot/index.js';
@@ -86,7 +86,13 @@ export interface RuntimeDependencies {
   readonly inboxReader: InboxDeliverySession;
 
   // === L3-L5 ===
-  readonly llm: LLMOrchestrator;
+  /** phase 1860 (RT-D1)：Runtime 私有消费面——仅 getProviderInfo/resetLastSuccessProvider/reloadConfig/close 4 方法。 */
+  readonly llm: LLMRuntimeCapability;
+  /**
+   * phase 1860：转发面——ExecContext/AgentExecutor 消费的完整编排面（stream/call 等）；
+   * Runtime 不消费、仅传递（Assembly 注入同一对象）。
+   */
+  readonly llmOrchestrator: LLMOrchestrator;
   readonly toolRegistry: ToolRegistry;
   readonly toolExecutor: IToolExecutor;
   /** Phase 773: base registry with plain sync exec for subagent spawn paths. */

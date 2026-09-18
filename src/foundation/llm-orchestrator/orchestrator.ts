@@ -22,6 +22,7 @@ import type {
   LLMCallOptions,
   LLMEventSink,
   LLMOrchestrator,
+  LLMRuntimeCapability,
   LLMStreamChunk } from './types.js';
 import type { LLMOrchestratorOwner, RecoveryCallScope, RecoveryFailureInput } from './recovery.js';
 import { CircuitBreaker } from './circuit-breaker.js';
@@ -65,7 +66,7 @@ const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
 /**
  * LLM Service implementation
  */
-export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwner {
+export class LLMOrchestratorImpl implements LLMOrchestrator, LLMOrchestratorOwner, LLMRuntimeCapability {
   private primary: LLMProvider;
   private fallbacks: LLMProvider[];
   private config: LLMOrchestratorConfig;

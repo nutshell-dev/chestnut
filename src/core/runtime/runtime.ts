@@ -8,7 +8,7 @@
 import * as path from 'path';
 import { randomHex, sha256Hex } from '../../foundation/node-utils/index.js';
 
-import type { LLMOrchestrator, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator, LLMRuntimeCapability, LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
@@ -149,7 +149,30 @@ export class Runtime {
    * (phase 266 reframed MotionRuntime subclass to identity-based dispatch; preserve runtime encapsulation — no direct writes)
    */
   protected systemFs!: FileSystem;  // used by system components (no permission check)
-  protected llm!: LLMOrchestrator;
+  /**
+   * phase 1860 (RT-D1)：llm 单一存储 = Assembly 注入的完整编排对象（initialize 时自
+   * deps.llmOrchestrator 赋值；deps.llm / deps.llmOrchestrator 契约上同一对象）。
+   * 不直接访问本字段——经下方两个类型视图消费。
+   */
+  private _llmImpl!: LLMOrchestrator;
+  /**
+   * phase 1860 (RT-D1)：Runtime 私有消费面（窄 capability 视图）——仅
+   * getProviderInfo / resetLastSuccessProvider / reloadConfig / close 4 方法可编译调用。
+   */
+  protected get llm(): LLMRuntimeCapability {
+    return this._llmImpl;
+  }
+  protected set llm(value: LLMRuntimeCapability) {
+    // Test seam：既有测试以窄 mock poke 本字段；mock 实带 stream/call 宽面、存储保持宽类型。
+    this._llmImpl = value as LLMOrchestrator;
+  }
+  /**
+   * phase 1860 (RT-D1)：llm 转发面视图——ExecContext 构造与 runReact 消费的完整编排面；
+   * Runtime 不消费、仅传递；与 this.llm 同一底层对象。
+   */
+  protected get llmOrchestrator(): LLMOrchestrator {
+    return this._llmImpl;
+  }
 
   // Core
   protected sessionManager!: DialogSessionLifecycle;
@@ -213,7 +236,9 @@ export class Runtime {
     // 1. 消费 dependencies；claw layout 已由 Assembly 在构造业务模块前初始化。
     this.systemFs = deps.systemFs;
     this.auditWriter = deps.auditWriter;
-    this.llm = deps.llm;
+    // phase 1860 (RT-D1)：llm 单一存储 = deps.llmOrchestrator（Assembly 契约：与 deps.llm
+    // 注入同一对象；deps.llm 窄字段 = Runtime 私有消费面的类型级声明）。
+    this._llmImpl = deps.llmOrchestrator;
     this.snapshot = deps.snapshot;
     this.sessionManager = deps.sessionManager;
     this.inboxReader = deps.inboxReader;
@@ -257,7 +282,7 @@ export class Runtime {
       permissionChecker: deps.permissionChecker,  // NEW phase 1273
       fs: this.systemFs,
       fsFactory: this.options.dependencies.fsFactory,
-      llm: this.llm,
+      llm: this.llmOrchestrator,   // phase 1860 (RT-D1)：转发面（非 Runtime 私有消费面）
       auditWriter: this.auditWriter,
       persistReadFileState: true,  // phase 1443: main claw ctx persists readFileState to <clawDir>/read-state.json
       // phase 146: M#3 资源唯一归属真治、直接 read 真 owner、不经 Runtime mirror state
@@ -931,7 +956,7 @@ export class Runtime {
       await runReact({
         messages,
         systemPrompt,
-        llm: this.llm,
+        llm: this.llmOrchestrator,   // phase 1860 (RT-D1)：转发面（AgentExecutor 消费宽面）
         executor: this.toolExecutor,
         ctx: this.execContext,
         tools,

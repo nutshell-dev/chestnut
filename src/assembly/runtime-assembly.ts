@@ -165,7 +165,9 @@ export async function createRuntimeAssembly(
       auditWriter,
       // Phase 1826: 前台 Runtime 使用 owner 的范围视图（scoped 调用反馈归恢复 session）；
       // 原 orchestrator 仍供子代理/工具/契约等既有注入点使用。
+      // phase 1860 (RT-D1)：窄 capability（私有消费）与转发面注入同一 scoped 视图对象。
       llm: recoverySession.llm,
+      llmOrchestrator: recoverySession.llm,
       contractManager,
       taskSystem,
       permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造

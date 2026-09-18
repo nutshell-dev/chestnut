@@ -13,19 +13,21 @@
  * Same constructor signature as Runtime — drop-in replacement.
  */
 import { Runtime } from '../../src/core/runtime/runtime.js';
+import type { LLMRuntimeCapability } from '../../src/foundation/llm-orchestrator/index.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { ToolRegistry } from '../../src/foundation/tools/registry.js';
 import type { ExecContext } from '../../src/foundation/tools/index.js';
 
 export class TestRuntime extends Runtime {
-  /** Override LLM after initialize() — used by regime switch tests with mock LLM. */
+  /** Override LLM after initialize() — used by regime switch tests with mock LLM.
+   * phase 1860 (RT-D1)：窄消费面与转发面单一存储、同步可见。 */
   testSetLLM(llm: LLMOrchestrator): void {
     this.llm = llm;
   }
 
-  /** Get current LLM (for assertion or mock-replace patterns). */
-  testGetLLM(): LLMOrchestrator {
+  /** Get current LLM (Runtime 私有消费面；for assertion or mock-replace patterns). */
+  testGetLLM(): LLMRuntimeCapability {
     return this.llm;
   }
 
