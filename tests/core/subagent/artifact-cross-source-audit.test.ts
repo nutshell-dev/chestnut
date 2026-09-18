@@ -45,7 +45,7 @@ function makeSnapshot(partial: Partial<ArtifactSnapshot> = {}): ArtifactSnapshot
 
 describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 283)', () => {
   describe('AC-4: textEnd vs last assistant', () => {
-    it('textend=1 + 末轮 assistant 含 text → 0 emit', async () => {
+    it('textend=1 + 末轮 assistant 含 text → emit ac4_ok（检查结论持久化，phase 1858 Step D）', async () => {
       const audit = makeMockAudit();
       const messageStore = makeMockMessageStore({
         messages: [
@@ -58,10 +58,15 @@ describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 2
         { fs: {} as any, messageStore },
         audit as any,
       );
-      expect(audit.write).not.toHaveBeenCalled();
+      expect(audit.write).toHaveBeenCalledTimes(1);
+      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_OK);
+      expect(audit.write.mock.calls[0]).toContain('kind=ac4_ok');
+      expect(audit.write.mock.calls[0]).toContain('agentId=test-agent');
+      expect(audit.write.mock.calls[0]).toContain('textend_count=1');
+      expect(audit.write.mock.calls[0]).toContain('last_role=assistant');
     });
 
-    it('textend=1 + 末轮 assistant string content → 0 emit', async () => {
+    it('textend=1 + 末轮 assistant string content → emit ac4_ok', async () => {
       const audit = makeMockAudit();
       const messageStore = makeMockMessageStore({
         messages: [
@@ -74,7 +79,9 @@ describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 2
         { fs: {} as any, messageStore },
         audit as any,
       );
-      expect(audit.write).not.toHaveBeenCalled();
+      expect(audit.write).toHaveBeenCalledTimes(1);
+      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_OK);
+      expect(audit.write.mock.calls[0]).toContain('kind=ac4_ok');
     });
 
     it('textend=1 + 末轮 user → emit ac4', async () => {

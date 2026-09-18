@@ -409,16 +409,27 @@ export class SubAgent {
         );
       }
 
-      // phase 270 Step B: multi-artifact completeness cross-source (fire-and-forget、不阻 finally)
-      void auditSubagentArtifactCompleteness(
-        {
-          agentId: this.agentId,
-          resultDir: this.resultDir,
-          textEndCount: this.textEndCount,
-        },
-        { fs: this.fs, messageStore: this.messageStore },
-        this.auditWriter,
-      ).catch(() => { /* silent: self-defensive、不阻 finally */ });
+      // phase 270 Step B: multi-artifact completeness cross-source
+      // phase 1858 Step D (SA-D3): 纳入结算（await）——rejection 不再被空 catch 静默吞掉；
+      // 失败留证后 finally 继续（不 throw，结算失败不改变执行结果）。
+      try {
+        await auditSubagentArtifactCompleteness(
+          {
+            agentId: this.agentId,
+            resultDir: this.resultDir,
+            textEndCount: this.textEndCount,
+          },
+          { fs: this.fs, messageStore: this.messageStore },
+          this.auditWriter,
+        );
+      } catch (err) {
+        this.auditWriter.write(
+          SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
+          `agentId=${this.agentId}`,
+          `stage=artifact_completeness`,
+          `error=${formatErr(err)}`,
+        );
+      }
     }
   }
 

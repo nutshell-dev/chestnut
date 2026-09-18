@@ -557,6 +557,7 @@
       "llm_error",
       "partial_assistant_discarded",
       "subagent_artifact_cross_source_mismatch",
+      "subagent_artifact_cross_source_ok",
       "subagent_artifact_cross_source_skipped",
       "subagent_done_tool_duplicate_call",
       "subagent_log_append_failed",

@@ -49,14 +49,25 @@ export async function auditSubagentArtifactCompleteness(
     const lastHasContent = lastIsAssistant && Array.isArray(last.content)
       ? last.content.some((b: { type?: string }) => b.type === 'text')
       : (lastIsAssistant && typeof last?.content === 'string' && (last.content as string).length > 0);
-    if (s.textEndCount > 0 && !lastHasContent) {
-      audit.write(
-        SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_MISMATCH,
-        `kind=ac4_textend_without_last_assistant_text`,
-        `agentId=${s.agentId}`,
-        `textend_count=${s.textEndCount}`,
-        `last_role=${last?.role ?? 'none'}`,
-      );
+    if (s.textEndCount > 0) {
+      if (!lastHasContent) {
+        audit.write(
+          SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_MISMATCH,
+          `kind=ac4_textend_without_last_assistant_text`,
+          `agentId=${s.agentId}`,
+          `textend_count=${s.textEndCount}`,
+          `last_role=${last?.role ?? 'none'}`,
+        );
+      } else {
+        // phase 1858 Step D (SA-D3): 检查执行即持久化结论（pass 分支可见）
+        audit.write(
+          SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_OK,
+          `kind=ac4_ok`,
+          `agentId=${s.agentId}`,
+          `textend_count=${s.textEndCount}`,
+          `last_role=${last?.role ?? 'none'}`,
+        );
+      }
     }
   } catch (err) {
     audit.write(

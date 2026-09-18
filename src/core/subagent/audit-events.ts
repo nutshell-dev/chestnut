@@ -27,6 +27,8 @@ export const SUBAGENT_AUDIT_EVENTS = {
   TOOL_CALL_INPUT: 'tool_call_input',
   SUBAGENT_STEPS_INVARIANT_VIOLATED: 'subagent_steps_invariant_violated',
   SUBAGENT_ARTIFACT_CROSS_SOURCE_MISMATCH: 'subagent_artifact_cross_source_mismatch',
+  // phase 1858 Step D (SA-D3): 检查执行即持久化结论（ok 分支）——不再只有异常时可见
+  SUBAGENT_ARTIFACT_CROSS_SOURCE_OK: 'subagent_artifact_cross_source_ok',
   SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED: 'subagent_artifact_cross_source_skipped',
   // phase 337 M5 (review-2026-06-13): done tool 二次调被拒、防 LLM 自相矛盾 result 静默覆盖。
   DONE_TOOL_DUPLICATE_CALL: 'subagent_done_tool_duplicate_call',
@@ -120,6 +122,7 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   llm_error: 'audit',
   subagent_steps_invariant_violated: 'audit',
   subagent_artifact_cross_source_mismatch: 'audit',
+  subagent_artifact_cross_source_ok: 'audit',
   subagent_artifact_cross_source_skipped: 'audit',
   partial_assistant_discarded: 'audit',  // phase 688 NEW
 } as const;
