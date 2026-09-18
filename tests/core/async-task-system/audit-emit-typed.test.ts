@@ -68,27 +68,14 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
     expect(taskKeyCount).toBe(0);
   });
 
-  it('emitTaskScheduled 含 isShadow 当传入时（含 undefined）', () => {
-    const audit = makeAudit();
-    emitTaskScheduled(audit, {
-      fullTaskId: makeFullTaskId('tk_1'),
-      shortTaskId: makeShortTaskId('sh_1'),
-      kind: 'tool',
-      parent: 'p1',
-      tool: 'spawn',
-      isShadow: undefined,
-    });
-    const callArgs = audit.write.mock.calls[0] as unknown as string[];
-    expect(callArgs).toContain('isShadow=undefined');
-  });
-
-  it('emitTaskScheduled 不含 isShadow 当未传入时', () => {
+  it('emitTaskScheduled 无 isShadow col（phase 1863 AT-D7：shadow 概念出 ATS 审计面）', () => {
     const audit = makeAudit();
     emitTaskScheduled(audit, {
       fullTaskId: makeFullTaskId('tk_1'),
       shortTaskId: makeShortTaskId('sh_1'),
       kind: 'subagent',
       parent: 'p1',
+      tool: 'spawn',
     });
     const callArgs = audit.write.mock.calls[0] as unknown as string[];
     const hasIsShadow = callArgs.some((c) =>

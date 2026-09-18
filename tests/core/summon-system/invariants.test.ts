@@ -220,9 +220,10 @@ describe('summon-verify-param', () => {
   }
 
   function getTaskContent(task: Record<string, unknown>): string {
-    if (Array.isArray(task.shadowMessages)) {
-      const msgs = task.shadowMessages as Array<{ role: string; content: string }>;
-      const lastMsg = msgs[msgs.length - 1];
+    // phase 1863 (AT-D7)：shadow messages 在 owner payload（executorPayload）内
+    const payload = task.executorPayload as { messages?: Array<{ role: string; content: string }> } | undefined;
+    if (Array.isArray(payload?.messages)) {
+      const lastMsg = payload.messages[payload.messages.length - 1];
       return lastMsg?.content ?? '';
     }
     if (typeof task.intent === 'string') {
@@ -463,8 +464,10 @@ describe('summon-default-mode-shadow', () => {
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
       expect(tasks[0].callerType).toBe('shadow_subagent');
-      expect(tasks[0].shadowMessages).toBeDefined();
-      expect(tasks[0].systemPrompt).toBe('mock system prompt');
+      const payload = tasks[0].executorPayload as Record<string, unknown>;
+      expect(payload).toBeDefined();
+      expect(Array.isArray(payload.messages)).toBe(true);
+      expect(payload.systemPrompt).toBe('mock system prompt');
       expect(tasks[0].motionClawDir).toBeUndefined();
     });
 

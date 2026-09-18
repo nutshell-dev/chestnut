@@ -34,7 +34,8 @@ export async function spawnShadowSubagent(
     };
   }
 
-  // phase 1865 (SH-D1)：payload 构造归 owner（buildShadowPayload），此处只做 schedule 平铺映射（1:1）。
+  // phase 1865 (SH-D1) + phase 1863 (AT-D7)：payload 构造归 owner（buildShadowPayload）；
+  // ATS 侧 opaque 透传（executorPayload），shadow 语义经 interpretShadowExecutorPayload 收口。
   const payload = buildShadowPayload(opts);
 
   // phase 1373 anchor: shadow-mode subagent 不继承 caller signal by-design
@@ -43,8 +44,7 @@ export async function spawnShadowSubagent(
   // phase 1865 (SH-D4)：语义已进契约面（payload.detached，ratify 链见 SpawnShadowSubagentOptions JSDoc）；本处行为不变。
   const taskId = await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
-    mode: 'shadow',                            // δ discriminated union 新字段
-    shadowMessages: payload.messages,          // shadow path 真信息源
+    executorPayload: payload,
     intent: opts.task ?? '',                                                    // δ phase 218: 字段重命名 intentPreview → intent (union 合并)、消费时由 audit class 截
     timeoutMs: payload.budget.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
     maxSteps: payload.budget.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
@@ -52,10 +52,6 @@ export async function spawnShadowSubagent(
     originClawId: payload.identity.originClawId ?? '',
     callerType: 'shadow_subagent',
     toolProfile: 'full',
-    isShadow: payload.identity.isShadow,
-    systemPrompt: payload.systemPrompt,
-    shadowSystemPrompt: payload.systemPrompt,
-    shadowToolsForLLM: payload.toolsForLLM,
     postProcessor: payload.postProcessor,
   });
 

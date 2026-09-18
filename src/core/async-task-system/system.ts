@@ -62,7 +62,7 @@ import {
 import type { PostProcessor } from './post-processors/types.js';
 import { SubAgentTaskSchema } from './task-schemas.js';
 import { taskQueueOverflowBody } from '../../templates/messages/index.js';
-import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome } from './types.js';
+import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex, PreparedSubagentSchedule, PreparedScheduleResult, SubAgentTaskScheduler, PreparedSubAgentTaskScheduler, AsyncTaskRuntimeLifecycle, TaskLifecycleOutcome, AbortRequestOutcome, ExecutorPayloadAdapter } from './types.js';
 import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 
 
@@ -125,6 +125,8 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private readonly toolTimeoutMs?: number;
   private permissionChecker?: PermissionChecker;
   private fsFactory: (baseDir: string) => FileSystem;
+  /** phase 1863 (AT-D7)：executor payload 解释面（装配注入；owner 提供）。 */
+  private readonly executorPayloadAdapter?: ExecutorPayloadAdapter;
   private readonly shortIdIndex: ShortIdIndex;
   private readonly pendingQueueMax: number;
   private readonly sendResult: SendResult<SubAgentTask>;
@@ -218,6 +220,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     this.toolTimeoutMs = options.toolTimeoutMs;
     this.permissionChecker = options.permissionChecker;
     this.fsFactory = options.fsFactory;
+    this.executorPayloadAdapter = options.executorPayloadAdapter;
     this.shortIdIndex = options.shortIdIndex;
     this.pendingQueueMax = options.pendingQueueMax ?? PENDING_QUEUE_MAX;
     this.sendResult = options.sendResult ?? sendResult;
@@ -293,6 +296,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
           toolTimeoutMs: this.toolTimeoutMs,
           permissionChecker: this.permissionChecker,
+          executorPayloadAdapter: this.executorPayloadAdapter,
           sendResult: this.sendResult,
           sendFallbackResult: this.sendFallbackResult,
           writeInboxAsync: this.writeInboxAsync,

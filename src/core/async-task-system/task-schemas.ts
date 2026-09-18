@@ -4,7 +4,7 @@
  *
  * Phase 1019 / r124 E fork: schema_version 写而不读 cluster (C-7) 之 (a) TaskMeta strict zod.
  * 替 phase 852 立 `validateTaskShape` 仅 2 字段 discriminator check / 校全字段 / boundary input 不再 trusted.
- * Phase 1185: SubAgentTask 改 discriminated union (mode: 'standard' | 'shadow') + backwards-compat preprocess.
+ * phase 1863 (AT-D7): SubAgentTask 去 discriminated union——mode opaque 可选 + opaque executorPayload。
  */
 
 import { z } from 'zod';
@@ -63,12 +63,8 @@ const commonSubAgentFields = {
   // 兼容——多余键忽略不拒绝，见 legacy-migration.test.ts 专测）
   postProcessor: z.string().optional(),
   systemPrompt: z.string().optional(),
-  // phase 1087 shadow async 上下文快照字段（phase 1131 补 zod schema、消除 type-schema drift per feedback_ts_interface_vs_zod_schema_sync）
-  // Message[] / ToolDefinition[] 复杂 union types 跨 LLM provider、schema 层用 z.unknown() loose（type safety 归 TS interface SubAgentTask）
-  isShadow: z.boolean().optional(),
-  shadowSystemPrompt: z.string().optional(),
-  shadowToolsForLLM: z.array(z.unknown()).optional(),
-  // phase 218: intent 提到 common fields（union 合并）
+  // phase 1863 (AT-D7)：执行 owner 的 opaque payload（JSON 可序列化；ATS 不枚举/解释语义）
+  executorPayload: z.unknown().optional(),
   intent: z.string(),
   // Phase 1402 Step B: legacy v1/v2 Summon recovery input（read-only）；active writers 不得写入
   summonDecision: SummonDecisionMetadataSchema.optional(),
@@ -76,27 +72,15 @@ const commonSubAgentFields = {
   terminalState: z.enum(['done', 'failed']).optional(),
 };
 
-const standardSubAgentTaskSchema = z.object({
+// phase 1863 (AT-D7): 去 standard/shadow discriminated union——mode 降为 opaque 可选字符串
+// （ATS 不枚举上层模式；legacy 'standard'/'shadow' 值读取容忍），执行语义经 executorPayload
+// + 装配注入的 ExecutorPayloadAdapter 归 owner。
+const subAgentTaskSchema = z.object({
   ...commonSubAgentFields,
-  mode: z.literal('standard'),
-  shadowMessages: z.array(z.unknown()).optional(),
+  mode: z.string().optional(),
 });
 
-const shadowSubAgentTaskSchema = z.object({
-  ...commonSubAgentFields,
-  mode: z.literal('shadow'),
-  shadowMessages: z.array(z.unknown()),
-});
-
-const subAgentTaskDiscriminatedUnion = z.discriminatedUnion('mode', [
-  standardSubAgentTaskSchema,
-  shadowSubAgentTaskSchema,
-]);
-
-// phase 311 ML#9 strict: 删 preprocess hook（mode inject + old shadow intent field rename）。
-// active load path pending/running 0 file 含 legacy schema、9 天 audit 0 emit
-// 删 silent fallback。
-export const SubAgentTaskSchema = subAgentTaskDiscriminatedUnion;
+export const SubAgentTaskSchema = subAgentTaskSchema;
 
 export const ToolTaskSchema = z.object({
   kind: z.literal('tool'),
@@ -114,7 +98,7 @@ export const ToolTaskSchema = z.object({
   retryCount: z.number(),
   // optional fields
   toolUseId: z.string().optional(),
-  isShadow: z.boolean().optional(),
+  // phase 1863 (AT-D7): 删 dead ToolTask.isShadow（无 writer/无 reader；旧任务读取经 zod strip 兼容）
   // phase 844: sync with ToolTask TS interface — migrated exec fields
   mode: z.enum(['fresh', 'migrated']).optional(),
   migratedPid: z.number().optional(),

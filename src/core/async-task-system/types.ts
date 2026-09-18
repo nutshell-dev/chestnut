@@ -4,7 +4,7 @@
  * Extracted in phase 1314 (cluster #3 of 5 cleanup roadmap).
  */
 
-import type { ToolDefinition, ToolUseId } from '../../foundation/llm-provider/index.js';
+import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
@@ -113,6 +113,11 @@ export interface AsyncTaskSystemOptions {
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
   fsFactory: (baseDir: string) => FileSystem;
+  /**
+   * phase 1863 (AT-D7)：executor payload 解释面（装配期注入，owner 提供；ATS 不透语义）。
+   * 未注入或 payload 无匹配 → 走 standard 路径（task.intent + 默认 systemPrompt）。
+   */
+  executorPayloadAdapter?: ExecutorPayloadAdapter;
   /** phase 849: shortId ↔ fullId index for dual-key task IDs */
   shortIdIndex: ShortIdIndex;
   /** phase 86: optional WatcherFactory for DI (test mock injection) */
@@ -144,10 +149,11 @@ interface CommonSubAgentTaskFields {
   originClawId?: string;                   // 创建链路源头，传给子 SubAgent
   postProcessor?: string;            // 声明式 post-processor 名称（registry lookup）
   systemPrompt?: string;                 // phase 546 internal field：caller-side specialized system prompt（agent 不可见 / 与 phase 470 砍 agent-facing spawn schema 不冲突 / fall-back DEFAULT_SUBAGENT_SYSTEM_PROMPT）
-  // phase 1087：shadow async 上下文快照字段
-  isShadow?: boolean;
-  shadowSystemPrompt?: string;
-  shadowToolsForLLM?: ToolDefinition[];
+  /**
+   * phase 1863 (AT-D7)：执行 owner 的 opaque 执行 payload（形态归 owner，如 shadow-system 的
+   * ShadowExecutorPayload）；ATS 不枚举/解释其语义，经装配注入的 {@link ExecutorPayloadAdapter} 消费。
+   */
+  executorPayload?: unknown;
   /**
    * Legacy v1/v2 Summon recovery input; active writers must not populate.
    * Phase 1402 Step B: 当前 summon task 由 canonical postProcessor identity 识别，
@@ -158,11 +164,31 @@ interface CommonSubAgentTaskFields {
   terminalState?: 'done' | 'failed';
 }
 
-// phase 218: intent 在 both mode 都存在、shadow 独有 shadowMessages
-export type SubAgentTask = CommonSubAgentTaskFields & { intent: string } & (
-  | { mode: 'standard'; shadowMessages?: undefined }
-  | { mode: 'shadow'; shadowMessages: Message[] }
-);
+// phase 1863 (AT-D7): 去 standard/shadow discriminated union——mode 降为 opaque 可选字段
+// （ATS 不再枚举上层模式；legacy 'standard'/'shadow' 值读取容忍、不解释）。
+export type SubAgentTask = CommonSubAgentTaskFields & { intent: string; mode?: string };
+
+/**
+ * phase 1863 (AT-D7)：executor payload 解释结果——owner 语义映射为通用执行参数。
+ */
+export interface ExecutorPayloadInterpretation {
+  /** runSubagent prompt（缺省 = task.intent）。 */
+  readonly prompt?: string;
+  /** 覆盖默认 subagent systemPrompt。 */
+  readonly systemPrompt?: string;
+  /** 直接传给 runSubagent 的消息序列。 */
+  readonly messages?: Message[];
+  /** 受限工具覆盖（foundation applyRestrictedOverrides；如 shadow 子代理的受限 registry）。 */
+  readonly applyRestrictedOverrides?: boolean;
+  /** 结果捕获工具名（缺省走 runSubagent 默认）。 */
+  readonly resultTool?: string;
+}
+
+/**
+ * phase 1863 (AT-D7)：executor payload 解释面——owner 提供、装配期注入；
+ * 返回 undefined = 无 payload 语义（standard 路径）。
+ */
+export type ExecutorPayloadAdapter = (payload: unknown) => ExecutorPayloadInterpretation | undefined;
 
 /**
  * Phase 1206 Step A: prepared identity submission input.
@@ -268,8 +294,7 @@ export interface ToolTask {
   maxRetries: number;     // Max retry attempts (default 2)
   retryCount: number;     // Current retry count (initial 0)
   toolUseId?: ToolUseId;   // 对应 LLM tool_use block id，用于 tool_async_result
-  /** phase 858：sourced from ExecContext.isShadow at schedule time */
-  isShadow?: boolean;
+
   /**
    * Phase 770: async exec migration mode.
    * 'fresh' = spawn new process via tool execute callback (default).

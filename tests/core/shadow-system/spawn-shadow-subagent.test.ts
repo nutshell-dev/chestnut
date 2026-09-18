@@ -62,7 +62,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
   });
 
   describe('spawnShadowSubagent behavior', () => {
-    it('反向 1 — 装配产 shadow task 含 mode=shadow + intent 与 task 对应', async () => {
+    it('反向 1 — 装配产 shadow task 含 opaque executorPayload + intent 与 task 对应', async () => {
       const mainMessages: Message[] = [{ role: 'user', content: 'prior' }];
       const toolsForLLM: ToolDefinition[] = [];
 
@@ -81,13 +81,19 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
       const task = tasks[0];
-      expect(task.mode).toBe('shadow');
-      expect(task.shadowMessages).toBeDefined();
+      // phase 1863 (AT-D7)：shadow 语义收进 owner payload；ATS 侧不再有 mode/shadow* 顶层字段
+      const payload = task.executorPayload as Record<string, unknown>;
+      expect(payload).toBeDefined();
+      expect(payload.detached).toBe(true);
+      expect(payload.systemPrompt).toBe('sp');
+      expect(Array.isArray(payload.messages)).toBe(true);
+      expect((payload.identity as Record<string, unknown>).shadowId).toBe(shadowId);
+      expect(task.mode).toBeUndefined();
       expect(task.intent).toBe('do X');
       expect(task.intentPreview).toBeUndefined();
     });
 
-    it('反向 2 — shadowMessages 不含 task body 重复', async () => {
+    it('反向 2 — payload.messages 不含 task body 重复', async () => {
       const mainMessages: Message[] = [
         { role: 'user', content: 'msg1' },
         { role: 'assistant', content: 'reply1' },
@@ -105,7 +111,8 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       expect(taskId).toBeDefined();
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      const shadowMessages = tasks[0].shadowMessages as Array<{ role: string; content: unknown }>;
+      const payload = tasks[0].executorPayload as Record<string, unknown>;
+      const shadowMessages = payload.messages as Array<{ role: string; content: unknown }>;
       expect(shadowMessages).toHaveLength(mainMessages.length + 1);
 
       // task body 只出现 1 次（在 SHADOW INSTRUCTION 内）

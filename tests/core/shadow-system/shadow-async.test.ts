@@ -119,19 +119,23 @@ describe('shadow tool async (phase 1087)', () => {
       const callArgs = mockSchedule.mock.calls[0][1];
       expect(callArgs.kind).toBe('subagent');
       expect(callArgs.intent).toBe('test task');
-      expect(callArgs.isShadow).toBe(true);
+      // phase 1863 (AT-D7)：shadow 语义收进 opaque executorPayload（ATS 侧无 mode/isShadow/shadow* 顶层字段）
+      const payload = callArgs.executorPayload as Record<string, unknown>;
+      expect(payload.detached).toBe(true);
+      expect(payload.systemPrompt).toBe('test-system-prompt');
+      expect(payload.toolsForLLM).toEqual([{ type: 'function', function: { name: 'read', description: 'read' } }]);
       // synthesized by stripIncompleteToolUse + synthesizeFormB:
       // main messages stripped of trailing assistant (tool_use) → 1 user msg
       // + instruction = 2 messages (phase 1115: 3-turn reverted to 1-turn baseline)
-      expect(callArgs.shadowMessages).toHaveLength(2);
-      expect(callArgs.shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
-      expect(callArgs.shadowMessages[1]).toMatchObject({ role: 'user' });
-      expect((callArgs.shadowMessages[1] as { content: string }).content).toContain('SHADOW INSTRUCTION');
-      expect(callArgs.shadowSystemPrompt).toBe('test-system-prompt');
-      expect(callArgs.shadowToolsForLLM).toEqual([{ type: 'function', function: { name: 'read', description: 'read' } }]);
+      const shadowMessages = payload.messages as Array<{ role: string; content: unknown }>;
+      expect(shadowMessages).toHaveLength(2);
+      expect(shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
+      expect(shadowMessages[1]).toMatchObject({ role: 'user' });
+      expect((shadowMessages[1] as { content: string }).content).toContain('SHADOW INSTRUCTION');
       expect(callArgs.parentClawId).toBe('test-claw');
       expect(callArgs.originClawId).toBe('test-claw');
       expect(callArgs.callerType).toBe('shadow_subagent');
+      expect(callArgs.mode).toBeUndefined();
     });
 
     it('async=true explicit takes async path', async () => {

@@ -9,7 +9,7 @@ import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/index.js';
-import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
+import { TASKS_SYNC_SHADOW_DIR, interpretShadowExecutorPayload } from '../core/shadow-system/index.js';
 import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import { createAsyncTaskSystem } from '../core/async-task-system/index.js';
 import { PersistentShortIdIndex, type AsyncTaskSystem } from '../core/async-task-system/index.js';
@@ -148,6 +148,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       permissionChecker,
       selfInbox,
       fsFactory,
+      // phase 1863 (AT-D7)：executor payload 语义归 shadow owner——装配注入解释面
+      executorPayloadAdapter: interpretShadowExecutorPayload,
       shortIdIndex,
     });
   } catch (e) {

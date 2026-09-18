@@ -28,6 +28,8 @@ export type {
   ShortTaskId,
   TaskIdResolver,
   ShortIdIndex,
+  ExecutorPayloadAdapter,
+  ExecutorPayloadInterpretation,
 } from './types.js';
 export { makeShortTaskId, makeFullTaskId, makeTaskId, deriveShortIdFromTaskId } from './types.js';
 export type { PostProcessor } from './post-processors/types.js';

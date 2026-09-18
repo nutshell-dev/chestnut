@@ -22,7 +22,8 @@ export { spawnShadowSubagent } from './spawn-shadow-subagent.js';
 
 // ── 契约面（1863 E 的消费面 import 点）────────────────────────────────────────
 // phase 1865 (SH-D1): shadow 执行 payload 契约 + owner 构造器
-export { buildShadowPayload } from './payload.js';
+// phase 1863 (AT-D7): executor payload 解释面（装配注入 AsyncTaskSystem 的 owner adapter）
+export { buildShadowPayload, interpretShadowExecutorPayload } from './payload.js';
 export type { ShadowExecutorPayload } from './types.js';
 
 // ── 目录/策略常量（装配与 CLI 消费；归属注释见 constants.ts）────────────────────

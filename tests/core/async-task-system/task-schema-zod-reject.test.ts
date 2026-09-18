@@ -54,8 +54,8 @@ describe('phase 1019 r124 E fork: TaskMeta zod strict schema', () => {
 
 
 describe('phase 311 ML#9 strict: SubAgentTaskSchema no silent preprocess', () => {
-  it('rejects SubAgentTask missing mode field (no silent inject standard)', () => {
-    const corrupt = {
+  it('accepts SubAgentTask missing mode field without silently injecting mode (phase 1863 AT-D7: mode opaque 可选)', () => {
+    const withoutMode = {
       kind: 'subagent',
       id: '550e8403-e29b-41d4-a716-446655440000',
       shortId: '550e8403',
@@ -65,8 +65,12 @@ describe('phase 311 ML#9 strict: SubAgentTaskSchema no silent preprocess', () =>
       parentClawId: 'claw-1',
       createdAt: '2026-05-18T00:00:00Z',
     };
-    expect(SubAgentTaskSchema.safeParse(corrupt).success).toBe(false);
-    expect(validateTaskShape(corrupt)).toBe(false);
+    const parsed = SubAgentTaskSchema.safeParse(withoutMode);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect('mode' in parsed.data).toBe(false);
+    }
+    expect(validateTaskShape(withoutMode)).toBe(true);
   });
 
   it('rejects SubAgentTask with intentPreview field (no silent rename to intent)', () => {

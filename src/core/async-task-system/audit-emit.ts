@@ -24,7 +24,6 @@ export function emitTaskScheduled(
     parent?: string;
     maxSteps?: number;
     tool?: string;
-    isShadow?: boolean;
     indexPersisted?: boolean;
   },
 ): void {
@@ -36,7 +35,6 @@ export function emitTaskScheduled(
   if (opts.parent !== undefined) cols.push(`parent=${opts.parent}`);
   if (opts.maxSteps !== undefined) cols.push(`maxSteps=${opts.maxSteps}`);
   if (opts.tool !== undefined) cols.push(`tool=${opts.tool}`);
-  if ('isShadow' in opts) cols.push(`isShadow=${opts.isShadow}`);
   if ('indexPersisted' in opts) cols.push(`indexPersisted=${opts.indexPersisted}`);
   audit.write(TASK_AUDIT_EVENTS.TASK_SCHEDULED, ...cols);
 }

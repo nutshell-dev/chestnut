@@ -6,7 +6,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import { formatErr } from '../../foundation/node-utils/index.js';
 
 import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/tools/index.js';
-import { runSubagent as defaultRunSubagent, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult, TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
+import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { classifyTaskError } from './_helpers.js';
@@ -32,7 +32,7 @@ import { sendResult as defaultSendResult } from './result-delivery.js';
 import type { SendResult, SendFallbackResult, WriteInboxAsync, ResultDeliveryDeps, ProcessedTaskResult } from './result-delivery-types.js';
 
 import type { PostProcessor } from './post-processors/types.js';
-import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
+import type { SubAgentTask, ToolTask, FullTaskId, ExecutorPayloadAdapter } from './types.js';
 import { taskShortId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
@@ -79,6 +79,8 @@ interface ExecuteSubAgentTaskDeps {
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
+  /** phase 1863 (AT-D7)：executor payload 解释面（装配注入；owner 提供）。 */
+  executorPayloadAdapter?: ExecutorPayloadAdapter;
   runSubagent?: typeof defaultRunSubagent;
   sendResult?: SendResult<SubAgentTask>;
   sendFallbackResult?: SendFallbackResult<SubAgentTask | ToolTask>;
@@ -251,16 +253,16 @@ export async function executeSubAgentTask(
     let execErrorCategory: string | undefined;
     try {
 
-    // Build per-task registry filtered by caller profile
-    // （phase 1863 AT-D6：删 legacy motionClawDir 分支——无 active writer，2026-09-18）
-    const isShadow = task.isShadow === true;
+    // Build per-task registry filtered by caller profile.
+    // phase 1863 (AT-D7)：executor payload 语义归 owner——ATS 只把 opaque payload 交给装配注入
+    // 的 adapter 解释（不含任何上层模式枚举/解释）。
+    const interpretation = deps.executorPayloadAdapter?.(task.executorPayload);
     const subagentProfile = resolveTaskToolProfile(task, auditWriter);
     const effectiveRegistry = (() => {
       const r = createPerTaskRegistry(registry, subagentProfile);
 
-      // Phase 815/816: shadow 任务 apply restrictedOverrides
-      // （sync 路径在 system.ts 做，async 路径统一调用 foundation 函数）
-      if (isShadow) {
+      // Phase 815/816: 受限执行（如 shadow）经 owner 解释面声明 applyRestrictedOverrides
+      if (interpretation?.applyRestrictedOverrides) {
         applyRestrictedOverrides(r, registry);
       }
 
@@ -287,8 +289,8 @@ export async function executeSubAgentTask(
       fsFactory,
       llm,
       registry: effectiveRegistry,
-      prompt: task.mode === 'shadow' ? '' : task.intent,
-      systemPrompt: task.shadowSystemPrompt ?? finalSystemPrompt,
+      prompt: interpretation?.prompt ?? task.intent,
+      systemPrompt: interpretation?.systemPrompt ?? finalSystemPrompt,
       resultDir: taskResultDir,
       syncDir: nodePath.join(clawDir, TASKS_SYNC_DIR),
       maxSteps: task.maxSteps,
@@ -297,8 +299,8 @@ export async function executeSubAgentTask(
       timeoutMs: task.timeoutMs,
       toolTimeoutMs: deps.toolTimeoutMs,
       permissionChecker: deps.permissionChecker,
-      messages: task.shadowMessages,
-      resultTool: isShadow ? DONE_TOOL_NAME : undefined,
+      messages: interpretation?.messages,
+      resultTool: interpretation?.resultTool,
     });
 
       const displayResult = getDisplayResult(text, capturedResult);

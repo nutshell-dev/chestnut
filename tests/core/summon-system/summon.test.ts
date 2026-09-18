@@ -37,6 +37,14 @@ async function readPendingTasks(baseDir: string): Promise<Array<Record<string, u
   }
 }
 
+/** phase 1863 (AT-D7)：shadow 语义在 owner payload（executorPayload）内，ATS 侧无顶层 shadow 字段。 */
+function payloadOf(task: Record<string, unknown>): Record<string, unknown> {
+  return task.executorPayload as Record<string, unknown>;
+}
+function payloadMessages(task: Record<string, unknown>): Array<{ role: string; content: string }> {
+  return payloadOf(task).messages as Array<{ role: string; content: string }>;
+}
+
 describe('SummonTool', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
@@ -104,8 +112,8 @@ describe('SummonTool', () => {
     expect(tasks[0]).toMatchObject({
       intent: expect.stringContaining('do something'),
       kind: 'subagent',
-      mode: 'shadow',
     });
+    expect(payloadOf(tasks[0])).toBeDefined();
     expect(result.content).toContain(tasks[0].id);
     expect(auditEvents.find(e => e.type === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toBeDefined();
   });
@@ -183,10 +191,10 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].shadowMessages).toBeDefined();
+      expect(payloadMessages(tasks[0])).toBeDefined();
       // stripped motion dialog (1 msg) + SHADOW INSTRUCTION user msg = 2
-      expect(tasks[0].shadowMessages.length).toBeGreaterThanOrEqual(2);
-      const lastMsg = tasks[0].shadowMessages[tasks[0].shadowMessages.length - 1];
+      expect(payloadMessages(tasks[0]).length).toBeGreaterThanOrEqual(2);
+      const lastMsg = payloadMessages(tasks[0])[payloadMessages(tasks[0]).length - 1];
       expect(lastMsg.role).toBe('user');
       expect(lastMsg.content).toContain('SHADOW INSTRUCTION');
       expect(lastMsg.content).toContain('shadow_id: summon-');
@@ -212,11 +220,11 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].shadowMessages).toBeDefined();
+      expect(payloadMessages(tasks[0])).toBeDefined();
       // strip 后 1 msg + SHADOW INSTRUCTION = 2
-      expect(tasks[0].shadowMessages).toHaveLength(2);
-      expect(tasks[0].shadowMessages[0]).toEqual({ role: 'user', content: '帮我创建 foo claw 的契约' });
-      const lastMsg = tasks[0].shadowMessages[tasks[0].shadowMessages.length - 1];
+      expect(payloadMessages(tasks[0])).toHaveLength(2);
+      expect(payloadMessages(tasks[0])[0]).toEqual({ role: 'user', content: '帮我创建 foo claw 的契约' });
+      const lastMsg = payloadMessages(tasks[0])[payloadMessages(tasks[0]).length - 1];
       expect(lastMsg.role).toBe('user');
       expect(lastMsg.content).toContain('SHADOW INSTRUCTION');
     });
@@ -234,11 +242,11 @@ Content.
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
       // 2 msgs + SHADOW INSTRUCTION = 3
-      expect(tasks[0].shadowMessages).toHaveLength(3);
-      expect(tasks[0].shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
-      expect(tasks[0].shadowMessages[1]).toEqual({ role: 'assistant', content: 'hello' });
-      expect(tasks[0].shadowMessages[2].role).toBe('user');
-      expect(tasks[0].shadowMessages[2].content).toContain('SHADOW INSTRUCTION');
+      expect(payloadMessages(tasks[0])).toHaveLength(3);
+      expect(payloadMessages(tasks[0])[0]).toEqual({ role: 'user', content: 'hi' });
+      expect(payloadMessages(tasks[0])[1]).toEqual({ role: 'assistant', content: 'hello' });
+      expect(payloadMessages(tasks[0])[2].role).toBe('user');
+      expect(payloadMessages(tasks[0])[2].content).toContain('SHADOW INSTRUCTION');
     });
 
     it('shadow mode: dialogMessages 为空时 shadowMessages = [SHADOW INSTRUCTION]', async () => {
@@ -248,9 +256,9 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].shadowMessages).toHaveLength(1);
-      expect(tasks[0].shadowMessages[0].role).toBe('user');
-      expect(tasks[0].shadowMessages[0].content).toContain('SHADOW INSTRUCTION');
+      expect(payloadMessages(tasks[0])).toHaveLength(1);
+      expect(payloadMessages(tasks[0])[0].role).toBe('user');
+      expect(payloadMessages(tasks[0])[0].content).toContain('SHADOW INSTRUCTION');
     });
 
     it('phase 1396 Step C: mining 模式不再是公开路径，execute 始终走 shadow', async () => {
@@ -261,7 +269,7 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].shadowMessages).toBeDefined();
+      expect(payloadMessages(tasks[0])).toBeDefined();
       expect(tasks[0].callerType).toBe('shadow_subagent');
       expect(tasks[0].motionClawDir).toBeUndefined();
     });
@@ -278,8 +286,8 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].systemPrompt).toBe(mockMotionPrompt);
-      expect(tasks[0].shadowMessages).toBeDefined();
+      expect(payloadOf(tasks[0]).systemPrompt).toBe(mockMotionPrompt);
+      expect(payloadMessages(tasks[0])).toBeDefined();
       expect(tasks[0].callerType).toBe('shadow_subagent');
     });
   });
@@ -293,7 +301,7 @@ Content.
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].systemPrompt).toBe(mockMotionPrompt);
+      expect(payloadOf(tasks[0]).systemPrompt).toBe(mockMotionPrompt);
     });
   });
 
