@@ -90,6 +90,11 @@ describe('buildShadowPayload (phase 1865 SH-D1)', () => {
     expect(summon.identity.shadowId).toMatch(/^summon-/);
   });
 
+  it('detached 契约事实恒置（phase 1865 SH-D4）', () => {
+    const payload = buildShadowPayload({ task: 't', mainMessages: [], ctx, systemPrompt: 'sp', toolsForLLM: [] });
+    expect(payload.detached).toBe(true);
+  });
+
   it('identity: isShadow 事实由单源携带（phase 1865 SH-D3）', () => {
     const payload = buildShadowPayload({ task: 't', mainMessages: [], ctx, systemPrompt: 'sp', toolsForLLM: [] });
     expect(payload.identity.isShadow).toBe(true);

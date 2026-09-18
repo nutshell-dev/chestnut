@@ -12,6 +12,7 @@ import { makeToolUseId } from '../../foundation/llm-provider/index.js';
 import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 
 import { synthesizeFormB } from './_helpers.js';
+import { SHADOW_DETACHED } from './constants.js';
 import type { ShadowExecutorPayload, ShadowIdentity, SpawnShadowSubagentOptions } from './types.js';
 
 /** phase 1865 (SH-D3)：身份单一构造点——shadowId 生成 + isShadow 事实（消费面派生自此）。 */
@@ -48,6 +49,7 @@ export function buildShadowPayload(opts: SpawnShadowSubagentOptions): ShadowExec
     messages,
     toolsForLLM: opts.toolsForLLM,
     identity,
+    detached: SHADOW_DETACHED,
     budget: {
       timeoutMs: opts.timeoutMs,
       maxSteps: opts.maxSteps,

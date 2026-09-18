@@ -2,8 +2,15 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { Message } from '../../foundation/dialog-store/index.js';
 import type { SubAgentTaskScheduler, TaskId } from '../async-task-system/index.js';
+import type { SHADOW_DETACHED } from './constants.js';
 
 
+/**
+ * phase 1865 (SH-D4)：本提交面恒为异步 detached——不继承 caller abort signal
+ * （caller abort 不级联 shadow；ratify chain: phase 874 → 1084 → 1162 → 1373）。
+ * 契约事实经 `payload.detached`（恒 true）表达；若 future shadow abort 需求 N≥1
+ * → 加 NEW shadowSignal parameter + propagate。
+ */
 export interface SpawnShadowSubagentOptions {
   /** 子代理任务体（嵌入 SHADOW INSTRUCTION + 不再单独 push prompt） */
   task: string;
@@ -55,6 +62,8 @@ export interface ShadowExecutorPayload {
   readonly toolsForLLM: ToolDefinition[];
   /** 身份事实（单源：{@link ShadowIdentity}）。 */
   readonly identity: ShadowIdentity;
+  /** phase 1865 (SH-D4)：detached 契约事实——不继承 caller abort signal（caller abort 不级联）。 */
+  readonly detached: typeof SHADOW_DETACHED;
   /** 执行预算（Assembly/SubAgent 注入面——phase 1865 Step H 对齐）。 */
   readonly budget: {
     readonly timeoutMs?: number;
