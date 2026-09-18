@@ -9,7 +9,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ExecContext, IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import type { StepExecutorAuditSink } from './audit-sink.js';
 
 export interface LLMCallInfo {
   model: string;
@@ -93,8 +93,9 @@ export interface StepInput {
   maxTokens?: number;
   idleTimeoutMs?: number;
   callbacks?: StepCallbacks;
-  /** phase 732: injected by AgentExecutor for internal audit writes. */
-  auditWriter?: AuditLog;
+  /** phase 732: injected by AgentExecutor for internal audit writes.
+   * phase 1857 Step D (SE-D3): 收窄为最小 sink（write/message/preview），真 AuditLog 结构满足。 */
+  auditWriter?: StepExecutorAuditSink;
   /** phase 732: contract id for audit context. */
   currentContractId?: string;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim

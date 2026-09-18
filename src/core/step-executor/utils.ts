@@ -8,7 +8,7 @@ import type { Message } from '../../foundation/dialog-store/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import type { StepExecutorAuditSink } from './audit-sink.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 
@@ -21,7 +21,7 @@ export function safeCallback(
   label: string,
   fn: () => void,
   callbacks?: { onSafeCallbackError?: (label: string, err: unknown) => void },
-  auditWriter?: AuditLog,
+  auditWriter?: StepExecutorAuditSink,
 ): void {
   try { fn(); }
   catch (err) {

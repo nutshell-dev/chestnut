@@ -14,7 +14,7 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StepInput, StepCallbacks } from './types.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import type { StepExecutorAuditSink } from './audit-sink.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
@@ -57,8 +57,8 @@ function isStepInput(value: StepCallbacks | StepInput): value is StepInput {
 
 function resolveCallbacksAndAudit(
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: AuditLog,
-): { callbacks?: StepCallbacks; auditWriter?: AuditLog } {
+  auditWriter?: StepExecutorAuditSink,
+): { callbacks?: StepCallbacks; auditWriter?: StepExecutorAuditSink } {
   if (callbacksOrInput && isStepInput(callbacksOrInput)) {
     return { callbacks: callbacksOrInput.callbacks, auditWriter: callbacksOrInput.auditWriter ?? auditWriter };
   }
@@ -70,7 +70,7 @@ async function executeSequential(
   executor: IToolExecutor,
   ctx: ExecContext,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: AuditLog,
+  auditWriter?: StepExecutorAuditSink,
 ): Promise<ToolResultBlock[]> {
   const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调（流式提前 emit / 不等 execute）
@@ -90,7 +90,7 @@ async function executeReadonlyParallel(
   ctx: ExecContext,
   results: Map<number, ToolResultBlock>,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: AuditLog,
+  auditWriter?: StepExecutorAuditSink,
 ): Promise<void> {
   if (group.length === 0) return;
 
@@ -123,7 +123,7 @@ async function executeWriteCalls(
   ctx: ExecContext,
   results: Map<number, ToolResultBlock>,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: AuditLog,
+  auditWriter?: StepExecutorAuditSink,
 ): Promise<void> {
   const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调
@@ -141,7 +141,7 @@ export async function executeToolCalls(
   ctx: ExecContext,
   registry: ToolRegistry | undefined,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: AuditLog,
+  auditWriter?: StepExecutorAuditSink,
 ): Promise<ToolResultBlock[]> {
   if (!registry) return executeSequential(toolCalls, executor, ctx, callbacksOrInput, auditWriter);
 
@@ -174,7 +174,7 @@ export async function executeSingleTool(
   executor: IToolExecutor,
   ctx: ExecContext,
   callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: AuditLog,
+  auditWriter?: StepExecutorAuditSink,
 ): Promise<ToolResult> {
   const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 前置守卫：流中断时 toolCall.input 可能不完整（required 字段缺失）

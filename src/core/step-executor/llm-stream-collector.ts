@@ -8,7 +8,7 @@ import type { ContentBlock } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../foundation/llm-provider/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import type { StepExecutorAuditSink } from './audit-sink.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, parseToolInput } from './utils.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
@@ -71,7 +71,7 @@ export function flushText(state: StreamState, callbacks?: StepCallbacks): void {
   }
 }
 
-export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, auditWriter?: AuditLog): void {
+export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, auditWriter?: StepExecutorAuditSink): void {
   if (state.currentToolUse) {
     const toolName = state.currentToolUse.name;
     const toolUseId = makeToolUseId(state.currentToolUse.id);
@@ -139,7 +139,7 @@ function resetState(state: StreamState): void {
   state.startTs = 0;
 }
 
-export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, auditWriter?: AuditLog): void {
+export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, auditWriter?: StepExecutorAuditSink): void {
   if (state.currentThinking) {
     state.contentBlocks.push({
       type: 'thinking',
@@ -209,7 +209,7 @@ export async function collectStreamResponse(
   llm: LLMOrchestrator,
   callOptions: LLMCallOptions,
   callbacks?: StepCallbacks,
-  auditWriter?: AuditLog,
+  auditWriter?: StepExecutorAuditSink,
   currentContractId?: string,
   traceId?: string,
 ): Promise<LLMResponse> {
