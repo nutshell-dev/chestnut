@@ -80,7 +80,7 @@ describe('cross-claw read-state persistence ratchet (Phase 1229 Step B)', () => 
       resolve: () => ({ kind: 'local', clawDir: targetDir }),
       enumerate: () => ['target'],
     };
-    const tool = createCrossClawReadTool({ topology, allowed: true, crossTargetAccess });
+    const tool = createCrossClawReadTool({ topology, crossTargetAccess });
     const { ctx } = makeCallerCtx();
 
     const result = await tool.execute({ path: 'note.md', claw: 'target' }, ctx);
@@ -99,7 +99,7 @@ describe('cross-claw read-state persistence ratchet (Phase 1229 Step B)', () => 
       resolve: () => ({ kind: 'local', clawDir: targetDir }),
       enumerate: () => ['target'],
     };
-    const tool = createCrossClawReadTool({ topology, allowed: true, crossTargetAccess });
+    const tool = createCrossClawReadTool({ topology, crossTargetAccess });
     const { ctx } = makeCallerCtx();
 
     expect(ctx.readFileState.size).toBe(0);

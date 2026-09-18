@@ -11,6 +11,7 @@
 
 import {
   createClawTopology,
+  MOTION_CLAW_ID,
   type ClawTopology,
   type CrossTargetAccess,
 } from '../core/claw-topology/index.js';
@@ -44,7 +45,9 @@ export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
   });
   const wrapDeps = {
     topology,
-    allowed: deps.isMotion,
+    // phase 1864 Step H（CT-D11）：broadcast 授权 = 构造期 capability（motion 主体）；
+    // 非 motion 装配不授予（无 broadcast 面、工具仍可单目标跨 claw）。
+    broadcast: deps.isMotion ? { grantedTo: MOTION_CLAW_ID } : undefined,
     crossTargetAccess: deps.crossTargetAccess,
   };
   deps.toolRegistry.register(createCrossClawReadTool(wrapDeps));

@@ -8,6 +8,7 @@ import { readTool } from '../../foundation/file-tool/index.js';
 import { lsTool } from '../../foundation/file-tool/index.js';
 import { searchTool } from '../../foundation/file-tool/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { ClawIdResolveError, type ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
@@ -27,10 +28,24 @@ export interface CrossTargetAccess {
   createChecker(target: { readonly clawDir: string; readonly fs: FileSystem }): PermissionChecker;
 }
 
+/**
+ * phase 1864 Step H（CT-D11）：broadcast 授权 capability——装配期授予、type 层表达。
+ *
+ * 非授权装配（无本 capability）的 registry 不持 broadcast 面；授权主体
+ * （grantedTo）在构造期绑定，替代可伪造 boolean + 运行期目录名判定。
+ * 运行期 ctx.clawId 复核保留为第二道（防 motion registry 被非 motion 上下文挪用，
+ * 如 shadow restricted registry 复用同一 registry 的场景）。
+ */
+export interface BroadcastGrant {
+  /** 授权主体（构造期绑定；仅其上下文可 broadcast）。 */
+  readonly grantedTo: ClawId;
+}
+
 /** phase 520: motionClawId DI 删除（caller 不再传）、agent-tools 直 import 自家 const */
 interface CrossClawToolDeps {
   topology: ClawTopology;
-  allowed: boolean;
+  /** phase 1864 Step H（CT-D11）：缺省 = 无 broadcast 能力（单目标面仍可用）。 */
+  broadcast?: BroadcastGrant;
   /** phase 1864 Step G（CT-D10）：跨目标访问 capability（装配期注入）。 */
   crossTargetAccess: CrossTargetAccess;
 }
@@ -232,12 +247,13 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
         return searchTool.execute(args, ctx);
       }
       if (clawParam === '*') {
-        // DP11 enforce: Motion-only
-        if (!deps.allowed || ctx.clawId !== MOTION_CLAW_ID) {
+        // DP11 enforce: Motion-only —— 授权经构造期 capability 表达；
+        // 运行期 ctx.clawId 复核保留（registry 复用场景的第二道，防伪主体）。
+        if (!deps.broadcast || ctx.clawId !== deps.broadcast.grantedTo) {
           ctx.auditWriter?.write(
             CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_BROADCAST_MOTION_ONLY_VIOLATION,
             `callerClawId=${ctx.clawId}`,
-            deps.allowed ? 'reason=runtime_claw_not_motion' : 'reason=not_motion_chain',
+            deps.broadcast ? 'reason=runtime_claw_not_motion' : 'reason=not_motion_chain',
           );
           return {
             success: false,
