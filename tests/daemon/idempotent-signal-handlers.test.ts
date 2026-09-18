@@ -62,6 +62,8 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
   })),
   PROCESS_GENERATION_ENV: 'CHESTNUT_PROCESS_GENERATION',
   makeDaemonDir: (s: string) => s,
+  // phase 1864 Step D（CT-D4）：brand 构造经 PM adapter（拓扑只提供位置事实）。
+  makeDaemonDirFromLocation: (location: { kind: 'local'; clawDir: string }) => location.clawDir,
   STATUS_SUBDIR: 'status',
 }));
 

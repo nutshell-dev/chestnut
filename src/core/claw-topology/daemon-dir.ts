@@ -5,7 +5,8 @@
  * - motion clawId → <chestnut-root>/motion/
  * - 其他 clawId → <chestnut-root>/claws/<id>/
  *
- * 是 L2a ProcessManager API 入参 `daemonDir: string` 的唯一构造入口。
+ * clawId → 位置事实（clawDir）的唯一解析入口；DaemonDir brand 构造归 PM
+ * （phase 1864 Step D / CT-D4：caller 经 PM.makeDaemonDirFromLocation）。
  * caller 不应自拼 path（CLAWS_DIR / motion 子目录约定归 L4 拓扑业务）。
  *
  * phase 694：从现 makeAgentDirResolver() factory 抽出直调入口、PM 撤
@@ -13,7 +14,7 @@
  */
 
 import type { ClawId } from '../../foundation/claw-identity/index.js';
-import { type DaemonDir, makeDaemonDir } from '../../foundation/process-manager/index.js';
+import { type DaemonDir, makeDaemonDirFromLocation } from '../../foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
 import { getNamedSubrootDir, getClawDir } from '../../foundation/claw-identity/index.js';
 
@@ -26,9 +27,10 @@ import { getNamedSubrootDir, getClawDir } from '../../foundation/claw-identity/i
  *
  * Throws：clawId 含 path traversal 字符或空（由 getClawDir 内部抛）。
  *
- * Returns DaemonDir branded string — PM API 强制 caller 必经此函数构造。
+ * Returns DaemonDir branded string — brand 由 PM adapter（makeDaemonDirFromLocation）
+ * 构造；本函数只解析位置。
  */
 export function resolveClawDaemonDir(clawId: ClawId): DaemonDir {
-  const dir = clawId === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(clawId);
-  return makeDaemonDir(dir);
+  const clawDir = clawId === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(clawId);
+  return makeDaemonDirFromLocation({ kind: 'local', clawDir });
 }

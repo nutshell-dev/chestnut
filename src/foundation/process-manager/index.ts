@@ -30,6 +30,9 @@ export type { ReadinessResult, ReadinessNotReadyReason } from './types.js';
 export type { LivenessResult } from './types.js';
 export type { DaemonDir } from './types.js';
 export { makeDaemonDir } from './types.js';
+// phase 1864 Step D（CT-D4）：PM own brand 构造 adapter（消费已解析位置事实）。
+export { makeDaemonDirFromLocation } from './daemon-dir-location.js';
+export type { DaemonDirLocation } from './daemon-dir-location.js';
 export { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
 export { createProcessManagerForCLI } from './factories.js';
 // phase 1423 F5: agent-factory (daemon-scoped) sister to factories (CLI-scoped)

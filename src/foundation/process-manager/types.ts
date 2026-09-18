@@ -8,14 +8,15 @@ import type { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached
  * Brand type for daemon owner directory.
  *
  * phase 694: PM API 入参强制 brand、防 structural typing 让 ClawId 当 daemonDir 误传。
- * caller 必经 L4 ClawTopology.resolveClawDaemonDir 或 PM.makeDaemonDir 构造。
+ * phase 1864 Step D（CT-D4）: brand 构造归 PM——caller（拓扑 owner）经
+ * PM.makeDaemonDirFromLocation 构造，或 PM.makeDaemonDir 自身内部使用。
  *
  * 同型 brand: ChestnutRoot (foundation/claw-identity/instance-paths.ts) / ClawId (identity/) / StepNumber.
  */
 declare const DaemonDirBrand: unique symbol;
 export type DaemonDir = string & { readonly [DaemonDirBrand]: true };
 
-/** Brand factory (PM internal 自构造 or L4 ClawTopology 通过本 factory 包) */
+/** Brand factory（PM 内部/daemon-dir-location adapter 使用；跨模块 caller 走 barrel adapter） */
 export function makeDaemonDir(s: string): DaemonDir {
   return s as DaemonDir;
 }
