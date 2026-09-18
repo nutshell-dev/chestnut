@@ -35,7 +35,7 @@ export interface DialogStoreMutationCapability {
   }): Promise<DialogSaveResult>;
 }
 
-interface TrimAndPersistInputs {
+export interface TrimAndPersistInputs {
   messages: Message[];
   systemPrompt: string;
   toolsForLLM: ToolDefinition[];
