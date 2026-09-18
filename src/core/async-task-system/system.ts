@@ -135,12 +135,27 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private _shuttingDown = false;
   private _dispatchRunning = false;
   private _startPromise: Promise<void> | null = null;
+  /**
+   * phase 1863 (AT-D4)：initialize 前为装配窗口；之后依赖面冻结
+   * （M#4 依赖稳定——构造期注入、运行期不再变）。
+   */
+  private configFrozen = false;
+
+  /** phase 1863 (AT-D4)：装配依赖面冻结 guard。 */
+  private assertConfigOpen(op: string): void {
+    if (this.configFrozen) {
+      throw new Error(
+        `AsyncTaskSystem.${op} rejected: dependency surface frozen after initialize (phase 1863 AT-D4)`,
+      );
+    }
+  }
 
   /**
    * 装配期注册 PostProcessor
    * 应然：name 唯一 / handler 是 standalone function / 0 closure / 0 跨 task state
    */
   addPostProcessor(name: string, handler: PostProcessor): void {
+    this.assertConfigOpen('addPostProcessor');
     if (this.postProcessors.has(name)) {
       throw new Error(`PostProcessor "${name}" already registered`);
     }
@@ -151,6 +166,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
    * inject mainDialogStore after construction (sessionManager is created later in Assembly)
    */
   setMainDialogStore(store: DialogStore): void {
+    this.assertConfigOpen('setMainDialogStore');
     this.mainDialogStore = store;
   }
 
@@ -159,6 +175,7 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
    * tasks can emit `task_started` / `task_completed` viewport events.
    */
   setParentStreamLog(streamLog: StreamLog): void {
+    this.assertConfigOpen('setParentStreamLog');
     this.parentStreamLog = streamLog;
   }
 
@@ -331,6 +348,9 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
       writeInboxAsync: this.writeInboxAsync,
       postProcessors: this.postProcessors,
     });
+
+    // phase 1863 (AT-D4)：成功路径后冻结装配依赖面（三 setter 继续调用即 throw）。
+    this.configFrozen = true;
   }
 
   /**
