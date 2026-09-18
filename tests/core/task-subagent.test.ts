@@ -12,6 +12,8 @@ import * as path from 'path';
 
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-writers.js';
+import { NoopLifecycleSink } from '../../src/core/subagent/noop-writers.js';
+import { createSubAgentLifecycleSink } from '../../src/core/subagent/lifecycle-sink.js';
 import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestrator, LLMStreamChunk } from '../../src/foundation/llm-orchestrator/index.js';
@@ -129,7 +131,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         maxSteps: 10,
         timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS,
         taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: new NoopAuditWriter(),
+        sink: new NoopLifecycleSink(),
       });
 
       const result = await agent.run();
@@ -179,7 +181,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         maxSteps: 10,
         timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS,
         taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: new NoopAuditWriter(),
+        sink: new NoopLifecycleSink(),
       });
 
       const result = await agent.run();
@@ -228,7 +230,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         maxSteps: 10,
         timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS,
         taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: new NoopAuditWriter(),
+        sink: new NoopLifecycleSink(),
       });
 
       const result = await agent.run();
@@ -286,7 +288,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         maxSteps: 10,
         timeoutMs: 100, // Very short timeout
         taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: new NoopAuditWriter(),
+        sink: new NoopLifecycleSink(),
       });
 
       await expect(agent.run()).rejects.toThrow();
@@ -331,7 +333,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         idleTimeoutMs: 100, // idle timeout is short
         onIdleTimeout,
         taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: new NoopAuditWriter(),
+        sink: new NoopLifecycleSink(),
       });
 
       const runPromise = agent.run().catch(() => { /* silent: expected-failure */ }); // 预期抛 ToolTimeoutError
@@ -380,7 +382,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         fs: throwingFs,
         maxSteps: 20,
         taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: mockAuditWriter as any,
+        sink: createSubAgentLifecycleSink({ auditWriter: mockAuditWriter as any, agentId: 'test-append-fail' }),
       });
 
       // run 应该正常完成，appendToLog 失败不影响主流程
@@ -426,7 +428,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         fs: ctx.mockFs,
         maxSteps: 20,
         taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: new NoopAuditWriter(),
+        sink: new NoopLifecycleSink(),
       });
 
       await agent.run();

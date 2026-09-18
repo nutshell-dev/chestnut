@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTimeoutController } from '../../../src/core/subagent/timeout-controller.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
+// phase 1858 Step K (SA-D10): controller 消费 lifecycle sink（真 adapter 保列格式）
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 describe('subagent timeout controller audit semantics', () => {
   afterEach(() => {
@@ -11,8 +13,7 @@ describe('subagent timeout controller audit semantics', () => {
     const write = vi.fn();
     const handle = createTimeoutController({
       timeoutMs: 1_000,
-      auditWriter: { write } as any,
-      agentId: 'agent-1',
+      sink: createSubAgentLifecycleSink({ auditWriter: { write } as any, agentId: 'agent-1' }),
     });
 
     handle.cleanup();
@@ -30,8 +31,7 @@ describe('subagent timeout controller audit semantics', () => {
     const write = vi.fn();
     const handle = createTimeoutController({
       timeoutMs: 100,
-      auditWriter: { write } as any,
-      agentId: 'agent-2',
+      sink: createSubAgentLifecycleSink({ auditWriter: { write } as any, agentId: 'agent-2' }),
     });
 
     const settled = handle.timeoutPromise.catch(() => undefined);
@@ -53,8 +53,7 @@ describe('subagent timeout controller audit semantics', () => {
     const handle = createTimeoutController({
       timeoutMs: 1_000,
       externalSignal: external.signal,
-      auditWriter: { write: vi.fn() } as any,
-      agentId: 'agent-pre-abort',
+      sink: createSubAgentLifecycleSink({ auditWriter: { write: vi.fn() } as any, agentId: 'agent-pre-abort' }),
     });
 
     await expect(handle.timeoutPromise).rejects.toMatchObject({

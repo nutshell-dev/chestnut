@@ -14,6 +14,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { SUBAGENT_EVENTS } from '../../../src/core/subagent/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 /**
  * Promise barrier release for mock runReact ghost-callback delay.
@@ -98,7 +99,7 @@ function makeSubAgent(overrides: { timeoutMs?: number } = {}) {
     maxSteps: 5,
     timeoutMs: overrides.timeoutMs ?? 1000,
     taskStreamWriter: sw,
-    auditWriter: mockAuditWriter,
+    sink: createSubAgentLifecycleSink({ auditWriter: mockAuditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
     runReact,
   });
 

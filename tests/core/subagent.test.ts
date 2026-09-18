@@ -12,6 +12,7 @@ import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
+import { createSubAgentLifecycleSink } from '../../src/core/subagent/lifecycle-sink.js';
 
 // phase 1489: ToolExecutor 注入到 SubAgentOptions / 测试不再依赖 vi.mock executor.js、
 // 直接构造一个最小 mock 对象 satisfy `getExecContext` 方法即可。
@@ -84,7 +85,7 @@ function makeSubAgent(
       fs: mockFs,
       maxSteps: 5,
       taskStreamWriter: new NoopStreamWriter(),
-      auditWriter: mockAuditWriter,
+      sink: createSubAgentLifecycleSink({ auditWriter: mockAuditWriter as any, agentId: 'test-agent' }),
       runReact,
     }),
     mockFs,

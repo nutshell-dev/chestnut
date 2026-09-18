@@ -1,6 +1,9 @@
 /**
  * Phase 270 Step B + Phase 283: subagent multi-artifact completeness cross-source audit tests.
  * Only AC-4 remains (phase 224 同源 bug 子代理检测).
+ *
+ * phase 1858 Step K (SA-D10): 消费面改 lifecycle sink（结构化断言）；
+ * 事件字符串 / 列格式由 adapter 等价矩阵守（lifecycle-sink-equivalence.test.ts）。
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -9,7 +12,6 @@ import {
   type ArtifactSnapshot,
   type ArtifactDeps,
 } from '../../../src/core/subagent/artifact-cross-source-audit.js';
-import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 
 function makeMockMessageStore(overrides: { messages?: any[]; loadThrow?: boolean; loadIoError?: string } = {}) {
   return {
@@ -28,15 +30,16 @@ function makeMockMessageStore(overrides: { messages?: any[]; loadThrow?: boolean
   } as unknown as ArtifactDeps['messageStore'];
 }
 
-function makeMockAudit() {
+function makeMockSink() {
   return {
-    write: vi.fn(),
+    artifactCrossSourceOk: vi.fn(),
+    artifactCrossSourceMismatch: vi.fn(),
+    artifactCrossSourceSkipped: vi.fn(),
   };
 }
 
 function makeSnapshot(partial: Partial<ArtifactSnapshot> = {}): ArtifactSnapshot {
   return {
-    agentId: 'test-agent',
     resultDir: '/tmp/results/test-agent',
     textEndCount: 0,
     ...partial,
@@ -45,8 +48,8 @@ function makeSnapshot(partial: Partial<ArtifactSnapshot> = {}): ArtifactSnapshot
 
 describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 283)', () => {
   describe('AC-4: textEnd vs last assistant', () => {
-    it('textend=1 + 末轮 assistant 含 text → emit ac4_ok（检查结论持久化，phase 1858 Step D）', async () => {
-      const audit = makeMockAudit();
+    it('textend=1 + 末轮 assistant 含 text → ac4_ok（检查结论持久化，phase 1858 Step D）', async () => {
+      const sink = makeMockSink();
       const messageStore = makeMockMessageStore({
         messages: [
           { role: 'user', content: 'hi' },
@@ -56,18 +59,16 @@ describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 2
       await auditSubagentArtifactCompleteness(
         makeSnapshot({ textEndCount: 1 }),
         { fs: {} as any, messageStore },
-        audit as any,
+        sink as any,
       );
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_OK);
-      expect(audit.write.mock.calls[0]).toContain('kind=ac4_ok');
-      expect(audit.write.mock.calls[0]).toContain('agentId=test-agent');
-      expect(audit.write.mock.calls[0]).toContain('textend_count=1');
-      expect(audit.write.mock.calls[0]).toContain('last_role=assistant');
+      expect(sink.artifactCrossSourceOk).toHaveBeenCalledTimes(1);
+      expect(sink.artifactCrossSourceOk).toHaveBeenCalledWith({ textEndCount: 1, lastRole: 'assistant' });
+      expect(sink.artifactCrossSourceMismatch).not.toHaveBeenCalled();
+      expect(sink.artifactCrossSourceSkipped).not.toHaveBeenCalled();
     });
 
-    it('textend=1 + 末轮 assistant string content → emit ac4_ok', async () => {
-      const audit = makeMockAudit();
+    it('textend=1 + 末轮 assistant string content → ac4_ok', async () => {
+      const sink = makeMockSink();
       const messageStore = makeMockMessageStore({
         messages: [
           { role: 'user', content: 'hi' },
@@ -77,15 +78,14 @@ describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 2
       await auditSubagentArtifactCompleteness(
         makeSnapshot({ textEndCount: 1 }),
         { fs: {} as any, messageStore },
-        audit as any,
+        sink as any,
       );
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_OK);
-      expect(audit.write.mock.calls[0]).toContain('kind=ac4_ok');
+      expect(sink.artifactCrossSourceOk).toHaveBeenCalledTimes(1);
+      expect(sink.artifactCrossSourceOk).toHaveBeenCalledWith({ textEndCount: 1, lastRole: 'assistant' });
     });
 
-    it('textend=1 + 末轮 user → emit ac4', async () => {
-      const audit = makeMockAudit();
+    it('textend=1 + 末轮 user → mismatch ac4', async () => {
+      const sink = makeMockSink();
       const messageStore = makeMockMessageStore({
         messages: [
           { role: 'user', content: 'hi' },
@@ -94,51 +94,59 @@ describe('subagent multi-artifact completeness audit (phase 270 Step B + phase 2
       await auditSubagentArtifactCompleteness(
         makeSnapshot({ textEndCount: 1 }),
         { fs: {} as any, messageStore },
-        audit as any,
+        sink as any,
       );
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_MISMATCH);
-      expect(audit.write.mock.calls[0]).toContain('kind=ac4_textend_without_last_assistant_text');
+      expect(sink.artifactCrossSourceMismatch).toHaveBeenCalledTimes(1);
+      expect(sink.artifactCrossSourceMismatch).toHaveBeenCalledWith({ textEndCount: 1, lastRole: 'user' });
+      expect(sink.artifactCrossSourceOk).not.toHaveBeenCalled();
     });
 
     it('textend=0 → 不 check (skip silent)', async () => {
-      const audit = makeMockAudit();
+      const sink = makeMockSink();
       const messageStore = makeMockMessageStore({
         messages: [{ role: 'user', content: 'hi' }],
       });
       await auditSubagentArtifactCompleteness(
         makeSnapshot({ textEndCount: 0 }),
         { fs: {} as any, messageStore },
-        audit as any,
+        sink as any,
       );
-      expect(audit.write).not.toHaveBeenCalled();
+      expect(sink.artifactCrossSourceOk).not.toHaveBeenCalled();
+      expect(sink.artifactCrossSourceMismatch).not.toHaveBeenCalled();
+      expect(sink.artifactCrossSourceSkipped).not.toHaveBeenCalled();
     });
 
-    it('messageStore.load throw → emit _skipped ac4_skip', async () => {
-      const audit = makeMockAudit();
+    it('messageStore.load throw → skipped ac4_skip（reason=message_load_failed）', async () => {
+      const sink = makeMockSink();
       const messageStore = makeMockMessageStore({ loadThrow: true });
       await auditSubagentArtifactCompleteness(
         makeSnapshot({ textEndCount: 1 }),
         { fs: {} as any, messageStore },
-        audit as any,
+        sink as any,
       );
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED);
-      expect(audit.write.mock.calls[0]).toContain('kind=ac4_skip');
+      expect(sink.artifactCrossSourceSkipped).toHaveBeenCalledTimes(1);
+      expect(sink.artifactCrossSourceSkipped).toHaveBeenCalledWith({
+        kind: 'ac4_skip',
+        reason: 'message_load_failed',
+        error: 'load error',
+      });
     });
 
-    it('messageStore.load returns io_error → emit _skipped ac4_skip without mismatch', async () => {
-      const audit = makeMockAudit();
+    it('messageStore.load returns io_error → skipped ac4_skip without mismatch', async () => {
+      const sink = makeMockSink();
       const messageStore = makeMockMessageStore({ loadIoError: 'EACCES' });
       await auditSubagentArtifactCompleteness(
         makeSnapshot({ textEndCount: 1 }),
         { fs: {} as any, messageStore },
-        audit as any,
+        sink as any,
       );
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      expect(audit.write.mock.calls[0][0]).toBe(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED);
-      expect(audit.write.mock.calls[0]).toContain('kind=ac4_skip');
-      expect(audit.write.mock.calls[0]).toContain('reason=message_load_io_error');
+      expect(sink.artifactCrossSourceSkipped).toHaveBeenCalledTimes(1);
+      expect(sink.artifactCrossSourceSkipped).toHaveBeenCalledWith({
+        kind: 'ac4_skip',
+        reason: 'message_load_io_error',
+        error: 'EACCES',
+      });
+      expect(sink.artifactCrossSourceMismatch).not.toHaveBeenCalled();
     });
   });
 });

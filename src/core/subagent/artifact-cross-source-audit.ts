@@ -10,14 +10,12 @@
  * 不 throw（DP1 + Path #4 防 break finally）。
  */
 
-import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
+import type { SubAgentLifecycleSink } from './lifecycle-sink.js';
 
 export interface ArtifactSnapshot {
-  readonly agentId: string;
   readonly resultDir: string;
   readonly textEndCount: number;
 }
@@ -30,17 +28,17 @@ export interface ArtifactDeps {
 export async function auditSubagentArtifactCompleteness(
   s: ArtifactSnapshot,
   deps: ArtifactDeps,
-  audit: AuditLog,
+  sink: SubAgentLifecycleSink,
 ): Promise<void> {
   // AC-4: messageStore 末轮 assistant ↔ textEndCount > 0
   try {
     const result = await deps.messageStore.load();
     if (result.source === 'io_error') {
-      audit.write(
-        SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED,
-        `kind=ac4_skip`, `agentId=${s.agentId}`,
-        `reason=message_load_io_error`, `error=${result.error}`,
-      );
+      sink.artifactCrossSourceSkipped({
+        kind: 'ac4_skip',
+        reason: 'message_load_io_error',
+        error: result.error,
+      });
       return;
     }
     const messages = result.session.messages;
@@ -51,29 +49,23 @@ export async function auditSubagentArtifactCompleteness(
       : (lastIsAssistant && typeof last?.content === 'string' && (last.content as string).length > 0);
     if (s.textEndCount > 0) {
       if (!lastHasContent) {
-        audit.write(
-          SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_MISMATCH,
-          `kind=ac4_textend_without_last_assistant_text`,
-          `agentId=${s.agentId}`,
-          `textend_count=${s.textEndCount}`,
-          `last_role=${last?.role ?? 'none'}`,
-        );
+        sink.artifactCrossSourceMismatch({
+          textEndCount: s.textEndCount,
+          lastRole: last?.role ?? 'none',
+        });
       } else {
         // phase 1858 Step D (SA-D3): 检查执行即持久化结论（pass 分支可见）
-        audit.write(
-          SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_OK,
-          `kind=ac4_ok`,
-          `agentId=${s.agentId}`,
-          `textend_count=${s.textEndCount}`,
-          `last_role=${last?.role ?? 'none'}`,
-        );
+        sink.artifactCrossSourceOk({
+          textEndCount: s.textEndCount,
+          lastRole: last?.role ?? 'none',
+        });
       }
     }
   } catch (err) {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED,
-      `kind=ac4_skip`, `agentId=${s.agentId}`,
-      `reason=message_load_failed`, `error=${formatErr(err)}`,
-    );
+    sink.artifactCrossSourceSkipped({
+      kind: 'ac4_skip',
+      reason: 'message_load_failed',
+      error: formatErr(err),
+    });
   }
 }

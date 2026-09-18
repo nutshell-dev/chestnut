@@ -21,6 +21,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 class CollectingStreamWriter {
   events: StreamEvent[] = [];
@@ -107,7 +108,7 @@ function makeHarness(overrides: {
     maxSteps: 5,
     timeoutMs: 1000,
     taskStreamWriter: new CollectingStreamWriter(),
-    auditWriter: auditWriter as any,
+    sink: createSubAgentLifecycleSink({ auditWriter: auditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
     runReact: runReact as any,
   });
 

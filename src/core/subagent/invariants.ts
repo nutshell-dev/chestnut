@@ -13,80 +13,63 @@
  * - elapsedMs: number (非负整数)
  *
  * 不 throw（DP1 + Path #4 防 break subagent run 路径 + 保既有 STEP_COMPLETE_FAILED 路径）。
+ *
+ * phase 1858 Step K (SA-D10): 消费面收窄为 StepsInvariantSink（ISP：仅需 steps 不变量写点）；
+ * 事件字符串 / 列格式由 lifecycle-sink adapter 保持。
  */
 
-import type { AuditLog } from '../../foundation/audit/index.js';
-import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
+import type { StepsInvariantSink } from './lifecycle-sink.js';
 
 const ISO_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 export function assertStepsEntryShape(
   entry: unknown,
-  audit: AuditLog,
-  agentId: string,
+  sink: StepsInvariantSink,
 ): void {
   if (typeof entry !== 'object' || entry === null) {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_STEPS_INVARIANT_VIOLATED,
-      `kind=entry_not_object`, `agentId=${agentId}`, `actual=${typeof entry}`,
-    );
+    sink.stepsInvariantViolated({ kind: 'entry_not_object', actual: typeof entry });
     return;
   }
   const e = entry as Record<string, unknown>;
-  checkStep(e, audit, agentId);
-  checkTs(e, audit, agentId);
-  checkTools(e, audit, agentId);
-  checkElapsedMs(e, audit, agentId);
+  checkStep(e, sink);
+  checkTs(e, sink);
+  checkTools(e, sink);
+  checkElapsedMs(e, sink);
 }
 
-function checkStep(e: Record<string, unknown>, audit: AuditLog, agentId: string): void {
+function checkStep(e: Record<string, unknown>, sink: StepsInvariantSink): void {
   if (typeof e.step !== 'number' || !Number.isInteger(e.step) || e.step < 0) {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_STEPS_INVARIANT_VIOLATED,
-      `kind=step_invalid`, `agentId=${agentId}`, `actual=${String(e.step)}`,
-    );
+    sink.stepsInvariantViolated({ kind: 'step_invalid', actual: String(e.step) });
   }
 }
 
-function checkTs(e: Record<string, unknown>, audit: AuditLog, agentId: string): void {
+function checkTs(e: Record<string, unknown>, sink: StepsInvariantSink): void {
   if (typeof e.ts !== 'string') {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_STEPS_INVARIANT_VIOLATED,
-      `kind=ts_not_string`, `agentId=${agentId}`, `actual=${typeof e.ts}`,
-    );
+    sink.stepsInvariantViolated({ kind: 'ts_not_string', actual: typeof e.ts });
     return;
   }
   if (!ISO_TIMESTAMP_REGEX.test(e.ts)) {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_STEPS_INVARIANT_VIOLATED,
-      `kind=ts_not_iso`, `agentId=${agentId}`, `actual=${e.ts}`,
-    );
+    sink.stepsInvariantViolated({ kind: 'ts_not_iso', actual: e.ts });
   }
 }
 
-function checkTools(e: Record<string, unknown>, audit: AuditLog, agentId: string): void {
+function checkTools(e: Record<string, unknown>, sink: StepsInvariantSink): void {
   if (!Array.isArray(e.tools)) {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_STEPS_INVARIANT_VIOLATED,
-      `kind=tools_not_array`, `agentId=${agentId}`, `actual=${typeof e.tools}`,
-    );
+    sink.stepsInvariantViolated({ kind: 'tools_not_array', actual: typeof e.tools });
     return;
   }
   const nonStrIdx = e.tools.findIndex(x => typeof x !== 'string');
   if (nonStrIdx >= 0) {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_STEPS_INVARIANT_VIOLATED,
-      `kind=tools_element_not_string`, `agentId=${agentId}`,
-      `idx=${nonStrIdx}`, `actual=${typeof e.tools[nonStrIdx]}`,
-    );
+    sink.stepsInvariantViolated({
+      kind: 'tools_element_not_string',
+      idx: nonStrIdx,
+      actual: typeof e.tools[nonStrIdx],
+    });
   }
 }
 
-function checkElapsedMs(e: Record<string, unknown>, audit: AuditLog, agentId: string): void {
+function checkElapsedMs(e: Record<string, unknown>, sink: StepsInvariantSink): void {
   if (typeof e.elapsedMs !== 'number' || !Number.isInteger(e.elapsedMs) || e.elapsedMs < 0) {
-    audit.write(
-      SUBAGENT_AUDIT_EVENTS.SUBAGENT_STEPS_INVARIANT_VIOLATED,
-      `kind=elapsedMs_invalid`, `agentId=${agentId}`, `actual=${String(e.elapsedMs)}`,
-    );
+    sink.stepsInvariantViolated({ kind: 'elapsedMs_invalid', actual: String(e.elapsedMs) });
   }
 }

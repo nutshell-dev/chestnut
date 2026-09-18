@@ -23,9 +23,9 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 // phase 691 Step C / phase 1488: removed import of TASKS_SYNC_DIR from async-task-system.
 // TASKS_SYNC_DIR namespace name is now owned by ClawIdentity; L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
-import { SubAgent, writeAuditGuarded, type DegradedArtifact } from './agent.js';
+import { SubAgent, type DegradedArtifact } from './agent.js';
 import { DONE_TOOL_NAME, createResultCaptureChannel, parseCapturedResult } from './tools/done.js';
-import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
+import { createSubAgentLifecycleSink } from './lifecycle-sink.js';
 import { bindRunCapture } from './registry-helper.js';
 
 export interface RunSubagentOptions {
@@ -139,6 +139,15 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
 
   // phase 1489 (M#8 derive): caller (run.ts) own ToolExecutor 构造、SubAgent 不再 own
   // 7 个 executor-only 字段、SubAgentOptions 收窄到「SubAgent 自身真正需要的」最小集合。
+  // phase 1858 Step K (SA-D10): run helper 构造 lifecycle sink adapter（真 AuditLog → 结构化 sink；
+  // agentId / traceId / currentContractId 绑定在此）。ToolExecutor / DialogStore 仍走完整 AuditLog（foundation 契约）。
+  const sink = createSubAgentLifecycleSink({
+    auditWriter,
+    agentId: opts.agentId,
+    traceId,
+    currentContractId: opts.currentContractId,
+  });
+
   const toolExecutor = new ToolExecutor({
     registry: runRegistry,
     defaultTimeoutMs: opts.toolTimeoutMs,
@@ -169,9 +178,8 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     toolProfile: opts.toolProfile,
     onIdleTimeout: opts.onIdleTimeout,
     taskStreamWriter,
-    auditWriter,
+    sink,
     traceId,
-    currentContractId: opts.currentContractId,
     messages: opts.messages,
     permissionChecker: opts.permissionChecker,
   });
@@ -203,13 +211,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // phase 1858 Step H (SA-D7): capture 协议边界验证 —— 不合协议登记 audit（不静默折叠）
   const parsedCapture = capturedResult === undefined ? undefined : parseCapturedResult(capturedResult);
   if (parsedCapture?.kind === 'malformed') {
-    writeAuditGuarded(
-      auditWriter,
-      SUBAGENT_AUDIT_EVENTS.CAPTURE_PROTOCOL_MALFORMED,
-      `agentId=${opts.agentId}`,
-      `tool=${toolName}`,
-      `reason=${parsedCapture.reason}`,
-    );
+    sink.captureProtocolMalformed({ tool: toolName, reason: parsedCapture.reason });
   }
 
   // phase 1858 Step G (SA-D6): 降级证据并入 typed outcome（成功路径）

@@ -20,6 +20,7 @@ import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js
 import type { ToolDefinition } from '../../../src/foundation/llm-provider/index.js';
 import type { DialogSaveSnapshot } from '../../../src/foundation/dialog-store/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 const DERIVED_TOOLS = [
   { name: 'derived_a' },
@@ -106,7 +107,7 @@ function makeHarness(overrides: {
     timeoutMs: 1000,
     toolsForLLM: overrides.toolsForLLM,
     taskStreamWriter: new CollectingStreamWriter(),
-    auditWriter: auditWriter as any,
+    sink: createSubAgentLifecycleSink({ auditWriter: auditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
     runReact: runReact as any,
   });
 

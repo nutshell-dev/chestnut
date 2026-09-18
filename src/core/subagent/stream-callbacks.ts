@@ -12,22 +12,19 @@
  */
 
 import type { StreamEvent, StreamLog } from '../../foundation/stream/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { TraceId } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/llm-provider/index.js';
 import { STREAM_EVENT_NAMES } from '../../foundation/stream/index.js';
+import { clipSummary } from '../../foundation/audit/index.js';
 import { SUBAGENT_EVENTS } from './stream-events.js';
-import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';
+import type { SubAgentLifecycleSink } from './lifecycle-sink.js';
 import { createSendContentTracker, feedSendContentDelta } from '../../foundation/messaging/index.js';
 
 
 
 interface StreamCallbacksOptions {
   streamWriter: StreamLog;
-  auditWriter: AuditLog;
-  agentId: string;
-  traceId: TraceId;
-  currentContractId?: string;
+  /** phase 1858 Step K (SA-D10): audit 写点经 lifecycle sink（agentId/trace/contract 绑定在 adapter） */
+  sink: SubAgentLifecycleSink;
 }
 
 export interface PrimitiveStreamCallbacks {
@@ -68,11 +65,7 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
     if (swClosed) {
       if (!ghostAuditEmitted) {
         ghostAuditEmitted = true;
-        opts.auditWriter.write(
-          SUBAGENT_AUDIT_EVENTS.GHOST_CALLBACK_AFTER_TURN_END,
-          `agentId=${opts.agentId}`,
-          `event=${event.type}`,
-        );
+        opts.sink.ghostCallbackAfterTurnEnd({ event: event.type });
       }
       return;
     }
@@ -98,17 +91,10 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
     },
     onToolCallInput: (name, toolUseId, args, step) => {
       // phase 1411 (reframe of phase 1409): typed emit `tool_call_input` index row；
-      // step/contract/trace 均由 run boundary 提供真实值。
+      // step/contract/trace 由 run boundary 绑定（lifecycle sink adapter）。
       // args body 0 入 audit / dialog/current.json 是全文权威源 / CLI 凭 tool_use_id join.
       const argsSize = JSON.stringify(args).length;
-      emitToolCallInput(opts.auditWriter, {
-        name,
-        toolUseId,
-        argsSize,
-        step,
-        contractId: opts.currentContractId,
-        traceId: opts.traceId,
-      });
+      opts.sink.toolCallInput({ name, toolUseId, step, argsSize });
     },
     onToolUseInput: (name, toolUseId, input) => {
       // phase 688: args body 落 stream.jsonl（流式产物全文契约）。
@@ -128,18 +114,9 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
     },
     onToolResult: (name, toolUseId, result, step, maxSteps) => {
       const content = result.content ?? '';
-      const preview = opts.auditWriter.summary(content);
-      opts.auditWriter.write(
-        SUBAGENT_AUDIT_EVENTS.TOOL_RESULT,
-        name,
-        `tool_use_id=${String(toolUseId)}`,
-        `step=${step}`,
-        `contract_id=${opts.currentContractId ?? ''}`,
-        `trace_id=${opts.traceId}`,
-        `status=${result.success ? 'ok' : 'err'}`,
-        `content_size=${Buffer.byteLength(content, 'utf-8')}`,
-        `summary=${preview}`,
-      );
+      // phase 1858 Step K: preview 与 audit 列同源截断（clipSummary ≡ AuditLog.summary）
+      const preview = clipSummary(content);
+      opts.sink.toolResult({ name, toolUseId, step, success: result.success, content });
       safeSwWrite({
         ts: Date.now(),
         type: SUBAGENT_EVENTS.TOOL_RESULT,

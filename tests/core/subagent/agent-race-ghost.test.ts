@@ -14,6 +14,7 @@ import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.j
 // phase 1858 Step E (SA-D4): typed 仍运行证据经 barrel 消费
 import { getSubagentStillRunning } from '../../../src/core/subagent/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 /**
  * Promise barrier release for mock runReact ghost-callback delay.
@@ -96,7 +97,7 @@ function makeSubAgent(overrides: { timeoutMs?: number; idleTimeoutMs?: number } 
     timeoutMs: overrides.timeoutMs ?? 1000,
     idleTimeoutMs: overrides.idleTimeoutMs,
     taskStreamWriter: sw,
-    auditWriter: mockAuditWriter,
+    sink: createSubAgentLifecycleSink({ auditWriter: mockAuditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
     runReact,
   });
 

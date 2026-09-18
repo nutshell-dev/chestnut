@@ -13,12 +13,11 @@
  * （idle_timeout/step_yield/user_interrupt），不再构造三独立信号 class。
  */
 
-import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { ToolTimeoutError } from '../../foundation/tools/index.js';
 import { StepAbortError } from '../step-executor/index.js';
 import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
-import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
+import type { SubAgentLifecycleSink } from './lifecycle-sink.js';
 
 /**
  * phase 1802: SubAgent 超时 owner 自定义的 abort reason（发起业务 owner 持有词汇，
@@ -37,8 +36,8 @@ interface TimeoutControllerOptions {
   idleTimeoutMs?: number;
   onIdleTimeout?: () => void;
   externalSignal?: AbortSignal;
-  auditWriter: AuditLog;
-  agentId: string;
+  /** phase 1858 Step K (SA-D10): audit 写点经 lifecycle sink（agentId 绑定在 adapter） */
+  sink: SubAgentLifecycleSink;
 }
 
 interface TimeoutControllerHandle {
@@ -97,11 +96,7 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
   timeoutPromise.catch((e) => {
     const reason = controller.signal.reason as AbortEnvelope | undefined;
     if (reason?.type !== 'turn_timeout') return;
-    opts.auditWriter.write(
-      SUBAGENT_AUDIT_EVENTS.TIMEOUT_REJECTION,
-      `agentId=${opts.agentId}`,
-      `reason=${formatErr(e)}`,
-    );
+    opts.sink.timeoutRejection({ reason: formatErr(e) });
   });
 
   const cleanup = () => {

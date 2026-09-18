@@ -41,6 +41,7 @@ function makeMockToolExecutor(): ToolExecutor {
 }
 
 import { runReact } from '../../../src/core/agent-executor/loop.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 function makeSubAgent() {
   const mockFs: FileSystem = {
@@ -87,9 +88,13 @@ function makeSubAgent() {
     maxSteps: 5,
     timeoutMs: 1000,
     taskStreamWriter: sw,
-    auditWriter: mockAuditWriter,
+    sink: createSubAgentLifecycleSink({
+      auditWriter: mockAuditWriter as any,
+      agentId: 'test-agent',
+      traceId: 'trace-test',
+      currentContractId: 'contract-test',
+    }),
     traceId: makeTraceId('trace-test'),
-    currentContractId: 'contract-test',
   });
 
   return { agent, mockAuditWriter };

@@ -19,9 +19,8 @@ import {
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 
 import type { Message } from '../../foundation/dialog-store/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TraceId } from '../../foundation/audit/index.js';
-import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, emitPartialAssistantDiscarded } from './audit-events.js';
+import type { SubAgentLifecycleSink } from './lifecycle-sink.js';
 import { SUBAGENT_EVENTS } from './stream-events.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 
@@ -49,18 +48,6 @@ export interface DegradedArtifact {
   error: string;
 }
 
-/**
- * phase 1858 Step G (SA-D6): 审计写失败不改变被记录的原失败/执行结果（同 step-executor
- * writeAuditGuarded 形态、本模块同型 helper）；审计通道自身失败时 stderr 最后手段留证、永不抛出。
- */
-export function writeAuditGuarded(sink: AuditLog, event: string, ...cols: string[]): void {
-  try {
-    sink.write(event, ...cols);
-  } catch (auditErr) {
-    process.stderr.write(`[subagent] audit write failed: ${event}: ${formatErr(auditErr)}\n`);
-  }
-}
-
 export interface SubAgentOptions {
   agentId: string;
   resultDir: string;        // phase443: caller 注入完整 path（如 `tasks/results/${task.id}`）/ SubAgent 0 知字符串约定
@@ -84,9 +71,10 @@ export interface SubAgentOptions {
   toolProfile?: ToolProfile;             // caller 直接声明 capability profile
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   taskStreamWriter: StreamLog;
-  auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
+  /** phase 1858 Step K (SA-D10): 最小结构化 lifecycle sink（真 AuditLog 由 run helper adapter 适配）。 */
+  sink: SubAgentLifecycleSink;
   traceId: TraceId;
-  currentContractId?: string;
+  // phase 1858 Step K (SA-D10): currentContractId 归 lifecycle sink adapter 绑定（本层不再持有）
   permissionChecker?: PermissionChecker;                      // phase 1072: subagent file tool permission check
   /** phase 1031: ReAct loop factory DI seam — tests inject mock runReact, production defaults to real loop */
   runReact?: (options: ReactOptions) => Promise<ReactResult>;
@@ -117,9 +105,8 @@ export class SubAgent {
   private messages?: Message[];
   private _hasRun = false;
   private taskStreamWriter: StreamLog;
-  private auditWriter: AuditLog;
+  private sink: SubAgentLifecycleSink;
   private traceId: TraceId;
-  private currentContractId?: string;
   private permissionChecker?: PermissionChecker;
   private runReact: (options: ReactOptions) => Promise<ReactResult>;
 
@@ -151,9 +138,8 @@ export class SubAgent {
     this.toolProfile = options.toolProfile;
     this.messages = options.messages;
     this.taskStreamWriter = options.taskStreamWriter;
-    this.auditWriter = options.auditWriter;
+    this.sink = options.sink;
     this.traceId = options.traceId;
-    this.currentContractId = options.currentContractId;
     this.permissionChecker = options.permissionChecker;
     this.runReact = options.runReact ?? runReact;
   }
@@ -175,22 +161,18 @@ export class SubAgent {
       idleTimeoutMs: this.idleTimeoutMs,
       onIdleTimeout: this.onIdleTimeout,
       externalSignal: this.signal,
-      auditWriter: this.auditWriter,
-      agentId: this.agentId,
+      sink: this.sink,
     });
     timeout.resetIdle?.();
 
     const stream = createStreamCallbacks({
       streamWriter: this.taskStreamWriter,
-      auditWriter: this.auditWriter,
-      agentId: this.agentId,
-      traceId: this.traceId,
-      currentContractId: this.currentContractId,
+      sink: this.sink,
     });
 
     // Turn start: written before any potentially-throwing init so catch always pairs it
     stream.safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_START });
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START);
+    this.sink.turnStart();
 
     try {
       const executorProfile = this.toolProfile ?? 'subagent';
@@ -279,9 +261,14 @@ export class SubAgent {
           stepCallbacks: {
             onLLMResult: (info) => {
               if (info.error) {
-                this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
+                this.sink.llmError({ model: info.model, error: info.error, latencyMs: info.latencyMs });
               } else {
-                this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
+                this.sink.llmCall({
+                  model: info.model,
+                  inputTokens: info.inputTokens,
+                  outputTokens: info.outputTokens,
+                  latencyMs: info.latencyMs,
+                });
               }
             },
             onBeforeLLMCall: stream.callbacks.onBeforeLLMCall,
@@ -302,7 +289,7 @@ export class SubAgent {
             onToolUseInputDelta: stream.callbacks.onToolUseInputDelta,  // phase 1180
             onPartialAssistantDiscarded: (info) => {
               // phase 688: catch 路径 partial 丢弃决策 → audit 落「partial_assistant_discarded」
-              emitPartialAssistantDiscarded(this.auditWriter, { ...info, agentId: this.agentId });
+              this.sink.partialAssistantDiscarded({ ...info });
             },
             onToolResult: (name, toolUseId, result, step, maxSteps) => {
               commitTurnEvent({ kind: 'tool_result', name, toolUseId, result, step, maxSteps }, emitDeps);
@@ -317,17 +304,12 @@ export class SubAgent {
                 tools: auditStepTools,
                 elapsedMs: Date.now() - auditStepStart,
               };
-              assertStepsEntryShape(entryData, this.auditWriter, this.agentId);
+              assertStepsEntryShape(entryData, this.sink);
               const entry = JSON.stringify(entryData);
               await this.fs.append(stepsLogPath, entry + '\n');
             } catch (err) {
               this.recordDegraded('steps_log', 'step_complete', err);
-              writeAuditGuarded(
-                this.auditWriter,
-                SUBAGENT_AUDIT_EVENTS.STEP_COMPLETE_FAILED,
-                `agentId=${this.agentId}`,
-                `error=${formatErr(err)}`,
-              );
+              this.sink.stepCompleteFailed({ error: formatErr(err) });
               // 不 throw — audit 失败不终止任务
             }
             // 每步后持久化 messages — 崩溃可恢复、执行中可观察
@@ -342,12 +324,7 @@ export class SubAgent {
               applyBlockIdAssignments(messages, saved.assignedBlockIds);
             } catch (err) {
               this.recordDegraded('dialog', 'step_save', err);
-              writeAuditGuarded(
-                this.auditWriter,
-                SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
-                `agentId=${this.agentId}`,
-                `error=${formatErr(err)}`,
-              );
+              this.sink.persistFailed({ error: formatErr(err) });
               // 不 throw — 持久化失败不终止任务
             }
             auditStep++;
@@ -371,11 +348,7 @@ export class SubAgent {
           new Promise<boolean>((resolve) => setTimeout(() => resolve(false), RUNREACT_ABORT_SETTLE_MS)),
         ]);
         if (!settled) {
-          this.auditWriter.write(
-            SUBAGENT_AUDIT_EVENTS.RUNREACT_ABORT_STILL_RUNNING,
-            `agentId=${this.agentId}`,
-            `settle_ms=${RUNREACT_ABORT_SETTLE_MS}`,
-          );
+          this.sink.runReactAbortStillRunning({ settleMs: RUNREACT_ABORT_SETTLE_MS });
         }
         const carrier = typeof raceErr === 'object' && raceErr !== null
           ? raceErr
@@ -392,7 +365,7 @@ export class SubAgent {
       await this.appendToLog(`Final text: ${result.finalText}\n`);
 
       stream.safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_END });
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
+      this.sink.turnEnd();
       stream.markTurnEnded();
 
       // Extract final text result
@@ -413,7 +386,7 @@ export class SubAgent {
       classifyAndAuditError({
         error: classifiedError,
         safeSwWrite: stream.safeSwWrite,
-        auditWriter: this.auditWriter,
+        sink: this.sink,
         timeoutMs: this.timeoutMs,
       });
       stream.markTurnEnded();
@@ -426,7 +399,7 @@ export class SubAgent {
       // Safety net: write turn_end only if no specific turn end event was already written
       if (!stream.isTurnEnded()) {
         stream.safeSwWrite({ ts: Date.now(), type: SUBAGENT_EVENTS.TURN_END });
-        this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
+        this.sink.turnEnd();
         stream.closeSw();
       }
       // 持久化 messages — finally 保证超时/中断/正常结束都落盘（best-effort）
@@ -442,12 +415,7 @@ export class SubAgent {
         applyBlockIdAssignments(finalMessages, saved.assignedBlockIds);
       } catch (e) {
         this.recordDegraded('dialog', 'final_save', e);
-        writeAuditGuarded(
-          this.auditWriter,
-          SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
-          `agentId=${this.agentId}`,
-          `error=${formatErr(e)}`,
-        );
+        this.sink.persistFailed({ error: formatErr(e) });
       }
 
       // phase 270 Step B: multi-artifact completeness cross-source
@@ -456,22 +424,15 @@ export class SubAgent {
       try {
         await auditSubagentArtifactCompleteness(
           {
-            agentId: this.agentId,
             resultDir: this.resultDir,
             textEndCount: this.textEndCount,
           },
           { fs: this.fs, messageStore: this.messageStore },
-          this.auditWriter,
+          this.sink,
         );
       } catch (err) {
         this.recordDegraded('completeness', 'artifact_completeness', err);
-        writeAuditGuarded(
-          this.auditWriter,
-          SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
-          `agentId=${this.agentId}`,
-          `stage=artifact_completeness`,
-          `error=${formatErr(err)}`,
-        );
+        this.sink.persistFailed({ stage: 'artifact_completeness', error: formatErr(err) });
       }
     }
   }
@@ -487,13 +448,7 @@ export class SubAgent {
       // Log failures are non-fatal
       // phase 715: 加 path col、与 phase 580/586/684-688/709-711 path forensic 形态对齐
       this.recordDegraded('log', 'append_log', e);
-      writeAuditGuarded(
-        this.auditWriter,
-        SUBAGENT_AUDIT_EVENTS.LOG_APPEND_FAILED,
-        `agentId=${this.agentId}`,
-        `path=${this.logPath}`,
-        `error=${formatErr(e)}`,
-      );
+      this.sink.logAppendFailed({ path: this.logPath, error: formatErr(e) });
     }
   }
 

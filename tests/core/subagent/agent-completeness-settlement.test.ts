@@ -6,12 +6,25 @@
  *
  * 断言矩阵：
  * ① 正常场景：检查结论持久化（ac4_ok 行）且 run() resolve 时已落盘（await 生效）
- * ② rejection 场景（audit writer 故障）：PERSIST_FAILED + stage=artifact_completeness 留证，
- *    run() 仍 resolve（不静默吞、不阻塞执行结果）
+ * ② 检查 rejection（非 audit 因）→ PERSIST_FAILED + stage=artifact_completeness 留证 +
+ *    degraded 含项，run() 仍 resolve（不静默吞、不阻塞执行结果）
+ * ③ 结算写点 audit 故障 → 最后手段 stderr 留证（K 后守卫归 adapter）、run 正常
+ *
+ * phase 1858 Step K (SA-D10) 重构说明：守卫归 lifecycle-sink adapter 后，检查内部
+ * audit 写故障不再转化为 rejection（② 的触发改用模块 mock：直接测 agent 侧 catch 契约）。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
+
+const { completenessMock } = vi.hoisted(() => ({ completenessMock: vi.fn() }));
+
+vi.mock('../../../src/core/subagent/artifact-cross-source-audit.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/core/subagent/artifact-cross-source-audit.js')>();
+  completenessMock.mockImplementation(actual.auditSubagentArtifactCompleteness);
+  return { ...actual, auditSubagentArtifactCompleteness: completenessMock };
+});
+
 import { SubAgent } from '../../../src/core/subagent/agent.js';
 import type { ToolExecutor } from '../../../src/foundation/tools/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -19,6 +32,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 
 class CollectingStreamWriter {
   events: StreamEvent[] = [];
@@ -110,7 +124,7 @@ function makeHarness(overrides: {
     maxSteps: 5,
     timeoutMs: 1000,
     taskStreamWriter: new CollectingStreamWriter(),
-    auditWriter: auditWriter as any,
+    sink: createSubAgentLifecycleSink({ auditWriter: auditWriter as any, agentId: 'test-agent', traceId: 'trace-test' }),
     runReact: runReact as any,
   });
 
@@ -140,13 +154,11 @@ describe('phase 1858 Step D: completeness 纳入结算（SA-D3）', () => {
     expect(okRows[0]).toContain('kind=ac4_ok');
   });
 
-  it('② completeness reject（audit 故障）→ PERSIST_FAILED 留证 + run 仍返回结果（不静默吞）', async () => {
-    const { agent, auditCalls, runReact } = makeHarness({
-      loadResult: { source: 'io_error', error: 'EACCES', session: null },
-      auditWriteThrowsOn: SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED,
-    });
+  it('② 检查 rejection → PERSIST_FAILED 留证 + degraded 含项，run 仍返回结果（不静默吞）', async () => {
+    const { agent, auditCalls, runReact } = makeHarness();
 
     runReact.mockResolvedValue({ finalText: 'done', stopReason: 'end_turn' });
+    completenessMock.mockRejectedValueOnce(new Error('completeness boom'));
 
     const text = await agent.run();
 
@@ -158,6 +170,29 @@ describe('phase 1858 Step D: completeness 纳入结算（SA-D3）', () => {
     expect(persistRows).toHaveLength(1);
     expect(persistRows[0]).toContain('stage=artifact_completeness');
     expect(persistRows[0]).toContain('agentId=test-agent');
-    expect(String(persistRows[0].join(' '))).toContain('audit write failed');
+    expect(String(persistRows[0].join(' '))).toContain('completeness boom');
+
+    // degraded 证据含项
+    const completenessEntry = agent.getDegradedArtifacts().find((d) => d.artifact === 'completeness');
+    expect(completenessEntry).toBeDefined();
+    expect(completenessEntry!.stage).toBe('artifact_completeness');
+  });
+
+  it('③ 结算写点 audit 故障 → 最后手段 stderr 留证、run 正常（K 后守卫归 adapter）', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const { agent, runReact } = makeHarness({
+      loadResult: { source: 'io_error', error: 'EACCES', session: null },
+      auditWriteThrowsOn: SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED,
+    });
+
+    runReact.mockResolvedValue({ finalText: 'done', stopReason: 'end_turn' });
+
+    const text = await agent.run();
+
+    expect(text).toBe('done');
+    const stderrLines = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stderrLines).toContain('[subagent] audit write failed');
+    expect(stderrLines).toContain(SUBAGENT_AUDIT_EVENTS.SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED);
+    stderrSpy.mockRestore();
   });
 });

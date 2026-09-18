@@ -5,9 +5,8 @@
  * 字符串值与起步态 events.ts SUBAGENT_ 系列等价 / 0 漂移。
  */
 
-import type { AuditLog } from '../../foundation/audit/index.js';
-import type { TraceId } from '../../foundation/audit/index.js';
-import type { ToolUseId } from '../../foundation/llm-provider/index.js';
+// phase 1858 Step K (SA-D10): 本文件不再直接写 audit——事件写点经 lifecycle-sink adapter；
+// emitPartialAssistantDiscarded / emitToolCallInput 两个 AuditLog 直写 helper 随之删除。
 
 export const SUBAGENT_AUDIT_EVENTS = {
   // phase 140: tool_result emitted by stream-callbacks (owner: subagent module)
@@ -41,51 +40,6 @@ export const SUBAGENT_AUDIT_EVENTS = {
   // 不入 tool_use_id 列表（CLI 凭 trace_id + ts 范围 join stream.jsonl）。
   PARTIAL_ASSISTANT_DISCARDED: 'partial_assistant_discarded',
 } as const;
-
-type PartialAssistantDiscardCause = 'all_providers_failed' | 'idle_timeout' | 'unknown';
-
-interface PartialAssistantDiscardInfo {
-  cause: PartialAssistantDiscardCause;
-  toolUseCount: number;
-  hasText: boolean;
-  hasThinking: boolean;
-  startTs: number;
-  endTs: number;
-  errMessage: string;
-}
-
-export function emitPartialAssistantDiscarded(audit: AuditLog, opts: PartialAssistantDiscardInfo & { traceId?: string; agentId?: string }): void {
-  audit.write(
-    SUBAGENT_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
-    `cause=${opts.cause}`,
-    `tool_use_count=${opts.toolUseCount}`,
-    `has_text=${opts.hasText}`,
-    `has_thinking=${opts.hasThinking}`,
-    `ts_range=${opts.startTs}-${opts.endTs}`,
-    `trace_id=${opts.traceId ?? ''}`,
-    `agent_id=${opts.agentId ?? ''}`,
-    `err=${audit.message(opts.errMessage)}`,
-  );
-}
-
-export function emitToolCallInput(audit: AuditLog, opts: {
-  name: string;
-  toolUseId: ToolUseId;
-  argsSize: number;
-  step: number;
-  contractId?: string;
-  traceId: TraceId;
-}): void {
-  audit.write(
-    SUBAGENT_AUDIT_EVENTS.TOOL_CALL_INPUT,
-    opts.name,
-    `tool_use_id=${String(opts.toolUseId)}`,
-    `step=${opts.step}`,
-    `contract_id=${opts.contractId ?? ''}`,
-    `trace_id=${opts.traceId}`,
-    `args_size=${opts.argsSize}`,
-  );
-}
 
 /**
  * React loop audit events (γ 同源复制 / phase375 裁决 2)

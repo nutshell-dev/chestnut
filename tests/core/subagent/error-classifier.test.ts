@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { classifyAndAuditError } from '../../../src/core/subagent/error-classifier.js';
 import { REACT_LOOP_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
+import { createSubAgentLifecycleSink } from '../../../src/core/subagent/lifecycle-sink.js';
 import { ExternalAbortError } from '../../../src/foundation/llm-provider/index.js';
 import { SUBAGENT_EVENTS } from '../../../src/core/subagent/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -9,11 +10,12 @@ describe('classifyAndAuditError', () => {
   it('classifies the typed external-abort protocol as an interruption', () => {
     const safeSwWrite = vi.fn();
     const auditWriter = { write: vi.fn() } as unknown as AuditLog;
+    const sink = createSubAgentLifecycleSink({ auditWriter, agentId: 'agent-x' });
 
     classifyAndAuditError({
       error: new ExternalAbortError({ type: 'external' }),
       safeSwWrite,
-      auditWriter,
+      sink,
       timeoutMs: 1_000,
     });
 
@@ -31,13 +33,14 @@ describe('classifyAndAuditError', () => {
   it('does not classify an arbitrary name-only AbortError as the domain protocol', () => {
     const safeSwWrite = vi.fn();
     const auditWriter = { write: vi.fn() } as unknown as AuditLog;
+    const sink = createSubAgentLifecycleSink({ auditWriter, agentId: 'agent-x' });
     const nameOnlyError = new Error('untyped abort');
     nameOnlyError.name = 'AbortError';
 
     classifyAndAuditError({
       error: nameOnlyError,
       safeSwWrite,
-      auditWriter,
+      sink,
       timeoutMs: 1_000,
     });
 
