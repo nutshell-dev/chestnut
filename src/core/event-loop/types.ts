@@ -8,6 +8,9 @@ import type { Message } from '../../foundation/dialog-store/index.js';
 import type { StreamCallbacks } from '../agent-executor/index.js';
 import type { ContextTrimOutcome } from '../context_manager/index.js';
 import type { TurnResult } from '../runtime/index.js';
+// Phase 1847: 原始批次交接 / 可失败格式化边界类型（自 Runtime barrel 导入，type-only，
+// 不新增对 Runtime 类的运行依赖）。
+import type { PreparedInboxBatch, FormattedInboxBatch } from '../runtime/index.js';
 
 /** Consumer-owned trace capability used by EventLoop stream projection. */
 export interface EventLoopTraceSource {
@@ -31,12 +34,16 @@ export interface EventLoopRuntime extends EventLoopTraceSource {
   peekPendingInterventionFacts(): Promise<{ userIds: string[] }>;
   /** Phase 1826: 等待期间的 Runtime 控制入口（应用最新配置并返回身份修订）。 */
   consumePendingControls(): Promise<{ consumed: number; configRevision?: string }>;
-  drainInbox(): Promise<{
-    injected: Message[];
-    sources: Array<{ text: string; type: string }>;
-    count: number;
-    addressedHandles: InboxHandle[];
-  }>;
+  /**
+   * Phase 1847: 原始消息准备 —— 只领取/分流，返回未格式化消息及其句柄；
+   * 句柄自返回起归 EventLoop 处置。准备完成不注入、不发 INBOX_INJECT。
+   */
+  prepareInbox(): Promise<PreparedInboxBatch>;
+  /**
+   * Phase 1847: 已持有句柄后的可失败格式化（只生成注入数据，不领取/不结算）；
+   * 失败抛原 error，由 EventLoop 的 disposition guard 回队全批。
+   */
+  formatPreparedInbox(batch: PreparedInboxBatch): Promise<FormattedInboxBatch>;
   getMessages(): Promise<Message[]>;
   getSystemPrompt(): Promise<string>;
   getToolsForLLM(): ToolDefinition[];

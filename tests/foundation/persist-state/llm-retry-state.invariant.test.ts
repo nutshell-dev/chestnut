@@ -45,7 +45,9 @@ function makeMockRecovery() {
 function makeEventLoop(agentDir: string, audit: AuditLog, runtime?: Partial<Runtime>) {
   return new EventLoop({
     runtime: (runtime ?? {
-      drainInbox: vi.fn().mockResolvedValue({ injected: [], sources: [], count: 0, infos: [], addressedHandles: [] }),
+      // Phase 1847: 空批次 mock 迁新边界两方法（prepare 返回空原批次，format 不被消费）
+      prepareInbox: vi.fn().mockResolvedValue({ entries: [] }),
+      formatPreparedInbox: vi.fn().mockResolvedValue({ injected: [], sources: [], count: 0, infos: [] }),
       getSystemPrompt: vi.fn().mockResolvedValue(''),
       getToolsForLLM: vi.fn().mockReturnValue([]),
       getMessages: vi.fn().mockResolvedValue([]),

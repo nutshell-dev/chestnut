@@ -50,6 +50,69 @@ function makeTurnResult(status: TurnResult['status'], extra?: Partial<TurnResult
   return { status, ...extra } as TurnResult;
 }
 
+/** Phase 1847: 旧 drainInbox mock 形状（迁移期局部表达，不进入生产类型）。 */
+interface LegacyDrainBatch {
+  injected: Message[];
+  sources: Array<{ text: string; type: string }>;
+  /** 旧 mock 中 infos 元素允许是不完整对象（原 mockResolvedValue 不校验形状）。 */
+  infos: unknown[];
+  addressedHandles: unknown[];
+}
+
+/** 旧批次 → 原消息/同一 handles 的 PreparedInboxBatch.entries。 */
+function legacyBatchEntries(batch: LegacyDrainBatch) {
+  return batch.injected.map((injected, i) => ({
+    message: (batch.infos[i] as InboxMessage | undefined) ?? ({
+      id: `mock-${i}`,
+      type: batch.sources[i]?.type ?? 'user_chat',
+      from: 'mock',
+      to: '',
+      content: typeof injected.content === 'string' ? injected.content : '',
+      priority: 'normal',
+      timestamp: new Date(0).toISOString(),
+    } as InboxMessage),
+    handle: (batch.addressedHandles[i] ?? `handle-auto-${i}`) as InboxHandle,
+  }));
+}
+
+/** Phase 1847: prepare 返回原消息/同一 handles，format 返回原期望注入内容。 */
+function mockInboxBoundary(batch: LegacyDrainBatch) {
+  return {
+    prepareInbox: vi.fn().mockResolvedValue({ entries: legacyBatchEntries(batch) }),
+    formatPreparedInbox: vi.fn().mockResolvedValue({
+      injected: batch.injected,
+      sources: batch.sources,
+      count: batch.injected.length,
+      infos: batch.infos as InboxMessage[],
+    }),
+  };
+}
+
+/** Phase 1847: 按序返回非空批次、耗尽后返回空批次（对齐旧 drainInbox mockImplementation 语义）。 */
+function mockSequentialInboxBoundary(batches: LegacyDrainBatch[]) {
+  const empty: LegacyDrainBatch = { injected: [], sources: [], infos: [], addressedHandles: [] };
+  let call = 0;
+  let current = empty;
+  return {
+    prepareInbox: vi.fn().mockImplementation(async () => {
+      current = call < batches.length ? batches[call] : empty;
+      call++;
+      return { entries: legacyBatchEntries(current) };
+    }),
+    formatPreparedInbox: vi.fn().mockImplementation(async () => ({
+      injected: current.injected,
+      sources: current.sources,
+      count: current.injected.length,
+      infos: current.infos as InboxMessage[],
+    })),
+  };
+}
+
+/** Phase 1847: 空批次 mock（EventLoop 永不进入 format/turn）。 */
+function mockEmptyInboxBoundary() {
+  return mockInboxBoundary({ injected: [], sources: [], infos: [], addressedHandles: [] });
+}
+
 describe('EventLoop.run', () => {
   let agentDir: string;
   let inboxPendingDir: string;
@@ -170,10 +233,9 @@ describe('EventLoop.run', () => {
     });
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [] as InboxMessage[],
         addressedHandles: ['handle-1'],
       }),
@@ -204,10 +266,9 @@ describe('EventLoop.run', () => {
     const nackHandles = vi.fn().mockResolvedValue(undefined);
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [{ metadata: { contract_id: 'test-contract' } }],
         addressedHandles: ['handle-1'],
       }),
@@ -246,10 +307,9 @@ describe('EventLoop.run', () => {
     const nackHandles = vi.fn().mockResolvedValue(undefined);
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [] as InboxMessage[],
         addressedHandles: ['handle-1'],
       }),
@@ -291,10 +351,9 @@ describe('EventLoop.run', () => {
     });
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [] as InboxMessage[],
         addressedHandles: ['handle-1'],
       }),
@@ -347,10 +406,9 @@ describe('EventLoop.run', () => {
     });
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [] as InboxMessage[],
         addressedHandles: ['handle-1'],
       }),
@@ -392,30 +450,21 @@ describe('EventLoop.run', () => {
 
   it('chain reaction 触发 eventloop_iteration type=chain', async () => {
     const audit = createMockAudit();
-    let drainCall = 0;
     const runtime = {
-      drainInbox: vi.fn().mockImplementation(async () => {
-        drainCall++;
-        if (drainCall === 1) {
-          return {
-            injected: [{ role: 'user', content: 'a' } as Message, { role: 'user', content: 'b' } as Message],
-            sources: [{ text: 'a', type: 'user_chat' }, { text: 'b', type: 'user_chat' }],
-            count: 2,
-            infos: [] as InboxMessage[],
-            addressedHandles: [] as InboxHandle[],
-          };
-        }
-        if (drainCall === 2) {
-          return {
-            injected: [{ role: 'user', content: 'c' } as Message],
-            sources: [{ text: 'c', type: 'user_chat' }],
-            count: 1,
-            infos: [] as InboxMessage[],
-            addressedHandles: [] as InboxHandle[],
-          };
-        }
-        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
-      }),
+      ...mockSequentialInboxBoundary([
+        {
+          injected: [{ role: 'user', content: 'a' } as Message, { role: 'user', content: 'b' } as Message],
+          sources: [{ text: 'a', type: 'user_chat' }, { text: 'b', type: 'user_chat' }],
+          infos: [] as InboxMessage[],
+          addressedHandles: [] as InboxHandle[],
+        },
+        {
+          injected: [{ role: 'user', content: 'c' } as Message],
+          sources: [{ text: 'c', type: 'user_chat' }],
+          infos: [] as InboxMessage[],
+          addressedHandles: [] as InboxHandle[],
+        },
+      ]),
       getSystemPrompt: vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
       getMessages: vi.fn().mockResolvedValue([] as Message[]),
@@ -561,10 +610,9 @@ describe('EventLoop.run', () => {
     const streamWriter = { write: (ev: { type: string }) => { streamEvents.push(ev); } };
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [] as InboxMessage[],
         addressedHandles: [] as InboxHandle[],
       }),
@@ -649,10 +697,9 @@ describe('EventLoop.run', () => {
     });
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [] as InboxMessage[],
         addressedHandles: ['handle-1'],
       }),
@@ -682,7 +729,7 @@ describe('EventLoop.run', () => {
     await vi.advanceTimersByTimeAsync(100);
     await run;
 
-    expect(runtime.drainInbox).not.toHaveBeenCalled();
+    expect(runtime.prepareInbox).not.toHaveBeenCalled();
     expect(runtime.processTurn).not.toHaveBeenCalled();
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.CONTEXT_BLOCKED_RELEASED)).toBe(false);
     expect(audit.entries.some(
@@ -702,21 +749,15 @@ describe('EventLoop.run', () => {
     });
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
-    let drainCall = 0;
     const runtime = {
-      drainInbox: vi.fn().mockImplementation(async () => {
-        drainCall++;
-        if (drainCall === 1) {
-          return {
-            injected: [{ role: 'user', content: 'hi' } as Message],
-            sources: [{ text: 'hi', type: 'user_chat' }],
-            count: 1,
-            infos: [] as InboxMessage[],
-            addressedHandles: ['handle-1'],
-          };
-        }
-        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
-      }),
+      ...mockSequentialInboxBoundary([
+        {
+          injected: [{ role: 'user', content: 'hi' } as Message],
+          sources: [{ text: 'hi', type: 'user_chat' }],
+          infos: [] as InboxMessage[],
+          addressedHandles: ['handle-1'],
+        },
+      ]),
       getSystemPrompt: vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
       getMessages: vi.fn().mockResolvedValue([] as Message[]),
@@ -801,21 +842,15 @@ describe('EventLoop.run', () => {
 
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
     const ackHandles = vi.fn().mockResolvedValue(undefined);
-    let drainCall = 0;
     const runtime = {
-      drainInbox: vi.fn().mockImplementation(async () => {
-        drainCall++;
-        if (drainCall === 1) {
-          return {
-            injected: [{ role: 'user', content: 'hi' } as Message],
-            sources: [{ text: 'hi', type: 'user_chat' }],
-            count: 1,
-            infos: [] as InboxMessage[],
-            addressedHandles: ['handle-1'],
-          };
-        }
-        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
-      }),
+      ...mockSequentialInboxBoundary([
+        {
+          injected: [{ role: 'user', content: 'hi' } as Message],
+          sources: [{ text: 'hi', type: 'user_chat' }],
+          infos: [] as InboxMessage[],
+          addressedHandles: ['handle-1'],
+        },
+      ]),
       getSystemPrompt: vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
       getMessages: vi.fn().mockResolvedValue([] as Message[]),
@@ -886,21 +921,15 @@ describe('EventLoop.run', () => {
     vi.useFakeTimers();
     const audit = createMockAudit();
     const processTurn = vi.fn().mockResolvedValue(makeTurnResult('success'));
-    let drainCall = 0;
     const runtime = {
-      drainInbox: vi.fn().mockImplementation(async () => {
-        drainCall++;
-        if (drainCall === 1) {
-          return {
-            injected: [{ role: 'user', content: 'hi' } as Message],
-            sources: [{ text: 'hi', type: 'user_chat' }],
-            count: 1,
-            infos: [] as InboxMessage[],
-            addressedHandles: ['handle-1'],
-          };
-        }
-        return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
-      }),
+      ...mockSequentialInboxBoundary([
+        {
+          injected: [{ role: 'user', content: 'hi' } as Message],
+          sources: [{ text: 'hi', type: 'user_chat' }],
+          infos: [] as InboxMessage[],
+          addressedHandles: ['handle-1'],
+        },
+      ]),
       getSystemPrompt: vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
       getMessages: vi.fn().mockResolvedValue([] as Message[]),
@@ -934,6 +963,9 @@ describe('EventLoop.run', () => {
       getMessages: () => Promise<Message[]>;
       proactiveTrimIfNeeded: (messages: Message[]) => Promise<Message[]>;
       processTurn: () => Promise<TurnResult>;
+      /** Phase 1847: 覆盖 prepare/format 边界（format 失败、中断注入）。 */
+      prepareInbox: () => Promise<unknown>;
+      formatPreparedInbox: (batch: unknown) => Promise<unknown>;
       onTurnStartError: boolean;
     }>,
   ) {
@@ -942,13 +974,14 @@ describe('EventLoop.run', () => {
     const processTurn = vi.fn().mockImplementation(overrides.processTurn ?? (async () => makeTurnResult('success')));
 
     const runtime = {
-      drainInbox: vi.fn().mockResolvedValue({
+      ...mockInboxBoundary({
         injected: [{ role: 'user', content: 'hi' } as Message],
         sources: [{ text: 'hi', type: 'user_chat' }],
-        count: 1,
         infos: [] as InboxMessage[],
         addressedHandles: ['handle-1'],
       }),
+      ...(overrides.prepareInbox ? { prepareInbox: overrides.prepareInbox } : {}),
+      ...(overrides.formatPreparedInbox ? { formatPreparedInbox: overrides.formatPreparedInbox } : {}),
       getSystemPrompt: overrides.getSystemPrompt ?? vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
       getMessages: overrides.getMessages ?? vi.fn().mockResolvedValue([] as Message[]),
@@ -1081,20 +1114,15 @@ describe('EventLoop.run', () => {
     const audit = createMockAudit();
     const { runtime, ackHandles, nackHandles, processTurn } = makePostDrainRuntime({});
 
-    let drainCall = 0;
-    (runtime as any).drainInbox = vi.fn().mockImplementation(async () => {
-      drainCall++;
-      if (drainCall === 1) {
-        return {
-          injected: [{ role: 'user', content: 'hi' } as Message],
-          sources: [{ text: 'hi', type: 'user_chat' }],
-          count: 1,
-          infos: [] as InboxMessage[],
-          addressedHandles: ['handle-1'],
-        };
-      }
-      return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
-    });
+    // 首轮非空批次、后续空批次（对齐旧 drainInbox 后赋值语义）
+    Object.assign(runtime as unknown as Record<string, unknown>, mockSequentialInboxBoundary([
+      {
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        infos: [] as InboxMessage[],
+        addressedHandles: ['handle-1'],
+      },
+    ]));
 
     const eventLoop = makeEventLoop(runtime, audit);
     await eventLoop.run();
@@ -1103,6 +1131,87 @@ describe('EventLoop.run', () => {
     expect(ackHandles).toHaveBeenCalledTimes(1);
     expect(ackHandles).toHaveBeenCalledWith(['handle-1'], 'normal_turn_end');
     expect(nackHandles).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 1847: 原始批次交接 —— format 失败与中断的 EventLoop 处置
+  // ---------------------------------------------------------------------------
+
+  it('post-drain: formatPreparedInbox reject -> nack once with stage=inbox_format, processTurn=0', async () => {
+    const audit = createMockAudit();
+    const formatError = new Error('formatter rejected');
+    const formatPreparedInbox = vi.fn().mockRejectedValue(formatError);
+    const { runtime, ackHandles, nackHandles, processTurn } = makePostDrainRuntime({
+      formatPreparedInbox,
+    });
+
+    const eventLoop = makeEventLoop(runtime, audit);
+    await eventLoop.run();
+
+    expect(formatPreparedInbox).toHaveBeenCalledTimes(1);
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(ackHandles).not.toHaveBeenCalled();
+    // 全批一次 nack（禁止外层/内层重复）
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'formatter rejected', 'post_drain_failure');
+    expect(audit.entries.some(
+      e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED && e.some(c => String(c).includes('stage=inbox_format')),
+    )).toBe(true);
+  });
+
+  it('post-drain: prepare 后、format 前停止 -> nack interrupted_before_injection（format/LLM 均零调用）', async () => {
+    const audit = createMockAudit();
+    let loop: EventLoop | undefined;
+    const formatPreparedInbox = vi.fn().mockResolvedValue({
+      injected: [], sources: [], count: 0, infos: [] as InboxMessage[],
+    });
+    const { runtime, ackHandles, nackHandles, processTurn } = makePostDrainRuntime({
+      formatPreparedInbox: formatPreparedInbox as unknown as (batch: unknown) => Promise<unknown>,
+    });
+    // prepare 返回原批次后同步中断：format 前检查必须截停
+    (runtime as unknown as { prepareInbox: unknown }).prepareInbox = vi.fn().mockImplementation(async () => {
+      const batch = {
+        entries: [{ message: { id: 'm-1' } as unknown as InboxMessage, handle: 'handle-1' as unknown as InboxHandle }],
+      };
+      loop!.abort();
+      return batch;
+    });
+
+    loop = makeEventLoop(runtime, audit);
+    await loop.run();
+
+    expect(formatPreparedInbox).not.toHaveBeenCalled();
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(ackHandles).not.toHaveBeenCalled();
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'interrupted_before_injection', 'before_injection');
+    expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED)).toBe(false);
+  });
+
+  it('post-drain: format 成功后、processTurn 前停止 -> nack interrupted_before_injection（不 ack 为完成）', async () => {
+    const audit = createMockAudit();
+    let loop: EventLoop | undefined;
+    const formatPreparedInbox = vi.fn().mockImplementation(async () => {
+      loop!.abort();
+      return {
+        injected: [{ role: 'user', content: 'hi' } as Message],
+        sources: [{ text: 'hi', type: 'user_chat' }],
+        count: 1,
+        infos: [] as InboxMessage[],
+      };
+    });
+    const { runtime, ackHandles, nackHandles, processTurn } = makePostDrainRuntime({
+      formatPreparedInbox: formatPreparedInbox as unknown as (batch: unknown) => Promise<unknown>,
+    });
+
+    loop = makeEventLoop(runtime, audit);
+    await loop.run();
+
+    expect(formatPreparedInbox).toHaveBeenCalledTimes(1);
+    expect(processTurn).not.toHaveBeenCalled();
+    expect(ackHandles).not.toHaveBeenCalled();
+    expect(nackHandles).toHaveBeenCalledTimes(1);
+    expect(nackHandles).toHaveBeenCalledWith(['handle-1'], 'interrupted_before_injection', 'before_injection');
   });
 });
 
@@ -1133,13 +1242,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
 
   function makeIdleRuntime(): Runtime {
     return {
-      drainInbox: vi.fn().mockResolvedValue({
-        injected: [] as Message[],
-        sources: [],
-        count: 0,
-        infos: [] as InboxMessage[],
-        addressedHandles: [] as InboxHandle[],
-      }),
+      ...mockEmptyInboxBoundary(),
       getSystemPrompt: vi.fn().mockResolvedValue('sys'),
       getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
       getMessages: vi.fn().mockResolvedValue([] as Message[]),
@@ -1406,7 +1509,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(pendingRecord.attempts).toBe(1);
     expect(pendingRecord.delivery?.kind).toBe('pending');
     expect(readInboxMessages()).toHaveLength(0);
-    expect(runtime.drainInbox).toHaveBeenCalled();
+    expect(runtime.prepareInbox).toHaveBeenCalled();
     expect(audit.entries.some(e =>
       e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
       e.some(col => String(col) === 'context=executionRecoveryDelivery') &&
@@ -1443,7 +1546,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
       e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
       e.some(col => String(col) === 'context=executionRecovery'))).toBe(true);
     // ……但正常调度未被阻断：有待处理消息时 drain 仍被调用
-    expect(runtime.drainInbox).toHaveBeenCalled();
+    expect(runtime.prepareInbox).toHaveBeenCalled();
     // 损坏 record 原字节不变（不覆盖、不删除）
     expect(require('fs').readFileSync(recordFilePath(CONTRACT_ID), 'utf8')).toBe('not-json{{{');
   });
@@ -1488,7 +1591,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].id).toBe('old-reminder-1');
     expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
-    expect(runtime.drainInbox).toHaveBeenCalled();
+    expect(runtime.prepareInbox).toHaveBeenCalled();
     expect(audit.entries.some(e => e[0] === EVENTLOOP_AUDIT_EVENTS.EXECUTION_RECOVERY_RESUME)).toBe(false);
     expect(audit.entries.some(e =>
       e[0] === EVENTLOOP_AUDIT_EVENTS.ITERATION &&
@@ -1531,7 +1634,7 @@ describe('EventLoop execution recovery (phase 1396 Step E)', () => {
     // 查询未知：不新增提醒/不建 record，FATAL 审计携带原错误；正常 drain 仍执行
     expect(readInboxMessages()).toHaveLength(0);
     expect(require('fs').existsSync(recordFilePath(CONTRACT_ID))).toBe(false);
-    expect(runtime.drainInbox).toHaveBeenCalled();
+    expect(runtime.prepareInbox).toHaveBeenCalled();
     expect(audit.entries.some(e =>
       e[0] === EVENTLOOP_AUDIT_EVENTS.FATAL &&
       e.some(col => String(col) === 'context=executionRecoveryPendingCheck') &&

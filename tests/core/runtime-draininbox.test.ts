@@ -431,6 +431,25 @@ Test message`;
       expect(userMsg?.content).toContain('2h ago');
     });
 
+    it('phase 1847: prepareInbox 不发 inbox_inject；formatPreparedInbox 单项格式化成功后才发（file=原文件名）', async () => {
+      await writePendingMsg('audit-timing.md', validMsgContent('at1', 'timing'));
+
+      // 准备阶段：领取 + 分流，不发格式化交付审计
+      const prepared = await sharedRuntime.prepareInbox();
+      expect(prepared.entries).toHaveLength(1);
+      expect(mockAuditWrite.mock.calls.filter(c => c[0] === 'inbox_inject')).toHaveLength(0);
+
+      // 格式化阶段：单项成功后才发原 INBOX_INJECT 列，file = handle.originalFileName
+      const formatted = await sharedRuntime.formatPreparedInbox(prepared);
+      expect(formatted.count).toBe(1);
+      const injectCalls = mockAuditWrite.mock.calls.filter(c => c[0] === 'inbox_inject');
+      expect(injectCalls).toHaveLength(1);
+      expect(injectCalls[0].some((col: unknown) => String(col) === 'file=audit-timing.md')).toBe(true);
+
+      // 结算清理（防泄漏到后续用例）
+      await sharedRuntime.ackHandles(prepared.entries.map(e => e.handle), 'normal_turn_end');
+    });
+
     it('inbox_inject audit 日志对 watchdog 消息显示原始 type（B.p257-1）', async () => {
       // watchdog 发来的消息：type 为 watchdog_claw_inactivity（白名单外）
       // decodeInbox 后 type='message', extraMeta.__original_type='watchdog_claw_inactivity'

@@ -186,6 +186,58 @@ describe('phase 320 Step B: Runtime intercepts reload_llm_config', () => {
     expect(result.addressedHandles[0].filePath).toBe('/p/chat.md');
   });
 
+  it('phase 1847: reload + 普通 + 误路由混合 —— reload 只处理一次且不被二次误路由，仅普通消息进入 prepared', async () => {
+    const audit = mkAudit();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    const markMisrouted = vi.fn().mockResolvedValue(undefined);
+    const reloadFn = vi.fn();
+    const llm = { reloadConfig: reloadFn };
+    const reloader = vi.fn(() => stubCfg);
+    const registry = createInboxMessageTypeRegistry();
+    registerInboxMessageTypes(registry, GATEWAY_INBOX_MESSAGE_TYPES);
+    const misroutedEntry: InboxEntry = {
+      filePath: '/p/other.md',
+      message: {
+        id: '/p/other.md',
+        type: 'message' as never,
+        from: 'task_system',
+        to: 'other-claw',
+        content: 'not for me',
+        priority: 'high',
+        timestamp: new Date().toISOString(),
+      },
+    };
+    const inboxReader = {
+      init: vi.fn().mockResolvedValue({ kind: 'ready', recovered: 0 }),  // phase 1781: typed InboxInitResult
+      drainAndDeliver: vi.fn().mockResolvedValue({
+        kind: 'complete' as const,  // phase 1782: typed InboxDeliveryResult
+        entries: [
+          mkEntry(RELOAD_LLM_CONFIG_MESSAGE_TYPE, '/p/reload.md'),
+          mkEntry('user_chat', '/p/chat.md', 'hi'),
+          misroutedEntry,
+        ],
+        handles: [mkHandle('/p/reload.md'), mkHandle('/p/chat.md'), mkHandle('/p/other.md')],
+      }),
+      ack,
+      markMisrouted,
+    };
+
+    const rt = build({ audit, inboxReader, llm, configReloader: reloader, formatterRegistry: registry });
+    rt.injectForTest({ inboxReader, auditWriter: audit, llm, clawId: 'test-claw' });
+    const prepared = await rt.prepareInbox();
+
+    // reload 旁路处理一次（控制句柄只属于控制处理）
+    expect(reloadFn).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ filePath: '/p/reload.md' }));
+    // 误路由只走其 owner：仅 /p/other.md，reload 句柄不被误路由集合二次选中
+    expect(markMisrouted).toHaveBeenCalledTimes(1);
+    expect(markMisrouted).toHaveBeenCalledWith(expect.objectContaining({ filePath: '/p/other.md' }));
+    // 仅普通消息进入 prepared（未格式化、未结算）
+    expect(prepared.entries.map(e => e.handle.filePath)).toEqual(['/p/chat.md']);
+    expect(prepared.entries[0].message.content).toBe('hi');
+  });
+
   it('同批 N 条 reload 触发 1 次 reloadConfig（idempotent）', async () => {
     const audit = mkAudit();
     const ack = vi.fn().mockResolvedValue(undefined);

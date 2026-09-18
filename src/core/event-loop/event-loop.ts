@@ -47,7 +47,6 @@ import type {
 } from '../../foundation/llm-orchestrator/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
 import type { InboxHandle } from '../../foundation/messaging/index.js';
-import type { Message } from '../../foundation/dialog-store/index.js';
 import { PendingViewError, createInboxReader, writeInboxAsync } from '../../foundation/messaging/index.js';
 import {
   createExecutionRecoveryController,
@@ -58,6 +57,7 @@ import {
   type PendingExecutionResume,
 } from './execution-recovery.js';
 import type { LLMRequestBlockedState, LLMRequestGateDecision, EventLoopOptions, EventLoopRuntime, EventLoopExecutionRecoveryDeps } from './types.js';
+import type { PreparedInboxBatch } from '../runtime/index.js';
 
 /**
  * Phase 1826: 旧 EventLoop retry-state 文件的只读字段形状。
@@ -594,15 +594,20 @@ export class EventLoop {
    * Phase 1158 Step C: drain 后单批处理的 disposition guard。
    * 从 handles 取得到 ack/nack 完成之间，任何 unexpected error 均选择一次 nack
    * 并记录 recovery audit，再进入既有错误调度。
+   *
+   * Phase 1847: 批次句柄自 prepareInbox 返回起归 EventLoop 处置；格式化（首阶段
+   * inbox_format）与后续失败均在本 guard 内回队一次。进入 format 前及 format
+   * 成功后检查 stopped：尚未调用 processTurn 时选择 nack 全批
+   * （reason='interrupted_before_injection', path='before_injection'）并返回
+   * break，不将未执行消息 ack 为完成。
    */
   private async _processDrainedBatch(args: {
-    injected: Message[];
-    sources: Array<{ text: string; type: string }>;
-    addressedHandles: InboxHandle[];
+    prepared: PreparedInboxBatch;
     turnFingerprint: string;
     wrappedCallbacks?: StreamCallbacks;
   }): Promise<'continue' | 'break' | 'failed'> {
     type PostDrainStage =
+      | 'inbox_format'
       | 'system_prompt'
       | 'session_messages'
       | 'proactive_trim'
@@ -610,19 +615,34 @@ export class EventLoop {
       | 'process_turn'
       | 'turn_result';
 
+    const addressedHandles = args.prepared.entries.map(e => e.handle);
     let dispositionSelected = false;
-    let stage: PostDrainStage = 'system_prompt';
+    let stage: PostDrainStage = 'inbox_format';
     try {
+      // Phase 1847: format 前中断 —— 未注入消息回队，不 ack 为完成
+      if (this.stopped) {
+        dispositionSelected = true;
+        await this.runtime.nackHandles(addressedHandles, 'interrupted_before_injection', 'before_injection');
+        return 'break';
+      }
+      const formatted = await this.runtime.formatPreparedInbox(args.prepared);
+      // Phase 1847: format 成功后、processTurn 前中断 —— 同上回队
+      if (this.stopped) {
+        dispositionSelected = true;
+        await this.runtime.nackHandles(addressedHandles, 'interrupted_before_injection', 'before_injection');
+        return 'break';
+      }
+      stage = 'system_prompt';
       const systemPrompt = await this.runtime.getSystemPrompt();
       const tools = this.runtime.getToolsForLLM();
       stage = 'session_messages';
       const sessionMessages = await this.runtime.getMessages();
       stage = 'proactive_trim';
       const messages = await this.runtime.proactiveTrimIfNeeded(
-        [...sessionMessages, ...args.injected], systemPrompt, tools,
+        [...sessionMessages, ...formatted.injected], systemPrompt, tools,
       );
       stage = 'turn_start_callback';
-      args.wrappedCallbacks?.onTurnStart?.(args.sources);
+      args.wrappedCallbacks?.onTurnStart?.(formatted.sources);
       stage = 'process_turn';
       this.turnInFlight = true;
       const result = await this.runtime
@@ -632,34 +652,34 @@ export class EventLoop {
 
       if (result.status === 'success') {
         dispositionSelected = true;
-        await this.runtime.ackHandles(args.addressedHandles, 'normal_turn_end');
+        await this.runtime.ackHandles(addressedHandles, 'normal_turn_end');
         this._resetContextTrimRetryState();
         return 'continue';
       }
       if (result.status === 'interrupted') {
         dispositionSelected = true;
         if (result.cause === 'idle_timeout') {
-          await this.runtime.nackHandles(args.addressedHandles, result.cause, 'graceful_interrupt');
+          await this.runtime.nackHandles(addressedHandles, result.cause, 'graceful_interrupt');
         } else {
-          await this.runtime.ackHandles(args.addressedHandles, 'graceful_interrupt');
+          await this.runtime.ackHandles(addressedHandles, 'graceful_interrupt');
         }
         return 'break';
       }
       dispositionSelected = true;
-      await this._handleFailedTurn(result, args.addressedHandles, args.turnFingerprint);
+      await this._handleFailedTurn(result, addressedHandles, args.turnFingerprint);
       return 'failed';
     } catch (error) {
       if (!dispositionSelected) {
         dispositionSelected = true;
         await this.runtime.nackHandles(
-          args.addressedHandles,
+          addressedHandles,
           formatErr(error),
           'post_drain_failure',
         );
         this.audit.write(
           EVENTLOOP_AUDIT_EVENTS.POST_DRAIN_FAILURE_RECOVERED,
           `stage=${stage}`,
-          `handles=${args.addressedHandles.length}`,
+          `handles=${addressedHandles.length}`,
           `error=${formatErr(error)}`,
         );
       }
@@ -735,19 +755,19 @@ export class EventLoop {
         turnFingerprint = gate.fingerprint;
       }
 
-      const { injected, sources, count, addressedHandles } = await this.runtime.drainInbox();
-      if (count === 0) break;
+      // Phase 1847: 原始批次交接 —— 先取未格式化消息/句柄（句柄自此归 EventLoop），
+      // 格式化在 _processDrainedBatch 的 disposition guard 内执行。
+      const prepared = await this.runtime.prepareInbox();
+      if (prepared.entries.length === 0) break;
 
       if (chainIters === 0) {
-        firstInjected = count;
+        firstInjected = prepared.entries.length;
       }
-      chainTotal += count;
+      chainTotal += prepared.entries.length;
       chainIters++;
 
       const action = await this._processDrainedBatch({
-        injected,
-        sources,
-        addressedHandles,
+        prepared,
         turnFingerprint,
         wrappedCallbacks,
       });

@@ -22,6 +22,36 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
 import type { InboxMessage } from '../../foundation/messaging/index.js';
+import type { InboxHandle } from '../../foundation/messaging/index.js';
+import type { Message } from '../../foundation/dialog-store/index.js';
+
+/**
+ * Phase 1847: 原始消息交接 —— 一条已领取（inflight）消息及其结算句柄。
+ * handle 由 Messaging mint（branded），Runtime 只关联不伪造。
+ */
+export interface PreparedInboxEntry {
+  readonly message: InboxMessage;
+  readonly handle: InboxHandle;
+}
+
+/**
+ * Phase 1847: Runtime.prepareInbox 的返回 —— 磁盘 inflight 消息的运行时视图。
+ * 不是新持久队列，不代表智能体已收到；准备完成未格式化、未注入、未结算。
+ */
+export interface PreparedInboxBatch {
+  readonly entries: readonly PreparedInboxEntry[];
+}
+
+/**
+ * Phase 1847: Runtime.formatPreparedInbox 的返回 —— 已领取批次的注入数据。
+ * 格式化是可失败的后续动作；任一拒绝则整体抛原 error（不返回不完整 injected）。
+ */
+export interface FormattedInboxBatch {
+  readonly injected: Message[];
+  readonly sources: Array<{ text: string; type: string }>;
+  readonly count: number;
+  readonly infos: InboxMessage[];
+}
 
 
 

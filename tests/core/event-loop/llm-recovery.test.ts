@@ -166,18 +166,23 @@ async function makeHarness(): Promise<Harness> {
       };
     },
     consumePendingControls: async () => ({ consumed: 0 }),
-    drainInbox: async () => {
+    // Phase 1847: 真实 Messaging 驱动返回原批次（消息+句柄），format 单独生成注入数据
+    prepareInbox: async () => {
       const result = await inboxReader.drainAndDeliver();
-      const addressedSet = new Set(result.entries.map(e => e.filePath));
-      const handles = result.handles.filter(h => addressedSet.has(h.filePath));
+      const handleByPath = new Map(result.handles.map(h => [h.filePath, h]));
       return {
-        injected: result.entries.map(e => ({ role: 'user' as const, content: e.message.content })),
-        sources: result.entries.map(e => ({ text: e.message.content, type: e.message.type })),
-        count: result.entries.length,
-        infos: result.entries.map(e => e.message),
-        addressedHandles: handles,
+        entries: result.entries.map(e => ({
+          message: e.message,
+          handle: handleByPath.get(e.filePath)!,
+        })),
       };
     },
+    formatPreparedInbox: async (batch: { entries: ReadonlyArray<{ message: InboxMessage }> }) => ({
+      injected: batch.entries.map(e => ({ role: 'user' as const, content: e.message.content })),
+      sources: batch.entries.map(e => ({ text: e.message.content, type: e.message.type })),
+      count: batch.entries.length,
+      infos: batch.entries.map(e => e.message),
+    }),
     getMessages: async () => [],
     getSystemPrompt: async () => 'sys',
     getToolsForLLM: () => [],
@@ -346,7 +351,9 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
   const turns: RuntimeHarness['turns'] = [];
   const runtimeAny = runtime as unknown as Record<string, unknown>;
   runtimeAny.computeTurnRequestFingerprint = async () => 'fp-combo';
-  runtimeAny.drainInbox = async () => {
+  // Phase 1847: 真实 Messaging 驱动返回原批次（reload 控制消息仍在此拦截并 ack），
+  // format 单独生成原注入数据。
+  runtimeAny.prepareInbox = async () => {
     const result = await inboxReader.drainAndDeliver();
     const reloadEntries = result.entries.filter(e => e.message.type === RELOAD_LLM_CONFIG_MESSAGE_TYPE);
     for (const entry of reloadEntries) {
@@ -354,15 +361,20 @@ async function makeRuntimeHarness(): Promise<RuntimeHarness> {
       if (handle) await inboxReader.ack(handle);
     }
     const addressed = result.entries.filter(e => e.message.type !== RELOAD_LLM_CONFIG_MESSAGE_TYPE);
-    const addressedSet = new Set(addressed.map(e => e.filePath));
+    const handleByPath = new Map(result.handles.map(h => [h.filePath, h]));
     return {
-      injected: addressed.map(e => ({ role: 'user' as const, content: e.message.content })),
-      sources: addressed.map(e => ({ text: e.message.content, type: e.message.type })),
-      count: addressed.length,
-      infos: addressed.map(e => e.message),
-      addressedHandles: result.handles.filter(h => addressedSet.has(h.filePath)),
+      entries: addressed.map(e => ({
+        message: e.message,
+        handle: handleByPath.get(e.filePath)!,
+      })),
     };
   };
+  runtimeAny.formatPreparedInbox = async (batch: { entries: ReadonlyArray<{ message: InboxMessage }> }) => ({
+    injected: batch.entries.map(e => ({ role: 'user' as const, content: e.message.content })),
+    sources: batch.entries.map(e => ({ text: e.message.content, type: e.message.type })),
+    count: batch.entries.length,
+    infos: batch.entries.map(e => e.message),
+  });
   runtimeAny.getMessages = async () => [];
   runtimeAny.getSystemPrompt = async () => 'sys';
   runtimeAny.getToolsForLLM = () => [];

@@ -21,7 +21,7 @@ import { createExecutionRecoveryStore } from '../../../src/core/event-loop/execu
 import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-events.js';
 import { EXECUTION_RECOVERY_DIR } from '../../../src/core/event-loop/constants.js';
 import { createInboxReader, writeInboxAsync } from '../../../src/foundation/messaging/index.js';
-import type { InboxHandle } from '../../../src/foundation/messaging/index.js';
+import type { InboxHandle, InboxMessage } from '../../../src/foundation/messaging/index.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import { createLLMOrchestrator, createRecoverySession } from '../../../src/foundation/llm-orchestrator/index.js';
 import type {
@@ -211,16 +211,24 @@ async function runLoop(f: Fixture): Promise<RunOutcome> {
       };
     },
     consumePendingControls: async () => ({ consumed: 0 }),
-    drainInbox: async () => {
+    // Phase 1847: 真实 Messaging 驱动返回原批次（消息+句柄），format 单独生成原注入数据
+    prepareInbox: async () => {
       const result = await reader.drainAndDeliver();
       if (result.kind !== 'complete') throw new Error('partial drain not expected');
+      const handleByPath = new Map(result.handles.map(h => [h.filePath, h]));
       return {
-        injected: result.entries.map(e => ({ role: 'user' as const, content: e.message.content })),
-        sources: result.entries.map(e => ({ text: e.message.content, type: e.message.type })),
-        count: result.entries.length,
-        addressedHandles: result.handles,
+        entries: result.entries.map(e => ({
+          message: e.message,
+          handle: handleByPath.get(e.filePath)!,
+        })),
       };
     },
+    formatPreparedInbox: async (batch: { entries: ReadonlyArray<{ message: InboxMessage }> }) => ({
+      injected: batch.entries.map(e => ({ role: 'user' as const, content: e.message.content })),
+      sources: batch.entries.map(e => ({ text: e.message.content, type: e.message.type })),
+      count: batch.entries.length,
+      infos: batch.entries.map(e => e.message),
+    }),
     getMessages: async () => [],
     getSystemPrompt: async () => 'sys',
     getToolsForLLM: () => [],

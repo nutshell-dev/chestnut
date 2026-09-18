@@ -346,20 +346,26 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         archived: false,
       });
 
-      let drainCall = 0;
+      let prepareCall = 0;
       const runtime = {
-        drainInbox: vi.fn().mockImplementation(async () => {
-          drainCall++;
-          if (drainCall === 1) {
+        // Phase 1847: prepare 返回原消息/同一 handles 的原批次，format 返回原注入内容
+        prepareInbox: vi.fn().mockImplementation(async () => {
+          prepareCall++;
+          if (prepareCall === 1) {
             return {
-              injected: [{ role: 'user', content: 'hi' } as Message],
-              sources: [{ text: 'hi', type: 'user_chat' }],
-              count: 1,
-              infos: [] as InboxMessage[],
-              addressedHandles: ['handle-1'],
+              entries: [{
+                message: { id: 'm-1', type: 'user_chat' } as unknown as InboxMessage,
+                handle: 'handle-1' as unknown as InboxHandle,
+              }],
             };
           }
-          return { injected: [] as Message[], sources: [] as any[], count: 0, infos: [] as InboxMessage[], addressedHandles: [] as InboxHandle[] };
+          return { entries: [] };
+        }),
+        formatPreparedInbox: vi.fn().mockResolvedValue({
+          injected: [{ role: 'user', content: 'hi' } as Message],
+          sources: [{ text: 'hi', type: 'user_chat' }],
+          count: 1,
+          infos: [] as InboxMessage[],
         }),
         getSystemPrompt: vi.fn().mockResolvedValue('sys'),
         getToolsForLLM: vi.fn().mockReturnValue([] as ToolDefinition[]),
@@ -413,7 +419,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       }
 
       expect(processTurn).toHaveBeenCalledTimes(1);
-      expect(runtime.drainInbox).toHaveBeenCalledTimes(1);
+      expect(runtime.prepareInbox).toHaveBeenCalledTimes(1);
       expect(nackHandles).toHaveBeenCalledTimes(1);
       expect(ackHandles).not.toHaveBeenCalled();
       expect(

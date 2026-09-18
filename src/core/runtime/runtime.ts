@@ -53,6 +53,9 @@ import {
   type RuntimeOptions,
   type TurnResult,
   type PendingTurnFacts,
+  type PreparedInboxBatch,
+  type PreparedInboxEntry,
+  type FormattedInboxBatch,
 } from './types.js';
 import {
   maybeTrimProactive,
@@ -527,6 +530,49 @@ export class Runtime {
     infos: InboxMessage[];
     addressedHandles: InboxHandle[];
   }> {
+    // phase 1847: 旧组合入口 = prepareInbox → formatPreparedInbox。
+    // format 拒绝时本批句柄尚未交接调用方 → Runtime 负责回队（不吞失败、
+    // 不返回空结果），再向 caller 重抛原 error。
+    const prepared = await this.prepareInbox();
+    let formatted: FormattedInboxBatch;
+    try {
+      formatted = await this.formatPreparedInbox(prepared);
+    } catch (error) {
+      await this.nackHandles(
+        prepared.entries.map(e => e.handle),
+        formatErr(error),
+        'inbox_format_failure',
+      );
+      throw error;
+    }
+    return {
+      injected: formatted.injected,
+      sources: formatted.sources,
+      count: formatted.count,
+      infos: formatted.infos,
+      addressedHandles: prepared.entries.map(e => e.handle),
+    };
+  }
+
+  /**
+   * Phase 1847: 原始消息准备 —— 只领取（pending→inflight）与分流，不格式化、
+   * 不生成注入数据、不发 INBOX_INJECT、不 ack/nack 普通消息。
+   *
+   * 返回的 addressed 消息/句柄自此归调用方处置；格式化是可失败的后续动作
+   * （见 formatPreparedInbox）。分流规则与旧组合入口一致：
+   * - reload 控制消息沿 _handleReloadEntries 应用配置并 ack（句柄所有权转控制处理）；
+   * - 误路由（to=其他 claw）沿 Messaging.markMisrouted（句柄所有权转误路由分支）；
+   * - 控制句柄只属于控制处理，不再能被误路由集合选中（按非 reload 集合拆分）。
+   *
+   * entry↔handle 按 filePath 关联（不按消息 ID：历史 ID 可重复；不假设两个数组
+   * 索引永远一致）。合法 entry 缺对应 handle 视为编排错误（不伪造 branded handle），
+   * 进入准备失败处置。
+   *
+   * 准备失败处置：取得 handle 后、交给调用方前若发生未被既有分支处理的异常，
+   * 对尚未转交控制/误路由分支的普通句柄 nackHandles(..., 'inbox_prepare_failure')
+   * 后重抛原 error；已转交分支的句柄不重复 nack/误路由（其逐项失败留证行为保持）。
+   */
+  async prepareInbox(): Promise<PreparedInboxBatch> {
     const { entries, handles, transientErrors, permanentErrors } = await this._drainEntriesOrEmpty();
     if (transientErrors > 0 || permanentErrors > 0) {
       this.auditWriter.write(
@@ -536,46 +582,114 @@ export class Runtime {
       );
     }
     if (entries.length === 0) {
-      return { injected: [], sources: [], count: 0, infos: [], addressedHandles: [] };
+      return { entries: [] };
     }
 
-    // phase 320: hot-reload 拦截 — reload_llm_config 旁路、不入 AI 上下文、不入 turn lifecycle
-    const reloadEntries = entries.filter(e => e.message.type === RELOAD_LLM_CONFIG_MESSAGE_TYPE);
-    const nonReloadEntries = entries.filter(e => e.message.type !== RELOAD_LLM_CONFIG_MESSAGE_TYPE);
-    if (reloadEntries.length > 0) {
-      await this._handleReloadEntries(reloadEntries, handles);
-    }
-    if (nonReloadEntries.length === 0) {
-      return { injected: [], sources: [], count: 0, infos: [], addressedHandles: [] };
-    }
-
-    const { addressed } = this._splitAndAuditEntries(nonReloadEntries);
-    const { injected, sources } = await this._formatInjected(addressed);
-
-    // phase 442 (review N3-C-H1 / R2-C-N1): unaddressed (to=<other_claw>) 消息
-    // 移到 misrouted/ 隔离、不 ack 到 done/。文件保留 + 独立子目录 →
-    // DP「持久化一切信息」+「事后可审计」满足；转发候选违反 ML#5（runtime
-    // 探测目标 claw 存在）、应然推导排除（详 phase 442 总览）。
-    // 既有 INBOX_UNADDRESSED audit 在 _splitAndAuditEntries 内仍 emit（已识别）；
-    // 此处 markMisrouted 内 emit INBOX_MISROUTED（已移到 fs）—— 双 event 叠加。
-    const addressedPaths = new Set(addressed.map(e => e.filePath));
-    const unaddressedHandles = handles.filter(h => !addressedPaths.has(h.filePath));
-    for (const h of unaddressedHandles) {
-      try {
-        await this.inboxReader.markMisrouted(h);
-      } catch (e) {
-        // best-effort; markMisrouted 内已发 INBOX_MOVE_FAILED(op=misrouted) audit
+    // 普通（非 reload）句柄：交接调用方/误路由分支前归 Runtime 所有。
+    const nonReloadPaths = new Set(
+      entries.filter(e => e.message.type !== RELOAD_LLM_CONFIG_MESSAGE_TYPE).map(e => e.filePath),
+    );
+    const ownedHandles = new Set(handles.filter(h => nonReloadPaths.has(h.filePath)));
+    try {
+      // phase 320: hot-reload 拦截 — reload_llm_config 旁路、不入 AI 上下文、不入 turn lifecycle。
+      // 调用后控制句柄所有权转控制处理（不在 ownedHandles 集合内，不会再被 nack/误路由）。
+      const reloadEntries = entries.filter(e => e.message.type === RELOAD_LLM_CONFIG_MESSAGE_TYPE);
+      const nonReloadEntries = entries.filter(e => e.message.type !== RELOAD_LLM_CONFIG_MESSAGE_TYPE);
+      if (reloadEntries.length > 0) {
+        await this._handleReloadEntries(reloadEntries, handles);
       }
-    }
+      if (nonReloadEntries.length === 0) {
+        return { entries: [] };
+      }
 
-    const addressedHandles = handles.filter(h => addressedPaths.has(h.filePath));
-    return {
-      injected,
-      sources,
-      count: addressed.length,
-      infos: addressed.map(e => e.message),
-      addressedHandles,
-    };
+      const handleByPath = new Map(handles.map(h => [h.filePath, h]));
+      const { addressed } = this._splitAndAuditEntries(nonReloadEntries);
+
+      // phase 442 (review N3-C-H1 / R2-C-N1): unaddressed (to=<other_claw>) 消息
+      // 移到 misrouted/ 隔离、不 ack 到 done/。句柄自此转误路由分支（markMisrouted
+      // 内部逐项失败已发 INBOX_MOVE_FAILED audit），不再归 Runtime 回队责任。
+      const addressedPaths = new Set(addressed.map(e => e.filePath));
+      for (const h of [...ownedHandles]) {
+        if (addressedPaths.has(h.filePath)) continue;
+        ownedHandles.delete(h);
+        try {
+          await this.inboxReader.markMisrouted(h);
+        } catch (e) {
+          // best-effort; markMisrouted 内已发 INBOX_MOVE_FAILED(op=misrouted) audit
+        }
+      }
+
+      const prepared: PreparedInboxEntry[] = [];
+      for (const entry of addressed) {
+        const handle = handleByPath.get(entry.filePath);
+        if (!handle) {
+          // 编排错误：drainAndDeliver 承诺 entry↔handle 成对；缺 handle 不伪造、
+          // 未转交句柄走准备失败处置回队。
+          throw new Error(
+            `Runtime.prepareInbox: claimed entry has no delivery handle: ${entry.filePath}`,
+          );
+        }
+        prepared.push({ message: entry.message, handle });
+      }
+      return { entries: prepared };
+    } catch (error) {
+      // 未被既有分支处理的异常：仍归 Runtime 的普通句柄回队，重抛原 error。
+      // 不是 finally 无条件 nack —— 成功交付批次/已转交分支不受影响。
+      await this.nackHandles([...ownedHandles], formatErr(error), 'inbox_prepare_failure');
+      throw error;
+    }
+  }
+
+  /**
+   * Phase 1847: 已领取批次的格式化 —— 输入仅是 prepared.entries，不调用 reader、
+   * 不查目录、不结算。这是通用格式化边界，不是契约判定/业务筛选入口。
+   *
+   * 每项成功格式化后发原 INBOX_INJECT 列（格式化交付记录，不是 LLM 已执行的证明）；
+   * file 使用 handle.originalFileName（等价 basename 原路径）、trace_id 规则保持。
+   * 任一 formatter 拒绝向调用者抛原 error：批次整体交给调用者回队，不返回不完整
+   * injected 伪装成功（已格式化的文本未发给 LLM）。
+   */
+  async formatPreparedInbox(batch: PreparedInboxBatch): Promise<FormattedInboxBatch> {
+    const injected: Message[] = [];
+    const sources: Array<{ text: string; type: string }> = [];
+    const infos: InboxMessage[] = [];
+    const now = new Date().toISOString();
+    const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
+    for (const { message, handle } of batch.entries) {
+      const formatted = await this.formatInboxMessage(
+        message.type,
+        message.from,
+        message.content,
+        message.timestamp,
+        message.extraMeta,   // phase 1469: motion-side guidance composer reads state from extraMeta
+      );
+      // phase 436: user_chat + user_inbox_message → 用户意图来源（origin='user'）
+      // 其他 inbox type → 系统事件（origin='system' + systemSubtype = InboxMessage.type 单源）
+      const isUserOrigin = message.type === 'user_chat' || message.type === 'user_inbox_message';
+      injected.push({
+        role: 'user',
+        content: formatted,
+        origin: isUserOrigin ? 'user' : 'system',
+        ...(isUserOrigin ? {} : { systemSubtype: message.type }),
+        addedAt: now,
+      });
+      sources.push({
+        text: formatted.replace(/\r?\n/g, ' '),
+        type: message.type,
+      });
+      infos.push(message);
+      // phase 1847: 审计时点迁到单项格式化成功之后（phase 565 forensic 列保持）
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.INBOX_INJECT,
+        `file=${handle.originalFileName}`,
+        `type=${message.extraMeta?.__original_type ?? message.type}`,
+        `from=${message.from}`,
+        `to=${message.to || this.options.clawId}`,
+        `pri=${message.priority}`,
+        traceCol,
+      );
+    }
+    return { injected, sources, count: batch.entries.length, infos };
   }
 
   /**
@@ -688,18 +802,9 @@ export class Runtime {
     }
     // phase 565: forensic 完整化、加 trace_id 跨源 join 到 turn
     // （execContext 在 test 直接调用时可能未设 trace_id、optional chain 兜底）
+    // phase 1847: addressed 的 INBOX_INJECT 迁到 formatPreparedInbox 单项格式化
+    // 成功后发（准备阶段只分流，不发格式化交付记录）。
     const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
-    for (const { message, filePath } of addressed) {
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.INBOX_INJECT,
-        `file=${path.basename(filePath)}`,
-        `type=${message.extraMeta?.__original_type ?? message.type}`,
-        `from=${message.from}`,
-        `to=${message.to || this.options.clawId}`,
-        `pri=${message.priority}`,
-        traceCol,
-      );
-    }
     for (const { message, filePath } of unaddressed) {
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.INBOX_UNADDRESSED,
@@ -715,39 +820,6 @@ export class Runtime {
       );
     }
     return { addressed, unaddressed };
-  }
-
-  private async _formatInjected(addressed: InboxEntry[]): Promise<{
-    injected: Message[];
-    sources: Array<{ text: string; type: string }>;
-  }> {
-    const injected: Message[] = [];
-    const sources: Array<{ text: string; type: string }> = [];
-    const now = new Date().toISOString();
-    for (const { message } of addressed) {
-      const formatted = await this.formatInboxMessage(
-        message.type,
-        message.from,
-        message.content,
-        message.timestamp,
-        message.extraMeta,   // phase 1469: motion-side guidance composer reads state from extraMeta
-      );
-      // phase 436: user_chat + user_inbox_message → 用户意图来源（origin='user'）
-      // 其他 inbox type → 系统事件（origin='system' + systemSubtype = InboxMessage.type 单源）
-      const isUserOrigin = message.type === 'user_chat' || message.type === 'user_inbox_message';
-      injected.push({
-        role: 'user',
-        content: formatted,
-        origin: isUserOrigin ? 'user' : 'system',
-        ...(isUserOrigin ? {} : { systemSubtype: message.type }),
-        addedAt: now,
-      });
-      sources.push({
-        text: formatted.replace(/\r?\n/g, ' '),
-        type: message.type,
-      });
-    }
-    return { injected, sources };
   }
 
   /**
