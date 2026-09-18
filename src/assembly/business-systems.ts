@@ -24,7 +24,6 @@ import { isFileNotFound } from '../foundation/fs/index.js';
 import {
   createSummonContractExtractPostProcessor,
   SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
-  AskMotionTool,
   createSummonVerifyPolicy,
   createSummonCreationClaimStore,
   SummonTool,
@@ -149,7 +148,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       permissionChecker,
       selfInbox,
       fsFactory,
-      askMotionToolFactory: (llmArg, motionDialogStore) => new AskMotionTool(llmArg, motionDialogStore),
       shortIdIndex,
     });
   } catch (e) {

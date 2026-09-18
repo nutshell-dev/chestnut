@@ -125,7 +125,6 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
   private readonly toolTimeoutMs?: number;
   private permissionChecker?: PermissionChecker;
   private fsFactory: (baseDir: string) => FileSystem;
-  private readonly askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   private readonly shortIdIndex: ShortIdIndex;
   private readonly pendingQueueMax: number;
   private readonly sendResult: SendResult<SubAgentTask>;
@@ -219,7 +218,6 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
     this.toolTimeoutMs = options.toolTimeoutMs;
     this.permissionChecker = options.permissionChecker;
     this.fsFactory = options.fsFactory;
-    this.askMotionToolFactory = options.askMotionToolFactory;
     this.shortIdIndex = options.shortIdIndex;
     this.pendingQueueMax = options.pendingQueueMax ?? PENDING_QUEUE_MAX;
     this.sendResult = options.sendResult ?? sendResult;
@@ -295,7 +293,6 @@ export class AsyncTaskSystem implements SubAgentTaskScheduler, PreparedSubAgentT
           moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
           toolTimeoutMs: this.toolTimeoutMs,
           permissionChecker: this.permissionChecker,
-          askMotionToolFactory: this.askMotionToolFactory,
           sendResult: this.sendResult,
           sendFallbackResult: this.sendFallbackResult,
           writeInboxAsync: this.writeInboxAsync,

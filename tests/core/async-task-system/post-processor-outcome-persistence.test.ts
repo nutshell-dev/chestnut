@@ -145,7 +145,6 @@ function executorDeps(fs: FileSystem, auditWriter: AuditLog, overrides?: {
     postProcessors: overrides?.postProcessors ?? new Map(),
     moveTaskToDone: overrides?.moveTaskToDone ?? vi.fn().mockResolvedValue(undefined),
     moveTaskToFailed: overrides?.moveTaskToFailed ?? vi.fn().mockResolvedValue(undefined),
-    askMotionToolFactory: vi.fn().mockReturnValue({} as Tool),
     runSubagent: overrides?.runSubagent ?? (() => Promise.resolve({ text: 'raw result' })),
     sendResult: overrides?.sendResult ?? vi.fn().mockResolvedValue(undefined),
   };

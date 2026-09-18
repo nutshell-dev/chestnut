@@ -113,8 +113,6 @@ export interface AsyncTaskSystemOptions {
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
   fsFactory: (baseDir: string) => FileSystem;
-  // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
-  askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => import('../../foundation/tools/index.js').Tool;
   /** phase 849: shortId ↔ fullId index for dual-key task IDs */
   shortIdIndex: ShortIdIndex;
   /** phase 86: optional WatcherFactory for DI (test mock injection) */
@@ -144,13 +142,6 @@ interface CommonSubAgentTaskFields {
   /** Persisted declarative tool capability; execution never derives it from caller identity. */
   toolProfile?: ToolProfile;
   originClawId?: string;                   // 创建链路源头，传给子 SubAgent
-  /**
-   * Motion clawDir（仅 mining summon / phase 713 reframe）
-   * subagent-executor 据此构造 motionDialogStore 注入 AskMotionTool
-   * ask_motion.execute 内部 read motionDialogStore.load() 拿 summon 时刻 dialog snapshot
-   * 全然一致性 reuse Motion runtime 实然 dialog snapshot（per phase 709 design）
-   */
-  motionClawDir?: string;
   postProcessor?: string;            // 声明式 post-processor 名称（registry lookup）
   systemPrompt?: string;                 // phase 546 internal field：caller-side specialized system prompt（agent 不可见 / 与 phase 470 砍 agent-facing spawn schema 不冲突 / fall-back DEFAULT_SUBAGENT_SYSTEM_PROMPT）
   // phase 1087：shadow async 上下文快照字段

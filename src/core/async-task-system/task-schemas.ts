@@ -59,7 +59,8 @@ const commonSubAgentFields = {
   callerType: CallerTypeSchema.optional(),
   toolProfile: z.string().optional(),
   originClawId: z.string().optional(),
-  motionClawDir: z.string().optional(),
+  // phase 1863 (AT-D6): 删 legacy motionClawDir（无 active writer；存量任务读取经 zod strip
+  // 兼容——多余键忽略不拒绝，见 legacy-migration.test.ts 专测）
   postProcessor: z.string().optional(),
   systemPrompt: z.string().optional(),
   // phase 1087 shadow async 上下文快照字段（phase 1131 补 zod schema、消除 type-schema drift per feedback_ts_interface_vs_zod_schema_sync）

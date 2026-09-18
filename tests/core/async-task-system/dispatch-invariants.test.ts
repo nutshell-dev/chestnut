@@ -470,7 +470,6 @@ describe('shortIdIndexAuditWriter JSON serialization (phase 858)', () => {
       contractManager: {} as any,
       registry: { getAll: vi.fn(() => []) } as any,
       fsFactory: () => fs,
-      askMotionToolFactory: () => ({} as any),
       shortIdIndex: makeMockShortIdIndex(),
     };
     return new AsyncTaskSystem('/tmp', fs, options);
@@ -566,7 +565,6 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      askMotionToolFactory: vi.fn().mockReturnValue({} as any),
       runSubagent: mockRunSubagent,
     });
 
@@ -615,7 +613,6 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
-      askMotionToolFactory: vi.fn().mockReturnValue({} as any),
       runSubagent: mockRunSubagent,
     });
 

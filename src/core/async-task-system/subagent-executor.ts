@@ -6,8 +6,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import { formatErr } from '../../foundation/node-utils/index.js';
 
 import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/tools/index.js';
-import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult, TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
-import { createDialogStore, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
+import { runSubagent as defaultRunSubagent, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult, TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { classifyTaskError } from './_helpers.js';
@@ -32,7 +31,6 @@ import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../..
 import { sendResult as defaultSendResult } from './result-delivery.js';
 import type { SendResult, SendFallbackResult, WriteInboxAsync, ResultDeliveryDeps, ProcessedTaskResult } from './result-delivery-types.js';
 
-import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
 import { taskShortId } from './types.js';
@@ -81,8 +79,6 @@ interface ExecuteSubAgentTaskDeps {
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
-  // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
-  askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   runSubagent?: typeof defaultRunSubagent;
   sendResult?: SendResult<SubAgentTask>;
   sendFallbackResult?: SendFallbackResult<SubAgentTask | ToolTask>;
@@ -255,23 +251,12 @@ export async function executeSubAgentTask(
     let execErrorCategory: string | undefined;
     try {
 
-    // Build per-task registry filtered by caller profile + motionClawDir 重建
+    // Build per-task registry filtered by caller profile
+    // （phase 1863 AT-D6：删 legacy motionClawDir 分支——无 active writer，2026-09-18）
     const isShadow = task.isShadow === true;
     const subagentProfile = resolveTaskToolProfile(task, auditWriter);
     const effectiveRegistry = (() => {
       const r = createPerTaskRegistry(registry, subagentProfile);
-
-      // phase 713: motionClawDir 构造 motionDialogStore + AskMotionTool（全然一致性 reuse）
-      if (task.motionClawDir) {
-        const motionDialogStore = createDialogStore(
-          fs,
-          task.motionClawDir,
-          new NoopAuditWriter(),  // ask_motion 不 own motion audit
-          CURRENT_DIALOG_FILE,
-        );
-        const askMotion = deps.askMotionToolFactory(llm, motionDialogStore);
-        r.register(askMotion);
-      }
 
       // Phase 815/816: shadow 任务 apply restrictedOverrides
       // （sync 路径在 system.ts 做，async 路径统一调用 foundation 函数）

@@ -17,7 +17,7 @@ export function makeTestRegistry(): ToolRegistryImpl {
 
 export function makeTaskSystemDeps(
   llm?: LLMOrchestrator,
-): Pick<AsyncTaskSystemOptions, 'llm' | 'contractManager' | 'registry' | 'askMotionToolFactory'> {
+): Pick<AsyncTaskSystemOptions, 'llm' | 'contractManager' | 'registry'> {
   return {
     llm: llm ?? ({} as unknown as LLMOrchestrator),
     contractManager: {
@@ -26,7 +26,6 @@ export function makeTaskSystemDeps(
       setOnNotify: vi.fn(),
     } as unknown as ContractSystem,
     registry: makeTestRegistry(),
-    askMotionToolFactory: () => ({ name: 'ask_motion', description: '', readonly: false, idempotent: false, schema: { type: 'object' }, execute: vi.fn(async () => ({ ok: true, content: '' })) } as unknown as import('../../src/foundation/tools/index.js').Tool),
   };
 }
 

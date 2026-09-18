@@ -31,6 +31,27 @@ describe('phase 1479 Step B: mainContextSnapshot legacy strip compat', () => {
   });
 });
 
+describe('phase 1863 Step D (AT-D6): motionClawDir legacy strip compat', () => {
+  it('旧 JSON 含 motionClawDir → parse 成功且输出不含该字段（zod strip、读取不拒绝）', () => {
+    const legacy = {
+      kind: 'subagent',
+      mode: 'standard',
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      shortId: '550e8400',
+      intent: 'legacy task with motionClawDir',
+      timeoutMs: 1000,
+      parentClawId: 'p1',
+      createdAt: new Date().toISOString(),
+      motionClawDir: '/tmp/motion-claw',
+    };
+    const parsed = SubAgentTaskSchema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect('motionClawDir' in parsed.data).toBe(false);
+    }
+  });
+});
+
 function makeBaseTask(extra: Record<string, unknown> = {}) {
   return {
     kind: 'tool',
